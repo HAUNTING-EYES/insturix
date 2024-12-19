@@ -67,7 +67,7 @@ export default function Navbar() {
 
   return (
     <>
-      <nav className="flex items-center justify-between w-full sticky top-0 z-50 p-4 backdrop-blur-lg bg-opacity-80 bg-gray-800">
+      <nav className="flex items-center justify-between w-full sticky top-0 z-50 p-4 backdrop-blur-lg bg-opacity-80 bg-gray-800/10">
         {/* Mobile Layout */}
         <AnimatePresence>
           <div className="flex items-center w-full md:hidden">
@@ -189,30 +189,32 @@ export default function Navbar() {
               {menuItems.map((item) => (
                 <NavigationMenuItem key={item.title}>
                   {item.subItems ? (
-                    <NavigationMenuTrigger>{item.title}</NavigationMenuTrigger>
+                    <NavigationMenuTrigger className="relative z-10 hover:bg-transparent">
+                      {item.title}
+                    </NavigationMenuTrigger>
                   ) : (
                     <Link href={item.href} legacyBehavior passHref>
                       <NavigationMenuLink
-                        className={navigationMenuTriggerStyle()}
+                        className={`${navigationMenuTriggerStyle()} hover:bg-transparent`}
                       >
                         {item.title}
                       </NavigationMenuLink>
                     </Link>
                   )}
                   {item.subItems && (
-                    <NavigationMenuContent>
+                    <NavigationMenuContent className="relative z-0">
                       <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px] lg:grid-cols-[.75fr_1fr]">
                         {item.subItems.map((subItem) => (
                           <li key={subItem.title}>
                             <NavigationMenuLink asChild>
-                              <a
+                              <Link
                                 href={subItem.href}
                                 className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
                               >
                                 <div className="text-sm font-medium leading-none">
                                   {subItem.title}
                                 </div>
-                              </a>
+                              </Link>
                             </NavigationMenuLink>
                           </li>
                         ))}
@@ -225,10 +227,16 @@ export default function Navbar() {
           </NavigationMenu>
 
           <div className="flex space-x-2">
-            <Button variant="ghost" className="hidden md:inline-flex">
+            <Button
+              variant="ghost"
+              className="hidden md:inline-flex hover:bg-transparent focus:bg-transparent"
+            >
               <Link href="/signin">Sign In</Link>
             </Button>
-            <Button variant="default" className="hidden md:inline-flex">
+            <Button
+              variant="default"
+              className="hidden md:inline-flex hover:bg-primary focus:bg-primary"
+            >
               <Link href="/signup">Sign Up</Link>
             </Button>
           </div>
