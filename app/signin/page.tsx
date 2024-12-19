@@ -1,10 +1,12 @@
+import Navbar from "@/components/Navbar";
 import { SignIn } from "@clerk/nextjs";
 
 export default function signin() {
   return (
     <>
+    <Navbar />
       <div className="flex justify-center items-center h-screen">
-        <SignIn />
+        <SignIn routing="hash"/>
       </div>
     </>
   );
