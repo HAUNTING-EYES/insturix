@@ -23,32 +23,46 @@ const menuItems = [
     title: "Product",
     href: "/product",
     subItems: [
-      { title: "Features", href: "/product/features" },
-      { title: "Integrations", href: "/product/integrations" },
-      { title: "Pricing", href: "/product/pricing" },
+      { title: "Techie Tiwari", href: "/product/features" },
+      { title: "Kund-li", href: "/product/integrations" },
+      { title: "Editron", href: "/product/pricing" },
+      { title: "Shield", href: "/product/shield" },
+      { title: "BrainYeed", href: "/product/brainyeed" },
     ],
   },
   {
-    title: "Solutions",
-    href: "/solutions",
+    title: "About",
+    href: "/about",
     subItems: [
-      { title: "For Startups", href: "/solutions/startups" },
-      { title: "For Enterprise", href: "/solutions/enterprise" },
-      { title: "For Developers", href: "/solutions/developers" },
+      { title: "Our Story", href: "/solutions/startups" },
+      { title: "About Logo", href: "/solutions/enterprise" },
+      { title: "Team", href: "/solutions/developers" },
+      { title: "Developers", href: "/solutions/developers" },
     ],
   },
   {
     title: "Resources",
     href: "/resources",
     subItems: [
-      { title: "Documentation", href: "/resources/docs" },
+      { title: "Tutorials", href: "/resources/docs" },
       { title: "Blog", href: "/resources/blog" },
+      { title: "Resource Hub", href: "/resources/support" },
       { title: "Support", href: "/resources/support" },
+      { title: "FAQ", href: "/resources/faq" },
+      {title : "Community", href: "/resources/community"}
     ],
   },
   {
     title: "Pricing",
     href: "/pricing",
+  },
+  {
+    title: "Contact Us",
+    href: "/contactus",
+  },
+  {
+    title: "Contribute",
+    href: "/contribute",
   },
 ];
 

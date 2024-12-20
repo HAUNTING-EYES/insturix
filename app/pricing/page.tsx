@@ -4,6 +4,7 @@ import Blue from "@/components/pr/Blue";
 import Purple from "@/components/pr/Purple";
 import Navbar from "@/components/Navbar";
 import Red from "@/components/pr/Red";
+import Footer from "@/components/Footer";
 
 export default function Pricing() {
   return (
@@ -31,6 +32,7 @@ export default function Pricing() {
           </div>
         </div>
       </div>
+      <Footer />
     </>
   );
 }

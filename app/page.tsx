@@ -1,3 +1,4 @@
+import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import RetroGrid from "@/components/ui/RetroGrid";
 import TypingAnimation from "@/components/ui/TypingAnimation";
@@ -12,6 +13,7 @@ export default function Home() {
         </span>
         <RetroGrid />
       </div>
+      <Footer />
     </>
   );
 }

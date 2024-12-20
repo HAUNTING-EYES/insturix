@@ -1,3 +1,4 @@
+import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar"
 
 export default function About() {
@@ -5,6 +6,7 @@ export default function About() {
     <>
     <Navbar />
       <h1>this is the homepage</h1>
+      <Footer />
     </>
   );
 }
