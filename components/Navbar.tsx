@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import Image from "next/image";
 // import { useAuth } from "@clerk/nextjs";
 import Logo from "@/public/Logo.jpeg";
+import Toggle from "./Toggler";
 
 const menuItems = [
   {
@@ -254,6 +255,7 @@ export default function Navbar() {
               <Link href="/signup">Sign Up</Link>
             </Button>
           </div>
+          <Toggle />
         </div>
       </nav>
     </>
