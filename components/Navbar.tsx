@@ -2,8 +2,19 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Menu, X, ChevronRight, ChevronDown } from "lucide-react";
+import Image from "next/image";
+import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
+import {
+  Menu,
+  X,
+  ChevronDown,
+  Sun,
+  Moon,
+  User,
+  LogIn,
+  LogOut,
+} from "lucide-react";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -14,19 +25,24 @@ import {
   navigationMenuTriggerStyle,
 } from "@/components/ui/navigation-menu";
 import { Button } from "@/components/ui/button";
-import Image from "next/image";
-// import { useAuth } from "@clerk/nextjs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import Logo from "@/public/Logo.jpeg";
-import Toggle from "./Toggler";
 
 const menuItems = [
   {
     title: "Product",
     href: "/product",
     subItems: [
-      { title: "Techie Tiwari", href: "/product/features" },
-      { title: "Kund-li", href: "/product/integrations" },
-      { title: "Editron", href: "/product/pricing" },
+      { title: "Techie Tiwari", href: "/product/techie-tiwari" },
+      { title: "Kund-li", href: "/product/kund-li" },
+      { title: "Editron", href: "/product/editron" },
       { title: "Shield", href: "/product/shield" },
       { title: "BrainYeed", href: "/product/brainyeed" },
     ],
@@ -35,22 +51,22 @@ const menuItems = [
     title: "About",
     href: "/about",
     subItems: [
-      { title: "Our Story", href: "/solutions/startups" },
-      { title: "About Logo", href: "/solutions/enterprise" },
-      { title: "Team", href: "/solutions/developers" },
-      { title: "Developers", href: "/solutions/developers" },
+      { title: "Our Story", href: "/about/our-story" },
+      { title: "About Logo", href: "/about/logo" },
+      { title: "Team", href: "/about/team" },
+      { title: "Developers", href: "/about/developers" },
     ],
   },
   {
     title: "Resources",
     href: "/resources",
     subItems: [
-      { title: "Tutorials", href: "/resources/docs" },
+      { title: "Tutorials", href: "/resources/tutorials" },
       { title: "Blog", href: "/resources/blog" },
-      { title: "Resource Hub", href: "/resources/support" },
+      { title: "Resource Hub", href: "/resources/hub" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
-      {title : "Community", href: "/resources/community"}
+      { title: "Community", href: "/resources/community" },
     ],
   },
   {
@@ -59,7 +75,7 @@ const menuItems = [
   },
   {
     title: "Contact Us",
-    href: "/contactus",
+    href: "/contact",
   },
   {
     title: "Contribute",
@@ -67,9 +83,10 @@ const menuItems = [
   },
 ];
 
-export default function Navbar() {
+export default function EnhancedNavbar() {
   const [isOpen, setIsOpen] = React.useState(false);
   const [openDropdowns, setOpenDropdowns] = React.useState<string[]>([]);
+  const isMobile = useMediaQuery("(max-width: 768px)");
 
   const toggleDropdown = (title: string) => {
     setOpenDropdowns((prev) =>
@@ -78,186 +95,230 @@ export default function Navbar() {
         : [...prev, title]
     );
   };
-  // const { isSignedIn } = useAuth();
+
+  const closeMenu = () => {
+    setIsOpen(false);
+    setOpenDropdowns([]);
+  };
+
+  React.useEffect(() => {
+    if (!isMobile && isOpen) {
+      closeMenu();
+    }
+  }, [isMobile, isOpen]);
 
   return (
-    <>
-      <nav className="flex items-center justify-between w-full sticky top-0 z-50 p-4 backdrop-blur-lg bg-opacity-80 bg-gray-800/10">
-        {/* Mobile Layout */}
-        <AnimatePresence>
-          <div className="flex items-center w-full md:hidden">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsOpen(!isOpen)}
-              className="z-50 absolute left-4"
-            >
-              {isOpen ? (
-                <X className="h-6 w-6" />
-              ) : (
-                <Menu className="h-6 w-6" />
-              )}
-              <span className="sr-only">
-                {isOpen ? "Close menu" : "Open menu"}
-              </span>
-            </Button>
-
-            <Link
-              href="/"
-              className="flex items-center justify-center flex-1 mx-auto"
-            >
-              <Image src={Logo} alt="Logo" className="h-8 w-8" />
+    <nav
+      className={cn(
+        "sticky top-0 z-50 w-full",
+        "bg-background/80 backdrop-blur-lg",
+        "transition-colors duration-300"
+      )}
+    >
+      <div className="container mx-auto px-4">
+        <div className="flex h-16 items-center justify-between">
+          <div className="flex items-center">
+            <Link href="/" className="flex items-center space-x-2">
+              <Image
+                src={Logo}
+                alt="Logo"
+                width={32}
+                height={32}
+                className="rounded-full"
+              />
             </Link>
-
-            <Button variant="ghost" size="sm" className="absolute right-4">
-              Sign In
-            </Button>
           </div>
-          {isOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-background z-40 overflow-y-auto"
-            >
-              <div className="flex flex-col min-h-screen">
-                {/* Header */}
-                <div className="flex items-center justify-between p-4 border-b">
-                  <br />
-                </div>
-
-                {/* Menu Items */}
-                <motion.div
-                  initial={{ y: 20, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  exit={{ y: 20, opacity: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="flex-1"
-                >
-                  <div className="p-6 space-y-4">
-                    {menuItems.map((item, index) => (
-                      <motion.div
-                        key={item.title}
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: 20, opacity: 0 }}
-                        transition={{ delay: index * 0.1 }}
-                      >
-                        <div
-                          className="flex items-center justify-between py-2 text-xl font-semibold"
-                          onClick={() =>
-                            item.subItems && toggleDropdown(item.title)
-                          }
-                        >
-                          <span>{item.title}</span>
-                          {item.subItems ? (
-                            <ChevronDown
-                              className={`h-5 w-5 text-muted-foreground transition-transform ${
-                                openDropdowns.includes(item.title)
-                                  ? "transform rotate-180"
-                                  : ""
-                              }`}
-                            />
-                          ) : (
-                            <ChevronRight className="h-5 w-5 text-muted-foreground" />
-                          )}
-                        </div>
-                        <AnimatePresence>
-                          {item.subItems &&
-                            openDropdowns.includes(item.title) && (
-                              <motion.div
-                                initial={{ height: 0, opacity: 0 }}
-                                animate={{ height: "auto", opacity: 1 }}
-                                exit={{ height: 0, opacity: 0 }}
-                                transition={{ duration: 0.3 }}
-                                className="ml-4 mt-2 space-y-2"
-                              >
-                                {item.subItems.map((subItem) => (
-                                  <Link
-                                    key={subItem.title}
-                                    href={subItem.href}
-                                    onClick={() => setIsOpen(false)}
-                                    className="block py-2 text-lg hover:opacity-70 transition-opacity"
-                                  >
-                                    {subItem.title}
-                                  </Link>
-                                ))}
-                              </motion.div>
-                            )}
-                        </AnimatePresence>
-                      </motion.div>
-                    ))}
-                  </div>
-                </motion.div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Desktop Layout */}
-        <div className="hidden md:flex md:items-center md:justify-between md:w-full">
-          <Link href="/" className="mr-4">
-            <Image src={Logo} alt="Logo" className="h-8 w-8" />
-          </Link>
-          <NavigationMenu>
-            <NavigationMenuList className="hidden md:flex md:space-x-4">
-              {menuItems.map((item) => (
-                <NavigationMenuItem key={item.title}>
-                  {item.subItems ? (
-                    <NavigationMenuTrigger className="relative z-10 hover:bg-transparent">
-                      {item.title}
-                    </NavigationMenuTrigger>
-                  ) : (
-                    <Link href={item.href} legacyBehavior passHref>
-                      <NavigationMenuLink
-                        className={`${navigationMenuTriggerStyle()} hover:bg-transparent`}
-                      >
+          {/* Mobile menu button */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            onClick={() => setIsOpen(!isOpen)}
+            aria-label={isOpen ? "Close menu" : "Open menu"}
+          >
+            {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+          </Button>
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex md:items-center md:space-x-4">
+            <NavigationMenu>
+              <NavigationMenuList>
+                {menuItems.map((item) => (
+                  <NavigationMenuItem key={item.title}>
+                    {item.subItems ? (
+                      <NavigationMenuTrigger>
                         {item.title}
-                      </NavigationMenuLink>
+                      </NavigationMenuTrigger>
+                    ) : (
+                      <Link href={item.href} legacyBehavior passHref>
+                        <NavigationMenuLink
+                          className={navigationMenuTriggerStyle()}
+                        >
+                          {item.title}
+                        </NavigationMenuLink>
+                      </Link>
+                    )}
+                    {item.subItems && (
+                      <NavigationMenuContent>
+                        <ul className="grid w-[400px] gap-3 p-4 md:w-[500px] md:grid-cols-2 lg:w-[600px]">
+                          {item.subItems.map((subItem) => (
+                            <li key={subItem.title}>
+                              <NavigationMenuLink asChild>
+                                <Link
+                                  href={subItem.href}
+                                  className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                                >
+                                  <div className="text-sm font-medium leading-none">
+                                    {subItem.title}
+                                  </div>
+                                </Link>
+                              </NavigationMenuLink>
+                            </li>
+                          ))}
+                        </ul>
+                      </NavigationMenuContent>
+                    )}
+                  </NavigationMenuItem>
+                ))}
+              </NavigationMenuList>
+            </NavigationMenu>
+          </div>
+          {/* User menu and theme toggle */}
+          <div className="hidden md:flex md:items-center md:space-x-2">
+            <UserMenu />
+            <ThemeToggle />
+          </div>
+        </div>
+      </div>
+      {/* Mobile Navigation */}
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.3 }}
+            className="md:hidden"
+          >
+            <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
+              {menuItems.map((item) => (
+                <div key={item.title}>
+                  {item.subItems ? (
+                    <button
+                      className="w-full text-left px-3 py-2 rounded-md text-base font-medium hover:bg-accent hover:text-accent-foreground focus:outline-none focus:bg-accent focus:text-accent-foreground transition duration-150 ease-in-out"
+                      onClick={() => toggleDropdown(item.title)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>{item.title}</span>
+                        <ChevronDown
+                          className={cn(
+                            "h-5 w-5 transition-transform duration-200",
+                            openDropdowns.includes(item.title) && "rotate-180"
+                          )}
+                        />
+                      </div>
+                    </button>
+                  ) : (
+                    <Link
+                      href={item.href}
+                      className="block px-3 py-2 rounded-md text-base font-medium hover:bg-accent hover:text-accent-foreground focus:outline-none focus:bg-accent focus:text-accent-foreground transition duration-150 ease-in-out"
+                      onClick={closeMenu}
+                    >
+                      {item.title}
                     </Link>
                   )}
-                  {item.subItems && (
-                    <NavigationMenuContent className="relative z-0">
-                      <ul className="grid gap-3 p-6 md:w-[400px] lg:w-[500px] lg:grid-cols-[.75fr_1fr]">
-                        {item.subItems.map((subItem) => (
-                          <li key={subItem.title}>
-                            <NavigationMenuLink asChild>
-                              <Link
-                                href={subItem.href}
-                                className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
-                              >
-                                <div className="text-sm font-medium leading-none">
-                                  {subItem.title}
-                                </div>
-                              </Link>
-                            </NavigationMenuLink>
-                          </li>
-                        ))}
-                      </ul>
-                    </NavigationMenuContent>
+                  {item.subItems && openDropdowns.includes(item.title) && (
+                    <div className="pl-4">
+                      {item.subItems.map((subItem) => (
+                        <Link
+                          key={subItem.title}
+                          href={subItem.href}
+                          className="block px-3 py-2 rounded-md text-base font-medium hover:bg-accent hover:text-accent-foreground focus:outline-none focus:bg-accent focus:text-accent-foreground transition duration-150 ease-in-out"
+                          onClick={closeMenu}
+                        >
+                          {subItem.title}
+                        </Link>
+                      ))}
+                    </div>
                   )}
-                </NavigationMenuItem>
+                </div>
               ))}
-            </NavigationMenuList>
-          </NavigationMenu>
+              <div className="pt-4 pb-3 border-t border-gray-200 dark:border-gray-700">
+                <div className="flex items-center px-5">
+                  <UserMenu />
+                  <div className="ml-auto">
+                    <ThemeToggle />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </nav>
+  );
+}
 
-          <div className="flex space-x-2">
-            <Button
-              variant="ghost"
-              className="hidden md:inline-flex hover:bg-transparent focus:bg-transparent"
-            >
-              <Link href="/signin">Sign In</Link>
-            </Button>
-            <Button
-              variant="default"
-              className="hidden md:inline-flex hover:bg-primary focus:bg-primary"
-            >
-              <Link href="/signup">Sign Up</Link>
-            </Button>
-          </div>
-          <Toggle />
-        </div>
-      </nav>
-    </>
+function UserMenu() {
+  const [isSignedIn, setIsSignedIn] = React.useState(false); // Replace with actual auth state
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon">
+          <User className="h-5 w-5" />
+          <span className="sr-only">User menu</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {isSignedIn ? (
+          <>
+            <DropdownMenuItem>
+              <Link href="/profile" className="flex items-center">
+                Profile
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <button
+                className="flex items-center"
+                onClick={() => setIsSignedIn(false)}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Sign out</span>
+              </button>
+            </DropdownMenuItem>
+          </>
+        ) : (
+          <>
+            <DropdownMenuItem>
+              <Link href="/signin" className="flex items-center">
+                <LogIn className="mr-2 h-4 w-4" />
+                <span>Sign in</span>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem>
+              <Link href="/signup" className="flex items-center">
+                Sign up
+              </Link>
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+      aria-label="Toggle theme"
+    >
+      <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+      <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+      <span className="sr-only">Toggle theme</span>
+    </Button>
   );
 }
