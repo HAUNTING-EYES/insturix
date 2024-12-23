@@ -35,7 +35,7 @@ export default function TypingAnimation() {
   }, []);
 
   const sentenceAnimation = {
-    hidden: { opacity: 1 },
+    hidden: { opacity: 0 },
     visible: {
       opacity: 1,
       transition: {
@@ -45,20 +45,20 @@ export default function TypingAnimation() {
     },
   };
   return (
-        <motion.h1
-          className="text-4xl sm:text-5xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
-          initial="hidden"
-          animate="visible"
-          variants={sentenceAnimation}
-        >
-          {typedText}
-          <motion.span
-            animate={{ opacity: [0, 1, 0] }}
-            transition={{ duration: 0.5, repeat: Infinity }}
-             className="text-4xl sm:text-5xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
-          >
-            |
-          </motion.span>
-        </motion.h1>
-      );
+    <motion.h1
+      className="text-6xl sm:text-6xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
+      initial="hidden"
+      animate="visible"
+      variants={sentenceAnimation}
+    >
+      {typedText}
+      <motion.span
+        animate={{ opacity: [0, 1, 0] }}
+        transition={{ duration: 0.5, repeat: Infinity }}
+        className="text-7xl sm:text-6xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
+      >
+        |
+      </motion.span>
+    </motion.h1>
+  );
 }
