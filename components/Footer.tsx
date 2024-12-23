@@ -25,14 +25,14 @@ export default function Footer() {
   };
 
   return (
-    <footer className="w-full bg-white border-t">
+    <footer className="w-full bg-white dark:bg-black text-black dark:text-white border-t border-gray-200 dark:border-gray-800">
       <div className="container mx-auto px-4 py-12">
         {/* Newsletter Section */}
         <div className="max-w-xl mb-16">
-          <h2 className="text-2xl font-semibold text-gray-900 mb-2">
+          <h2 className="text-2xl font-semibold mb-2">
             Subscribe to our product newsletter
           </h2>
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 dark:text-white mb-4">
             Get tips, technical guides, and best practices. Twice a month. Right
             in your inbox.
           </p>
@@ -42,10 +42,13 @@ export default function Footer() {
               placeholder="Email address"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="flex-1"
+              className="flex-1 bg-white dark:bg-black border-gray-300 dark:border-gray-700"
               required
             />
-            <Button type="submit" variant="default">
+            <Button
+              type="submit"
+              variant="default"
+            >
               Subscribe
             </Button>
           </form>
@@ -54,7 +57,7 @@ export default function Footer() {
         {/* Links Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8 xl:gap-12 mb-16">
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900">Product</h3>
+            <h3 className="font-semibold">Product</h3>
             <ul className="space-y-3">
               {[
                 "Features",
@@ -70,7 +73,7 @@ export default function Footer() {
                 <li key={item}>
                   <Link
                     href="#"
-                    className="text-gray-600 hover:text-gray-900 transition-colors"
+                    className="text-gray-600 dark:text-white hover:text-black dark:hover:text-white transition-colors"
                   >
                     {item}
                   </Link>
@@ -80,7 +83,7 @@ export default function Footer() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900">Platform</h3>
+            <h3 className="font-semibold">Platform</h3>
             <ul className="space-y-3">
               {[
                 "Developer API",
@@ -93,7 +96,7 @@ export default function Footer() {
                 <li key={item}>
                   <Link
                     href="#"
-                    className="text-gray-600 hover:text-gray-900 transition-colors"
+                    className="text-gray-600 dark:text-white hover:text-black dark:hover:text-white transition-colors"
                   >
                     {item}
                   </Link>
@@ -103,7 +106,7 @@ export default function Footer() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900">Support</h3>
+            <h3 className="font-semibold">Support</h3>
             <ul className="space-y-3">
               {[
                 "Docs",
@@ -117,7 +120,7 @@ export default function Footer() {
                 <li key={item}>
                   <Link
                     href="#"
-                    className="text-gray-600 hover:text-gray-900 transition-colors"
+                    className="text-gray-600 dark:text-white hover:text-black dark:hover:text-white transition-colors"
                   >
                     {item}
                   </Link>
@@ -127,7 +130,7 @@ export default function Footer() {
           </div>
 
           <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900">Company</h3>
+            <h3 className="font-semibold">Company</h3>
             <ul className="space-y-3">
               {[
                 "About",
@@ -143,7 +146,7 @@ export default function Footer() {
                 <li key={item}>
                   <Link
                     href="#"
-                    className="text-gray-600 hover:text-gray-900 transition-colors"
+                    className="text-gray-600 dark:text-white hover:text-black dark:hover:text-white transition-colors"
                   >
                     {item}
                   </Link>
@@ -154,19 +157,31 @@ export default function Footer() {
         </div>
 
         {/* Bottom Bar */}
-        <div className="border-t pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+        <div className="border-t border-gray-200 dark:border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
             <span>© 2024 GitHub, Inc.</span>
-            <Link href="#" className="hover:text-gray-900 transition-colors">
+            <Link
+              href="#"
+              className="hover:text-black dark:hover:text-white transition-colors"
+            >
               Terms
             </Link>
-            <Link href="#" className="hover:text-gray-900 transition-colors">
+            <Link
+              href="#"
+              className="hover:text-black dark:hover:text-white transition-colors"
+            >
               Privacy
             </Link>
-            <Link href="#" className="hover:text-gray-900 transition-colors">
+            <Link
+              href="#"
+              className="hover:text-black dark:hover:text-white transition-colors"
+            >
               Sitemap
             </Link>
-            <Link href="#" className="hover:text-gray-900 transition-colors">
+            <Link
+              href="#"
+              className="hover:text-black dark:hover:text-white transition-colors"
+            >
               What is Git?
             </Link>
           </div>
@@ -184,7 +199,7 @@ export default function Footer() {
               <Link
                 key={label}
                 href="#"
-                className="text-gray-600 hover:text-gray-900 transition-colors p-2 rounded-full hover:bg-gray-100"
+                className="text-gray-600 dark:text-gray-400 hover:text-black dark:hover:text-white transition-colors p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-900"
                 aria-label={label}
               >
                 <Icon className="w-5 h-5" />
