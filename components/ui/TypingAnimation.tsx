@@ -3,9 +3,9 @@
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 
-export default function TypingAnimation() {
+export default function TypingAnimation({ text }:{text:string}) {
   const [typedText, setTypedText] = useState("");
-  const fullText = "Level Up Your Content Creation Game";
+  const fullText :string = text
 
   useEffect(() => {
     let isTyping = true;
@@ -32,7 +32,7 @@ export default function TypingAnimation() {
     const intervalId = setInterval(typeText, 100);
 
     return () => clearInterval(intervalId);
-  }, []);
+  }, [fullText]);
 
   const sentenceAnimation = {
     hidden: { opacity: 0 },

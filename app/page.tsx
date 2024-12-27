@@ -1,4 +1,4 @@
-import { AnimatedTestimonialsDemo } from "@/components/bdd";
+import Testimo from "@/components/Testimo";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import RetroGrid from "@/components/ui/RetroGrid";
@@ -11,12 +11,12 @@ export default function Home() {
     <>
       <Navbar />
       <div className="relative flex h-[500px] w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-background md:shadow-xl">
-          <TypingAnimation />
+        <TypingAnimation text="Level Up Your Content Creation Game"/>
         <RetroGrid />
       </div>
       <WhoWeAre />
       <WhyUs />
-      <AnimatedTestimonialsDemo />
+      <Testimo />
       <Footer />
     </>
   );

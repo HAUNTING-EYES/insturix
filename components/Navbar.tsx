@@ -38,13 +38,13 @@ import Logo from "@/public/Logo.jpeg";
 const menuItems = [
   {
     title: "Product",
-    href: "/product",
+    href: "/products",
     subItems: [
-      { title: "Techie Tiwari", href: "/product/techie-tiwari" },
-      { title: "Kund-li", href: "/product/kund-li" },
-      { title: "Editron", href: "/product/editron" },
-      { title: "Shield", href: "/product/shield" },
-      { title: "BrainYeed", href: "/product/brainyeed" },
+      { title: "Techie Tiwari", href: "/products/techie-tiwari" },
+      { title: "Kund-li", href: "/products/kund-li" },
+      { title: "Editron", href: "/products/editron" },
+      { title: "Shield", href: "/products/shield" },
+      { title: "BrainYeed", href: "/products/brainyeed" },
     ],
   },
   {

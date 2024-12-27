@@ -1,6 +1,6 @@
 import { Testimonials } from "@/components/ui/animated-testimonials";
 
-function AnimatedTestimonialsDemo() {
+export default function Testimo() {
   const testimonials = [
     {
       quote:
@@ -38,7 +38,9 @@ function AnimatedTestimonialsDemo() {
       src: "https://images.unsplash.com/photo-1624561172888-ac93c696e10c?q=80&w=2592&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
     },
   ];
-  return <Testimonials testimonials={testimonials} />;
+  return (
+    <>
+      <Testimonials testimonials={testimonials} />;
+    </>
+  );
 }
-
-export { AnimatedTestimonialsDemo };
