@@ -5,16 +5,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Menu,
-  X,
-  ChevronDown,
-  Sun,
-  Moon,
-  User,
-  LogIn,
-  LogOut,
-} from "lucide-react";
+import { Menu, X, ChevronDown, Sun, Moon } from "lucide-react";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -25,23 +16,19 @@ import {
   navigationMenuTriggerStyle,
 } from "@/components/ui/navigation-menu";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import Logo from "@/public/Logo.jpeg";
+import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 const menuItems = [
   {
     title: "Product",
     href: "/products",
     subItems: [
-      { title: "Techie Tiwari", href: "/products/techie-tiwari" },
-      { title: "Kund-li", href: "/products/kund-li" },
+      { title: "Techie Tiwari", href: "/products/techietiwari" },
+      { title: "Kund-li", href: "/products/kundli" },
       { title: "Editron", href: "/products/editron" },
       { title: "Shield", href: "/products/shield" },
       { title: "BrainYeed", href: "/products/brainyeed" },
@@ -51,7 +38,7 @@ const menuItems = [
     title: "About",
     href: "/about",
     subItems: [
-      { title: "Our Story", href: "/about/our-story" },
+      { title: "Our Story", href: "/about/ourstory" },
       { title: "About Logo", href: "/about/logo" },
       { title: "Team", href: "/about/team" },
       { title: "Developers", href: "/about/developers" },
@@ -63,7 +50,6 @@ const menuItems = [
     subItems: [
       { title: "Tutorials", href: "/resources/tutorials" },
       { title: "Blog", href: "/resources/blog" },
-      { title: "Resource Hub", href: "/resources/hub" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
       { title: "Community", href: "/resources/community" },
@@ -75,7 +61,7 @@ const menuItems = [
   },
   {
     title: "Contact Us",
-    href: "/contact",
+    href: "/contactus",
   },
   {
     title: "Contribute",
@@ -259,50 +245,46 @@ export default function EnhancedNavbar() {
 }
 
 function UserMenu() {
-  const [isSignedIn, setIsSignedIn] = React.useState(false); // Replace with actual auth state
+  const { isSignedIn } = useAuth();
+  const router = useRouter();
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon">
-          <User className="h-5 w-5" />
-          <span className="sr-only">User menu</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {isSignedIn ? (
-          <>
-            <DropdownMenuItem>
-              <Link href="/profile" className="flex items-center">
-                Profile
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <button
-                className="flex items-center"
-                onClick={() => setIsSignedIn(false)}
-              >
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Sign out</span>
-              </button>
-            </DropdownMenuItem>
-          </>
-        ) : (
-          <>
-            <DropdownMenuItem>
-              <Link href="/signin" className="flex items-center">
-                <LogIn className="mr-2 h-4 w-4" />
-                <span>Sign in</span>
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem>
-              <Link href="/signup" className="flex items-center">
-                Sign up
-              </Link>
-            </DropdownMenuItem>
-          </>
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <>
+      {isSignedIn ? (
+        <div className="flex items-center space-x-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="group inline-flex h-9 w-max items-center justify-center rounded-md px-4 py-2 text-sm "
+            onClick={() => {
+              router.push("/dashboard");
+            }}
+          >
+            Dashboard
+          </Button>
+        </div>
+      ) : (
+        <>
+          <Link href="/signin" className="flex items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="group inline-flex h-9 w-max items-center justify-center rounded-md px-4 py-2 text-sm "
+            >
+              Sign In
+            </Button>
+          </Link>
+          <Link href="/signup" className="flex items-center space-x-2">
+            <Button
+              variant="default"
+              size="icon"
+              className="group inline-flex h-9 w-max items-center justify-center rounded-md px-4 py-2 text-sm "
+            >
+              Sign Up
+            </Button>
+          </Link>
+        </>
+      )}
+    </>
   );
 }
 

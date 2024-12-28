@@ -1,6 +1,7 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, UserButton } from "@clerk/nextjs";
+import { SignOutButton } from "@clerk/nextjs";
 
 export default function Dashboard() {
   const { isSignedIn } = useAuth();
@@ -14,7 +15,9 @@ export default function Dashboard() {
   }
   return (
     <>
+    <UserButton />
       <h1>This is the Dashboard</h1>
+      <SignOutButton />
     </>
   );
 }
