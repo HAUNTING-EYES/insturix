@@ -17,15 +17,18 @@ export default function Red() {
           type={"hourglass"}
           className={"bg-red-700"}
         >
-          <Heading>website</Heading>
+          <Heading>Premium</Heading>
           <Price>
-            $5000
+            $100
             <br />
             /mo
           </Price>
           <Paragraph>
-            Special Web Site for you made with Next.js, TailwindCSS and
-            FramerMotion.
+            1. 100GB Storage
+            <br />
+            2. 100 Emails
+            <br />
+            3. 100 Domains
           </Paragraph>
         </PricingWrapper>
       </div>

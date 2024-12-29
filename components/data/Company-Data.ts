@@ -1,16 +1,16 @@
 export const companyData = {
-  name: "EcoTech Innovations",
+  name: "Insturance",
   mission:
-    "To revolutionize sustainable technology solutions for a greener future.",
+    "To empower social media users, influencers, and content creators by safeguarding their digital presence, simplifying their growth journey, and providing them with tools to focus on what they do best—creating impactful content thus creating a whole ecosystem for the creators.",
   vision:
-    "A world where cutting-edge technology and environmental sustainability go hand in hand, improving lives while preserving our planet.",
+    "We strive to revolutionize the influencer ecosystem with protection, innovation, and growth, ensuring creators feel secure. By unifying social media platforms, we offer seamless experiences and plan to integrate General AI, empowering tools to help creators achieve their goals.",
   story:
-    "EcoTech Innovations was born from a simple idea: that technology should help, not harm, our environment. Founded in 2015 by a group of passionate engineers and environmentalists, we set out to prove that innovation and sustainability can coexist. Today, we're at the forefront of eco-friendly tech solutions, constantly pushing the boundaries of what's possible.",
+    "Insturance was born out of a simple realization: creators face endless challenges—from copyright claims to community guideline strikes—that can jeopardize their hard work. Recognizing the need for a robust safety net, we set out to design a platform that not only protects creators but also enhances their journey toward success.",
   values: [
-    { name: "Innovation", icon: "Lightbulb" },
-    { name: "Sustainability", icon: "Leaf" },
-    { name: "Transparency", icon: "Eye" },
-    { name: "Collaboration", icon: "Users" },
+    { name: "Empowerment", icon: "Zap" },
+    { name: "Innovation", icon: "BrainCircuit" },
+    { name: "Integrity", icon: "Blocks" },
+    { name: "Community First", icon: "Users" },
   ],
   team: [
     {

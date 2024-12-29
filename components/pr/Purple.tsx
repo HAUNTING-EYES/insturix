@@ -13,15 +13,18 @@ export default function Purple() {
         }
       >
         <PricingWrapper contactHref={"/"} type={"waves"}>
-          <Heading>component</Heading>
+          <Heading>Pro</Heading>
           <Price>
-            $2000
+            $50
             <br />
             /mo
           </Price>
           <Paragraph>
-            Special UI component for your website made with React.js,
-            TailwindCSS and FramerMotion.
+            1. 50GB Storage
+            <br />
+            2. 50 Emails
+            <br />
+            3. 50 Domains
           </Paragraph>
         </PricingWrapper>
       </div>

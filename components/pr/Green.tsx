@@ -17,15 +17,16 @@ export default function Green() {
           type={"star"}
           className={"bg-green-600"}
         >
-          <Heading>website</Heading>
+          <Heading>Free</Heading>
           <Price>
-            $5000
+            $0
             <br />
             /mo
           </Price>
           <Paragraph>
-            Special Web Site for you made with Next.js, TailwindCSS and
-            FramerMotion.
+            1.bruh<br />
+            2.bruh<br />
+            3.bruh<br />
           </Paragraph>
         </PricingWrapper>
       </div>

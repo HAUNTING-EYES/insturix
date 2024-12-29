@@ -65,7 +65,7 @@ export function WhyUs() {
           transition={{ duration: 0.5 }}
           className="text-5xl md:text-6xl font-extrabold text-center mb-16"
         >
-          <span className="bg-gradient-to-r from-purple-600 to-blue-600 text-transparent bg-clip-text">
+          <span className="bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
             Why Choose Us?
           </span>
         </motion.h2>

@@ -1,5 +1,6 @@
 "use client";
 
+import NotSignedIn from "@/components/NotSignedup";
 import { useAuth, UserButton } from "@clerk/nextjs";
 import { SignOutButton } from "@clerk/nextjs";
 
@@ -8,9 +9,9 @@ export default function Dashboard() {
 
   if (!isSignedIn) {
     return (
-      <h1>
-        Not signed in <br />
-      </h1>
+      <>
+      <NotSignedIn />
+      </>
     );
   }
   return (

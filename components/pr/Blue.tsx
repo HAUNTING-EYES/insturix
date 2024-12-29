@@ -17,15 +17,18 @@ export default function Blue() {
           type={"crosses"}
           className={"bg-indigo-500"}
         >
-          <Heading>website</Heading>
+          <Heading>Plus</Heading>
           <Price>
-            $5000
+            $20
             <br />
             /mo
           </Price>
           <Paragraph>
-            Special Web Site for you made with Next.js, TailwindCSS and
-            FramerMotion.
+            1. 10GB Storage
+            <br />
+            2. 10 Emails
+            <br />
+            3. 10 Domains
           </Paragraph>
         </PricingWrapper>
       </div>
