@@ -69,7 +69,7 @@ const menuItems = [
   },
 ];
 
-export default function EnhancedNavbar() {
+export default function Navbar() {
   const [isOpen, setIsOpen] = React.useState(false);
   const [openDropdowns, setOpenDropdowns] = React.useState<string[]>([]);
   const isMobile = useMediaQuery("(max-width: 768px)");
