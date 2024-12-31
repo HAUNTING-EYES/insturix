@@ -1,7 +1,21 @@
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+import Header from "@/components/kundli/Header";
+import InteractiveDemo from "@/components/kundli/InteractiveDemo";
+import Features from "@/components/kundli/Features";
+import UseCases from "@/components/kundli/UseCases";
+
 export default function Kundli() {
   return (
-    <div>
-      <h1>Kundli</h1>
-    </div>
+    <>
+      <Navbar />
+      <main className="min-h-screen">
+        <Header />
+        <InteractiveDemo />
+        <Features />
+        <UseCases />
+      </main>
+      <Footer />
+    </>
   );
 }
