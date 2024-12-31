@@ -1,3 +1,11 @@
+import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
+
 export default function FaqPage() {
-  return <div>Faq</div>;
+  return (
+    <>
+      <Navbar />
+      <Footer />
+    </>
+  );
 }

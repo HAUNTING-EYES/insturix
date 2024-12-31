@@ -1,3 +1,11 @@
+import Footer from "@/components/Footer";
+import Navbar from "@/components/Navbar";
+
 export default function SupportPage() {
-    return <div>Support</div>;
-    }
+  return (
+    <>
+      <Navbar />
+      <Footer />
+    </>
+  );
+}

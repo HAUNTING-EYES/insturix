@@ -1,3 +1,9 @@
+import Navbar from "@/components/Navbar";
+import Footer from "@/components/Footer";
+
 export default function OurStoryPage() {
-  return <div>Our Story</div>;
+  return <>
+  <Navbar />
+  <Footer />
+  </>;
 }

@@ -5,7 +5,7 @@ export default function About() {
   return (
     <>
     <Navbar />
-      <h1>this is the homepage</h1>
+      <h1>this is the About us </h1>
       <Footer />
     </>
   );
