@@ -13,8 +13,8 @@ export default function Green() {
         }
       >
         <PricingWrapper
-          contactHref={"/"}
           type={"star"}
+          contactHref="/"
           className={"bg-green-600"}
         >
           <Heading>Free</Heading>

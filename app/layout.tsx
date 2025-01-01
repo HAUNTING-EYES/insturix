@@ -3,6 +3,8 @@ import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import ThemeProvider from "@/providers/ThemeProvider";
 import { Toaster } from "@/components/ui/toaster";
+import ReactQueryProvider from "@/providers/ReactQuery";
+import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 
 export const metadata: Metadata = {
   title: "Insturance",
@@ -19,10 +21,13 @@ export default function RootLayout({
       <ClerkProvider>
         <html lang="en">
           <body>
-            <ThemeProvider>
-              {children}
-              <Toaster />
-            </ThemeProvider>
+            <ReactQueryProvider>
+              <ThemeProvider>
+                {children}
+                <Toaster />
+                <ReactQueryDevtools />
+              </ThemeProvider>
+            </ReactQueryProvider>
           </body>
         </html>
       </ClerkProvider>

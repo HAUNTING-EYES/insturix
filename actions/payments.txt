@@ -1,1 +1,0 @@
-This Folder is Purely for the Payment Actions and the Payment Gateway Integration.Please do not delete this folder or any file inside it.

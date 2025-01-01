@@ -13,7 +13,7 @@ export default function Blue() {
         }
       >
         <PricingWrapper
-          contactHref={"/"}
+          contactHref="/"
           type={"crosses"}
           className={"bg-indigo-500"}
         >

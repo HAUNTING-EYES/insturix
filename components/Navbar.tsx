@@ -32,6 +32,7 @@ const menuItems = [
       { title: "Editron", href: "/products/editron" },
       { title: "Shield", href: "/products/shield" },
       { title: "BrainYeed", href: "/products/brainyeed" },
+      {title: "Meditron", href: "/products/meditron"},
     ],
   },
   {
