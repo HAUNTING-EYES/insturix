@@ -5,6 +5,7 @@ export default function SupportPage() {
   return (
     <>
       <Navbar />
+      
       <Footer />
     </>
   );

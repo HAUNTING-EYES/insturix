@@ -53,7 +53,6 @@ const menuItems = [
       { title: "Blog", href: "/resources/blog" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
-      { title: "Community", href: "/resources/community" },
     ],
   },
   {
