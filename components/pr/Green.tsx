@@ -14,7 +14,7 @@ export default function Green() {
       >
         <PricingWrapper
           type={"star"}
-          contactHref="/"
+          contactHref="/signup"
           className={"bg-green-600"}
         >
           <Heading>Free</Heading>

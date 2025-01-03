@@ -17,7 +17,7 @@ export default function Purple() {
           " h-[600px] w-full flex gap-12 items-center justify-center"
         }
       >
-        <PricingWrapper contactHref="/" type={"waves"}>
+        <PricingWrapper contactHref="/signup" type={"waves"}>
           <Heading>Pro</Heading>
           <Price>
             $50

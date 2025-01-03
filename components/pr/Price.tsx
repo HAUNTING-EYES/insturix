@@ -95,7 +95,7 @@ export const PricingWrapper: React.FC<{
               "h-12 w-full bg-white rounded-lg text-neutral-900 font-bold"
             }
           >
-            Buy Now
+            Get Started
           </button>
         </Link>
       </div>

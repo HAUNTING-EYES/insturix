@@ -13,7 +13,7 @@ export default function Red() {
         }
       >
         <PricingWrapper 
-        contactHref="/"
+        contactHref="/signup"
         type={"hourglass"} className={"bg-red-700"}>
           <Heading>Premium</Heading>
           <Price>

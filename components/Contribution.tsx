@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   ArrowRight,
   Github,
@@ -22,6 +23,8 @@ import { ToastAction } from "@/components/ui/toast";
 import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+import { DonationDialog } from "./DonationDialog";
+import Script from "next/script";
 
 const validationSchema = Yup.object({
   name: Yup.string().required("Name is required"),
@@ -32,7 +35,26 @@ const validationSchema = Yup.object({
   message: Yup.string().required("Message is required"),
 });
 
+interface RazorpayOptions {
+  key: string;
+  order_id: string;
+  handler: (response: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) => void;
+}
+
+interface WindowWithRazorpay extends Window {
+  Razorpay: new (options: RazorpayOptions) => RazorpayInstance;
+}
+
+interface RazorpayInstance {
+  open: () => void;
+}
 export default function ContributionPage() {
+  const [isDonationDialogOpen, setIsDonationDialogOpen] = useState(false);
+
   const formik = useFormik({
     initialValues: {
       name: "",
@@ -64,8 +86,50 @@ export default function ContributionPage() {
     },
   });
 
+  const handleDonationClick = () => {
+    setIsDonationDialogOpen(true);
+  };
+
+  const handleDonationSubmit = async (amount: number) => {
+    const res = await fetch("/api/create-orders", {
+      method: "POST",
+      body: JSON.stringify({ amount: amount }),
+    });
+    const data = await res.json();
+
+    const paymentData = {
+      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
+      order_id: data.id,
+
+      handler: async function (response: {
+        razorpay_order_id: string;
+        razorpay_payment_id: string;
+        razorpay_signature: string;
+      }) {
+        const res = await fetch("/api/verify-orders", {
+          method: "POST",
+          body: JSON.stringify({
+            orderId: response.razorpay_order_id,
+            razorpayPaymentId: response.razorpay_payment_id,
+            razorpaySignature: response.razorpay_signature,
+          }),
+        });
+        const data = await res.json();
+        if (data.isOk) {
+          alert("Payment successful");
+        } else {
+          alert("Payment failed");
+        }
+      },
+    };
+    const payment = new (window as unknown as WindowWithRazorpay).Razorpay(
+      paymentData
+    ) as RazorpayInstance;
+    payment.open();
+  };
+
   return (
-    <div className="min-h-screen bg-white  dark:bg-black">
+    <div className="min-h-screen bg-white dark:bg-black">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <header className="py-20 text-center">
           <h1 className="text-5xl md:text-7xl font-extrabold mb-4 text-center bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
@@ -130,6 +194,10 @@ export default function ContributionPage() {
                   </div>
                 )}
               </div>
+              <Script
+                type="text/javascript"
+                src="https://checkout.razorpay.com/v1/checkout.js"
+              />
 
               <div className="space-y-2">
                 <Label
@@ -322,7 +390,10 @@ export default function ContributionPage() {
               Support Our Vision
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Button className="h-16 text-xl font-semibold ">
+              <Button
+                className="h-16 text-xl font-semibold"
+                onClick={handleDonationClick}
+              >
                 <DollarSign className="mr-2 h-6 w-6" /> One-time Donation
               </Button>
               <Button className="h-16 text-xl font-semibold bg-black dark:bg-white">
@@ -344,6 +415,11 @@ export default function ContributionPage() {
           </motion.div>
         </section>
       </div>
+      <DonationDialog
+        isOpen={isDonationDialogOpen}
+        onClose={() => setIsDonationDialogOpen(false)}
+        onSubmit={handleDonationSubmit}
+      />
     </div>
   );
 }
