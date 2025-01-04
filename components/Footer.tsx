@@ -4,22 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Github,
-  Linkedin,
-  Instagram,
-  Youtube,
-  Twitter,
-  Twitch,
-  Music,
-} from "lucide-react";
+import { Github, Linkedin, Instagram, Youtube, Twitter } from "lucide-react";
 
 export default function Footer() {
   const [email, setEmail] = useState("");
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Handle newsletter subscription
     console.log("Subscribed:", email);
     setEmail("");
   };
@@ -45,10 +36,7 @@ export default function Footer() {
               className="flex-1 bg-white dark:bg-black border-gray-300 dark:border-gray-700"
               required
             />
-            <Button
-              type="submit"
-              variant="default"
-            >
+            <Button type="submit" variant="default">
               Subscribe
             </Button>
           </form>
@@ -61,14 +49,12 @@ export default function Footer() {
             <ul className="space-y-3">
               {[
                 "Features",
-                "Enterprise",
-                "Copilot",
-                "Security",
-                "Pricing",
-                "Team",
-                "Resources",
-                "Roadmap",
-                "Compare",
+                "Techie Tiwari",
+                "Editron",
+                "BrainYeed",
+                "Kund-li",
+                "Shield",
+                "Meditron",
               ].map((item) => (
                 <li key={item}>
                   <Link
@@ -113,9 +99,8 @@ export default function Footer() {
                 "Community Forum",
                 "Professional Services",
                 "Premium Support",
-                "Skills",
                 "Status",
-                "Contact GitHub",
+                "Contact Insturance",
               ].map((item) => (
                 <li key={item}>
                   <Link
@@ -128,7 +113,6 @@ export default function Footer() {
               ))}
             </ul>
           </div>
-
           <div className="space-y-4">
             <h3 className="font-semibold">Company</h3>
             <ul className="space-y-3">
@@ -155,11 +139,10 @@ export default function Footer() {
             </ul>
           </div>
         </div>
-
         {/* Bottom Bar */}
         <div className="border-t border-gray-200 dark:border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600 dark:text-gray-400">
-            <span>© 2024 GitHub, Inc.</span>
+            <span>© 2025 Insturance, Inc.</span>
             <Link
               href="#"
               className="hover:text-black dark:hover:text-white transition-colors"
@@ -182,7 +165,7 @@ export default function Footer() {
               href="#"
               className="hover:text-black dark:hover:text-white transition-colors"
             >
-              What is Git?
+              What is Insturance?
             </Link>
           </div>
 
@@ -192,8 +175,6 @@ export default function Footer() {
               { icon: Instagram, label: "Instagram" },
               { icon: Youtube, label: "YouTube" },
               { icon: Twitter, label: "Twitter" },
-              { icon: Music, label: "TikTok" },
-              { icon: Twitch, label: "Twitch" },
               { icon: Github, label: "GitHub" },
             ].map(({ icon: Icon, label }) => (
               <Link
