@@ -1,8 +1,8 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import NotSignedIn from "@/components/NotSignedup";
-import { useAuth, UserButton } from "@clerk/nextjs";
-import { SignOutButton } from "@clerk/nextjs";
+import { ChatDashboard } from "@/components/dashboard/ChatDashboard";
 
 export default function Dashboard() {
   const { isSignedIn } = useAuth();
@@ -10,15 +10,15 @@ export default function Dashboard() {
   if (!isSignedIn) {
     return (
       <>
-      <NotSignedIn />
+        <NotSignedIn />
       </>
     );
   }
   return (
     <>
-    <UserButton />
-      <h1>This is the Dashboard</h1>
-      <SignOutButton />
+      <main className="flex h-screen bg-gray-100 dark:bg-gray-900 overflow-hidden">
+        <ChatDashboard />
+      </main>
     </>
   );
 }
