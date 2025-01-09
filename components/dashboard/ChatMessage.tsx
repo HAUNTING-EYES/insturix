@@ -2,19 +2,12 @@ import React from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
-import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
-import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-
 interface ChatMessageProps {
   role: "user" | "assistant" | "system";
   content: string;
   avatarSrc?: string;
   avatarFallback?: string;
   className?: string;
-}
-
-interface SyntaxHighlighterProps {
-  [key: string]: string;
 }
 
 const getAvatarInfo = (role: ChatMessageProps["role"]) => {
@@ -58,37 +51,6 @@ export function ChatMessage({
         )}
       >
         <ReactMarkdown
-          components={{
-            code({
-              inline,
-              className,
-              children,
-              ...props
-            }): React.JSX.Element {
-              const match = /language-(\w+)/.exec(className || "");
-              return !inline && match ? (
-                <SyntaxHighlighter
-                  {...(props as SyntaxHighlighterProps)}
-                  style={vscDarkPlus}
-                  language={match[1]}
-                  PreTag="div"
-                  className="rounded-md text-sm"
-                >
-                  {String(children).replace(/\n$/, "")}
-                </SyntaxHighlighter>
-              ) : (
-                <code
-                  {...props}
-                  className={cn(
-                    "bg-muted-foreground/20 rounded px-1 py-0.5",
-                    className
-                  )}
-                >
-                  {children}
-                </code>
-              );
-            },
-          }}
           className="prose dark:prose-invert max-w-none text-sm sm:text-base"
         >
           {content}
