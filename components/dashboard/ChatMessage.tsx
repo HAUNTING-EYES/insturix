@@ -50,9 +50,7 @@ export function ChatMessage({
           role === "user" ? "bg-primary text-primary-foreground" : "bg-muted"
         )}
       >
-        <ReactMarkdown
-          className="prose dark:prose-invert max-w-none text-sm sm:text-base"
-        >
+        <ReactMarkdown className="prose dark:prose-invert max-w-none text-sm sm:text-base">
           {content}
         </ReactMarkdown>
       </div>

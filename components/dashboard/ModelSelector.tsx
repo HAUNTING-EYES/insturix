@@ -17,13 +17,21 @@ import {
 
 const models = [
   {
-    value: "gpt-3.5-turbo",
-    label: "GPT-3.5 Turbo",
+    value: "Techie-Tiwari",
+    label: "Techie-Tiwari",
   },
   {
-    value: "gpt-4",
-    label: "GPT-4",
+    value: "Editron",
+    label: "Editron",
   },
+  {
+    value: "Kund-Li",
+    label: "Kund-Li",
+  },
+  {
+    value:"Meditron",
+    label:"Meditron",
+  }
 ];
 
 interface ModelSelectorProps {

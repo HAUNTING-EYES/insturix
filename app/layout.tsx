@@ -5,6 +5,8 @@ import ThemeProvider from "@/providers/ThemeProvider";
 import { Toaster } from "@/components/ui/toaster";
 import ReactQueryProvider from "@/providers/ReactQuery";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: "Insturance",
@@ -24,6 +26,8 @@ export default function RootLayout({
             <ReactQueryProvider>
               <ThemeProvider>
                 {children}
+                <Analytics />
+                <SpeedInsights />
                 <Toaster />
                 <ReactQueryDevtools />
               </ThemeProvider>

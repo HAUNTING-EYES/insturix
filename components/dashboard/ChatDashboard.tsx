@@ -11,7 +11,7 @@ import { ThemeToggle } from "./ThemeToggle";
 
 export function ChatDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("gpt-3.5-turbo");
+  const [selectedModel, setSelectedModel] = useState("Kund-Li");
 
   return (
     <>
