@@ -1,16 +1,19 @@
+"use client";
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Settings, Trash, Edit2 } from "lucide-react";
+import { Plus, Trash, Edit2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ModelSelector } from "@/components/dashboard/ModelSelector";
+import { UserSettingsDialog } from "@/components/dashboard/UserSettings";
 
 interface PermanentSidebarProps {
   selectedModel: string;
   setSelectedModel: React.Dispatch<React.SetStateAction<string>>;
 }
 
-export function PermanentSidebar({
+export default function PermanentSidebar({
   selectedModel,
   setSelectedModel,
 }: PermanentSidebarProps) {
@@ -102,13 +105,7 @@ export function PermanentSidebar({
             <Trash className="mr-2 h-4 w-4" />
             Clear conversations
           </Button>
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-gray-300 hover:text-white hover:bg-gray-800"
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
-          </Button>
+          <UserSettingsDialog />
         </div>
       </div>
     </div>

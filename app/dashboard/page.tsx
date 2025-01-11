@@ -2,7 +2,7 @@
 
 import { useAuth } from "@clerk/nextjs";
 import NotSignedIn from "@/components/NotSignedup";
-import { ChatDashboard } from "@/components/dashboard/ChatDashboard";
+import ChatDashboard from "@/components/dashboard/ChatDashboard";
 
 export default function Dashboard() {
   const { isSignedIn } = useAuth();
