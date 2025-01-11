@@ -54,7 +54,7 @@ export default function ContactUsPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-black text-gray-800 dark:text-gray-200">
       <div className="container mx-auto px-4 py-16">
-        <h1 className="text-6xl font-bold mb-3 text-center bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
+        <h1 className="text-6xl font-bold mb-3 text-center primtext">
           Contact Us
         </h1>
         <p className="text-xl md:text-2xl text-center mb-16 text-black dark:text-white max-w-3xl mx-auto">
@@ -82,11 +82,10 @@ export default function ContactUsPage() {
                       id="name"
                       placeholder="Your name"
                       {...formik.getFieldProps("name")}
-                      className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                        formik.touched.name && formik.errors.name
+                      className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.name && formik.errors.name
                           ? "border-red-500"
                           : "border-gray-300 dark:border-gray-600"
-                      }`}
+                        }`}
                     />
                     <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                   </div>
@@ -110,11 +109,10 @@ export default function ContactUsPage() {
                       type="email"
                       placeholder="Your email"
                       {...formik.getFieldProps("email")}
-                      className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                        formik.touched.email && formik.errors.email
+                      className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.email && formik.errors.email
                           ? "border-red-500"
                           : "border-gray-300 dark:border-gray-600"
-                      }`}
+                        }`}
                     />
                     <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                   </div>
@@ -137,11 +135,10 @@ export default function ContactUsPage() {
                       id="subject"
                       placeholder="Message subject"
                       {...formik.getFieldProps("subject")}
-                      className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                        formik.touched.subject && formik.errors.subject
+                      className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.subject && formik.errors.subject
                           ? "border-red-500"
                           : "border-gray-300 dark:border-gray-600"
-                      }`}
+                        }`}
                     />
                     <MessageSquare className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                   </div>
@@ -163,11 +160,10 @@ export default function ContactUsPage() {
                     id="message"
                     placeholder="Your message"
                     {...formik.getFieldProps("message")}
-                    className={`min-h-[150px] bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                      formik.touched.message && formik.errors.message
+                    className={`min-h-[150px] bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.message && formik.errors.message
                         ? "border-red-500"
                         : "border-gray-300 dark:border-gray-600"
-                    }`}
+                      }`}
                   />
                   {formik.touched.message && formik.errors.message && (
                     <div className="text-red-500 text-sm">
@@ -189,7 +185,7 @@ export default function ContactUsPage() {
 
           <div className="space-y-8">
             <div className="bg-black dark:bg-white text-white dark:text-black p-8 rounded-lg shadow-lg">
-              <h2 className="text-3xl font-light mb-6 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
+              <h2 className="text-3xl font-light mb-6 primtext">
                 Contact Information
               </h2>
               <div className="space-y-4">
@@ -209,7 +205,7 @@ export default function ContactUsPage() {
             </div>
 
             <div className="bg-white dark:bg-black dark:border p-8 rounded-lg shadow-lg">
-              <h2 className="text-3xl font-light mb-6 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
+              <h2 className="text-3xl font-light mb-6 primtext">
                 Office Hours
               </h2>
               <ul className="space-y-2 text-black dark:text-white">

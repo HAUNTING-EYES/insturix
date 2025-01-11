@@ -132,7 +132,7 @@ export default function ContributionPage() {
     <div className="min-h-screen bg-white dark:bg-black">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <header className="py-20 text-center">
-          <h1 className="text-5xl md:text-7xl font-extrabold mb-4 text-center bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
+          <h1 className="text-5xl md:text-7xl font-extrabold mb-4 text-center primtext">
             Contribute to Our Vision
           </h1>
           <p className="text-xl md:text-2xl text-dark dark:text-white max-w-3xl mx-auto">
@@ -180,11 +180,10 @@ export default function ContributionPage() {
                     id="name"
                     placeholder="Your name"
                     {...formik.getFieldProps("name")}
-                    className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                      formik.touched.name && formik.errors.name
+                    className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.name && formik.errors.name
                         ? "border-red-500"
                         : "border-gray-300 dark:border-gray-600"
-                    }`}
+                      }`}
                   />
                   <User className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 </div>
@@ -212,11 +211,10 @@ export default function ContributionPage() {
                     type="email"
                     placeholder="Your email"
                     {...formik.getFieldProps("email")}
-                    className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                      formik.touched.email && formik.errors.email
+                    className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.email && formik.errors.email
                         ? "border-red-500"
                         : "border-gray-300 dark:border-gray-600"
-                    }`}
+                      }`}
                   />
                   <Mail className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 </div>
@@ -239,11 +237,10 @@ export default function ContributionPage() {
                     id="subject"
                     placeholder="Message subject"
                     {...formik.getFieldProps("subject")}
-                    className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                      formik.touched.subject && formik.errors.subject
+                    className={`pl-10 bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.subject && formik.errors.subject
                         ? "border-red-500"
                         : "border-gray-300 dark:border-gray-600"
-                    }`}
+                      }`}
                   />
                   <MessageSquare className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                 </div>
@@ -265,11 +262,10 @@ export default function ContributionPage() {
                   id="message"
                   placeholder="Your message"
                   {...formik.getFieldProps("message")}
-                  className={`min-h-[150px] bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${
-                    formik.touched.message && formik.errors.message
+                  className={`min-h-[150px] bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200 ${formik.touched.message && formik.errors.message
                       ? "border-red-500"
                       : "border-gray-300 dark:border-gray-600"
-                  }`}
+                    }`}
                 />
                 {formik.touched.message && formik.errors.message && (
                   <div className="text-red-500 text-sm">

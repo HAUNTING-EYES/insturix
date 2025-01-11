@@ -51,33 +51,44 @@ const reasons = [
 
 export function WhyUs() {
   return (
-    <section className="py-16 bg-white text-black dark:text-white dark:bg-black">
-      <div className="container mx-auto px-4">
-        <motion.h2
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className=" md:text-6xl text-6xl font-bold mb-16 text-center bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
+    <section className="relative py-24">
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/50 to-background"></div>
+      <div className="container relative mx-auto px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          viewport={{ once: true }}
+          className="text-center space-y-4 mb-16"
         >
-          Why Choose Us?
-        </motion.h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10">
+          <h2 className="text-4xl font-bold tracking-tight md:text-5xl primtext">
+            Why Choose Us?
+          </h2>
+          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+            Discover the unique advantages that set us apart
+          </p>
+        </motion.div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {reasons.map((reason, index) => (
             <motion.div
               key={index}
               initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
+              whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, delay: index * 0.1 }}
+              viewport={{ once: true }}
             >
-              <Card className="h-full transition-all duration-300 ease-in-out transform hover:scale-105 hover:shadow-2xl bg-white border-2 border-black">
-                <CardHeader className="bg-black rounded-t-lg dark:bg-white">
-                  <CardTitle className="flex items-center space-x-3 text-white">
-                    <reason.icon className="w-8 h-8 dark:text-black" />
-                    <span className="text-xl font-bold dark:text-black">{reason.title}</span>
+              <Card className="h-full bg-card/50 backdrop-blur-sm border-neutral-200/50 dark:border-neutral-700/50 hover:bg-card/80 transition-all duration-300">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      <reason.icon className="w-6 h-6 text-primary" />
+                    </div>
+                    <span className="text-xl">{reason.title}</span>
                   </CardTitle>
                 </CardHeader>
-                <CardContent className="pt-6">
-                  <p className="text-lg text-black dark:text-white">{reason.description}</p>
+                <CardContent>
+                  <p className="text-muted-foreground">{reason.description}</p>
                 </CardContent>
               </Card>
             </motion.div>

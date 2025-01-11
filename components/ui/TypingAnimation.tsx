@@ -1,64 +1,77 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
 
-export default function TypingAnimation({ text }:{text:string}) {
+export default function TypingAnimation({ text }: { text: string }) {
   const [typedText, setTypedText] = useState("");
-  const fullText :string = text
+  const [isVisible, setIsVisible] = useState(true);
+  const messages = [
+    "Automate Your Workflow",
+    "Monetize Your Content",
+    "Protect Your Creative Work",
+    "Connect with Brands",
+    "Level Up Your Content Creation Game"
+  ];
+  const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
+  const [isTypingComplete, setIsTypingComplete] = useState(false);
 
   useEffect(() => {
-    let isTyping = true;
-    let i = 0;
+    let currentIndex = 0;
+    let messageIndex = 0;
+    let timeoutId: NodeJS.Timeout;
 
     const typeText = () => {
-      if (isTyping) {
-        if (i < fullText.length) {
-          setTypedText(fullText.slice(0, i + 1));
-          i++;
-        } else {
-          isTyping = false;
-        }
+      const currentMessage = messages[messageIndex];
+      const typingSpeed = 100;
+      const messageDelay = 1500;
+
+      if (currentIndex <= currentMessage.length) {
+        setTypedText(currentMessage.slice(0, currentIndex));
+        currentIndex++;
+        timeoutId = setTimeout(typeText, typingSpeed);
       } else {
-        if (i > 0) {
-          setTypedText(fullText.slice(0, i - 1));
-          i--;
+        if (messageIndex < messages.length - 1) {
+          timeoutId = setTimeout(() => {
+            setIsVisible(false); // Start fade-out
+            timeoutId = setTimeout(() => {
+              messageIndex++;
+              setCurrentMessageIndex(messageIndex);
+              currentIndex = 0;
+              setTypedText("");
+              setIsVisible(true); // Start fade-in
+              timeoutId = setTimeout(typeText, typingSpeed);
+            }, 500); // Wait for fade-out to complete
+          }, messageDelay);
         } else {
-          isTyping = true;
+          setIsTypingComplete(true);
         }
       }
     };
 
-    const intervalId = setInterval(typeText, 100);
+    timeoutId = setTimeout(typeText, 500);
+    return () => clearTimeout(timeoutId);
+  }, []);
 
-    return () => clearInterval(intervalId);
-  }, [fullText]);
-
-  const sentenceAnimation = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        delay: 0.5,
-        staggerChildren: 0.08,
-      },
-    },
-  };
   return (
-    <motion.h1
-      className="text-6xl sm:text-6xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
-      initial="hidden"
-      animate="visible"
-      variants={sentenceAnimation}
-    >
-      {typedText}
-      <motion.span
-        animate={{ opacity: [0, 1, 0] }}
-        transition={{ duration: 0.5, repeat: Infinity }}
-        className="text-7xl sm:text-6xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent"
+    <AnimatePresence mode="wait">
+      <motion.h1
+        key={currentMessageIndex}
+        className="text-4xl font-extrabold tracking-tight sm:text-5xl md:text-6xl text-foreground min-h-[1.2em]"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: isVisible ? 1 : 0, y: isVisible ? 0 : -20 }}
+        exit={{ opacity: 0, y: -20 }}
+        transition={{ duration: 0.5, ease: "easeInOut" }}
       >
-        |
-      </motion.span>
-    </motion.h1>
+        {typedText}
+        {!isTypingComplete && (
+          <motion.span
+            animate={{ opacity: [0, 1, 0] }}
+            transition={{ duration: 0.8, repeat: Infinity, ease: "linear" }}
+            className="inline-block w-[4px] h-[1em] ml-1 align-middle bg-primary"
+          />
+        )}
+      </motion.h1>
+    </AnimatePresence>
   );
 }

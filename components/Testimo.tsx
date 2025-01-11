@@ -41,8 +41,8 @@ export default function Testimo() {
   return (
     <>
       <div className="text-center dark:bg-black">
-      <h2 className="text-6xl font-bold mb-16 text-center bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">Testimonials</h2>
-      <Testimonials testimonials={testimonials} />
+        <h2 className="text-6xl font-bold mb-16 text-center primtext">Testimonials</h2>
+        <Testimonials testimonials={testimonials} />
       </div>
     </>
   );

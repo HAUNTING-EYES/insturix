@@ -7,7 +7,7 @@ export default function Header() {
     <header className="bg-white text-black dark:text-white dark:bg-black">
       <div className="container mx-auto px-4 py-16 md:py-24 lg:py-32 flex flex-col lg:flex-row items-center">
         <div className="lg:w-1/2 text-center lg:text-left mb-8 lg:mb-0">
-          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
+          <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold mb-4 primtext">
             Revolutionize Your Content Safety with <u>Techie Tewari</u>
           </h1>
           <p className="text-lg md:text-xl mb-8">

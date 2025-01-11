@@ -2,28 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --neutral-900: #171717;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --tile: var(--neutral-900);
-  }
+:root {
+  --neutral-50: #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-800: #1f1f1f;
+  --neutral-900: #121212;
 }
 
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .light body {
-  --tile: var(--neutral-100);
+  --tile: var(--neutral-50);
+  background-color: var(--neutral-50);
 }
 
 .dark body {
   --tile: var(--neutral-900);
+  background-color: var(--neutral-900);
 }
 
 @layer utilities {
@@ -39,10 +37,95 @@ body {
       transform: translateY(0);
     }
   }
+
+  .subtle-shadow {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:scale-[1.01] hover:shadow-md;
+  }
 }
 
 @layer base {
   :root {
     --radius: 0.5rem;
+    /* Add these color definitions */
+    --background: 255 255 255;
+    --foreground: 0 0 0;
+
+    --primary: 99 102 241; /* indigo-500 */
+    --primary-foreground: 255 255 255;
+
+    --secondary: 236 72 153; /* pink-500 */
+    --secondary-foreground: 255 255 255;
+
+    --muted: 241 245 249;
+    --muted-foreground: 100 116 139;
+  }
+
+  .dark {
+    --background: 18 18 18;
+    --foreground: 255 255 255;
+
+    --muted: 31 31 31;
+    --muted-foreground: 148 163 184;
+  }
+}
+
+/* Add to your CSS file */
+.ripple {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 50%;
+  animation: rippleEffect 1s ease-out;
+}
+
+@keyframes rippleEffect {
+  from {
+    transform: scale(0);
+    opacity: 1;
+  }
+  to {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.brightness-overlay {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.3) 0%, transparent 70%);
+  filter: brightness(1.2);
+  mix-blend-mode: screen;
+  animation: brightnessFade 1s ease-out;
+}
+
+@keyframes brightnessFade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.primtext {
+  @apply text-neutral-900 dark:text-neutral-50 transition-colors duration-300;
+}
+
+@layer components {
+  .section-card {
+    @apply backdrop-blur-sm border border-neutral-200/50 
+           rounded-lg p-6 shadow-sm transition-all duration-300
+           hover:border-neutral-300 dark:border-neutral-700/50 
+           dark:hover:border-neutral-600;
+    background-color: rgb(var(--background) / 0.6);
+    &:hover {
+      background-color: rgb(var(--background) / 0.8);
+    }
   }
 }
