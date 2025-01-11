@@ -5,13 +5,13 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { ChatArea } from "@/components/dashboard/ChatArea";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import { PermanentSidebar } from "@/components/dashboard/PermanentSidebar";
-import { ModelSelector } from "@/components/dashboard/ModelSelector";
+import PermanentSidebar from "@/components/dashboard/PermanentSidebar";
 import { ThemeToggle } from "./ThemeToggle";
 
-export function ChatDashboard() {
+export default function ChatDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("Kund-Li");
+  console.log(selectedModel); // this functions will help in identifying the selected model
 
   return (
     <>
@@ -37,14 +37,10 @@ export function ChatDashboard() {
               <Menu className="h-6 w-6" />
               <span className="sr-only">Open sidebar</span>
             </Button>
-            <h1 className="text-2xl font-bold">ChatGPT Clone</h1>
+            <h1 className="text-2xl font-bold">Dashboard</h1>
           </div>
           <div className="flex items-center space-x-4">
-            <ModelSelector
-              selectedModel={selectedModel}
-              setSelectedModel={setSelectedModel}
-            />
-             <ThemeToggle />
+            <ThemeToggle />
           </div>
         </header>
         <ChatArea selectedModel={selectedModel} />
