@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Trash, Edit2 } from "lucide-react";
+import { Plus, Edit2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ModelSelector } from "@/components/dashboard/ModelSelector";
-import { UserSettingsDialog } from "@/components/dashboard/UserSettings";
+import { UserSettings } from "@/components/dashboard/UserSettings";
 
 interface PermanentSidebarProps {
   selectedModel: string;
@@ -98,14 +98,7 @@ export default function PermanentSidebar({
           </div>
         </ScrollArea>
         <div className="border-t border-gray-800 p-4">
-          <Button
-            variant="ghost"
-            className="w-full justify-start text-gray-300 hover:text-white hover:bg-gray-800"
-          >
-            <Trash className="mr-2 h-4 w-4" />
-            Clear conversations
-          </Button>
-          <UserSettingsDialog />
+          <UserSettings />
         </div>
       </div>
     </div>
