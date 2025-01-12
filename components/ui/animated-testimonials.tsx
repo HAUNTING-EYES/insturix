@@ -1,9 +1,9 @@
 "use client";
 
-import { IconArrowLeft, IconArrowRight } from "@tabler/icons-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { ChevronLeft, ChevronRight, Quote } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useState, useEffect } from "react";
 import { cn } from "@/lib/utils";
 
 type Testimonial = {
@@ -15,157 +15,177 @@ type Testimonial = {
 
 export const Testimonials = ({
   testimonials,
-  autoplay = false,
   className,
 }: {
   testimonials: Testimonial[];
-  autoplay?: boolean;
   className?: string;
 }) => {
-  const [active, setActive] = useState(0);
-
-  const handleNext = () => {
-    setActive((prev) => (prev + 1) % testimonials.length);
-  };
-
-  const handlePrev = () => {
-    setActive((prev) => (prev - 1 + testimonials.length) % testimonials.length);
-  };
-
-  const isActive = (index: number) => {
-    return index === active;
-  };
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [direction, setDirection] = useState(0);
+  const [imageLoading, setImageLoading] = useState(true);
 
   useEffect(() => {
-    if (autoplay) {
-      const interval = setInterval(handleNext, 5000);
-      return () => clearInterval(interval);
-    }
-  }, [autoplay]);
+    setImageLoading(true);
+  }, [activeIndex]);
 
-  const randomRotateY = () => {
-    return Math.floor(Math.random() * 21) - 10;
+  const slideVariants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? 100 : -100,
+      opacity: 0
+    }),
+    center: {
+      zIndex: 1,
+      x: 0,
+      opacity: 1
+    },
+    exit: (direction: number) => ({
+      zIndex: 0,
+      x: direction < 0 ? 100 : -100,
+      opacity: 0
+    })
+  };
+
+  const swipeConfidenceThreshold = 10000;
+  const swipePower = (offset: number, velocity: number) => {
+    return Math.abs(offset) * velocity;
+  };
+
+  const paginate = (newDirection: number) => {
+    setDirection(newDirection);
+    setActiveIndex((prev) => (prev + newDirection + testimonials.length) % testimonials.length);
   };
 
   return (
-    <div
-      className={cn(
-        "max-w-sm md:max-w-4xl mx-auto px-4 md:px-8 lg:px-12 py-20",
-        className
-      )}
-    >
-      <div className="relative grid grid-cols-1 md:grid-cols-2 gap-20">
-        <div>
-          <div className="relative h-80 w-full">
-            <AnimatePresence>
-              {testimonials.map((testimonial, index) => (
+    <div className={cn("relative overflow-hidden py-4", className)}>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+        {/* Image Section */}
+        <div className="relative h-[320px] md:h-[300px] w-full">
+          <AnimatePresence initial={false} custom={direction}>
+            <motion.div
+              key={activeIndex}
+              custom={direction}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.2 }
+              }}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={1}
+              onDragEnd={(e, { offset, velocity }) => {
+                const swipe = swipePower(offset.x, velocity.x);
+                if (swipe < -swipeConfidenceThreshold) {
+                  paginate(1);
+                } else if (swipe > swipeConfidenceThreshold) {
+                  paginate(-1);
+                }
+              }}
+              className="absolute inset-0"
+            >
+              <div className="relative h-full w-full rounded-2xl overflow-hidden shadow-lg">
+                {/* Enhanced Loading Placeholder with more contrast */}
+                <AnimatePresence mode="wait">
+                  {imageLoading && (
+                    <motion.div
+                      initial={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.5 }}
+                      className="absolute inset-0 bg-gradient-to-r from-neutral-200 via-neutral-300 to-neutral-200 dark:from-neutral-800 dark:via-neutral-700 dark:to-neutral-800 bg-[length:200%_100%] animate-shimmer"
+                    />
+                  )}
+                </AnimatePresence>
+
                 <motion.div
-                  key={testimonial.src}
-                  initial={{
-                    opacity: 0,
-                    scale: 0.9,
-                    z: -100,
-                    rotate: randomRotateY(),
-                  }}
-                  animate={{
-                    opacity: isActive(index) ? 1 : 0.7,
-                    scale: isActive(index) ? 1 : 0.95,
-                    z: isActive(index) ? 0 : -100,
-                    rotate: isActive(index) ? 0 : randomRotateY(),
-                    zIndex: isActive(index)
-                      ? 999
-                      : testimonials.length + 2 - index,
-                    y: isActive(index) ? [0, -80, 0] : 0,
-                  }}
-                  exit={{
-                    opacity: 0,
-                    scale: 0.9,
-                    z: 100,
-                    rotate: randomRotateY(),
-                  }}
-                  transition={{
-                    duration: 0.4,
-                    ease: "easeInOut",
-                  }}
-                  className="absolute inset-0 origin-bottom"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: imageLoading ? 0 : 1 }}
+                  transition={{ duration: 0.5 }}
                 >
                   <Image
-                    src={testimonial.src}
-                    alt={testimonial.name}
-                    width={500}
-                    height={500}
-                    draggable={false}
-                    className="h-full w-full rounded-3xl object-cover object-center"
+                    src={testimonials[activeIndex].src}
+                    alt={testimonials[activeIndex].name}
+                    fill
+                    className="object-cover object-center hover:scale-105 transition-all duration-500"
+                    priority
+                    onLoadingComplete={() => setImageLoading(false)}
+                    onLoad={() => setImageLoading(false)}
                   />
                 </motion.div>
-              ))}
-            </AnimatePresence>
-          </div>
+
+                <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/50 to-transparent" />
+              </div>
+            </motion.div>
+          </AnimatePresence>
         </div>
-        <div className="flex justify-between flex-col py-4">
-          <motion.div
-            key={active}
-            initial={{
-              y: 20,
-              opacity: 0,
-            }}
-            animate={{
-              y: 0,
-              opacity: 1,
-            }}
-            exit={{
-              y: -20,
-              opacity: 0,
-            }}
-            transition={{
-              duration: 0.2,
-              ease: "easeInOut",
-            }}
-          >
-            <h3 className="text-2xl font-bold text-neutral-950 dark:text-neutral-50">
-              {testimonials[active].name}
-            </h3>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400">
-              {testimonials[active].designation}
-            </p>
-            <motion.p className="text-lg text-neutral-500 mt-8 dark:text-neutral-400">
-              {testimonials[active].quote.split("").map((word, index) => (
-                <motion.span
-                  key={index}
-                  initial={{
-                    filter: "blur(10px)",
-                    opacity: 0,
-                    y: 5,
-                  }}
-                  animate={{
-                    filter: "blur(0px)",
-                    opacity: 1,
-                    y: 0,
-                  }}
-                  transition={{
-                    duration: 0.2,
-                    ease: "easeInOut",
-                    delay: 0.02 * index,
-                  }}
-                  className="inline-block"
-                >
-                  {word}&nbsp;
-                </motion.span>
-              ))}
-            </motion.p>
-          </motion.div>
-          <div className="flex gap-4 pt-12 md:pt-0">
-            <button
-              onClick={handlePrev}
-              className="h-7 w-7 rounded-full bg-neutral-100 flex items-center justify-center group/button dark:bg-neutral-800"
+
+        {/* Content Section */}
+        <div className="relative flex flex-col h-full md:min-h-[300px] justify-between py-2">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeIndex}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-6"
             >
-              <IconArrowLeft className="h-5 w-5 text-neutral-950 group-hover/button:rotate-12 transition-transform duration-300 dark:text-neutral-50" />
+              {/* Name and Role */}
+              <div className="space-y-1">
+                <h3 className="text-2xl font-semibold tracking-tight primtext">
+                  {testimonials[activeIndex].name}
+                </h3>
+                <p className="text-base text-muted-foreground font-medium">
+                  {testimonials[activeIndex].designation}
+                </p>
+              </div>
+
+              {/* Quote */}
+              <div className="relative">
+                <Quote className="absolute -left-1 -top-1 w-8 h-8 text-primary/10" />
+                <blockquote className="pt-6 pl-6 text-lg leading-relaxed tracking-normal text-muted-foreground">
+                  "{testimonials[activeIndex].quote}"
+                </blockquote>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+
+          {/* Navigation */}
+          <div className="flex items-center gap-6 pt-8">
+            <button
+              onClick={() => paginate(-1)}
+              className="p-3 rounded-full hover:bg-primary/5 transition-colors"
+              aria-label="Previous testimonial"
+            >
+              <ChevronLeft className="w-5 h-5 text-muted-foreground" />
             </button>
+
+            <div className="flex-1 flex justify-center gap-3">
+              {testimonials.map((_, index) => (
+                <button
+                  key={index}
+                  onClick={() => {
+                    setDirection(index > activeIndex ? 1 : -1);
+                    setActiveIndex(index);
+                  }}
+                  className={cn(
+                    "w-2 h-2 rounded-full transition-all duration-300",
+                    index === activeIndex
+                      ? "bg-primary w-6"
+                      : "bg-primary/20 hover:bg-primary/40"
+                  )}
+                  aria-label={`Go to testimonial ${index + 1}`}
+                />
+              ))}
+            </div>
+
             <button
-              onClick={handleNext}
-              className="h-7 w-7 rounded-full bg-neutral-100 flex items-center justify-center group/button dark:bg-neutral-800"
+              onClick={() => paginate(1)}
+              className="p-3 rounded-full hover:bg-primary/5 transition-colors"
+              aria-label="Next testimonial"
             >
-              <IconArrowRight className="h-5 w-5 text-neutral-950 group-hover/button:-rotate-12 transition-transform duration-300 dark:text-neutral-50" />
+              <ChevronRight className="w-5 h-5 text-muted-foreground" />
             </button>
           </div>
         </div>
@@ -173,3 +193,4 @@ export const Testimonials = ({
     </div>
   );
 };
+

@@ -7,7 +7,7 @@ import BackgroundEffects from "@/components/ui/BackgroundEffects";
 
 export default function HeroSection() {
     return (
-        <div className="relative min-h-[95vh] w-full overflow-hidden select-none">
+        <div className="relative min-h-[100vh] w-full overflow-hidden select-none">
             <BackgroundEffects />
 
             <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">

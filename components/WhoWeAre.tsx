@@ -3,6 +3,8 @@
 import { motion } from "framer-motion";
 import { companyData } from "@/components/data/Company-Data";
 import { Zap, BrainCircuit, Blocks, Users } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { HoverCard } from "./ui/HoverCard";
 
 const iconComponents = {
   Zap,
@@ -11,12 +13,45 @@ const iconComponents = {
   Users,
 };
 
+function MainHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="relative inline-block">
+      <h2 className="text-3xl font-semibold relative z-10">
+        {children}
+      </h2>
+      <div className="absolute -bottom-2 left-0 w-full h-[0.2em] bg-neutral-200 dark:bg-neutral-800 rounded-full" />
+      <div className="absolute -bottom-2 left-0 w-1/4 h-[0.2em] bg-neutral-400 dark:bg-neutral-600 rounded-full" />
+    </div>
+  );
+}
+
+function CardHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-2xl font-semibold relative after:content-[''] after:absolute after:-bottom-2 after:left-0 after:w-12 after:h-0.5 after:bg-neutral-300 dark:after:bg-neutral-700">
+      {children}
+    </h2>
+  );
+}
+
+function DecorativeHeading({ children, centered = false }: { children: React.ReactNode, centered?: boolean }) {
+  return (
+    <div className={`flex flex-col ${centered ? 'items-center' : ''} space-y-2`}>
+      <h2 className="text-3xl font-semibold">{children}</h2>
+      <div className="flex items-center space-x-3">
+        <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+        <div className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+        <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+      </div>
+    </div>
+  );
+}
+
 export default function WhoWeAre() {
   return (
-    <div className="relative mt-[-150px]">
-      <div className="h-[150px] bg-gradient-to-b from-transparent via-white/80 to-white dark:via-neutral-900/40 dark:to-neutral-900" />
-      <div className="bg-neutral-50 dark:bg-neutral-900">
-        <div className="container mx-auto px-6 py-20 space-y-24 pt-[150px]">
+    <div className="relative mt-[calc(-200px-5vh)]">
+      <div className="h-[200px] bg-gradient-to-b from-transparent via-[rgb(var(--background))]/40 to-[rgb(var(--background))]" />
+      <div className="bg-[rgb(var(--background))]">
+        <div className="container mx-auto px-4 py-12 space-y-12 pt-[100px]">
           <Header />
           <MissionVision />
           <Story />
@@ -35,9 +70,16 @@ function Header() {
       transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
       className="text-center space-y-6"
     >
-      <h1 className="text-5xl font-bold tracking-tight">
-        Who We Are
-      </h1>
+      <div className="flex flex-col items-center space-y-2">
+        <h1 className="text-5xl font-bold tracking-tight">
+          Who We Are
+        </h1>
+        <div className="flex items-center space-x-4">
+          <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+          <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+          <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+        </div>
+      </div>
       <motion.p
         className="text-xl text-muted-foreground max-w-2xl mx-auto"
         initial={{ opacity: 0 }}
@@ -57,21 +99,18 @@ function MissionVision() {
       whileInView={{ opacity: 1, y: 0 }}
       transition={{ duration: 1 }}
       viewport={{ once: true }}
-      className="grid md:grid-cols-2 gap-6"
+      className="grid md:grid-cols-2 gap-4"
     >
       {[
         { title: "Our Mission", content: companyData.mission },
         { title: "Our Vision", content: companyData.vision }
       ].map((item) => (
-        <motion.div
-          key={item.title}
-          className="section-card card-hover"
-        >
-          <h2 className="text-2xl font-semibold mb-4">{item.title}</h2>
-          <p className="text-muted-foreground leading-relaxed">
+        <HoverCard key={item.title}>
+          <CardHeading>{item.title}</CardHeading>
+          <p className="text-muted-foreground leading-relaxed mt-8">
             {item.content}
           </p>
-        </motion.div>
+        </HoverCard>
       ))}
     </motion.div>
   );
@@ -79,18 +118,12 @@ function MissionVision() {
 
 function Story() {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      transition={{ duration: 1 }}
-      viewport={{ once: true }}
-      className="section-card space-y-6"
-    >
-      <h2 className="text-2xl font-semibold">Our Story</h2>
-      <p className="text-muted-foreground leading-relaxed">
+    <HoverCard>
+      <CardHeading>Our Story</CardHeading>
+      <p className="text-muted-foreground leading-relaxed mt-8">
         {companyData.story}
       </p>
-    </motion.div>
+    </HoverCard>
   );
 }
 
@@ -101,10 +134,10 @@ function Values() {
       whileInView={{ opacity: 1, y: 0 }}
       transition={{ duration: 1 }}
       viewport={{ once: true }}
-      className="space-y-12"
+      className="space-y-8"
     >
-      <h2 className="text-2xl font-semibold text-center">Our Values</h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+      <DecorativeHeading centered>Our Values</DecorativeHeading>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {companyData.values.map((value, index) => {
           const IconComponent = iconComponents[value.icon as keyof typeof iconComponents];
           return (
@@ -112,20 +145,25 @@ function Values() {
               key={value.name}
               initial={{ opacity: 0 }}
               whileInView={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: index * 0.1 }}
+              whileHover={{
+                scale: 1.05,
+                boxShadow: "0 10px 30px -10px rgba(0,0,0,0.2)"
+              }}
+              transition={{ duration: 0.2 }}
               viewport={{ once: true }}
-              className="section-card card-hover flex flex-col items-center py-12"
+              className="section-card card-hover flex flex-col items-center py-8 relative overflow-hidden group"
             >
               <motion.div
-                className="mb-6"
-                whileHover={{ scale: 1.1 }}
-                transition={{ duration: 0.3 }}
+                className="mb-4 relative z-10"
+                whileHover={{ scale: 1.1, rotate: 5 }}
+                transition={{ duration: 0.2 }}
               >
-                <IconComponent className="w-10 h-10 text-neutral-900 dark:text-neutral-50" />
+                <IconComponent className="w-8 h-8 text-neutral-900 dark:text-neutral-50" />
               </motion.div>
-              <h3 className="text-xl font-medium text-center">
+              <h3 className="text-lg font-medium text-center relative z-10">
                 {value.name}
               </h3>
+              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-transparent to-white/10 dark:to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </motion.div>
           );
         })}

@@ -1,7 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { HoverCard } from "./ui/HoverCard";
+import { useState } from "react";
 import {
   Lightbulb,
   Rocket,
@@ -51,22 +52,33 @@ const reasons = [
 
 export function WhyUs() {
   return (
-    <section className="relative py-24">
+    <section className="relative py-24 bg-background">
       <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/50 to-background"></div>
       <div className="container relative mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          viewport={{ once: true }}
-          className="text-center space-y-4 mb-16"
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+          className="text-center space-y-6 mb-16"
         >
-          <h2 className="text-4xl font-bold tracking-tight md:text-5xl primtext">
-            Why Choose Us?
-          </h2>
-          <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+          <div className="flex flex-col items-center space-y-2">
+            <h1 className="text-5xl font-bold tracking-tight">
+              Why Choose Us?
+            </h1>
+            <div className="flex items-center space-x-4">
+              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+              <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+            </div>
+          </div>
+          <motion.p
+            className="text-xl text-muted-foreground max-w-2xl mx-auto"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 0.2 }}
+          >
             Discover the unique advantages that set us apart
-          </p>
+          </motion.p>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -78,19 +90,21 @@ export function WhyUs() {
               transition={{ duration: 0.5, delay: index * 0.1 }}
               viewport={{ once: true }}
             >
-              <Card className="h-full bg-card/50 backdrop-blur-sm border-neutral-200/50 dark:border-neutral-700/50 hover:bg-card/80 transition-all duration-300">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10">
+              <HoverCard>
+                <div className="relative z-10">
+                  <div className="flex items-center gap-3 mb-4">
+                    <motion.div
+                      className="p-2 rounded-lg bg-primary/10"
+                      whileHover={{ scale: 1.1, rotate: 5 }}
+                      transition={{ duration: 0.2 }}
+                    >
                       <reason.icon className="w-6 h-6 text-primary" />
-                    </div>
-                    <span className="text-xl">{reason.title}</span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
+                    </motion.div>
+                    <h3 className="text-xl font-semibold">{reason.title}</h3>
+                  </div>
                   <p className="text-muted-foreground">{reason.description}</p>
-                </CardContent>
-              </Card>
+                </div>
+              </HoverCard>
             </motion.div>
           ))}
         </div>

@@ -16,12 +16,12 @@ body {
 
 .light body {
   --tile: var(--neutral-50);
-  background-color: var(--neutral-50);
+  background-color: var(--background);
 }
 
 .dark body {
   --tile: var(--neutral-900);
-  background-color: var(--neutral-900);
+  background-color: var(--background);
 }
 
 @layer utilities {
@@ -45,23 +45,62 @@ body {
   .card-hover {
     @apply transition-all duration-300 hover:scale-[1.01] hover:shadow-md;
   }
+
+  .animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  }
+
+  @keyframes pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.5;
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 1.5s linear infinite;
+  }
+
+  @keyframes shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+
+  .bg-grid-neutral-100 {
+    background-image: linear-gradient(to right, rgb(245 245 245 / 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(245 245 245 / 0.1) 1px, transparent 1px);
+  }
+
+  .bg-grid-neutral-900 {
+    background-image: linear-gradient(to right, rgb(23 23 23 / 0.1) 1px, transparent 1px),
+      linear-gradient(to bottom, rgb(23 23 23 / 0.1) 1px, transparent 1px);
+  }
 }
 
 @layer base {
   :root {
     --radius: 0.5rem;
-    /* Add these color definitions */
     --background: 255 255 255;
     --foreground: 0 0 0;
 
-    --primary: 99 102 241; /* indigo-500 */
+    --primary: 99 102 241;
     --primary-foreground: 255 255 255;
 
-    --secondary: 236 72 153; /* pink-500 */
+    --secondary: 236 72 153;
     --secondary-foreground: 255 255 255;
 
     --muted: 241 245 249;
     --muted-foreground: 100 116 139;
+
+    --shimmer-color: 0 0 0;
+    --shimmer-opacity: 0.05;
   }
 
   .dark {
@@ -70,6 +109,9 @@ body {
 
     --muted: 31 31 31;
     --muted-foreground: 148 163 184;
+
+    --shimmer-color: 255 255 255;
+    --shimmer-opacity: 0.1;
   }
 }
 

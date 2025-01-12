@@ -53,7 +53,7 @@ export default function BackgroundEffects() {
         const animateBlobs = () => {
             setBlobs((prevBlobs) =>
                 prevBlobs.map((blob) => {
-                    let { x, y, velocity } = blob;
+                    let { x, y, velocity, scale } = blob;
 
                     // Repulsion logic
                     prevBlobs.forEach((otherBlob) => {
@@ -71,10 +71,11 @@ export default function BackgroundEffects() {
                     });
 
                     // Boundary logic
-                    if (x < 100) velocity.x += boundaryStrength * (100 - x);
-                    if (x > window.innerWidth - 100) velocity.x -= boundaryStrength * (x - (window.innerWidth - 100));
-                    if (y < 100) velocity.y += boundaryStrength * (100 - y);
-                    if (y > window.innerHeight - 100) velocity.y -= boundaryStrength * (y - (window.innerHeight - 100));
+                    const halfSize = scale / 2;
+                    if (x < -halfSize) velocity.x += boundaryStrength * (-halfSize - x);
+                    if (x > window.innerWidth - halfSize) velocity.x -= boundaryStrength * (x - (window.innerWidth - halfSize));
+                    if (y < -halfSize) velocity.y += boundaryStrength * (-halfSize - y);
+                    if (y > window.innerHeight - halfSize) velocity.y -= boundaryStrength * (y - (window.innerHeight - halfSize));
 
                     // Limit speed
                     velocity.x = Math.min(Math.max(velocity.x, -maxSpeed), maxSpeed);

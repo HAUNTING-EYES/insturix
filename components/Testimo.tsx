@@ -1,4 +1,7 @@
+"use client";
+
 import { Testimonials } from "@/components/ui/animated-testimonials";
+import { motion } from "framer-motion";
 
 export default function Testimo() {
   const testimonials = [
@@ -38,12 +41,47 @@ export default function Testimo() {
       src: "https://images.unsplash.com/photo-1624561172888-ac93c696e10c?q=80&w=2592&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D",
     },
   ];
+
   return (
-    <>
-      <div className="text-center dark:bg-black">
-        <h2 className="text-6xl font-bold mb-16 text-center primtext">Testimonials</h2>
-        <Testimonials testimonials={testimonials} />
+    <section className="relative py-24">
+      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/50 to-background"></div>
+      <div className="container relative mx-auto px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+          className="text-center space-y-6 mb-16"
+        >
+          <div className="flex flex-col items-center space-y-2">
+            <h1 className="text-5xl font-bold tracking-tight">
+              What Our Clients Say
+            </h1>
+            <div className="flex items-center space-x-4">
+              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+              <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+            </div>
+          </div>
+          <motion.p
+            className="text-xl text-muted-foreground max-w-2xl mx-auto"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1, delay: 0.2 }}
+          >
+            Hear from the businesses we've helped transform
+          </motion.p>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          viewport={{ once: true }}
+          className="section-card max-w-5xl mx-auto"
+        >
+          <Testimonials testimonials={testimonials} />
+        </motion.div>
       </div>
-    </>
+    </section>
   );
 }
