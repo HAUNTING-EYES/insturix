@@ -6,7 +6,7 @@ export default function signin() {
     <>
     <Navbar />
       <div className="flex justify-center items-center h-screen">
-        <SignIn routing="hash"/>
+        <SignIn routing="hash" forceRedirectUrl={"/dashboard"}/>
       </div>
     </>
   );

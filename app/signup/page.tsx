@@ -6,7 +6,7 @@ export default function SignupPage() {
     <>
     <Navbar />
       <div className="flex justify-center items-center h-screen">
-        <SignUp routing="hash" />
+        <SignUp routing="hash" forceRedirectUrl={"/dashboard"}/>
       </div>
     </>
   );
