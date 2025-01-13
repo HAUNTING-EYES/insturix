@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import { HoverCard } from "./ui/HoverCard";
 import { useState } from "react";
 import {
@@ -51,14 +51,8 @@ const reasons = [
 ];
 
 export function WhyUs() {
-  const { scrollYProgress } = useScroll();
-  const scale = useTransform(scrollYProgress, [0, 1], [0.9, 1]);
-
   return (
-    <motion.section
-      style={{ scale }}
-      className="relative py-24 bg-background"
-    >
+    <section className="relative py-24 bg-background">
       <motion.div
         className="absolute inset-0"
         style={{
@@ -107,15 +101,16 @@ export function WhyUs() {
             <motion.div
               key={index}
               initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              transition={{
-                duration: 0.5,
-                delay: index * 0.1,
-                type: "spring",
-                stiffness: 100
+              whileInView={{ 
+                opacity: 1, 
+                y: 0,
+                transition: {
+                  type: "spring",
+                  duration: 0.8,
+                  delay: index * 0.1
+                }
               }}
-              viewport={{ once: true }}
-              whileHover={{ y: -5 }}
+              viewport={{ once: true, amount: 0.3 }}
               className="h-full"
             >
               <HoverCard className="h-full relative overflow-hidden">
@@ -143,6 +138,6 @@ export function WhyUs() {
           ))}
         </div>
       </div>
-    </motion.section>
+    </section>
   );
 }

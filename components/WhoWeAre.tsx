@@ -117,19 +117,18 @@ function MissionVision() {
 }
 
 function Story() {
-  const ref = useRef(null);
-  const { scrollYProgress } = useScroll({
-    target: ref,
-    offset: ["start end", "end start"]
-  });
-
-  const opacity = useTransform(scrollYProgress, [0, 0.5], [0, 1]);
-  const y = useTransform(scrollYProgress, [0, 0.5], [100, 0]);
-
   return (
     <motion.div
-      ref={ref}
-      style={{ opacity, y }}
+      initial={{ opacity: 0, y: 50 }}
+      whileInView={{
+        opacity: 1,
+        y: 0,
+        transition: {
+          type: "spring",
+          duration: 0.8
+        }
+      }}
+      viewport={{ once: true, amount: 0.3 }}
       className="relative"
     >
       <HoverCard className="overflow-hidden">
@@ -137,8 +136,8 @@ function Story() {
         <motion.p
           className="text-muted-foreground leading-relaxed mt-8"
           initial={{ opacity: 0 }}
-          whileInView={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
         >
           {companyData.story}
         </motion.p>
@@ -163,9 +162,13 @@ function Values() {
   return (
     <motion.div
       initial={{ opacity: 0 }}
-      whileInView={{ opacity: 1 }}
-      transition={{ duration: 1 }}
-      viewport={{ once: true }}
+      whileInView={{
+        opacity: 1,
+        transition: {
+          duration: 0.5
+        }
+      }}
+      viewport={{ once: true, amount: 0.3 }}
       className="space-y-8"
     >
       <DecorativeHeading centered>Our Values</DecorativeHeading>
@@ -176,16 +179,16 @@ function Values() {
             <motion.div
               key={value.name}
               initial={{ opacity: 0, scale: 0.8 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              whileHover={{
-                scale: 1.05,
-                boxShadow: "0 10px 30px -10px rgba(0,0,0,0.2)"
+              whileInView={{
+                opacity: 1,
+                scale: 1,
+                transition: {
+                  type: "spring",
+                  duration: 0.5,
+                  delay: index * 0.1
+                }
               }}
-              transition={{
-                duration: 0.2,
-                delay: index * 0.1
-              }}
-              viewport={{ once: true }}
+              viewport={{ once: true, amount: 0.3 }}
               className="section-card relative overflow-hidden group cursor-pointer"
             >
               <motion.div

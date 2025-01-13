@@ -16,7 +16,7 @@ export default function Home() {
   });
 
   return (
-    <>
+    <div className="relative overflow-x-hidden w-full">
       <motion.div
         className="fixed top-0 left-0 right-0 h-[3px] origin-left z-[60]"
         style={{
@@ -30,6 +30,6 @@ export default function Home() {
       <WhyUs />
       <Testimo />
       <Footer />
-    </>
+    </div>
   );
 }

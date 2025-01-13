@@ -12,6 +12,7 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
 }
 
 .light body {
@@ -164,7 +165,7 @@ body {
     @apply backdrop-blur-sm border border-neutral-200/50 
            rounded-lg p-6 shadow-sm transition-all duration-300
            hover:border-neutral-300 dark:border-neutral-700/50 
-           dark:hover:border-neutral-600;
+           dark:hover:border-neutral-600 w-full;
     background-color: rgb(var(--background) / 0.6);
     &:hover {
       background-color: rgb(var(--background) / 0.8);
