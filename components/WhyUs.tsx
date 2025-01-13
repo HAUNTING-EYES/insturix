@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { HoverCard } from "./ui/HoverCard";
 import { useState } from "react";
 import {
@@ -51,9 +51,30 @@ const reasons = [
 ];
 
 export function WhyUs() {
+  const { scrollYProgress } = useScroll();
+  const scale = useTransform(scrollYProgress, [0, 1], [0.9, 1]);
+
   return (
-    <section className="relative py-24 bg-background">
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/50 to-background"></div>
+    <motion.section
+      style={{ scale }}
+      className="relative py-24 bg-background"
+    >
+      <motion.div
+        className="absolute inset-0"
+        style={{
+          background: "radial-gradient(circle at 50% 50%, var(--primary-color)/0.1, transparent)",
+        }}
+        animate={{
+          scale: [1, 1.1, 1],
+          opacity: [0.3, 0.5, 0.3],
+        }}
+        transition={{
+          duration: 8,
+          repeat: Infinity,
+          ease: "easeInOut",
+        }}
+      />
+
       <div className="container relative mx-auto px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -87,11 +108,24 @@ export function WhyUs() {
               key={index}
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.5, delay: index * 0.1 }}
+              transition={{
+                duration: 0.5,
+                delay: index * 0.1,
+                type: "spring",
+                stiffness: 100
+              }}
               viewport={{ once: true }}
+              whileHover={{ y: -5 }}
+              className="h-full"
             >
-              <HoverCard>
-                <div className="relative z-10">
+              <HoverCard className="h-full relative overflow-hidden">
+                <motion.div
+                  className="absolute inset-0 bg-gradient-to-tr from-primary/5 via-transparent to-transparent"
+                  initial={{ x: "-100%" }}
+                  whileHover={{ x: "0%" }}
+                  transition={{ duration: 0.3 }}
+                />
+                <div className="relative z-10 h-full flex flex-col">
                   <div className="flex items-center gap-3 mb-4">
                     <motion.div
                       className="p-2 rounded-lg bg-primary/10"
@@ -102,13 +136,13 @@ export function WhyUs() {
                     </motion.div>
                     <h3 className="text-xl font-semibold">{reason.title}</h3>
                   </div>
-                  <p className="text-muted-foreground">{reason.description}</p>
+                  <p className="text-muted-foreground flex-grow">{reason.description}</p>
                 </div>
               </HoverCard>
             </motion.div>
           ))}
         </div>
       </div>
-    </section>
+    </motion.section>
   );
 }

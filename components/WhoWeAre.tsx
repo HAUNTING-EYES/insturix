@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform } from "framer-motion";
 import { companyData } from "@/components/data/Company-Data";
 import { Zap, BrainCircuit, Blocks, Users } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -117,21 +117,53 @@ function MissionVision() {
 }
 
 function Story() {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "end start"]
+  });
+
+  const opacity = useTransform(scrollYProgress, [0, 0.5], [0, 1]);
+  const y = useTransform(scrollYProgress, [0, 0.5], [100, 0]);
+
   return (
-    <HoverCard>
-      <CardHeading>Our Story</CardHeading>
-      <p className="text-muted-foreground leading-relaxed mt-8">
-        {companyData.story}
-      </p>
-    </HoverCard>
+    <motion.div
+      ref={ref}
+      style={{ opacity, y }}
+      className="relative"
+    >
+      <HoverCard className="overflow-hidden">
+        <CardHeading>Our Story</CardHeading>
+        <motion.p
+          className="text-muted-foreground leading-relaxed mt-8"
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+        >
+          {companyData.story}
+        </motion.p>
+        <motion.div
+          className="absolute -bottom-20 -right-20 w-40 h-40 bg-primary/10 rounded-full blur-3xl"
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.5, 0.3]
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+        />
+      </HoverCard>
+    </motion.div>
   );
 }
 
 function Values() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0 }}
+      whileInView={{ opacity: 1 }}
       transition={{ duration: 1 }}
       viewport={{ once: true }}
       className="space-y-8"
@@ -143,27 +175,33 @@ function Values() {
           return (
             <motion.div
               key={value.name}
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
+              initial={{ opacity: 0, scale: 0.8 }}
+              whileInView={{ opacity: 1, scale: 1 }}
               whileHover={{
                 scale: 1.05,
                 boxShadow: "0 10px 30px -10px rgba(0,0,0,0.2)"
               }}
-              transition={{ duration: 0.2 }}
+              transition={{
+                duration: 0.2,
+                delay: index * 0.1
+              }}
               viewport={{ once: true }}
-              className="section-card card-hover flex flex-col items-center py-8 relative overflow-hidden group"
+              className="section-card relative overflow-hidden group cursor-pointer"
             >
               <motion.div
-                className="mb-4 relative z-10"
-                whileHover={{ scale: 1.1, rotate: 5 }}
+                className="absolute inset-0 bg-gradient-to-tr from-primary/10 to-transparent"
+                initial={{ x: "-100%" }}
+                whileHover={{ x: "0%" }}
+                transition={{ duration: 0.3 }}
+              />
+              <motion.div
+                className="relative z-10 flex flex-col items-center py-8"
+                whileHover={{ y: -5 }}
                 transition={{ duration: 0.2 }}
               >
-                <IconComponent className="w-8 h-8 text-neutral-900 dark:text-neutral-50" />
+                <IconComponent className="w-8 h-8 text-primary mb-4" />
+                <h3 className="text-lg font-medium text-center">{value.name}</h3>
               </motion.div>
-              <h3 className="text-lg font-medium text-center relative z-10">
-                {value.name}
-              </h3>
-              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-transparent to-white/10 dark:to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
             </motion.div>
           );
         })}

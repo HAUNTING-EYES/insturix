@@ -7,6 +7,20 @@ import { Input } from "@/components/ui/input";
 import { Github, Linkedin, Instagram, Youtube, Twitter, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 
+const companyLinks = [
+  { label: "Terms", link: "#" },
+  { label: "Privacy", link: "#" },
+  { label: "Cookies", link: "#" },
+]
+
+const companySocials =
+  [
+    { icon: Twitter, label: "Twitter", link: "#" },
+    { icon: Linkedin, label: "LinkedIn", link: "#" },
+    { icon: Instagram, label: "Instagram", link: "#" },
+    { icon: Youtube, label: "YouTube", link: "#" },
+  ];
+
 function NewsletterSection() {
   const [email, setEmail] = useState("");
   const handleSubmit = (e: React.FormEvent) => {
@@ -158,30 +172,24 @@ export default function Footer() {
         <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 pt-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-              <span>© 2025 Your Company, Inc.</span>
+              <span>© 2025 Insturance, Inc.</span>
               <div className="h-1 w-1 rounded-full bg-muted-foreground/30 hidden md:block" />
-              {["Terms", "Privacy", "Cookies"].map((item) => (
+              {companyLinks.map((item) => (
                 <Link
-                  key={item}
-                  href="#"
+                  key={item.label}
+                  href={item.link}
                   className="hover:text-foreground transition-colors"
                 >
-                  {item}
+                  {item.label}
                 </Link>
               ))}
             </div>
 
             <div className="flex items-center gap-2">
-              {[
-                { icon: Github, label: "GitHub" },
-                { icon: Twitter, label: "Twitter" },
-                { icon: Linkedin, label: "LinkedIn" },
-                { icon: Instagram, label: "Instagram" },
-                { icon: Youtube, label: "YouTube" }
-              ].map(({ icon: Icon, label }) => (
+              {companySocials.map(({ icon: Icon, label, link }) => (
                 <Link
                   key={label}
-                  href="#"
+                  href={link}
                   className="text-muted-foreground hover:text-foreground transition-colors p-2.5 rounded-full hover:bg-muted"
                   aria-label={label}
                 >

@@ -10,6 +10,7 @@ interface Blob {
     rotate: number;
     color: string;
     velocity: { x: number; y: number };
+    opacity: number;
 }
 
 export default function BackgroundEffects() {
@@ -18,12 +19,12 @@ export default function BackgroundEffects() {
     const [blobs, setBlobs] = useState<Blob[]>([]);
     const containerRef = useRef<HTMLDivElement>(null);
 
-    const repulsionStrength = 0.1; // Increased repulsion strength
-    const boundaryStrength = 0.05; // Adjusted boundary strength
-    const maxSpeed = 0.3; // Slightly increased max speed
-    const minBlobSize = 700; // Minimum size of blobs in pixels
-    const maxBlobSize = 1000; // Maximum size of blobs in pixels
-    const blobCount = 4; // Number of blobs
+    const repulsionStrength = 0.1;
+    const boundaryStrength = 0.05;
+    const maxSpeed = 0.3;
+    const minBlobSize = 700;
+    const maxBlobSize = 1000;
+    const blobCount = 4;
 
     const colors = [
         'rgba(200, 160, 255, 0.7)',
@@ -44,9 +45,21 @@ export default function BackgroundEffects() {
                 x: (Math.random() - 0.5) * maxSpeed,
                 y: (Math.random() - 0.5) * maxSpeed,
             },
+            opacity: 0,
         }));
 
         setBlobs(initialBlobs);
+
+        // Animate blobs in with delay
+        initialBlobs.forEach((blob, index) => {
+            setTimeout(() => {
+                setBlobs(prevBlobs =>
+                    prevBlobs.map(b =>
+                        b.id === index ? { ...b, opacity: 0.7 } : b
+                    )
+                );
+            }, index * (300 + Math.random() * 800)); // Random delay between 300ms and 1100ms
+        });
     }, []);
 
     useEffect(() => {
@@ -63,7 +76,7 @@ export default function BackgroundEffects() {
                         const dy = otherBlob.y - y;
                         const distance = Math.sqrt(dx * dx + dy * dy);
 
-                        if (distance < 300) { // Increased repulsion range
+                        if (distance < 300) {
                             const force = (repulsionStrength * (300 - distance)) / distance;
                             velocity.x -= force * dx;
                             velocity.y -= force * dy;
@@ -145,13 +158,15 @@ export default function BackgroundEffects() {
                 {blobs.map((blob) => (
                     <div
                         key={blob.id}
-                        className="absolute rounded-full blur-3xl opacity-70"
+                        className="absolute rounded-full blur-3xl"
                         style={{
                             background: `radial-gradient(circle, ${blob.color}, transparent)`,
                             width: `${blob.scale}px`,
                             height: `${blob.scale}px`,
                             transform: `translate(${blob.x}px, ${blob.y}px) rotate(${blob.rotate}deg)`,
                             willChange: 'transform',
+                            opacity: blob.opacity,
+                            transition: 'opacity 2.5s ease',
                         }}
                     />
                 ))}
