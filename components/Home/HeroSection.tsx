@@ -6,30 +6,46 @@ import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
 
 export default function HeroSection() {
+    const heroMessages = [
+        "Automate Your Workflow",
+        "Monetize Your Content",
+        "Protect Your Creative Work",
+        "Connect with Brands",
+        "Level Up Your Content Creation Game"
+    ];
+
     return (
-        <div className="relative min-h-[100vh] w-full overflow-hidden select-none">
+        <div className="relative min-h-screen w-full overflow-hidden select-none">
             <BackgroundEffects />
 
-            <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-                <div className="flex min-h-[95vh] w-full flex-col items-center justify-center text-center">
+            <div className="relative mx-auto w-full px-4 sm:px-6 lg:px-8">
+                <div className="flex min-h-screen w-full flex-col items-center justify-center text-center">
                     <motion.div
-                        className="space-y-8 w-full" // Reduced space below the typewriter text
+                        className="w-full"
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.8, delay: 0.2 }}
                     >
-                        <div className="relative">
-                            <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-50 blur-2xl">
-                                <div className="absolute inset-0 bg-gradient-to-r from-primary/30 to-secondary/30 [mask-image:radial-gradient(farthest-side_at_top,white,transparent)]" />
+                        <div className="relative mb-8 sm:mb-12 w-full">
+                            <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl">
+                                <div className="absolute inset-0 bg-gradient-to-r from-[rgb(var(--primary))/10] to-[rgb(var(--secondary))/10] [mask-image:radial-gradient(farthest-side_at_top,white,transparent)]" />
                             </div>
 
-                            <div className="relative z-10">
-                                <TypingAnimation text="Level Up Your Content Creation Game" />
+                            <div className="relative z-10 w-full">
+                                <TypingAnimation
+                                    messages={heroMessages}
+                                    displayDuration={3000}
+                                    characterDelay={40}
+                                    transitionDuration={350}
+                                    shouldLoop={false}
+                                    className="w-full"
+                                    fontSize="text-3xl sm:text-4xl md:text-5xl lg:text-5xl"
+                                />
                             </div>
                         </div>
 
                         <motion.p
-                            className="mx-auto max-w-2xl text-lg text-muted-foreground/80 sm:text-xl"
+                            className="mx-auto max-w-xl text-base sm:text-lg md:text-xl text-muted-foreground/80 px-4 mb-8 sm:mb-12"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             transition={{ duration: 0.8, delay: 1 }}
@@ -39,20 +55,20 @@ export default function HeroSection() {
                         </motion.p>
 
                         <motion.div
-                            className="flex gap-6 w-full justify-center"
+                            className="flex flex-col sm:flex-row gap-4 sm:gap-6 w-full justify-center items-center mt-4"
                             initial={{ opacity: 0, y: 20 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.8, delay: 1.5 }}
                         >
                             <Link
                                 href="/signup"
-                                className="group relative rounded-full bg-primary px-8 py-3 text-sm font-semibold text-primary-foreground shadow-xl transition-all duration-300 ease-out hover:scale-105 hover:shadow-2xl active:scale-[0.98]"
+                                className="w-full sm:w-auto group relative rounded-full bg-[rgb(var(--foreground))] px-8 py-3 text-sm font-semibold text-[rgb(var(--background))] shadow-xl transition-all duration-300 ease-out hover:scale-105 hover:shadow-2xl active:scale-[0.98]"
                             >
                                 <span className="relative">Get Started</span>
                             </Link>
                             <Link
                                 href="/about"
-                                className="group relative rounded-full border border-primary/20 bg-background/50 px-8 py-3 text-sm font-semibold backdrop-blur-sm transition-all duration-300 ease-out hover:scale-105 hover:bg-primary/10 active:scale-[0.98]"
+                                className="w-full sm:w-auto group relative rounded-full border border-[rgb(var(--foreground))/10 bg-[rgb(var(--background))/50] px-8 py-3 text-sm font-semibold backdrop-blur-sm transition-all duration-300 ease-out hover:scale-105 hover:bg-[rgb(var(--foreground))/5] active:scale-[0.98]"
                             >
                                 <span className="relative">Learn More</span>
                             </Link>
@@ -60,6 +76,6 @@ export default function HeroSection() {
                     </motion.div>
                 </div>
             </div>
-        </div >
+        </div>
     );
 }

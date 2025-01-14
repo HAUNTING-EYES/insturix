@@ -30,7 +30,7 @@ function NewsletterSection() {
   };
 
   return (
-    <div className="relative -mx-6 px-6 py-10 overflow-hidden bg-gradient-to-r from-muted via-background to-muted dark:from-muted/20 dark:via-background dark:to-muted/20">
+    <div className="relative -mx-6 px-6 py-8 overflow-hidden bg-[rgb(var(--surface-0))]">
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-grid-neutral-100/20 dark:bg-grid-neutral-900/20 bg-[size:20px_20px] opacity-20" />
       </div>
@@ -84,14 +84,14 @@ function NewsletterSection() {
 
 export default function Footer() {
   return (
-    <footer className="relative w-full bg-background border-t border-neutral-200/50 dark:border-neutral-800/50">
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-background to-muted/50 pointer-events-none" />
+    <footer className="relative w-full bg-[rgb(var(--surface-0))] border-t border-neutral-200/40 dark:border-[rgb(var(--border-light))]/20">
+      <div className="absolute inset-0 bg-gradient-to-b from-[rgb(var(--surface-0))] via-[rgb(var(--surface-0))] to-[rgb(var(--surface-1))] pointer-events-none" />
 
-      <div className="container relative mx-auto px-6 py-16">
+      <div className="container relative mx-auto px-6 py-12">
         <NewsletterSection />
 
-        <div className="mt-16">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-12 xl:gap-x-12 mb-20">
+        <div className="mt-12">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-8 xl:gap-x-12 mb-16">
             {/* Product Links Section */}
             <motion.div
               className="space-y-6"
@@ -169,7 +169,7 @@ export default function Footer() {
         </div>
 
         {/* Bottom Bar */}
-        <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 pt-6">
+        <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 pt-4">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
               <span>© 2025 Insturance, Inc.</span>

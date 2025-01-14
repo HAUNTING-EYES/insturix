@@ -1,5 +1,4 @@
 "use client";
-
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Quote } from "lucide-react";
 import Image from "next/image";
@@ -30,24 +29,28 @@ export const Testimonials = ({
 
   const slideVariants = {
     enter: (direction: number) => ({
-      x: direction > 0 ? 100 : -100,
-      opacity: 0
+      y: direction > 0 ? 50 : -50,
+      opacity: 0,
+      scale: 0.95
     }),
     center: {
-      zIndex: 1,
-      x: 0,
-      opacity: 1
+      y: 0,
+      opacity: 1,
+      scale: 1,
+      transition: {
+        duration: 0.6,
+        ease: [0.32, 0.72, 0, 1],
+      }
     },
     exit: (direction: number) => ({
-      zIndex: 0,
-      x: direction < 0 ? 100 : -100,
-      opacity: 0
+      y: direction < 0 ? 50 : -50,
+      opacity: 0,
+      scale: 0.95,
+      transition: {
+        duration: 0.6,
+        ease: [0.32, 0.72, 0, 1],
+      }
     })
-  };
-
-  const swipeConfidenceThreshold = 10000;
-  const swipePower = (offset: number, velocity: number) => {
-    return Math.abs(offset) * velocity;
   };
 
   const paginate = (newDirection: number) => {
@@ -59,8 +62,18 @@ export const Testimonials = ({
     <div className={cn("relative overflow-hidden py-4", className)}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
         {/* Image Section */}
-        <div className="relative h-[320px] md:h-[300px] w-full">
-          <AnimatePresence initial={false} custom={direction}>
+        <div className="relative h-[320px] md:h-[300px] w-full rounded-2xl overflow-hidden">
+          {/* Permanent placeholder */}
+          <motion.div
+            className="absolute inset-0 bg-muted"
+            initial={false}
+            animate={{ opacity: imageLoading ? 1 : 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-neutral-200 via-neutral-300 to-neutral-200 dark:from-neutral-800 dark:via-neutral-700 dark:to-neutral-800 bg-[length:200%_100%] animate-shimmer" />
+          </motion.div>
+
+          <AnimatePresence initial={false} custom={direction} mode="popLayout">
             <motion.div
               key={activeIndex}
               custom={direction}
@@ -68,54 +81,26 @@ export const Testimonials = ({
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{
-                x: { type: "spring", stiffness: 300, damping: 30 },
-                opacity: { duration: 0.2 }
-              }}
-              drag="x"
-              dragConstraints={{ left: 0, right: 0 }}
-              dragElastic={1}
-              onDragEnd={(e, { offset, velocity }) => {
-                const swipe = swipePower(offset.x, velocity.x);
-                if (swipe < -swipeConfidenceThreshold) {
-                  paginate(1);
-                } else if (swipe > swipeConfidenceThreshold) {
-                  paginate(-1);
-                }
-              }}
-              className="absolute inset-0"
+              className="absolute inset-0 overflow-hidden"
             >
-              <div className="relative h-full w-full rounded-2xl overflow-hidden shadow-lg">
-                {/* Enhanced Loading Placeholder with more contrast */}
-                <AnimatePresence mode="wait">
-                  {imageLoading && (
-                    <motion.div
-                      initial={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.5 }}
-                      className="absolute inset-0 bg-gradient-to-r from-neutral-200 via-neutral-300 to-neutral-200 dark:from-neutral-800 dark:via-neutral-700 dark:to-neutral-800 bg-[length:200%_100%] animate-shimmer"
-                    />
-                  )}
-                </AnimatePresence>
-
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: imageLoading ? 0 : 1 }}
-                  transition={{ duration: 0.5 }}
-                >
-                  <Image
-                    src={testimonials[activeIndex].src}
-                    alt={testimonials[activeIndex].name}
-                    fill
-                    className="object-cover object-center hover:scale-105 transition-all duration-500"
-                    priority
-                    onLoadingComplete={() => setImageLoading(false)}
-                    onLoad={() => setImageLoading(false)}
-                  />
-                </motion.div>
-
+              <motion.div
+                className="relative w-full h-full"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <Image
+                  src={testimonials[activeIndex].src}
+                  alt={testimonials[activeIndex].name}
+                  fill
+                  className="object-cover object-center rounded-2xl"
+                  priority
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  onLoadingComplete={() => setImageLoading(false)}
+                />
                 <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/50 to-transparent" />
-              </div>
+              </motion.div>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -125,10 +110,10 @@ export const Testimonials = ({
           <AnimatePresence mode="wait">
             <motion.div
               key={activeIndex}
-              initial={{ opacity: 0, y: 20 }}
+              initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.4 }}
               className="space-y-6"
             >
               {/* Name and Role */}

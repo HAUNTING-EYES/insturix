@@ -43,45 +43,47 @@ export default function Testimo() {
   ];
 
   return (
-    <section className="relative py-24">
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-muted/50 to-background"></div>
-      <div className="container relative mx-auto px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-          className="text-center space-y-6 mb-16"
-        >
-          <div className="flex flex-col items-center space-y-2">
-            <h1 className="text-5xl font-bold tracking-tight">
-              What Our Clients Say
-            </h1>
-            <div className="flex items-center space-x-4">
-              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
-              <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
-              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
-            </div>
-          </div>
-          <motion.p
-            className="text-xl text-muted-foreground max-w-2xl mx-auto"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 1, delay: 0.2 }}
+    <div className="relative mt-[calc(-200px-5vh)]">
+      <div className="h-[200px] bg-gradient-to-b from-transparent via-[rgb(var(--background))]/40 to-[rgb(var(--background))]" />
+      <div className="bg-[rgb(var(--background))]">
+        <section className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8 sm:space-y-12 pt-[80px] sm:pt-[100px]">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+            className="text-center space-y-6 mb-16"
           >
-            Hear from the businesses we've helped transform
-          </motion.p>
-        </motion.div>
+            <div className="flex flex-col items-center space-y-2">
+              <h1 className="text-5xl font-bold tracking-tight">
+                What Our Clients Say
+              </h1>
+              <div className="flex items-center space-x-4">
+                <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+                <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+                <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+              </div>
+            </div>
+            <motion.p
+              className="text-xl text-muted-foreground max-w-2xl mx-auto"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 1, delay: 0.2 }}
+            >
+              Hear from the businesses we've helped transform
+            </motion.p>
+          </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8 }}
-          viewport={{ once: true }}
-          className="section-card max-w-5xl mx-auto"
-        >
-          <Testimonials testimonials={testimonials} />
-        </motion.div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="section-card max-w-5xl mx-auto"
+          >
+            <Testimonials testimonials={testimonials} />
+          </motion.div>
+        </section>
       </div>
-    </section>
+    </div>
   );
 }

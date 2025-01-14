@@ -48,16 +48,16 @@ body {
   }
 
   .animate-pulse {
-    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    animation: pulse 3s ease-in-out infinite;
   }
 
   @keyframes pulse {
     0%,
     100% {
-      opacity: 1;
+      opacity: 0.48;
     }
     50% {
-      opacity: 0.5;
+      opacity: 0.24;
     }
   }
 
@@ -83,47 +83,187 @@ body {
     background-image: linear-gradient(to right, rgb(23 23 23 / 0.1) 1px, transparent 1px),
       linear-gradient(to bottom, rgb(23 23 23 / 0.1) 1px, transparent 1px);
   }
+
+  .touch-none {
+    touch-action: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .touch-pan-y {
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .touch-feedback {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    user-select: none;
+    @apply transition-colors duration-200;
+  }
+
+  .touch-feedback:not(:disabled):hover {
+    @apply bg-zinc-100 dark:bg-zinc-800;
+  }
+
+  .touch-feedback:not(:disabled):active {
+    @apply bg-zinc-100 dark:bg-zinc-800;
+  }
+
+  .touch-feedback:focus {
+    @apply bg-transparent;
+  }
+
+  .touch-feedback:focus-visible {
+    @apply ring-0;
+  }
+
+  @media (hover: none) {
+    .touch-feedback:hover,
+    .touch-feedback:focus {
+      @apply bg-transparent;
+    }
+  }
+
+  .no-hover-on-touch {
+    @media (hover: none) {
+      transform: none !important;
+      transition: none !important;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .hover-effect:active {
+      transform: none;
+      filter: none;
+      transition: all 0.2s ease;
+    }
+  }
+
+  .container {
+    @apply px-4 sm:px-6 lg:px-8 mx-auto;
+    max-width: 1280px;
+  }
+
+  .responsive-text {
+    @apply text-base sm:text-lg md:text-xl;
+  }
+
+  .responsive-heading {
+    @apply text-2xl sm:text-3xl md:text-4xl lg:text-5xl;
+  }
+
+  .responsive-padding {
+    @apply p-4 sm:p-6 md:p-8;
+  }
+
+  .mobile-nav-item {
+    @apply w-full p-3 rounded-md transition-colors bg-transparent;
+  }
+
+  .mobile-nav-item:active,
+  .mobile-nav-item[data-state="selected"] {
+    @apply bg-zinc-100 dark:bg-zinc-800;
+  }
+
+  .button-reset {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    outline: none !important;
+    user-select: none;
+  }
+
+  .button-reset:focus-visible {
+    @apply ring-2 ring-zinc-400 dark:ring-zinc-600;
+  }
+
+  @media (hover: none) {
+    .button-reset:focus {
+      @apply bg-transparent;
+    }
+  }
+
+  .animate-pulse-strong {
+    animation: pulseStrong 2s ease-in-out infinite;
+  }
+
+  @keyframes pulseStrong {
+    0%,
+    100% {
+      opacity: 0.24;
+    }
+    50% {
+      opacity: 0.08;
+    }
+  }
 }
 
 @layer base {
   :root {
     --radius: 0.5rem;
+
+    /* Base colors */
     --background: 255 255 255;
     --foreground: 0 0 0;
 
-    --primary: 99 102 241;
+    /* Surface colors */
+    --surface-0: 255 255 255; /* Main background */
+    --surface-1: 250 250 250; /* Slight elevation */
+    --surface-2: 245 245 245; /* More elevation */
+
+    /* Border colors */
+    --border-light: 229 229 229;
+    --border-dark: 212 212 212;
+
+    /* Text colors */
+    --text-primary: 0 0 0;
+    --text-secondary: 115 115 115;
+    --text-muted: 163 163 163;
+
+    /* Other variables remain the same */
+    --primary: 38 38 38;
     --primary-foreground: 255 255 255;
-
-    --secondary: 236 72 153;
-    --secondary-foreground: 255 255 255;
-
+    --secondary: 245 245 245;
+    --secondary-foreground: 38 38 38;
     --muted: 241 245 249;
     --muted-foreground: 100 116 139;
-
     --shimmer-color: 0 0 0;
     --shimmer-opacity: 0.05;
   }
 
   .dark {
-    --background: 18 18 18;
+    /* Base colors */
+    --background: 10 10 10; /* Main dark background */
     --foreground: 255 255 255;
 
-    --muted: 31 31 31;
-    --muted-foreground: 148 163 184;
+    /* Surface colors */
+    --surface-0: 10 10 10; /* #0A0A0A - Main background */
+    --surface-1: 17 17 17; /* #111111 - Slight elevation */
+    --surface-2: 26 26 26; /* #1A1A1A - More elevation */
 
+    /* Border colors */
+    --border-light: 38 38 38;
+    --border-dark: 64 64 64;
+
+    /* Text colors */
+    --text-primary: 255 255 255;
+    --text-secondary: 201 201 201;
+    --text-muted: 148 163 184;
+
+    /* Other variables remain the same */
+    --primary: 229 229 229;
+    --primary-foreground: 18 18 18;
+    --secondary: 26 26 26; /* #1A1A1A */
+    --secondary-foreground: 229 229 229;
+    --muted: 17 17 17; /* #111111 */
+    --muted-foreground: 148 163 184;
     --shimmer-color: 255 255 255;
     --shimmer-opacity: 0.1;
   }
 }
 
-/* Add to your CSS file */
 .ripple {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.5);
-  border-radius: 50%;
-  animation: rippleEffect 1s ease-out;
+  display: none;
 }
 
 @keyframes rippleEffect {
@@ -162,13 +302,42 @@ body {
 
 @layer components {
   .section-card {
-    @apply backdrop-blur-sm border border-neutral-200/50 
+    @apply backdrop-blur-sm border border-neutral-200 
            rounded-lg p-6 shadow-sm transition-all duration-300
-           hover:border-neutral-300 dark:border-neutral-700/50 
-           dark:hover:border-neutral-600 w-full;
+           dark:border-neutral-700/50 w-full;
     background-color: rgb(var(--background) / 0.6);
-    &:hover {
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .section-card:hover {
+      border-color: rgb(var(--foreground) / 0.3);
       background-color: rgb(var(--background) / 0.8);
     }
+
+    .dark .section-card:hover {
+      border-color: rgb(var(--foreground) / 0.2);
+    }
   }
+}
+
+/* Add responsive breakpoint styles */
+@media (max-width: 640px) {
+  .section-card {
+    @apply p-4;
+  }
+
+  body {
+    font-size: 14px;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1024px) {
+  body {
+    font-size: 15px;
+  }
+}
+
+/* Add a debug helper class if needed */
+.debug-border {
+  border: 1px solid red;
 }

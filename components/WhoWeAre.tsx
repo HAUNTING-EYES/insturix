@@ -1,9 +1,9 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import { companyData } from "@/components/data/Company-Data";
 import { Zap, BrainCircuit, Blocks, Users } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { HoverCard } from "./ui/HoverCard";
 
 const iconComponents = {
@@ -12,18 +12,6 @@ const iconComponents = {
   Blocks,
   Users,
 };
-
-function MainHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="relative inline-block">
-      <h2 className="text-3xl font-semibold relative z-10">
-        {children}
-      </h2>
-      <div className="absolute -bottom-2 left-0 w-full h-[0.2em] bg-neutral-200 dark:bg-neutral-800 rounded-full" />
-      <div className="absolute -bottom-2 left-0 w-1/4 h-[0.2em] bg-neutral-400 dark:bg-neutral-600 rounded-full" />
-    </div>
-  );
-}
 
 function CardHeading({ children }: { children: React.ReactNode }) {
   return (
@@ -49,9 +37,9 @@ function DecorativeHeading({ children, centered = false }: { children: React.Rea
 export default function WhoWeAre() {
   return (
     <div className="relative mt-[calc(-200px-5vh)]">
-      <div className="h-[200px] bg-gradient-to-b from-transparent via-[rgb(var(--background))]/40 to-[rgb(var(--background))]" />
-      <div className="bg-[rgb(var(--background))]">
-        <div className="container mx-auto px-4 py-12 space-y-12 pt-[100px]">
+      <div className="h-[200px] bg-gradient-to-b from-transparent via-[rgb(var(--surface-0))]/40 to-[rgb(var(--surface-0))]" />
+      <div className="bg-[rgb(var(--surface-0))]">
+        <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8 sm:space-y-12 pt-[80px] sm:pt-[100px]">
           <Header />
           <MissionVision />
           <Story />
@@ -159,53 +147,39 @@ function Story() {
 }
 
 function Values() {
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  }, []);
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       whileInView={{
         opacity: 1,
-        transition: {
-          duration: 0.5
-        }
+        transition: { duration: 0.5 }
       }}
-      viewport={{ once: true, amount: 0.3 }}
-      className="space-y-8"
+      viewport={{ once: true, amount: 0.05, margin: "100px" }}
+      className="space-y-8 pb-20 overflow-visible"
     >
       <DecorativeHeading centered>Our Values</DecorativeHeading>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {companyData.values.map((value, index) => {
           const IconComponent = iconComponents[value.icon as keyof typeof iconComponents];
           return (
-            <motion.div
-              key={value.name}
-              initial={{ opacity: 0, scale: 0.8 }}
-              whileInView={{
-                opacity: 1,
-                scale: 1,
-                transition: {
-                  type: "spring",
-                  duration: 0.5,
-                  delay: index * 0.1
-                }
-              }}
-              viewport={{ once: true, amount: 0.3 }}
-              className="section-card relative overflow-hidden group cursor-pointer"
-            >
-              <motion.div
-                className="absolute inset-0 bg-gradient-to-tr from-primary/10 to-transparent"
-                initial={{ x: "-100%" }}
-                whileHover={{ x: "0%" }}
-                transition={{ duration: 0.3 }}
-              />
-              <motion.div
-                className="relative z-10 flex flex-col items-center py-8"
-                whileHover={{ y: -5 }}
-                transition={{ duration: 0.2 }}
-              >
-                <IconComponent className="w-8 h-8 text-primary mb-4" />
-                <h3 className="text-lg font-medium text-center">{value.name}</h3>
-              </motion.div>
-            </motion.div>
+            <HoverCard key={value.name} className="relative overflow-hidden">
+              <div className="relative z-10 flex flex-col items-center py-8">
+                <motion.div
+                  className="p-2 rounded-lg bg-primary/10"
+                  whileHover={!isTouchDevice ? { scale: 1.1, rotate: 5 } : undefined}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <IconComponent className="w-8 h-8 text-primary" />
+                </motion.div>
+                <h3 className="text-lg font-medium text-center mt-4">{value.name}</h3>
+              </div>
+            </HoverCard>
           );
         })}
       </div>
