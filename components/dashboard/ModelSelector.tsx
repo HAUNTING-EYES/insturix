@@ -28,10 +28,6 @@ const models = [
     value: "Kund-Li",
     label: "Kund-Li",
   },
-  {
-    value:"Meditron",
-    label:"Meditron",
-  }
 ];
 
 interface ModelSelectorProps {

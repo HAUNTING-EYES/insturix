@@ -6,7 +6,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-
 interface BillingDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -21,7 +20,7 @@ export function BillingDialog({ open, onOpenChange }: BillingDialogProps) {
         </DialogHeader>
         <div className="p-6">
           <h2 className="text-2xl font-bold mb-4">Your Subscription</h2>
-          <p className="mb-4">Current Plan: Pro</p>
+          <p className="mb-4">Current Plan: {}</p>
           <p className="mb-4">Next billing date: June 1, 2023</p>
 
           <h3 className="text-xl font-semibold mb-2">Payment Method</h3>
