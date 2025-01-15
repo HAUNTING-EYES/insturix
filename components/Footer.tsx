@@ -84,7 +84,7 @@ function NewsletterSection() {
 
 export default function Footer() {
   return (
-    <footer className="relative w-full bg-[rgb(var(--surface-0))] border-t border-neutral-200/40 dark:border-[rgb(var(--border-light))]/20">
+    <footer className="relative w-full bg-[rgb(var(--surface-0))] border-t-2 border-neutral-200 dark:border-neutral-800">
       <div className="absolute inset-0 bg-gradient-to-b from-[rgb(var(--surface-0))] via-[rgb(var(--surface-0))] to-[rgb(var(--surface-1))] pointer-events-none" />
 
       <div className="container relative mx-auto px-6 py-12">

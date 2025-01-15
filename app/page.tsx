@@ -18,10 +18,10 @@ export default function Home() {
   return (
     <div className="relative overflow-x-hidden w-full">
       <motion.div
-        className="fixed top-0 left-0 right-0 h-[3px] origin-left z-[60]"
+        className="fixed top-0 left-0 right-0 h-[2px] origin-left z-[60]"
         style={{
           scaleX,
-          background: "linear-gradient(to right, rgb(99 102 241) 0%, rgb(236 72 153) 100%)"
+          background: "linear-gradient(to right, rgb(var(--foreground)/0.3), rgb(var(--foreground)))"
         }}
       />
       <Navbar />

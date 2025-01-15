@@ -177,13 +177,16 @@ export default function Navbar() {
       <AnimatePresence>
         {isOpen && (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="fixed inset-x-0 top-16 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-lg md:hidden"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{
+              duration: 0.15, // Slightly faster for better performance
+              ease: "easeOut"
+            }}
+            className="fixed inset-x-0 top-16 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-sm md:hidden"
           >
-            <div className="container mx-auto px-4 py-4 bg-zinc-50 dark:bg-[rgb(var(--surface-0))]">
+            <div className="container mx-auto px-4 py-4">
               <div className="space-y-2">
                 {menuItems.map((item) => (
                   <div key={item.title}>
@@ -229,7 +232,7 @@ export default function Navbar() {
                 ))}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-[rgb(var(--border-light))]/20 bg-zinc-50 dark:bg-[rgb(var(--surface-0))]">
+              <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-[rgb(var(--border-light))]/20">
                 <div className="flex items-center justify-between">
                   <UserMenu />
                   <ThemeToggle />

@@ -8,7 +8,7 @@ import Footer from "@/components/Footer";
 export default function TechieTewari() {
   return (
     <>
-    <Navbar />
+      <Navbar />
       <main className="min-h-screen">
         <Header />
         <InteractiveDemo />

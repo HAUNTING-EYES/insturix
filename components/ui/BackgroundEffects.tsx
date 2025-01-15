@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Blob {
     id: number;
@@ -17,14 +17,15 @@ export default function BackgroundEffects() {
     const [mousePosition, setMousePosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
     const [circleOpacity, setCircleOpacity] = useState(0);
     const [blobs, setBlobs] = useState<Blob[]>([]);
-    const [isTouchDevice, setIsTouchDevice] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
-    const animationFrameRef = useRef<number | null>(null);
-    const lastUpdateRef = useRef<number>(0);
-    const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const repulsionStrength = 0.1;
     const boundaryStrength = 0.05;
+    const maxSpeed = 0.3;
+    const minBlobSize = 700;
+    const maxBlobSize = 1000;
+    const blobCount = 4;
+
     const colors = [
         'rgba(200, 160, 255, 0.7)',
         'rgba(160, 200, 255, 0.7)',
@@ -32,118 +33,49 @@ export default function BackgroundEffects() {
         'rgba(255, 200, 160, 0.7)',
     ];
 
-    const getMobileSettings = () => ({
-        blobCount: 3,
-        minBlobSize: 400,
-        maxBlobSize: 600,
-        updateInterval: 100, // ms between updates
-        maxSpeed: 0.1,
-        centerRadius: 0.3, // Reduced for tighter grouping
-        centerGravity: 0.015
-    });
-
-    const getDesktopSettings = () => ({
-        blobCount: 4,
-        minBlobSize: 700,
-        maxBlobSize: 1000,
-        updateInterval: 16, // ~60fps
-        maxSpeed: 0.3,
-        centerRadius: 0.8, // 80% of screen width/height for desktop
-        centerGravity: 0.01
-    });
-
-    const handleResize = useCallback(() => {
-        if (resizeTimeoutRef.current) {
-            clearTimeout(resizeTimeoutRef.current);
-        }
-
-        resizeTimeoutRef.current = setTimeout(() => {
-            const settings = isTouchDevice ? getMobileSettings() : getDesktopSettings();
-            setBlobs(prevBlobs => prevBlobs.map(blob => ({
-                ...blob,
-                x: Math.min(blob.x, window.innerWidth),
-                y: Math.min(blob.y, window.innerHeight)
-            })));
-        }, 250);
-    }, [isTouchDevice]);
+    const isMobile = () => window.innerWidth <= 768;
 
     useEffect(() => {
-        window.addEventListener('resize', handleResize);
-        return () => {
-            window.removeEventListener('resize', handleResize);
-            if (resizeTimeoutRef.current) {
-                clearTimeout(resizeTimeoutRef.current);
-            }
-        };
-    }, [handleResize]);
-
-    useEffect(() => {
-        setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
-        const settings = isTouchDevice ? getMobileSettings() : getDesktopSettings();
-
-        // Center-biased random position for mobile
-        const getInitialPosition = (dimension: number) => {
-            const center = dimension / 2;
-            const range = dimension * (isTouchDevice ? 0.3 : 0.8);
-            return center + (Math.random() - 0.5) * range;
-        };
-
-        const initialBlobs = Array.from({ length: settings.blobCount }, (_, i) => ({
+        const initialBlobs = Array.from({ length: blobCount }, (_, i) => ({
             id: i,
-            x: getInitialPosition(window.innerWidth),
-            y: getInitialPosition(window.innerHeight),
-            scale: settings.minBlobSize + Math.random() * (settings.maxBlobSize - settings.minBlobSize),
+            x: isMobile() ?
+                (window.innerWidth * (i + 0.5)) / (blobCount + 1) : // Better mobile spacing
+                Math.random() * window.innerWidth,
+            y: isMobile() ?
+                window.innerHeight * (0.3 + (i % 2) * 0.4) : // Alternate between upper and lower positions
+                Math.random() * window.innerHeight,
+            scale: isMobile() ?
+                (minBlobSize * 0.6) + (i * 50) : // Varied sizes on mobile
+                minBlobSize + Math.random() * (maxBlobSize - minBlobSize),
             rotate: Math.random() * 360,
             color: colors[i % colors.length],
             velocity: {
-                x: (Math.random() - 0.5) * settings.maxSpeed,
-                y: (Math.random() - 0.5) * settings.maxSpeed,
+                x: isMobile() ? 0 : (Math.random() - 0.5) * maxSpeed,
+                y: isMobile() ? Math.sin(i) * maxSpeed * 0.1 : (Math.random() - 0.5) * maxSpeed, // Gentler vertical movement
             },
             opacity: 0,
         }));
 
         setBlobs(initialBlobs);
 
+        // Animate blobs in with delay
         initialBlobs.forEach((blob, index) => {
             setTimeout(() => {
                 setBlobs(prevBlobs =>
                     prevBlobs.map(b =>
-                        b.id === index ? { ...b, opacity: isTouchDevice ? 0.5 : 0.7 } : b
+                        b.id === index ? { ...b, opacity: 0.7 } : b
                     )
                 );
-            }, index * 300);
+            }, index * (300 + Math.random() * 800)); // Random delay between 300ms and 1100ms
         });
-    }, [isTouchDevice]);
+    }, []);
 
     useEffect(() => {
-        const settings = isTouchDevice ? getMobileSettings() : getDesktopSettings();
+        if (isMobile()) return;
 
         const animateBlobs = () => {
             setBlobs((prevBlobs) =>
                 prevBlobs.map((blob) => {
-                    if (isTouchDevice) {
-                        const centerX = window.innerWidth / 2;
-                        const centerY = window.innerHeight / 2;
-                        const dx = centerX - blob.x;
-                        const dy = centerY - blob.y;
-                        const distance = Math.sqrt(dx * dx + dy * dy) || 1;
-
-                        // Simplified mobile physics
-                        blob.velocity.x += (dx / distance) * settings.centerGravity;
-                        blob.velocity.y += (dy / distance) * settings.centerGravity;
-
-                        blob.x += blob.velocity.x;
-                        blob.y += blob.velocity.y;
-
-                        // Basic boundary check
-                        if (distance > window.innerWidth * 0.3) {
-                            blob.x = centerX + (blob.x - centerX) * 0.95;
-                            blob.y = centerY + (blob.y - centerY) * 0.95;
-                        }
-
-                        return blob;
-                    }
-
                     let { x, y, velocity, scale } = blob;
 
                     // Repulsion logic
@@ -169,28 +101,25 @@ export default function BackgroundEffects() {
                     if (y > window.innerHeight - halfSize) velocity.y -= boundaryStrength * (y - (window.innerHeight - halfSize));
 
                     // Limit speed
-                    velocity.x = Math.min(Math.max(velocity.x, -settings.maxSpeed), settings.maxSpeed);
-                    velocity.y = Math.min(Math.max(velocity.y, -settings.maxSpeed), settings.maxSpeed);
+                    velocity.x = Math.min(Math.max(velocity.x, -maxSpeed), maxSpeed);
+                    velocity.y = Math.min(Math.max(velocity.y, -maxSpeed), maxSpeed);
+
+                    // Update position
+                    x += velocity.x;
+                    y += velocity.y;
 
                     return { ...blob, x, y, velocity };
                 })
             );
 
-            animationFrameRef.current = requestAnimationFrame(animateBlobs);
+            requestAnimationFrame(animateBlobs);
         };
 
-        animationFrameRef.current = requestAnimationFrame(animateBlobs);
-
-        return () => {
-            if (animationFrameRef.current) {
-                cancelAnimationFrame(animationFrameRef.current);
-                animationFrameRef.current = null;
-            }
-        };
-    }, [isTouchDevice]);
+        animateBlobs();
+    }, []);
 
     useEffect(() => {
-        if (isTouchDevice) return;
+        if (isMobile()) return;
 
         const handleMouseMove = (e: MouseEvent) => {
             if (containerRef.current) {
@@ -202,28 +131,35 @@ export default function BackgroundEffects() {
                 const y = e.pageY - (containerRect.top + scrollY);
 
                 setMousePosition({ x, y });
-                setCircleOpacity(1);
+
+                const isCursorInContainer =
+                    x >= 0 &&
+                    x <= containerRect.width &&
+                    y >= 0 &&
+                    y <= containerRect.height;
+
+                setCircleOpacity(isCursorInContainer ? 1 : 0);
             }
         };
 
         window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, [isTouchDevice]);
+
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+        };
+    }, []);
 
     return (
         <div ref={containerRef} className="absolute inset-0 overflow-hidden -z-10">
             <div
-                className={`absolute inset-0 -z-10 ${isTouchDevice ? 'animate-pulse-strong' : ''
-                    }`}
+                className={`${isMobile() ? 'mobile-dots' : ''} absolute inset-0 -z-10`}
                 style={{
-                    backgroundImage: `radial-gradient(circle at center, currentColor 2px, transparent 2px)`,
-                    backgroundSize: '40px 40px',
-                    backgroundPosition: '20px 20px',
-                    opacity: isTouchDevice ? 0.24 : 0.48,
-                    ...(!isTouchDevice && {
-                        maskImage: `radial-gradient(circle 250px at ${mousePosition.x}px ${mousePosition.y}px, rgba(255, 255, 255, 0.3) 10%, transparent 70%)`,
-                        WebkitMaskImage: `radial-gradient(circle 250px at ${mousePosition.x}px ${mousePosition.y}px, rgba(255, 255, 255, 0.3) 10%, transparent 70%)`,
-                    }),
+                    backgroundImage: `radial-gradient(circle at center, currentColor ${isMobile() ? '1.2px' : '1.5px'}, transparent ${isMobile() ? '1.5px' : '2.5px'})`,
+                    backgroundSize: isMobile() ? '32px 32px' : '40px 40px',
+                    backgroundPosition: 'center center',
+                    maskImage: isMobile() ? 'none' : `radial-gradient(circle 250px at ${mousePosition.x}px ${mousePosition.y}px, rgba(255, 255, 255, 0.3) 10%, transparent 70%)`,
+                    WebkitMaskImage: isMobile() ? 'none' : `radial-gradient(circle 250px at ${mousePosition.x}px ${mousePosition.y}px, rgba(255, 255, 255, 0.3) 10%, transparent 70%)`,
+                    opacity: isMobile() ? 0.3 : circleOpacity,
                 }}
             />
 
@@ -233,13 +169,15 @@ export default function BackgroundEffects() {
                 {blobs.map((blob) => (
                     <div
                         key={blob.id}
-                        className="absolute rounded-full blur-3xl transition-all duration-700"
+                        className="absolute rounded-full blur-3xl"
                         style={{
                             background: `radial-gradient(circle, ${blob.color}, transparent)`,
                             width: `${blob.scale}px`,
                             height: `${blob.scale}px`,
                             transform: `translate(${blob.x}px, ${blob.y}px) rotate(${blob.rotate}deg)`,
+                            willChange: 'transform',
                             opacity: blob.opacity,
+                            transition: 'opacity 2.5s ease',
                         }}
                     />
                 ))}

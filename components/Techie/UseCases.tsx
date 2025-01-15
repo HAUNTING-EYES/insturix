@@ -1,6 +1,7 @@
 "use client";
 
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { motion } from "framer-motion";
+import { Card } from "@/components/ui/card";
 
 const useCases = [
   {
@@ -20,31 +21,41 @@ const useCases = [
 
 export default function UseCases() {
   return (
-    <section className="py-16 md:py-24 bg-background text-foreground bg-black text-white dark:bg-white dark:text-black">
-      <div className="container mx-auto px-4">
-        <h2 className="text-3xl md:text-4xl font-bold text-center mb-12">
-          Industry Use Cases
-        </h2>
-        <div className="relative">
-          <div className="flex overflow-x-auto scrollbar-hide snap-x snap-mandatory gap-6">
-            {useCases.map((useCase, index) => (
-              <Card
-                key={index}
-                className="flex-shrink-0 w-full md:w-[calc(50%-12px)] lg:w-[calc(33.333%-16px)] snap-center"
-              >
-                <CardHeader>
-                  <CardTitle className="text-xl font-semibold">
-                    {useCase.title}
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground">{useCase.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
+    <div className="relative bg-zinc-50 dark:bg-black py-16 sm:py-20">
+      <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-950/5 to-transparent dark:via-blue-950/10" />
+        <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.015] mix-blend-overlay" />
       </div>
-    </section>
+
+      <section className="container relative mx-auto px-4">
+        <motion.div className="text-center space-y-4 mb-14">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold">
+            Industry Use Cases
+          </h2>
+          <motion.p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto px-4">
+            Explore how our solutions are applied across various industries
+          </motion.p>
+        </motion.div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
+          {useCases.map((useCase, index) => (
+            <motion.div
+              key={index}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: index * 0.2 }}
+            >
+              <Card
+                variant="interactive"
+                className="backdrop-blur-sm bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5 p-6"
+              >
+                <h3 className="text-xl font-semibold mb-2">{useCase.title}</h3>
+                <p className="text-muted-foreground">{useCase.description}</p>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+    </div>
   );
 }

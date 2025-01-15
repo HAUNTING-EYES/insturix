@@ -56,10 +56,10 @@ function Header() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-      className="text-center space-y-6"
+      className="text-center space-y-4 sm:space-y-6"
     >
       <div className="flex flex-col items-center space-y-2">
-        <h1 className="text-5xl font-bold tracking-tight">
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
           Who We Are
         </h1>
         <div className="flex items-center space-x-4">
@@ -161,9 +161,18 @@ function Values() {
         transition: { duration: 0.5 }
       }}
       viewport={{ once: true, amount: 0.05, margin: "100px" }}
-      className="space-y-8 pb-20 overflow-visible"
+      className="space-y-6 pb-12 sm:pb-16 overflow-visible"
     >
-      <DecorativeHeading centered>Our Values</DecorativeHeading>
+      <div className="flex flex-col items-center space-y-2">
+        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
+          Our Values
+        </h2>
+        <div className="flex items-center space-x-3">
+          <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+          <div className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+          <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+        </div>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
         {companyData.values.map((value, index) => {
           const IconComponent = iconComponents[value.icon as keyof typeof iconComponents];
