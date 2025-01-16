@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useState } from 'react'
-import { ArrowUpCircle, Check } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { useState } from "react";
+import { ArrowUpCircle, Check } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -11,16 +11,16 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from '@/components/ui/dialog'
+} from "@/components/ui/dialog";
 
 export function UpgradeButton() {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(false);
 
   const handleUpgrade = () => {
     // Here you would typically implement the actual upgrade logic
-    console.log('Upgrading plan...')
-    setIsOpen(false)
-  }
+    console.log("Upgrading plan...");
+    setIsOpen(false);
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -56,6 +56,5 @@ export function UpgradeButton() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
-

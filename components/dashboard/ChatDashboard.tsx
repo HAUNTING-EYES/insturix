@@ -5,7 +5,7 @@ import { Sidebar } from "@/components/dashboard/Sidebar";
 import { ChatArea } from "@/components/dashboard/ChatArea";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import  PermanentSidebar  from "@/components/dashboard/PermanentSidebar";
+import PermanentSidebar from "@/components/dashboard/PermanentSidebar";
 import { ThemeToggle } from "./ThemeToggle";
 
 export default function ChatDashboard() {

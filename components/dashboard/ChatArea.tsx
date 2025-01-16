@@ -13,7 +13,6 @@ interface ChatAreaProps {
   selectedModel: string;
 }
 
-
 export function ChatArea({ selectedModel }: ChatAreaProps) {
   const [messages, setMessages] = useState<
     Array<{ id: string; role: "user" | "assistant"; content: string }>

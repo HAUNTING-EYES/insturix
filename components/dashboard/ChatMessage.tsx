@@ -2,6 +2,7 @@ import React from "react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 import ReactMarkdown from "react-markdown";
+import { useUser } from "@clerk/nextjs";
 interface ChatMessageProps {
   role: "user" | "assistant" | "system";
   content: string;
@@ -10,10 +11,12 @@ interface ChatMessageProps {
   className?: string;
 }
 
-const getAvatarInfo = (role: ChatMessageProps["role"]) => {
+const GetAvatarInfo = (role: ChatMessageProps["role"]) => {
+  const { user } = useUser();
+  const firstLetter = user?.firstName ? user.firstName.charAt(0) : "";
   switch (role) {
     case "user":
-      return { src: "/user-avatar.png", fallback: "U" };
+      return { src: user?.imageUrl as string, fallback: firstLetter };
     case "assistant":
       return { src: "/ai-avatar.png", fallback: "AI" };
     case "system":
@@ -30,8 +33,7 @@ export function ChatMessage({
   avatarFallback,
   className,
 }: ChatMessageProps) {
-  const { src, fallback } = getAvatarInfo(role);
-
+  const { src, fallback } = GetAvatarInfo(role);
   return (
     <div
       className={cn(

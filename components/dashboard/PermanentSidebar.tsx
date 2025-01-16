@@ -209,7 +209,7 @@ export default function PermanentSidebar({
                         value={conv.name}
                         onChange={(e) => handleEdit(conv.id, e.target.value)}
                         onBlur={() => setEditingId(null)}
-                        onKeyPress={(e) =>
+                        onKeyUpCapture={(e) =>
                           e.key === "Enter" &&
                           handleEdit(
                             conv.id,

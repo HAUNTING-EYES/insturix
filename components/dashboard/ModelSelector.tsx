@@ -35,7 +35,10 @@ interface ModelSelectorProps {
   setSelectedModel: (model: string) => void;
 }
 
-export function ModelSelector({ selectedModel, setSelectedModel }: ModelSelectorProps) {
+export function ModelSelector({
+  selectedModel,
+  setSelectedModel,
+}: ModelSelectorProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>
