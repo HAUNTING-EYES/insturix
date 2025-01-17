@@ -13,8 +13,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
-import { ModelSelector } from "@/components/dashboard/ModelSelector";
-import { UserSettings } from "@/components/dashboard/UserSettings";
+import { ModelSelector } from "@/components/dashboard/tools/ModelSelector";
+import { UserSettings } from "@/components/dashboard/tools/Settings";
 import {
   DropdownMenu,
   DropdownMenuContent,

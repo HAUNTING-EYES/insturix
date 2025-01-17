@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Sidebar } from "@/components/dashboard/Sidebar";
+import { Sidebar } from "@/components/dashboard/sidebar/Sidebar";
 import { ChatArea } from "@/components/dashboard/ChatArea";
 import { Button } from "@/components/ui/button";
 import { Menu } from "lucide-react";
-import PermanentSidebar from "@/components/dashboard/PermanentSidebar";
-import { ThemeToggle } from "./ThemeToggle";
+import PermanentSidebar from "@/components/dashboard/sidebar/PermanentSidebar";
+import { ThemeToggle } from "./tools/ThemeToggle";
 
 export default function ChatDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);

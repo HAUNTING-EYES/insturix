@@ -4,7 +4,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Plus, Settings, Trash, Edit2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { ModelSelector } from "@/components/dashboard/ModelSelector";
+import { ModelSelector } from "@/components/dashboard/tools/ModelSelector";
 
 interface SidebarProps {
   open: boolean;

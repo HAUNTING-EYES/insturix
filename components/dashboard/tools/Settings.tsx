@@ -20,7 +20,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { BillingDialog } from "./BillingDialog";
+import { BillingDialog } from "./Billings";
 import { UpgradeButton } from "./UpgradePlan";
 
 export function UserSettings() {
