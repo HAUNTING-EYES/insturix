@@ -2,16 +2,23 @@
 
 import { useState } from "react";
 import { Sidebar } from "@/components/dashboard/sidebar/Sidebar";
-import { ChatArea } from "@/components/dashboard/ChatArea";
-import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
 import PermanentSidebar from "@/components/dashboard/sidebar/PermanentSidebar";
-import { ThemeToggle } from "./tools/ThemeToggle";
+import KundLi from "./KundLi";
+import Techie from "./Techie";
+import Editron from "./Editron";
 
 export default function ChatDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("Kund-Li");
-  console.log(selectedModel); // this functions will help in identifying the selected model
+   const ModelDashboard = () => {
+    if (selectedModel === "Kund-Li") {
+      return <KundLi />;
+    } else if (selectedModel === "Techie-Tiwari") {
+      return <Techie />;
+    } else {
+      return <Editron />;
+    }
+  };
 
   return (
     <>
@@ -26,24 +33,7 @@ export default function ChatDashboard() {
         setSelectedModel={setSelectedModel}
       />
       <div className="flex flex-col flex-1 lg:pl-[250px]">
-        <header className="flex items-center justify-between h-16 px-4 border-b bg-background sm:px-6 lg:px-8">
-          <div className="flex items-center">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="mr-4 lg:hidden"
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Menu className="h-6 w-6" />
-              <span className="sr-only">Open sidebar</span>
-            </Button>
-            <h1 className="text-2xl font-bold">Dashboard</h1>
-          </div>
-          <div className="flex items-center space-x-4">
-            <ThemeToggle />
-          </div>
-        </header>
-        <ChatArea selectedModel={selectedModel} />
+        {ModelDashboard()}
       </div>
     </>
   );

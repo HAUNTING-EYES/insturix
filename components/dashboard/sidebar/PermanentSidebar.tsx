@@ -9,6 +9,9 @@ import {
   ChevronDown,
   ChevronUp,
   Edit2,
+  Share,
+  Star,
+  Trash,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -19,7 +22,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -50,26 +52,7 @@ export default function PermanentSidebar({
   onSelectConversation,
   className,
 }: PermanentSidebarProps) {
-  const [conversations, setConversations] = React.useState<Conversation[]>([
-    {
-      id: 1,
-      name: "Chat History 1",
-      lastMessage: "Last message 1",
-      timestamp: Date.now(),
-    },
-    {
-      id: 2,
-      name: "Chat History 2",
-      lastMessage: "Last message 2",
-      timestamp: Date.now() - 1000,
-    },
-    {
-      id: 3,
-      name: "Chat History 3",
-      lastMessage: "Last message 3",
-      timestamp: Date.now() - 2000,
-    },
-  ]);
+  const [conversations, setConversations] = React.useState<Conversation[]>();
   const [editingId, setEditingId] = React.useState<number | null>(null);
   const [searchTerm, setSearchTerm] = React.useState("");
   const [isCollapsed, setIsCollapsed] = React.useState(false);
@@ -77,7 +60,17 @@ export default function PermanentSidebar({
   React.useEffect(() => {
     const storedConversations = localStorage.getItem("conversations");
     if (storedConversations) {
-      setConversations(JSON.parse(storedConversations));
+      try {
+        const parsedConversations = JSON.parse(storedConversations as string);
+        if (Array.isArray(parsedConversations)) {
+          setConversations(parsedConversations);
+        } else {
+          throw new Error("Parsed data is not an array");
+        }
+      } catch (error) {
+        console.error("Failed to parse conversations from localStorage", error);
+        setConversations([]);
+      }
     }
   }, []);
 
@@ -92,14 +85,14 @@ export default function PermanentSidebar({
       lastMessage: "Click to start chatting",
       timestamp: Date.now(),
     };
-    setConversations([newConversation, ...conversations]);
+    setConversations([newConversation, ...(conversations || [])]);
     setEditingId(newConversation.id);
     onSelectConversation?.(newConversation.id);
   };
 
   const handleEdit = (id: number, newName: string) => {
     setConversations(
-      conversations.map((conv) =>
+      (conversations || []).map((conv) =>
         conv.id === id ? { ...conv, name: newName } : conv
       )
     );
@@ -107,10 +100,10 @@ export default function PermanentSidebar({
   };
 
   const handleDelete = (id: number) => {
-    setConversations(conversations.filter((conv) => conv.id !== id));
+    setConversations((conversations || []).filter((conv) => conv.id !== id));
   };
 
-  const filteredConversations = conversations.filter((conv) =>
+  const filteredConversations = (conversations || []).filter((conv) =>
     conv.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
@@ -262,14 +255,26 @@ export default function PermanentSidebar({
                               <DropdownMenuItem
                                 onSelect={() => setEditingId(conv.id)}
                               >
+                                <Share className="mr-2 h-4 w-4" />
+                                Share
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => setEditingId(conv.id)}
+                              >
                                 <Edit2 className="mr-2 h-4 w-4" />
                                 Rename
                               </DropdownMenuItem>
-                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                onSelect={() => setEditingId(conv.id)}
+                              >
+                                <Star className="mr-2 h-4 w-4" />
+                                Favorite
+                              </DropdownMenuItem>
                               <DropdownMenuItem
                                 onSelect={() => handleDelete(conv.id)}
                                 className="text-red-600 focus:text-red-600"
                               >
+                                <Trash className="mr-2 h-4 w-4" />
                                 Delete
                               </DropdownMenuItem>
                             </DropdownMenuContent>

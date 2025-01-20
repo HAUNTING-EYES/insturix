@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Send } from "lucide-react";
 import { ChatMessage } from "@/components/dashboard/ChatMessage";
-import TypingIndicator from "@/components/dashboard/TypingIndicator";
 import { v4 as uuidv4 } from "uuid";
 
 interface ChatAreaProps {
@@ -18,7 +17,6 @@ export function ChatArea({ selectedModel }: ChatAreaProps) {
     Array<{ id: string; role: "user" | "assistant"; content: string }>
   >([]);
   const [input, setInput] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
 
   const handleSend = () => {
     if (input.trim()) {
@@ -29,7 +27,6 @@ export function ChatArea({ selectedModel }: ChatAreaProps) {
       };
       setMessages([...messages, newMessage]);
       setInput("");
-      setIsTyping(true);
       // Simulate AI response
       setTimeout(() => {
         const aiMessage = {
@@ -38,7 +35,6 @@ export function ChatArea({ selectedModel }: ChatAreaProps) {
           content: `This is a simulated AI response using the ${selectedModel} model. Here's some example code:\n\n\`\`\`python\ndef hello_world():\n    print("Hello, world!")\n\nhello_world()\n\`\`\`\n\nAnd here's some **bold** and *italic* text.`,
         };
         setMessages((prev) => [...prev, aiMessage]);
-        setIsTyping(false);
       }, 2000);
     }
   };
@@ -53,7 +49,6 @@ export function ChatArea({ selectedModel }: ChatAreaProps) {
             content={message.content}
           />
         ))}
-        {isTyping && <TypingIndicator />}
       </ScrollArea>
       <div className="border-t p-4">
         <div className="flex items-center space-x-2">
