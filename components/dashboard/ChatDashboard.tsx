@@ -6,15 +6,18 @@ import PermanentSidebar from "@/components/dashboard/sidebar/PermanentSidebar";
 import KundLi from "./KundLi";
 import Techie from "./Techie";
 import Editron from "./Editron";
+import BrainYeed from "./BrainYeed";
 
 export default function ChatDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedModel, setSelectedModel] = useState("Kund-Li");
-   const ModelDashboard = () => {
+  const ModelDashboard = () => {
     if (selectedModel === "Kund-Li") {
       return <KundLi />;
     } else if (selectedModel === "Techie-Tiwari") {
       return <Techie />;
+    } else if (selectedModel === "BrainYeed") {
+      return <BrainYeed />;
     } else {
       return <Editron />;
     }
