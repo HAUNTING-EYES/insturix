@@ -5,11 +5,11 @@ import { useState, useEffect, memo } from "react";
 
 interface TypingAnimationProps {
   messages: string[];
-  className?: string;
+  textClass?: string;
+  parentClass?: string;
   displayDuration?: number;    // How long each message stays visible after entry animation (ms)
   characterDelay?: number;     // Delay between each character appearing (ms)
   transitionDuration?: number; // Duration of character animation (ms)
-  fontSize?: string;
   shouldLoop?: boolean;
   onComplete?: () => void;
 }
@@ -70,10 +70,10 @@ const AnimatedText = memo(({ text }: { text: string }) => {
   let globalCharIndex = 0;
 
   return (
-    <span className="inline-flex flex-wrap justify-center items-end gap-x-[0.15em] gap-y-2"> {/* Reduced from 0.3em */}
+    <span className="inline-flex flex-wrap justify-center items-end gap-x-[0.15em] gap-y-2">
       {words.map((word, wordIdx) => {
         const wordStart = globalCharIndex;
-        globalCharIndex += word.length + (wordIdx !== words.length - 1 ? 1 : 0); // Add 1 for space except last word
+        globalCharIndex += word.length + (wordIdx !== words.length - 1 ? 1 : 0);
 
         return (
           <span key={`word-${wordIdx}`} className="inline-flex whitespace-nowrap">
@@ -101,13 +101,13 @@ AnimatedText.displayName = 'AnimatedText';
 
 export default function TypingAnimation({
   messages,
-  className = "",
-  displayDuration = 2000,     // Default 2s display time after typing
-  characterDelay = 20,        // Default 20ms between characters
-  transitionDuration = 150,   // Default 150ms animation duration
-  fontSize = "text-3xl sm:text-4xl md:text-5xl lg:text-6xl",
+  textClass = "",
+  parentClass = "",
+  displayDuration = 3000,
+  characterDelay = 40,
+  transitionDuration = 350,
   shouldLoop = true,
-  onComplete
+  onComplete = () => { }
 }: TypingAnimationProps) {
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isTypingComplete, setIsTypingComplete] = useState(false);
@@ -163,11 +163,11 @@ export default function TypingAnimation({
   }, [characterDelay, transitionDuration]);
 
   return (
-    <div className={`relative h-auto flex items-end justify-center overflow-hidden ${className}`}>
+    <div className={`relative h-auto flex items-end justify-center overflow-hidden ${parentClass}`}>
       <AnimatePresence mode="wait">
-        <motion.h1
+        <motion.span
           key={currentMessageIndex}
-          className={`font-extrabold tracking-tight text-foreground ${fontSize} w-full`}
+          className={textClass}
           style={{
             lineHeight: 1.2,
             maxWidth: '100%',
@@ -180,14 +180,7 @@ export default function TypingAnimation({
           }}
         >
           <AnimatedText text={messages[currentMessageIndex]} />
-          {!isTypingComplete && (
-            <motion.span
-              animate={{ opacity: [0, 1, 0] }}
-              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-              className="inline-block w-[3px] sm:w-[4px] h-[0.9em] ml-1 self-end mb-[0.15em] bg-primary"
-            />
-          )}
-        </motion.h1>
+        </motion.span>
       </AnimatePresence>
     </div>
   );

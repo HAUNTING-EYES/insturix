@@ -43,7 +43,7 @@ export default function Testimo() {
   ];
 
   return (
-    <div className="py-8 sm:py-16 bg-[rgb(var(--background))]">
+    <div className="py-8 sm:py-16 bg-[rgb(var(--surface-0))]">
       <section className="container mx-auto px-4 sm:px-6 space-y-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

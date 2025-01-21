@@ -292,7 +292,7 @@ body {
   }
 
   .noise-texture {
-    background-image: url("/noise.png");
+    /* background-image: url("/noise.png"); */
     background-repeat: repeat;
     opacity: 0.03;
     mix-blend-mode: overlay;

@@ -38,8 +38,7 @@ export default function HeroSection() {
                                     characterDelay={40}
                                     transitionDuration={350}
                                     shouldLoop={false}
-                                    className="w-full"
-                                    fontSize="text-3xl sm:text-4xl md:text-5xl lg:text-5xl"
+                                    textClass="w-full text-3xl sm:text-4xl md:text-5xl lg:text-5xl font-extrabold tracking-tight text-foreground"
                                 />
                             </div>
                         </div>

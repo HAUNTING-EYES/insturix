@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Zap } from "lucide-react";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export default function InteractiveDemo() {
   const [input, setInput] = useState("Describe an innovative AI application");
@@ -22,47 +23,63 @@ export default function InteractiveDemo() {
   };
 
   return (
-    <section className="py-16 md:py-24 bg-gradient-to-b from-gray-900 to-black text-white dark:from-gray-100 dark:to-white dark:text-gray-900">
-      <div className="container mx-auto px-4">
-        <h2 className="text-3xl md:text-4xl font-bold text-center mb-8 bg-clip-text text-transparent bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff]">
-          Interactive AI Demo
-        </h2>
-        <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
-          <div className="bg-gray-800 dark:bg-white text-white dark:text-gray-900 p-6 rounded-lg shadow-lg transition-all duration-300 hover:shadow-xl">
-            <h3 className="text-xl font-semibold mb-4">Input</h3>
-            <form onSubmit={handleSubmit}>
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                className="w-full mb-4 bg-gray-700 dark:bg-gray-100 border-gray-600 dark:border-gray-300 text-white dark:text-gray-900 placeholder-gray-400 dark:placeholder-gray-500 focus:border-blue-500 dark:focus:border-blue-600 focus:ring-blue-500 dark:focus:ring-blue-600"
-                rows={7}
-                placeholder="Enter your prompt here..."
-                wrap="soft"
-              />
-              <Button
-                type="submit"
-                className="w-full group bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white transition-all duration-300"
-                disabled={isLoading}
-              >
-                {isLoading ? "Processing..." : "Process with AI"}
-                <Zap
-                  className={`ml-2 h-4 w-4 transition-all duration-300 ${
-                    isLoading ? "animate-pulse" : "group-hover:scale-110"
-                  }`}
-                />
-              </Button>
-            </form>
-          </div>
-          <div className="bg-gray-700 dark:bg-gray-200 p-6 rounded-lg shadow-lg transition-all duration-300 hover:shadow-xl">
-            <h3 className="text-xl font-semibold mb-4 text-white dark:text-gray-900">
-              Output
-            </h3>
-            <div className="bg-gray-800 dark:bg-white border border-gray-600 dark:border-gray-300 rounded-lg p-4 h-[200px] overflow-auto text-white dark:text-gray-900 transition-all duration-300">
-              {output || "AI-generated output will appear here..."}
-            </div>
-          </div>
-        </div>
+    <div className="relative bg-white dark:bg-black py-16 sm:py-20">
+      <div className="absolute inset-0">
+        <div className="absolute inset-0 bg-gradient-to-b from-zinc-50 dark:from-black via-transparent to-zinc-50/50 dark:to-black" />
+        <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.015] mix-blend-overlay" />
       </div>
-    </section>
+
+      <section className="container relative mx-auto px-4">
+        <div className="text-center space-y-4 mb-14">
+          <h2 className="text-3xl sm:text-4xl lg:text-5xl font-bold">
+            Interactive AI Demo
+          </h2>
+          <p className="text-base sm:text-lg text-muted-foreground max-w-2xl mx-auto px-4">
+            Try out our AI-powered content moderation in real-time
+          </p>
+        </div>
+        <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-5 lg:gap-6">
+          <Card variant="interactive" className="backdrop-blur-sm bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+            <CardHeader>
+              <h3 className="text-xl font-semibold">Input</h3>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <Textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  className="min-h-[150px] sm:min-h-[200px] bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 rounded-md resize-none focus:ring-1 focus:ring-zinc-400 dark:focus:ring-zinc-600"
+                  placeholder="Enter your prompt here..."
+                  wrap="soft"
+                />
+                <Button
+                  type="submit"
+                  className="w-full group bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-zinc-200 dark:text-black text-white"
+                  disabled={isLoading}
+                >
+                  {isLoading ? "Processing..." : "Process with AI"}
+                  <Zap className={`ml-2 h-4 w-4 ${isLoading ? "animate-pulse" : "group-hover:scale-110"}`} />
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          <Card variant="interactive" className="backdrop-blur-sm bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+            <CardHeader>
+              <h3 className="text-xl font-semibold">Output</h3>
+            </CardHeader>
+            <CardContent>
+              <div className="bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg p-6 min-h-[200px] overflow-auto">
+                {output || (
+                  <span className="text-muted-foreground">
+                    AI-generated output will appear here...
+                  </span>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </section>
+    </div>
   );
 }
