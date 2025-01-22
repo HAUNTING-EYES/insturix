@@ -6,79 +6,88 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
 
+const THEME = {
+  color: "rgba(34, 197, 94, 0.15)",
+  gradient: {
+    from: "from-green-400",
+    to: "to-green-600"
+  }
+};
+
 const features = [
   {
-    title: "Real-time Processing",
-    description: "Process and analyze content instantly with our advanced AI algorithms.",
-    icon: "Zap",
+    title: "AI Health Analysis",
+    description: "Advanced health monitoring and prediction system.",
+    icon: "Heart",
   },
   {
-    title: "Enhanced Security",
-    description: "Military-grade encryption and security protocols to protect your data.",
-    icon: "Shield",
+    title: "Wellness Tracking",
+    description: "Track your daily wellness metrics and habits.",
+    icon: "Activity",
   },
   {
-    title: "Smart Analytics",
-    description: "Gain deep insights with our intelligent analytics and reporting.",
-    icon: "LineChart",
+    title: "Smart Diagnostics",
+    description: "AI-powered health diagnostics and recommendations.",
+    icon: "Stethoscope",
   },
   {
-    title: "Neural Networks",
-    description: "Advanced neural networks for superior pattern recognition.",
+    title: "Mental Wellness",
+    description: "Track and improve your mental well-being.",
     icon: "Brain",
   },
   {
-    title: "Edge Computing",
-    description: "Distributed processing for faster response times.",
-    icon: "Cpu",
+    title: "Nutrition AI",
+    description: "Personalized nutrition recommendations.",
+    icon: "Apple",
   },
   {
-    title: "Privacy First",
-    description: "Your data privacy is our top priority with end-to-end encryption.",
-    icon: "Lock",
+    title: "Sleep Analysis",
+    description: "Advanced sleep pattern analysis and tips.",
+    icon: "Moon",
   },
 ];
 
 const useCases = [
   {
-    title: "Healthcare",
-    description: "AI-powered diagnostics and personalized treatment plans.",
+    title: "Personal Health",
+    description: "Monitor and improve your daily health metrics.",
   },
   {
-    title: "Finance",
-    description:
-      "Intelligent fraud detection and automated trading strategies.",
+    title: "Healthcare Providers",
+    description: "Enhanced patient monitoring and care delivery.",
   },
   {
-    title: "Education",
-    description: "Adaptive learning systems and automated grading.",
+    title: "Wellness Centers",
+    description: "Comprehensive health tracking for facilities.",
   },
 ];
 
 const headerContent = {
-  title: "Revolutionize Your Content Safety with",
-  highlightText: "Techie Tiwari",
-  description: "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
-  videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
-  videoTitle: 'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
-  getStartedLink: "/signup"
+  title: "Transform Your Health with",
+  highlightText: "Meditron",
+  description: "AI-powered health monitoring and wellness optimization platform. Get personalized insights and recommendations for better health outcomes.",
+  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoTitle: "Meditron Health Platform Overview",
+  getStartedLink: "/signup",
+  accentColor: THEME.color,
+  accentGradient: THEME.gradient
 };
 
 const demoContent = {
-  title: "Interactive AI Demo",
-  subtitle: "Try out our AI-powered content moderation in real-time",
-  defaultInput: "Enter some text to analyze its safety and content...",
-  inputPlaceholder: "Type or paste your content here...",
-  outputPlaceholder: "Content analysis results will appear here...",
-  buttonText: "Analyze Content",
-  processingDelay: 3000,
-  simulatedResponse: "Content Analysis Complete:\n- Safety Score: 95%\n- No harmful content detected\n- Tone: Professional\n- Suggested improvements: None"
+  title: "Health Analysis Demo",
+  subtitle: "Experience our AI health analysis in action",
+  defaultInput: "Describe your symptoms or health concerns...",
+  inputPlaceholder: "Enter your health data or concerns here...",
+  outputPlaceholder: "Health analysis results will appear here...",
+  buttonText: "Analyze Health",
+  processingDelay: 2000,
+  simulatedResponse: "Health Analysis Complete:\n- Overall Health Score: 85%\n- Recommendations: Increase water intake\n- Sleep Quality: Good\n- Stress Level: Moderate"
 };
 
 export default function Meditron() {
   return (
     <>
-      <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.15)" size={500} blur={100} />
+      <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />

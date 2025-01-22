@@ -6,6 +6,14 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
 
+const THEME = {
+  color: "rgba(59, 130, 246, 0.15)",
+  gradient: {
+    from: "from-blue-400",
+    to: "to-blue-600"
+  }
+};
+
 const features = [
   {
     title: "Real-time Processing",
@@ -61,7 +69,9 @@ const headerContent = {
   description: "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
   videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
   videoTitle: 'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
-  getStartedLink: "/signup"
+  getStartedLink: "/signup",
+  accentColor: THEME.color,
+  accentGradient: THEME.gradient
 };
 
 const demoContent = {
@@ -78,7 +88,7 @@ const demoContent = {
 export default function TechieTewari() {
   return (
     <>
-      <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.15)" size={500} blur={100} />
+      <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />

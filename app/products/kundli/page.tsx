@@ -6,79 +6,88 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
 
+const THEME = {
+  color: "rgba(249, 115, 22, 0.15)",
+  gradient: {
+    from: "from-orange-400",
+    to: "to-orange-600"
+  }
+};
+
 const features = [
   {
-    title: "Real-time Processing",
-    description: "Process and analyze content instantly with our advanced AI algorithms.",
-    icon: "Zap",
+    title: "AI Astrology",
+    description: "Advanced astrological calculations and predictions.",
+    icon: "Star",
   },
   {
-    title: "Enhanced Security",
-    description: "Military-grade encryption and security protocols to protect your data.",
-    icon: "Shield",
+    title: "Birth Chart Analysis",
+    description: "Detailed analysis of planetary positions.",
+    icon: "Sun",
   },
   {
-    title: "Smart Analytics",
-    description: "Gain deep insights with our intelligent analytics and reporting.",
-    icon: "LineChart",
+    title: "Compatibility Match",
+    description: "Advanced relationship compatibility analysis.",
+    icon: "Heart",
   },
   {
-    title: "Neural Networks",
-    description: "Advanced neural networks for superior pattern recognition.",
-    icon: "Brain",
+    title: "Daily Predictions",
+    description: "Personalized daily horoscope and guidance.",
+    icon: "Calendar",
   },
   {
-    title: "Edge Computing",
-    description: "Distributed processing for faster response times.",
-    icon: "Cpu",
+    title: "Life Path Analysis",
+    description: "Discover your life purpose and potential.",
+    icon: "Compass",
   },
   {
-    title: "Privacy First",
-    description: "Your data privacy is our top priority with end-to-end encryption.",
-    icon: "Lock",
+    title: "Remedial Solutions",
+    description: "Personalized astrological remedies and guidance.",
+    icon: "Sparkles",
   },
 ];
 
 const useCases = [
   {
-    title: "Healthcare",
-    description: "AI-powered diagnostics and personalized treatment plans.",
+    title: "Personal Guidance",
+    description: "Get insights about your life path and decisions.",
   },
   {
-    title: "Finance",
-    description:
-      "Intelligent fraud detection and automated trading strategies.",
+    title: "Relationship Match",
+    description: "Analyze compatibility between partners.",
   },
   {
-    title: "Education",
-    description: "Adaptive learning systems and automated grading.",
+    title: "Career Planning",
+    description: "Astrological guidance for career decisions.",
   },
 ];
 
 const headerContent = {
-  title: "Revolutionize Your Content Safety with",
-  highlightText: "Techie Tiwari",
-  description: "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
-  videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
-  videoTitle: 'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
-  getStartedLink: "/signup"
+  title: "Discover Your Path with",
+  highlightText: "Kundli",
+  description: "AI-powered vedic astrology platform that combines ancient wisdom with modern technology. Get accurate predictions and personalized guidance for your life journey.",
+  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoTitle: "Kundli Platform Overview",
+  getStartedLink: "/signup",
+  accentColor: THEME.color,
+  accentGradient: THEME.gradient
 };
 
 const demoContent = {
-  title: "Interactive AI Demo",
-  subtitle: "Try out our AI-powered content moderation in real-time",
-  defaultInput: "Enter some text to analyze its safety and content...",
-  inputPlaceholder: "Type or paste your content here...",
-  outputPlaceholder: "Content analysis results will appear here...",
-  buttonText: "Analyze Content",
-  processingDelay: 3000,
-  simulatedResponse: "Content Analysis Complete:\n- Safety Score: 95%\n- No harmful content detected\n- Tone: Professional\n- Suggested improvements: None"
+  title: "Kundli Analysis Demo",
+  subtitle: "Experience our AI astrological analysis",
+  defaultInput: "Enter your birth details (Date, Time, Place)...",
+  inputPlaceholder: "DD/MM/YYYY, HH:MM, City...",
+  outputPlaceholder: "Your personalized astrological analysis will appear here...",
+  buttonText: "Generate Kundli",
+  processingDelay: 2000,
+  simulatedResponse: "Kundli Analysis Complete:\n- Rising Sign: Leo\n- Moon Sign: Taurus\n- Key Planetary Positions\n- Life Path Number: 7\n- Current Dasha: Jupiter"
 };
 
 export default function Kundli() {
   return (
     <>
-      <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.15)" size={500} blur={100} />
+      <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />

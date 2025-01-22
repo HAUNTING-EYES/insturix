@@ -128,7 +128,13 @@ export default function Navbar() {
                 {menuItems.map((item) => (
                   <NavigationMenuItem key={item.title}>
                     {item.subItems ? (
-                      <NavigationMenuTrigger>
+                      <NavigationMenuTrigger
+                        className="select-none focus:bg-transparent focus-visible:ring-0"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.currentTarget.blur();
+                        }}
+                      >
                         {item.title}
                       </NavigationMenuTrigger>
                     ) : (

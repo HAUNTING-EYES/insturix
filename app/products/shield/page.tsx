@@ -6,79 +6,88 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
 
+const THEME = {
+  color: "rgba(147, 51, 234, 0.15)",
+  gradient: {
+    from: "from-purple-400",
+    to: "to-purple-600"
+  }
+};
+
 const features = [
   {
-    title: "Real-time Processing",
-    description: "Process and analyze content instantly with our advanced AI algorithms.",
-    icon: "Zap",
-  },
-  {
-    title: "Enhanced Security",
-    description: "Military-grade encryption and security protocols to protect your data.",
+    title: "Smart Protection",
+    description: "AI-powered threat detection and prevention system.",
     icon: "Shield",
   },
   {
-    title: "Smart Analytics",
-    description: "Gain deep insights with our intelligent analytics and reporting.",
-    icon: "LineChart",
+    title: "Real-time Monitoring",
+    description: "24/7 surveillance and instant threat alerts.",
+    icon: "Eye",
   },
   {
-    title: "Neural Networks",
-    description: "Advanced neural networks for superior pattern recognition.",
-    icon: "Brain",
+    title: "Zero-Day Defense",
+    description: "Protection against newest security threats.",
+    icon: "Shell",
   },
   {
-    title: "Edge Computing",
-    description: "Distributed processing for faster response times.",
-    icon: "Cpu",
+    title: "Access Control",
+    description: "Advanced authentication and authorization.",
+    icon: "Key",
   },
   {
-    title: "Privacy First",
-    description: "Your data privacy is our top priority with end-to-end encryption.",
+    title: "Data Encryption",
+    description: "Military-grade encryption for your data.",
     icon: "Lock",
+  },
+  {
+    title: "Secure Backup",
+    description: "Automated backup with encrypted storage.",
+    icon: "Save",
   },
 ];
 
 const useCases = [
   {
-    title: "Healthcare",
-    description: "AI-powered diagnostics and personalized treatment plans.",
+    title: "Enterprise Security",
+    description: "Comprehensive protection for business infrastructure.",
   },
   {
-    title: "Finance",
-    description:
-      "Intelligent fraud detection and automated trading strategies.",
+    title: "Personal Privacy",
+    description: "Keep your personal data safe and secure.",
   },
   {
-    title: "Education",
-    description: "Adaptive learning systems and automated grading.",
+    title: "Cloud Security",
+    description: "Protect your cloud applications and data.",
   },
 ];
 
 const headerContent = {
-  title: "Revolutionize Your Content Safety with",
-  highlightText: "Techie Tiwari",
-  description: "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
-  videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
-  videoTitle: 'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
-  getStartedLink: "/signup"
+  title: "Next-Generation Security with",
+  highlightText: "Shield",
+  description: "Advanced AI-powered security solution that protects your digital assets from modern threats. Stay ahead of cybercriminals with our intelligent security system.",
+  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoTitle: "Shield Security System Overview",
+  getStartedLink: "/signup",
+  accentColor: THEME.color,
+  accentGradient: THEME.gradient
 };
 
 const demoContent = {
-  title: "Interactive AI Demo",
-  subtitle: "Try out our AI-powered content moderation in real-time",
-  defaultInput: "Enter some text to analyze its safety and content...",
-  inputPlaceholder: "Type or paste your content here...",
-  outputPlaceholder: "Content analysis results will appear here...",
-  buttonText: "Analyze Content",
-  processingDelay: 3000,
-  simulatedResponse: "Content Analysis Complete:\n- Safety Score: 95%\n- No harmful content detected\n- Tone: Professional\n- Suggested improvements: None"
+  title: "Security Scanner Demo",
+  subtitle: "Experience our security analysis in real-time",
+  defaultInput: "Enter a URL or piece of code to analyze...",
+  inputPlaceholder: "https://example.com or paste code here...",
+  outputPlaceholder: "Security analysis results will appear here...",
+  buttonText: "Scan Now",
+  processingDelay: 2000,
+  simulatedResponse: "Security Scan Complete:\n- Threat Level: Low\n- Vulnerabilities: None detected\n- SSL/TLS: Valid\n- Firewall Status: Active"
 };
 
 export default function Shield() {
   return (
     <>
-      <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.15)" size={500} blur={100} />
+      <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
