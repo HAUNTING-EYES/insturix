@@ -4,22 +4,38 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Github, Linkedin, Instagram, Youtube, Twitter, ArrowRight } from "lucide-react";
+import { Github, Linkedin, Twitter, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 
 const companyLinks = [
-  { label: "Terms", link: "#" },
-  { label: "Privacy", link: "#" },
-  { label: "Cookies", link: "#" },
-]
+  { label: "About", link: "/about" },
+  { label: "Terms", link: "/legal/terms" },
+  { label: "Privacy", link: "/legal/privacy" },
+  { label: "Contact", link: "/contact" },
+];
 
-const companySocials =
-  [
-    { icon: Twitter, label: "Twitter", link: "#" },
-    { icon: Linkedin, label: "LinkedIn", link: "#" },
-    { icon: Instagram, label: "Instagram", link: "#" },
-    { icon: Youtube, label: "YouTube", link: "#" },
-  ];
+const supportLinks = [
+  {
+    label: "Help Center", heading: "Support", links: [
+      { label: "Documentation", link: "/resources/documentation" },
+      { label: "FAQs", link: "/resources/faqs" },
+      { label: "Contact Support", link: "/resources/support" },
+    ]
+  },
+  {
+    label: "Company", heading: "Company", links: [
+      { label: "About Us", link: "/about" },
+      { label: "Careers", link: "/careers" },
+      { label: "Press", link: "/newsroom" },
+    ]
+  },
+];
+
+const companySocials = [
+  { icon: Twitter, label: "Twitter", link: "https://twitter.com/insturance" },
+  { icon: Linkedin, label: "LinkedIn", link: "https://linkedin.com/company/insturance" },
+  { icon: Github, label: "GitHub", link: "https://github.com/insturance" },
+];
 
 function NewsletterSection() {
   const [email, setEmail] = useState("");
@@ -90,89 +106,35 @@ export default function Footer() {
       <div className="container relative mx-auto px-6 py-12">
         <NewsletterSection />
 
-        <div className="mt-12">
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-8 gap-y-8 xl:gap-x-12 mb-16">
-            {/* Product Links Section */}
+        {/* Support Links */}
+        <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+          {supportLinks.map((section) => (
             <motion.div
-              className="space-y-6"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
-              <h3 className="text-lg font-semibold primtext">Product</h3>
-              <ul className="space-y-4 text-muted-foreground">
-                {["Features", "Security", "Team", "Enterprise", "Customer stories", "Pricing"].map(item => (
-                  <li key={item}>
-                    <Link href="#" className="hover:text-foreground transition-colors">
-                      {item}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-
-            {/* Similar motion.div wrappers for other link sections */}
-            <motion.div
+              key={section.label}
               className="space-y-4"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
             >
-              <h3 className="text-lg font-semibold">Platform</h3>
+              <h3 className="text-lg font-semibold">{section.heading}</h3>
               <ul className="space-y-3 text-muted-foreground">
-                {["Developer API", "Partners", "Education", "GitHub CLI", "GitHub Desktop", "GitHub Mobile"].map(item => (
-                  <li key={item}>
-                    <Link href="#" className="hover:text-foreground transition-colors">
-                      {item}
+                {section.links.map((item) => (
+                  <li key={item.label}>
+                    <Link href={item.link} className="hover:text-foreground transition-colors">
+                      {item.label}
                     </Link>
                   </li>
                 ))}
               </ul>
             </motion.div>
-
-            <motion.div
-              className="space-y-4"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
-              <h3 className="text-lg font-semibold">Support</h3>
-              <ul className="space-y-3 text-muted-foreground">
-                {["Docs", "Community Forum", "Professional Services", "Premium Support", "Status", "Contact Insturance"].map(item => (
-                  <li key={item}>
-                    <Link href="#" className="hover:text-foreground transition-colors">
-                      {item}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-
-            <motion.div
-              className="space-y-4"
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-            >
-              <h3 className="text-lg font-semibold">Company</h3>
-              <ul className="space-y-3 text-muted-foreground">
-                {["About", "Customer stories", "Blog", "The ReadME Project", "Careers", "Newsroom", "Inclusion", "Social Impact", "Shop"].map(item => (
-                  <li key={item}>
-                    <Link href="#" className="hover:text-foreground transition-colors">
-                      {item}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          </div>
+          ))}
         </div>
 
         {/* Bottom Bar */}
-        <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 pt-4">
+        <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 mt-12 pt-4">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-              <span>© 2025 Insturance, Inc.</span>
+              <span>© 2024 Insturance. All rights reserved.</span>
               <div className="h-1 w-1 rounded-full bg-muted-foreground/30 hidden md:block" />
               {companyLinks.map((item) => (
                 <Link

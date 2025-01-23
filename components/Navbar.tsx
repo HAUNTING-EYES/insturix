@@ -39,10 +39,8 @@ const menuItems = [
     title: "About",
     href: "/about",
     subItems: [
-      { title: "Our Story", href: "/about/ourstory" },
-      { title: "About Logo", href: "/about/logo" },
-      { title: "Team", href: "/about/team" },
-      { title: "Developers", href: "/about/developers" },
+      { title: "About Us", href: "/about" },
+      { title: "Our Team", href: "/about/team" },
     ],
   },
   {
