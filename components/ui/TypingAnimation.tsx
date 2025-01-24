@@ -5,7 +5,6 @@ import { useState, useEffect, memo } from "react";
 
 interface TypingAnimationProps {
   messages: string[];
-  text: string; // Add the text property here
   textClass?: string;
   parentClass?: string;
   displayDuration?: number; // How long each message stays visible after entry animation (ms)
@@ -107,14 +106,13 @@ AnimatedText.displayName = "AnimatedText";
 
 export default function TypingAnimation({
   messages,
-  text,
   textClass = "",
   parentClass = "",
   displayDuration = 3000,
   characterDelay = 40,
   transitionDuration = 350,
   shouldLoop = true,
-  onComplete = () => {},
+  onComplete = () => { },
 }: TypingAnimationProps) {
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isTypingComplete, setIsTypingComplete] = useState(false);
@@ -196,7 +194,7 @@ export default function TypingAnimation({
             willChange: "transform",
           }}
         >
-          <AnimatedText text={text} />
+          <AnimatedText text={messages[currentMessageIndex]} />
         </motion.span>
       </AnimatePresence>
     </div>
