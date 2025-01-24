@@ -90,7 +90,7 @@ export default function Navbar() {
   }, [isMobile, isOpen]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-50 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20">
+    <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20">
       {/* Main navbar content */}
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
