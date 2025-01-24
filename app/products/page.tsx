@@ -10,7 +10,7 @@ export default function Products() {
     <div className="flex flex-col min-h-screen">
       <Navbar />
       <motion.main
-        className="flex-grow flex items-center justify-center p-4"
+        className="grow flex items-center justify-center p-4"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}

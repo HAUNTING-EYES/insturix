@@ -7,11 +7,15 @@ import ReactQueryProvider from "@/providers/ReactQuery";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { TransitionProvider } from "@/components/Loader/TransitionProvider";
+import { Inter } from "next/font/google";
 
 export const metadata: Metadata = {
   title: "Insturance",
   description: "Building Future, Together.",
 };
+
+const inter = Inter({ subsets: ["latin"] });
 
 export default function RootLayout({
   children,
@@ -19,22 +23,22 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <>
-      <ClerkProvider>
-        <html lang="en">
-          <body>
-            <ReactQueryProvider>
-              <ThemeProvider>
+    <ClerkProvider>
+      <html lang="en" className={inter.className}>
+        <body>
+          <ReactQueryProvider>
+            <ThemeProvider>
+              <TransitionProvider>
                 {children}
                 <Analytics />
                 <SpeedInsights />
                 <Toaster />
                 <ReactQueryDevtools />
-              </ThemeProvider>
-            </ReactQueryProvider>
-          </body>
-        </html>
-      </ClerkProvider>
-    </>
+              </TransitionProvider>
+            </ThemeProvider>
+          </ReactQueryProvider>
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

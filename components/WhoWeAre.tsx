@@ -3,6 +3,8 @@
 import { motion } from "framer-motion";
 import { companyData } from "@/components/data/Company-Data";
 import { Zap, BrainCircuit, Blocks, Users } from "lucide-react";
+import { useEffect, useState } from "react";
+import { HoverCard } from "./ui/HoverCard";
 
 const iconComponents = {
   Zap,
@@ -11,14 +13,40 @@ const iconComponents = {
   Users,
 };
 
+function CardHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-2xl font-semibold relative after:content-[''] after:absolute after:-bottom-2 after:left-0 after:w-12 after:h-0.5 after:bg-neutral-300 dark:after:bg-neutral-700">
+      {children}
+    </h2>
+  );
+}
+
+{
+  /*function DecorativeHeading({ children, centered = false }: { children: React.ReactNode, centered?: boolean }) {
+  return (
+    <div className={`flex flex-col ${centered ? 'items-center' : ''} space-y-2`}>
+      <h2 className="text-3xl font-semibold">{children}</h2>
+      <div className="flex items-center space-x-3">
+        <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+        <div className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+        <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+      </div>
+    </div>
+  );
+} */
+}
+
 export default function WhoWeAre() {
   return (
-    <div className="bg-white dark:bg-black text-black dark:text-white transition-colors duration-300">
-      <div className="container mx-auto px-4 py-24 space-y-32">
-        <Header />
-        <MissionVision />
-        <Story />
-        <Values />
+    <div className="relative mt-[calc(-200px-5vh)]">
+      <div className="h-[200px] bg-linear-to-b from-transparent via-[rgb(var(--surface-0))]/40 to-[rgb(var(--surface-0))]" />
+      <div className="bg-[rgb(var(--surface-0))]">
+        <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8 sm:space-y-12 pt-[80px] sm:pt-[100px]">
+          <Header />
+          <MissionVision />
+          <Story />
+          <Values />
+        </div>
       </div>
     </div>
   );
@@ -27,24 +55,28 @@ export default function WhoWeAre() {
 function Header() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 50 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8, ease: "easeOut" }}
-      className="text-center space-y-8"
+      transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
+      className="text-center space-y-4 sm:space-y-6"
     >
-      <h1 className="text-6xl font-bold bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
-        Who We Are
-      </h1>
+      <div className="flex flex-col items-center space-y-2">
+        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
+          Who We Are
+        </h1>
+        <div className="flex items-center space-x-4">
+          <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+          <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+          <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
+        </div>
+      </div>
       <motion.p
-        className="text-2xl font-light max-w-3xl mx-auto leading-relaxed"
+        className="text-xl text-muted-foreground max-w-2xl mx-auto"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
+        transition={{ duration: 1, delay: 0.2 }}
       >
-        Discover the passion and innovation behind{" "}
-        <span className="text-2xl sm:text-2xl font-bold mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
-          {companyData.name}
-        </span>
+        {companyData.name} is building the future of technology
       </motion.p>
     </motion.div>
   );
@@ -53,31 +85,23 @@ function Header() {
 function MissionVision() {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 50 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8, delay: 0.2 }}
-      className="grid md:grid-cols-2 gap-16"
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      transition={{ duration: 1 }}
+      viewport={{ once: true }}
+      className="grid md:grid-cols-2 gap-4"
     >
-      <motion.div
-        className="bg-gray-50 dark:bg-black p-12 rounded-3xl shadow-2xl"
-        whileHover={{ scale: 1.02 }}
-        transition={{ duration: 0.3 }}
-      >
-        <h2 className="text-6xl font-bold border-b-2 border-black dark:border-white pb-4 mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
-          Our Mission
-        </h2>
-        <p className="text-xl leading-relaxed">{companyData.mission}</p>
-      </motion.div>
-      <motion.div
-        className="bg-gray-50 dark:bg-black p-12 rounded-3xl shadow-2xl"
-        whileHover={{ scale: 1.02 }}
-        transition={{ duration: 0.3 }}
-      >
-        <h2 className="text-6xl font-bold border-b-2 border-black dark:border-white pb-4 mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
-          Our Vision
-        </h2>
-        <p className="text-xl leading-relaxed">{companyData.vision}</p>
-      </motion.div>
+      {[
+        { title: "Our Mission", content: companyData.mission },
+        { title: "Our Vision", content: companyData.vision },
+      ].map((item) => (
+        <HoverCard key={item.title}>
+          <CardHeading>{item.title}</CardHeading>
+          <p className="text-muted-foreground leading-relaxed mt-8">
+            {item.content}
+          </p>
+        </HoverCard>
+      ))}
     </motion.div>
   );
 }
@@ -86,50 +110,92 @@ function Story() {
   return (
     <motion.div
       initial={{ opacity: 0, y: 50 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8, delay: 0.4 }}
-      className="bg-gray-50 dark:bg-black p-16 rounded-3xl shadow-2xl"
+      whileInView={{
+        opacity: 1,
+        y: 0,
+        transition: {
+          type: "spring",
+          duration: 0.8,
+        },
+      }}
+      viewport={{ once: true, amount: 0.3 }}
+      className="relative"
     >
-      <h2 className="text-6xl font-bold mb-12 inline-block border-b-2 border-black dark:border-white pb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
-        Our Story
-      </h2>
-      <p className="text-2xl leading-loose">{companyData.story}</p>
+      <HoverCard className="overflow-hidden">
+        <CardHeading>Our Story</CardHeading>
+        <motion.p
+          className="text-muted-foreground leading-relaxed mt-8"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
+          {companyData.story}
+        </motion.p>
+        <motion.div
+          className="absolute -bottom-20 -right-20 w-40 h-40 bg-primary/10 rounded-full blur-3xl"
+          animate={{
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{
+            duration: 4,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+      </HoverCard>
     </motion.div>
   );
 }
 
 function Values() {
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+
+  useEffect(() => {
+    setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  }, []);
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 50 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.8, delay: 0.6 }}
+      initial={{ opacity: 0 }}
+      whileInView={{
+        opacity: 1,
+        transition: { duration: 0.5 },
+      }}
+      viewport={{ once: true, amount: 0.05, margin: "100px" }}
+      className="space-y-6 pb-12 sm:pb-16 overflow-visible"
     >
-      <h2 className="text-6xl font-bold mb-16 text-center bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">Our Values</h2>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-16">
-        {companyData.values.map((value, index) => {
+      <div className="flex flex-col items-center space-y-2">
+        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
+          Our Values
+        </h2>
+        <div className="flex items-center space-x-3">
+          <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+          <div className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-600" />
+          <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+        {companyData.values.map((value) => {
           const IconComponent =
             iconComponents[value.icon as keyof typeof iconComponents];
           return (
-            <motion.div
-              key={value.name}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: 0.1 * index }}
-              className="flex flex-col items-center"
-              whileHover={{ scale: 1.05 }}
-            >
-              <motion.div
-                className="bg-black dark:bg-white p-8 rounded-full mb-8 shadow-xl"
-                whileHover={{ rotate: 360 }}
-                transition={{ duration: 0.6 }}
-              >
-                <IconComponent className="w-16 h-16 text-white dark:text-black" />
-              </motion.div>
-              <h3 className="text-3xl font-bold text-center mb-4 bg-gradient-to-b from-[#ffd319] via-[#ff2975] to-[#8c1eff] bg-clip-text text-transparent">
-                {value.name}
-              </h3>
-            </motion.div>
+            <HoverCard key={value.name} className="relative overflow-hidden">
+              <div className="relative z-10 flex flex-col items-center py-8">
+                <motion.div
+                  className="p-2 rounded-lg bg-primary/10"
+                  whileHover={
+                    !isTouchDevice ? { scale: 1.1, rotate: 5 } : undefined
+                  }
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <IconComponent className="w-8 h-8 text-primary" />
+                </motion.div>
+                <h3 className="text-lg font-medium text-center mt-4">
+                  {value.name}
+                </h3>
+              </div>
+            </HoverCard>
           );
         })}
       </div>

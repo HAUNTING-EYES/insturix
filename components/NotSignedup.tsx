@@ -25,7 +25,7 @@ export default function NotSignedIn() {
   const colors = ["#FF6B6B", "#4ECDC4", "#45B7D1", "#FED766", "#2AB7CA"];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-400 via-pink-500 to-red-500 text-white flex flex-col items-center justify-center p-4 overflow-hidden">
+    <div className="min-h-screen bg-linear-to-br from-purple-400 via-pink-500 to-red-500 text-white flex flex-col items-center justify-center p-4 overflow-hidden">
       {colors.map((color, index) => (
         <motion.div
           key={color}
