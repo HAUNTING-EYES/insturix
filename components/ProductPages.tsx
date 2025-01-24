@@ -104,7 +104,7 @@ export function ProductsPage() {
   return (
     <>
       <div className="text-center  mt-32">
-        <TypingAnimation text="Our Products" messages={["Our Products"]} />
+        <TypingAnimation messages={["Our Products"]} />
       </div>
       <div className="min-h-[70vh] flex items-center justify-center">
         <BentoGrid className="lg:grid-rows-3">

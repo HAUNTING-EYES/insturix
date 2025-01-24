@@ -48,7 +48,7 @@ const menuItems = [
     href: "/resources",
     subItems: [
       { title: "Tutorials", href: "/resources/tutorials" },
-      { title: "Blog", href: "/resources/blog" },
+      { title: "Blogs", href: "/resources/blogs" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
     ],

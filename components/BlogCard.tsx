@@ -11,7 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-export default function BlogCard() {
+export default function BlogPage() {
   return (
     <div className="container mx-auto px-4 py-8">
       <h1 className="text-4xl font-bold mb-8">Latest in Tech</h1>
@@ -21,7 +21,7 @@ export default function BlogCard() {
         <div className="flex flex-wrap gap-2">
           {categories.map((category) => (
             <Link
-              href={`/resources/blog/category/${category
+              href={`/resources/blogs/category/${category
                 .toLowerCase()
                 .replace(" ", "-")}`}
               key={category}
@@ -43,7 +43,7 @@ export default function BlogCard() {
             <CardHeader className="p-0">
               <div className="relative h-48 w-full">
                 <Image
-                  src={post.imageUrl}
+                  src={post.imageUrl || "/placeholder.svg"}
                   alt={post.title}
                   layout="fill"
                   objectFit="cover"
@@ -57,7 +57,7 @@ export default function BlogCard() {
               </Badge>
               <CardTitle className="mb-2">
                 <Link
-                  href={`/resources/blog/${post.id}`}
+                  href={`/resources/blogs/${post.id}`}
                   className="text-xl font-bold hover:text-blue-600 transition-colors"
                 >
                   {post.title}
@@ -68,7 +68,7 @@ export default function BlogCard() {
               </p>
               <div className="flex items-center">
                 <Image
-                  src={post.author.avatar}
+                  src={post.author.avatar || "/placeholder.svg"}
                   alt={post.author.name}
                   width={32}
                   height={32}
@@ -79,7 +79,7 @@ export default function BlogCard() {
             </CardContent>
             <CardFooter className="p-4 pt-0">
               <Button asChild variant="outline" size="sm" className="w-full">
-                <Link href={`/resources/blog/${post.id}`}>Read More</Link>
+                <Link href={`/resources/blogs/${post.id}`}>Read More</Link>
               </Button>
             </CardFooter>
           </Card>
