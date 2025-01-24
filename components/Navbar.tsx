@@ -69,11 +69,13 @@ const menuItems = [
 
 export default function Navbar() {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [activeDropdown, setActiveDropdown] = React.useState<string | null>(null);
+  const [activeDropdown, setActiveDropdown] = React.useState<string | null>(
+    null
+  );
   const isMobile = useMediaQuery("(max-width: 768px)");
 
   const toggleDropdown = (title: string) => {
-    setActiveDropdown(prev => prev === title ? null : title);
+    setActiveDropdown((prev) => (prev === title ? null : title));
   };
 
   const closeMenu = () => {
@@ -109,7 +111,9 @@ export default function Navbar() {
             size="icon"
             className={cn(
               "md:hidden focus:bg-transparent focus-visible:ring-0",
-              isOpen ? "bg-zinc-100 dark:bg-zinc-800" : "bg-transparent hover:bg-transparent"
+              isOpen
+                ? "bg-zinc-100 dark:bg-zinc-800"
+                : "bg-transparent hover:bg-transparent"
             )}
             onClick={(e) => {
               e.currentTarget.blur();
@@ -152,7 +156,7 @@ export default function Navbar() {
                               <NavigationMenuLink asChild>
                                 <Link
                                   href={subItem.href}
-                                  className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:bg-zinc-100 dark:focus:bg-zinc-800"
+                                  className="block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-hidden transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800 focus:bg-zinc-100 dark:focus:bg-zinc-800"
                                 >
                                   <div className="text-sm font-medium leading-none">
                                     {subItem.title}
@@ -186,9 +190,9 @@ export default function Navbar() {
             exit={{ opacity: 0, height: 0 }}
             transition={{
               duration: 0.15, // Slightly faster for better performance
-              ease: "easeOut"
+              ease: "easeOut",
             }}
-            className="fixed inset-x-0 top-16 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-sm md:hidden"
+            className="fixed inset-x-0 top-16 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-xs md:hidden"
           >
             <div className="container mx-auto px-4 py-4">
               <div className="space-y-2">
@@ -315,7 +319,19 @@ function ThemeToggle() {
   );
 }
 
-function MobileNavItem({ item, isActive, onClick }: { item: any, isActive: boolean, onClick: () => void }) {
+function MobileNavItem({
+  item,
+  isActive,
+  onClick,
+}: {
+  item: {
+    title: string;
+    href: string;
+    subItems?: { title: string; href: string }[];
+  };
+  isActive: boolean;
+  onClick: () => void;
+}) {
   return (
     <button
       onClick={(e) => {
@@ -334,6 +350,6 @@ function MobileNavItem({ item, isActive, onClick }: { item: any, isActive: boole
           isActive && "rotate-180"
         )}
       />
-    </button >
+    </button>
   );
 }

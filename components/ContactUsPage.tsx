@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
-import { Send, Mail, User, MessageSquare, MapPin, Clock } from "lucide-react";
+import { Send, Mail, User, MapPin, Clock } from "lucide-react";
 import { ToastAction } from "@/components/ui/toast";
 import { Card } from "@/components/ui/card";
 import { motion } from "framer-motion";
@@ -89,7 +89,7 @@ export default function ContactUsPage() {
             <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl"></div>
           </h1>
           <p className="text-zinc-600 dark:text-zinc-400 mb-8">
-            Have questions? We'd love to hear from you.
+            Have questions? We&apos;d love to hear from you.
           </p>
 
           <div className="grid lg:grid-cols-5 gap-8">
@@ -100,7 +100,7 @@ export default function ContactUsPage() {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.2 }}
             >
-              <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-sm border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-transform hover:scale-[1.01] hover:shadow-lg">
+              <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-transform hover:scale-[1.01] hover:shadow-lg">
                 <form onSubmit={formik.handleSubmit} className="space-y-4">
                   <div className="grid sm:grid-cols-2 gap-4">
                     <div>
@@ -194,7 +194,7 @@ export default function ContactUsPage() {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.3 }}
             >
-              <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-sm border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-transform hover:scale-[1.01] hover:shadow-lg">
+              <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-transform hover:scale-[1.01] hover:shadow-lg">
                 <div className="space-y-6">
                   <div>
                     <h3 className="font-medium mb-4">Contact Information</h3>

@@ -67,7 +67,7 @@ export default function Testimo() {
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.2 }}
           >
-            Hear from the businesses we've helped transform
+            Hear from the businesses we&apos;ve helped transform
           </motion.p>
         </motion.div>
 

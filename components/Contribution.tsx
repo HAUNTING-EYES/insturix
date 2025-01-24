@@ -71,7 +71,7 @@ export default function ContributionPage() {
                 transition={{ delay: index * 0.1 + 0.2 }}
               >
                 <Link href={type.link}>
-                  <Card className="p-6 h-full bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-sm border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group">
+                  <Card className="p-6 h-full bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-all duration-300 hover:scale-[1.02] hover:shadow-lg group">
                     <div className={`w-12 h-12 rounded-lg ${type.color} flex items-center justify-center mb-4 transition-transform duration-300 group-hover:scale-110`}>
                       <type.icon className={`w-6 h-6 ${type.iconColor}`} />
                     </div>

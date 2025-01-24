@@ -29,9 +29,9 @@ const models = [
     label: "Kund-Li",
   },
   {
-    value:"Meditron",
-    label:"Meditron",
-  }
+    value: "BrainYeed",
+    label: "BrainYeed",
+  },
 ];
 
 interface ModelSelectorProps {
@@ -39,7 +39,10 @@ interface ModelSelectorProps {
   setSelectedModel: (model: string) => void;
 }
 
-export function ModelSelector({ selectedModel, setSelectedModel }: ModelSelectorProps) {
+export function ModelSelector({
+  selectedModel,
+  setSelectedModel,
+}: ModelSelectorProps) {
   return (
     <Popover>
       <PopoverTrigger asChild>

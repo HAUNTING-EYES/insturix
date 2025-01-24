@@ -4,9 +4,9 @@ import { SignIn } from "@clerk/nextjs";
 export default function signin() {
   return (
     <>
-    <Navbar />
+      <Navbar />
       <div className="flex justify-center items-center h-screen">
-        <SignIn routing="hash"/>
+        <SignIn routing="hash" forceRedirectUrl={"/dashboard"} />
       </div>
     </>
   );

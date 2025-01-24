@@ -109,7 +109,7 @@ export function WhyUs() {
                     </motion.div>
                     <h3 className="text-xl font-semibold">{reason.title}</h3>
                   </div>
-                  <p className="text-muted-foreground flex-grow">{reason.description}</p>
+                  <p className="text-muted-foreground grow">{reason.description}</p>
                 </div>
               </HoverCard>
             </motion.div>

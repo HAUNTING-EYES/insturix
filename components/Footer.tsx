@@ -81,7 +81,7 @@ function NewsletterSection() {
               placeholder="Enter your email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full pr-12 bg-background/80 backdrop-blur-sm"
+              className="w-full pr-12 bg-background/80 backdrop-blur-xs"
               required
             />
             <div className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -101,7 +101,7 @@ function NewsletterSection() {
 export default function Footer() {
   return (
     <footer className="relative w-full bg-[rgb(var(--surface-0))] border-t-2 border-neutral-200 dark:border-neutral-800">
-      <div className="absolute inset-0 bg-gradient-to-b from-[rgb(var(--surface-0))] via-[rgb(var(--surface-0))] to-[rgb(var(--surface-1))] pointer-events-none" />
+      <div className="absolute inset-0 bg-linear-to-b from-[rgb(var(--surface-0))] via-[rgb(var(--surface-0))] to-[rgb(var(--surface-1))] pointer-events-none" />
 
       <div className="container relative mx-auto px-6 py-12">
         <NewsletterSection />
@@ -134,7 +134,7 @@ export default function Footer() {
         <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 mt-12 pt-4">
           <div className="flex flex-col md:flex-row justify-between items-center gap-6">
             <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-              <span>© 2024 Insturance. All rights reserved.</span>
+              <span>© 2025 Insturance. All rights reserved.</span>
               <div className="h-1 w-1 rounded-full bg-muted-foreground/30 hidden md:block" />
               {companyLinks.map((item) => (
                 <Link

@@ -90,7 +90,7 @@ export default function FAQ() {
             Find answers to common questions about our products and services
           </p>
 
-          <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-sm">
+          <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
             <Accordion type="single" collapsible className="w-full">
               {faqs.map((faq, index) => (
                 <motion.div
@@ -121,7 +121,7 @@ export default function FAQ() {
             transition={{ delay: 0.5 }}
             className="mt-12 text-center"
           >
-            <Card className="inline-block p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-sm">
+            <Card className="inline-block p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
               <h3 className="text-xl font-semibold mb-2">Still have questions?</h3>
               <p className="text-zinc-600 dark:text-zinc-400 mb-4">
                 Our support team is here to help you
@@ -130,7 +130,7 @@ export default function FAQ() {
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  className="inline-flex items-center justify-center px-6 py-3 font-medium text-white bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
+                  className="inline-flex items-center justify-center px-6 py-3 font-medium text-white bg-linear-to-r from-blue-500 to-blue-600 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
                 >
                   Contact Support
                   <ArrowRight className="w-4 h-4 ml-2" />

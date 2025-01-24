@@ -44,7 +44,7 @@ export default function InteractiveDemo({
   return (
     <div className="relative bg-white dark:bg-black py-16 sm:py-20">
       <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-gradient-to-b from-zinc-50 dark:from-black via-transparent to-zinc-50/50 dark:to-black" />
+        <div className="absolute inset-0 bg-linear-to-b from-zinc-50 dark:from-black via-transparent to-zinc-50/50 dark:to-black" />
         <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.015] mix-blend-overlay" />
       </div>
 
@@ -58,7 +58,7 @@ export default function InteractiveDemo({
           </p>
         </div>
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-5 lg:gap-6">
-          <Card variant="interactive" className="backdrop-blur-sm bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+          <Card variant="interactive" className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
             <CardHeader>
               <h3 className="text-xl font-semibold">Input</h3>
             </CardHeader>
@@ -83,7 +83,7 @@ export default function InteractiveDemo({
             </CardContent>
           </Card>
 
-          <Card variant="interactive" className="backdrop-blur-sm bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+          <Card variant="interactive" className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
             <CardHeader>
               <h3 className="text-xl font-semibold">Output</h3>
             </CardHeader>

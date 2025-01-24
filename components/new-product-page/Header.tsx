@@ -40,7 +40,7 @@ export default function Header({
     <header className="relative bg-white dark:bg-black pt-16 flex items-center">
       {/* Enhanced Gradient Overlay */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b" style={{
+        <div className="absolute inset-0 bg-linear-to-b" style={{
           background: `linear-gradient(to bottom, ${accentColor}, rgba(0,0,0,0) 70%)`
         }} />
         <div className="absolute inset-0" style={{
@@ -50,7 +50,7 @@ export default function Header({
         <div className="absolute top-0 left-1/4 w-1/2 h-1/2 blur-[120px] rounded-full" style={{
           background: accentColor
         }} />
-        <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-zinc-50 dark:from-black to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 h-32 bg-linear-to-t from-zinc-50 dark:from-black to-transparent" />
       </div>
 
       <div className="container relative mx-auto px-4 relative z-10">
@@ -62,13 +62,13 @@ export default function Header({
 
               <h1 className="relative text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-black dark:text-white [&_span]:mb-1 [&_span]:inline-block leading-relaxed opacity-80">
                 <span>{title}{' '}
-                  <span className={`bg-clip-text text-transparent bg-gradient-to-r ${accentGradient.from} ${accentGradient.to} whitespace-nowrap`}>
+                  <span className={`bg-clip-text text-transparent bg-linear-to-r ${accentGradient.from} ${accentGradient.to} whitespace-nowrap`}>
                     {highlightText}
                   </span>
                 </span>
               </h1>
 
-              <p className="relative text-base sm:text-lg text-neutral-700 dark:text-neutral-300/90 max-w-xl mx-auto lg:mx-0 [&:not(:first-child)]:mt-4">
+              <p className="relative text-base sm:text-lg text-neutral-700 dark:text-neutral-300/90 max-w-xl mx-auto lg:mx-0 not-first:mt-4">
                 {description}
               </p>
 
@@ -76,7 +76,7 @@ export default function Header({
                 <Button
                   variant="outline"
                   size="lg"
-                  className="backdrop-blur-sm group"
+                  className="backdrop-blur-xs group"
                   style={buttonStyle}
                 >
                   <Link href={getStartedLink} passHref className="flex items-center">
@@ -98,7 +98,7 @@ export default function Header({
           <div className="w-full lg:w-1/2 lg:py-12">
             <div className="relative">
               {/* Video frame with enhanced glow */}
-              <div className="absolute -inset-2 bg-gradient-to-r from-blue-500/30 to-purple-500/30 blur-2xl rounded-lg opacity-50" />
+              <div className="absolute -inset-2 bg-linear-to-r from-blue-500/30 to-purple-500/30 blur-2xl rounded-lg opacity-50" />
               <div className="relative aspect-video rounded-lg overflow-hidden shadow-2xl ring-1 ring-white/10">
                 <iframe
                   className="w-full h-full"

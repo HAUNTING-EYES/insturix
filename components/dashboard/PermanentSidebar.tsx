@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Plus, Trash, Edit2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { ModelSelector } from "@/components/dashboard/ModelSelector";
+import { ModelSelector } from "@/components/dashboard/tools/ModelSelector";
 import { UserSettingsDialog } from "@/components/dashboard/UserSettings";
 
 interface PermanentSidebarProps {

@@ -1,10 +1,12 @@
-import { useState } from "react";
+"use client";
+
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Plus, Settings, Trash, Edit2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { ModelSelector } from "@/components/dashboard/ModelSelector";
+import { ModelSelector } from "@/components/dashboard/tools/ModelSelector";
 
 interface SidebarProps {
   open: boolean;
@@ -13,38 +15,50 @@ interface SidebarProps {
   setSelectedModel: (model: string) => void;
 }
 
+interface Conversation {
+  id: number;
+  name: string;
+}
+
 export function Sidebar({
   open,
   onClose,
   selectedModel,
   setSelectedModel,
 }: SidebarProps) {
-  const [conversations, setConversations] = useState([
-    { id: 1, name: "Chat History 1" },
-    { id: 2, name: "Chat History 2" },
-    { id: 3, name: "Chat History 3" },
-  ]);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingName, setEditingName] = useState<string>("");
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const handleNewChat = () => {
     const newConversation = { id: Date.now(), name: "New Chat" };
     setConversations([newConversation, ...conversations]);
     setEditingId(newConversation.id);
+    setEditingName(newConversation.name);
   };
-
-  interface Conversation {
-    id: number;
-    name: string;
-  }
 
   const handleEdit = (id: number, newName: string) => {
-    setConversations(
-      conversations.map((conv: Conversation) =>
-        conv.id === id ? { ...conv, name: newName } : conv
-      )
-    );
+    if (newName.trim() !== "") {
+      setConversations(
+        conversations.map((conv) =>
+          conv.id === id ? { ...conv, name: newName.trim() } : conv
+        )
+      );
+    }
     setEditingId(null);
   };
+
+  const startEditing = (conv: Conversation) => {
+    setEditingId(conv.id);
+    setEditingName(conv.name);
+  };
+
+  useEffect(() => {
+    if (editingId !== null && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [editingId]);
 
   return (
     <Sheet open={open} onOpenChange={onClose}>
@@ -70,17 +84,15 @@ export function Sidebar({
                 <div key={conv.id} className="flex items-center space-x-2">
                   {editingId === conv.id ? (
                     <Input
-                      value={conv.name}
-                      onChange={(e) => handleEdit(conv.id, e.target.value)}
-                      onBlur={() => setEditingId(null)}
-                      onKeyPress={(e) =>
-                        e.key === "Enter" &&
-                        handleEdit(
-                          conv.id,
-                          (e.target as HTMLInputElement).value
-                        )
-                      }
-                      autoFocus
+                      ref={inputRef}
+                      value={editingName}
+                      onChange={(e) => setEditingName(e.target.value)}
+                      onBlur={() => handleEdit(conv.id, editingName)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          handleEdit(conv.id, editingName);
+                        }
+                      }}
                     />
                   ) : (
                     <>
@@ -93,7 +105,7 @@ export function Sidebar({
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => setEditingId(conv.id)}
+                        onClick={() => startEditing(conv)}
                       >
                         <Edit2 className="h-4 w-4" />
                       </Button>

@@ -84,7 +84,7 @@ export const PricingWrapper: React.FC<{
   >
     <span
       className={
-        "w-full h-full absolute top-0 left-0 z-[2] p-4 flex flex-col items-start justify-start sm:gap-10 gap-7"
+        "w-full h-full absolute top-0 left-0 z-2 p-4 flex flex-col items-start justify-start sm:gap-10 gap-7"
       }
     >
       {children}
@@ -202,7 +202,7 @@ export const Heading: React.FC<{
 }> = ({ children, className }) => (
   <h1
     className={cn(
-      "sm:text-5xl leading-[1] text-[clamp(1.7rem,10vw,3rem)] font-bold",
+      "sm:text-5xl leading-1 text-[clamp(1.7rem,10vw,3rem)] font-bold",
       className
     )}
   >

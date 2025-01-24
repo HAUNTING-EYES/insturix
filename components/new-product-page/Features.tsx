@@ -20,7 +20,7 @@ export default function Features({ features }: { features: Feature[] }) {
   return (
     <div className="relative bg-zinc-50 dark:bg-black py-16 sm:py-20">
       <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-blue-950/5 to-transparent dark:via-blue-950/10" />
+        <div className="absolute inset-0 bg-linear-to-b from-transparent via-blue-950/5 to-transparent dark:via-blue-950/10" />
         <div className="absolute inset-0 bg-[url('/noise.png')] opacity-[0.015] mix-blend-overlay" />
       </div>
 
@@ -45,7 +45,7 @@ export default function Features({ features }: { features: Feature[] }) {
             >
               <Card
                 variant="interactive"
-                className="backdrop-blur-sm bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5"
+                className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5"
               >
                 <CardHeader>
                   <div className="flex items-center gap-3">

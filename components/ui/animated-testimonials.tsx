@@ -1,4 +1,5 @@
 "use client";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Quote } from "lucide-react";
 import Image from "next/image";
@@ -31,7 +32,7 @@ export const Testimonials = ({
     enter: (direction: number) => ({
       y: direction > 0 ? 50 : -50,
       opacity: 0,
-      scale: 0.95
+      scale: 0.95,
     }),
     center: {
       y: 0,
@@ -40,7 +41,7 @@ export const Testimonials = ({
       transition: {
         duration: 0.6,
         ease: [0.32, 0.72, 0, 1],
-      }
+      },
     },
     exit: (direction: number) => ({
       y: direction < 0 ? 50 : -50,
@@ -49,13 +50,16 @@ export const Testimonials = ({
       transition: {
         duration: 0.6,
         ease: [0.32, 0.72, 0, 1],
-      }
-    })
+      },
+    }),
   };
 
   const paginate = (newDirection: number) => {
     setDirection(newDirection);
-    setActiveIndex((prev) => (prev + newDirection + testimonials.length) % testimonials.length);
+    setActiveIndex(
+      (prev) =>
+        (prev + newDirection + testimonials.length) % testimonials.length
+    );
   };
 
   return (
@@ -70,7 +74,7 @@ export const Testimonials = ({
             animate={{ opacity: imageLoading ? 1 : 0 }}
             transition={{ duration: 0.3 }}
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-neutral-200 via-neutral-300 to-neutral-200 dark:from-neutral-800 dark:via-neutral-700 dark:to-neutral-800 bg-[length:200%_100%] animate-shimmer" />
+            <div className="absolute inset-0 bg-linear-to-r from-neutral-200 via-neutral-300 to-neutral-200 dark:from-neutral-800 dark:via-neutral-700 dark:to-neutral-800 bg-[length:200%_100%] animate-shimmer" />
           </motion.div>
 
           <AnimatePresence initial={false} custom={direction} mode="popLayout">
@@ -99,7 +103,7 @@ export const Testimonials = ({
                   sizes="(max-width: 768px) 100vw, 50vw"
                   onLoadingComplete={() => setImageLoading(false)}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/50 to-transparent" />
+                <div className="absolute inset-0 bg-linear-to-t from-background/90 via-background/50 to-transparent" />
               </motion.div>
             </motion.div>
           </AnimatePresence>
@@ -130,7 +134,7 @@ export const Testimonials = ({
               <div className="relative">
                 <Quote className="absolute -left-1 -top-1 w-8 h-8 text-primary/10" />
                 <blockquote className="pt-6 pl-6 text-lg leading-relaxed tracking-normal text-muted-foreground">
-                  "{testimonials[activeIndex].quote}"
+                  &quot;{testimonials[activeIndex].quote}&quot;
                 </blockquote>
               </div>
             </motion.div>
@@ -178,4 +182,3 @@ export const Testimonials = ({
     </div>
   );
 };
-

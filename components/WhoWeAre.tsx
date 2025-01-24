@@ -21,7 +21,8 @@ function CardHeading({ children }: { children: React.ReactNode }) {
   );
 }
 
-function DecorativeHeading({ children, centered = false }: { children: React.ReactNode, centered?: boolean }) {
+{
+  /*function DecorativeHeading({ children, centered = false }: { children: React.ReactNode, centered?: boolean }) {
   return (
     <div className={`flex flex-col ${centered ? 'items-center' : ''} space-y-2`}>
       <h2 className="text-3xl font-semibold">{children}</h2>
@@ -32,12 +33,13 @@ function DecorativeHeading({ children, centered = false }: { children: React.Rea
       </div>
     </div>
   );
+} */
 }
 
 export default function WhoWeAre() {
   return (
     <div className="relative mt-[calc(-200px-5vh)]">
-      <div className="h-[200px] bg-gradient-to-b from-transparent via-[rgb(var(--surface-0))]/40 to-[rgb(var(--surface-0))]" />
+      <div className="h-[200px] bg-linear-to-b from-transparent via-[rgb(var(--surface-0))]/40 to-[rgb(var(--surface-0))]" />
       <div className="bg-[rgb(var(--surface-0))]">
         <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8 sm:space-y-12 pt-[80px] sm:pt-[100px]">
           <Header />
@@ -91,7 +93,7 @@ function MissionVision() {
     >
       {[
         { title: "Our Mission", content: companyData.mission },
-        { title: "Our Vision", content: companyData.vision }
+        { title: "Our Vision", content: companyData.vision },
       ].map((item) => (
         <HoverCard key={item.title}>
           <CardHeading>{item.title}</CardHeading>
@@ -113,8 +115,8 @@ function Story() {
         y: 0,
         transition: {
           type: "spring",
-          duration: 0.8
-        }
+          duration: 0.8,
+        },
       }}
       viewport={{ once: true, amount: 0.3 }}
       className="relative"
@@ -133,12 +135,12 @@ function Story() {
           className="absolute -bottom-20 -right-20 w-40 h-40 bg-primary/10 rounded-full blur-3xl"
           animate={{
             scale: [1, 1.2, 1],
-            opacity: [0.3, 0.5, 0.3]
+            opacity: [0.3, 0.5, 0.3],
           }}
           transition={{
             duration: 4,
             repeat: Infinity,
-            ease: "easeInOut"
+            ease: "easeInOut",
           }}
         />
       </HoverCard>
@@ -150,7 +152,7 @@ function Values() {
   const [isTouchDevice, setIsTouchDevice] = useState(false);
 
   useEffect(() => {
-    setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
   }, []);
 
   return (
@@ -158,7 +160,7 @@ function Values() {
       initial={{ opacity: 0 }}
       whileInView={{
         opacity: 1,
-        transition: { duration: 0.5 }
+        transition: { duration: 0.5 },
       }}
       viewport={{ once: true, amount: 0.05, margin: "100px" }}
       className="space-y-6 pb-12 sm:pb-16 overflow-visible"
@@ -174,19 +176,24 @@ function Values() {
         </div>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-        {companyData.values.map((value, index) => {
-          const IconComponent = iconComponents[value.icon as keyof typeof iconComponents];
+        {companyData.values.map((value) => {
+          const IconComponent =
+            iconComponents[value.icon as keyof typeof iconComponents];
           return (
             <HoverCard key={value.name} className="relative overflow-hidden">
               <div className="relative z-10 flex flex-col items-center py-8">
                 <motion.div
                   className="p-2 rounded-lg bg-primary/10"
-                  whileHover={!isTouchDevice ? { scale: 1.1, rotate: 5 } : undefined}
+                  whileHover={
+                    !isTouchDevice ? { scale: 1.1, rotate: 5 } : undefined
+                  }
                   whileTap={{ scale: 0.95 }}
                 >
                   <IconComponent className="w-8 h-8 text-primary" />
                 </motion.div>
-                <h3 className="text-lg font-medium text-center mt-4">{value.name}</h3>
+                <h3 className="text-lg font-medium text-center mt-4">
+                  {value.name}
+                </h3>
               </div>
             </HoverCard>
           );
