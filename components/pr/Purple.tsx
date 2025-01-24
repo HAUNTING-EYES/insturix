@@ -20,16 +20,14 @@ export default function Purple() {
         <PricingWrapper contactHref="/signup" type={"waves"}>
           <Heading>Pro</Heading>
           <Price>
-            $50
-            <br />
-            /mo
+            ₹500 /mo
           </Price>
-          <Paragraph>
-            1. 50GB Storage
+          <Paragraph className="text-left">
+            1. All features of Plus
             <br />
-            2. 50 Emails
+            2. Editron Pro
             <br />
-            3. 50 Domains
+            3. TechieTiwari Pro
           </Paragraph>
         </PricingWrapper>
       </div>

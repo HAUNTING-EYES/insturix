@@ -19,17 +19,13 @@ export default function Green() {
         >
           <Heading>Free</Heading>
           <Price>
-            $0
-            <br />
-            /mo
+            ₹0 /mo
           </Price>
-          <Paragraph>
-            1.bruh
-            <br />
-            2.bruh
-            <br />
-            3.bruh
-            <br />
+          <Paragraph className="text-left">
+            1. Kund-li<br />
+            2. Brainyeet Basic<br />
+            3. Meditron Basic<br />
+            4. Socialize<br />
           </Paragraph>
         </PricingWrapper>
       </div>

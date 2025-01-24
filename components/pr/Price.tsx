@@ -92,7 +92,7 @@ export const PricingWrapper: React.FC<{
         <Link href={contactHref} className={"w-full h-fit"}>
           <button
             className={
-              "h-12 w-full bg-white rounded-lg text-neutral-900 font-bold"
+              "h-12 w-full bg-white rounded-lg text-neutral-900 font-bold cursor-pointer"
             }
           >
             Get Started

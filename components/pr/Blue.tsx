@@ -19,16 +19,18 @@ export default function Blue() {
         >
           <Heading>Plus</Heading>
           <Price>
-            $20
-            <br />
-            /mo
+            ₹200 /mo
           </Price>
-          <Paragraph>
-            1. 10GB Storage
+          <Paragraph className="text-left">
+            1. All features of Free
             <br />
-            2. 10 Emails
+            2. Brainyeet Pro
             <br />
-            3. 10 Domains
+            3. Meditron Pro
+            <br />
+            4. Editron Basic
+            <br />
+            5. TechieTiwari Basic
           </Paragraph>
         </PricingWrapper>
       </div>

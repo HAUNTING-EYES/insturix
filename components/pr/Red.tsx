@@ -14,21 +14,20 @@ export default function Red() {
       >
         <PricingWrapper
           contactHref="/signup"
-          type={"hourglass"}
-          className={"bg-red-700"}
-        >
-          <Heading>Premium</Heading>
+          type={"hourglass"} className={"bg-red-700"}>
+          <Heading>Pro+</Heading>
           <Price>
-            $100
-            <br />
-            /mo
+            ₹1000 /mo
           </Price>
-          <Paragraph>
-            1. 100GB Storage
+          <Paragraph className="text-left">
+            1. All features of Pro
             <br />
-            2. 100 Emails
+            2. Editron Pro+
             <br />
-            3. 100 Domains
+            3. Meditron Pro+
+            <br />
+            4. Priority Support
+
           </Paragraph>
         </PricingWrapper>
       </div>
