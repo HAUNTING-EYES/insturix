@@ -10,8 +10,8 @@ const THEME = {
   color: "rgba(239, 68, 68, 0.15)",
   gradient: {
     from: "from-red-400",
-    to: "to-red-600"
-  }
+    to: "to-red-600",
+  },
 };
 
 const features = [
@@ -65,12 +65,13 @@ const useCases = [
 const headerContent = {
   title: "Accelerate Your Learning with",
   highlightText: "Brainyeed",
-  description: "AI-powered learning platform that adapts to your needs. Experience personalized education with intelligent feedback and progress tracking.",
+  description:
+    "AI-powered learning platform that adapts to your needs. Experience personalized education with intelligent feedback and progress tracking.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
   videoTitle: "Brainyeed Learning Platform Overview",
   getStartedLink: "/signup",
   accentColor: THEME.color,
-  accentGradient: THEME.gradient
+  accentGradient: THEME.gradient,
 };
 
 const demoContent = {
@@ -81,7 +82,8 @@ const demoContent = {
   outputPlaceholder: "Your personalized learning plan will appear here...",
   buttonText: "Generate Plan",
   processingDelay: 2000,
-  simulatedResponse: "Learning Analysis Complete:\n- Recommended Path: Intermediate\n- Est. Time: 4 weeks\n- Key Topics: 5 identified\n- Practice Exercises: 12\n- Assessment Tests: 3"
+  simulatedResponse:
+    "Learning Analysis Complete:\n- Recommended Path: Intermediate\n- Est. Time: 4 weeks\n- Key Topics: 5 identified\n- Practice Exercises: 12\n- Assessment Tests: 3",
 };
 
 export default function Brainyeed() {

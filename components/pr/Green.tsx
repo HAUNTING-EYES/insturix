@@ -24,9 +24,12 @@ export default function Green() {
             /mo
           </Price>
           <Paragraph>
-            1.bruh<br />
-            2.bruh<br />
-            3.bruh<br />
+            1.bruh
+            <br />
+            2.bruh
+            <br />
+            3.bruh
+            <br />
           </Paragraph>
         </PricingWrapper>
       </div>

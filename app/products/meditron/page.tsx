@@ -10,8 +10,8 @@ const THEME = {
   color: "rgba(34, 197, 94, 0.15)",
   gradient: {
     from: "from-green-400",
-    to: "to-green-600"
-  }
+    to: "to-green-600",
+  },
 };
 
 const features = [
@@ -65,12 +65,13 @@ const useCases = [
 const headerContent = {
   title: "Transform Your Health with",
   highlightText: "Meditron",
-  description: "AI-powered health monitoring and wellness optimization platform. Get personalized insights and recommendations for better health outcomes.",
+  description:
+    "AI-powered health monitoring and wellness optimization platform. Get personalized insights and recommendations for better health outcomes.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
   videoTitle: "Meditron Health Platform Overview",
   getStartedLink: "/signup",
   accentColor: THEME.color,
-  accentGradient: THEME.gradient
+  accentGradient: THEME.gradient,
 };
 
 const demoContent = {
@@ -81,7 +82,8 @@ const demoContent = {
   outputPlaceholder: "Health analysis results will appear here...",
   buttonText: "Analyze Health",
   processingDelay: 2000,
-  simulatedResponse: "Health Analysis Complete:\n- Overall Health Score: 85%\n- Recommendations: Increase water intake\n- Sleep Quality: Good\n- Stress Level: Moderate"
+  simulatedResponse:
+    "Health Analysis Complete:\n- Overall Health Score: 85%\n- Recommendations: Increase water intake\n- Sleep Quality: Good\n- Stress Level: Moderate",
 };
 
 export default function Meditron() {

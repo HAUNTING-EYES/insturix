@@ -14,35 +14,43 @@ import { ArrowRight } from "lucide-react";
 const faqs = [
   {
     question: "What is Insturance?",
-    answer: "Insturance is a suite of AI-powered digital solutions designed to help businesses and individuals enhance their digital experiences with cutting-edge technology.",
+    answer:
+      "Insturance is a suite of AI-powered digital solutions designed to help businesses and individuals enhance their digital experiences with cutting-edge technology.",
   },
   {
     question: "How do I get started?",
-    answer: "Getting started is easy! Simply sign up for an account and choose the product that best suits your needs. Our onboarding process will guide you through the setup.",
+    answer:
+      "Getting started is easy! Simply sign up for an account and choose the product that best suits your needs. Our onboarding process will guide you through the setup.",
   },
   {
     question: "What products do you offer?",
-    answer: "We offer various products including Techie Tiwari for content moderation, Kund-li for data analysis, Editron for content editing, Shield for security, and more.",
+    answer:
+      "We offer various products including Techie Tiwari for content moderation, Kund-li for data analysis, Editron for content editing, Shield for security, and more.",
   },
   {
     question: "How secure is my data?",
-    answer: "We take security seriously. All data is encrypted end-to-end, and we follow industry-best practices for data protection and privacy compliance.",
+    answer:
+      "We take security seriously. All data is encrypted end-to-end, and we follow industry-best practices for data protection and privacy compliance.",
   },
   {
     question: "Do you offer customer support?",
-    answer: "Yes! We provide 24/7 customer support through various channels including email, chat, and phone. Our team is always ready to help.",
+    answer:
+      "Yes! We provide 24/7 customer support through various channels including email, chat, and phone. Our team is always ready to help.",
   },
   {
     question: "What are your pricing plans?",
-    answer: "We offer flexible pricing plans tailored to different needs and scales. Visit our pricing page to find the perfect plan for you.",
+    answer:
+      "We offer flexible pricing plans tailored to different needs and scales. Visit our pricing page to find the perfect plan for you.",
   },
   {
     question: "Can I integrate with existing systems?",
-    answer: "Yes, our products are designed with integration in mind. We provide comprehensive APIs and documentation for seamless integration.",
+    answer:
+      "Yes, our products are designed with integration in mind. We provide comprehensive APIs and documentation for seamless integration.",
   },
   {
     question: "What makes Insturance different?",
-    answer: "Our unique combination of AI technology, user-focused design, and commitment to innovation sets us apart. We're constantly evolving to meet our users' needs.",
+    answer:
+      "Our unique combination of AI technology, user-focused design, and commitment to innovation sets us apart. We're constantly evolving to meet our users' needs.",
   },
 ];
 
@@ -101,7 +109,9 @@ export default function FAQ() {
                 >
                   <AccordionItem value={`item-${index}`}>
                     <AccordionTrigger className="text-left hover:no-underline">
-                      <span className="text-base font-medium">{faq.question}</span>
+                      <span className="text-base font-medium">
+                        {faq.question}
+                      </span>
                     </AccordionTrigger>
                     <AccordionContent>
                       <p className="text-zinc-600 dark:text-zinc-400">
@@ -122,7 +132,9 @@ export default function FAQ() {
             className="mt-12 text-center"
           >
             <Card className="inline-block p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
-              <h3 className="text-xl font-semibold mb-2">Still have questions?</h3>
+              <h3 className="text-xl font-semibold mb-2">
+                Still have questions?
+              </h3>
               <p className="text-zinc-600 dark:text-zinc-400 mb-4">
                 Our support team is here to help you
               </p>

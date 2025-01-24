@@ -90,8 +90,8 @@ export function WhyUs() {
                 transition: {
                   type: "spring",
                   duration: 0.8,
-                  delay: index * 0.1
-                }
+                  delay: index * 0.1,
+                },
               }}
               viewport={{ once: true, amount: 0.05, margin: "100px" }}
               className="h-full touch-hover"
@@ -109,7 +109,9 @@ export function WhyUs() {
                     </motion.div>
                     <h3 className="text-xl font-semibold">{reason.title}</h3>
                   </div>
-                  <p className="text-muted-foreground grow">{reason.description}</p>
+                  <p className="text-muted-foreground grow">
+                    {reason.description}
+                  </p>
                 </div>
               </HoverCard>
             </motion.div>

@@ -10,24 +10,27 @@ const THEME = {
   color: "rgba(59, 130, 246, 0.15)",
   gradient: {
     from: "from-blue-400",
-    to: "to-blue-600"
-  }
+    to: "to-blue-600",
+  },
 };
 
 const features = [
   {
     title: "Real-time Processing",
-    description: "Process and analyze content instantly with our advanced AI algorithms.",
+    description:
+      "Process and analyze content instantly with our advanced AI algorithms.",
     icon: "Zap",
   },
   {
     title: "Enhanced Security",
-    description: "Military-grade encryption and security protocols to protect your data.",
+    description:
+      "Military-grade encryption and security protocols to protect your data.",
     icon: "Shield",
   },
   {
     title: "Smart Analytics",
-    description: "Gain deep insights with our intelligent analytics and reporting.",
+    description:
+      "Gain deep insights with our intelligent analytics and reporting.",
     icon: "LineChart",
   },
   {
@@ -42,7 +45,8 @@ const features = [
   },
   {
     title: "Privacy First",
-    description: "Your data privacy is our top priority with end-to-end encryption.",
+    description:
+      "Your data privacy is our top priority with end-to-end encryption.",
     icon: "Lock",
   },
 ];
@@ -66,12 +70,14 @@ const useCases = [
 const headerContent = {
   title: "Revolutionize Your Content Safety with",
   highlightText: "Techie Tiwari",
-  description: "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
+  description:
+    "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
   videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
-  videoTitle: 'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
+  videoTitle:
+    'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
   getStartedLink: "/signup",
   accentColor: THEME.color,
-  accentGradient: THEME.gradient
+  accentGradient: THEME.gradient,
 };
 
 const demoContent = {
@@ -82,7 +88,8 @@ const demoContent = {
   outputPlaceholder: "Content analysis results will appear here...",
   buttonText: "Analyze Content",
   processingDelay: 3000,
-  simulatedResponse: "Content Analysis Complete:\n- Safety Score: 95%\n- No harmful content detected\n- Tone: Professional\n- Suggested improvements: None"
+  simulatedResponse:
+    "Content Analysis Complete:\n- Safety Score: 95%\n- No harmful content detected\n- Tone: Professional\n- Suggested improvements: None",
 };
 
 export default function TechieTewari() {

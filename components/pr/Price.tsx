@@ -53,7 +53,7 @@ const Star = () => (
 );
 
 const HourGlass = () => (
-<svg
+  <svg
     width="130"
     height="130"
     viewBox="0 0 130 130"

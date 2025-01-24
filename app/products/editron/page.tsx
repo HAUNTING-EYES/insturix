@@ -10,8 +10,8 @@ const THEME = {
   color: "rgba(20, 184, 166, 0.15)",
   gradient: {
     from: "from-teal-400",
-    to: "to-teal-600"
-  }
+    to: "to-teal-600",
+  },
 };
 
 const features = [
@@ -65,12 +65,13 @@ const useCases = [
 const headerContent = {
   title: "Perfect Your Content with",
   highlightText: "Editron",
-  description: "AI-powered writing assistant that helps you create flawless content. Enhanced grammar checking, style suggestions, and intelligent editing features.",
+  description:
+    "AI-powered writing assistant that helps you create flawless content. Enhanced grammar checking, style suggestions, and intelligent editing features.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
   videoTitle: "Editron Platform Overview",
   getStartedLink: "/signup",
   accentColor: THEME.color,
-  accentGradient: THEME.gradient
+  accentGradient: THEME.gradient,
 };
 
 const demoContent = {
@@ -81,7 +82,8 @@ const demoContent = {
   outputPlaceholder: "Enhanced content will appear here...",
   buttonText: "Enhance Text",
   processingDelay: 2000,
-  simulatedResponse: "Content Analysis Complete:\n- Grammar Score: 98%\n- Style: Professional\n- Tone: Confident\n- Suggestions: 3 improvements found\n- Readability: Grade A"
+  simulatedResponse:
+    "Content Analysis Complete:\n- Grammar Score: 98%\n- Style: Professional\n- Tone: Confident\n- Suggestions: 3 improvements found\n- Readability: Grade A",
 };
 
 export default function Editron() {

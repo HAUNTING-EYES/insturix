@@ -27,7 +27,7 @@ export default function InteractiveDemo({
   processingText = "Processing...",
   buttonText = "Process with AI",
   processingDelay = 6000,
-  simulatedResponse = "Here's a simulated AI-generated response based on your input. In a real application, this would be where the AI processes the input and returns a result."
+  simulatedResponse = "Here's a simulated AI-generated response based on your input. In a real application, this would be where the AI processes the input and returns a result.",
 }: InteractiveDemoProps) {
   const [input, setInput] = useState(defaultInput);
   const [output, setOutput] = useState("");
@@ -58,7 +58,10 @@ export default function InteractiveDemo({
           </p>
         </div>
         <div className="max-w-4xl mx-auto grid md:grid-cols-2 gap-5 lg:gap-6">
-          <Card variant="interactive" className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+          <Card
+            variant="interactive"
+            className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5"
+          >
             <CardHeader>
               <h3 className="text-xl font-semibold">Input</h3>
             </CardHeader>
@@ -77,13 +80,20 @@ export default function InteractiveDemo({
                   disabled={isLoading}
                 >
                   {isLoading ? processingText : buttonText}
-                  <Zap className={`ml-2 h-4 w-4 ${isLoading ? "animate-pulse" : "group-hover:scale-110"}`} />
+                  <Zap
+                    className={`ml-2 h-4 w-4 ${
+                      isLoading ? "animate-pulse" : "group-hover:scale-110"
+                    }`}
+                  />
                 </Button>
               </form>
             </CardContent>
           </Card>
 
-          <Card variant="interactive" className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+          <Card
+            variant="interactive"
+            className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5"
+          >
             <CardHeader>
               <h3 className="text-xl font-semibold">Output</h3>
             </CardHeader>

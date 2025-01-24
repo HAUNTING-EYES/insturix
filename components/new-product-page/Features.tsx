@@ -13,7 +13,8 @@ interface Feature {
 
 export default function Features({ features }: { features: Feature[] }) {
   const getIcon = (iconName: string) => {
-    const Icon = (LucideIcons[iconName as keyof typeof LucideIcons] || LucideIcons.HelpCircle) as React.ElementType;
+    const Icon = (LucideIcons[iconName as keyof typeof LucideIcons] ||
+      LucideIcons.HelpCircle) as React.ElementType;
     return Icon;
   };
 
@@ -57,7 +58,9 @@ export default function Features({ features }: { features: Feature[] }) {
                     >
                       {(() => {
                         const Icon = getIcon(feature.icon);
-                        return <Icon className="w-6 h-6 text-zinc-900 dark:text-zinc-100" />;
+                        return (
+                          <Icon className="w-6 h-6 text-zinc-900 dark:text-zinc-100" />
+                        );
                       })()}
                     </motion.div>
                     <h3 className="text-xl font-semibold">{feature.title}</h3>

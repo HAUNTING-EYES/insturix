@@ -10,8 +10,8 @@ const THEME = {
   color: "rgba(249, 115, 22, 0.15)",
   gradient: {
     from: "from-orange-400",
-    to: "to-orange-600"
-  }
+    to: "to-orange-600",
+  },
 };
 
 const features = [
@@ -65,12 +65,13 @@ const useCases = [
 const headerContent = {
   title: "Discover Your Path with",
   highlightText: "Kundli",
-  description: "AI-powered vedic astrology platform that combines ancient wisdom with modern technology. Get accurate predictions and personalized guidance for your life journey.",
+  description:
+    "AI-powered vedic astrology platform that combines ancient wisdom with modern technology. Get accurate predictions and personalized guidance for your life journey.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
   videoTitle: "Kundli Platform Overview",
   getStartedLink: "/signup",
   accentColor: THEME.color,
-  accentGradient: THEME.gradient
+  accentGradient: THEME.gradient,
 };
 
 const demoContent = {
@@ -78,10 +79,12 @@ const demoContent = {
   subtitle: "Experience our AI astrological analysis",
   defaultInput: "Enter your birth details (Date, Time, Place)...",
   inputPlaceholder: "DD/MM/YYYY, HH:MM, City...",
-  outputPlaceholder: "Your personalized astrological analysis will appear here...",
+  outputPlaceholder:
+    "Your personalized astrological analysis will appear here...",
   buttonText: "Generate Kundli",
   processingDelay: 2000,
-  simulatedResponse: "Kundli Analysis Complete:\n- Rising Sign: Leo\n- Moon Sign: Taurus\n- Key Planetary Positions\n- Life Path Number: 7\n- Current Dasha: Jupiter"
+  simulatedResponse:
+    "Kundli Analysis Complete:\n- Rising Sign: Leo\n- Moon Sign: Taurus\n- Key Planetary Positions\n- Life Path Number: 7\n- Current Dasha: Jupiter",
 };
 
 export default function Kundli() {

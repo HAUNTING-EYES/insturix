@@ -37,7 +37,11 @@ export async function POST(request: NextRequest) {
     );
   } catch (error) {
     return NextResponse.json(
-      { message: error instanceof Error ? error.message : "An unknown error occurred", isOk: false },
+      {
+        message:
+          error instanceof Error ? error.message : "An unknown error occurred",
+        isOk: false,
+      },
       { status: 500 }
     );
   }

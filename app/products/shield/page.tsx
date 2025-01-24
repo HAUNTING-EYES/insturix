@@ -10,8 +10,8 @@ const THEME = {
   color: "rgba(147, 51, 234, 0.15)",
   gradient: {
     from: "from-purple-400",
-    to: "to-purple-600"
-  }
+    to: "to-purple-600",
+  },
 };
 
 const features = [
@@ -65,12 +65,13 @@ const useCases = [
 const headerContent = {
   title: "Next-Generation Security with",
   highlightText: "Shield",
-  description: "Advanced AI-powered security solution that protects your digital assets from modern threats. Stay ahead of cybercriminals with our intelligent security system.",
+  description:
+    "Advanced AI-powered security solution that protects your digital assets from modern threats. Stay ahead of cybercriminals with our intelligent security system.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
   videoTitle: "Shield Security System Overview",
   getStartedLink: "/signup",
   accentColor: THEME.color,
-  accentGradient: THEME.gradient
+  accentGradient: THEME.gradient,
 };
 
 const demoContent = {
@@ -81,7 +82,8 @@ const demoContent = {
   outputPlaceholder: "Security analysis results will appear here...",
   buttonText: "Scan Now",
   processingDelay: 2000,
-  simulatedResponse: "Security Scan Complete:\n- Threat Level: Low\n- Vulnerabilities: None detected\n- SSL/TLS: Valid\n- Firewall Status: Active"
+  simulatedResponse:
+    "Security Scan Complete:\n- Threat Level: Low\n- Vulnerabilities: None detected\n- SSL/TLS: Valid\n- Firewall Status: Active",
 };
 
 export default function Shield() {

@@ -16,24 +16,32 @@ const companyLinks = [
 
 const supportLinks = [
   {
-    label: "Help Center", heading: "Support", links: [
+    label: "Help Center",
+    heading: "Support",
+    links: [
       { label: "Documentation", link: "/resources/documentation" },
       { label: "FAQs", link: "/resources/faqs" },
       { label: "Contact Support", link: "/resources/support" },
-    ]
+    ],
   },
   {
-    label: "Company", heading: "Company", links: [
+    label: "Company",
+    heading: "Company",
+    links: [
       { label: "About Us", link: "/about" },
       { label: "Careers", link: "/careers" },
       { label: "Press", link: "/newsroom" },
-    ]
+    ],
   },
 ];
 
 const companySocials = [
   { icon: Twitter, label: "Twitter", link: "https://twitter.com/insturance" },
-  { icon: Linkedin, label: "LinkedIn", link: "https://linkedin.com/company/insturance" },
+  {
+    icon: Linkedin,
+    label: "LinkedIn",
+    link: "https://linkedin.com/company/insturance",
+  },
   { icon: Github, label: "GitHub", link: "https://github.com/insturance" },
 ];
 
@@ -120,7 +128,10 @@ export default function Footer() {
               <ul className="space-y-3 text-muted-foreground">
                 {section.links.map((item) => (
                   <li key={item.label}>
-                    <Link href={item.link} className="hover:text-foreground transition-colors">
+                    <Link
+                      href={item.link}
+                      className="hover:text-foreground transition-colors"
+                    >
                       {item.label}
                     </Link>
                   </li>

@@ -27,7 +27,7 @@ export const LoadingScreen = () => {
             duration: 0.75,
             ease: "easeInOut",
             repeat: Infinity,
-          }
+          },
         }}
       />
       <motion.h1

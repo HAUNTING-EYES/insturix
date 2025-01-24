@@ -12,9 +12,11 @@ export default function Red() {
           " h-[600px] w-full flex gap-12 items-center justify-center"
         }
       >
-        <PricingWrapper 
-        contactHref="/signup"
-        type={"hourglass"} className={"bg-red-700"}>
+        <PricingWrapper
+          contactHref="/signup"
+          type={"hourglass"}
+          className={"bg-red-700"}
+        >
           <Heading>Premium</Heading>
           <Price>
             $100

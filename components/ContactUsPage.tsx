@@ -167,10 +167,11 @@ export default function ContactUsPage() {
                       id="message"
                       placeholder="Your message"
                       {...formik.getFieldProps("message")}
-                      className={`h-32 ${formik.touched.message && formik.errors.message
+                      className={`h-32 ${
+                        formik.touched.message && formik.errors.message
                           ? "border-red-500"
                           : ""
-                        }`}
+                      }`}
                     />
                     {formik.touched.message && formik.errors.message && (
                       <p className="mt-1 text-sm text-red-500">
