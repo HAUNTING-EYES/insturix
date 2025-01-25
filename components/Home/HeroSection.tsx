@@ -3,7 +3,9 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import TypingAnimation from "@/components/ui/TypingAnimation";
+import SimpleTypingAnimation from "@/components/ui/SimpleTypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 
 export default function HeroSection() {
   const heroMessages = [
@@ -26,6 +28,8 @@ export default function HeroSection() {
 
   ];
 
+  const isMobile = useMediaQuery("(max-width: 768px)");
+
   return (
     <div className="relative min-h-screen w-full overflow-hidden select-none">
       <BackgroundEffects />
@@ -44,14 +48,24 @@ export default function HeroSection() {
               </div>
 
               <div className="relative z-10 w-full">
-                <TypingAnimation
-                  messages={heroMessages}
-                  displayDuration={3000}
-                  characterDelay={40}
-                  transitionDuration={350}
-                  shouldLoop={false}
-                  textClass="w-full text-3xl sm:text-4xl md:text-5xl lg:text-5xl font-extrabold tracking-tight text-foreground"
-                />
+                {isMobile ? (
+                  <SimpleTypingAnimation
+                    messages={heroMessages}
+                    displayDuration={3000}
+                    transitionDuration={350}
+                    shouldLoop={false}
+                    textClass="w-full text-3xl sm:text-4xl md:text-5xl lg:text-5xl font-extrabold tracking-tight text-foreground"
+                  />
+                ) : (
+                  <TypingAnimation
+                    messages={heroMessages}
+                    displayDuration={3000}
+                    characterDelay={40}
+                    transitionDuration={350}
+                    shouldLoop={false}
+                    textClass="w-full text-3xl sm:text-4xl md:text-5xl lg:text-5xl font-extrabold tracking-tight text-foreground"
+                  />
+                )}
               </div>
             </div>
 
