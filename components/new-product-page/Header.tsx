@@ -71,7 +71,7 @@ export default function Header({
               {/* Enhanced glow effect */}
               <div className="absolute -inset-4 bg-blue-500/20 blur-2xl rounded-full opacity-30 animate-pulse-slow" />
 
-              <h1 className="relative text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-black dark:text-white [&_span]:mb-1 [&_span]:inline-block leading-relaxed opacity-80">
+              <h1 className="relative text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold text-black dark:text-white [&_span]:mb-1 [&_span]:inline-block leading-tight opacity-80 ">
                 <span>
                   {title}{" "}
                   <span

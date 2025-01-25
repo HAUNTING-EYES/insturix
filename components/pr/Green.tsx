@@ -23,7 +23,7 @@ export default function Green() {
           </Price>
           <Paragraph className="text-left">
             1. Kund-li<br />
-            2. Brainyeet Basic<br />
+            2. thinkforge Basic<br />
             3. Meditron Basic<br />
             4. Socialize<br />
           </Paragraph>

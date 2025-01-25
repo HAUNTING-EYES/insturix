@@ -16,49 +16,52 @@ const THEME = {
 
 const features = [
   {
-    title: "Smart Protection",
-    description: "AI-powered threat detection and prevention system.",
+    title: "Copyright Defense",
+    description: "Shields accounts and content from infringement claims.",
     icon: "Shield",
   },
   {
-    title: "Real-time Monitoring",
-    description: "24/7 surveillance and instant threat alerts.",
+    title: "Account Security",
+    description: "Protects against community guideline strikes and takedowns.",
     icon: "Eye",
   },
   {
-    title: "Zero-Day Defense",
-    description: "Protection against newest security threats.",
+    title: "Content Theft Prevention",
+    description: "Monitors for unauthorized use of intellectual property.",
     icon: "Shell",
   },
   {
-    title: "Access Control",
-    description: "Advanced authentication and authorization.",
+    title: "Legal Assistance",
+    description: "Offers guidance and resources for handling disputes.",
     icon: "Key",
   },
   {
-    title: "Data Encryption",
-    description: "Military-grade encryption for your data.",
-    icon: "Lock",
-  },
-  {
-    title: "Secure Backup",
-    description: "Automated backup with encrypted storage.",
+    title: "Subscription-Based Model",
+    description: "Flexible tiers for creators at all levels.",
     icon: "Save",
   },
 ];
 
 const useCases = [
   {
-    title: "Enterprise Security",
-    description: "Comprehensive protection for business infrastructure.",
+    title: "Content Creators",
+    description: "Protects accounts from copyright strikes, takedowns, and guideline violations.",
   },
   {
-    title: "Personal Privacy",
-    description: "Keep your personal data safe and secure.",
+    title: "Brands",
+    description: "Safeguards their social media presence and intellectual property.",
   },
   {
-    title: "Cloud Security",
-    description: "Protect your cloud applications and data.",
+    title: "E-learning Platforms",
+    description: "Secures online course materials against unauthorized use or duplication.",
+  },
+  {
+    title: "Event Planners",
+    description: "Protects promotional content from copyright claims during campaigns.",
+  },
+  {
+    title: "Podcasters",
+    description: "Shields audio content from unauthorized use or takedowns.",
   },
 ];
 
@@ -66,9 +69,9 @@ const headerContent = {
   title: "Next-Generation Security with",
   highlightText: "Shield",
   description:
-    "Advanced AI-powered security solution that protects your digital assets from modern threats. Stay ahead of cybercriminals with our intelligent security system.",
+    "Protects content creators and brands from copyright issues, takedowns, and content theft, ensuring peace of mind and legal safety.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-  videoTitle: "Shield Security System Overview",
+  videoTitle: "Content Protection and Policy Enforcement",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -93,7 +96,7 @@ export default function Shield() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        <InteractiveDemo {...demoContent} />
+        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

@@ -16,65 +16,63 @@ const THEME = {
 
 const features = [
   {
-    title: "Real-time Processing",
-    description:
-      "Process and analyze content instantly with our advanced AI algorithms.",
+    title: "Guideline Compliance",
+    description: "Scans content to ensure it meets platform rules and avoids strikes.",
     icon: "Zap",
   },
   {
-    title: "Enhanced Security",
-    description:
-      "Military-grade encryption and security protocols to protect your data.",
+    title: "Accuracy Verification",
+    description: "Cross-checks facts and figures to maintain credibility.",
     icon: "Shield",
   },
   {
-    title: "Smart Analytics",
-    description:
-      "Gain deep insights with our intelligent analytics and reporting.",
+    title: "Content Optimization",
+    description: "Provides actionable suggestions to improve content clarity and impact.",
     icon: "LineChart",
   },
   {
-    title: "Neural Networks",
-    description: "Advanced neural networks for superior pattern recognition.",
+    title: "Multi-Format Support",
+    description: "Analyzes text, images, and video content for diverse applications.",
     icon: "Brain",
   },
   {
-    title: "Edge Computing",
-    description: "Distributed processing for faster response times.",
+    title: "Real-Time Insights",
+    description: "Delivers immediate feedback, saving creators from costly mistakes.",
     icon: "Cpu",
-  },
-  {
-    title: "Privacy First",
-    description:
-      "Your data privacy is our top priority with end-to-end encryption.",
-    icon: "Lock",
   },
 ];
 
 const useCases = [
   {
-    title: "Healthcare",
-    description: "AI-powered diagnostics and personalized treatment plans.",
+    title: "Social Media Management",
+    description: "Scans for guideline compliance to avoid content strikes and maximize reach.",
   },
   {
-    title: "Finance",
-    description:
-      "Intelligent fraud detection and automated trading strategies.",
+    title: "Brand Campaigns",
+    description: "Ensures marketing content is accurate, engaging, and aligned with brand goals.",
   },
   {
-    title: "Education",
-    description: "Adaptive learning systems and automated grading.",
+    title: "Journalism",
+    description: "Verifies facts and figures before publishing articles or videos.",
+  },
+  {
+    title: "Education Platforms",
+    description: "Assists in curating quality content for students.",
+  },
+  {
+    title: "E-commerce",
+    description: "Checks product descriptions and visuals to improve clarity and compliance.",
   },
 ];
 
 const headerContent = {
   title: "Revolutionize Your Content Safety with",
-  highlightText: "Techie Tiwari",
+  highlightText: "Alyzitron",
   description:
-    "Harness the power of AI to moderate your content and keep your users safe. Intelligent, efficient, and reliable content moderation.",
+    "Scans for guideline compliance, ensures accuracy, and optimizes content for maximum impact and brand alignment.",
   videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
   videoTitle:
-    'Nirmala Sitharaman Left Speechless To "Govt My Sleeping Partner" Question',
+    'Content Guidelines Compliance and Accuracy Verification',
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -99,7 +97,7 @@ export default function TechieTewari() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        <InteractiveDemo {...demoContent} />
+        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

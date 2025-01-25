@@ -29,8 +29,8 @@ const models = [
     label: "Kund-Li",
   },
   {
-    value: "BrainYeed",
-    label: "BrainYeed",
+    value: "thinkforge",
+    label: "thinkforge",
   },
 ];
 

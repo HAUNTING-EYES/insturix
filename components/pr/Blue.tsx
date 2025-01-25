@@ -24,7 +24,7 @@ export default function Blue() {
           <Paragraph className="text-left">
             1. All features of Free
             <br />
-            2. Brainyeet Pro
+            2. thinkforge Pro
             <br />
             3. Meditron Pro
             <br />

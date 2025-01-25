@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Sidebar } from "@/components/dashboard/sidebar/Sidebar";
 import PermanentSidebar from "@/components/dashboard/sidebar/PermanentSidebar";
 import KundLi from "./KundLi";
-import Techie from "./Techie";
+import Techie from "./Alyzitron";
 import Editron from "./Editron";
-import BrainYeed from "./BrainYeed";
+import ThinkForge from "./ThinkForge";
 
 export default function ChatDashboard() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -16,8 +16,8 @@ export default function ChatDashboard() {
       return <KundLi />;
     } else if (selectedModel === "Techie-Tiwari") {
       return <Techie />;
-    } else if (selectedModel === "BrainYeed") {
-      return <BrainYeed />;
+    } else if (selectedModel === "ThinkForge") {
+      return <ThinkForge />;
     } else {
       return <Editron />;
     }

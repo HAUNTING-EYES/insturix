@@ -8,7 +8,7 @@ interface UseCase {
   description: string;
 }
 
-// sample for usecases
+// sample for usecases 
 // useCases = [
 //   {
 //     title: "Healthcare",
@@ -53,7 +53,7 @@ export default function UseCases({ useCases }: { useCases: UseCase[] }) {
             >
               <Card
                 variant="interactive"
-                className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5 p-6"
+                className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5 p-6 h-full flex flex-col"
               >
                 <h3 className="text-xl font-semibold mb-2">{useCase.title}</h3>
                 <p className="text-muted-foreground">{useCase.description}</p>

@@ -13,62 +13,64 @@ const THEME = {
     to: "to-green-600",
   },
 };
-
 const features = [
   {
-    title: "AI Health Analysis",
-    description: "Advanced health monitoring and prediction system.",
-    icon: "Heart",
+    title: "Creator-Business Matching",
+    description: "Connects businesses with niche creators based on engagement and audience.",
+    icon: "Sparkles",
   },
   {
-    title: "Wellness Tracking",
-    description: "Track your daily wellness metrics and habits.",
-    icon: "Activity",
+    title: "Search Optimization",
+    description: "Businesses can find creators tailored to their needs effortlessly.",
+    icon: "ChartBar",
   },
   {
-    title: "Smart Diagnostics",
-    description: "AI-powered health diagnostics and recommendations.",
-    icon: "Stethoscope",
+    title: "Transparent Payments",
+    description: "Built-in escrow service for secure and hassle-free transactions.",
+    icon: "Building",
   },
   {
-    title: "Mental Wellness",
-    description: "Track and improve your mental well-being.",
-    icon: "Brain",
+    title: "Growth Opportunities",
+    description: "Allows creators to pitch to businesses and grow their portfolios.",
+    icon: "Video",
   },
   {
-    title: "Nutrition AI",
-    description: "Personalized nutrition recommendations.",
-    icon: "Apple",
-  },
-  {
-    title: "Sleep Analysis",
-    description: "Advanced sleep pattern analysis and tips.",
-    icon: "Moon",
+    title: "Real-Time Metrics",
+    description: "Monitors campaign performance for both creators and brands.",
+    icon: "ChartPie",
   },
 ];
 
 const useCases = [
   {
-    title: "Personal Health",
-    description: "Monitor and improve your daily health metrics.",
+    title: "Marketing Agencies",
+    description: "Finds genuine creators to amplify brand campaigns.",
   },
   {
-    title: "Healthcare Providers",
-    description: "Enhanced patient monitoring and care delivery.",
+    title: "Creators",
+    description: "Connects with businesses to monetize their content and grow their portfolio.",
   },
   {
-    title: "Wellness Centers",
-    description: "Comprehensive health tracking for facilities.",
+    title: "E-commerce Platforms",
+    description: "Partners with niche creators for targeted product promotion.",
+  },
+  {
+    title: "Startups",
+    description: "Enables cost-effective influencer marketing for greater visibility.",
+  },
+  {
+    title: "Event Organizers",
+    description: "Collaborates with creators for pre-event buzz and live coverage.",
   },
 ];
 
 const headerContent = {
-  title: "Transform Your Health with",
+  title: "Elevate Your Content with",
   highlightText: "Meditron",
   description:
-    "AI-powered health monitoring and wellness optimization platform. Get personalized insights and recommendations for better health outcomes.",
+    "A platform connecting creators and businesses for collaborations, sponsorships, and growth opportunities.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-  videoTitle: "Meditron Health Platform Overview",
+  videoTitle: "Creator-to-Business Platform for Marketing",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -93,7 +95,7 @@ export default function Meditron() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        <InteractiveDemo {...demoContent} />
+        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

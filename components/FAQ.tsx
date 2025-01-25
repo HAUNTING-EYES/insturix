@@ -25,7 +25,7 @@ const faqs = [
   {
     question: "What products do you offer?",
     answer:
-      "We offer various products including Techie Tiwari for content moderation, Kund-li for data analysis, Editron for content editing, Shield for security, and more.",
+      "We offer various products including Alyzitron for content moderation, Kund-li for data analysis, Editron for content editing, Shield for security, and more.",
   },
   {
     question: "How secure is my data?",

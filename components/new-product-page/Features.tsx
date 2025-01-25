@@ -46,7 +46,7 @@ export default function Features({ features }: { features: Feature[] }) {
             >
               <Card
                 variant="interactive"
-                className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5"
+                className="backdrop-blur-xs bg-white/80 dark:bg-zinc-900/80 hover:translate-y-[-2px] transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5 h-full flex flex-col"
               >
                 <CardHeader>
                   <div className="flex items-center gap-3">
@@ -66,7 +66,7 @@ export default function Features({ features }: { features: Feature[] }) {
                     <h3 className="text-xl font-semibold">{feature.title}</h3>
                   </div>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="flex-grow">
                   <p className="text-muted-foreground">{feature.description}</p>
                 </CardContent>
               </Card>

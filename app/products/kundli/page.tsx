@@ -13,62 +13,64 @@ const THEME = {
     to: "to-orange-600",
   },
 };
-
 const features = [
   {
-    title: "AI Astrology",
-    description: "Advanced astrological calculations and predictions.",
-    icon: "Star",
+    title: "In-Depth Analytics",
+    description: "Offers detailed reports on audience engagement, follower trends, and content performance.",
+    icon: "ChartBar",
   },
   {
-    title: "Birth Chart Analysis",
-    description: "Detailed analysis of planetary positions.",
-    icon: "Sun",
+    title: "Growth Strategies",
+    description: "Recommends personalized action plans for optimizing account growth.",
+    icon: "Users",
   },
   {
-    title: "Compatibility Match",
-    description: "Advanced relationship compatibility analysis.",
+    title: "Authenticity Checks",
+    description: "Detects fake followers and engagement metrics for credibility analysis.",
     icon: "Heart",
   },
   {
-    title: "Daily Predictions",
-    description: "Personalized daily horoscope and guidance.",
-    icon: "Calendar",
+    title: "Competitor Benchmarking",
+    description: "Compares accounts with peers in the same niche.",
+    icon: "TrendingUp",
   },
   {
-    title: "Life Path Analysis",
-    description: "Discover your life purpose and potential.",
-    icon: "Compass",
-  },
-  {
-    title: "Remedial Solutions",
-    description: "Personalized astrological remedies and guidance.",
+    title: "Real-Time Updates",
+    description: "Tracks dynamic metrics to adapt strategies on the fly.",
     icon: "Sparkles",
   },
 ];
 
 const useCases = [
   {
-    title: "Personal Guidance",
-    description: "Get insights about your life path and decisions.",
+    title: "Social Media Agencies",
+    description: "Optimizes client account performance with growth and engagement insights.",
   },
   {
-    title: "Relationship Match",
-    description: "Analyze compatibility between partners.",
+    title: "Influencers",
+    description: "Provides detailed analytics to refine content strategy and boost audience interaction.",
   },
   {
-    title: "Career Planning",
-    description: "Astrological guidance for career decisions.",
+    title: "Brands",
+    description: "Helps evaluate potential influencer partnerships by analyzing follower engagement and authenticity.",
+  },
+  {
+    title: "Startups",
+    description: "Offers actionable insights to grow their digital presence effectively.",
+  },
+  {
+    title: "Event Organizers",
+    description: "Analyzes audience trends to optimize event promotion strategies.",
   },
 ];
 
 const headerContent = {
-  title: "Discover Your Path with",
-  highlightText: "Kundli",
+  title: "Understand Your Audience Better with",
+  highlightText: "Kund-li",
   description:
-    "AI-powered vedic astrology platform that combines ancient wisdom with modern technology. Get accurate predictions and personalized guidance for your life journey.",
+    "Optimize social media accounts with growth insights, refine content strategy, and evaluate influencer partnerships effectively.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-  videoTitle: "Kundli Platform Overview",
+  videoTitle: "Account Performance Optimization with Kund-Li",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -94,7 +96,7 @@ export default function Kundli() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        <InteractiveDemo {...demoContent} />
+        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

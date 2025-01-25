@@ -16,59 +16,62 @@ const THEME = {
 
 const features = [
   {
-    title: "Smart Learning",
-    description: "AI-powered personalized learning paths.",
-    icon: "Brain",
+    title: "Creative Sparks",
+    description: "Generates actionable ideas for videos, blogs, campaigns, and more.",
+    icon: "Lightbulb",
   },
   {
-    title: "Progress Tracking",
-    description: "Advanced analytics on learning progress.",
+    title: "AI-Driven Insights",
+    description: "Leverages algorithms to deliver unique, trend-aligned concepts.",
     icon: "LineChart",
   },
   {
-    title: "Interactive Exercises",
-    description: "Engaging practice with instant feedback.",
-    icon: "Pencil",
-  },
-  {
-    title: "Concept Mapping",
-    description: "Visual learning and concept connections.",
-    icon: "Network",
-  },
-  {
-    title: "Study Planning",
-    description: "Optimized study schedules and reminders.",
+    title: "Personalized Suggestions",
+    description: "Tailored ideas based on industry, niche, and goals.",
     icon: "Calendar",
   },
   {
-    title: "Knowledge Testing",
-    description: "Adaptive quizzes and assessments.",
-    icon: "GraduationCap",
+    title: "Collaborative Brainstorming",
+    description: "Enables team usage for collective ideation.",
+    icon: "Users",
+  },
+  {
+    title: "Rapid Output",
+    description: "Produces ideas in seconds, keeping up with fast-paced industries.",
+    icon: "Sparkles",
   },
 ];
 
 const useCases = [
   {
-    title: "Students",
-    description: "Enhance your learning and academic performance.",
+    title: "Content Creators",
+    description: "Generates fresh, engaging ideas for videos, blogs, and posts.",
   },
   {
-    title: "Educators",
-    description: "Track and improve student progress effectively.",
+    title: "Brands",
+    description: "Brainstorms innovative marketing strategies and campaign concepts.",
   },
   {
-    title: "Self-Learners",
-    description: "Master new skills at your own pace.",
+    title: "Agencies",
+    description: "Assists in ideating unique client pitches and proposals.",
+  },
+  {
+    title: "Startups",
+    description: "Provides insights for product innovation and go-to-market strategies.",
+  },
+  {
+    title: "Education",
+    description: "Sparks creative lesson plans, workshops, and student projects.",
   },
 ];
 
 const headerContent = {
-  title: "Accelerate Your Learning with",
-  highlightText: "Brainyeed",
+  title: "Supercharge Your Content with",
+  highlightText: "ThinkForge",
   description:
-    "AI-powered learning platform that adapts to your needs. Experience personalized education with intelligent feedback and progress tracking.",
+    "Generates fresh content ideas, innovative marketing strategies, and unique client pitches with AI-driven insights.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-  videoTitle: "Brainyeed Learning Platform Overview",
+  videoTitle: "AI Idea Generator for Content and Marketing",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -86,7 +89,7 @@ const demoContent = {
     "Learning Analysis Complete:\n- Recommended Path: Intermediate\n- Est. Time: 4 weeks\n- Key Topics: 5 identified\n- Practice Exercises: 12\n- Assessment Tests: 3",
 };
 
-export default function Brainyeed() {
+export default function thinkforge() {
   return (
     <>
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />

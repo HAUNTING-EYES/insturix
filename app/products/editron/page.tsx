@@ -16,59 +16,62 @@ const THEME = {
 
 const features = [
   {
-    title: "Smart Editing",
-    description: "AI-powered content enhancement and correction.",
+    title: "AI-Powered Automation",
+    description: "Converts raw footage into polished, upload-ready videos in minutes.",
     icon: "Edit",
   },
   {
-    title: "Style Analysis",
-    description: "Intelligent writing style recommendations.",
+    title: "Topic Detection",
+    description: "Extracts topics from audio and timestamps them for easy editing.",
     icon: "TypeWriter",
   },
   {
-    title: "Grammar Check",
-    description: "Advanced grammar and syntax correction.",
+    title: "Seamless Editing",
+    description: "Trim, stitch, and add captions, transitions, and effects effortlessly.",
     icon: "Check",
   },
   {
-    title: "Tone Adjustment",
-    description: "Smart tone and voice modification tools.",
+    title: "Augmented Creativity",
+    description: "Real-life physics replication, facial emotion mapping, and movement simulation.",
     icon: "Music",
   },
   {
-    title: "Plagiarism Detection",
-    description: "Advanced content originality verification.",
-    icon: "Search",
-  },
-  {
-    title: "Auto Formatting",
-    description: "Intelligent document formatting assistance.",
+    title: "Scalability",
+    description: "Handles content for multiple platforms, from short reels to long-format videos.",
     icon: "Layout",
   },
 ];
 
 const useCases = [
   {
-    title: "Content Creation",
-    description: "Perfect your articles, blogs, and social media posts.",
+    title: "Media Production",
+    description: "Automates post-production for ad agencies, studios, and independent filmmakers, reducing editing time by 90%.",
   },
   {
-    title: "Academic Writing",
-    description: "Enhance research papers and academic works.",
+    title: "Social Media",
+    description: "Enables influencers and marketers to create polished, platform-ready videos in minutes.",
   },
   {
-    title: "Business Documents",
-    description: "Polish professional documents and proposals.",
+    title: "Corporate Training",
+    description: "Simplifies editing of webinars, tutorials, and employee training videos with clean transitions and captions.",
+  },
+  {
+    title: "Education",
+    description: "Assists educators in creating engaging video lessons quickly.",
+  },
+  {
+    title: "Event Coverage",
+    description: "Streamlines editing for event videographers to meet tight delivery deadlines.",
   },
 ];
 
 const headerContent = {
-  title: "Perfect Your Content with",
+  title: "Create Flawless Content in Minutes with",
   highlightText: "Editron",
   description:
-    "AI-powered writing assistant that helps you create flawless content. Enhanced grammar checking, style suggestions, and intelligent editing features.",
+    "Automates video post-production, simplifies social media content creation, and streamlines corporate and educational video editing.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-  videoTitle: "Editron Platform Overview",
+  videoTitle: "AI Video Editor for Media Production",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -93,7 +96,7 @@ export default function Editron() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        <InteractiveDemo {...demoContent} />
+        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>
