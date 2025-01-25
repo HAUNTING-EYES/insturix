@@ -15,7 +15,7 @@ export default function Red() {
         <PricingWrapper
           contactHref="/signup"
           type={"hourglass"} className={"bg-red-700"}>
-          <Heading>Pro+</Heading>
+          <Heading>Premium</Heading>
           <Price>
             ₹1000 /mo
           </Price>

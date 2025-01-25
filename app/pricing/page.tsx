@@ -1,4 +1,4 @@
-"use client"
+"use client";
 import React, { useState } from "react";
 import Green from "@/components/pr/Green";
 import Blue from "@/components/pr/Blue";
@@ -24,23 +24,29 @@ export default function Pricing() {
 
   return (
     <div className="relative">
-      <CursorEffect
-        variant="glow"
-        color={cursorColor}
-        size={500}
-        blur={80}
-      />
+      <CursorEffect variant="glow" color={cursorColor} size={500} blur={80} />
       <Navbar />
       {/* Background pattern */}
       <div className="fixed inset-0 -z-20">
         <div
-          className={`absolute inset-0 transition-all duration-500 ease-in-out ${isCardHovered ? 'scale-105' : 'scale-100'
-            }`}
+          className={`absolute inset-0 transition-all duration-500 ease-in-out ${
+            isCardHovered ? "scale-105" : "scale-100"
+          }`}
         >
           <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.05]">
             <svg className="w-full h-full">
-              <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
-                <path d="M0 .5H32M.5 0V32" fill="none" stroke="currentColor" strokeWidth="1" />
+              <pattern
+                id="grid"
+                width="32"
+                height="32"
+                patternUnits="userSpaceOnUse"
+              >
+                <path
+                  d="M0 .5H32M.5 0V32"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1"
+                />
               </pattern>
               <rect width="100%" height="100%" fill="url(#grid)" />
             </svg>
