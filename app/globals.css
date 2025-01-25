@@ -278,6 +278,13 @@
     opacity: 0.15;
     filter: blur(1rem);
   }
+
+  @media (max-width: 768px) {
+    /* Media query for mobile devices */
+    &::before {
+      filter: blur(0);
+    }
+  }
 }
 
 @utility noise-texture {

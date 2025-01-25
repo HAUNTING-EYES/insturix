@@ -39,7 +39,7 @@ export default function HeroSection() {
             transition={{ duration: 0.8, delay: 0.2 }}
           >
             <div className="relative mb-8 sm:mb-12 w-full">
-              <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl">
+              <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl md:blur-none"> {/* Disable blur on md screens and below */}
                 <div className="absolute inset-0 bg-gradient-to-r from-[rgb(var(--primary))/10] to-[rgb(var(--secondary))/10] [mask-image:radial-gradient(farthest-side_at_top,white,transparent)]" />
               </div>
 
@@ -79,7 +79,7 @@ export default function HeroSection() {
               </Link>
               <Link
                 href="/about"
-                className="w-full sm:w-auto group relative rounded-full border border-[rgb(var(--foreground))/10 bg-[rgb(var(--background))/50] px-8 py-3 text-sm font-semibold backdrop-blur-sm transition-all duration-300 ease-out hover:scale-105 hover:bg-[rgb(var(--foreground))/5] active:scale-[0.98]"
+                className="w-full sm:w-auto group relative rounded-full border border-[rgb(var(--foreground))/10 bg-[rgb(var(--background))/50] px-8 py-3 text-sm font-semibold md:backdrop-blur-none backdrop-blur-sm transition-all duration-300 ease-out hover:scale-105 hover:bg-[rgb(var(--foreground))/5] active:scale-[0.98]" /* Disable blur on md screens and below */
               >
                 <span className="relative">Learn More</span>
               </Link>
