@@ -17,7 +17,11 @@ export default function Purple() {
           " h-[600px] w-full flex gap-12 items-center justify-center"
         }
       >
-        <PricingWrapper contactHref="/signup" type={"waves"}>
+        <PricingWrapper
+          type={"waves"}
+          contactHref="/signup"
+          className={"bg-purple-600/95 dark:bg-purple-700/95"} // Adjusted opacity and dark theme color
+        >
           <Heading>Pro</Heading>
           <Price>
             ₹500 /mo

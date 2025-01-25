@@ -4,14 +4,15 @@ import { cn } from "@/lib/utils";
 const Wave = () => (
   <svg
     width="129"
-    height="1387"
-    viewBox="0 0 129 1387"
+    height="2000"
+    viewBox="0 0 129 2000"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
+    className="text-white/30"
   >
     <path
-      d="M11.2131 11L106.283 106.07M106.283 106.07L117.279 117.066M106.283 106.07L22.2962 190.003M106.283 106.07L116.688 95.6708M11.2962 200.997L22.2962 190.003M22.2962 190.003L11.2529 178.96M22.2962 190.003L106.323 274.03M106.323 274.03L117.319 285.026M106.323 274.03L22.4537 357.846M106.323 274.03L116.728 263.631M11.3361 368.957L22.4537 357.846M22.4537 357.846L11.5493 346.901M22.4537 357.846L106.44 442.149M106.44 442.149L117.416 453.166M106.44 442.149L22.2962 525.925M106.44 442.149L116.865 431.769M11.2756 536.897L22.2962 525.925M22.2962 525.925L11.2737 514.861M22.2962 525.925L106.165 610.109M106.165 610.109L117.14 621.126M106.165 610.109L11 704.857M106.165 610.109L116.59 599.729M11.2131 683L106.283 778.07M106.283 778.07L117.279 789.066M106.283 778.07L22.2962 862.003M106.283 778.07L116.688 767.671M11.2962 872.997L22.2962 862.003M22.2962 862.003L11.2529 850.96M22.2962 862.003L106.323 946.03M106.323 946.03L117.319 957.026M106.323 946.03L22.4537 1029.85M106.323 946.03L116.728 935.631M11.3361 1040.96L22.4537 1029.85M22.4537 1029.85L11.5493 1018.9M22.4537 1029.85L106.44 1114.15M106.44 1114.15L117.416 1125.17M106.44 1114.15L22.2962 1197.92M106.44 1114.15L116.865 1103.77M11.2756 1208.9L22.2962 1197.92M22.2962 1197.92L11.2737 1186.86M22.2962 1197.92L106.165 1282.11M106.165 1282.11L117.14 1293.13M106.165 1282.11L11 1376.86M106.165 1282.11L116.59 1271.73"
-      stroke="#282828"
+      d={`M11.2131 11L106.283 106.07M106.283 106.07L117.279 117.066M106.283 106.07L22.2962 190.003M106.283 106.07L116.688 95.6708M11.2962 200.997L22.2962 190.003M22.2962 190.003L11.2529 178.96M22.2962 190.003L106.323 274.03M106.323 274.03L117.319 285.026M106.323 274.03L22.4537 357.846M106.323 274.03L116.728 263.631M11.3361 368.957L22.4537 357.846M22.4537 357.846L11.5493 346.901M22.4537 357.846L106.44 442.149M106.44 442.149L117.416 453.166M106.44 442.149L22.2962 525.925M106.44 442.149L116.865 431.769M11.2756 536.897L22.2962 525.925M22.2962 525.925L11.2737 514.861M22.2962 525.925L106.165 610.109M106.165 610.109L117.14 621.126M106.165 610.109L11 704.857M106.165 610.109L116.59 599.729`}
+      stroke="currentColor"
       strokeWidth="31"
     />
   </svg>
@@ -23,12 +24,12 @@ const Cross = () => (
     height="130"
     viewBox="0 0 130 130"
     fill="none"
-    className={"scale-125"}
+    className="scale-125 text-white/50"
     xmlns="http://www.w3.org/2000/svg"
   >
     <path
       d="M11 11L118.899 119M11.101 119L119 11"
-      stroke="#282828"
+      stroke="currentColor"
       strokeWidth="31"
     />
   </svg>
@@ -40,12 +41,12 @@ const Star = () => (
     height="200"
     viewBox="0 0 200 200"
     fill="none"
-    className={"scale-110"}
+    className="scale-110 text-white/50"
     xmlns="http://www.w3.org/2000/svg"
   >
     <path
       d="M100 10L123.51 59.27L177.55 68.36L138.78 106.73L149.02 160.64L100 135.27L50.98 160.64L61.22 106.73L22.45 68.36L76.49 59.27L100 10Z"
-      stroke="#282828"
+      stroke="currentColor"
       strokeWidth="15"
       strokeLinejoin="round"
     />
@@ -58,12 +59,12 @@ const HourGlass = () => (
     height="130"
     viewBox="0 0 130 130"
     fill="none"
-    className={"scale-125"}
+    className="scale-125 text-white/50"
     xmlns="http://www.w3.org/2000/svg"
   >
     <path
       d="M30 10L100 10L100 40L65 65L100 90L100 120L30 120L30 90L65 65L30 40L30 10Z"
-      stroke="#282828"
+      stroke="currentColor"
       strokeWidth="20"
       strokeLinejoin="round"
     />
@@ -79,6 +80,15 @@ export const PricingWrapper: React.FC<{
   <article
     className={cn(
       "min-h-[300px] h-[600px] max-h-[500px] max-w-sm w-full bg-purple-500 relative overflow-hidden rounded-2xl text-white",
+      "bg-opacity-90 dark:bg-opacity-95",
+      "before:absolute before:inset-0 before:z-0",
+      "before:mix-blend-soft-light",
+      "before:bg-[linear-gradient(130deg,rgba(0,0,0,0.1)_0%,rgba(0,0,0,0.15)_40%,rgba(0,0,0,0.2)_80%)]",
+      "dark:before:bg-[linear-gradient(130deg,rgba(0,0,0,0.2)_0%,rgba(0,0,0,0.25)_40%,rgba(0,0,0,0.3)_80%)]",
+      "backdrop-brightness-105 dark:backdrop-brightness-95",
+      "after:absolute after:inset-0 after:z-0 after:rounded-2xl",
+      "after:shadow-[inset_0_0_30px_rgba(0,0,0,0.2)]",
+      "dark:after:shadow-[inset_0_0_50px_rgba(0,0,0,0.4)]",
       className
     )}
   >
@@ -104,14 +114,14 @@ export const PricingWrapper: React.FC<{
       <>
         <div
           className={
-            "w-fit h-fit absolute -top-[106px] sm:left-4 -left-0 waves z-0"
+            "w-fit h-fit absolute sm:left-4 -left-0 waves z-0"
           }
         >
           <Wave />
         </div>
         <div
           className={
-            "w-fit h-fit absolute -top-[106px] sm:right-4 -right-0 waves z-0"
+            "w-fit h-fit absolute sm:right-4 -right-0 waves z-0"
           }
         >
           <Wave />
@@ -202,7 +212,7 @@ export const Heading: React.FC<{
 }> = ({ children, className }) => (
   <h1
     className={cn(
-      "sm:text-5xl leading-1 text-[clamp(1.7rem,10vw,3rem)] font-bold",
+      "sm:text-5xl leading-1 text-[clamp(1.7rem,10vw,3rem)] font-bold [text-shadow:_0_1px_2px_rgba(0,0,0,0.6)]",
       className
     )}
   >
@@ -217,7 +227,7 @@ export const Price: React.FC<{
   <div
     style={{ lineHeight: "1" }}
     className={cn(
-      "sm:text-5xl text-[clamp(1.7rem,10vw,3rem)] font-bold",
+      "sm:text-5xl text-[clamp(1.7rem,10vw,3rem)] font-bold [text-shadow:_0_1px_2px_rgba(0,0,0,0.6)]",
       className
     )}
   >
@@ -231,7 +241,7 @@ export const Paragraph: React.FC<{
 }> = ({ children, className }) => (
   <p
     className={cn(
-      "sm:text-2xl text-[clamp(0.1rem,20vw,1.25rem)] font-bold",
+      "sm:text-2xl text-[clamp(0.1rem,20vw,1.25rem)] font-bold [text-shadow:_0_1px_2px_rgba(0,0,0,0.6)]",
       className
     )}
   >

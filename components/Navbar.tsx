@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useTheme } from "next-themes";
@@ -21,6 +22,56 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import Logo from "@/public/Logo.jpeg";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
+
+const LogoAnimation = () => {
+  const [showLogo, setShowLogo] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setShowLogo(prev => !prev);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="relative w-36 h-16 flex items-center">
+      <AnimatePresence mode="wait">
+        {showLogo ? (
+          <motion.div
+            key="logo"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.5 }}
+            className="absolute inset-0 flex items-center"
+          >
+            <Image
+              src={Logo}
+              alt="Logo"
+              width={32}
+              height={32}
+              className="rounded-full"
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="text"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.5 }}
+            className="absolute inset-0 flex items-center"
+          >
+            <span className="font-['Blanka'] text-xl tracking-[0.4em] whitespace-nowrap">
+              INSTURANCE
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+};
 
 const menuItems = [
   {
@@ -91,42 +142,19 @@ export default function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20">
-      {/* Main navbar content */}
       <div className="container mx-auto px-4">
         <div className="flex h-16 items-center justify-between">
-          <div className="flex items-center">
-            <Link href="/" className="flex items-center space-x-2">
-              <Image
-                src={Logo}
-                alt="Logo"
-                width={32}
-                height={32}
-                className="rounded-full"
-              />
+          {/* Logo Section */}
+          <div className="flex-shrink-0">
+            <Link href="/" className="flex items-center">
+              <LogoAnimation />
             </Link>
           </div>
-          {/* Mobile menu button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className={cn(
-              "md:hidden focus:bg-transparent focus-visible:ring-0",
-              isOpen
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "bg-transparent hover:bg-transparent"
-            )}
-            onClick={(e) => {
-              e.currentTarget.blur();
-              setIsOpen(!isOpen);
-            }}
-            aria-label={isOpen ? "Close menu" : "Open menu"}
-          >
-            {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-          </Button>
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex md:items-center md:space-x-4">
+
+          {/* Navigation Section - Center */}
+          <div className="hidden md:flex flex-grow justify-center mx-4">
             <NavigationMenu>
-              <NavigationMenuList>
+              <NavigationMenuList className="flex-nowrap">
                 {menuItems.map((item) => (
                   <NavigationMenuItem key={item.title}>
                     {item.subItems ? (
@@ -173,10 +201,21 @@ export default function Navbar() {
               </NavigationMenuList>
             </NavigationMenu>
           </div>
-          {/* User menu and theme toggle */}
-          <div className="hidden md:flex md:items-center md:space-x-2">
-            <UserMenu />
+
+          {/* Actions Section - Right */}
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <div className="hidden md:flex items-center gap-2">
+              <UserMenu />
+            </div>
             <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="md:hidden focus:bg-transparent focus-visible:ring-0"
+              onClick={() => setIsOpen(!isOpen)}
+            >
+              {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </Button>
           </div>
         </div>
       </div>
