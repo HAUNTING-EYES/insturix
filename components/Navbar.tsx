@@ -63,7 +63,7 @@ const LogoAnimation = () => {
             transition={{ duration: 0.5 }}
             className="absolute inset-0 flex items-center"
           >
-            <span className="font-['Blanka'] text-xl tracking-[0.4em] whitespace-nowrap">
+            <span className="font-['Blanka'] text-xl tracking-[0.4em] whitespace-nowrap leading-none flex items-center h-full transform -translate-y-[3px]">
               INSTURANCE
             </span>
           </motion.div>
@@ -142,19 +142,19 @@ export default function Navbar() {
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20">
-      <div className="container mx-auto px-4">
+      <div className="w-full max-w-none px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo Section */}
-          <div className="flex-shrink-0">
+          <div className="flex-none">
             <Link href="/" className="flex items-center">
               <LogoAnimation />
             </Link>
           </div>
 
           {/* Navigation Section - Center */}
-          <div className="hidden md:flex flex-grow justify-center mx-4">
-            <NavigationMenu>
-              <NavigationMenuList className="flex-nowrap">
+          <div className="hidden md:flex flex-grow justify-center items-center">
+            <NavigationMenu className="flex justify-center w-full">
+              <NavigationMenuList className="flex-nowrap items-center">
                 {menuItems.map((item) => (
                   <NavigationMenuItem key={item.title}>
                     {item.subItems ? (
@@ -203,7 +203,7 @@ export default function Navbar() {
           </div>
 
           {/* Actions Section - Right */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex-none flex items-center gap-2">
             <div className="hidden md:flex items-center gap-2">
               <UserMenu />
             </div>
@@ -233,7 +233,7 @@ export default function Navbar() {
             }}
             className="fixed inset-x-0 top-16 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-xs md:hidden"
           >
-            <div className="container mx-auto px-4 py-4">
+            <div className="px-6 py-4">
               <div className="space-y-2">
                 {menuItems.map((item) => (
                   <div key={item.title}>
