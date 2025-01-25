@@ -13,7 +13,9 @@ export default function Contribute() {
         blur={100}
       />
       <Navbar />
-      <ContributionPage />
+      <div className="mt-[60px] md:mt-0">
+        <ContributionPage />
+      </div>
       <Footer />
     </>
   );
