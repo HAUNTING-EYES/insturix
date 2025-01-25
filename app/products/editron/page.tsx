@@ -1,5 +1,5 @@
 import Header from "@/components/new-product-page/Header";
-import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
+ // import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -17,27 +17,32 @@ const THEME = {
 const features = [
   {
     title: "AI-Powered Automation",
-    description: "Converts raw footage into polished, upload-ready videos in minutes.",
+    description:
+      "Converts raw footage into polished, upload-ready videos in minutes.",
     icon: "Edit",
   },
   {
     title: "Topic Detection",
-    description: "Extracts topics from audio and timestamps them for easy editing.",
+    description:
+      "Extracts topics from audio and timestamps them for easy editing.",
     icon: "TypeWriter",
   },
   {
     title: "Seamless Editing",
-    description: "Trim, stitch, and add captions, transitions, and effects effortlessly.",
+    description:
+      "Trim, stitch, and add captions, transitions, and effects effortlessly.",
     icon: "Check",
   },
   {
     title: "Augmented Creativity",
-    description: "Real-life physics replication, facial emotion mapping, and movement simulation.",
+    description:
+      "Real-life physics replication, facial emotion mapping, and movement simulation.",
     icon: "Music",
   },
   {
     title: "Scalability",
-    description: "Handles content for multiple platforms, from short reels to long-format videos.",
+    description:
+      "Handles content for multiple platforms, from short reels to long-format videos.",
     icon: "Layout",
   },
 ];
@@ -45,23 +50,28 @@ const features = [
 const useCases = [
   {
     title: "Media Production",
-    description: "Automates post-production for ad agencies, studios, and independent filmmakers, reducing editing time by 90%.",
+    description:
+      "Automates post-production for ad agencies, studios, and independent filmmakers, reducing editing time by 90%.",
   },
   {
     title: "Social Media",
-    description: "Enables influencers and marketers to create polished, platform-ready videos in minutes.",
+    description:
+      "Enables influencers and marketers to create polished, platform-ready videos in minutes.",
   },
   {
     title: "Corporate Training",
-    description: "Simplifies editing of webinars, tutorials, and employee training videos with clean transitions and captions.",
+    description:
+      "Simplifies editing of webinars, tutorials, and employee training videos with clean transitions and captions.",
   },
   {
     title: "Education",
-    description: "Assists educators in creating engaging video lessons quickly.",
+    description:
+      "Assists educators in creating engaging video lessons quickly.",
   },
   {
     title: "Event Coverage",
-    description: "Streamlines editing for event videographers to meet tight delivery deadlines.",
+    description:
+      "Streamlines editing for event videographers to meet tight delivery deadlines.",
   },
 ];
 
@@ -77,7 +87,8 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-const demoContent = {
+{
+  /*const demoContent = {
   title: "Writing Enhancement Demo",
   subtitle: "Experience our AI editing capabilities",
   defaultInput: "Paste your text here for instant improvements...",
@@ -87,7 +98,8 @@ const demoContent = {
   processingDelay: 2000,
   simulatedResponse:
     "Content Analysis Complete:\n- Grammar Score: 98%\n- Style: Professional\n- Tone: Confident\n- Suggestions: 3 improvements found\n- Readability: Grade A",
-};
+}; */
+}
 
 export default function Editron() {
   return (

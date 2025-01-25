@@ -1,5 +1,5 @@
 import Header from "@/components/new-product-page/Header";
-import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
+// import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -76,7 +76,7 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-const demoContent = {
+{ /* const demoContent = {
   title: "Health Analysis Demo",
   subtitle: "Experience our AI health analysis in action",
   defaultInput: "Describe your symptoms or health concerns...",
@@ -86,7 +86,7 @@ const demoContent = {
   processingDelay: 2000,
   simulatedResponse:
     "Health Analysis Complete:\n- Overall Health Score: 85%\n- Recommendations: Increase water intake\n- Sleep Quality: Good\n- Stress Level: Moderate",
-};
+}; */}
 
 export default function Meditron() {
   return (

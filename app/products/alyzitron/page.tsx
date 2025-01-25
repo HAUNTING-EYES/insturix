@@ -1,5 +1,5 @@
 import Header from "@/components/new-product-page/Header";
-import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
+// import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -17,7 +17,8 @@ const THEME = {
 const features = [
   {
     title: "Guideline Compliance",
-    description: "Scans content to ensure it meets platform rules and avoids strikes.",
+    description:
+      "Scans content to ensure it meets platform rules and avoids strikes.",
     icon: "Zap",
   },
   {
@@ -27,17 +28,20 @@ const features = [
   },
   {
     title: "Content Optimization",
-    description: "Provides actionable suggestions to improve content clarity and impact.",
+    description:
+      "Provides actionable suggestions to improve content clarity and impact.",
     icon: "LineChart",
   },
   {
     title: "Multi-Format Support",
-    description: "Analyzes text, images, and video content for diverse applications.",
+    description:
+      "Analyzes text, images, and video content for diverse applications.",
     icon: "Brain",
   },
   {
     title: "Real-Time Insights",
-    description: "Delivers immediate feedback, saving creators from costly mistakes.",
+    description:
+      "Delivers immediate feedback, saving creators from costly mistakes.",
     icon: "Cpu",
   },
 ];
@@ -45,15 +49,18 @@ const features = [
 const useCases = [
   {
     title: "Social Media Management",
-    description: "Scans for guideline compliance to avoid content strikes and maximize reach.",
+    description:
+      "Scans for guideline compliance to avoid content strikes and maximize reach.",
   },
   {
     title: "Brand Campaigns",
-    description: "Ensures marketing content is accurate, engaging, and aligned with brand goals.",
+    description:
+      "Ensures marketing content is accurate, engaging, and aligned with brand goals.",
   },
   {
     title: "Journalism",
-    description: "Verifies facts and figures before publishing articles or videos.",
+    description:
+      "Verifies facts and figures before publishing articles or videos.",
   },
   {
     title: "Education Platforms",
@@ -61,7 +68,8 @@ const useCases = [
   },
   {
     title: "E-commerce",
-    description: "Checks product descriptions and visuals to improve clarity and compliance.",
+    description:
+      "Checks product descriptions and visuals to improve clarity and compliance.",
   },
 ];
 
@@ -71,14 +79,14 @@ const headerContent = {
   description:
     "Scans for guideline compliance, ensures accuracy, and optimizes content for maximum impact and brand alignment.",
   videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
-  videoTitle:
-    'Content Guidelines Compliance and Accuracy Verification',
+  videoTitle: "Content Guidelines Compliance and Accuracy Verification",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
 };
 
-const demoContent = {
+{
+  /* const demoContent = {
   title: "Interactive AI Demo",
   subtitle: "Try out our AI-powered content moderation in real-time",
   defaultInput: "Enter some text to analyze its safety and content...",
@@ -88,7 +96,8 @@ const demoContent = {
   processingDelay: 3000,
   simulatedResponse:
     "Content Analysis Complete:\n- Safety Score: 95%\n- No harmful content detected\n- Tone: Professional\n- Suggested improvements: None",
-};
+}; */
+}
 
 export default function TechieTewari() {
   return (

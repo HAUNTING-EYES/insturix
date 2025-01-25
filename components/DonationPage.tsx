@@ -52,12 +52,7 @@ export default function DonationPage() {
     const { toast } = useToast();
 
     const handleDonate = (amount: number) => {
-        // TODO: Implement payment processing
-        // Steps to implement:
-        // 1. Create a payment gateway integration (e.g., Razorpay, Stripe)
-        // 2. Set up server-side API endpoint to create payment order
-        // 3. Handle payment success/failure callbacks
-        // 4. Update database with donation records
+        console.log(amount);
 
         toast({
             title: "Work in Progress",

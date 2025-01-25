@@ -1,5 +1,5 @@
 import Header from "@/components/new-product-page/Header";
-import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
+ // import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -76,7 +76,7 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-const demoContent = {
+{ /* const demoContent = {
   title: "Kundli Analysis Demo",
   subtitle: "Experience our AI astrological analysis",
   defaultInput: "Enter your birth details (Date, Time, Place)...",
@@ -87,7 +87,7 @@ const demoContent = {
   processingDelay: 2000,
   simulatedResponse:
     "Kundli Analysis Complete:\n- Rising Sign: Leo\n- Moon Sign: Taurus\n- Key Planetary Positions\n- Life Path Number: 7\n- Current Dasha: Jupiter",
-};
+}; */}
 
 export default function Kundli() {
   return (

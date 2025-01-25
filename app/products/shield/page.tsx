@@ -1,5 +1,5 @@
 import Header from "@/components/new-product-page/Header";
-import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
+// import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -77,7 +77,7 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-const demoContent = {
+{ /* const demoContent = {
   title: "Security Scanner Demo",
   subtitle: "Experience our security analysis in real-time",
   defaultInput: "Enter a URL or piece of code to analyze...",
@@ -87,7 +87,7 @@ const demoContent = {
   processingDelay: 2000,
   simulatedResponse:
     "Security Scan Complete:\n- Threat Level: Low\n- Vulnerabilities: None detected\n- SSL/TLS: Valid\n- Firewall Status: Active",
-};
+}; */}
 
 export default function Shield() {
   return (
