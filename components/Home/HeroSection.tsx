@@ -7,11 +7,23 @@ import BackgroundEffects from "@/components/ui/BackgroundEffects";
 
 export default function HeroSection() {
   const heroMessages = [
-    "Automate Your Workflow",
-    "Monetize Your Content",
-    "Protect Your Creative Work",
-    "Connect with Brands",
-    "Level Up Your Content Creation Game",
+    "Level Up Your Content",
+    "Level Up Your Growth",
+    "Level Up Your Popularity",
+    "Level Up Your Security",
+    "Level Up Your Workflow",
+    "Level Up Your Revenue",
+    "Level Up Your Creativity",
+    "Level Up Your Network",
+    // - Content 
+    // - Growth 
+    // - Popularity
+    // - Security
+    // - workflow
+    // - revenue
+    // - creativity
+    // - network
+
   ];
 
   return (
