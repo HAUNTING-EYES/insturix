@@ -28,7 +28,7 @@ const LogoAnimation = () => {
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setShowLogo(prev => !prev);
+      setShowLogo((prev) => !prev);
     }, 5000);
 
     return () => clearInterval(interval);
@@ -78,11 +78,11 @@ const menuItems = [
     title: "Product",
     href: "/products",
     subItems: [
-      { title: "Techie Tiwari", href: "/products/techietiwari" },
+      { title: "Alyzitron", href: "/products/alyzitron" },
       { title: "Kund-li", href: "/products/kundli" },
       { title: "Editron", href: "/products/editron" },
       { title: "Shield", href: "/products/shield" },
-      { title: "BrainYeed", href: "/products/brainyeed" },
+      { title: "Think Forge", href: "/products/thinkforge" },
       { title: "Meditron", href: "/products/meditron" },
     ],
   },
@@ -141,7 +141,7 @@ export default function Navbar() {
   }, [isMobile, isOpen]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20">
+    <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl">
       <div className="w-full max-w-none px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo Section */}
@@ -214,7 +214,11 @@ export default function Navbar() {
               className="md:hidden focus:bg-transparent focus-visible:ring-0"
               onClick={() => setIsOpen(!isOpen)}
             >
-              {isOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+              {isOpen ? (
+                <X className="h-6 w-6" />
+              ) : (
+                <Menu className="h-6 w-6" />
+              )}
             </Button>
           </div>
         </div>

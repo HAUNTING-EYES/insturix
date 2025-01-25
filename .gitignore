@@ -5,3 +5,5 @@ node_modules
 .env*
 
 .excalidraw
+
+.DS_Store
