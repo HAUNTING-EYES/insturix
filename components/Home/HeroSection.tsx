@@ -49,7 +49,7 @@ export default function HeroSection() {
                   displayDuration={3000}
                   characterDelay={40}
                   transitionDuration={350}
-                  shouldLoop={false}
+                  shouldLoop={true}
                   textClass="w-full text-3xl sm:text-4xl md:text-5xl lg:text-5xl font-extrabold tracking-tight text-foreground"
                 />
               </div>
