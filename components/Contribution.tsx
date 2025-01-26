@@ -2,7 +2,13 @@
 
 import { Card } from "@/components/ui/card";
 import { motion } from "framer-motion";
-import { ArrowRight, Lightbulb, Code, MessageSquare, HeartHandshake } from "lucide-react";
+import {
+  ArrowRight,
+  Lightbulb,
+  Code,
+  MessageSquare,
+  HeartHandshake,
+} from "lucide-react";
 import Link from "next/link";
 
 export default function ContributionPage() {
@@ -95,7 +101,10 @@ export default function ContributionPage() {
               >
                 <Link href={type.link} passHref>
                   <motion.div
-                    whileHover={{ scale: 1.02, boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)" }}
+                    whileHover={{
+                      scale: 1.02,
+                      boxShadow: "0 4px 8px rgba(0, 0, 0, 0.15)",
+                    }}
                     whileTap={{ scale: 0.98 }}
                     className="h-full"
                     transition={{ duration: 0.2 }}

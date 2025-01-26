@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
@@ -12,7 +17,11 @@ interface DonationDialogProps {
   onDonate: (amount: number) => void;
 }
 
-export default function DonationDialog({ isOpen, onClose, onDonate }: DonationDialogProps) {
+export default function DonationDialog({
+  isOpen,
+  onClose,
+  onDonate,
+}: DonationDialogProps) {
   const [amount, setAmount] = useState("");
   const [error, setError] = useState("");
 
@@ -39,7 +48,9 @@ export default function DonationDialog({ isOpen, onClose, onDonate }: DonationDi
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="relative">
-            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">₹</div>
+            <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
+              ₹
+            </div>
             <Input
               type="number"
               value={amount}
