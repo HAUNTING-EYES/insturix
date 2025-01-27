@@ -24,44 +24,42 @@ export default function SignUpPage() {
           {(isGlobalLoading) => (
             <>
               <SignUp.Step name="start">
-                <Card className="section-card glow-effect w-full sm:w-[32rem] backdrop-blur-sm bg-background/30 relative">
-                  <CardHeader className="relative z-10">
+                <Card className="w-full sm:w-96">
+                  <CardHeader>
                     <CardTitle>Create your account</CardTitle>
                     <CardDescription>
                       Welcome! Please fill in the details to get started.
                     </CardDescription>
                   </CardHeader>
-                  <CardContent className="grid gap-y-6 px-6 relative z-10">
+                  <CardContent className="grid gap-y-4">
                     <div className="grid grid-cols-2 gap-x-4">
-                      <Clerk.Connection name="facebook" asChild className="relative z-10 w-full">
+                      <Clerk.Connection name="github" asChild>
                         <Button
                           size="sm"
                           variant="outline"
                           type="button"
                           disabled={isGlobalLoading}
-                          className="w-full card-hover hover:bg-blue-50/20 hover:border-blue-200/50 dark:hover:bg-blue-900/20 dark:hover:border-blue-700/50 transition-all duration-300 hover:scale-105"
                         >
-                          <Clerk.Loading scope="provider:facebook">
+                          <Clerk.Loading scope="provider:github">
                             {(isLoading) =>
                               isLoading ? (
                                 <Icons.spinner className="size-4 animate-spin" />
                               ) : (
                                 <>
-                                  <Icons.facebook className="mr-2 size-4" />
-                                  Facebook
+                                  <Icons.gitHub className="mr-2 size-4" />
+                                  GitHub
                                 </>
                               )
                             }
                           </Clerk.Loading>
                         </Button>
                       </Clerk.Connection>
-                      <Clerk.Connection name="google" asChild className="relative z-10 w-full">
+                      <Clerk.Connection name="google" asChild>
                         <Button
                           size="sm"
                           variant="outline"
                           type="button"
                           disabled={isGlobalLoading}
-                          className="w-full card-hover hover:bg-red-50/20 hover:border-red-200/50 dark:hover:bg-red-900/20 dark:hover:border-red-700/50 transition-all duration-300 hover:scale-105"
                         >
                           <Clerk.Loading scope="provider:google">
                             {(isLoading) =>
@@ -78,7 +76,7 @@ export default function SignUpPage() {
                         </Button>
                       </Clerk.Connection>
                     </div>
-                    <p className="flex items-center gap-x-3 text-sm text-muted-foreground before:h-px before:flex-1 before:bg-gradient-to-r before:from-transparent before:via-border before:to-transparent after:h-px after:flex-1 after:bg-gradient-to-r after:from-transparent after:via-border after:to-transparent">
+                    <p className="flex items-center gap-x-3 text-sm text-muted-foreground before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
                       or
                     </p>
                     <Clerk.Field name="emailAddress" className="space-y-2">
@@ -86,7 +84,7 @@ export default function SignUpPage() {
                         <Label>Email address</Label>
                       </Clerk.Label>
                       <Clerk.Input type="email" required asChild>
-                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300" />
+                        <Input />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
@@ -95,19 +93,16 @@ export default function SignUpPage() {
                         <Label>Password</Label>
                       </Clerk.Label>
                       <Clerk.Input type="password" required asChild>
-                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300" />
+                        <Input />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
                   </CardContent>
-                  <CardFooter className="relative z-10">
+                  <CardFooter>
                     <div className="grid w-full gap-y-4">
                       <SignUp.Captcha className="empty:hidden" />
                       <SignUp.Action submit asChild>
-                        <Button
-                          disabled={isGlobalLoading}
-                          className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white dark:text-white hover:scale-[1.02] transition-all duration-300 animate-content-show"
-                        >
+                        <Button disabled={isGlobalLoading}>
                           <Clerk.Loading>
                             {(isLoading) => {
                               return isLoading ? (
@@ -119,7 +114,7 @@ export default function SignUpPage() {
                           </Clerk.Loading>
                         </Button>
                       </SignUp.Action>
-                      <Button variant="link" size="sm" asChild className="hover:text-blue-500 dark:hover:text-blue-400">
+                      <Button variant="link" size="sm" asChild>
                         <Clerk.Link navigate="sign-in">
                           Already have an account? Sign in
                         </Clerk.Link>
@@ -130,11 +125,11 @@ export default function SignUpPage() {
               </SignUp.Step>
 
               <SignUp.Step name="continue">
-                <Card className="section-card glow-effect w-full sm:w-96 backdrop-blur-sm bg-background/30 relative animate-content-show">
-                  <CardHeader className="relative z-10">
+                <Card className="w-full sm:w-96">
+                  <CardHeader>
                     <CardTitle>Continue registration</CardTitle>
                   </CardHeader>
-                  <CardContent className="relative z-10">
+                  <CardContent>
                     <Clerk.Field name="username" className="space-y-2">
                       <Clerk.Label>
                         <Label>Username</Label>
@@ -145,10 +140,10 @@ export default function SignUpPage() {
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
                   </CardContent>
-                  <CardFooter className="relative z-10">
+                  <CardFooter>
                     <div className="grid w-full gap-y-4">
                       <SignUp.Action submit asChild>
-                        <Button disabled={isGlobalLoading} className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white dark:text-white hover:scale-[1.02] transition-all duration-300 animate-content-show">
+                        <Button disabled={isGlobalLoading}>
                           <Clerk.Loading>
                             {(isLoading) => {
                               return isLoading ? (
@@ -167,14 +162,14 @@ export default function SignUpPage() {
 
               <SignUp.Step name="verifications">
                 <SignUp.Strategy name="email_code">
-                  <Card className="section-card glow-effect w-full sm:w-96 backdrop-blur-sm bg-background/30 relative animate-content-show">
-                    <CardHeader className="relative z-10">
+                  <Card className="w-full sm:w-96">
+                    <CardHeader>
                       <CardTitle>Verify your email</CardTitle>
                       <CardDescription>
                         Use the verification link sent to your email address
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="grid gap-y-6 px-6 relative z-10">
+                    <CardContent className="grid gap-y-4">
                       <div className="grid items-center justify-center gap-y-2">
                         <Clerk.Field name="code" className="space-y-2">
                           <Clerk.Label className="sr-only">
@@ -190,7 +185,7 @@ export default function SignUpPage() {
                                   <div
                                     data-status={status}
                                     className={cn(
-                                      "relative flex size-10 items-center justify-center border-y border-r border-input text-sm transition-all first:rounded-l-md first:border-l last:rounded-r-md backdrop-blur-sm bg-background/50 hover:bg-background/70",
+                                      "relative flex size-10 items-center justify-center border-y border-r border-input text-sm transition-all first:rounded-l-md first:border-l last:rounded-r-md",
                                       {
                                         "z-10 ring-2 ring-ring ring-offset-background":
                                           status === "cursor" ||
@@ -211,35 +206,30 @@ export default function SignUpPage() {
                           </div>
                           <Clerk.FieldError className="block text-center text-sm text-destructive" />
                         </Clerk.Field>
-                        <div className="relative z-10">
-                          <SignUp.Action
-                            asChild
-                            resend
-                            className="text-muted-foreground"
-                            fallback={({ resendableAfter }) => (
-                              <Button variant="link" size="sm" disabled>
-                                Didn&apos;t receive a code? Resend (
-                                <span className="tabular-nums">
-                                  {resendableAfter}
-                                </span>
-                                )
-                              </Button>
-                            )}
-                          >
-                            <Button type="button" variant="link" size="sm">
-                              Didn&apos;t receive a code? Resend
+                        <SignUp.Action
+                          asChild
+                          resend
+                          className="text-muted-foreground"
+                          fallback={({ resendableAfter }) => (
+                            <Button variant="link" size="sm" disabled>
+                              Didn&apos;t receive a code? Resend (
+                              <span className="tabular-nums">
+                                {resendableAfter}
+                              </span>
+                              )
                             </Button>
-                          </SignUp.Action>
-                        </div>
+                          )}
+                        >
+                          <Button type="button" variant="link" size="sm">
+                            Didn&apos;t receive a code? Resend
+                          </Button>
+                        </SignUp.Action>
                       </div>
                     </CardContent>
-                    <CardFooter className="relative z-10">
+                    <CardFooter>
                       <div className="grid w-full gap-y-4">
                         <SignUp.Action submit asChild>
-                          <Button
-                            disabled={isGlobalLoading}
-                            className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white dark:text-white hover:scale-[1.02] transition-all duration-300 animate-content-show"
-                          >
+                          <Button disabled={isGlobalLoading}>
                             <Clerk.Loading>
                               {(isLoading) => {
                                 return isLoading ? (
