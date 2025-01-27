@@ -33,7 +33,11 @@ export default function SignUpPage() {
                   </CardHeader>
                   <CardContent className="grid gap-y-6 px-6 relative z-10">
                     <div className="grid grid-cols-2 gap-x-4">
-                      <Clerk.Connection name="facebook" asChild className="relative z-10 w-full">
+                      <Clerk.Connection
+                        name="facebook"
+                        asChild
+                        className="relative z-10 w-full"
+                      >
                         <Button
                           size="sm"
                           variant="outline"
@@ -55,7 +59,11 @@ export default function SignUpPage() {
                           </Clerk.Loading>
                         </Button>
                       </Clerk.Connection>
-                      <Clerk.Connection name="google" asChild className="relative z-10 w-full">
+                      <Clerk.Connection
+                        name="google"
+                        asChild
+                        className="relative z-10 w-full"
+                      >
                         <Button
                           size="sm"
                           variant="outline"
@@ -119,7 +127,12 @@ export default function SignUpPage() {
                           </Clerk.Loading>
                         </Button>
                       </SignUp.Action>
-                      <Button variant="link" size="sm" asChild className="hover:text-blue-500 dark:hover:text-blue-400">
+                      <Button
+                        variant="link"
+                        size="sm"
+                        asChild
+                        className="hover:text-blue-500 dark:hover:text-blue-400"
+                      >
                         <Clerk.Link navigate="sign-in">
                           Already have an account? Sign in
                         </Clerk.Link>
@@ -148,7 +161,10 @@ export default function SignUpPage() {
                   <CardFooter className="relative z-10">
                     <div className="grid w-full gap-y-4">
                       <SignUp.Action submit asChild>
-                        <Button disabled={isGlobalLoading} className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white dark:text-white hover:scale-[1.02] transition-all duration-300 animate-content-show">
+                        <Button
+                          disabled={isGlobalLoading}
+                          className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white dark:text-white hover:scale-[1.02] transition-all duration-300 animate-content-show"
+                        >
                           <Clerk.Loading>
                             {(isLoading) => {
                               return isLoading ? (

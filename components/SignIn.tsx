@@ -118,7 +118,7 @@ export default function SignInPage() {
                     </SignIn.Action>
                     <Button variant="link" size="sm" asChild className="hover:text-blue-500 dark:hover:text-blue-400">
                       <Clerk.Link navigate="sign-up">
-                        Don't have an account? Sign up
+                        Don&apos;t have an account? Sign up
                       </Clerk.Link>
                     </Button>
                   </div>
