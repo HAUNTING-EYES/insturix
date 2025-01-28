@@ -1,30 +1,45 @@
-import Navbar from "@/components/Navbar";
-import SignInComponent from "@/components/SignIn";
-import CursorEffect from "@/components/ui/CursorEffect";
+"use client";
 
-const THEME = {
-  color: "rgba(59, 130, 246, 0.15)", // Blue glow for signin/authentication
-};
+import Navbar from "@/components/Navbar";
+import CustomSignIn from "@/components/CustomSignIn";
+import CursorEffect from "@/components/ui/CursorEffect";
 
 export default function SignInPage() {
   return (
-    <>
-      <div className="absolute inset-0 -z-10">
+    <div className="min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))] relative">
+      {/* Background pattern */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute inset-0 opacity-[0.03]">
+          <svg className="w-full h-full">
+            <pattern
+              id="grid"
+              width="32"
+              height="32"
+              patternUnits="userSpaceOnUse"
+            >
+              <path
+                d="M0 .5H32M.5 0V32"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1"
+              />
+            </pattern>
+            <rect width="100%" height="100%" fill="url(#grid)" />
+          </svg>
+        </div>
+      </div>
+      <div className="relative z-10">
         <CursorEffect
           variant="glow"
-          color={THEME.color}
+          color="rgba(59, 130, 246, 0.15)"
           size={500}
           blur={100}
         />
+        <Navbar />
       </div>
-      <Navbar />
-      <main className="relative flex min-h-[calc(100vh-4rem)] items-center justify-center p-4 overflow-hidden animate-content-show">
-        <div className="absolute inset-0 bg-grid-neutral-100 dark:bg-grid-neutral-900 -z-10" />
-        <div className="absolute inset-0 backdrop-blur-[1px] -z-10" />
-        <div className="relative z-10">
-          <SignInComponent />
-        </div>
-      </main>
-    </>
+      <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
+        <CustomSignIn />
+      </div>
+    </div>
   );
 }
