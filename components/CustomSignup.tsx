@@ -59,8 +59,12 @@ export default function CustomSignup() {
             } else {
                 setVerifying(true);
             }
-        } catch (err: any) {
-            setError(err.errors?.[0]?.message || "Something went wrong");
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                setError(err.message || "Something went wrong");
+            } else {
+                setError("Something went wrong");
+            }
         } finally {
             setIsLoading(false);
         }
@@ -84,8 +88,12 @@ export default function CustomSignup() {
             } else {
                 console.log(result);
             }
-        } catch (err: any) {
-            setError(err.errors?.[0]?.message || "Something went wrong");
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                setError(err.message || "Something went wrong");
+            } else {
+                setError("Something went wrong");
+            }
         } finally {
             setIsLoading(false);
         }
@@ -102,8 +110,12 @@ export default function CustomSignup() {
 
             setCountdown(30);
             setIsResendDisabled(true);
-        } catch (err: any) {
-            setError(err.errors?.[0]?.message || "Something went wrong");
+        } catch (err: unknown) {
+            if (err instanceof Error) {
+                setError(err.message || "Something went wrong");
+            } else {
+                setError("Something went wrong");
+            }
         } finally {
             setIsLoading(false);
         }
@@ -175,7 +187,7 @@ export default function CustomSignup() {
                                         <Icons.spinner className="h-4 w-4 animate-spin" />
                                     ) : (
                                         <>
-                                            Didn't receive the code? Resend
+                                            Didn&apos;t receive the code? Resend
                                             {isResendDisabled && ` (${countdown})`}
                                         </>
                                     )}

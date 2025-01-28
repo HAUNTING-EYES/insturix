@@ -38,8 +38,12 @@ export default function CustomSignIn() {
       } else {
         console.log(result);
       }
-    } catch (err: any) {
-      setError(err.errors?.[0]?.message || "Something went wrong");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Something went wrong");
+      } else {
+        setError("Something went wrong");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -59,8 +63,12 @@ export default function CustomSignIn() {
       });
 
       setError("Check your email for reset instructions");
-    } catch (err: any) {
-      setError(err.errors?.[0]?.message || "Something went wrong");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Something went wrong");
+      } else {
+        setError("Something went wrong");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -79,7 +87,9 @@ export default function CustomSignIn() {
             <div className="text-center mb-8">
               <h1 className="text-2xl font-semibold mb-2">Welcome back</h1>
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                {showForgotPassword ? "Reset your password" : "Sign in to your account to continue"}
+                {showForgotPassword
+                  ? "Reset your password"
+                  : "Sign in to your account to continue"}
               </p>
             </div>
 
@@ -89,11 +99,13 @@ export default function CustomSignIn() {
                   <Button
                     variant="outline"
                     type="button"
-                    onClick={() => signIn?.authenticateWithRedirect({
-                      strategy: "oauth_facebook",
-                      redirectUrl: "/sso-callback",
-                      redirectUrlComplete: "/dashboard"
-                    })}
+                    onClick={() =>
+                      signIn?.authenticateWithRedirect({
+                        strategy: "oauth_facebook",
+                        redirectUrl: "/sso-callback",
+                        redirectUrlComplete: "/dashboard",
+                      })
+                    }
                     disabled={!isLoaded || isLoading}
                     className="w-40"
                   >
@@ -110,11 +122,13 @@ export default function CustomSignIn() {
                   <Button
                     variant="outline"
                     type="button"
-                    onClick={() => signIn?.authenticateWithRedirect({
-                      strategy: "oauth_google",
-                      redirectUrl: "/sso-callback",
-                      redirectUrlComplete: "/dashboard"
-                    })}
+                    onClick={() =>
+                      signIn?.authenticateWithRedirect({
+                        strategy: "oauth_google",
+                        redirectUrl: "/sso-callback",
+                        redirectUrlComplete: "/dashboard",
+                      })
+                    }
                     disabled={!isLoaded || isLoading}
                     className="w-40"
                   >
@@ -142,7 +156,12 @@ export default function CustomSignIn() {
               </>
             )}
 
-            <form onSubmit={showForgotPassword ? handleForgotPassword : handleSubmit} className="max-w-sm mx-auto space-y-6">
+            <form
+              onSubmit={
+                showForgotPassword ? handleForgotPassword : handleSubmit
+              }
+              className="max-w-sm mx-auto space-y-6"
+            >
               <div className="space-y-4">
                 <div>
                   <label htmlFor="email" className="text-sm font-medium">
@@ -177,9 +196,7 @@ export default function CustomSignIn() {
                 )}
               </div>
 
-              {error && (
-                <p className="text-sm text-red-500">{error}</p>
-              )}
+              {error && <p className="text-sm text-red-500">{error}</p>}
 
               <div className="flex justify-end">
                 <Button
@@ -195,7 +212,11 @@ export default function CustomSignIn() {
                 </Button>
               </div>
 
-              <Button className="w-full" type="submit" disabled={!isLoaded || isLoading}>
+              <Button
+                className="w-full"
+                type="submit"
+                disabled={!isLoaded || isLoading}
+              >
                 {isLoading ? (
                   <Icons.spinner className="h-4 w-4 animate-spin" />
                 ) : (
@@ -209,7 +230,7 @@ export default function CustomSignIn() {
 
             <div className="text-center mt-8">
               <p className="text-sm text-zinc-600 dark:text-zinc-400">
-                Don't have an account?{" "}
+                Don&apos;t have an account?{" "}
                 <Link href="/signup" className="text-blue-500 hover:underline">
                   Sign up
                 </Link>
