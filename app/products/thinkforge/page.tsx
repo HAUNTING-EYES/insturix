@@ -1,5 +1,4 @@
 import Header from "@/components/new-product-page/Header";
-import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -77,17 +76,6 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-const demoContent = {
-  title: "Learning Analysis Demo",
-  subtitle: "Experience our adaptive learning system",
-  defaultInput: "Enter a topic you want to learn...",
-  inputPlaceholder: "e.g., Mathematics, Physics, Programming...",
-  outputPlaceholder: "Your personalized learning plan will appear here...",
-  buttonText: "Generate Plan",
-  processingDelay: 2000,
-  simulatedResponse:
-    "Learning Analysis Complete:\n- Recommended Path: Intermediate\n- Est. Time: 4 weeks\n- Key Topics: 5 identified\n- Practice Exercises: 12\n- Assessment Tests: 3",
-};
 
 export default function thinkforge() {
   return (
@@ -96,7 +84,6 @@ export default function thinkforge() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        <InteractiveDemo {...demoContent} />
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>
