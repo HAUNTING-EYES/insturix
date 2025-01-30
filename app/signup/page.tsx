@@ -2,9 +2,8 @@
 
 import Navbar from "@/components/Navbar";
 import CustomSignup from "@/components/CustomSignup";
-// import CustomSignup from "@/components/CustomSignup_Backup";
 import CursorEffect from "@/components/ui/CursorEffect";
-import { SignUp } from "@clerk/nextjs";
+// import { SignUp } from "@clerk/nextjs";
 
 export default function SignupPage() {
   return (

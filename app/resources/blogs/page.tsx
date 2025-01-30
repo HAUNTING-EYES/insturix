@@ -6,7 +6,9 @@ export default function BlogPage() {
   return (
     <>
       <Navbar />
-      <BlogCard />
+      <div className="mt-12">
+        <BlogCard />
+      </div>
       <Footer />
     </>
   );
