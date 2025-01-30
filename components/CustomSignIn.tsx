@@ -12,7 +12,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function CustomSignIn() {
-  const { signIn, isLoaded } = useSignIn();
+  const { signIn, isLoaded, setActive } = useSignIn();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -20,55 +20,51 @@ export default function CustomSignIn() {
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const router = useRouter();
 
+  // Handle sign-in form submission
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoaded) return;
 
-    try {
-      setIsLoading(true);
-      setError("");
+    setIsLoading(true);
+    setError("");
 
+    try {
       const result = await signIn.create({
         identifier: email,
         password,
       });
 
       if (result.status === "complete") {
+        // Set the active session and redirect
+        await setActive({ session: result.createdSessionId });
         router.push("/dashboard");
       } else {
-        console.log(result);
+        setError("Sign-in failed. Please try again.");
       }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || "Something went wrong");
-      } else {
-        setError("Something went wrong");
-      }
+    } catch (err: any) {
+      setError(err.errors?.[0]?.message || "Something went wrong.");
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Handle forgot password flow
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoaded) return;
 
-    try {
-      setIsLoading(true);
-      setError("");
+    setIsLoading(true);
+    setError("");
 
+    try {
       await signIn.create({
         strategy: "reset_password_email_code",
         identifier: email,
       });
 
-      setError("Check your email for reset instructions");
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message || "Something went wrong");
-      } else {
-        setError("Something went wrong");
-      }
+      setError("Check your email for reset instructions.");
+    } catch (err: any) {
+      setError(err.errors?.[0]?.message || "Something went wrong.");
     } finally {
       setIsLoading(false);
     }
@@ -148,7 +144,7 @@ export default function CustomSignIn() {
                     <span className="w-full border-t" />
                   </div>
                   <div className="relative flex justify-center text-xs uppercase">
-                    <span className="bg-white dark:bg-[rgb(var(--surface-0))] px-4 relative z-10 text-muted-foreground">
+                    <span className="bg-white dark:bg-[rgb(var(--surface-0))] px-4 relative text-muted-foreground">
                       Or
                     </span>
                   </div>
@@ -157,9 +153,7 @@ export default function CustomSignIn() {
             )}
 
             <form
-              onSubmit={
-                showForgotPassword ? handleForgotPassword : handleSubmit
-              }
+              onSubmit={showForgotPassword ? handleForgotPassword : handleSubmit}
               className="max-w-sm mx-auto space-y-6"
             >
               <div className="space-y-4">
