@@ -164,8 +164,9 @@ export default function BackgroundEffects() {
       <div
         className={`${isMobile() ? "mobile-dots" : ""} absolute inset-0 -z-10`}
         style={{
-          backgroundImage: `radial-gradient(circle at center, currentColor ${isMobile() ? "1.2px" : "1.5px"
-            }, transparent ${isMobile() ? "1.5px" : "2.5px"})`,
+          backgroundImage: `radial-gradient(circle at center, currentColor ${
+            isMobile() ? "1.2px" : "1.5px"
+          }, transparent ${isMobile() ? "1.5px" : "2.5px"})`,
           backgroundSize: isMobile() ? "32px 32px" : "40px 40px",
           backgroundPosition: "center center",
           maskImage: isMobile()

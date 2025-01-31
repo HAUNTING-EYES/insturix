@@ -18,9 +18,7 @@ export default function Blue() {
           className={"bg-indigo-500"}
         >
           <Heading>Plus</Heading>
-          <Price>
-            ₹200 /mo
-          </Price>
+          <Price>₹200 /mo</Price>
           <Paragraph className="text-left">
             1. All features of Free
             <br />

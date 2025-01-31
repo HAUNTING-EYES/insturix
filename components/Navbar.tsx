@@ -48,7 +48,7 @@ const LogoAnimation = () => {
           >
             <Image
               src={Logo}
-              alt="Logo"
+              alt="Insturance Logo"
               width={32}
               height={32}
               className="rounded-full"

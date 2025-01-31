@@ -64,7 +64,7 @@ export default function Header({
         <div className="absolute bottom-0 left-0 right-0 h-32 bg-linear-to-t from-zinc-50 dark:from-black to-transparent" />
       </div>
 
-      <div className="container relative mx-auto px-4 relative z-10">
+      <div className="container mx-auto px-4 relative z-10">
         <div className="flex flex-col lg:flex-row items-center justify-between gap-6 lg:gap-10">
           <div className="w-full lg:w-1/2 text-center lg:text-left lg:py-12">
             <div className="relative space-y-8">

@@ -112,7 +112,7 @@ export default function TypingAnimation({
   characterDelay = 40,
   transitionDuration = 350,
   shouldLoop = true,
-  onComplete = () => { },
+  onComplete = () => {},
 }: TypingAnimationProps) {
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isTypingComplete, setIsTypingComplete] = useState(false);

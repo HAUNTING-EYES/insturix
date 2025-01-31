@@ -31,7 +31,11 @@ export default function SignInPage() {
                 </CardHeader>
                 <CardContent className="grid gap-y-6 px-6 relative z-10">
                   <div className="grid grid-cols-2 gap-x-4">
-                    <Clerk.Connection name="facebook" asChild className="relative z-10 w-full">
+                    <Clerk.Connection
+                      name="facebook"
+                      asChild
+                      className="relative z-10 w-full"
+                    >
                       <Button
                         size="sm"
                         variant="outline"
@@ -53,7 +57,11 @@ export default function SignInPage() {
                         </Clerk.Loading>
                       </Button>
                     </Clerk.Connection>
-                    <Clerk.Connection name="google" asChild className="relative z-10 w-full">
+                    <Clerk.Connection
+                      name="google"
+                      asChild
+                      className="relative z-10 w-full"
+                    >
                       <Button
                         size="sm"
                         variant="outline"
@@ -116,7 +124,12 @@ export default function SignInPage() {
                         </Clerk.Loading>
                       </Button>
                     </SignIn.Action>
-                    <Button variant="link" size="sm" asChild className="hover:text-blue-500 dark:hover:text-blue-400">
+                    <Button
+                      variant="link"
+                      size="sm"
+                      asChild
+                      className="hover:text-blue-500 dark:hover:text-blue-400"
+                    >
                       <Clerk.Link navigate="sign-up">
                         Don&apos;t have an account? Sign up
                       </Clerk.Link>

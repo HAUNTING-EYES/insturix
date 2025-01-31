@@ -14,11 +14,11 @@ export default function Red() {
       >
         <PricingWrapper
           contactHref="/signup"
-          type={"hourglass"} className={"bg-red-700"}>
+          type={"hourglass"}
+          className={"bg-red-700"}
+        >
           <Heading>Premium</Heading>
-          <Price>
-            ₹1000 /mo
-          </Price>
+          <Price>₹1000 /mo</Price>
           <Paragraph className="text-left">
             1. All features of Pro
             <br />
@@ -27,7 +27,6 @@ export default function Red() {
             3. Meditron Pro+
             <br />
             4. Priority Support
-
           </Paragraph>
         </PricingWrapper>
       </div>

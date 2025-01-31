@@ -8,7 +8,7 @@ interface UseCase {
   description: string;
 }
 
-// sample for usecases 
+// sample for usecases
 // useCases = [
 //   {
 //     title: "Healthcare",

@@ -23,9 +23,7 @@ export default function Purple() {
           className={"bg-purple-600/95 dark:bg-purple-700/95"} // Adjusted opacity and dark theme color
         >
           <Heading>Pro</Heading>
-          <Price>
-            ₹500 /mo
-          </Price>
+          <Price>₹500 /mo</Price>
           <Paragraph className="text-left">
             1. All features of Plus
             <br />

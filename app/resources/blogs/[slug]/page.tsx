@@ -59,7 +59,7 @@ export default async function Page({ params }: { params: tParams }) {
           <h1 className="text-4xl font-bold mb-4">{post.title}</h1>
           <div className="flex items-center mb-4">
             <Image
-              src={post.author.avatar || "/placeholder.svg"}
+              src={post.author.avatar}
               alt={post.author.name}
               width={40}
               height={40}
@@ -69,7 +69,7 @@ export default async function Page({ params }: { params: tParams }) {
             <span className="text-sm text-gray-500">{post.date}</span>
           </div>
           <Image
-            src={post.imageUrl || "/placeholder.svg"}
+            src={post.imageUrl}
             alt={post.title}
             width={800}
             height={400}

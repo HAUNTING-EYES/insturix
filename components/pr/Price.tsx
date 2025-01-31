@@ -112,18 +112,10 @@ export const PricingWrapper: React.FC<{
     </span>
     {type === "waves" && (
       <>
-        <div
-          className={
-            "w-fit h-fit absolute sm:left-4 -left-0 waves z-0"
-          }
-        >
+        <div className={"w-fit h-fit absolute sm:left-4 -left-0 waves z-0"}>
           <Wave />
         </div>
-        <div
-          className={
-            "w-fit h-fit absolute sm:right-4 -right-0 waves z-0"
-          }
-        >
+        <div className={"w-fit h-fit absolute sm:right-4 -right-0 waves z-0"}>
           <Wave />
         </div>
       </>

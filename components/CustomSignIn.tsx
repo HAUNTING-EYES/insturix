@@ -41,8 +41,12 @@ export default function CustomSignIn() {
       } else {
         setError("Sign-in failed. Please try again.");
       }
-    } catch (err: any) {
-      setError(err.errors?.[0]?.message || "Something went wrong.");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Something went wrong.");
+      } else {
+        setError("Something went wrong.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -63,8 +67,12 @@ export default function CustomSignIn() {
       });
 
       setError("Check your email for reset instructions.");
-    } catch (err: any) {
-      setError(err.errors?.[0]?.message || "Something went wrong.");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message || "Something went wrong.");
+      } else {
+        setError("Something went wrong.");
+      }
     } finally {
       setIsLoading(false);
     }
@@ -153,7 +161,9 @@ export default function CustomSignIn() {
             )}
 
             <form
-              onSubmit={showForgotPassword ? handleForgotPassword : handleSubmit}
+              onSubmit={
+                showForgotPassword ? handleForgotPassword : handleSubmit
+              }
               className="max-w-sm mx-auto space-y-6"
             >
               <div className="space-y-4">

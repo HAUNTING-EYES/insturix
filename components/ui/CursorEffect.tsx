@@ -11,16 +11,14 @@ type CursorEffectProps = {
   delay?: number;
 };
 
-export default function CursorEffect(
-  {
-    variant = "glow",
-    size = 400,
-    color = "rgba(255, 255, 255, 0.3)", // White with opacity, default glow color
-    blur = 150,
-    opacity = 0.6,
-    delay = 0.1,
-  }: CursorEffectProps
-) {
+export default function CursorEffect({
+  variant = "glow",
+  size = 400,
+  color = "rgba(255, 255, 255, 0.3)", // White with opacity, default glow color
+  blur = 150,
+  opacity = 0.6,
+  delay = 0.1,
+}: CursorEffectProps) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
@@ -37,8 +35,9 @@ export default function CursorEffect(
       position: "fixed",
       pointerEvents: "none",
       zIndex: 30,
-      transform: `translate(${position.x - size / 2}px, ${position.y - size / 2
-        }px)`,
+      transform: `translate(${position.x - size / 2}px, ${
+        position.y - size / 2
+      }px)`,
       transition: `transform ${delay}s ease, background-color 0.5s ease`,
       width: `${size}px`,
       height: `${size}px`,

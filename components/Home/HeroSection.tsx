@@ -15,15 +15,14 @@ export default function HeroSection() {
     "Level Up Your Revenue",
     "Level Up Your Creativity",
     "Level Up Your Network",
-    // - Content 
-    // - Growth 
+    // - Content
+    // - Growth
     // - Popularity
     // - Security
     // - workflow
     // - revenue
     // - creativity
     // - network
-
   ];
 
   return (
@@ -39,7 +38,9 @@ export default function HeroSection() {
             transition={{ duration: 0.8, delay: 0.2 }}
           >
             <div className="relative mb-8 sm:mb-12 w-full">
-              <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl md:blur-none"> {/* Disable blur on md screens and below */}
+              <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl md:blur-none">
+                {" "}
+                {/* Disable blur on md screens and below */}
                 <div className="absolute inset-0 bg-gradient-to-r from-[rgb(var(--primary))/10] to-[rgb(var(--secondary))/10] [mask-image:radial-gradient(farthest-side_at_top,white,transparent)]" />
               </div>
 
@@ -61,8 +62,8 @@ export default function HeroSection() {
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8, delay: 1 }}
             >
-              Securing the Future of Content Creators.
-              Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations
+              Securing the Future of Content Creators. Your all-in-one platform
+              for creator protection, AI-powered tools, and brand collaborations
             </motion.p>
 
             <motion.div

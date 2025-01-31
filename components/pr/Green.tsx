@@ -18,14 +18,16 @@ export default function Green() {
           className={"bg-green-600"}
         >
           <Heading>Free</Heading>
-          <Price>
-            ₹0 /mo
-          </Price>
+          <Price>₹0 /mo</Price>
           <Paragraph className="text-left">
-            1. Kund-li<br />
-            2. thinkforge Basic<br />
-            3. Meditron Basic<br />
-            4. Socialize<br />
+            1. Kund-li
+            <br />
+            2. thinkforge Basic
+            <br />
+            3. Meditron Basic
+            <br />
+            4. Socialize
+            <br />
           </Paragraph>
         </PricingWrapper>
       </div>
