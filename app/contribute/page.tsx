@@ -1,5 +1,5 @@
 import ContributionPage from "@/components/Contribution";
-import EasterEgg from "@/components/EasterEgg";
+// import EasterEgg from "@/components/EasterEgg";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import CursorEffect from "@/components/ui/CursorEffect";
@@ -17,7 +17,6 @@ export default function Contribute() {
       <div className="mt-[60px] md:mt-0">
         <ContributionPage />
       </div>
-      <EasterEgg />
       <Footer />
     </>
   );
