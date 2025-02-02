@@ -1,10 +1,9 @@
-import ContributionPage from "@/components/Contribution";
-import EasterEgg from "@/components/EasterEgg";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
+import SponsorForm from "@/components/SponsorsForm";
 import CursorEffect from "@/components/ui/CursorEffect";
 
-export default function Contribute() {
+export default function SponsorPage() {
   return (
     <>
       <CursorEffect
@@ -15,9 +14,8 @@ export default function Contribute() {
       />
       <Navbar />
       <div className="mt-[60px] md:mt-0">
-        <ContributionPage />
+        <SponsorForm />
       </div>
-      <EasterEgg />
       <Footer />
     </>
   );

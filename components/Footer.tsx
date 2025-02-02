@@ -4,8 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Github, Linkedin, Twitter, ArrowRight } from "lucide-react";
+import { Github, Linkedin, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
+import { BsTwitterX } from "react-icons/bs";
 
 const companyLinks = [
   { label: "About", link: "/about" },
@@ -36,7 +37,7 @@ const supportLinks = [
 ];
 
 const companySocials = [
-  { icon: Twitter, label: "Twitter", link: "https://twitter.com/insturance" },
+  { icon: BsTwitterX, label: "Twitter", link: "https://x.com/insturance_co" },
   {
     icon: Linkedin,
     label: "LinkedIn",

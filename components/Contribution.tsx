@@ -8,11 +8,21 @@ import {
   Code,
   MessageSquare,
   HeartHandshake,
+  HandHeart,
 } from "lucide-react";
 import Link from "next/link";
 
+interface ContributionType {
+  title: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  description: string;
+  link: string;
+  color: string;
+  iconColor: string;
+}
+
 export default function ContributionPage() {
-  const contributionTypes = [
+  const contributionTypes: ContributionType[] = [
     {
       title: "Financial Contributions",
       icon: HeartHandshake,
@@ -48,6 +58,15 @@ export default function ContributionPage() {
       link: "/contactus",
       color: "bg-purple-500/10 dark:bg-purple-500/5",
       iconColor: "text-purple-500",
+    },
+    {
+      title: "Become a Sponsor",
+      icon: HandHeart,
+      description:
+        "Become a sponsor and help us grow. Your support is greatly appreciated.",
+      link: "/sponsor",
+      color: "bg-red-500/10 dark:bg-red-500/5",
+      iconColor: "text-red-500",
     },
   ];
 
