@@ -321,7 +321,7 @@ function UserMenu() {
           <Link href="/signin">
             <Button
               variant="ghost"
-              className="button-reset touch-feedback h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
+              className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
               onClick={(e) => e.currentTarget.blur()}
             >
               Sign In
@@ -330,7 +330,7 @@ function UserMenu() {
           <Link href="/signup">
             <Button
               variant="default"
-              className="button-reset touch-feedback h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
+              className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
               onClick={(e) => e.currentTarget.blur()}
             >
               Sign Up
