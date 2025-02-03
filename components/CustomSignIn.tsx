@@ -179,6 +179,7 @@ export default function CustomSignIn() {
                     placeholder="Enter your email"
                     className="mt-2"
                     required
+                    autoComplete="email"
                   />
                 </div>
 
@@ -195,6 +196,7 @@ export default function CustomSignIn() {
                       placeholder="Enter your password"
                       className="mt-2"
                       required
+                      autoComplete="current-password"
                     />
                   </div>
                 )}

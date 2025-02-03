@@ -294,6 +294,7 @@ export default function CustomSignup() {
                     placeholder="Enter your username"
                     className="mt-2"
                     required
+                    autoComplete="username"
                   />
                 </div>
                 <div>
@@ -308,6 +309,7 @@ export default function CustomSignup() {
                     placeholder="Enter your email"
                     className="mt-2"
                     required
+                    autoComplete="email"
                   />
                 </div>
                 <div>
@@ -336,6 +338,7 @@ export default function CustomSignup() {
                     placeholder="Enter your password"
                     className="mt-2"
                     required
+                    autoComplete="new-password"
                   />
                 </div>
               </div>
