@@ -3,7 +3,6 @@
 import Navbar from "@/components/Navbar";
 import CustomSignup from "@/components/CustomSignup";
 import CursorEffect from "@/components/ui/CursorEffect";
-// import { SignUp } from "@clerk/nextjs";
 
 export default function SignupPage() {
   return (
@@ -40,10 +39,6 @@ export default function SignupPage() {
       </div>
       <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
         <CustomSignup />
-        {/* <SignUp
-          routing="hash"
-          forceRedirectUrl="/dashboard"
-        /> */}
       </div>
     </div>
   );

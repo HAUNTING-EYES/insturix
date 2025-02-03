@@ -5,11 +5,11 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import Timeline from "./TimeLine";
 
 export default function AboutContent() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))] relative">
-      {/* Animated dot pattern background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute inset-0">
           {[...Array(100)].map((_, i) => (
@@ -63,18 +63,22 @@ export default function AboutContent() {
               <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs h-full">
                 <h2 className="text-xl font-semibold mb-4">Our Vision</h2>
                 <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-                  At Insturance, we envision a world where technology seamlessly
-                  integrates with daily life, making digital experiences more
-                  intuitive, secure, and accessible for everyone.
+                  To become the leading platform that revolutionizes the
+                  influencer ecosystem by merging protection, innovation, and
+                  growth, ensuring every creator feels secure, valued, and
+                  unstoppable in their journey. We aim to tap into every social
+                  media platform, creating a seamless and unified experience for
+                  creators across all networks.
                 </p>
                 <p className="text-zinc-600 dark:text-zinc-400">
-                  Our commitment to innovation drives us to develop cutting-edge
-                  solutions that address real-world challenges and transform
-                  industries.
+                  As we evolve, our vision extends toward integrating
+                  groundbreaking technologies like General AI, paving the way
+                  for a future where creators can collaborate with tools that
+                  understand and grow with them—transforming HUMAN aspirations
+                  into tangible results.
                 </p>
               </Card>
             </motion.div>
-
             <motion.div
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
@@ -83,9 +87,11 @@ export default function AboutContent() {
               <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs h-full">
                 <h2 className="text-xl font-semibold mb-4">Our Mission</h2>
                 <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-                  We&apos;re on a mission to revolutionize digital experiences
-                  through innovative technology solutions that empower
-                  businesses and individuals alike.
+                  To empower social media users, influencers, and content
+                  creators by safeguarding their digital presence, simplifying
+                  their growth journey, and providing them with tools to focus
+                  on what they do best—creating impactful content thus creating
+                  a whole ecosystem for the creators.
                 </p>
                 <Link href="/about/team">
                   <Button className="w-full group">
@@ -103,34 +109,24 @@ export default function AboutContent() {
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {[
                 {
-                  title: "Innovation",
+                  title: "Empowerment",
                   description:
-                    "Pushing boundaries and exploring new possibilities in technology",
+                    "We strive to provide creators with the tools and confidence to grow without fear of setbacks.",
                 },
                 {
-                  title: "Excellence",
+                  title: "Innovation",
                   description:
-                    "Striving for the highest quality in everything we do",
+                    "Leveraging cutting-edge technology to deliver unique, reliable, and scalable solutions",
                 },
                 {
                   title: "Integrity",
                   description:
-                    "Building trust through transparency and ethical practices",
+                    "We operate transparently and uphold trust as the foundation of our business.",
                 },
                 {
-                  title: "Collaboration",
+                  title: "Community First",
                   description:
-                    "Working together to achieve extraordinary results",
-                },
-                {
-                  title: "User-Focused",
-                  description:
-                    "Putting our users' needs at the heart of our solutions",
-                },
-                {
-                  title: "Impact",
-                  description:
-                    "Creating meaningful change in the digital landscape",
+                    "Supporting creators by fostering collaboration, inclusivity, and mutual growth.",
                 },
               ].map((value, index) => (
                 <motion.div
@@ -155,57 +151,11 @@ export default function AboutContent() {
 
           {/* Journey Section */}
           <section>
-            <h2 className="text-2xl font-semibold mb-6">Our Journey</h2>
+            <h2 className="text-2xl font-semibold mb-6">
+              Journey Of Insturance
+            </h2>
             <Card className="p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
-              <div className="space-y-8">
-                {[
-                  {
-                    year: "2020",
-                    title: "The Beginning",
-                    description:
-                      "Founded with a vision to transform digital experiences",
-                  },
-                  {
-                    year: "2021",
-                    title: "Rapid Growth",
-                    description:
-                      "Expanded our team and launched our first major product",
-                  },
-                  {
-                    year: "2022",
-                    title: "Global Expansion",
-                    description:
-                      "Opened offices in multiple countries and reached 1M users",
-                  },
-                  {
-                    year: "2023",
-                    title: "Innovation Leader",
-                    description:
-                      "Recognized as an industry leader in AI solutions",
-                  },
-                ].map((milestone, index) => (
-                  <motion.div
-                    key={milestone.year}
-                    className="flex gap-4"
-                    initial={{ opacity: 0, x: -20 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.2 }}
-                    viewport={{ once: true }}
-                  >
-                    <div className="text-lg font-semibold text-blue-500 w-20">
-                      {milestone.year}
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold mb-1">
-                        {milestone.title}
-                      </h3>
-                      <p className="text-zinc-600 dark:text-zinc-400">
-                        {milestone.description}
-                      </p>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
+              <Timeline />
             </Card>
           </section>
 
