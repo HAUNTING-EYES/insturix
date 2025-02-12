@@ -16,8 +16,7 @@ export function TransitionProvider({
 
   // Handle initial app load
   useEffect(() => {
-    const timer = setTimeout(() => setIsInitialLoading(false), 2000);
-    return () => clearTimeout(timer);
+    setIsInitialLoading(false)
   }, []);
 
   // Handle page transitions
