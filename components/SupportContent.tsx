@@ -198,7 +198,7 @@ export default function SupportContent() {
             <div className="flex justify-center space-x-8">
               <div className="flex items-center space-x-2 text-blue-500">
                 <Phone className="w-5 h-5" />
-                <span>+91 74289 47901</span>
+                <span>+91 92201-21372</span>
               </div>
               <div className="flex items-center space-x-2 text-blue-500">
                 <Mail className="w-5 h-5" />

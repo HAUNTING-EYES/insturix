@@ -206,7 +206,7 @@ export default function ContactUsPage() {
                       </div>
                       <div className="flex items-center text-sm">
                         <User className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>+91 74289 47901</span>
+                        <span>+91 92201-21372</span>
                       </div>
                       <div className="flex items-center text-sm">
                         <MapPin className="h-4 w-4 mr-3 text-zinc-500" />
