@@ -22,26 +22,38 @@ export function TransitionProvider({
   // Handle page transitions
   useEffect(() => {
     if (!isInitialLoading) {
-      setIsPageTransitioning(true);
-      const timer = setTimeout(() => setIsPageTransitioning(false), 800);
-      return () => clearTimeout(timer);
+      // Don't show loader for dashboard product navigation
+      if (!pathname?.startsWith('/dashboard')) {
+        setIsPageTransitioning(true);
+        const timer = setTimeout(() => setIsPageTransitioning(false), 800);
+        return () => clearTimeout(timer);
+      }
     }
   }, [pathname, isInitialLoading]);
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode="sync">
       {isInitialLoading || isPageTransitioning ? (
         <LoadingScreen key="loading" />
       ) : (
-        <motion.div
-          key={pathname}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.3 }}
-        >
-          {children}
-        </motion.div>
+        pathname && pathname.startsWith('/dashboard/') ? (
+          <div
+            key={pathname}
+            id="dashboard-content-area-motion"
+          >
+            <div id="dashboard-content-area-inner">{children}</div>
+          </div>
+        ) : (
+          <motion.div
+            key={pathname}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            {children}
+          </motion.div>
+        )
       )}
     </AnimatePresence>
   );

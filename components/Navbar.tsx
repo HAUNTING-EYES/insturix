@@ -63,7 +63,7 @@ const LogoAnimation = () => {
             transition={{ duration: 0.5 }}
             className="absolute inset-0 flex items-center"
           >
-            <span className="font-['Blanka'] text-xl tracking-[0.4em] whitespace-nowrap leading-none flex items-center h-full transform -translate-y-[3px]">
+            <span className="logotext flex items-center h-full transform">
               INSTURANCE
             </span>
           </motion.div>

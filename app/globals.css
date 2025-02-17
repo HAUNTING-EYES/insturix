@@ -338,9 +338,12 @@
       Cantarell,
       sans-serif;
     -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
-    width: 100vw;
     position: relative;
+    /* Remove width and overflow that can affect fixed positioning */
+    min-height: 100vh;
+    margin: 0;
+    /* Ensure proper stacking context */
+    isolation: isolate;
   }
 
   /* Ensure mobile menu stays within viewport */
@@ -450,6 +453,58 @@
     src: url("/Blanka-Regular.otf") format("opentype");
     font-weight: normal;
     font-style: normal;
+  }
+
+  /* CSS logical properties for stable layout */
+  :root {
+    --scrollbar-width: 17px;
+    --removed-body-scroll-bar-size: 17px;
+  }
+
+  /* Scrollbar width compensation */
+  html {
+    width: 100%;
+    overflow-x: hidden;
+    /* Force scrollbar to always show to prevent layout shifts */
+    overflow-y: scroll !important;
+    /* Modern approach to handling scrollbar gutter */
+    scrollbar-gutter: stable;
+  }
+
+  /* Ensure proper width calculations */
+  body {
+    width: 100%;
+    /* Prevent horizontal overflow */
+    overflow-x: clip;
+    /* Ensure padding for scrollbar doesn't affect layout */
+    box-sizing: border-box;
+    position: relative;
+    margin: 0;
+  }
+
+  /* Custom scrollbar styling */
+  @media screen and (min-width: 640px) {
+    ::-webkit-scrollbar {
+      width: var(--scrollbar-width);
+      background-color: rgb(9, 9, 11); /* bg-zinc-950 */
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background-color: rgb(39, 39, 42); /* bg-zinc-800 */
+      border: 4px solid rgb(9, 9, 11);
+      border-radius: calc(var(--scrollbar-width) / 2);
+      min-height: 40px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: rgb(63, 63, 70); /* bg-zinc-700 */
+    }
+
+    /* Firefox */
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: rgb(39, 39, 42) rgb(9, 9, 11);
+    }
   }
 
   :root {
@@ -595,6 +650,11 @@
 
   .primtext {
     @apply text-neutral-900 dark:text-neutral-50 transition-colors duration-300;
+  }
+
+  .logotext {
+    @apply font-['Blanka'] text-xl tracking-[0.4em] whitespace-nowrap leading-none;
+    transform: translateY(-5px);
   }
 }
 
