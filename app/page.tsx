@@ -6,6 +6,7 @@ import Navbar from "@/components/Navbar";
 import WhoWeAre from "@/components/WhoWeAre";
 import { WhyUs } from "@/components/WhyUs";
 import HeroSection from "@/components/Home/HeroSection";
+import { Currency } from "@/components/Currency";
 
 export default function Home() {
   const { scrollYProgress } = useScroll();
@@ -31,6 +32,7 @@ export default function Home() {
       <WhyUs />
       <Testimo />
       <Footer />
+      <Currency />
     </div>
   );
 }
