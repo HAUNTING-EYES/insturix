@@ -1,4 +1,16 @@
-export const timelineData = [
+interface TimelineEvent {
+  date: string;
+  description: string;
+}
+
+interface TimeLineItem {
+  year: string;
+  title: string;
+  description: string;
+  events: TimelineEvent[];
+}
+
+export const timelineData:TimeLineItem[] = [
   {
     year: "2024",
     title: "The Beginning",
@@ -83,6 +95,10 @@ export const timelineData = [
         description:
           "Introduced Meditron and ThinkForge, renamed Techie Tiwari to Alyzitron",
       },
+      {
+        date: "February 18",
+        description:"Secured Funding from Microsoft for Startup Founder Program",
+      }
     ],
   },
 ];

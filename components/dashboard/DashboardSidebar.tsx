@@ -18,6 +18,7 @@ import {
   DialogOverlay,
 } from "@/components/ui/dialog";
 import { UserProfile } from "@clerk/nextjs";
+import Image from "next/image";
 
 export default function DashboardSidebar() {
     const { user } = useUser();
@@ -131,7 +132,7 @@ export default function DashboardSidebar() {
                             <DropdownMenuTrigger className="w-full focus-visible:outline-none">
                                 <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
                                     {user.imageUrl && (
-                                        <img
+                                        <Image
                                             src={user.imageUrl}
                                             alt={user.username || "Profile"}
                                             className="w-10 h-10 rounded-full"
