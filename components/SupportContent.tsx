@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import {
-  Search,
+  // Search,
   MessageCircle,
   FileText,
   Zap,
@@ -12,7 +12,7 @@ import {
   MessageSquare,
   FileQuestion,
 } from "lucide-react";
-import { Input } from "@/components/ui/input";
+// import { Input } from "@/components/ui/input";
 import Link from "next/link";
 
 const supportCategories = [
@@ -62,7 +62,7 @@ const quickLinks = [
   },
   {
     title: "Community",
-    description: "Join our community forums",
+    description: "Join our community forums (COMING SOON!)",
     icon: MessageSquare,
     link: "#",
     color: "text-blue-500",
@@ -73,6 +73,14 @@ const quickLinks = [
     description: "Get in touch with our team",
     icon: Mail,
     link: "/contactus",
+    color: "text-purple-500",
+    bgColor: "bg-purple-500/10",
+  },
+  {
+    title: "Blogs",
+    description: "Look at our latest blogs for changes",
+    icon: FileText,
+    link: "/resources/blogs",
     color: "text-purple-500",
     bgColor: "bg-purple-500/10",
   },
@@ -120,14 +128,14 @@ export default function SupportContent() {
               <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl" />
             </h1>
             <p className="text-zinc-600 dark:text-zinc-400 max-w-2xl mx-auto">
-              Search our knowledge base or browse categories below
+              Browse the categories below
             </p>
-            <div className="max-w-xl mx-auto mt-6">
+           {/* <div className="max-w-xl mx-auto mt-6">
               <div className="relative">
                 <Search className="absolute left-3 top-2.5 h-5 w-5 text-zinc-400" />
                 <Input placeholder="Search for help..." className="pl-10" />
-              </div>
-            </div>
+              </div> 
+            </div>*/}
           </div>
 
           {/* Quick Links */}
@@ -157,7 +165,7 @@ export default function SupportContent() {
           </div>
 
           {/* Support Categories */}
-          {supportCategories.map((category, index) => (
+          {/* {supportCategories.map((category, index) => (
             <motion.section
               key={category.title}
               initial={{ opacity: 0, y: 20 }}
@@ -182,7 +190,7 @@ export default function SupportContent() {
                 ))}
               </div>
             </motion.section>
-          ))}
+          ))} */}
 
           {/* Contact Info */}
           <motion.div

@@ -72,7 +72,7 @@ const headerContent = {
     "Protects content creators and brands from copyright issues, takedowns, and content theft, ensuring peace of mind and legal safety.",
   videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
   videoTitle: "Content Protection and Policy Enforcement",
-  getStartedLink: "/signup",
+  getStartedLink: "/contactus",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
 };
