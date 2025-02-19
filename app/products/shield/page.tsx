@@ -70,7 +70,7 @@ const headerContent = {
   highlightText: "Shield",
   description:
     "Protects content creators and brands from copyright issues, takedowns, and content theft, ensuring peace of mind and legal safety.",
-  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "Content Protection and Policy Enforcement",
   getStartedLink: "/contactus",
   accentColor: THEME.color,

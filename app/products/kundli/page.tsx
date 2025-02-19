@@ -69,7 +69,7 @@ const headerContent = {
   highlightText: "Kund-li",
   description:
     "Optimize social media accounts with growth insights, refine content strategy, and evaluate influencer partnerships effectively.",
-  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "Account Performance Optimization with Kund-Li",
   getStartedLink: "/signup",
   accentColor: THEME.color,

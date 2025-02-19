@@ -78,7 +78,7 @@ const headerContent = {
   highlightText: "Alyzitron",
   description:
     "Scans for guideline compliance, ensures accuracy, and optimizes content for maximum impact and brand alignment.",
-  videoUrl: "https://www.youtube.com/embed/FieYiEcMJow",
+  videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "Content Guidelines Compliance and Accuracy Verification",
   getStartedLink: "/signup",
   accentColor: THEME.color,

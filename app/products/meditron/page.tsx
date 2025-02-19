@@ -69,7 +69,7 @@ const headerContent = {
   highlightText: "Meditron",
   description:
     "A platform connecting creators and businesses for collaborations, sponsorships, and growth opportunities.",
-  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "Creator-to-Business Platform for Marketing",
   getStartedLink: "/signup",
   accentColor: THEME.color,

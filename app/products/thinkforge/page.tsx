@@ -69,7 +69,7 @@ const headerContent = {
   highlightText: "ThinkForge",
   description:
     "Generates fresh content ideas, innovative marketing strategies, and unique client pitches with AI-driven insights.",
-  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "AI Idea Generator for Content and Marketing",
   getStartedLink: "/signup",
   accentColor: THEME.color,

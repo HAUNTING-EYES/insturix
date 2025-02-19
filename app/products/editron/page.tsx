@@ -80,7 +80,7 @@ const headerContent = {
   highlightText: "Editron",
   description:
     "Automates video post-production, simplifies social media content creation, and streamlines corporate and educational video editing.",
-  videoUrl: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+  videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "AI Video Editor for Media Production",
   getStartedLink: "/signup",
   accentColor: THEME.color,
