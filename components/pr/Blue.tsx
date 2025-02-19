@@ -1,5 +1,6 @@
 import { Space_Grotesk } from "next/font/google";
 import { Heading, Paragraph, Price, PricingWrapper } from "./Price";
+import { Currency } from "../Currency"; // Import the Currency component
 
 const grotesk = Space_Grotesk({ subsets: ["latin"] });
 
@@ -18,7 +19,15 @@ export default function Blue() {
           className={"bg-indigo-500"}
         >
           <Heading>Plus</Heading>
-          <Price>₹200 /mo</Price>
+          <Price>
+            <Currency
+              priceUSD={20}
+              priceINR={200}
+              priceEUR={10}
+              priceGBP={15}
+              perMonth={true}
+            />
+          </Price>
           <Paragraph className="text-left">
             1. All features of Free
             <br />

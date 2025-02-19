@@ -10,11 +10,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { motion, AnimatePresence } from "framer-motion";
+import { Currency } from "@/components/Currency"; // Import the Currency component
 
 interface DonationDialogProps {
   isOpen: boolean;
   onClose: () => void;
-  onDonate: (amount: number) => void;
+  onDonate: (amount: number, currency: string) => void;
+  currency: string; // Update currency prop type
 }
 
 export default function DonationDialog({
@@ -34,7 +36,7 @@ export default function DonationDialog({
       return;
     }
 
-    onDonate(parsedAmount);
+    onDonate(parsedAmount, "USD"); // Use currency prop
     setAmount("");
     setError("");
     onClose();
@@ -49,7 +51,14 @@ export default function DonationDialog({
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
-              ₹
+              <Currency
+                priceUSD={0}
+                priceINR={0}
+                priceEUR={0}
+                priceGBP={0}
+                className="inline"
+              />{" "}
+              {/* Use the Currency component */}
             </div>
             <Input
               type="number"
@@ -59,7 +68,6 @@ export default function DonationDialog({
                 setError("");
               }}
               className="pl-7"
-              placeholder="0.00"
               step="0.01"
               min="0"
             />

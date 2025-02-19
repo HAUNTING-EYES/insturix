@@ -8,6 +8,7 @@ import { Heart, Sparkles, Shield, Coffee } from "lucide-react";
 import DonationDialog from "./DonationDialog";
 import { useToast } from "@/hooks/use-toast";
 import Script from "next/script";
+import { Currency } from "./Currency";
 
 interface RazorpayOptions {
   key: string;
@@ -27,9 +28,25 @@ interface RazorpayInstance {
   open: () => void;
 }
 
-const donationOptions = [
+interface DonationOption {
+  amountUSD: number;
+  amountINR: number;
+  amountEUR: number;
+  amountGBP: number;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  title: string;
+  description: string;
+  color: string;
+  iconColor: string;
+  popularTag: boolean;
+}
+
+const donationOptions: DonationOption[] = [
   {
-    amount: 399,
+    amountUSD: 5,
+    amountINR: 399,
+    amountEUR: 4,
+    amountGBP: 3.5,
     icon: Coffee,
     title: "Buy us a coffee",
     description: "Support our daily grind with a cup of motivation",
@@ -38,7 +55,10 @@ const donationOptions = [
     popularTag: false,
   },
   {
-    amount: 799,
+    amountUSD: 10,
+    amountINR: 799,
+    amountEUR: 8,
+    amountGBP: 7,
     icon: Heart,
     title: "Show Some Love",
     description: "Help us maintain and improve our platform",
@@ -47,7 +67,10 @@ const donationOptions = [
     popularTag: true,
   },
   {
-    amount: 1999,
+    amountUSD: 25,
+    amountINR: 1999,
+    amountEUR: 20,
+    amountGBP: 18,
     icon: Shield,
     title: "Become a Guardian",
     description: "Ensure our platform's stability and security",
@@ -56,7 +79,10 @@ const donationOptions = [
     popularTag: false,
   },
   {
-    amount: 3999,
+    amountUSD: 50,
+    amountINR: 3999,
+    amountEUR: 40,
+    amountGBP: 35,
     icon: Sparkles,
     title: "Power Innovation",
     description: "Fuel new features and exciting developments",
@@ -192,9 +218,15 @@ export default function DonationPage() {
                     </p>
                     <Button
                       className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-blue-600 dark:hover:bg-blue-500 transition-colors duration-300"
-                      onClick={() => handleDonate(option.amount)}
+                      onClick={() => handleDonate(option.amountINR)} // Use INR amount for donation
                     >
-                      Donate ₹{option.amount}
+                      <Currency
+                        priceUSD={option.amountUSD}
+                        priceINR={option.amountINR}
+                        priceEUR={option.amountEUR}
+                        priceGBP={option.amountGBP}
+                        className="inline-block"
+                      />
                     </Button>
                   </Card>
                 </motion.div>
@@ -225,6 +257,7 @@ export default function DonationPage() {
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         onDonate={handleDonate}
+        currency={"usd"} // Pass the currency prop
       />
 
       {/* Decorative gradient orbs */}
