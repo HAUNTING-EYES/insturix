@@ -123,7 +123,16 @@ export default function Navbar() {
   const [activeDropdown, setActiveDropdown] = React.useState<string | null>(
     null
   );
+  const [scrolled, setScrolled] = React.useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
+
+  React.useEffect(() => {
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 300);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   const toggleDropdown = (title: string) => {
     setActiveDropdown((prev) => (prev === title ? null : title));
@@ -141,7 +150,11 @@ export default function Navbar() {
   }, [isMobile, isOpen]);
 
   return (
-    <nav className="fixed top-0 left-0 right-0 z-40 bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl">
+    <nav className={`fixed top-0 left-0 right-0 z-40 transition-all ${isMobile? "duration-150" : "duration-500"} border-transparent ${
+      isMobile&&(isOpen||scrolled) ? "bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20": (scrolled
+        ? "bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl"
+        : "bg-transparent dark:bg-transparent border-transparent")
+    }`}>
       <div className="w-full max-w-none px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo Section */}
