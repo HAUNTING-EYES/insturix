@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import Logo from "@/public/Logo.jpeg";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 const LogoAnimation = () => {
   const [showLogo, setShowLogo] = useState(true);
@@ -125,6 +125,8 @@ export default function Navbar() {
   );
   const [scrolled, setScrolled] = React.useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
+  const router = useRouter();
+  const pathname = usePathname();
 
   React.useEffect(() => {
     const handleScroll = () => {
@@ -149,13 +151,21 @@ export default function Navbar() {
     }
   }, [isMobile, isOpen]);
 
-  return (
-    <nav className={`fixed top-0 left-0 right-0 z-40 transition-all ${isMobile? "duration-150" : "duration-500"} border-transparent ${
-      isMobile&&(isOpen||scrolled) ? "bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20": (scrolled
-        ? "bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl"
-        : "bg-transparent dark:bg-transparent border-transparent")
-    }`}>
-      <div className="w-full max-w-none px-6">
+    const navClasses = `fixed top-0 left-0 right-0 z-40 transition-all border-transparent ${isMobile ? "duration-150" : "duration-500"}`;
+    const mobileOpenScrolledClasses = "bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20";
+    const scrolledClasses = "bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl";
+    const transparentClasses = "bg-transparent dark:bg-transparent border-transparent";
+
+    const getNavClasses = () => {
+      if (pathname === '/') {
+      if (isMobile && (isOpen || scrolled)) return mobileOpenScrolledClasses;
+      return scrolled ? scrolledClasses : transparentClasses;
+      }
+      return isMobile ? mobileOpenScrolledClasses : scrolledClasses;
+    };
+
+    return (
+      <nav className={`${navClasses} ${getNavClasses()}`}><div className="w-full max-w-none px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo Section */}
           <div className="flex-none">
