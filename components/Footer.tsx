@@ -55,9 +55,10 @@ function NewsletterSection() {
   };
 
   return (
-    <div className="relative -mx-6 px-6 py-8 overflow-hidden bg-[rgb(var(--surface-0))]">
+    <div className="relative py-10 overflow-hidden">
       <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute inset-0 bg-grid-neutral-100/20 dark:bg-grid-neutral-900/20 bg-[size:20px_20px] opacity-20" />
+        <div className="absolute inset-0 bg-grid-neutral-100/20 dark:bg-grid-neutral-900/20 bg-[size:20px_20px] opacity-30" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-background/30 to-background" />
       </div>
 
       <motion.div
@@ -109,11 +110,15 @@ function NewsletterSection() {
 
 export default function Footer() {
   return (
-    <footer className="relative w-full bg-[rgb(var(--surface-0))] border-t-2 border-neutral-200 dark:border-neutral-800">
-      <div className="absolute inset-0 bg-linear-to-b from-[rgb(var(--surface-0))] via-[rgb(var(--surface-0))] to-[rgb(var(--surface-1))] pointer-events-none" />
-
-      <div className="container relative mx-auto px-6 py-12">
-        <NewsletterSection />
+    <>
+      <div className="w-full bg-[rgb(var(--surface-0))] border-t border-b border-neutral-200 dark:border-neutral-800">
+        <div className="container mx-auto">
+          <NewsletterSection />
+        </div>
+      </div>
+      <footer className="relative w-full bg-[rgb(var(--surface-0))]">
+        <div className="absolute inset-0 bg-linear-to-b from-[rgb(var(--surface-0))] via-[rgb(var(--surface-0))] to-[rgb(var(--surface-1))] pointer-events-none" />
+        <div className="container relative mx-auto px-6 py-12">
 
         {/* Support Links */}
         <div className="mt-12 grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
@@ -175,5 +180,6 @@ export default function Footer() {
         </div>
       </div>
     </footer>
+    </>
   );
 }
