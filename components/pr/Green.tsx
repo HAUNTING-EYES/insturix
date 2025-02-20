@@ -1,5 +1,6 @@
 import { Space_Grotesk } from "next/font/google";
 import { Heading, Paragraph, Price, PricingWrapper } from "./Price";
+import { Currency } from "../Currency";
 
 const grotesk = Space_Grotesk({ subsets: ["latin"] });
 
@@ -18,7 +19,16 @@ export default function Green() {
           className={"bg-green-600"}
         >
           <Heading>Free</Heading>
-          <Price>₹0 /mo</Price>
+          <Price>
+            {" "}
+            <Currency
+              priceUSD={0}
+              priceINR={0}
+              priceEUR={0}
+              priceGBP={0}
+              perMonth={true}
+            /> 
+          </Price>
           <Paragraph className="text-left">
             1. Kund-li
             <br />

@@ -1,44 +1,42 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { motion, AnimatePresence } from "framer-motion";
+import type React from "react"
+import { useState } from "react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { motion, AnimatePresence } from "framer-motion"
+import { useQuery } from "@tanstack/react-query"
+import { fetchLocationData } from "../lib/Location"
 
 interface DonationDialogProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onDonate: (amount: number) => void;
+  isOpen: boolean
+  onClose: () => void
+  onDonate: (amount: number) => void
 }
 
-export default function DonationDialog({
-  isOpen,
-  onClose,
-  onDonate,
-}: DonationDialogProps) {
-  const [amount, setAmount] = useState("");
-  const [error, setError] = useState("");
+export default function DonationDialog({ isOpen, onClose, onDonate }: DonationDialogProps) {
+  const [amount, setAmount] = useState("")
+  const [error, setError] = useState("")
+  const { data: locationData } = useQuery({
+    queryKey: ["location"],
+    queryFn: fetchLocationData,
+  })
 
   const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const parsedAmount = parseFloat(amount);
+    e.preventDefault()
+    const parsedAmount = Number.parseFloat(amount)
 
     if (isNaN(parsedAmount) || parsedAmount <= 0) {
-      setError("Please enter a valid amount");
-      return;
+      setError("Please enter a valid amount")
+      return
     }
 
-    onDonate(parsedAmount);
-    setAmount("");
-    setError("");
-    onClose();
-  };
+    onDonate(parsedAmount)
+    setAmount("")
+    setError("")
+    onClose()
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -49,17 +47,16 @@ export default function DonationDialog({
         <form onSubmit={handleSubmit} className="space-y-4 mt-4">
           <div className="relative">
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500">
-              ₹
+              {locationData && locationData.symbol}
             </div>
             <Input
               type="number"
               value={amount}
               onChange={(e) => {
-                setAmount(e.target.value);
-                setError("");
+                setAmount(e.target.value)
+                setError("")
               }}
               className="pl-7"
-              placeholder="0.00"
               step="0.01"
               min="0"
             />
@@ -77,12 +74,7 @@ export default function DonationDialog({
             </AnimatePresence>
           </div>
           <div className="flex justify-end space-x-2">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={onClose}
-              className="px-4"
-            >
+            <Button type="button" variant="ghost" onClick={onClose} className="px-4">
               Cancel
             </Button>
             <Button
@@ -95,5 +87,6 @@ export default function DonationDialog({
         </form>
       </DialogContent>
     </Dialog>
-  );
+  )
 }
+
