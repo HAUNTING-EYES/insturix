@@ -104,7 +104,7 @@ const createOrder = async ({
   amount: number;
   currency: string;
 }) => {
-  const { data } = await axios.post("/api/create-orders", { amount, currency });
+  const { data } = await axios.post("/api/donations", { amount, currency });
   return data;
 };
 

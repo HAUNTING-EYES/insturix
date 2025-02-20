@@ -14,6 +14,9 @@ export async function POST(req: Request) {
     amount: amount * 100,
     currency: currency,
     receipt: `receipt_${Math.floor(Math.random() * 100000)}`,
+    notes:{
+      note:"This is a Donation"
+    }
   })
   return NextResponse.json(options)
 }
