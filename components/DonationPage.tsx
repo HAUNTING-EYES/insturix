@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -9,6 +10,9 @@ import DonationDialog from "./DonationDialog";
 import { useToast } from "@/hooks/use-toast";
 import Script from "next/script";
 import { Currency } from "./Currency";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { fetchLocationData } from "../lib/Location";
+import axios from "axios";
 
 interface RazorpayOptions {
   key: string;
@@ -92,54 +96,125 @@ const donationOptions: DonationOption[] = [
   },
 ];
 
+// API functions
+const createOrder = async ({
+  amount,
+  currency,
+}: {
+  amount: number;
+  currency: string;
+}) => {
+  const { data } = await axios.post("/api/create-orders", { amount, currency });
+  return data;
+};
+
+const verifyOrder = async ({
+  orderId,
+  razorpayPaymentId,
+  razorpaySignature,
+}: {
+  orderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}) => {
+  const { data } = await axios.post("/api/verify-orders", {
+    orderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  });
+  return data;
+};
+
 export default function DonationPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const handleDonate = async (amount: number) => {
-    const res = await fetch("/api/create-orders", {
-      method: "POST",
-      body: JSON.stringify({ amount: amount }),
-    });
-    const data = await res.json();
+  const { data: locationData } = useQuery({
+    queryKey: ["location"],
+    queryFn: fetchLocationData,
+  });
 
+  const createOrderMutation = useMutation({
+    mutationFn: createOrder,
+    onSuccess: (data) => {
+      // Handle successful order creation
+      initializePayment(data);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        duration: 5000,
+      });
+    },
+  });
+
+  const verifyOrderMutation = useMutation({
+    mutationFn: verifyOrder,
+    onSuccess: (data) => {
+      if (data.isOk) {
+        toast({
+          title: "Payment Made Successfully",
+          description: `You have donated ${locationData?.symbol}${data.amount}`,
+          duration: 5000,
+        });
+      } else {
+        toast({
+          title: "Payment Failed",
+          description: `Please try again later`,
+          duration: 5000,
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        duration: 5000,
+      });
+    },
+  });
+
+  const initializePayment = (orderData: {
+    id: string;
+    currency: string;
+    amount: number;
+  }) => {
     const paymentData = {
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
-      order_id: data.id,
-
-      handler: async function (response: {
+      order_id: orderData.id,
+      currency: orderData.currency,
+      amount: orderData.amount,
+      handler: (response: {
         razorpay_order_id: string;
         razorpay_payment_id: string;
         razorpay_signature: string;
-      }) {
-        const res = await fetch("/api/verify-orders", {
-          method: "POST",
-          body: JSON.stringify({
-            orderId: response.razorpay_order_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpaySignature: response.razorpay_signature,
-          }),
+      }) => {
+        verifyOrderMutation.mutate({
+          orderId: response.razorpay_order_id,
+          razorpayPaymentId: response.razorpay_payment_id,
+          razorpaySignature: response.razorpay_signature,
         });
-        const data = await res.json();
-        if (data.isOk) {
-          toast({
-            title: "Payment Made Successfully",
-            description: `You have donated amount of  ₹${amount}`,
-            duration: 5000,
-          });
-        } else {
-          toast({
-            title: "Payment Failed",
-            description: `Please try again later`,
-            duration: 5000,
-          });
-        }
       },
     };
+
     const payment = new (window as unknown as WindowWithRazorpay).Razorpay(
       paymentData
     ) as RazorpayInstance;
     payment.open();
+  };
+
+  const handleDonate = async (amount: number) => {
+    if (!locationData) {
+      toast({
+        title: "Error",
+        description: "Unable to determine your location. Please try again.",
+        duration: 5000,
+      });
+      return;
+    }
+
+    createOrderMutation.mutate({ amount, currency: locationData.currency });
   };
 
   return (
@@ -218,7 +293,7 @@ export default function DonationPage() {
                     </p>
                     <Button
                       className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-blue-600 dark:hover:bg-blue-500 transition-colors duration-300"
-                      onClick={() => handleDonate(option.amountINR)} // Use INR amount for donation
+                      onClick={() => handleDonate(option.amountUSD)}
                     >
                       <Currency
                         priceUSD={option.amountUSD}
@@ -257,7 +332,6 @@ export default function DonationPage() {
         isOpen={isDialogOpen}
         onClose={() => setIsDialogOpen(false)}
         onDonate={handleDonate}
-        currency={"usd"} // Pass the currency prop
       />
 
       {/* Decorative gradient orbs */}
