@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import {
   // Search,
-  MessageCircle,
+  // MessageCircle,
   FileText,
   Zap,
   Mail,
@@ -15,7 +15,7 @@ import {
 // import { Input } from "@/components/ui/input";
 import Link from "next/link";
 
-const supportCategories = [
+{ /* const supportCategories = [
   {
     title: "Quick Help",
     description: "Find instant answers to common questions",
@@ -50,6 +50,7 @@ const supportCategories = [
     ],
   },
 ];
+ */}
 
 const quickLinks = [
   {

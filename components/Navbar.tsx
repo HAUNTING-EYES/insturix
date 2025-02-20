@@ -125,7 +125,6 @@ export default function Navbar() {
   );
   const [scrolled, setScrolled] = React.useState(false);
   const isMobile = useMediaQuery("(max-width: 768px)");
-  const router = useRouter();
   const pathname = usePathname();
 
   React.useEffect(() => {
