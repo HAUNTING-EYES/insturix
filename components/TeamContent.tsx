@@ -4,13 +4,20 @@ import { motion } from "framer-motion";
 import { Card } from "@/components/ui/card";
 import Image from "next/image";
 import { Github, Linkedin, Twitter } from "lucide-react";
+import { StaticImageData } from "next/image";
 import Link from "next/link";
+import NJ from "@/public/NimitJain.jpeg";
+import SB from "@/public/Srijan Baniyal.jpeg";
+import AKS from "@/public/Akshit Singh.jpeg";
+import LG from "@/public/Lakshay Goel.jpeg";
+import DG from "@/public/Deepanshu Gupta.jpeg";
+import K from "@/public/Kanak.jpeg"
 
 const teamMembers = [
   {
     name: "Nimit Jain",
     role: "CEO & Founder",
-    image: "https://images.unsplash.com/photo-1637858868799-7f26a0640eb6",
+    image: NJ,
     bio: "Founded Insturance with a vision to revolutionize content creator's experience in every aspect.",
     social: {
       twitter: "#",
@@ -26,28 +33,28 @@ const departments = [
       {
         name: "Srijan Baniyal",
         role: "Tech Executive",
-        image: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d",
+        image: SB,
         bio: "Specialist in cloud architecture and distributed systems.",
         social: { linkedin: "#", github: "#" },
       },
       {
         name: "Akshit Kumar Singh",
         role: "Tech Executive",
-        image: "https://images.unsplash.com/photo-1544723795-3fb6469f5b39",
+        image: AKS,
         bio: "Gen AI, frontend expert and system architect.",
         social: { github: "#" },
       },
       {
-        name: "Lakshay",
+        name: "Lakshay Goel",
         role: "Tech Executive",
-        image: "https://images.unsplash.com/photo-1569466896818-335b1bedfcce",
+        image: LG,
         bio: "Backend developer who uses coffee as fuel.",
         social: { github: "#", linkedin: "#" },
       },
       {
-        name: "Deepanshu",
+        name: "Deepanshu Gupta",
         role: "Tech Executive",
-        image: "https://images.unsplash.com/photo-1569466896818-335b1bedfcce",
+        image: DG,
         bio: "UI/UX specialist and React expert.",
         social: { github: "#", linkedin: "#" },
       },
@@ -61,7 +68,7 @@ const departments = [
       {
         name: "Kanak",
         role: "Tech Executive",
-        image: "https://images.unsplash.com/photo-1569466896818-335b1bedfcce",
+        image: K,
         bio: "UI/UX specialist and React expert.",
         social: { github: "#", linkedin: "#" },
       },
@@ -111,7 +118,7 @@ interface SocialLinks {
 interface TeamMember {
   name: string;
   role: string;
-  image: string;
+  image: StaticImageData | string;
   bio: string;
   social: SocialLinks;
 }
