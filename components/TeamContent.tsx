@@ -11,17 +11,19 @@ import SB from "@/public/Srijan Baniyal.jpeg";
 import AKS from "@/public/Akshit Singh.jpeg";
 import LG from "@/public/Lakshay Goel.jpeg";
 import DG from "@/public/Deepanshu Gupta.jpeg";
-import K from "@/public/Kanak.jpeg"
+import K from "@/public/Kanak.jpeg";
+import SM from "@/public/Sanjit.jpeg";
+import { Link1Icon } from "@radix-ui/react-icons";
 
 const teamMembers = [
   {
     name: "Nimit Jain",
     role: "CEO & Founder",
     image: NJ,
-    bio: "Founded Insturance with a vision to revolutionize content creator's experience in every aspect.",
+    bio: "Nimit Got No Limit.",
     social: {
-      twitter: "#",
-      linkedin: "#",
+      github: "https://github.com/HAUNTING-EYES",
+      linkedin: "https://www.linkedin.com/in/nimit-jain-106657279/",
     },
   },
 ];
@@ -34,49 +36,66 @@ const departments = [
         name: "Srijan Baniyal",
         role: "Tech Executive",
         image: SB,
-        bio: "Specialist in cloud architecture and distributed systems.",
-        social: { linkedin: "#", github: "#" },
+        bio: "Full-stack developer and  AI enthusiast.",
+        social: {
+          linkedin: "https://www.linkedin.com/in/srijan-baniyal/",
+          github: "https://github.com/Srijan-Baniyal",
+          website: "https://srijanbaniyal.com",
+        },
       },
       {
         name: "Akshit Kumar Singh",
         role: "Tech Executive",
         image: AKS,
         bio: "Gen AI, frontend expert and system architect.",
-        social: { github: "#" },
+        social: {
+          github: "https://github.com/akshit2434",
+          linkedin: "https://www.linkedin.com/in/akshit-singh-a137641a7/",
+        },
       },
       {
         name: "Lakshay Goel",
         role: "Tech Executive",
         image: LG,
-        bio: "Backend developer who uses coffee as fuel.",
-        social: { github: "#", linkedin: "#" },
+        bio: " AI/ML,creative strategist and content creation.",
+        social: {
+          github: "https://github.com/lkshycode",
+          linkedin: "https://www.linkedin.com/in/iamlakshaygoel/",
+        },
       },
       {
         name: "Deepanshu Gupta",
         role: "Tech Executive",
         image: DG,
-        bio: "UI/UX specialist and React expert.",
-        social: { github: "#", linkedin: "#" },
+        bio: "Passionate Backend Developer & Exploring AI",
+        social: {
+          github: "https://github.com/Deepanshuguptacode",
+          linkedin: "https://www.linkedin.com/in/deepanshu-gupta-650d/",
+        },
       },
       {
-        name: "Sanjit",
+        name: "Sanjit Mathur",
         role: "Tech Executive",
-        image: "https://images.unsplash.com/photo-1569466896818-335b1bedfcce",
-        bio: "UI/UX specialist and React expert.",
-        social: { github: "#", linkedin: "#" },
+        image: SM,
+        bio: "Web Solution expert, Cybersecurity enthusiast.",
+        social: { github: "https://github.com/IncognitoQuack", linkedin: "https://linkedin.com/" },
       },
       {
-        name: "Kanak",
+        name: "Kanak Goel",
         role: "Tech Executive",
         image: K,
         bio: "UI/UX specialist and React expert.",
-        social: { github: "#", linkedin: "#" },
+        social: {
+          github: "https://github.com/sujal-goel",
+          linkedin: "https://www.linkedin.com/in/kanak-goel-62337a276/",
+        },
       },
     ],
   },
 ];
 
 interface SocialLinks {
+  website?: string;
   twitter?: string;
   linkedin?: string;
   github?: string;
@@ -139,6 +158,14 @@ function TeamMemberCard({ member }: { member: TeamMember }) {
                   className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
                 >
                   <Github className="h-5 w-5" />
+                </Link>
+              )}
+              {member.social.website && (
+                <Link
+                  href={member.social.website}
+                  className="text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
+                >
+                  <Link1Icon className="h-5 w-5" />
                 </Link>
               )}
             </div>
