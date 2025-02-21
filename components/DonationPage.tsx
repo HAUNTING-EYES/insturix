@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
@@ -8,6 +9,10 @@ import { Heart, Sparkles, Shield, Coffee } from "lucide-react";
 import DonationDialog from "./DonationDialog";
 import { useToast } from "@/hooks/use-toast";
 import Script from "next/script";
+import { Currency } from "./Currency";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { fetchLocationData } from "../lib/Location";
+import axios from "axios";
 
 interface RazorpayOptions {
   key: string;
@@ -27,9 +32,25 @@ interface RazorpayInstance {
   open: () => void;
 }
 
-const donationOptions = [
+interface DonationOption {
+  amountUSD: number;
+  amountINR: number;
+  amountEUR: number;
+  amountGBP: number;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+  title: string;
+  description: string;
+  color: string;
+  iconColor: string;
+  popularTag: boolean;
+}
+
+const donationOptions: DonationOption[] = [
   {
-    amount: 399,
+    amountUSD: 5,
+    amountINR: 399,
+    amountEUR: 4,
+    amountGBP: 3.5,
     icon: Coffee,
     title: "Buy us a coffee",
     description: "Support our daily grind with a cup of motivation",
@@ -38,7 +59,10 @@ const donationOptions = [
     popularTag: false,
   },
   {
-    amount: 799,
+    amountUSD: 10,
+    amountINR: 799,
+    amountEUR: 8,
+    amountGBP: 7,
     icon: Heart,
     title: "Show Some Love",
     description: "Help us maintain and improve our platform",
@@ -47,7 +71,10 @@ const donationOptions = [
     popularTag: true,
   },
   {
-    amount: 1999,
+    amountUSD: 25,
+    amountINR: 1999,
+    amountEUR: 20,
+    amountGBP: 18,
     icon: Shield,
     title: "Become a Guardian",
     description: "Ensure our platform's stability and security",
@@ -56,7 +83,10 @@ const donationOptions = [
     popularTag: false,
   },
   {
-    amount: 3999,
+    amountUSD: 50,
+    amountINR: 3999,
+    amountEUR: 40,
+    amountGBP: 35,
     icon: Sparkles,
     title: "Power Innovation",
     description: "Fuel new features and exciting developments",
@@ -66,54 +96,125 @@ const donationOptions = [
   },
 ];
 
+// API functions
+const createOrder = async ({
+  amount,
+  currency,
+}: {
+  amount: number;
+  currency: string;
+}) => {
+  const { data } = await axios.post("/api/donations", { amount, currency });
+  return data;
+};
+
+const verifyOrder = async ({
+  orderId,
+  razorpayPaymentId,
+  razorpaySignature,
+}: {
+  orderId: string;
+  razorpayPaymentId: string;
+  razorpaySignature: string;
+}) => {
+  const { data } = await axios.post("/api/verify-orders", {
+    orderId,
+    razorpayPaymentId,
+    razorpaySignature,
+  });
+  return data;
+};
+
 export default function DonationPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const { toast } = useToast();
 
-  const handleDonate = async (amount: number) => {
-    const res = await fetch("/api/create-orders", {
-      method: "POST",
-      body: JSON.stringify({ amount: amount }),
-    });
-    const data = await res.json();
+  const { data: locationData } = useQuery({
+    queryKey: ["location"],
+    queryFn: fetchLocationData,
+  });
 
+  const createOrderMutation = useMutation({
+    mutationFn: createOrder,
+    onSuccess: (data) => {
+      // Handle successful order creation
+      initializePayment(data);
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        duration: 5000,
+      });
+    },
+  });
+
+  const verifyOrderMutation = useMutation({
+    mutationFn: verifyOrder,
+    onSuccess: (data) => {
+      if (data.isOk) {
+        toast({
+          title: "Payment Made Successfully",
+          description: `You have donated ${locationData?.symbol}${data.amount}`,
+          duration: 5000,
+        });
+      } else {
+        toast({
+          title: "Payment Failed",
+          description: `Please try again later`,
+          duration: 5000,
+        });
+      }
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        duration: 5000,
+      });
+    },
+  });
+
+  const initializePayment = (orderData: {
+    id: string;
+    currency: string;
+    amount: number;
+  }) => {
     const paymentData = {
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "",
-      order_id: data.id,
-
-      handler: async function (response: {
+      order_id: orderData.id,
+      currency: orderData.currency,
+      amount: orderData.amount,
+      handler: (response: {
         razorpay_order_id: string;
         razorpay_payment_id: string;
         razorpay_signature: string;
-      }) {
-        const res = await fetch("/api/verify-orders", {
-          method: "POST",
-          body: JSON.stringify({
-            orderId: response.razorpay_order_id,
-            razorpayPaymentId: response.razorpay_payment_id,
-            razorpaySignature: response.razorpay_signature,
-          }),
+      }) => {
+        verifyOrderMutation.mutate({
+          orderId: response.razorpay_order_id,
+          razorpayPaymentId: response.razorpay_payment_id,
+          razorpaySignature: response.razorpay_signature,
         });
-        const data = await res.json();
-        if (data.isOk) {
-          toast({
-            title: "Payment Made Successfully",
-            description: `You have donated amount of  ₹${amount}`,
-            duration: 5000,
-          });
-        } else {
-          toast({
-            title: "Payment Failed",
-            description: `Please try again later`,
-            duration: 5000,
-          });
-        }
       },
     };
+
     const payment = new (window as unknown as WindowWithRazorpay).Razorpay(
       paymentData
     ) as RazorpayInstance;
     payment.open();
+  };
+
+  const handleDonate = async (amount: number) => {
+    if (!locationData) {
+      toast({
+        title: "Error",
+        description: "Unable to determine your location. Please try again.",
+        duration: 5000,
+      });
+      return;
+    }
+
+    createOrderMutation.mutate({ amount, currency: locationData.currency });
   };
 
   return (
@@ -192,9 +293,15 @@ export default function DonationPage() {
                     </p>
                     <Button
                       className="w-full bg-zinc-900 hover:bg-zinc-800 dark:bg-blue-600 dark:hover:bg-blue-500 transition-colors duration-300"
-                      onClick={() => handleDonate(option.amount)}
+                      onClick={() => handleDonate(option.amountUSD)}
                     >
-                      Donate ₹{option.amount}
+                      <Currency
+                        priceUSD={option.amountUSD}
+                        priceINR={option.amountINR}
+                        priceEUR={option.amountEUR}
+                        priceGBP={option.amountGBP}
+                        className="inline-block"
+                      />
                     </Button>
                   </Card>
                 </motion.div>

@@ -10,7 +10,7 @@ interface TimeLineItem {
   events: TimelineEvent[];
 }
 
-export const timelineData:TimeLineItem[] = [
+export const timelineData: TimeLineItem[] = [
   {
     year: "2024",
     title: "The Beginning",
@@ -97,8 +97,9 @@ export const timelineData:TimeLineItem[] = [
       },
       {
         date: "February 18",
-        description:"Secured Funding from Microsoft for Startup Founder Program",
-      }
+        description:
+          "Secured Funding from Microsoft for Startup Founder Program",
+      },
     ],
   },
 ];
