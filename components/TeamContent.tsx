@@ -74,39 +74,6 @@ const departments = [
       },
     ],
   },
-  {
-    name: "Junior Enginnering Team",
-    members: [
-      {
-        name: "Mohd Afrid",
-        role: "Junior Tech Executive",
-        image: "https://images.unsplash.com/photo-1494790108377-be9c29b29330",
-        bio: "Creating intuitive and beautiful user experiences.",
-        social: { twitter: "#", linkedin: "#" },
-      },
-      {
-        name: "Sneha",
-        role: "Junior Tech Executive",
-        image: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f",
-        bio: "Specializing in product design and user research.",
-        social: { linkedin: "#" },
-      },
-      {
-        name: "Shivansh",
-        role: "Junior Tech Executive",
-        image: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f",
-        bio: "Specializing in product design and user research.",
-        social: { linkedin: "#" },
-      },
-      {
-        name: "Parth",
-        role: "Junior Tech Executive",
-        image: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f",
-        bio: "Specializing in product design and user research.",
-        social: { linkedin: "#" },
-      },
-    ],
-  },
 ];
 
 interface SocialLinks {
