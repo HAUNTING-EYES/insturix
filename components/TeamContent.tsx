@@ -78,7 +78,10 @@ const departments = [
         role: "Tech Executive",
         image: SM,
         bio: "Web Solution expert, Cybersecurity enthusiast.",
-        social: { github: "https://github.com/IncognitoQuack", linkedin: "https://linkedin.com/" },
+        social: {
+          github: "https://github.com/IncognitoQuack",
+          linkedin: "https://www.linkedin.com/in/sanjit-mathur-346209320/",
+        },
       },
       {
         name: "Kanak Goel",
