@@ -135,6 +135,8 @@ export default function DashboardSidebar() {
                                         <Image
                                             src={user.imageUrl}
                                             alt={user.username || "Profile"}
+                                            width={40}
+                                            height={40}
                                             className="w-10 h-10 rounded-full"
                                         />
                                     )}
