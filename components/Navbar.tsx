@@ -19,12 +19,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import Logo from "@/public/Logo.jpeg";
+import DarkLogo from "@/public/brand/insturance_black.png";
+import LightLogo from "@/public/brand/insturance_white.png";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, usePathname } from "next/navigation";
 
 const LogoAnimation = () => {
   const [showLogo, setShowLogo] = useState(true);
+  const { theme } = useTheme();
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -46,13 +48,23 @@ const LogoAnimation = () => {
             transition={{ duration: 0.5 }}
             className="absolute inset-0 flex items-center"
           >
-            <Image
-              src={Logo}
-              alt="Insturance Logo"
-              width={32}
-              height={32}
-              className="rounded-full"
-            />
+            {theme === "light" ? (
+              <Image
+                src={DarkLogo}
+                alt="Insturance Logo"
+                width={48}
+                height={48}
+                className="rounded-full"
+              />
+            ) : (
+              <Image
+                src={LightLogo}
+                alt="Insturance Logo"
+                width={48}
+                height={48}
+                className="rounded-full"
+              />
+            )}
           </motion.div>
         ) : (
           <motion.div
