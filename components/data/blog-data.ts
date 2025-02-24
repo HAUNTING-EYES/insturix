@@ -1,10 +1,10 @@
 import One from "@/public/blogs/one.jpg";
 import { StaticImageData } from "next/image";
-import NJ from "@/public/NimitJain.jpeg";
+import NJ from "@/public/team/NimitJain.jpeg";
 import Two from "@/public/blogs/two.jpg";
-import SB from "@/public/Srijan Baniyal.jpeg";
+import SB from "@/public/team/Srijan Baniyal.jpeg";
 import Three from "@/public/blogs/three.jpg";
-import AS from "@/public/Akshit Singh.jpeg";
+import AS from "@/public/team/Akshit Singh.jpeg";
 
 export interface BlogPost {
   id: string;
