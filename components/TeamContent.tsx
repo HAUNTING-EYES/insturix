@@ -6,13 +6,13 @@ import Image from "next/image";
 import { Github, Linkedin, Twitter } from "lucide-react";
 import { StaticImageData } from "next/image";
 import Link from "next/link";
-import NJ from "@/public/NimitJain.jpeg";
-import SB from "@/public/Srijan Baniyal.jpeg";
-import AKS from "@/public/Akshit Singh.jpeg";
-import LG from "@/public/Lakshay Goel.jpeg";
-import DG from "@/public/Deepanshu Gupta.jpeg";
-import K from "@/public/Kanak.jpeg";
-import SM from "@/public/Sanjit.jpeg";
+import NJ from "@/public/team/NimitJain.jpeg";
+import SB from "@/public/team/Srijan Baniyal.jpeg";
+import AKS from "@/public/team/Akshit Singh.jpeg";
+import LG from "@/public/team/Lakshay Goel.jpeg";
+import DG from "@/public/team/Deepanshu Gupta.jpeg";
+import K from "@/public/team/Kanak.jpeg";
+import SM from "@/public/team/Sanjit.jpeg";
 import { Link1Icon } from "@radix-ui/react-icons";
 
 const teamMembers = [

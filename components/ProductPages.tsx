@@ -9,7 +9,7 @@ import {
 import { BentoCard, BentoGrid } from "@/components/ui/bento-grid";
 import TypingAnimation from "./ui/TypingAnimation";
 import Image from "next/image";
-import DP from "@/public/Logo.jpeg";
+import DP from "@/public/brand/Logo.jpeg";
 
 const features = [
   {
