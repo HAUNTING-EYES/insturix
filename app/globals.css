@@ -344,6 +344,7 @@
     margin: 0;
     /* Ensure proper stacking context */
     isolation: isolate;
+    overflow: hidden;
   }
 
   /* Ensure mobile menu stays within viewport */

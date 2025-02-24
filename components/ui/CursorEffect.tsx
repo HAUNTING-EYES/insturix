@@ -38,7 +38,7 @@ export default function CursorEffect({
       transform: `translate(${position.x - size / 2}px, ${
         position.y - size / 2
       }px)`,
-      transition: `transform ${delay}s ease, background-color 0.5s ease`,
+transition: `transform 0.05s ease, background-color 0.5s ease`,
       width: `${size}px`,
       height: `${size}px`,
     };

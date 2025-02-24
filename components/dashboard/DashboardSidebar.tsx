@@ -86,39 +86,35 @@ export default function DashboardSidebar() {
             `}>
                 {/* Logo section */}
                 <div className="h-16 flex items-center px-4 border-b border-white/10">
-                    <Link href="/" className={`font-bold text-lg logotext pl-[55px] lg:pl-0 lg:text-center lg:w-full transform translate-y-[0px]`}>
+<Link href="/" className={`font-bold text-lg logotext flex items-center justify-center h-full`}>
                         INSTURANCE
                     </Link>
                 </div>
 
                 {/* Navigation section */}
-                <div className="flex-1 overflow-y-auto py-4">
-                    <ul className="px-4 space-y-1.5">
+<div className="flex-1 overflow-y-auto py-4">
+                    <ul className="px-4 space-y-2">
                         <li key="Dashboard">
                             <Link
                                 href='/dashboard'
                                 prefetch={true}
-                                className={`flex items-center px-3 gap-5 py-3 rounded-lg w-full transition-all duration-200 border border-white/10 text-white font-semibold hover:bg-white/10`}
+                                className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 border border-white/10 text-white hover:bg-white/10`}
                                 onClick={() => setIsOpen(false)}
                             >
-                                <Home className="h-5 w-5" />
-                                <span className="text-[18px] font-semibold tracking-wide primtext">Overview</span>
+                                <Home className="h-5 w-5 mr-2" />
+                                <span className="text-sm font-medium tracking-wide text-white">Overview</span>
                             </Link>
                         </li>
-                        <div className="h-px bg-white/10 my-4"></div>
+                        <div className="h-px bg-white/10 my-2"></div>
                         {products.map((product) => (
                             <li key={product.name}>
                                 <Link
                                     href={product.path}
                                     prefetch={true}
-                                    className={`flex items-center gap-2 px-4 py-3 rounded-lg w-full transition-all duration-200
-                                        ${pathname.includes(product.path)
-                                            ? "bg-white/10 text-white font-semibold shadow-lg"
-                                            : "text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1"
-                                        }`}
+                                    className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1`}
                                     onClick={() => setIsOpen(false)}
                                 >
-                                    <span className="text-[18px] font-semibold tracking-wide primtext">{product.name}</span>
+                                    <span className="text-sm font-medium tracking-wide text-white">{product.name}</span>
                                 </Link>
                             </li>
                         ))}
@@ -130,7 +126,7 @@ export default function DashboardSidebar() {
                     <div className="border-t border-white/10 p-4">
                         <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
                             <DropdownMenuTrigger className="w-full focus-visible:outline-none">
-                                <div className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 transition-colors">
+                                <div className="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
                                     {user.imageUrl && (
                                         <Image
                                             src={user.imageUrl}
@@ -141,10 +137,10 @@ export default function DashboardSidebar() {
                                         />
                                     )}
                                     <div className="flex-1 min-w-0">
-                                        <p className="text-sm font-medium truncate primtext">
+                                        <p className="text-sm font-medium truncate primtext text-left">
                                             @{user.username}
                                         </p>
-                                        <p className="text-xs text-muted-foreground truncate">
+                                        <p className="text-xs text-muted-foreground truncate text-left">
                                             {user.primaryEmailAddress?.emailAddress}
                                         </p>
                                     </div>
@@ -187,7 +183,7 @@ export default function DashboardSidebar() {
             {/* Dialogs */}
             <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
                 <DialogOverlay className="!z-[150]" />
-                <DialogContent className="max-w-5xl w-[90vw] h-[90vh] overflow-hidden flex flex-col !duration-200 !transform-none data-[state=open]:!animate-in data-[state=closed]:!animate-out data-[state=closed]:!fade-out-0 data-[state=open]:!fade-in-0 !z-[200]">
+                <DialogContent className="max-w-5xl w-[90vw] h-[90vh] overflow-hidden !duration-200 !transform-none data-[state=open]:!animate-in data-[state=closed]:!animate-out data-[state=closed]:!fade-out-0 data-[state=open]:!fade-in-0 !z-[200]">
                     <DialogHeader>
                         <DialogTitle>User Settings</DialogTitle>
                     </DialogHeader>

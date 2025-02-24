@@ -21,18 +21,18 @@ export default function DashboardCard({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="p-6 rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl
-                hover:bg-white/[0.04] hover:scale-[1.02]
-                group shadow-[0_0_0_1px_rgba(255,255,255,0.04)]
-                hover:shadow-[0_0_0_1px_rgba(255,255,255,0.08)] transition-all duration-300"
+            className="p-4 rounded-2xl border border-white/[0.08] bg-white/[0.02] backdrop-blur-xl
+                hover:bg-white/[0.04] hover:scale-[1.01]
+                group shadow-[0_0_0_1px_rgba(255,255,255,0.02)]
+                hover:shadow-[0_0_0_1px_rgba(255,255,255,0.04)] transition-all duration-300"
         >
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-2 mb-2">
                 {icon && (
-                    <div className="text-white/60 group-hover:text-white/90 transition-all duration-300">
+                    <div className="text-white/70 group-hover:text-white/90 transition-all duration-300">
                         {icon}
                     </div>
                 )}
-                <h3 className="font-semibold text-white/90 group-hover:text-white transition-all duration-300">
+                <h3 className="font-medium text-white/90 group-hover:text-white transition-all duration-300">
                     {title}
                 </h3>
             </div>
