@@ -1,6 +1,5 @@
 "use client";
 import { useUser, useClerk } from "@clerk/nextjs";
-import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useState } from "react";
 import { Home, Settings, CreditCard, LogOut } from 'lucide-react';
@@ -23,7 +22,6 @@ import Image from "next/image";
 export default function DashboardSidebar() {
     const { user } = useUser();
     const { signOut } = useClerk();
-    const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
