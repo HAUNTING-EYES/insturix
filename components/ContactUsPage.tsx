@@ -11,6 +11,8 @@ import { Send, Mail, User, MapPin, Clock } from "lucide-react";
 import { ToastAction } from "@/components/ui/toast";
 import { Card } from "@/components/ui/card";
 import { motion } from "framer-motion";
+import { useMutation } from "@tanstack/react-query";
+import axios from "axios";
 
 const validationSchema = Yup.object({
   name: Yup.string().required("Name is required"),
@@ -21,7 +23,37 @@ const validationSchema = Yup.object({
   message: Yup.string().required("Message is required"),
 });
 
+const sendContactForm = async (data: {
+  name: string;
+  email: string;
+  subject: string;
+  message: string;
+}) => {
+  const response = await axios.post("/api/contact", data);
+  return response.data;
+};
+
 export default function ContactUsPage() {
+  const sendContactFormMutation = useMutation({
+    mutationFn: sendContactForm,
+    onSuccess: () => {
+      toast({
+        title: "Message Sent!",
+        description: "Thank you for Contacting Us. We'll get back to you soon.",
+        variant: "default",
+        action: <ToastAction altText="Ok">Ok</ToastAction>,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Something went wrong. Please try again later.",
+        variant: "destructive",
+        action: <ToastAction altText="Ok">Ok</ToastAction>,
+      });
+    },
+  });
+
   const formik = useFormik({
     initialValues: {
       name: "",
@@ -31,24 +63,7 @@ export default function ContactUsPage() {
     },
     validationSchema: validationSchema,
     onSubmit: (values, { resetForm }) => {
-      console.log(values);
-      try {
-        toast({
-          title: "Message Sent!",
-          description:
-            "Thank you for your contribution. We'll get back to you soon.",
-          variant: "default",
-          action: <ToastAction altText="Ok">Ok</ToastAction>,
-        });
-      } catch (error) {
-        console.error("Error displaying toast:", error);
-        toast({
-          title: "Error",
-          description: "Something went wrong. Please try again later.",
-          variant: "destructive",
-          action: <ToastAction altText="Ok">Ok</ToastAction>,
-        });
-      }
+      sendContactFormMutation.mutate(values);
       resetForm();
     },
   });

@@ -1,11 +1,11 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, Schema } from "mongoose";
 
 enum UserType {
-  Free = 'Free',
-  Pro = 'Pro',
-  Premium = 'Premium',
-  Ultra = 'Ultra',
-  Exclusive = 'Exclusive'
+  Free = "Free",
+  Pro = "Pro",
+  Premium = "Premium",
+  Ultra = "Ultra",
+  Exclusive = "Exclusive",
 }
 
 interface IPayment {
@@ -16,7 +16,6 @@ interface IPayment {
   phone_number: string;
 }
 
-
 interface IUser extends Document {
   clerkUserId: string;
   userType: UserType;
@@ -24,47 +23,52 @@ interface IUser extends Document {
   email: string;
 }
 
-const userSchema = new Schema<IUser>({
-  clerkUserId: {
-    type: String,
-    required: true,
-    unique: true
+const userSchema = new Schema<IUser>(
+  {
+    clerkUserId: {
+      type: String,
+      required: true,
+      unique: true,
+    },
+    userType: {
+      type: String,
+      enum: Object.values(UserType),
+      default: UserType.Free,
+    },
+    payments: [
+      {
+        date: {
+          type: Date,
+          required: true,
+        },
+        time: {
+          type: String,
+          required: true,
+        },
+        amount: {
+          type: Number,
+          required: true,
+        },
+        payment_id: {
+          type: String,
+          required: true,
+        },
+        phone_number: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
+    email: {
+      type: String,
+      required: true,
+      unique: true,
+    },
   },
-  userType: {
-    type: String,
-    enum: Object.values(UserType),
-    default: UserType.Free
-  },
-  payments: [{
-    date: {
-      type: Date,
-      required: true
-    },
-    time: {
-      type: String,
-      required: true
-    },
-    amount: {
-      type: Number,
-      required: true
-    },
-    payment_id: {
-      type: String,
-      required: true
-    },
-    phone_number: {
-      type: String,
-      required: true
-    }
-  }],
-  email: {
-    type: String,
-    required: true,
-    unique: true
+  {
+    timestamps: true,
   }
-}, {
-  timestamps: true 
-});
+);
 
-const User = mongoose.model<IUser>('User', userSchema);
+const User = mongoose.model<IUser>("User", userSchema);
 export default User;
