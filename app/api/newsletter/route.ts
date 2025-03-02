@@ -15,8 +15,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const newNewsletter = new Newsletter({ email });
-    await newNewsletter.save();
+    const newNewsLetter = new Newsletter({ email });
+    await newNewsLetter.save();
     return NextResponse.json(
       {
         success: true,

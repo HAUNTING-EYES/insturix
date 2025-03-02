@@ -17,8 +17,8 @@ const NewsLetterSchema = new Schema<INewsLetter>(
   }
 );
 
-const Newsletter =
-  mongoose.models.Newsletter ||
+const NewsLetter =
+  mongoose.models.NewsLetter ||
   mongoose.model<INewsLetter>("Newsletter", NewsLetterSchema);
 
-export default Newsletter;
+export default NewsLetter;
