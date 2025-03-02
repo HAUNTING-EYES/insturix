@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import Newsletter from "../../../schemas/NewsLetter";
+import Newsletter from "@/schemas/NewsLetter";
 
 export async function POST(request: NextRequest) {
   try {
