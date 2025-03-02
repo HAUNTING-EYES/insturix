@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
+import connectToDatabase from "@/schemas/ConnectToDatabase";
+import Contact from "@/schemas/Contact";
 
 export async function POST(request: NextRequest) {
   try {
+    await connectToDatabase(process.env.CONTACT_DB as string);
+
     const body = await request.json();
     const { name, email, subject, message } = body;
 
@@ -11,7 +15,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    console.log("Contact form submission:", { name, email, subject, message });
+    const newContact = new Contact({
+      name,
+      email,
+      subject,
+      message,
+    });
+    await newContact.save();
     return NextResponse.json(
       { success: true, message: "Contact form submitted successfully" },
       { status: 200 }

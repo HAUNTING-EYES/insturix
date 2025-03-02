@@ -1,43 +1,33 @@
 import { NextResponse, type NextRequest } from "next/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import Support from "@/schemas/Support";
+import Contact from "@/schemas/Shield";
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase(process.env.SUPPORT_DB as string);
+    await connectToDatabase(process.env.SHIELD_DB as string);
     const body = await request.json();
-    const { FullName, email, OrganizationName, Help, message, telephone } =
-      body;
-    if (
-      !FullName ||
-      !email ||
-      !OrganizationName ||
-      !Help ||
-      !message ||
-      !telephone
-    ) {
+    const { name, email, subject, message } = body;
+    if (!name || !email || !subject || !message) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
     }
-    const support = new Support({
-      FullName,
+    const shield = new Contact({
+      name,
       email,
-      OrganizationName,
-      Help,
+      subject,
       message,
-      telephone,
     });
-    await support.save();
+    await shield.save();
     return NextResponse.json(
       { success: true, message: "Contact form submitted successfully" },
       { status: 200 }
     );
   } catch (error) {
-    console.error("Error processing contact form:", error);
+    console.error("Error processing Shield contact form:", error);
     return NextResponse.json(
-      { error: "Failed to process contact form" },
+      { error: "Failed to process Shield contact form" },
       { status: 500 }
     );
   }
