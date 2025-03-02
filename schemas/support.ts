@@ -9,7 +9,7 @@ interface ISupport extends Document {
   telephone: string;
 }
 
-const supportSchema = new Schema<ISupport>(
+const SupportSchema = new Schema<ISupport>(
   {
     FullName: {
       type: String,
@@ -42,5 +42,5 @@ const supportSchema = new Schema<ISupport>(
   }
 );
 
-const Support = mongoose.models.Support || mongoose.model<ISupport>("Support", supportSchema);
+const Support = mongoose.models.Support || mongoose.model<ISupport>("Support", SupportSchema);
 export default Support;

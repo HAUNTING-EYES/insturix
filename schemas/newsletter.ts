@@ -1,10 +1,10 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-interface INewsletter extends Document {
+interface INewsLetter extends Document {
   email: string;
 }
 
-const newsletterSchema = new Schema<INewsletter>(
+const NewsLetterSchema = new Schema<INewsLetter>(
   {
     email: {
       type: String,
@@ -17,5 +17,5 @@ const newsletterSchema = new Schema<INewsletter>(
   }
 );
 
-const Newsletter = mongoose.models.Newsletter || mongoose.model<INewsletter>("Newsletter", newsletterSchema);
+const Newsletter = mongoose.models.Newsletter || mongoose.model<INewsLetter>("Newsletter", NewsLetterSchema);
 export default Newsletter;

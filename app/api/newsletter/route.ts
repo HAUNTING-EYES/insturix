@@ -1,10 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import Newsletter from "@/schemas/NewsLetter";
+import Newsletter from "@/schemas/NewsLetter"; 
 
 export async function POST(request: NextRequest) {
   try {
     await connectToDatabase(process.env.NEWSLETTER_DB as string);
+
     const body = await request.json();
     const { email } = body;
 
@@ -17,10 +18,7 @@ export async function POST(request: NextRequest) {
     const newNewsletter = new Newsletter({ email });
     await newNewsletter.save();
     return NextResponse.json(
-      {
-        success: true,
-        message: "Newsletter subscription submitted successfully",
-      },
+      { success: true, message: "Newsletter subscription submitted successfully" },
       { status: 200 }
     );
   } catch (error) {
