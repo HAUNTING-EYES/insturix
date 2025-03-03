@@ -1,7 +1,6 @@
 "use client";
 
-import { motion, useScroll, useTransform } from "framer-motion";
-import { useRef } from "react";
+import { motion } from "framer-motion";
 import { timelineData } from "@/components/data/timeline";
 
 interface TimelineEventProps {
@@ -10,26 +9,19 @@ interface TimelineEventProps {
 }
 
 const TimelineEvent = ({ date, description }: TimelineEventProps) => {
-  const ref = useRef(null);
-  const { scrollYProgress } = useScroll({
-    target: ref,
-    offset: ["start end", "center center"],
-  });
-
   return (
     <motion.div
-      ref={ref}
-      className="mb-8 sm:mb-12 flex flex-col sm:flex-row items-start sm:items-center group"
-      style={{
-        opacity: useTransform(scrollYProgress, [0, 1], [0.3, 1]),
-        scale: useTransform(scrollYProgress, [0, 1], [0.8, 1]),
-      }}
+      className="mb-6 sm:mb-12 flex flex-col sm:flex-row items-start sm:items-center group"
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-20px" }}
+      transition={{ duration: 0.3 }}
     >
-      <div className="w-full sm:w-40 flex-shrink-0 text-blue-300 font-bold pb-2 sm:pb-0 sm:pr-8 text-left sm:text-right relative text-base sm:text-lg">
+      <div className="w-full sm:w-40 flex-shrink-0 text-zinc-600 dark:text-zinc-400 font-bold pb-1 sm:pb-0 sm:pr-8 text-left sm:text-right relative text-sm sm:text-lg">
         {date}
       </div>
-      <div className="flex-grow pl-8 sm:pl-8 py-4 bg-gray-800 rounded-lg shadow-lg hover:shadow-blue-500/20 transition-all duration-300 border-l-4 border-blue-500">
-        <p className="text-gray-200 group-hover:text-white transition-colors duration-300 text-base sm:text-lg">
+      <div className="flex-grow pl-4 sm:pl-8 py-3 sm:py-4 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 border-l-4 border-l-zinc-300 dark:border-l-zinc-700">
+        <p className="text-zinc-800 dark:text-zinc-200 group-hover:text-black dark:group-hover:text-white transition-colors duration-300 text-sm sm:text-lg">
           {description}
         </p>
       </div>
@@ -50,48 +42,44 @@ const TimelineYear = ({
   description,
   events,
 }: TimelineYearProps) => {
-  const ref = useRef(null);
-  const { scrollYProgress } = useScroll({
-    target: ref,
-    offset: ["start end", "center center"],
-  });
-
   return (
     <motion.div
-      ref={ref}
-      className="mb-16 sm:mb-32 relative"
-      style={{
-        opacity: useTransform(scrollYProgress, [0, 0.5], [0.3, 1]),
-        scale: useTransform(scrollYProgress, [0, 0.5], [0.9, 1]),
-      }}
+      className="mb-12 sm:mb-32 relative"
+      initial={{ opacity: 0 }}
+      whileInView={{ opacity: 1 }}
+      viewport={{ once: true, margin: "-20px" }}
+      transition={{ duration: 0.3 }}
     >
-      <div className="mb-8 sm:mb-16 relative">
+      <div className="mb-6 sm:mb-16 relative">
         <motion.h3
-          className="text-4xl sm:text-7xl font-black text-blue-500 mb-2 sm:mb-4"
-          initial={{ x: -100, opacity: 0 }}
-          whileInView={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
+          className="text-3xl sm:text-7xl font-black text-zinc-800 dark:text-zinc-200 mb-2 sm:mb-4"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.3 }}
         >
           {year}
         </motion.h3>
         <motion.h4
-          className="text-2xl sm:text-4xl font-bold text-white mb-2 sm:mb-4"
-          initial={{ x: 100, opacity: 0 }}
-          whileInView={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+          className="text-xl sm:text-4xl font-bold text-zinc-700 dark:text-zinc-300 mb-2 sm:mb-4"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.3, delay: 0.1 }}
         >
           {title}
         </motion.h4>
         <motion.p
-          className="text-lg sm:text-2xl text-gray-400 max-w-3xl"
-          initial={{ y: 50, opacity: 0 }}
-          whileInView={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.4, ease: "easeOut" }}
+          className="text-base sm:text-2xl text-zinc-600 dark:text-zinc-400 max-w-3xl"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.3, delay: 0.2 }}
         >
           {description}
         </motion.p>
       </div>
-      <div className="pl-4 sm:pl-20 relative">
+      <div className="pl-2 sm:pl-20 relative">
         {events.map((event, index) => (
           <TimelineEvent key={index} {...event} />
         ))}
@@ -102,19 +90,19 @@ const TimelineYear = ({
 
 export default function TimeLine() {
   return (
-    <section className="py-16 sm:py-32 px-4 md:px-12 lg:px-24 bg-gray-900 min-h-screen overflow-hidden">
+    <section className="sm:pt-16 px-3 md:px-12 lg:px-24 py-0 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 min-h-screen overflow-hidden">
       <motion.h2
-        className="text-4xl sm:text-6xl font-black mb-12 sm:mb-24 text-white text-center bg-clip-text bg-gradient-to-r from-blue-400 to-purple-600"
-        initial={{ opacity: 0, y: -50 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 1, ease: "easeOut" }}
+      className="text-3xl sm:text-6xl font-black mb-8 sm:mb-24 text-zinc-800 dark:text-zinc-200 text-center bg-clip-text"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
       >
-        Journey of Insturance
+      Journey of Insturance
       </motion.h2>
       <div className="max-w-6xl mx-auto">
-        {timelineData.map((yearData, index) => (
-          <TimelineYear key={index} {...yearData} />
-        ))}
+      {timelineData.map((yearData, index) => (
+        <TimelineYear key={index} {...yearData} />
+      ))}
       </div>
     </section>
   );

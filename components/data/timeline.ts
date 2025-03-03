@@ -74,7 +74,7 @@ export const timelineData: TimeLineItem[] = [
     events: [
       {
         date: "January 17",
-        description: "Secured funding from Google under their startup program",
+        description: "Secured monetary support from Google under their startup program",
       },
       {
         date: "January 20",
@@ -98,7 +98,7 @@ export const timelineData: TimeLineItem[] = [
       {
         date: "February 18",
         description:
-          "Secured Funding from Microsoft for Startup Founder Program",
+          "Secured monetary support from Microsoft for the Startup Founder Program",
       },
     ],
   },

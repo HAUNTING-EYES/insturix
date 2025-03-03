@@ -151,10 +151,7 @@ export default function AboutContent() {
 
           {/* Journey Section */}
           <section>
-            <h2 className="text-2xl font-semibold mb-6">
-              Journey Of Insturance
-            </h2>
-            <Card className="p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
+            <Card className="p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs overflow-hidden">
               <Timeline />
             </Card>
           </section>
