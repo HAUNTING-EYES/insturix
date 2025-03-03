@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import Newsletter from "@/schemas/NewsLetter"; 
+import Newsletter from "@/schemas/NewsLetterSchema";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,10 +15,13 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const newNewsletter = new Newsletter({ email });
-    await newNewsletter.save();
+    const newNewsLetter = new Newsletter({ email });
+    await newNewsLetter.save();
     return NextResponse.json(
-      { success: true, message: "Newsletter subscription submitted successfully" },
+      {
+        success: true,
+        message: "Newsletter subscription submitted successfully",
+      },
       { status: 200 }
     );
   } catch (error) {
