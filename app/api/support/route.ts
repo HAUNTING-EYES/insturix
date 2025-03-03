@@ -7,8 +7,15 @@ export async function POST(request: NextRequest) {
     await connectToDatabase(process.env.SUPPORT_DB as string);
 
     const body = await request.json();
-    const { FullName, email, OrganizationName, Help, message, telephone } =
-      body;
+    const {
+      FullName,
+      email,
+      OrganizationName,
+      Help,
+      message,
+      telephone,
+      budget,
+    } = body;
 
     if (
       !FullName ||
@@ -16,7 +23,8 @@ export async function POST(request: NextRequest) {
       !OrganizationName ||
       !Help ||
       !message ||
-      !telephone
+      !telephone ||
+      !budget
     ) {
       return NextResponse.json(
         { error: "Missing required fields" },
@@ -31,6 +39,7 @@ export async function POST(request: NextRequest) {
       Help,
       message,
       telephone,
+      budget,
     });
 
     await support.save();
