@@ -92,17 +92,17 @@ export default function TimeLine() {
   return (
     <section className="sm:pt-16 px-3 md:px-12 lg:px-24 py-0 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 min-h-screen overflow-hidden">
       <motion.h2
-      className="text-3xl sm:text-6xl font-black mb-8 sm:mb-24 text-zinc-800 dark:text-zinc-200 text-center bg-clip-text"
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+        className="text-3xl sm:text-6xl font-black mb-8 sm:mb-24 text-zinc-800 dark:text-zinc-200 text-center bg-clip-text"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
       >
-      Journey of Insturance
+        Journey of Insturance ✨
       </motion.h2>
       <div className="max-w-6xl mx-auto">
-      {timelineData.map((yearData, index) => (
-        <TimelineYear key={index} {...yearData} />
-      ))}
+        {timelineData.map((yearData, index) => (
+          <TimelineYear key={index} {...yearData} />
+        ))}
       </div>
     </section>
   );

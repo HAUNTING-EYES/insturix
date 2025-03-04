@@ -100,6 +100,11 @@ export const timelineData: TimeLineItem[] = [
         description:
           "Secured monetary support from Microsoft for the Startup Founder Program",
       },
+      {
+        date:"February 28",
+        description:
+          "Received LLP",
+      }
     ],
   },
 ];
