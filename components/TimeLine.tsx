@@ -1,6 +1,7 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform } from "framer-motion";
+import { useRef } from "react";
 import { timelineData } from "@/components/data/timeline";
 
 interface TimelineEventProps {
@@ -9,13 +10,21 @@ interface TimelineEventProps {
 }
 
 const TimelineEvent = ({ date, description }: TimelineEventProps) => {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "center center"]
+  });
+
+  const opacity = useTransform(scrollYProgress, [0, 0.5], [0.3, 1]);
+  const scale = useTransform(scrollYProgress, [0, 0.5], [0.8, 1]);
+  const x = useTransform(scrollYProgress, [0, 0.5], [-20, 0]);
+
   return (
     <motion.div
+      ref={ref}
       className="mb-6 sm:mb-12 flex flex-col sm:flex-row items-start sm:items-center group"
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-20px" }}
-      transition={{ duration: 0.3 }}
+      style={{ opacity, scale, x }}
     >
       <div className="w-full sm:w-40 flex-shrink-0 text-zinc-600 dark:text-zinc-400 font-bold pb-1 sm:pb-0 sm:pr-8 text-left sm:text-right relative text-sm sm:text-lg">
         {date}
@@ -42,43 +51,33 @@ const TimelineYear = ({
   description,
   events,
 }: TimelineYearProps) => {
+  const ref = useRef(null);
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ["start end", "center center"]
+  });
+
+  const opacity = useTransform(scrollYProgress, [0, 0.3], [0.3, 1]);
+  const scale = useTransform(scrollYProgress, [0, 0.3], [0.95, 1]);
+  const y = useTransform(scrollYProgress, [0, 0.3], [50, 0]);
+
   return (
     <motion.div
+      ref={ref}
       className="mb-12 sm:mb-32 relative"
-      initial={{ opacity: 0 }}
-      whileInView={{ opacity: 1 }}
-      viewport={{ once: true, margin: "-20px" }}
-      transition={{ duration: 0.3 }}
+      style={{ opacity, scale }}
     >
-      <div className="mb-6 sm:mb-16 relative">
-        <motion.h3
-          className="text-3xl sm:text-7xl font-black text-zinc-800 dark:text-zinc-200 mb-2 sm:mb-4"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.3 }}
-        >
+      <motion.div className="mb-6 sm:mb-16 relative" style={{ y }}>
+        <h3 className="text-3xl sm:text-7xl font-black text-zinc-800 dark:text-zinc-200 mb-2 sm:mb-4">
           {year}
-        </motion.h3>
-        <motion.h4
-          className="text-xl sm:text-4xl font-bold text-zinc-700 dark:text-zinc-300 mb-2 sm:mb-4"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-        >
+        </h3>
+        <h4 className="text-xl sm:text-4xl font-bold text-zinc-700 dark:text-zinc-300 mb-2 sm:mb-4">
           {title}
-        </motion.h4>
-        <motion.p
-          className="text-base sm:text-2xl text-zinc-600 dark:text-zinc-400 max-w-3xl"
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.3, delay: 0.2 }}
-        >
+        </h4>
+        <p className="text-base sm:text-2xl text-zinc-600 dark:text-zinc-400 max-w-3xl">
           {description}
-        </motion.p>
-      </div>
+        </p>
+      </motion.div>
       <div className="pl-2 sm:pl-20 relative">
         {events.map((event, index) => (
           <TimelineEvent key={index} {...event} />
