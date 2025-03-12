@@ -10,8 +10,8 @@ import NJ from "@/public/team/NimitJain.jpeg";
 import SB from "@/public/team/Srijan Baniyal.jpeg";
 import AKS from "@/public/team/Akshit Singh.jpeg";
 import LG from "@/public/team/Lakshay Goel.jpeg";
-import DG from "@/public/team/Deepanshu Gupta.jpeg";
-import K from "@/public/team/Kanak.jpeg";
+// import DG from "@/public/team/Deepanshu Gupta.jpeg";
+// import K from "@/public/team/Kanak.jpeg";
 import SM from "@/public/team/Sanjit.jpeg";
 import { Link1Icon } from "@radix-ui/react-icons";
 
@@ -64,16 +64,6 @@ const departments = [
         },
       },
       {
-        name: "Deepanshu Gupta",
-        role: "Tech Executive",
-        image: DG,
-        bio: "Passionate Backend Developer & Exploring AI",
-        social: {
-          github: "https://github.com/Deepanshuguptacode",
-          linkedin: "https://www.linkedin.com/in/deepanshu-gupta-650d/",
-        },
-      },
-      {
         name: "Sanjit Mathur",
         role: "Tech Executive",
         image: SM,
@@ -81,16 +71,6 @@ const departments = [
         social: {
           github: "https://github.com/IncognitoQuack",
           linkedin: "https://www.linkedin.com/in/sanjit-mathur-346209320/",
-        },
-      },
-      {
-        name: "Kanak Goel",
-        role: "Tech Executive",
-        image: K,
-        bio: "UI/UX specialist and React expert.",
-        social: {
-          github: "https://github.com/sujal-goel",
-          linkedin: "https://www.linkedin.com/in/kanak-goel-62337a276/",
         },
       },
     ],
