@@ -1,6 +1,7 @@
 "use client";
 import { useUser, useClerk } from "@clerk/nextjs";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Home, Settings, CreditCard, LogOut } from 'lucide-react';
 import {
@@ -22,6 +23,7 @@ import Image from "next/image";
 export default function DashboardSidebar() {
     const { user } = useUser();
     const { signOut } = useClerk();
+    const pathname = usePathname();
     const [isOpen, setIsOpen] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
@@ -96,7 +98,7 @@ export default function DashboardSidebar() {
                             <Link
                                 href='/dashboard'
                                 prefetch={true}
-                                className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 border border-white/10 text-white hover:bg-white/10`}
+                                className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 border border-white/10 text-white hover:bg-white/10 ${pathname === '/dashboard' ? 'bg-white/10' : ''}`}
                                 onClick={() => setIsOpen(false)}
                             >
                                 <Home className="h-5 w-5 mr-2" />
@@ -109,7 +111,7 @@ export default function DashboardSidebar() {
                                 <Link
                                     href={product.path}
                                     prefetch={true}
-                                    className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1`}
+                                    className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1 ${pathname.startsWith(product.path) ? 'bg-white/10 text-white translate-x-1' : ''}`}
                                     onClick={() => setIsOpen(false)}
                                 >
                                     <span className="text-sm font-medium tracking-wide text-white">{product.name}</span>
