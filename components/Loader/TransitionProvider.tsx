@@ -1,39 +1,45 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import { usePathname } from "next/navigation";
 import { LoadingScreen } from "./LoadingScreen";
 
-export function TransitionProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function TransitionProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-  const [isPageTransitioning, setIsPageTransitioning] = useState(false);
+  const [isPageLoading, setIsPageLoading] = useState(false);
+  const [prevPathname, setPrevPathname] = useState("");
 
   // Handle initial app load
   useEffect(() => {
-    setIsInitialLoading(false)
+    if (document.readyState === 'complete') {
+      setIsInitialLoading(false);
+    } else {
+      window.addEventListener('load', () => setIsInitialLoading(false));
+      return () => window.removeEventListener('load', () => setIsInitialLoading(false));
+    }
   }, []);
 
-  // Handle page transitions
+  // Setup navigation event listeners
   useEffect(() => {
-    if (!isInitialLoading) {
-      // Don't show loader for dashboard product navigation
-      if (!pathname?.startsWith('/dashboard')) {
-        setIsPageTransitioning(true);
-        const timer = setTimeout(() => setIsPageTransitioning(false), 800);
-        return () => clearTimeout(timer);
-      }
+    // For Next.js App Router
+    if (prevPathname !== pathname && prevPathname !== '') {
+      setIsPageLoading(true);
+      // Double requestAnimationFrame technique
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setIsPageLoading(false);
+        });
+      });
     }
-  }, [pathname, isInitialLoading]);
+    
+    setPrevPathname(pathname);
+  }, [pathname, prevPathname]);
 
   return (
     <AnimatePresence mode="sync">
-      {isInitialLoading || isPageTransitioning ? (
+      {isInitialLoading || isPageLoading ? (
         <LoadingScreen key="loading" />
       ) : (
         pathname && pathname.startsWith('/dashboard/') ? (
@@ -44,15 +50,9 @@ export function TransitionProvider({
             <div id="dashboard-content-area-inner">{children}</div>
           </div>
         ) : (
-          <motion.div
-            key={pathname}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.3 }}
-          >
+          <div key={pathname}>
             {children}
-          </motion.div>
+          </div>
         )
       )}
     </AnimatePresence>
