@@ -23,9 +23,9 @@ export async function POST(request: NextRequest) {
     // Parse the request body
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const body = await request.json();
-
+    
     // TODO: Add your Alyzitron service logic here
-
+    
     return NextResponse.json(
       { success: true, message: "Request processed successfully" },
       { status: 200 }

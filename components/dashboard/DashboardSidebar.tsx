@@ -34,6 +34,7 @@ export default function DashboardSidebar() {
         { name: "Meditron", path: "/dashboard/meditron" },
         { name: "Shield", path: "/dashboard/shield" },
         { name: "ThinkForge", path: "/dashboard/thinkforge" },
+        {name:"Musicotron",path:"/dashboard/musicotron"}
     ];
 
     return (
