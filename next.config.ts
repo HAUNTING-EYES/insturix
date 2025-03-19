@@ -14,7 +14,13 @@ const nextConfig: NextConfig = {
         hostname: "img.clerk.com",
         port: "",
         pathname: "/**",
-      }
+      },
+      {
+        protocol: "https",
+        hostname: "apibox.erweima.ai",
+        port: "",
+        pathname: "/**",
+      },
     ],
   },
 };
