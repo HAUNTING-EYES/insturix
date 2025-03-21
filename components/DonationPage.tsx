@@ -11,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import Script from "next/script";
 import { Currency } from "./Currency";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { fetchLocationData } from "../lib/Location";
+import { fetchLocationData } from "../lib/QFunctiions";
 import axios from "axios";
 
 interface RazorpayOptions {

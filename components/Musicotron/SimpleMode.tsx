@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { FileMusic, Music } from "lucide-react";
 
 interface SimpleModeProps {
-  onSubmit: (data: any) => void;
+  onSubmit: (data: { songDescription: string; instrumental: boolean }) => void;
   loading: boolean;
 }
 
@@ -34,8 +34,8 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="space-y-2">
-        <Label 
-          htmlFor="songDescription" 
+        <Label
+          htmlFor="songDescription"
           className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
         >
           <Music className="h-4 w-4" />
@@ -71,9 +71,10 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
         type="submit"
         className={`
           w-full h-14 text-base font-medium tracking-wide rounded-lg
-          ${loading
-            ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-            : "bg-purple-600 hover:bg-purple-700 text-white"
+          ${
+            loading
+              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+              : "bg-purple-600 hover:bg-purple-700 text-white"
           }
           transition-all duration-300
         `}

@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,13 +26,17 @@ export default function MusicotronDashboard() {
   const [generatedMusic, setGeneratedMusic] = useState<GeneratedMusic[]>([]);
 
   const handleMusicGenerated = (newMusic: GeneratedMusic[]) => {
-    setGeneratedMusic(prev => [...prev, ...newMusic]);
+    setGeneratedMusic((prev) => [...prev, ...newMusic]);
   };
 
   // Calculate stats
   const totalGenerated = generatedMusic.length;
-  const totalDuration = generatedMusic.reduce((acc, curr) => acc + curr.duration, 0);
-  const avgDuration = totalGenerated > 0 ? Math.round(totalDuration / totalGenerated) : 0;
+  const totalDuration = generatedMusic.reduce(
+    (acc, curr) => acc + curr.duration,
+    0
+  );
+  const avgDuration =
+    totalGenerated > 0 ? Math.round(totalDuration / totalGenerated) : 0;
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -71,9 +75,12 @@ export default function MusicotronDashboard() {
                     Average Duration
                   </div>
                   <div className="text-3xl font-semibold text-zinc-100">
-                    {Math.floor(avgDuration / 60)}:{String(Math.floor(avgDuration % 60)).padStart(2, "0")}
+                    {Math.floor(avgDuration / 60)}:
+                    {String(Math.floor(avgDuration % 60)).padStart(2, "0")}
                   </div>
-                  <div className="text-sm text-zinc-500 mt-1">Minutes per track</div>
+                  <div className="text-sm text-zinc-500 mt-1">
+                    Minutes per track
+                  </div>
                 </div>
 
                 <div className="p-4 bg-black/20 rounded-lg">
@@ -82,9 +89,12 @@ export default function MusicotronDashboard() {
                     Total Duration
                   </div>
                   <div className="text-3xl font-semibold text-zinc-100">
-                    {Math.floor(totalDuration / 60)}:{String(Math.floor(totalDuration % 60)).padStart(2, "0")}
+                    {Math.floor(totalDuration / 60)}:
+                    {String(Math.floor(totalDuration % 60)).padStart(2, "0")}
                   </div>
-                  <div className="text-sm text-zinc-500 mt-1">Minutes of music</div>
+                  <div className="text-sm text-zinc-500 mt-1">
+                    Minutes of music
+                  </div>
                 </div>
               </CardContent>
             </Card>

@@ -1,6 +1,7 @@
-"use client"
+"use client";
 
-import { useState } from "react";import { Button } from "@/components/ui/button";
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
@@ -9,7 +10,12 @@ import { toast } from "sonner";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 
 interface CustomModeProps {
-  onSubmit: (data: any) => void;
+  onSubmit: (data: {
+    title: string;
+    style: string;
+    lyrics: string;
+    instrumental: boolean;
+  }) => void;
   loading: boolean;
 }
 
@@ -47,8 +53,8 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
     <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-6 md:grid-cols-2">
         <div className="space-y-2">
-          <Label 
-            htmlFor="title" 
+          <Label
+            htmlFor="title"
             className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
           >
             <Music4 className="h-4 w-4" />
@@ -65,8 +71,8 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
         </div>
 
         <div className="space-y-2">
-          <Label 
-            htmlFor="style" 
+          <Label
+            htmlFor="style"
             className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
           >
             <Mic2 className="h-4 w-4" />
@@ -101,8 +107,8 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
 
       {!instrumental && (
         <div className="space-y-2">
-          <Label 
-            htmlFor="lyrics" 
+          <Label
+            htmlFor="lyrics"
             className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
           >
             <PenTool className="h-4 w-4" />
@@ -127,9 +133,10 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
         type="submit"
         className={`
           w-full h-14 text-base font-medium tracking-wide rounded-lg
-          ${loading
-            ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-            : "bg-purple-600 hover:bg-purple-700 text-white"
+          ${
+            loading
+              ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+              : "bg-purple-600 hover:bg-purple-700 text-white"
           }
           transition-all duration-300
         `}

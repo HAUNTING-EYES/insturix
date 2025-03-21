@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { ReactElement } from "react";
-import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, AudioWaveform, Mic, FileMusic, Music2, Download } from "lucide-react";
+import { Loader2, AudioWaveform, Mic, Music2 } from "lucide-react";
 import { toast } from "sonner";
 import SimpleMode from "./SimpleMode";
 import CustomMode from "./CustomMode";
@@ -28,28 +27,31 @@ export interface MusicGeneratorProps {
   onMusicGenerated: (music: GeneratedMusic[]) => void;
 }
 
-export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps): ReactElement {
+export default function MusicGenerator({
+  onMusicGenerated,
+}: MusicGeneratorProps): ReactElement {
   const [loading, setLoading] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const [customMode, setCustomMode] = useState(false);
   const [pollCount, setPollCount] = useState(0);
   const [statusMessage, setStatusMessage] = useState<string>("");
-  const [generatedMusic, setGeneratedMusic] = useState<GeneratedMusic[] | null>(null);
-  const [songName, setSongName] = useState<string>("");
-  const [startTime, setStartTime] = useState<Date | null>(null);
-  const [totalTime, setTotalTime] = useState<string>("");
+  const [generatedMusic, setGeneratedMusic] = useState<GeneratedMusic[] | null>(
+    null
+  );
 
-  const handleSubmit = async (formData: any): Promise<void> => {
+  const [startTime, setStartTime] = useState<Date | null>(null);
+
+  const handleSubmit = async (
+    formData: { title?: string } & { [key: string]: string | number | boolean }
+  ): Promise<void> => {
     setLoading(true);
     setPollCount(0);
     setStatusMessage("");
     setStartTime(new Date());
     setGeneratedMusic(null);
-    setTotalTime("");
-    setSongName(formData.title || "Generated Song");
 
     try {
-      const response = await fetch("/api/musicotron", {
+      const response = await fetch("/api/services/musicotron", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -66,10 +68,9 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
         throw new Error(data.error || "Failed to generate music");
       }
 
-      console.log('Task ID received:', data.taskId);
+      console.log("Task ID received:", data.taskId);
       setCurrentTaskId(data.taskId);
       toast.success("Music generation started! This may take a few minutes...");
-
     } catch (error) {
       console.error("Error generating music:", error);
       toast.error(
@@ -85,8 +86,9 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
     if (!currentTaskId) return;
 
     const counterInterval = setInterval(() => {
-      setPollCount(prev => {
-        if (prev >= 180) { // 3 minutes timeout
+      setPollCount((prev) => {
+        if (prev >= 180) {
+          // 3 minutes timeout
           clearInterval(counterInterval);
           setCurrentTaskId(null);
           setLoading(false);
@@ -101,7 +103,7 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
     const pollInterval = setInterval(async () => {
       try {
         const statusResponse = await fetch(
-          `/api/musicotron/status?taskId=${currentTaskId}`
+          `/api/services/musicotron/status?taskId=${currentTaskId}`
         );
         const statusData = await statusResponse.json();
 
@@ -112,13 +114,6 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
           setLoading(false);
           setPollCount(0);
           setStatusMessage("");
-          if (startTime) {
-            const endTime = new Date();
-            const timeDiff = Math.round((endTime.getTime() - startTime.getTime()) / 1000);
-            const minutes = Math.floor(timeDiff / 60);
-            const seconds = timeDiff % 60;
-            setTotalTime(`${minutes}m ${seconds}s`);
-          }
           toast.success("Music generated successfully!");
         } else if (statusData.status === "failed") {
           setCurrentTaskId(null);
@@ -133,7 +128,9 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
           setStatusMessage("");
           toast.error(statusData.error);
           if (statusData.status === 404) {
-            toast.error("Generation failed. Please try again with different input.");
+            toast.error(
+              "Generation failed. Please try again with different input."
+            );
           }
         } else {
           setStatusMessage(statusData.message || "Processing...");
@@ -151,7 +148,7 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
       clearInterval(pollInterval);
       clearInterval(counterInterval);
     };
-  }, [currentTaskId, onMusicGenerated]);
+  }, [currentTaskId, onMusicGenerated, startTime]);
 
   return (
     <div className="space-y-6">
@@ -203,57 +200,16 @@ export default function MusicGenerator({ onMusicGenerated }: MusicGeneratorProps
                 <>
                   <div className="flex items-center gap-2">
                     <Loader2 className="animate-spin text-purple-500" />
-                    <span>Generating... {pollCount > 0 && `(${pollCount}s)`}</span>
-                  </div>
-                  {statusMessage && (
-                    <span className="text-sm text-zinc-400">{statusMessage}</span>
-                  )}
-                </>
-              )}
-
-              {/* Generated Music Section */}
-              {generatedMusic && (
-                <div className="w-full space-y-4">
-                  <div className="flex flex-col gap-2">
-                    <h3 className="text-lg font-semibold text-zinc-100">{songName}</h3>
-                    <span className="text-sm text-zinc-400">
-                      Total generation time: {totalTime}
+                    <span>
+                      Generating... {pollCount > 0 && `(${pollCount}s)`}
                     </span>
                   </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    {/* Audio Player */}
-                    {generatedMusic[0] && (
-                      <>
-                        <audio
-                          controls
-                          className="w-full"
-                          src={generatedMusic[0].audio_url}
-                        >
-                          Your browser does not support the audio element.
-                        </audio>
-
-                        {/* Download Button */}
-                        <Button
-                          variant="secondary"
-                          className="w-full sm:w-auto"
-                          onClick={() => {
-                            const url = generatedMusic[0].audio_url;
-                            const a = document.createElement('a');
-                            a.href = url;
-                            a.download = `${songName}.mp3`;
-                            document.body.appendChild(a);
-                            a.click();
-                            document.body.removeChild(a);
-                          }}
-                        >
-                          <FileMusic className="w-4 h-4 mr-2" />
-                          Download MP3
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
+                  {statusMessage && (
+                    <span className="text-sm text-zinc-400">
+                      {statusMessage}
+                    </span>
+                  )}
+                </>
               )}
             </div>
           )}
