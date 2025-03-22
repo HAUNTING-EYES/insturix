@@ -4,7 +4,7 @@ import {
   PricingWrapper,
   Price,
   Paragraph,
-} from "@/components/pr/Price";
+} from "@/components/pricing/Price";
 import { Currency } from "@/components/Currency";
 
 const grotesk = Space_Grotesk({ subsets: ["latin"] });

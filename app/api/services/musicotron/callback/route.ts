@@ -3,12 +3,10 @@ import { NextResponse } from 'next/server';
 export async function POST(req: Request) {
   try {
     const data = await req.json();
-    
-    // Store the generated music data (you might want to use a database here)
-    // For now, we'll just return it to the client
+    console.log(data);
     return NextResponse.json({
       success: true,
-      data: data
+      data: data,
     });
   } catch (error) {
     console.error('Error in callback:', error);

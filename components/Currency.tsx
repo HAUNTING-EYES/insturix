@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { fetchLocationData } from "../lib/QFunctiions";
+import { fetchLocationData } from "../lib/QFunctions";
 
 export interface CurrencyProps {
   priceUSD: number;

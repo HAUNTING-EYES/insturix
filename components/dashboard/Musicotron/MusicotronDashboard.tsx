@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileMusic, Music2, Settings2 } from "lucide-react";
 import MusicGenerator from "./MusicGenerator";
 import MusicList from "./MusicList";
+import History from "@/components/dashboard/Musicotron/HistoryForMusicotron";
 
 interface GeneratedMusic {
   id: string;
@@ -98,6 +99,7 @@ export default function MusicotronDashboard() {
                 </div>
               </CardContent>
             </Card>
+            <History />
           </div>
         </div>
       </div>
