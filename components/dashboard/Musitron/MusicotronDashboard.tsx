@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileMusic, Music2, Settings2 } from "lucide-react";
 import MusicGenerator from "./MusicGenerator";
 import MusicList from "./MusicList";
-import History from "@/components/dashboard/Musicotron/HistoryForMusicotron";
+import History from "@/components/dashboard/Musitron/HistoryForMusitron";
 
 interface GeneratedMusic {
   id: string;
@@ -23,7 +23,7 @@ interface GeneratedMusic {
   duration: number;
 }
 
-export default function MusicotronDashboard() {
+export default function MusitronDashboard() {
   const [generatedMusic, setGeneratedMusic] = useState<GeneratedMusic[]>([]);
 
   const handleMusicGenerated = (newMusic: GeneratedMusic[]) => {

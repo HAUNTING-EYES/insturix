@@ -50,13 +50,13 @@ export interface MusicGenerationPayload {
 
 // Existing location function
 
-// Musicotron functions
+// Musitron functions
 export const generateMusic = async (
   payload: MusicGenerationPayload
 ): Promise<MusicGenerationResponse> => {
   try {
     const { data } = await axios.post<MusicGenerationResponse>(
-      "/api/services/musicotron",
+      "/api/services/musitron",
       payload
     );
     return data;
@@ -73,7 +73,7 @@ export const checkMusicStatus = async (
 ): Promise<MusicStatusResponse> => {
   try {
     const { data } = await axios.get<MusicStatusResponse>(
-      `/api/services/musicotron/status?taskId=${taskId}`
+      `/api/services/musitron/status?taskId=${taskId}`
     );
     return data;
   } catch (error) {

@@ -171,13 +171,30 @@ export default function MusicCard({ music }: MusicCardProps) {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audioContextRef.current || !analyserRef.current) return;
+  
+    // Store a flag on the audio element to track if source was created
+    interface ExtendedHTMLAudioElement extends HTMLAudioElement {
+      _hasAudioSource?: boolean;
+    }
 
-    const source = audioContextRef.current.createMediaElementSource(audio);
-    source.connect(analyserRef.current);
-    analyserRef.current.connect(audioContextRef.current.destination);
-
+    const hasSource = (audio as ExtendedHTMLAudioElement)._hasAudioSource;
+    
+    if (!hasSource) {
+      try {
+        const source = audioContextRef.current.createMediaElementSource(audio);
+        source.connect(analyserRef.current);
+        analyserRef.current.connect(audioContextRef.current.destination);
+        
+        // Mark this audio element as having a source
+        (audio as ExtendedHTMLAudioElement)._hasAudioSource = true;
+      } catch (error) {
+        console.error("Error connecting audio to analyzer:", error);
+      }
+    }
+  
     return () => {
-      source.disconnect();
+      // Cleanup handled by browser since MediaElementSource is 
+      // automatically garbage collected when no longer referenced
     };
   }, []);
 
