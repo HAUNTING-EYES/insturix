@@ -3,26 +3,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ArrowLeft, AlertTriangle, CheckCircle, AlertCircle } from "lucide-react";
 import Link from "next/link";
+import type { AnalysisData, MetricData } from '../../types';
 
-type MetricData = {
-  score?: number;
-  description: string;
-};
-
-type AnalysisData = {
-  category: string;
-  engagement_metrics: Record<string, MetricData>;
-  technical_quality: Record<string, MetricData>;
-  seo_optimization: Record<string, MetricData>;
-  compliance_risks: Record<string, MetricData>;
-  creator_feedback: {
-    strengths: string[];
-    improvements: string[];
-  };
-};
-
-// Mock data - replace with real API call
-const analysisData: AnalysisData = {
+const defaultAnalysisData: AnalysisData = {
   "category": "Educational Video",
   "engagement_metrics": {
     "value_proposition_clarity": {
@@ -32,14 +15,6 @@ const analysisData: AnalysisData = {
     "information_clarity": {
       "score": 70,
       "description": "The information is presented clearly, but could benefit from additional context and explanations."
-    },
-    "structure_organization": {
-      "score": 80,
-      "description": "The video is structured around a specific negotiation, which provides a clear narrative."
-    },
-    "comprehensibility": {
-      "score": 75,
-      "description": "The video is generally comprehensible, but some viewers may need background knowledge of business terms."
     }
   },
   "technical_quality": {
@@ -50,53 +25,17 @@ const analysisData: AnalysisData = {
     "voice_clarity": {
       "score": 85,
       "description": "The voice clarity is good, and the audio is easy to understand."
-    },
-    "visual_aids_usage": {
-      "score": 80,
-      "description": "The video effectively uses text overlays to highlight key information."
-    }
-  },
-  "seo_optimization": {
-    "title_keyword_relevance": {
-      "score": 70,
-      "description": "The title is relevant but could be more optimized by including specific keywords related to negotiation and Shark Tank."
-    },
-    "description_richness_clarity": {
-      "score": 65,
-      "description": "The description could be improved by adding more relevant keywords and a call to action."
-    },
-    "content_categorization_accuracy": {
-      "description": "The video is accurately categorized as business and finance education content."
     }
   },
   "creator_feedback": {
     "strengths": [
       "The video features engaging clips from Shark Tank.",
-      "It presents a real-world example of business negotiation.",
-      "The editing is concise and keeps the viewer's attention.",
-      "The focus on financial terms like royalty and equity is educational."
+      "It presents a real-world example of business negotiation."
     ],
     "improvements": [
       "Add timestamps to allow viewers to easily navigate to specific moments in the video.",
-      "Include a brief summary of the key takeaways from the negotiation.",
-      "Add annotations or on-screen text to highlight important financial terms and concepts.",
-      "Incorporate more diverse examples of negotiation strategies to broaden the video's appeal.",
-      "Consider adding background music to enhance the viewing experience"
+      "Include a brief summary of the key takeaways from the negotiation."
     ]
-  },
-  "compliance_risks": {
-    "copyright_risk": {
-      "score": 65,
-      "description": "The video appears to use clips from Shark Tank, which may pose a copyright risk depending on the permissions and context of use. Need to ensure fair use or obtain necessary licenses."
-    },
-    "guidelines_compliance": {
-      "score": 85,
-      "description": "The video does not appear to violate YouTube's community guidelines. The content is related to business and investment, and there is no explicit sexual content, promotion of harmful activities, or hateful content."
-    },
-    "social_risk": {
-      "score": 75,
-      "description": "The video is unlikely to cause significant social backlash. While it involves negotiations and financial decisions, the tone remains professional and respectful. There are no apparent controversial topics or offensive stereotypes."
-    }
   }
 };
 
@@ -113,7 +52,40 @@ const ScoreIndicator = ({ score }: { score: number }) => {
   );
 };
 
-export default function AnalysisDetails({ params }: { params: { id: string } }) {
+interface AnalysisDetailsProps {
+  params: { 
+    id: string;
+  };
+  analysisData?: AnalysisData;
+}
+
+export default function AnalysisDetails({ params, analysisData = defaultAnalysisData }: AnalysisDetailsProps) {
+  console.log('🎯 AnalysisDetails component props:', {
+    id: params.id,
+    hasAnalysisData: !!analysisData,
+    category: analysisData.category,
+    metricGroups: Object.keys(analysisData).filter(k => k !== 'category' && k !== 'creator_feedback'),
+    feedbackStats: {
+      strengths: analysisData.creator_feedback.strengths.length,
+      improvements: analysisData.creator_feedback.improvements.length
+    }
+  });
+
+  // Calculate overall score from all metrics that have scores
+  const scores: number[] = [];
+  Object.entries(analysisData).forEach(([key, value]) => {
+    if (key !== 'category' && key !== 'creator_feedback' && typeof value === 'object') {
+      Object.values(value as Record<string, MetricData>).forEach(metric => {
+        if (metric && typeof metric.score === 'number') {
+          scores.push(metric.score);
+          console.log(`📊 Found score in ${key}:`, metric.score);
+        }
+      });
+    }
+  });
+  const overallScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+  console.log('📈 Calculated overall score:', { scores, overallScore });
+
   return (
     <div className="container mx-auto p-8 space-y-8">
       {/* Header */}
@@ -127,10 +99,14 @@ export default function AnalysisDetails({ params }: { params: { id: string } }) 
             Back to Dashboard
           </Link>
           <h1 className="text-3xl font-semibold text-zinc-100">Analysis Results</h1>
-          <p className="text-zinc-400 mt-2">Educational Video • March 16, 2024</p>
+          <p className="text-zinc-400 mt-2">{analysisData.category} • {new Date().toLocaleDateString('en-US', { 
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+          })}</p>
         </div>
         <div className="text-right flex flex-col justify-end min-h-[100px]">
-          <div className="text-6xl font-bold text-zinc-100 leading-none">76</div>
+          <div className="text-6xl font-bold text-zinc-100 leading-none">{overallScore}</div>
           <div className="text-zinc-400 mt-2">Overall Score</div>
         </div>
       </div>
@@ -138,9 +114,17 @@ export default function AnalysisDetails({ params }: { params: { id: string } }) 
       {/* Main Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {Object.entries(analysisData).map(([section, data]) => {
-          // Skip creator_feedback and category as they're handled separately
-          if (section === 'creator_feedback' || section === 'category') return null;
+          // Skip category and creator_feedback as they're handled separately
+          if (section === 'category' || section === 'creator_feedback') return null;
           
+          // Ensure data is a metrics object
+          if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+            console.log(`⚠️ Skipping invalid section ${section}:`, data);
+            return null;
+          }
+
+          console.log(`📋 Rendering metrics for ${section}:`, Object.keys(data));
+
           return (
             <Card key={section} className="bg-black/40 border-zinc-800 backdrop-blur-xl">
               <CardHeader>
@@ -150,38 +134,38 @@ export default function AnalysisDetails({ params }: { params: { id: string } }) 
               </CardHeader>
               <CardContent className="space-y-4">
                {Object.entries(data as Record<string, MetricData>).map(([key, value]) => (
-                 <div key={key} className="p-5 bg-black/20 rounded-lg hover:bg-black/30 transition-colors">
-                   <div className="flex justify-between items-start">
-                     <div className="flex-1">
-                       <div className="text-sm font-medium text-zinc-200 capitalize tracking-wide mb-2">
-                         {key.replace(/_/g, " ")}
-                       </div>
-                       <p className="text-sm text-zinc-400 leading-relaxed">{value.description}</p>
-                     </div>
-                     <div className="flex items-center ml-0.5 shrink-0">
-                      {section === 'compliance_risks' ? (
-                        <div className="flex items-center gap-2">
-                          {value.score && (
-                            <>
-                              {value.score < 40 ? (
-                                <CheckCircle className="h-5 w-5 text-green-400" />
-                              ) : value.score < 70 ? (
-                                <AlertCircle className="h-5 w-5 text-yellow-400" />
-                              ) : (
-                                <AlertTriangle className="h-5 w-5 text-red-400" />
-                              )}
-                              <div className="text-sm font-medium text-zinc-400">
-                                {value.score}%
-                              </div>
-                            </>
-                          )}
+                  <div key={key} className="p-5 bg-black/20 rounded-lg hover:bg-black/30 transition-colors">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="text-sm font-medium text-zinc-200 capitalize tracking-wide mb-2">
+                          {key.replace(/_/g, " ")}
                         </div>
-                      ) : value.score ? (
-                        <ScoreIndicator score={value.score} />
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
+                        <p className="text-sm text-zinc-400 leading-relaxed">{value.description}</p>
+                      </div>
+                      <div className="flex items-center ml-0.5 shrink-0">
+                       {section === 'compliance_risks' ? (
+                         <div className="flex items-center gap-2">
+                           {value.score && (
+                             <>
+                               {value.score < 40 ? (
+                                 <CheckCircle className="h-5 w-5 text-green-400" />
+                               ) : value.score < 70 ? (
+                                 <AlertCircle className="h-5 w-5 text-yellow-400" />
+                               ) : (
+                                 <AlertTriangle className="h-5 w-5 text-red-400" />
+                               )}
+                               <div className="text-sm font-medium text-zinc-400">
+                                 {value.score}%
+                               </div>
+                             </>
+                           )}
+                         </div>
+                       ) : value.score ? (
+                         <ScoreIndicator score={value.score} />
+                       ) : null}
+                     </div>
+                   </div>
+                 </div>
                ))}
               </CardContent>
             </Card>
@@ -198,7 +182,7 @@ export default function AnalysisDetails({ params }: { params: { id: string } }) 
           <div>
             <h3 className="text-sm font-medium text-zinc-300 mb-4">Strengths</h3>
             <ul className="space-y-3">
-              {analysisData.creator_feedback.strengths.map((strength, index) => (
+              {analysisData.creator_feedback.strengths.map((strength: string, index: number) => (
                 <li key={index} className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg">
                   <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
                   <span className="leading-relaxed">{strength}</span>
@@ -209,7 +193,7 @@ export default function AnalysisDetails({ params }: { params: { id: string } }) 
           <div>
             <h3 className="text-sm font-medium text-zinc-300 mb-4">Improvements</h3>
             <ul className="space-y-3">
-              {analysisData.creator_feedback.improvements.map((improvement, index) => (
+              {analysisData.creator_feedback.improvements.map((improvement: string, index: number) => (
                 <li key={index} className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg">
                   <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0" />
                   <span className="leading-relaxed">{improvement}</span>
