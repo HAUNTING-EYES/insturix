@@ -10,9 +10,6 @@ import NJ from "@/public/team/NimitJain.jpeg";
 import SB from "@/public/team/Srijan Baniyal.jpeg";
 import AKS from "@/public/team/Akshit Singh.jpeg";
 import LG from "@/public/team/Lakshay Goel.jpeg";
-// import DG from "@/public/team/Deepanshu Gupta.jpeg";
-// import K from "@/public/team/Kanak.jpeg";
-import SM from "@/public/team/Sanjit.jpeg";
 import { Link1Icon } from "@radix-ui/react-icons";
 
 const teamMembers = [
@@ -61,16 +58,6 @@ const departments = [
         social: {
           github: "https://github.com/lkshycode",
           linkedin: "https://www.linkedin.com/in/iamlakshaygoel/",
-        },
-      },
-      {
-        name: "Sanjit Mathur",
-        role: "Tech Executive",
-        image: SM,
-        bio: "Web Solution expert, Cybersecurity enthusiast.",
-        social: {
-          github: "https://github.com/IncognitoQuack",
-          linkedin: "https://www.linkedin.com/in/sanjit-mathur-346209320/",
         },
       },
     ],
