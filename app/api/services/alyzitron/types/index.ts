@@ -42,9 +42,23 @@ export interface AlyzitronUserData {
   updatedAt: Date;
 }
 
+export type VideoType = 'SHORT_FORM' | 'EDUCATIONAL' | 'ENTERTAINMENT' | 'MUSIC' | 'PRODUCT_REVIEW' | 'VLOG';
+
+// Status workflow: pending -> queued -> processing -> completed/failed
+export type AnalysisStatus = 'pending' | 'queued' | 'processing' | 'completed' | 'failed';
+
+// API specific status (for webhook responses)
+export type APIAnalysisStatus = 'queued' | 'started' | 'processing' | 'completed' | 'failed';
+
 interface MetricScore {
   score: number;
   description: string;
+}
+
+interface ComplianceRisks {
+  copyright_risk: MetricScore;
+  guidelines_compliance: MetricScore;
+  social_risk: MetricScore;
 }
 
 interface CreatorFeedback {
@@ -52,35 +66,15 @@ interface CreatorFeedback {
   improvements: string[];
 }
 
+interface CategoryMetrics {
+  [metric: string]: MetricScore;
+}
+
 interface AnalysisResults {
-  category: string;
-  engagement_metrics?: {
-    value_proposition_clarity?: MetricScore;
-    information_clarity?: MetricScore;
-    structure_organization?: MetricScore;
-    comprehensibility?: MetricScore;
-    [key: string]: MetricScore | undefined;
-  };
-  technical_quality?: {
-    screen_recording_quality?: MetricScore;
-    voice_clarity?: MetricScore;
-    visual_aids_usage?: MetricScore;
-    [key: string]: MetricScore | undefined;
-  };
-  seo_optimization?: {
-    title_keyword_relevance?: MetricScore;
-    description_richness_clarity?: MetricScore;
-    content_categorization_accuracy?: { description: string };
-    [key: string]: MetricScore | { description: string } | undefined;
-  };
-  compliance_risks?: {
-    copyright_risk?: MetricScore;
-    guidelines_compliance?: MetricScore;
-    social_risk?: MetricScore;
-    [key: string]: MetricScore | undefined;
-  };
+  score: number;
   creator_feedback: CreatorFeedback;
-  metrics?: Record<string, Record<string, MetricScore>>;
+  compliance_risks: ComplianceRisks;
+  [category: string]: number | CreatorFeedback | ComplianceRisks | CategoryMetrics;
 }
 
 export interface AlyzitronAnalysis {
@@ -88,26 +82,27 @@ export interface AlyzitronAnalysis {
   clerkUserId: string;
   videoUrl: string;
   gcsPath: string;          // Format: 'services/alyzitron/user_{id}/{filename}'
-  type: string;
-  status: 'pending' | 'queued' | 'processing' | 'completed' | 'failed';
+  type: VideoType;
+  status: AnalysisStatus;
   taskId: string;
   estimatedTime: number;    // in seconds
-  queueStartTime: Date;
-  processingStartTime: Date;
-  completionTime: Date;
+  progress: number;         // 0-1 for processing status
+  queuePosition?: number;   // Only present when status is 'queued'
   results: AnalysisResults | null;
-  hasMetrics: boolean;
-  hasInsights: boolean;
   error?: {
     code: string;
     message: string;
-    action: string;
+    action?: string;
   };
   metadata: {
     originalFilename: string;
     fileSize: number;       // in bytes
-    uploadSpeed?: number;    // bytes per second
     mimeType: string;
+    title?: string;
+    description?: string;
+    niche?: string;
+    target_audience?: string;
+    additional_details?: string;
   };
   createdAt: Date;
   updatedAt: Date;

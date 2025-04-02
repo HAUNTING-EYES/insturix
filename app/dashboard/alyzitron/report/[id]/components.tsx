@@ -5,48 +5,16 @@ import { ArrowLeft, AlertTriangle, CheckCircle, AlertCircle } from "lucide-react
 import Link from "next/link";
 import type { AnalysisData, MetricData } from '../../types';
 
-const defaultAnalysisData: AnalysisData = {
-  "category": "Educational Video",
-  "engagement_metrics": {
-    "value_proposition_clarity": {
-      "score": 78,
-      "description": "The video demonstrates the value of understanding financial terms in business negotiations."
-    },
-    "information_clarity": {
-      "score": 70,
-      "description": "The information is presented clearly, but could benefit from additional context and explanations."
-    }
-  },
-  "technical_quality": {
-    "screen_recording_quality": {
-      "score": 70,
-      "description": "The screen recording quality is adequate, but could be improved for better viewing on larger screens."
-    },
-    "voice_clarity": {
-      "score": 85,
-      "description": "The voice clarity is good, and the audio is easy to understand."
-    }
-  },
-  "creator_feedback": {
-    "strengths": [
-      "The video features engaging clips from Shark Tank.",
-      "It presents a real-world example of business negotiation."
-    ],
-    "improvements": [
-      "Add timestamps to allow viewers to easily navigate to specific moments in the video.",
-      "Include a brief summary of the key takeaways from the negotiation."
-    ]
-  }
-};
-
-const ScoreIndicator = ({ score }: { score: number }) => {
+const ScoreIndicator = ({ score, invert }: { score: number, invert?: boolean }) => {
   let colorClass;
-  if (score >= 80) colorClass = "bg-green-500/10 text-green-400";
-  else if (score >= 60) colorClass = "bg-yellow-500/10 text-yellow-400";
+  const effectiveScore = invert ? 100 - score : score;
+  
+  if (effectiveScore >= 80) colorClass = "bg-green-500/10 text-green-400";
+  else if (effectiveScore >= 60) colorClass = "bg-yellow-500/10 text-yellow-400";
   else colorClass = "bg-red-500/10 text-red-400";
 
   return (
-    <div className={`text-xl font-bold px-3 py-1 rounded-lg ${colorClass}`}>
+    <div className={`text-xl font-bold px-3.5 py-1.5 rounded-lg ${colorClass}`}>
       {score}
     </div>
   );
@@ -56,38 +24,28 @@ interface AnalysisDetailsProps {
   params: { 
     id: string;
   };
-  analysisData?: AnalysisData;
+  analysisData: AnalysisData;
 }
 
-export default function AnalysisDetails({ params, analysisData = defaultAnalysisData }: AnalysisDetailsProps) {
-  console.log('🎯 AnalysisDetails component props:', {
-    id: params.id,
-    hasAnalysisData: !!analysisData,
-    category: analysisData.category,
-    metricGroups: Object.keys(analysisData).filter(k => k !== 'category' && k !== 'creator_feedback'),
-    feedbackStats: {
-      strengths: analysisData.creator_feedback.strengths.length,
-      improvements: analysisData.creator_feedback.improvements.length
-    }
-  });
-
+export function AnalysisDetails({ params, analysisData }: AnalysisDetailsProps) {
   // Calculate overall score from all metrics that have scores
   const scores: number[] = [];
   Object.entries(analysisData).forEach(([key, value]) => {
     if (key !== 'category' && key !== 'creator_feedback' && typeof value === 'object') {
       Object.values(value as Record<string, MetricData>).forEach(metric => {
         if (metric && typeof metric.score === 'number') {
-          scores.push(metric.score);
-          console.log(`📊 Found score in ${key}:`, metric.score);
+          // Don't include compliance risk scores in overall score
+          if (key !== 'compliance') {
+            scores.push(metric.score);
+          }
         }
       });
     }
   });
   const overallScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
-  console.log('📈 Calculated overall score:', { scores, overallScore });
 
   return (
-    <div className="container mx-auto p-8 space-y-8">
+    <div className="space-y-8">
       {/* Header */}
       <div className="flex items-end justify-between pb-8 mb-8 border-b border-zinc-800">
         <div>
@@ -112,18 +70,15 @@ export default function AnalysisDetails({ params, analysisData = defaultAnalysis
       </div>
 
       {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {Object.entries(analysisData).map(([section, data]) => {
           // Skip category and creator_feedback as they're handled separately
           if (section === 'category' || section === 'creator_feedback') return null;
           
           // Ensure data is a metrics object
           if (typeof data !== 'object' || data === null || Array.isArray(data)) {
-            console.log(`⚠️ Skipping invalid section ${section}:`, data);
             return null;
           }
-
-          console.log(`📋 Rendering metrics for ${section}:`, Object.keys(data));
 
           return (
             <Card key={section} className="bg-black/40 border-zinc-800 backdrop-blur-xl">
@@ -132,34 +87,21 @@ export default function AnalysisDetails({ params, analysisData = defaultAnalysis
                   {section.replace(/_/g, " ")}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="space-y-3">
                {Object.entries(data as Record<string, MetricData>).map(([key, value]) => (
-                  <div key={key} className="p-5 bg-black/20 rounded-lg hover:bg-black/30 transition-colors">
+                  <div key={key} className="px-4 py-3.5 bg-black/20 rounded-lg hover:bg-black/30 transition-colors">
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
-                        <div className="text-sm font-medium text-zinc-200 capitalize tracking-wide mb-2">
+                        <div className="text-sm font-medium text-zinc-200 capitalize tracking-wide mb-1.5">
                           {key.replace(/_/g, " ")}
                         </div>
                         <p className="text-sm text-zinc-400 leading-relaxed">{value.description}</p>
                       </div>
-                      <div className="flex items-center ml-0.5 shrink-0">
-                       {section === 'compliance_risks' ? (
-                         <div className="flex items-center gap-2">
-                           {value.score && (
-                             <>
-                               {value.score < 40 ? (
-                                 <CheckCircle className="h-5 w-5 text-green-400" />
-                               ) : value.score < 70 ? (
-                                 <AlertCircle className="h-5 w-5 text-yellow-400" />
-                               ) : (
-                                 <AlertTriangle className="h-5 w-5 text-red-400" />
-                               )}
-                               <div className="text-sm font-medium text-zinc-400">
-                                 {value.score}%
-                               </div>
-                             </>
-                           )}
-                         </div>
+                      <div className="flex items-center ml-4 shrink-0">
+                       {section === 'compliance' ? (
+                          value.score ? (
+                            <ScoreIndicator score={value.score} invert />
+                          ) : null
                        ) : value.score ? (
                          <ScoreIndicator score={value.score} />
                        ) : null}

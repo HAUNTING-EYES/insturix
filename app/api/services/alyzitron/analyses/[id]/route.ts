@@ -1,140 +1,72 @@
-import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
 import { getCollections } from "../../utils/mongodb";
-import { serializeAnalysis } from "@/app/dashboard/alyzitron/utils/serialization";
-import { logError } from "../../utils/logger";
+import { auth } from "@clerk/nextjs/server";
+import { logger } from "../../utils/logger";
+import { ObjectId } from "mongodb";
 
-export async function GET(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
-  try {
-    const params = await context.params;
-    
-    if (!params?.id) {
-      return NextResponse.json(
-        { error: 'Missing analysis ID' },
-        { status: 400 }
-      );
-    }
-
-    const { id } = params;
-
-    try {
-      const session = await auth();
-      if (!session?.userId) {
-        return NextResponse.json(
-          { error: 'Unauthorized' },
-          { status: 401 }
-        );
-      }
-
-      const objectId = new ObjectId(id);
-      const { analyses } = await getCollections();
-      
-      const analysis = await analyses.findOne({
-        _id: objectId,
-        clerkUserId: session.userId,
-      });
-
-      if (!analysis) {
-        return NextResponse.json(
-          { error: 'Analysis not found' },
-          { status: 404 }
-        );
-      }
-
-      const serializedAnalysis = serializeAnalysis(analysis);
-      return NextResponse.json(serializedAnalysis);
-
-    } catch (error) {
-      logError('GET /analyses/[id]', error);
-      if (error instanceof Error) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 400 }
-        );
-      }
-      throw error;
-    }
-  } catch (error) {
-    logError('GET /analyses/[id]', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
+interface RouteParams {
+  params: {
+    id: string;
+  };
 }
 
-export async function PUT(
-  request: Request,
-  context: { params: Promise<{ id: string }> }
-) {
+export async function GET(request: Request, { params }: RouteParams) {
   try {
-    const params = await context.params;
+    // Await both auth and params
+    const [session, { id }] = await Promise.all([
+      auth(),
+      Promise.resolve(params)
+    ]);
 
-    if (!params?.id) {
+    if (!session?.userId) {
       return NextResponse.json(
-        { error: 'Missing analysis ID' },
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    if (!id || !ObjectId.isValid(id)) {
+      return NextResponse.json(
+        { error: 'Invalid analysis ID' },
         { status: 400 }
       );
     }
 
-    const { id } = params;
+    const { analyses } = await getCollections();
 
-    try {
-      const session = await auth();
-      if (!session?.userId) {
-        return NextResponse.json(
-          { error: 'Unauthorized' },
-          { status: 401 }
-        );
-      }
+    const analysis = await analyses.findOne({
+      _id: new ObjectId(id),
+      clerkUserId: session.userId
+    });
 
-      const objectId = new ObjectId(id);
-      const data = await request.json();
-      const { analyses } = await getCollections();
-
-      const updateResult = await analyses.updateOne(
-        {
-          _id: objectId,
-          clerkUserId: session.userId,
-        },
-        {
-          $set: data
-        }
-      );
-
-      if (updateResult.matchedCount === 0) {
-        return NextResponse.json(
-          { error: 'Analysis not found' },
-          { status: 404 }
-        );
-      }
-
-      const updatedAnalysis = await analyses.findOne({
-        _id: objectId,
-        clerkUserId: session.userId,
+    if (!analysis) {
+      logger.warn('Analysis not found', {
+        userId: session.userId,
+        analysisId: id
       });
-
-      const serializedAnalysis = serializeAnalysis(updatedAnalysis);
-      return NextResponse.json(serializedAnalysis);
-
-    } catch (error) {
-      logError('PUT /analyses/[id]', error);
-      if (error instanceof Error) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 400 }
-        );
-      }
-      throw error;
+      return NextResponse.json(
+        { error: 'Analysis not found' },
+        { status: 404 }
+      );
     }
+
+    logger.info('Fetched analysis details', {
+      userId: session.userId,
+      analysisId: id,
+      status: analysis.status
+    });
+
+    return NextResponse.json(analysis);
+
   } catch (error) {
-    logError('PUT /analyses/[id]', error);
+    logger.error('Failed to fetch analysis', {
+      data: {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    });
+
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to fetch analysis' },
       { status: 500 }
     );
   }

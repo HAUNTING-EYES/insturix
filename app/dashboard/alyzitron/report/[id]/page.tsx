@@ -3,8 +3,8 @@ import { ObjectId } from 'mongodb';
 import { getCollections } from '@/app/api/services/alyzitron/utils/mongodb';
 import { notFound } from 'next/navigation';
 import { serializeAnalysis } from '../../utils/serialization';
-import AnalysisDetails from '../../analysis/[id]/page';
 import type { AnalysisData, MetricData } from '../../types';
+import { AnalysisDetails } from './components';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +79,7 @@ export default async function AnalysisReport({ params }: PageProps) {
   return (
     <div className="container mx-auto p-8">
       <div className="max-w-5xl mx-auto">
-        <AnalysisDetails 
+        <AnalysisDetails
           params={{ id: resolvedParams.id }}
           analysisData={analysisData}
         />

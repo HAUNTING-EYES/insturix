@@ -3,32 +3,14 @@ import { NextRequest, NextResponse } from 'next/server';
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogData {
-  userId?: string;
-  analysisId?: string;
-  data?: any;
-  code?: string;
-  status?: string;
-  type?: string;
-  hasMetrics?: boolean;
-  hasInsights?: boolean;
-  _id?: any;
-  attemptedUserId?: string;
-  actualUserId?: string;
-  filename?: string;
-  path?: string;
-  size?: number;
+  [key: string]: any;
 }
 
-interface AnalysisRequestLog {
-  analysisId: string;
-  userId: string;
-  action: string;
-  status: string;
-  data?: any;
-}
+// Environment variable to control debug logging
+const ALYZITRON_DEBUG = process.env.ALYZITRON_DEBUG === 'true';
 
 // Only log at or above this level
-const LOG_LEVEL: LogLevel = (process.env.NODE_ENV === 'production') ? 'error' : 'debug';
+const LOG_LEVEL: LogLevel = ALYZITRON_DEBUG ? 'debug' : 'error';
 
 const LOG_LEVELS: Record<LogLevel, number> = {
   debug: 0,
@@ -41,59 +23,74 @@ function shouldLog(level: LogLevel): boolean {
   return LOG_LEVELS[level] >= LOG_LEVELS[LOG_LEVEL];
 }
 
+function formatLog(level: LogLevel, message: string, data?: LogData): string {
+  return JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level,
+    service: 'alyzitron',
+    message,
+    ...data
+  }, null, 2);
+}
+
 export const logger = {
   debug: (message: string, data?: LogData) => {
     if (shouldLog('debug')) {
-      console.log('[DEBUG]', {
-        timestamp: new Date().toISOString(),
-        message,
-        ...data
-      });
+      console.log('[DEBUG]', formatLog('debug', message, data));
     }
   },
   
   info: (message: string, data?: LogData) => {
     if (shouldLog('info')) {
-      console.log('[INFO]', {
-        timestamp: new Date().toISOString(),
-        message,
-        ...data
-      });
+      console.log('[INFO]', formatLog('info', message, data));
     }
   },
   
   warn: (message: string, data?: LogData) => {
     if (shouldLog('warn')) {
-      console.warn('[WARN]', {
-        timestamp: new Date().toISOString(),
-        message,
-        ...data
-      });
+      console.warn('[WARN]', formatLog('warn', message, data));
     }
   },
   
   error: (message: string, data?: LogData) => {
     if (shouldLog('error')) {
-      console.error('[ERROR]', {
-        timestamp: new Date().toISOString(),
-        message,
-        ...data
-      });
+      console.error('[ERROR]', formatLog('error', message, data));
     }
   }
 };
 
-export function logAnalysisRequest(log: AnalysisRequestLog) {
-  logger.debug('Analysis Request', log);
-}
-
+// Helper for error logging
 export function logError(context: string, error: unknown) {
-  logger.error(context, {
+  logger.error(`Error in ${context}`, {
     data: {
       error: error instanceof Error ? error.message : String(error),
       stack: error instanceof Error ? error.stack : undefined
     }
   });
+}
+
+// Helper for logging callback data
+export function logCallback(data: any) {
+  if (ALYZITRON_DEBUG) {
+    logger.debug('Received callback data', {
+      data: {
+        taskId: data.task_id,
+        status: data.results?.status,
+        success: data.results?.success,
+        error: data.results?.error,
+        ...(data.results?.data && { hasData: true })
+      },
+      rawData: data // Log full data in debug mode
+    });
+  } else {
+    logger.info('Received callback', {
+      data: {
+        taskId: data.task_id,
+        status: data.results?.status,
+        success: data.results?.success
+      }
+    });
+  }
 }
 
 type RouteHandler = (req: NextRequest, ...args: any[]) => Promise<NextResponse>;

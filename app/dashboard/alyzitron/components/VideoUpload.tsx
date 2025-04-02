@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useState, useEffect } from 'react';
+import { Analysis } from '../hooks/useAnalysisState';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -11,21 +12,22 @@ import { useAnalysisState } from '../hooks/useAnalysisState';
 import { formatFileSize, formatSpeed } from '../utils/progress';
 
 interface VideoUploadProps {
-  onComplete: (analysisId: string) => void;
+  onSubmit: (analysisId: string, analysis: Analysis) => void;
+  onComplete: (analysisId: string, analysis: Analysis) => void;
 }
 
-const VIDEO_TYPES = [
-  'Short Form',
-  'Educational',
-  'Entertainment',
-  'Music',
-  'Product Review',
-  'Vlog'
-] as const;
+import { VideoType } from '@/app/api/services/alyzitron/types';
 
-type VideoType = typeof VIDEO_TYPES[number];
+const VIDEO_TYPES: { label: string; value: VideoType }[] = [
+  { label: 'Short Form', value: 'SHORT_FORM' },
+  { label: 'Educational', value: 'EDUCATIONAL' },
+  { label: 'Entertainment', value: 'ENTERTAINMENT' },
+  { label: 'Music', value: 'MUSIC' },
+  { label: 'Product Review', value: 'PRODUCT_REVIEW' },
+  { label: 'Vlog', value: 'VLOG' }
+];
 
-export function VideoUpload({ onComplete }: VideoUploadProps) {
+export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [videoUrl, setVideoUrl] = useState('');
   const [selectedType, setSelectedType] = useState<VideoType | ''>('');
@@ -36,6 +38,7 @@ export function VideoUpload({ onComplete }: VideoUploadProps) {
     analysisState,
     analyzeFile,
     submitAnalysis,
+    resetState,
   } = useVideoAnalysis();
 
   const {
@@ -58,12 +61,20 @@ export function VideoUpload({ onComplete }: VideoUploadProps) {
     }
   }, [analysis?.status, analysis?.queuePosition, startQueueTracking]);
 
-  // Handle completion
+  // Handle completion state
   useEffect(() => {
-    if (analysis?.status === 'completed' && currentAnalysisId) {
-      onComplete(currentAnalysisId);
+    if (!currentAnalysisId || !analysis) return;
+
+    if (analysis.status === 'completed') {
+      onComplete(currentAnalysisId, analysis);
+      // Reset states immediately since queries are handled by AnalysisList
+      setSelectedFile(null);
+      setVideoUrl('');
+      setSelectedType('');
+      setCurrentAnalysisId(null);
+      resetState();
     }
-  }, [analysis?.status, currentAnalysisId, onComplete]);
+  }, [analysis?.status, currentAnalysisId, onComplete, resetState]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -86,11 +97,23 @@ export function VideoUpload({ onComplete }: VideoUploadProps) {
 
       if (result?.analysisId) {
         setCurrentAnalysisId(result.analysisId);
+        // Trigger immediate optimistic update
+        onSubmit(result.analysisId, {
+          analysisId: result.analysisId,
+          taskId: result.taskId,
+          type: selectedType,
+          title: selectedFile?.name || videoUrl,
+          videoUrl: videoUrl || selectedFile?.name || '',
+          status: 'queued',
+          progress: 0,
+          estimatedTime: result.estimatedTime || 60,
+          queuePosition: 1
+        });
       }
     } catch (err) {
       console.error('Submission failed:', err);
     }
-  }, [selectedFile, videoUrl, selectedType, analyzeFile, submitAnalysis]);
+  }, [selectedFile, videoUrl, selectedType, analyzeFile, submitAnalysis, onSubmit]);
 
   const clearFile = () => {
     setSelectedFile(null);
@@ -220,18 +243,18 @@ export function VideoUpload({ onComplete }: VideoUploadProps) {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             {VIDEO_TYPES.map((type) => (
               <button
-                key={type}
-                onClick={() => setSelectedType(type)}
+                key={type.value}
+                onClick={() => setSelectedType(type.value)}
                 disabled={showProgress}
                 className={`
                   px-4 py-3 rounded-lg text-sm font-medium tracking-wide transition-all duration-300
-                  ${selectedType === type
+                  ${selectedType === type.value
                     ? 'bg-zinc-100 text-zinc-900'
                     : 'bg-black/20 text-zinc-400 hover:bg-black/40 hover:text-zinc-300'
                   }
                 `}
               >
-                {type}
+                {type.label}
               </button>
             ))}
           </div>

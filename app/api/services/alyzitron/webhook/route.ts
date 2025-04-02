@@ -1,114 +1,127 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getCollections } from '../utils/mongodb';
-import { ServiceError } from '../types';
+import { NextResponse } from "next/server";
+import { getCollections } from "../utils/mongodb";
+import { logger, logCallback } from "../utils/logger";
 
-// Validate webhook secret to ensure request is from our backend
-function validateWebhookSecret(secret: string | null): void {
-  if (!process.env.ALYZITRON_WEBHOOK_SECRET) {
-    throw new Error('ALYZITRON_WEBHOOK_SECRET not configured');
-  }
-
-  if (secret !== process.env.ALYZITRON_WEBHOOK_SECRET) {
-    throw {
-      code: 'INVALID_WEBHOOK_SECRET',
-      message: 'Invalid webhook secret',
-    } as ServiceError;
-  }
-}
-
-export async function POST(req: NextRequest) {
+export async function POST(request: Request) {
   try {
-    // Validate webhook secret from headers
-    const webhookSecret = req.headers.get('x-webhook-secret');
-    validateWebhookSecret(webhookSecret);
+    const data = await request.json();
+    
+    // Log the incoming callback with full details
+    logCallback(data);
 
-    const body = await req.json();
-    const { taskId, status, progress, results, error } = body;
-
-    if (!taskId || !status) {
+    if (!data.task_id) {
+      logger.warn('Invalid callback data', {
+        data: { error: 'Missing task ID' }
+      });
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing task ID' },
         { status: 400 }
       );
     }
 
     const { analyses } = await getCollections();
 
-    // Find the analysis record
-    const analysis = await analyses.findOne({ taskId });
+    // Use taskId from Python server to find the analysis
+    const analysis = await analyses.findOne({ taskId: data.task_id });
+
     if (!analysis) {
+      logger.warn('Analysis not found for callback', {
+        data: { taskId: data.task_id }
+      });
       return NextResponse.json(
         { error: 'Analysis not found' },
         { status: 404 }
       );
     }
 
-    // Update analysis based on status
-    const now = new Date();
-    const updateData: Record<string, any> = {
-      status,
-      updatedAt: now,
-    };
-
-    switch (status) {
-      case 'queued':
-        updateData.queueStartTime = now;
-        break;
-
-      case 'processing':
-        updateData.processingStartTime = now;
-        if (progress?.estimatedTime) {
-          updateData.estimatedTime = progress.estimatedTime;
+    // Handle different callback types
+    if (data.results.status === 'started') {
+      logger.info('Analysis started processing', {
+        data: {
+          taskId: data.task_id,
+          analysisId: analysis._id.toString(),
+          type: analysis.type
         }
-        break;
+      });
 
-      case 'completed':
-        updateData.completionTime = now;
-        updateData.results = results;
-        break;
+      await analyses.updateOne(
+        { taskId: data.task_id },
+        {
+          $set: {
+            status: 'processing',
+            processingStartTime: new Date(),
+            updatedAt: new Date()
+          }
+        }
+      );
 
-      case 'failed':
-        updateData.completionTime = now;
-        updateData.error = error || {
-          code: 'PROCESSING_FAILED',
-          message: 'Analysis failed',
-          action: 'Please try again or contact support if the issue persists',
-        };
-        break;
+    } else if (data.results.status === 'completed') {
+      logger.info('Analysis completed', {
+        data: {
+          taskId: data.task_id,
+          analysisId: analysis._id.toString(),
+          type: analysis.type,
+          hasMetrics: !!data.results.data?.engagement_metrics,
+          hasInsights: !!data.results.data?.creator_feedback
+        }
+      });
+
+      await analyses.updateOne(
+        { taskId: data.task_id },
+        {
+          $set: {
+            status: 'completed',
+            completionTime: new Date(),
+            results: data.results.data,
+            hasMetrics: !!data.results.data?.engagement_metrics,
+            hasInsights: !!data.results.data?.creator_feedback,
+            updatedAt: new Date()
+          }
+        }
+      );
+
+    } else if (!data.results.success) {
+      logger.error('Analysis failed', {
+        data: {
+          taskId: data.task_id,
+          analysisId: analysis._id.toString(),
+          type: analysis.type,
+          error: data.results.error
+        }
+      });
+
+      // Handle error case
+      await analyses.updateOne(
+        { taskId: data.task_id },
+        {
+          $set: {
+            status: 'failed',
+            error: {
+              code: data.results.error?.code || 'UNKNOWN_ERROR',
+              message: data.results.error?.message || 'Analysis failed',
+              action: data.results.error?.action || 'Please try again'
+            },
+            updatedAt: new Date()
+          }
+        }
+      );
     }
 
-    // Update the record
-    await analyses.updateOne(
-      { taskId },
-      { $set: updateData }
-    );
-
-    // Return success
-    return NextResponse.json({
+    return NextResponse.json({ 
       success: true,
-      message: `Analysis ${status}`,
+      message: 'Callback processed successfully'
     });
 
   } catch (error) {
-    console.error('Webhook processing failed:', error);
-    
-    const serviceError = error as ServiceError;
+    logger.error('Failed to process analysis callback', {
+      data: {
+        error: error instanceof Error ? error.message : String(error)
+      }
+    });
+
     return NextResponse.json(
-      {
-        error: {
-          code: serviceError.code || 'WEBHOOK_ERROR',
-          message: serviceError.message || 'Failed to process webhook',
-        },
-      },
-      { status: 400 }
+      { error: 'Failed to process callback' },
+      { status: 500 }
     );
   }
-}
-
-// Verify webhook endpoint is active
-export async function GET() {
-  return NextResponse.json({
-    status: 'active',
-    timestamp: new Date().toISOString(),
-  });
 }

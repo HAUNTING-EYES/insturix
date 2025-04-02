@@ -9,28 +9,48 @@ import { formatTimeRemaining } from '../utils/progress';
 import { useRouter } from 'next/navigation';
 import { useAnalysisState } from '../hooks/useAnalysisState';
 
+import { AnalysisStatus, VideoType } from '@/app/api/services/alyzitron/types';
+
 interface AnalysisProgressProps {
   analysisId: string;
+  taskId?: string;
+  title?: string;
+  type?: VideoType;
+  status?: AnalysisStatus;
+  progress?: number;
+  estimatedTime?: number;
+  queuePosition?: number;
+  error?: {
+    message?: string;
+    action?: string;
+  };
   onCancel?: (taskId: string) => void;
 }
 
 export function AnalysisProgress({
   analysisId,
+  taskId: propTaskId,
+  type: propType,
+  status: propStatus,
+  progress: propProgress,
+  estimatedTime: propEstimatedTime,
+  queuePosition: propQueuePosition,
+  error: propError,
   onCancel
 }: AnalysisProgressProps) {
   const router = useRouter();
   const { analysis } = useAnalysisState(analysisId);
 
-  if (!analysis) return null;
+  // Use props if available, fallback to analysis state
+  const status = propStatus || analysis?.status;
+  const progress = propProgress ?? analysis?.progress ?? 0;
+  const estimatedTime = propEstimatedTime ?? analysis?.estimatedTime;
+  const queuePosition = propQueuePosition ?? analysis?.queuePosition;
+  const error = propError ?? analysis?.error;
+  const taskId = propTaskId || analysis?.taskId;
+  const type = propType || analysis?.type;
 
-  const {
-    taskId,
-    status,
-    progress,
-    estimatedTime,
-    queuePosition,
-    error,
-  } = analysis;
+  if (!status) return null;
 
   const isActive = status === 'processing' || status === 'queued';
   const showQueue = status === 'queued' && typeof queuePosition === 'number';
@@ -42,7 +62,7 @@ export function AnalysisProgress({
     : null;
 
   const handleCancel = () => {
-    if (canCancel) {
+    if (canCancel && taskId) {
       onCancel(taskId);
     }
   };
@@ -54,7 +74,7 @@ export function AnalysisProgress({
   };
 
   return (
-    <Card 
+    <Card
       className={`
         relative bg-black/40 border-zinc-800 backdrop-blur-xl
         ${isActive ? 'ring-1 ring-zinc-700' : ''}
@@ -76,7 +96,7 @@ export function AnalysisProgress({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-sm font-medium text-zinc-100 truncate">
-              {analysis.type} Video Analysis
+              {type || 'Video'} Analysis
             </h3>
             {isActive && (
               <CircleDot className="h-3 w-3 text-zinc-500 animate-pulse" />

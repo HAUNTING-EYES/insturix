@@ -1,7 +1,6 @@
-"use client";
-
 import { useState, useCallback } from 'react';
 import { calculateUploadProgress } from '../utils/progress';
+import { logger } from '@/app/api/services/alyzitron/utils/logger';
 
 interface UploadState {
   progress: number;
@@ -18,6 +17,19 @@ interface AnalysisState {
   };
 }
 
+interface AnalysisMetadata {
+  title?: string;
+  description?: string;
+  niche?: string;
+  target_audience?: string;
+  additional_details?: string;
+}
+
+// Function to format video type according to API spec
+function formatVideoType(type: string): string {
+  return type.toUpperCase().replace(/\s+/g, '_');
+}
+
 export function useVideoAnalysis() {
   const [uploadState, setUploadState] = useState<UploadState | null>(null);
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
@@ -25,53 +37,22 @@ export function useVideoAnalysis() {
     progress: 0,
   });
 
-  const uploadWithProgress = useCallback(async (url: string, file: File): Promise<Response> => {
-    const startTime = Date.now();
-    const xhr = new XMLHttpRequest();
-
-    return new Promise((resolve, reject) => {
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const { progress, speed, remaining } = calculateUploadProgress(
-            event.loaded,
-            event.total,
-            startTime
-          );
-          setUploadState({ progress, speed, remaining });
-        }
-      };
-
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(new Response(xhr.response, {
-            status: xhr.status,
-            statusText: xhr.statusText,
-            headers: new Headers({
-              'Content-Type': xhr.getResponseHeader('Content-Type') || 'application/json'
-            })
-          }));
-        } else {
-          reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
-        }
-      };
-
-      xhr.onerror = () => reject(new Error('Network error'));
-      xhr.onabort = () => reject(new Error('Upload aborted'));
-
-      xhr.open('PUT', url);
-      xhr.setRequestHeader('Content-Type', file.type);
-      xhr.send(file);
+  const resetState = useCallback(() => {
+    setUploadState(null);
+    setAnalysisState({
+      status: 'idle',
+      progress: 0,
     });
   }, []);
 
   const uploadFile = useCallback(async (
     file: File,
-    videoType: string
   ): Promise<string> => {
     try {
       setAnalysisState({ status: 'uploading', progress: 0 });
 
-      // Get signed URL or local upload URL
+      // Get signed URL
+      logger.info('Requesting signed URL for upload');
       const signResponse = await fetch('/api/services/alyzitron/gcs/sign', {
         method: 'POST',
         headers: {
@@ -89,52 +70,71 @@ export function useVideoAnalysis() {
         throw new Error(error.error?.message || 'Failed to get upload URL');
       }
 
-      const { url, gcsPath, storage } = await signResponse.json();
-
-      // Upload file with progress tracking
-      try {
-        const uploadResponse = await uploadWithProgress(url, file);
-        
-        if (!uploadResponse.ok) {
-          throw new Error('Upload failed');
+      const { url, gcsPath, contentType } = await signResponse.json();
+      logger.info('Starting file upload', {
+        data: { 
+          gcsPath,
+          size: file.size,
+          contentType 
         }
+      });
 
-        setUploadState(null);
-        return gcsPath;
+      // Upload file
+      const uploadResponse = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': contentType,
+          'Content-Length': file.size.toString()
+        },
+        body: file
+      });
 
-      } catch (uploadError) {
-        throw new Error(
-          uploadError instanceof Error 
-            ? uploadError.message 
-            : 'Failed to upload file'
-        );
+      if (!uploadResponse.ok) {
+        const errorMessage = `Upload failed with status ${uploadResponse.status}: ${uploadResponse.statusText}`;
+        logger.error('Upload failed', {
+          data: {
+            status: uploadResponse.status,
+            statusText: uploadResponse.statusText,
+            gcsPath
+          }
+        });
+        throw new Error(errorMessage);
       }
 
+      logger.info('File upload completed successfully', {
+        data: { gcsPath }
+      });
+
+      return gcsPath;
+
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed';
+      logger.error('Upload process failed', {
+        data: {
+          error: errorMessage,
+          filename: file.name
+        }
+      });
+
       setAnalysisState({
         status: 'failed',
         progress: 0,
         error: {
-          message: error instanceof Error ? error.message : 'Upload failed',
-          action: 'Please try again',
+          message: 'Failed to upload video',
+          action: 'Please try again or use a different video file',
         },
       });
+
       throw error;
     } finally {
       setUploadState(null);
     }
-  }, [uploadWithProgress]);
+  }, []);
 
   const submitAnalysis = useCallback(async (
     videoUrl: string,
     videoType: string,
-    metadata?: {
-      title?: string;
-      description?: string;
-      niche?: string;
-      target_audience?: string;
-      additional_details?: string;
-    }
+    metadata?: AnalysisMetadata
   ) => {
     try {
       setAnalysisState({
@@ -142,16 +142,23 @@ export function useVideoAnalysis() {
         progress: 0
       });
 
+      // Format request according to API documentation
+      const requestData = {
+        type: formatVideoType(videoType), // Properly format video type
+        video_url: videoUrl,
+        ...metadata // These fields already match the API format
+      };
+
+      logger.info('Submitting analysis request', {
+        data: requestData
+      });
+
       const response = await fetch('/api/services/alyzitron/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          type: videoType.toUpperCase().replace(' ', '_'),
-          video_url: videoUrl,
-          ...metadata,
-        }),
+        body: JSON.stringify(requestData),
       });
 
       if (!response.ok) {
@@ -160,23 +167,30 @@ export function useVideoAnalysis() {
       }
 
       const { analysisId, taskId, estimatedTime } = await response.json();
-
-      setAnalysisState({
-        status: 'completed',
-        progress: 100
+      logger.info('Analysis request submitted successfully', { 
+        data: { analysisId, taskId, estimatedTime }
       });
+
+      // Reset state immediately after successful submission
+      resetState();
 
       return { analysisId, taskId, estimatedTime };
 
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
+      logger.error('Analysis submission failed', {
+        data: { error: errorMessage }
+      });
+
       setAnalysisState({
-        status: 'failed',
+        status: 'idle', // Reset to idle on error
         progress: 0,
         error: {
-          message: error instanceof Error ? error.message : 'Analysis failed',
+          message: 'Failed to start analysis',
           action: 'Please try again',
-        },
+        }
       });
+
       throw error;
     }
   }, []);
@@ -184,32 +198,45 @@ export function useVideoAnalysis() {
   const analyzeFile = useCallback(async (
     file: File,
     videoType: string,
-    metadata?: {
-      title?: string;
-      description?: string;
-      niche?: string;
-      target_audience?: string;
-      additional_details?: string;
-    }
+    metadata?: AnalysisMetadata
   ) => {
     try {
       // Upload file first
-      const gcsPath = await uploadFile(file, videoType);
+      const gcsPath = await uploadFile(file);
       
-      // Submit for analysis
+      // Submit for analysis with metadata
       return await submitAnalysis(gcsPath, videoType, {
         title: file.name,
         ...metadata,
       });
 
     } catch (error) {
-      console.error('File analysis failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
+      logger.error('File analysis process failed', {
+        data: {
+          error: errorMessage,
+          filename: file.name
+        }
+      });
+
+      // Reset to idle state on error
+      setAnalysisState({
+        status: 'idle',
+        progress: 0,
+        error: {
+          message: errorMessage,
+          action: 'Please try again',
+        }
+      });
+
       throw error;
     }
   }, [uploadFile, submitAnalysis]);
 
   const cancelAnalysis = useCallback(async (taskId: string) => {
     try {
+      logger.info('Canceling analysis', { data: { taskId } });
+      
       const response = await fetch('/api/services/alyzitron/cancel', {
         method: 'POST',
         headers: {
@@ -223,13 +250,12 @@ export function useVideoAnalysis() {
         throw new Error(error.error?.message || 'Failed to cancel analysis');
       }
 
-      setAnalysisState({
-        status: 'idle',
-        progress: 0,
-      });
-
+      logger.info('Analysis canceled successfully', { data: { taskId } });
     } catch (error) {
-      console.error('Cancel analysis failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to cancel analysis';
+      logger.error('Analysis cancellation failed', {
+        data: { error: errorMessage, taskId }
+      });
       throw error;
     }
   }, []);
@@ -240,5 +266,6 @@ export function useVideoAnalysis() {
     analyzeFile,
     submitAnalysis,
     cancelAnalysis,
+    resetState,
   };
 }
