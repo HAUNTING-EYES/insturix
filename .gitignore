@@ -7,3 +7,5 @@ node_modules
 .excalidraw
 
 .DS_Store
+
+.clerk

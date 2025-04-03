@@ -91,7 +91,8 @@ const menuItems = [
     href: "/products",
     subItems: [
       { title: "Alyzitron", href: "/products/alyzitron" },
-      { title: "Kund-li", href: "/products/kundli" },
+      { title: "Musicotron", href: "/products/musicotron" },
+      { title: "Socialize", href: "/products/socialize" },
       { title: "Editron", href: "/products/editron" },
       { title: "Shield", href: "/products/shield" },
       { title: "ThinkForge", href: "/products/thinkforge" },
