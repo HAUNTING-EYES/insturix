@@ -7,6 +7,7 @@ This guide outlines the standard practices for taking any service to production 
 ## Architecture Principles
 
 ### 1. Service Separation
+
 - Core functionality should be handled by dedicated backend servers
 - User data and service-specific metadata should be managed by Next.js backend
 - Authentication is universally handled by Clerk
@@ -15,6 +16,7 @@ This guide outlines the standard practices for taking any service to production 
 ### 2. Environment Configuration
 
 #### File Organization
+
 - Keep all .env* files in project root directory
 - Never add service-specific .env files in subdirectories
 - Use .env.example as the template for all required variables
@@ -22,9 +24,11 @@ This guide outlines the standard practices for taking any service to production 
 - Use .env.test for testing environment
 
 #### Environment Variable Naming Convention
+
 To prevent naming clashes in the monorepo's shared .env file, follow these conventions:
 
 1. Service-Specific Variables:
+
 ```bash
 # Format: [SERVICE_NAME]_[VARIABLE_NAME]
 ALYZITRON_BACKEND_URL=https://api.alyzitron.com
@@ -34,7 +38,8 @@ SHIELD_BACKEND_URL=https://api.shield.com
 SHIELD_API_KEY=xxx
 ```
 
-2. Shared Variables:
+1. Shared Variables:
+
 ```bash
 # MongoDB (shared across services)
 MONGODB_URI=mongodb://...
@@ -51,13 +56,15 @@ GCS_CLIENT_EMAIL=client@email.com
 GCS_PRIVATE_KEY=private-key
 ```
 
-3. Service-Specific MongoDB Collections:
+3.Service-Specific MongoDB Collections:
+
 - Use service name as prefix for collection names
 - Example: alyzitron_user_data, shield_user_data
 
 ### 3. Standard Database Schema
 
 #### UserServiceData Collection
+
 ```typescript
 interface UserServiceData {
   _id: ObjectId;
@@ -75,6 +82,7 @@ interface UserServiceData {
 ```
 
 #### ServiceTransaction Collection
+
 ```typescript
 interface ServiceTransaction {
   _id: ObjectId;
@@ -91,7 +99,8 @@ interface ServiceTransaction {
 ## Implementation Guidelines
 
 ### 1. API Route Structure
-```
+
+```python
 /app/api/services/[service-name]/
 ├── route.ts           # Main API routes
 ├── webhook.ts         # Webhook handler
@@ -125,6 +134,7 @@ interface ServiceTransaction {
 ### 4. Error Handling
 
 1. Standard Error Format:
+
 ```typescript
 interface ServiceError {
   code: string;        // Machine-readable error code
@@ -134,12 +144,7 @@ interface ServiceError {
 }
 ```
 
-2. Error Categories:
-   - AUTH: Authentication/Authorization errors
-   - INPUT: Invalid input data
-   - PROCESS: Processing errors
-   - SYSTEM: System/Infrastructure errors
-   - LIMIT: Rate/Usage limit errors
+1. Error Categories:
 
 ### 5. Monitoring & Logging
 
@@ -229,12 +234,14 @@ interface ServiceError {
 ### Task Cancellation Pattern
 
 When implementing cancellable tasks:
+
 1. Only allow cancellation in specific states (e.g., 'queued')
 2. Update database records immediately on cancel request
 3. Handle race conditions between cancel and task start
 4. Provide clear user feedback about cancellation status
 
 Example:
+
 ```typescript
 // Cancel endpoint
 if (task.status !== 'queued') {
@@ -251,10 +258,11 @@ await db.tasks.updateOne(
 await externalService.cancelTask(taskId);
 ```
 
-### File Organization
+### File Organization and Cleanup
 
 1. Group Related Routes:
-```
+
+```python
 /api/services/[service-name]/
 ├── analyze/     # Main functionality
 │   └── route.ts
@@ -265,7 +273,8 @@ await externalService.cancelTask(taskId);
     └── progress.ts
 ```
 
-2. Clean Up Unused Files:
+1. Clean Up Unused Files:
+
 - Remove experimental or deprecated approaches
 - Document file removals in a cleanup file
 - Update imports across the codebase
@@ -274,6 +283,7 @@ await externalService.cancelTask(taskId);
 ### Progress Tracking
 
 For long-running tasks:
+
 1. Use estimated completion time from backend
 2. Show non-linear progress based on typical processing patterns
 3. Add micro-fluctuations for realistic feel
@@ -299,24 +309,29 @@ For long-running tasks:
 To maintain clear separation between services while using a shared MongoDB:
 
 1. Service-Specific Collections:
-```
+
+```python
 [service_name]_[collection_type]
-```
 Examples:
+
 - alyzitron_analyses
 - alyzitron_user_data
 - shield_scans
 - shield_user_data
 
 2. Shared Collections:
-```
+
 shared_[collection_type]
+
 ```
+
 Examples:
+
 - shared_user_preferences
 - shared_audit_logs
 
-3. Collection Name Constants:
+1. Collection Name Constants:
+
 ```typescript
 // Define collection names as constants
 export const COLLECTION_NAMES = {
@@ -340,6 +355,7 @@ export const COLLECTION_NAMES = {
 ### Clerk Authentication in Next.js 13+
 
 1. Server Components:
+
 ```typescript
 // Do use:
 import { auth } from '@clerk/nextjs/server';
@@ -354,12 +370,14 @@ const { userId } = auth();  // Wrong usage - auth() returns a Promise
 ```
 
 2. Client Components:
+
 ```typescript
 import { useAuth } from '@clerk/nextjs';
 const { userId } = useAuth();
 ```
 
-3. API Routes:
+1. API Routes:
+
 ```typescript
 import { auth } from '@clerk/nextjs/server';
 const session = await auth();
