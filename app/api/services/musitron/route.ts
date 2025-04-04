@@ -15,10 +15,7 @@ export async function POST(req: Request) {
     const headersList = await headers();
     const host = headersList.get("host");
     const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
-
-    // Construct the callback URL using the current host
     const callbackUrl = `${protocol}://${host}/api/services/musicotron/callback`;
-
     const payload = {
       prompt: body.customMode ? body.lyrics : body.songDescription,
       style: body.customMode ? body.style : "",
@@ -29,11 +26,6 @@ export async function POST(req: Request) {
       negativeTags: body.style || "",
       callbackUrl: callbackUrl,
     };
-
-    console.log("Sending request to:", SUNO_GENERATE_URL);
-    console.log("With payload:", JSON.stringify(payload, null, 2));
-    console.log("Callback URL:", callbackUrl);
-
     const response = await fetch(SUNO_GENERATE_URL, {
       method: "POST",
       headers: {
@@ -43,18 +35,13 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify(payload),
     });
-
     const data = await response.json();
-    console.log("API response:", data);
-
     if (data.code === 401) {
-      console.error("Authentication failed. Please check your SUNO_API_KEY");
       return NextResponse.json(
         { error: "Authentication failed. Please check your API key." },
         { status: 401 }
       );
     }
-
     if (!response.ok || data.code !== 200) {
       const errorMessage = data.msg || "Failed to generate music";
       return NextResponse.json(
@@ -62,7 +49,6 @@ export async function POST(req: Request) {
         { status: response.status }
       );
     }
-
     if (data.data?.taskId || data.data?.task_id) {
       return NextResponse.json({
         taskId: data.data.taskId || data.data.task_id,

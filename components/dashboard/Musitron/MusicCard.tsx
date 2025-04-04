@@ -1,7 +1,6 @@
 "use client";
 
 import type React from "react";
-
 import { useState, useRef, useEffect, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -13,12 +12,7 @@ import {
   Download,
   Share2,
   Heart,
-  SkipBack,
-  SkipForward,
-  Repeat,
-  Shuffle,
   Mic2,
-  ListMusic,
   MoreHorizontal,
   ChevronDown,
   ChevronUp,
@@ -42,18 +36,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 
 interface GeneratedMusic {
   id: string;
@@ -84,20 +67,11 @@ export default function MusicCard({ music }: MusicCardProps) {
   const [isDownloading, setIsDownloading] = useState(false);
   const [hoverPosition, setHoverPosition] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
-
   // Enhanced features state
   const [isLiked, setIsLiked] = useState(false);
-  const [isRepeat, setIsRepeat] = useState(false);
-  const [isShuffle, setIsShuffle] = useState(false);
+  const [isRepeat] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [equalizerSettings, setEqualizerSettings] = useState({
-    bass: 0,
-    mid: 0,
-    treble: 0,
-    preamp: 0,
-  });
-  const [playbackRate, setPlaybackRate] = useState(1);
   const [audioQuality, setAudioQuality] = useState("high");
   const [showWaveform, setShowWaveform] = useState(true);
   const [vinylRotation, setVinylRotation] = useState(0);
@@ -127,30 +101,6 @@ export default function MusicCard({ music }: MusicCardProps) {
     () => music.tags?.split(",").map((tag) => tag.trim()) || ["Music"],
     [music.tags]
   );
-
-  // Mock lyrics for demo purposes
-  const mockLyrics = useMemo(
-    () => [
-      { time: 0, text: "♪ Instrumental intro ♪" },
-      { time: 15, text: "When the night falls down" },
-      { time: 22, text: "And the stars come out" },
-      { time: 30, text: "I can hear your voice" },
-      { time: 38, text: "Calling out my name" },
-      { time: 45, text: "Through the distant sound" },
-      { time: 52, text: "Of the pouring rain" },
-      { time: 60, text: "I'll be there for you" },
-      { time: 68, text: "Time and time again" },
-    ],
-    []
-  );
-
-  const currentLyric = useMemo(() => {
-    const found = mockLyrics
-      .slice()
-      .reverse()
-      .find((lyric) => currentTime >= lyric.time);
-    return found?.text || "♪ Instrumental ♪";
-  }, [mockLyrics, currentTime]);
 
   // Initialize audio context and analyzer
   useEffect(() => {
@@ -226,9 +176,8 @@ export default function MusicCard({ music }: MusicCardProps) {
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.volume = volume;
-      audioRef.current.playbackRate = playbackRate;
     }
-  }, [volume, playbackRate]);
+  }, [volume]);
 
   // Vinyl rotation animation
   useEffect(() => {
@@ -461,28 +410,6 @@ export default function MusicCard({ music }: MusicCardProps) {
       audioRef.current.volume = newVolume;
       audioRef.current.muted = newVolume === 0;
     }
-  };
-
-  const handlePlaybackRateChange = (value: number[]) => {
-    const newRate = value[0];
-    setPlaybackRate(newRate);
-
-    if (audioRef.current) {
-      audioRef.current.playbackRate = newRate;
-    }
-  };
-
-  const handleEqualizerChange = (
-    setting: keyof typeof equalizerSettings,
-    value: number[]
-  ) => {
-    setEqualizerSettings((prev) => ({
-      ...prev,
-      [setting]: value[0],
-    }));
-
-    // In a real implementation, we would apply these settings to an actual equalizer
-    // using the Web Audio API's BiquadFilterNode
   };
 
   const toggleFullscreen = () => {
@@ -738,7 +665,7 @@ export default function MusicCard({ music }: MusicCardProps) {
                 <div className="space-y-1 mb-4">
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-white truncate text-lg">
-                      {music.title || "Untitled Track"}
+                      {music.title}
                     </h3>
                     <Button
                       variant="ghost"
@@ -757,14 +684,6 @@ export default function MusicCard({ music }: MusicCardProps) {
                       />
                     </Button>
                   </div>
-                  {/* Current lyric display */}
-                  {showLyrics && (
-                    <div className="mt-3 py-2 px-3 bg-zinc-800/50 rounded-md border border-zinc-700/50 text-center">
-                      <p className="text-sm text-zinc-300 italic">
-                        {currentLyric}
-                      </p>
-                    </div>
-                  )}
                 </div>
 
                 {/* Waveform visualization */}
@@ -932,44 +851,6 @@ export default function MusicCard({ music }: MusicCardProps) {
                   {/* Playback controls */}
                   <div className="flex items-center justify-between">
                     <div className="flex-1 flex items-center justify-center gap-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setIsShuffle(!isShuffle)}
-                            className={cn(
-                              "h-10 w-10 rounded-full",
-                              isShuffle
-                                ? "text-green-500"
-                                : "text-zinc-400 hover:text-white"
-                            )}
-                            aria-label="Shuffle"
-                          >
-                            <Shuffle className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>{isShuffle ? "Disable" : "Enable"} Shuffle</p>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10 rounded-full text-zinc-400 hover:text-white"
-                            aria-label="Previous Track"
-                          >
-                            <SkipBack className="h-5 w-5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>Previous Track</p>
-                        </TooltipContent>
-                      </Tooltip>
-
                       <Button
                         onClick={togglePlay}
                         className={cn(
@@ -986,44 +867,6 @@ export default function MusicCard({ music }: MusicCardProps) {
                           <Play className="h-6 w-6 translate-x-0.5" />
                         )}
                       </Button>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-10 w-10 rounded-full text-zinc-400 hover:text-white"
-                            aria-label="Next Track"
-                          >
-                            <SkipForward className="h-5 w-5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>Next Track</p>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => setIsRepeat(!isRepeat)}
-                            className={cn(
-                              "h-10 w-10 rounded-full",
-                              isRepeat
-                                ? "text-green-500"
-                                : "text-zinc-400 hover:text-white"
-                            )}
-                            aria-label="Repeat"
-                          >
-                            <Repeat className="h-4 w-4" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">
-                          <p>{isRepeat ? "Disable" : "Enable"} Repeat</p>
-                        </TooltipContent>
-                      </Tooltip>
                     </div>
                   </div>
 
@@ -1055,252 +898,6 @@ export default function MusicCard({ music }: MusicCardProps) {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Sheet>
-                        <SheetTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
-                            aria-label="Equalizer"
-                          >
-                            <ListMusic className="h-4 w-4" />
-                          </Button>
-                        </SheetTrigger>
-                        <SheetContent className="bg-zinc-900 border-zinc-800">
-                          <SheetHeader>
-                            <SheetTitle className="text-white">
-                              Audio Settings
-                            </SheetTitle>
-                            <SheetDescription className="text-zinc-400">
-                              Customize your listening experience
-                            </SheetDescription>
-                          </SheetHeader>
-
-                          <Tabs defaultValue="equalizer" className="mt-6">
-                            <TabsList className="bg-zinc-800">
-                              <TabsTrigger value="equalizer">
-                                Equalizer
-                              </TabsTrigger>
-                              <TabsTrigger value="playback">
-                                Playback
-                              </TabsTrigger>
-                              <TabsTrigger value="info">Track Info</TabsTrigger>
-                            </TabsList>
-
-                            <TabsContent
-                              value="equalizer"
-                              className="mt-4 space-y-4"
-                            >
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label
-                                    htmlFor="bass"
-                                    className="text-zinc-300"
-                                  >
-                                    Bass
-                                  </Label>
-                                  <span className="text-xs text-zinc-500">
-                                    {equalizerSettings.bass}dB
-                                  </span>
-                                </div>
-                                <Slider
-                                  id="bass"
-                                  value={[equalizerSettings.bass]}
-                                  min={-12}
-                                  max={12}
-                                  step={1}
-                                  onValueChange={(value) =>
-                                    handleEqualizerChange("bass", value)
-                                  }
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label
-                                    htmlFor="mid"
-                                    className="text-zinc-300"
-                                  >
-                                    Mid
-                                  </Label>
-                                  <span className="text-xs text-zinc-500">
-                                    {equalizerSettings.mid}dB
-                                  </span>
-                                </div>
-                                <Slider
-                                  id="mid"
-                                  value={[equalizerSettings.mid]}
-                                  min={-12}
-                                  max={12}
-                                  step={1}
-                                  onValueChange={(value) =>
-                                    handleEqualizerChange("mid", value)
-                                  }
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label
-                                    htmlFor="treble"
-                                    className="text-zinc-300"
-                                  >
-                                    Treble
-                                  </Label>
-                                  <span className="text-xs text-zinc-500">
-                                    {equalizerSettings.treble}dB
-                                  </span>
-                                </div>
-                                <Slider
-                                  id="treble"
-                                  value={[equalizerSettings.treble]}
-                                  min={-12}
-                                  max={12}
-                                  step={1}
-                                  onValueChange={(value) =>
-                                    handleEqualizerChange("treble", value)
-                                  }
-                                />
-                              </div>
-
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label
-                                    htmlFor="preamp"
-                                    className="text-zinc-300"
-                                  >
-                                    Preamp
-                                  </Label>
-                                  <span className="text-xs text-zinc-500">
-                                    {equalizerSettings.preamp}dB
-                                  </span>
-                                </div>
-                                <Slider
-                                  id="preamp"
-                                  value={[equalizerSettings.preamp]}
-                                  min={-12}
-                                  max={12}
-                                  step={1}
-                                  onValueChange={(value) =>
-                                    handleEqualizerChange("preamp", value)
-                                  }
-                                />
-                              </div>
-
-                              <Button variant="outline" className="w-full mt-4">
-                                Reset to Default
-                              </Button>
-                            </TabsContent>
-
-                            <TabsContent
-                              value="playback"
-                              className="mt-4 space-y-4"
-                            >
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <Label
-                                    htmlFor="playback-speed"
-                                    className="text-zinc-300"
-                                  >
-                                    Playback Speed
-                                  </Label>
-                                  <span className="text-xs text-zinc-500">
-                                    {playbackRate}x
-                                  </span>
-                                </div>
-                                <Slider
-                                  id="playback-speed"
-                                  value={[playbackRate]}
-                                  min={0.5}
-                                  max={2}
-                                  step={0.05}
-                                  onValueChange={handlePlaybackRateChange}
-                                />
-                              </div>
-
-                              <div className="flex items-center justify-between pt-2">
-                                <Label
-                                  htmlFor="audio-quality"
-                                  className="text-zinc-300"
-                                >
-                                  High Quality Audio
-                                </Label>
-                                <Switch
-                                  id="audio-quality"
-                                  checked={audioQuality === "high"}
-                                  onCheckedChange={(checked) =>
-                                    setAudioQuality(
-                                      checked ? "high" : "standard"
-                                    )
-                                  }
-                                />
-                              </div>
-
-                              <div className="flex items-center justify-between pt-2">
-                                <Label
-                                  htmlFor="show-waveform"
-                                  className="text-zinc-300"
-                                >
-                                  Show Waveform
-                                </Label>
-                                <Switch
-                                  id="show-waveform"
-                                  checked={showWaveform}
-                                  onCheckedChange={setShowWaveform}
-                                />
-                              </div>
-                            </TabsContent>
-
-                            <TabsContent
-                              value="info"
-                              className="mt-4 space-y-4"
-                            >
-                              <div className="space-y-1">
-                                <p className="text-xs text-zinc-500">Title</p>
-                                <p className="text-sm text-zinc-300">
-                                  {music.title || "Unknown"}
-                                </p>
-                              </div>
-
-                              <div className="space-y-1">
-                                <p className="text-xs text-zinc-500">
-                                  Duration
-                                </p>
-                                <p className="text-sm text-zinc-300">
-                                  {formatTime(music.duration)}
-                                </p>
-                              </div>
-
-                              <div className="space-y-1">
-                                <p className="text-xs text-zinc-500">Created</p>
-                                <p className="text-sm text-zinc-300">
-                                  {music.createTime
-                                    ? new Date(
-                                        music.createTime
-                                      ).toLocaleDateString()
-                                    : "Unknown"}
-                                </p>
-                              </div>
-
-                              <div className="space-y-1">
-                                <p className="text-xs text-zinc-500">Tags</p>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {tagsArray.map((tag, index) => (
-                                    <Badge
-                                      key={index}
-                                      variant="outline"
-                                      className="text-xs"
-                                    >
-                                      {tag}
-                                    </Badge>
-                                  ))}
-                                </div>
-                              </div>
-                            </TabsContent>
-                          </Tabs>
-                        </SheetContent>
-                      </Sheet>
-
                       <Button
                         onClick={handleDownload}
                         variant="ghost"
@@ -1324,39 +921,6 @@ export default function MusicCard({ music }: MusicCardProps) {
                     </div>
                   </div>
                 </div>
-
-                {/* Lyrics section (expanded view only) */}
-                {isExpanded && showLyrics && (
-                  <div className="mt-6 border-t border-zinc-800 pt-4">
-                    <h4 className="text-sm font-medium text-zinc-300 mb-3 flex items-center gap-2">
-                      <Mic2 className="h-4 w-4" />
-                      Lyrics
-                    </h4>
-                    <div className="space-y-4 max-h-40 overflow-y-auto pr-2 scrollbar-thin">
-                      {mockLyrics.map((lyric, index) => (
-                        <div
-                          key={index}
-                          className={cn(
-                            "py-1 transition-all duration-300",
-                            currentTime >= lyric.time &&
-                              currentTime <
-                                (mockLyrics[index + 1]?.time ||
-                                  Number.POSITIVE_INFINITY)
-                              ? "text-white font-medium"
-                              : "text-zinc-500"
-                          )}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-zinc-600">
-                              {formatTime(lyric.time)}
-                            </span>
-                            <p>{lyric.text}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           </div>

@@ -80,7 +80,7 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
         `}
         disabled={loading}
       >
-        Generate Music
+        {loading ? "Generating Music..." : "Generate Music"}
       </Button>
     </form>
   );

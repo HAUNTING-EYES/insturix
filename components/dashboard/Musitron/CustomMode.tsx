@@ -142,7 +142,7 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
         `}
         disabled={loading}
       >
-        Generate Music
+        [{loading ? "Generating Music..." : "Generate Music"}]
       </Button>
     </form>
   );

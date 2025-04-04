@@ -1,8 +1,10 @@
+"use client";
+
 import { useState, useEffect } from "react";
-import { ReactElement } from "react";
+import type { ReactElement } from "react";
 import { Switch } from "@/components/ui/switch";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, AudioWaveform, Mic, Music2 } from "lucide-react";
+import { AudioWaveform, Mic, Music2 } from "lucide-react";
 import { toast } from "sonner";
 import SimpleMode from "./SimpleMode";
 import CustomMode from "./CustomMode";
@@ -35,13 +37,16 @@ export default function MusicGenerator({
   const queryClient = useQueryClient();
   const [customMode, setCustomMode] = useState(false);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
-  const [pollCount, setPollCount] = useState(0);
+  const [generationStartTime, setGenerationStartTime] = useState<number | null>(
+    null
+  );
 
   // Music generation mutation
   const musicMutation = useMutation({
     mutationFn: generateMusic,
     onSuccess: (data) => {
       setCurrentTaskId(data.taskId);
+      setGenerationStartTime(Date.now());
       toast.success("Music generation started! This may take a few minutes...");
     },
     onError: (error: Error) => {
@@ -58,56 +63,50 @@ export default function MusicGenerator({
     gcTime: 5000,
   });
 
-  // Handle status updates
+  // Handle status updates and check for timeout
   useEffect(() => {
-    if (!statusData) return;
+    if (!statusData || !currentTaskId || !generationStartTime) return;
+
+    // Check for timeout (3 minutes)
+    const elapsedTime = (Date.now() - generationStartTime) / 1000;
+    if (elapsedTime > 180) {
+      // 3 minutes timeout
+      setCurrentTaskId(null);
+      setGenerationStartTime(null);
+      toast.error("Generation timed out. Please try again.");
+      queryClient.removeQueries({
+        queryKey: QueryKeys.musicStatus(currentTaskId),
+      });
+      return;
+    }
 
     if (statusData.status === "complete" && statusData.data) {
       onMusicGenerated(statusData.data);
       setCurrentTaskId(null);
-      setPollCount(0);
+      setGenerationStartTime(null);
       toast.success("Music generated successfully!");
       queryClient.removeQueries({
-        queryKey: QueryKeys.musicStatus(currentTaskId!),
+        queryKey: QueryKeys.musicStatus(currentTaskId),
       });
     } else if (statusData.status === "failed") {
       setCurrentTaskId(null);
-      setPollCount(0);
+      setGenerationStartTime(null);
       toast.error(statusData.error || "Failed to generate music");
       queryClient.removeQueries({
-        queryKey: QueryKeys.musicStatus(currentTaskId!),
-      });
-    } else {
-      setPollCount((prev) => {
-        if (prev >= 180) {
-          // 3 minutes timeout
-          setCurrentTaskId(null);
-          toast.error("Generation timed out. Please try again.");
-          queryClient.removeQueries({
-            queryKey: QueryKeys.musicStatus(currentTaskId!),
-          });
-          return 0;
-        }
-        return prev + 1;
+        queryKey: QueryKeys.musicStatus(currentTaskId),
       });
     }
-  }, [statusData, currentTaskId, queryClient, onMusicGenerated]);
-
-  // Counter effect for timeout
-  useEffect(() => {
-    if (!currentTaskId) return;
-
-    const counterInterval = setInterval(() => {
-      setPollCount((prev) => prev + 1);
-    }, 1000);
-
-    return () => clearInterval(counterInterval);
-  }, [currentTaskId]);
+  }, [
+    statusData,
+    currentTaskId,
+    generationStartTime,
+    queryClient,
+    onMusicGenerated,
+  ]);
 
   const handleSubmit = async (formData: {
     [key: string]: string | number | boolean;
   }): Promise<void> => {
-    setPollCount(0);
     musicMutation.mutate({
       customMode,
       ...formData,
@@ -115,7 +114,6 @@ export default function MusicGenerator({
   };
 
   const isLoading = musicMutation.isPending || !!currentTaskId;
-  const statusMessage = statusData?.message || "Processing...";
 
   return (
     <div className="space-y-6">
@@ -157,19 +155,6 @@ export default function MusicGenerator({
             <CustomMode onSubmit={handleSubmit} loading={isLoading} />
           ) : (
             <SimpleMode onSubmit={handleSubmit} loading={isLoading} />
-          )}
-
-          {/* Status and Result Section */}
-          {isLoading && (
-            <div className="flex flex-col items-center gap-4 p-4 bg-black/20 rounded-lg">
-              <div className="flex items-center gap-2">
-                <Loader2 className="animate-spin text-purple-500" />
-                <span>Generating... {pollCount > 0 && `(${pollCount}s)`}</span>
-              </div>
-              {statusMessage && (
-                <span className="text-sm text-zinc-400">{statusMessage}</span>
-              )}
-            </div>
           )}
         </CardContent>
       </Card>
