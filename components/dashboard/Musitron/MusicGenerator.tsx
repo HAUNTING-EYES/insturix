@@ -121,7 +121,7 @@ export default function MusicGenerator({
       <div>
         <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-3">
           <AudioWaveform className="h-8 w-8 text-purple-500" />
-          Musicotron
+          Musitron
         </h1>
         <p className="mt-3 text-lg text-zinc-400 font-light">
           Transform your ideas into unique musical compositions

@@ -3,17 +3,10 @@ import { auth } from "@clerk/nextjs/server";
 import Musitron from "@/schemas/Musitron";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
-// Check if DB env variable is set
-const MUSITRON_DB = process.env.MUSITRON_DB || process.env.MONGODB_URI;
-
-if (!MUSITRON_DB) {
-  console.warn("MUSITRON_DB or MONGODB_URI environment variable is not set");
-}
-
 export async function POST(req: Request) {
   try {
     const session = await auth();
-
+    
     if (!session?.userId) {
       return NextResponse.json(
         { error: "Unauthorized. User not authenticated." },
@@ -22,7 +15,7 @@ export async function POST(req: Request) {
     }
 
     const { tracks } = await req.json();
-
+    
     if (!tracks || !Array.isArray(tracks)) {
       return NextResponse.json(
         { error: "Invalid request. Tracks data is required." },
@@ -31,14 +24,7 @@ export async function POST(req: Request) {
     }
 
     // Connect to database
-    if (!MUSITRON_DB) {
-      return NextResponse.json(
-        { error: "Database connection string not configured." },
-        { status: 500 }
-      );
-    }
-
-    await connectToDatabase(MUSITRON_DB);
+    await connectToDatabase(process.env.MONGODB_URI as string);
 
     // Find existing user record or create a new one
     const existingRecord = await Musitron.findOne({ userId: session.userId });
@@ -74,11 +60,10 @@ export async function POST(req: Request) {
         message: "New tracks record created",
       });
     }
-  } catch (error) {
-    console.error("Error saving Musitron tracks:", error);
+  } catch {
     return NextResponse.json(
       { error: "Failed to save tracks" },
       { status: 500 }
     );
   }
-}
+} 
