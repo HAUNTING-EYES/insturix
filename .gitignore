@@ -2,8 +2,11 @@ node_modules
 
 .next
 
-.env*
+.env
+.env.local
 
 .excalidraw
 
 .DS_Store
+# clerk configuration (can include secrets)
+/.clerk/
