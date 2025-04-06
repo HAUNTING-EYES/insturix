@@ -4,7 +4,7 @@ import Support from "@/schemas/SupportSchema";
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase(process.env.SUPPORT_DB as string);
+    await connectToDatabase(process.env.MONGODB_URI as string);
 
     const body = await request.json();
     const {

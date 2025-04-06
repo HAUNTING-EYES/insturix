@@ -4,7 +4,7 @@ import Contact from "@/schemas/Shield";
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase(process.env.SHIELD_DB as string);
+    await connectToDatabase(process.env.MONGODB_URI as string);
     const body = await request.json();
     const { name, email, subject, message } = body;
     if (!name || !email || !subject || !message) {

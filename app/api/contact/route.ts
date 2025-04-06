@@ -4,7 +4,7 @@ import Contact from "@/schemas/ContactSchema";
 
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase(process.env.CONTACT_DB as string);
+    await connectToDatabase(process.env.MONGODB_URI as string);
 
     const body = await request.json();
     const { name, email, subject, message } = body;

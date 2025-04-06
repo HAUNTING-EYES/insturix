@@ -14,7 +14,7 @@
   dependencies:
     regenerator-runtime "^0.14.0"
 
-"@clerk/backend@^1.25.3":
+"@clerk/backend@^1.25.2":
   version "1.26.0"
   resolved "https://registry.yarnpkg.com/@clerk/backend/-/backend-1.26.0.tgz#2bd2d5264b7e9b69a8b9a7666ba5e1f1e2365081"
   integrity sha512-ioZBMnwm4DD8IVPGDjFW3wkyn1JTMvTlsmdHGYsjdbXLtbRFVRJelAIMMGLcSmqMgzTKxnrJSOz8PxPjSMUFtw==
@@ -25,7 +25,7 @@
     snakecase-keys "8.0.1"
     tslib "2.8.1"
 
-"@clerk/clerk-react@^5.25.0":
+"@clerk/clerk-react@^5.24.2":
   version "5.25.6"
   resolved "https://registry.yarnpkg.com/@clerk/clerk-react/-/clerk-react-5.25.6.tgz#e2a22733763ecd0c1ac8cc1c00a02fc9b0ce44c0"
   integrity sha512-QXISFiW4xI96nIE8MEfqpy+ISjtfYa2wWYeS8Nyo+K34dK1aNpawpTopRKRirqUy2QRSF/yXaCY9IF/v22XlJg==
@@ -62,7 +62,7 @@
     server-only "0.0.1"
     tslib "2.4.1"
 
-"@clerk/shared@^3.0.2", "@clerk/shared@^3.3.0":
+"@clerk/shared@^3.0.1", "@clerk/shared@^3.3.0":
   version "3.3.0"
   resolved "https://registry.yarnpkg.com/@clerk/shared/-/shared-3.3.0.tgz#fa7b47f13eddc5754995d7a655f8b03e090dd85d"
   integrity sha512-hO1M5aRMzJVqkw6lWJ7NFVG5hWEnTZBUZGeHMYRwSPQzQNsgqsRMvpmaJO0Y2o0HNk50PpwZHaiFHcghUpfMiw==
@@ -74,7 +74,7 @@
     std-env "^3.8.1"
     swr "^2.3.3"
 
-"@clerk/types@^4.49.0", "@clerk/types@^4.50.2":
+"@clerk/types@^4.48.0", "@clerk/types@^4.50.2":
   version "4.50.2"
   resolved "https://registry.yarnpkg.com/@clerk/types/-/types-4.50.2.tgz#09a5aca27fa3bf1898bb247de44a05dbe2445659"
   integrity sha512-4m1RlV/Dl3ZGW5FAXmKfdCbhF7uTDDvaADZH1F6L3d3lRBdI6i7GppK1KqscOSgoC8OwJqGaiDVUPsg+Pp8usg==
@@ -3969,10 +3969,10 @@ node-uuid@~1.4.0:
   resolved "https://registry.yarnpkg.com/node-uuid/-/node-uuid-1.4.8.tgz#b040eb0923968afabf8d32fb1f17f1167fdab907"
   integrity sha512-TkCET/3rr9mUuRp+CpO7qfgT++aAxfDRaalQhwPFzI9BY/2rCDn6OfpZOVggi1AXfTPpfkTrg5f5WQx5G1uLxA==
 
-number-flow@0.5.6:
-  version "0.5.6"
-  resolved "https://registry.yarnpkg.com/number-flow/-/number-flow-0.5.6.tgz#ce60587730ad36eeb303e90664ce1731b4ae2ef8"
-  integrity sha512-3K4lWNn+zWYeWEgaJMbFIjqy6WnvIETXTVIybKnaPU0XmhsqQmdXfxXf7tmB4MybzHwrl5GN4oFT34EU/B2yhg==
+number-flow@0.5.5:
+  version "0.5.5"
+  resolved "https://registry.yarnpkg.com/number-flow/-/number-flow-0.5.5.tgz#955dc8b98d0e5a3a6367c019c347f577e462a612"
+  integrity sha512-oE+gyA3S0ar8un2dg80TlEi3hjvi/UnTewHl2bu9dGKMxU7nT8VTUdIf1X7NbRLslqyyTyxdSmIAv/QJhaq1pw==
   dependencies:
     esm-env "^1.1.4"
 
@@ -5040,6 +5040,11 @@ tsconfig-paths@^3.15.0:
     json5 "^1.0.2"
     minimist "^1.2.6"
     strip-bom "^3.0.0"
+
+tslib@2.4.1:
+  version "2.4.1"
+  resolved "https://registry.yarnpkg.com/tslib/-/tslib-2.4.1.tgz#0d0bfbaac2880b91e22df0768e55be9753a5b17e"
+  integrity sha512-tGyy4dAjRIEwI7BzsB0lynWgOpfqjUdq91XXAlIWD2OwKBH7oCl/GZG/HT4BOHrTlPMOASlMQ7veyTqpmRcrNA==
 
 tslib@2.8.1, tslib@^2.0.0, tslib@^2.0.3, tslib@^2.1.0, tslib@^2.4.0, tslib@^2.8.0:
   version "2.8.1"

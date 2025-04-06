@@ -3,7 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import Musitron from "@/schemas/Musitron";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
-const MUSITRON_DB = process.env.MUSITRON_DB as string;
+const MUSITRON_DB = process.env.MONGODB_URI as string;
 
 export async function GET() {
   try {

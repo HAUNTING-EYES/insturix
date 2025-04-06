@@ -1,7 +1,6 @@
 "use client"
 
 import DashboardShell from "@/components/dashboard/DashboardShell"
-import DashboardCard, { DashboardCardGrid } from "@/components/dashboard/DashboardCard"
 import CursorEffect from "@/components/ui/CursorEffect"
 
 const THEME = {
@@ -11,44 +10,6 @@ const THEME = {
     to: "to-white/60",
   },
 }
-
-const products = [
-  {
-    name: "Alyzitron",
-    path: "/dashboard/alyzitron",
-    description: "Analytics and insights platform",
-  },
-  {
-    name: "Musitron",
-    path: "/dashboard/musitron",
-    description: "Idea Powered full music generation",
-  },
-  {
-    name: "Shield",
-    path: "/dashboard/shield",
-    description: "Security and protection suite",
-  },
-  {
-    name: "ThinkForge",
-    path: "/dashboard/thinkforge",
-    description: "AI-powered idea generation",
-  },
-  {
-    name: "Editron",
-    path: "/dashboard/editron",
-    description: "Collaborative editing tools",
-  },
-  {
-    name: "Kundli",
-    path: "/dashboard/kundli",
-    description: "Astrological calculations engine",
-  },
-  {
-    name: "Meditron",
-    path: "/dashboard/meditron",
-    description: "Meditation and wellness tracker",
-  },
-]
 
 export default function Dashboard() {
   return (
@@ -64,16 +25,6 @@ export default function Dashboard() {
           <h1 className="text-3xl font-semibold tracking-tight text-white/90">Insturance Dashboard</h1>
           <p className="text-white/60 mt-2 text-lg font-light">Manage all your products and services from one place</p>
         </div>
-        <DashboardCardGrid>
-          {products.map((product) => (
-            <DashboardCard
-              key={product.name}
-              title={product.name}
-              description={product.description}
-              href={product.path}
-            />
-          ))}
-        </DashboardCardGrid>
       </DashboardShell>
     </>
   )
