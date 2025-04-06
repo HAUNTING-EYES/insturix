@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { motion, AnimatePresence } from "framer-motion"
 import { useQuery } from "@tanstack/react-query"
-import { fetchLocationData } from "../lib/Location"
+import { fetchLocationData } from "../lib/QFunctions"
 
 interface DonationDialogProps {
   isOpen: boolean

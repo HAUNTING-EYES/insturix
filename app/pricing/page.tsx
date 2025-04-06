@@ -1,11 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import Green from "@/components/pr/Green";
-import Blue from "@/components/pr/Blue";
-import Purple from "@/components/pr/Purple";
+import Green from "@/components/pricing/Green";
+import Blue from "@/components/pricing/Blue";
+import Purple from "@/components/pricing/Purple";
 import Navbar from "@/components/Navbar";
-import Red from "@/components/pr/Red";
+import Red from "@/components/pricing/Red";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
 

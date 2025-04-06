@@ -1,53 +1,11 @@
-"use client";
-
-import DashboardShell from "@/components/dashboard/DashboardShell";
-import DashboardCard from "@/components/dashboard/DashboardCard";
-import CursorEffect from "@/components/ui/CursorEffect";
-
-const THEME = {
-  color: "rgba(255, 255, 255, 0.05)",
-  gradient: {
-    from: "from-white/40",
-    to: "to-white/60",
-  },
-};
-
-const products = [
-  {
-    name: "Alyzitron",
-    path: "/dashboard/alyzitron",
-    description: "Analytics and insights platform",
-  },
-  {
-    name: "Editron",
-    path: "/dashboard/editron",
-    description: "Collaborative editing tools",
-  },
-  {
-    name: "Kundli",
-    path: "/dashboard/kundli",
-    description: "Astrological calculations engine",
-  },
-  {
-    name: "Meditron",
-    path: "/dashboard/meditron",
-    description: "Meditation and wellness tracker",
-  },
-  {
-    name: "Shield",
-    path: "/dashboard/shield",
-    description: "Security and protection suite",
-  },
-  {
-    name: "ThinkForge",
-    path: "/dashboard/thinkforge",
-    description: "AI-powered idea generation",
-  },
-];
+import Dashboard from "@/components/dashboard/Dashboard";
 
 export default function DashboardPage() {
   return (
     <>
+<<<<<<< HEAD
+      <Dashboard />
+=======
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <DashboardShell>
         {/* Dashboard Header */}
@@ -74,6 +32,7 @@ export default function DashboardPage() {
           ))}
         </DashboardCard.Grid>
       </DashboardShell>
+>>>>>>> main
     </>
   );
 }

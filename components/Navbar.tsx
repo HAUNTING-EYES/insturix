@@ -97,6 +97,7 @@ const menuItems = [
       { title: "Shield", href: "/products/shield" },
       { title: "ThinkForge", href: "/products/thinkforge" },
       { title: "Meditron", href: "/products/meditron" },
+      { title: "Musicotron", href: "/musicotron" },
     ],
   },
   {

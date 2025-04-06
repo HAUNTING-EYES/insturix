@@ -11,10 +11,21 @@
   --animate-blink: blink 1s step-start infinite;
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-slow-fade: slow-fade 1.5s ease-out;
+  --animate-spin: spin 1s linear infinite;
 
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
+
+  @keyframes spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
 
   @keyframes gradient-x {
     0%,
@@ -66,6 +77,16 @@
     }
     to {
       height: 0;
+    }
+  }
+  @keyframes slow-fade {
+    0% {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
     }
   }
 }
