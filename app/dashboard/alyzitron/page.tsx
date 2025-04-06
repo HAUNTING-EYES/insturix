@@ -1,10 +1,10 @@
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ClientWrapper } from './components/ClientWrapper';
-import { auth } from '@clerk/nextjs/server';
-import { getCollections } from '@/app/api/services/alyzitron/utils/mongodb';
-import { serializeAnalyses } from './utils/serialization';
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
+import { auth } from "@clerk/nextjs/server";
+import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
+import { serializeAnalyses } from "../../../utils/serialization";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 async function getRecentAnalyses() {
   const session = await auth();
@@ -20,7 +20,7 @@ async function getRecentAnalyses() {
 
     return serializeAnalyses(recentAnalyses);
   } catch (error) {
-    console.error('Error fetching recent analyses:', error);
+    console.error("Error fetching recent analyses:", error);
     return [];
   }
 }
@@ -28,11 +28,11 @@ async function getRecentAnalyses() {
 async function getUserStats(userId: string) {
   try {
     const { analyses, userData } = await getCollections();
-  
+
     const user = await userData.findOne({ clerkUserId: userId });
     const activeAnalyses = await analyses.countDocuments({
       clerkUserId: userId,
-      status: { $in: ['pending', 'queued', 'processing'] }
+      status: { $in: ["pending", "queued", "processing"] },
     });
 
     const monthStart = new Date();
@@ -41,22 +41,23 @@ async function getUserStats(userId: string) {
 
     const monthlyAnalyses = await analyses.countDocuments({
       clerkUserId: userId,
-      createdAt: { $gte: monthStart }
+      createdAt: { $gte: monthStart },
     });
 
     const completedAnalyses = await analyses
-      .find({ 
+      .find({
         clerkUserId: userId,
-        status: 'completed'
+        status: "completed",
       })
       .toArray();
 
-    const averageScore = completedAnalyses.length > 0
-      ? completedAnalyses.reduce((sum, analysis) => {
-          const score = analysis.results?.score || 0;
-          return sum + score;
-        }, 0) / completedAnalyses.length
-      : 0;
+    const averageScore =
+      completedAnalyses.length > 0
+        ? completedAnalyses.reduce((sum, analysis) => {
+            const score = analysis.results?.score || 0;
+            return sum + score;
+          }, 0) / completedAnalyses.length
+        : 0;
 
     return {
       activeAnalyses,
@@ -64,19 +65,19 @@ async function getUserStats(userId: string) {
       averageScore: Math.round(averageScore * 10) / 10,
       limits: user?.limits || {
         maxMonthlyAnalyses: 100,
-        maxConcurrentAnalyses: 3
-      }
+        maxConcurrentAnalyses: 3,
+      },
     };
   } catch (error) {
-    console.error('Error fetching user stats:', error);
+    console.error("Error fetching user stats:", error);
     return {
       activeAnalyses: 0,
       monthlyAnalyses: 0,
       averageScore: 0,
       limits: {
         maxMonthlyAnalyses: 100,
-        maxConcurrentAnalyses: 3
-      }
+        maxConcurrentAnalyses: 3,
+      },
     };
   }
 }

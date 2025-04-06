@@ -1,17 +1,14 @@
 "use client";
 
 import React from 'react';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
-import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
-import { useAnalysisRefresh } from '../hooks/useAnalysisRefresh';
-import { AnalysisProgress } from './AnalysisProgress';
+import { useVideoAnalysis } from "@/hooks/useVideoAnalysis";
+import { AnalysisProgress } from "@/components/dashboard/Alyzitron/AnalysisProgress";
 import { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
 
-type AnalysisStatus = 'pending' | 'queued' | 'processing' | 'completed' | 'failed';
-
-import type { Analysis } from '../hooks/useAnalysisState';
+import type { Analysis } from "@/hooks/useAnalysisState";
 
 interface AnalysisListProps {
   initialAnalyses: AlyzitronAnalysis[];
@@ -19,7 +16,6 @@ interface AnalysisListProps {
 }
 
 export function AnalysisList({ initialAnalyses, onAnalysisUpdate }: AnalysisListProps) {
-  const queryClient = useQueryClient();
 
   // Single query with aggressive polling
   const { data: analyses = initialAnalyses } = useQuery<AlyzitronAnalysis[], Error>({

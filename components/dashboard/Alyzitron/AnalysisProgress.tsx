@@ -5,9 +5,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CircleDot, PlayCircle, XCircle, ChevronRight } from 'lucide-react';
 import { ProgressBar } from './ProgressBar';
-import { formatTimeRemaining } from '../utils/progress';
+import { formatTimeRemaining } from '@/utils/progress';
 import { useRouter } from 'next/navigation';
-import { useAnalysisState } from '../hooks/useAnalysisState';
+import { useAnalysisState } from '@/hooks/useAnalysisState';
 
 import { AnalysisStatus, VideoType } from '@/app/api/services/alyzitron/types';
 

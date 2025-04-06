@@ -1,37 +1,39 @@
 "use client";
 
-import React, { useCallback, useState, useEffect } from 'react';
-import { Analysis } from '../hooks/useAnalysisState';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Input } from '@/components/ui/input';
-import { Upload, Link2, X } from 'lucide-react';
-import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
-import { useAnalysisState } from '../hooks/useAnalysisState';
-import { formatFileSize, formatSpeed } from '../utils/progress';
+import React, { useCallback, useState, useEffect } from "react";
+import { Analysis } from "@/hooks/useAnalysisState";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Upload, Link2, X } from "lucide-react";
+import { useVideoAnalysis } from "@/hooks/useVideoAnalysis";
+import { useAnalysisState } from "@/hooks/useAnalysisState";
+import { formatFileSize, formatSpeed } from "@/utils/progress";
 
 interface VideoUploadProps {
   onSubmit: (analysisId: string, analysis: Analysis) => void;
   onComplete: (analysisId: string, analysis: Analysis) => void;
 }
 
-import { VideoType } from '@/app/api/services/alyzitron/types';
+import { VideoType } from "@/app/api/services/alyzitron/types";
 
 const VIDEO_TYPES: { label: string; value: VideoType }[] = [
-  { label: 'Short Form', value: 'SHORT_FORM' },
-  { label: 'Educational', value: 'EDUCATIONAL' },
-  { label: 'Entertainment', value: 'ENTERTAINMENT' },
-  { label: 'Music', value: 'MUSIC' },
-  { label: 'Product Review', value: 'PRODUCT_REVIEW' },
-  { label: 'Vlog', value: 'VLOG' }
+  { label: "Short Form", value: "SHORT_FORM" },
+  { label: "Educational", value: "EDUCATIONAL" },
+  { label: "Entertainment", value: "ENTERTAINMENT" },
+  { label: "Music", value: "MUSIC" },
+  { label: "Product Review", value: "PRODUCT_REVIEW" },
+  { label: "Vlog", value: "VLOG" },
 ];
 
 export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [videoUrl, setVideoUrl] = useState('');
-  const [selectedType, setSelectedType] = useState<VideoType | ''>('');
-  const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState("");
+  const [selectedType, setSelectedType] = useState<VideoType | "">("");
+  const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(
+    null
+  );
 
   const {
     uploadState,
@@ -41,22 +43,19 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
     resetState,
   } = useVideoAnalysis();
 
-  const {
-    analysis,
-    startProgressTracking,
-    startQueueTracking,
-  } = useAnalysisState(currentAnalysisId || undefined);
+  const { analysis, startProgressTracking, startQueueTracking } =
+    useAnalysisState(currentAnalysisId || undefined);
 
   // Start progress tracking when analysis begins
   useEffect(() => {
-    if (analysis?.status === 'processing' && analysis.estimatedTime) {
+    if (analysis?.status === "processing" && analysis.estimatedTime) {
       startProgressTracking(analysis.estimatedTime);
     }
   }, [analysis?.status, analysis?.estimatedTime, startProgressTracking]);
 
   // Start queue tracking when queued
   useEffect(() => {
-    if (analysis?.status === 'queued' && analysis.queuePosition) {
+    if (analysis?.status === "queued" && analysis.queuePosition) {
       startQueueTracking(analysis.queuePosition);
     }
   }, [analysis?.status, analysis?.queuePosition, startQueueTracking]);
@@ -65,28 +64,28 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
   useEffect(() => {
     if (!currentAnalysisId || !analysis) return;
 
-    if (analysis.status === 'completed') {
+    if (analysis.status === "completed") {
       onComplete(currentAnalysisId, analysis);
       // Reset states immediately since queries are handled by AnalysisList
       setSelectedFile(null);
-      setVideoUrl('');
-      setSelectedType('');
+      setVideoUrl("");
+      setSelectedType("");
       setCurrentAnalysisId(null);
       resetState();
     }
-  }, [analysis?.status, currentAnalysisId, onComplete, resetState]);
+  }, [analysis, analysis?.status, currentAnalysisId, onComplete, resetState]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setSelectedFile(file);
-      setVideoUrl('');
+      setVideoUrl("");
     }
   };
 
   const handleSubmit = useCallback(async () => {
     if (!selectedType) return;
-    
+
     try {
       let result;
       if (selectedFile) {
@@ -103,25 +102,35 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
           taskId: result.taskId,
           type: selectedType,
           title: selectedFile?.name || videoUrl,
-          videoUrl: videoUrl || selectedFile?.name || '',
-          status: 'queued',
+          videoUrl: videoUrl || selectedFile?.name || "",
+          status: "queued",
           progress: 0,
           estimatedTime: result.estimatedTime || 60,
-          queuePosition: 1
+          queuePosition: 1,
         });
       }
     } catch (err) {
-      console.error('Submission failed:', err);
+      console.error("Submission failed:", err);
     }
-  }, [selectedFile, videoUrl, selectedType, analyzeFile, submitAnalysis, onSubmit]);
+  }, [
+    selectedFile,
+    videoUrl,
+    selectedType,
+    analyzeFile,
+    submitAnalysis,
+    onSubmit,
+  ]);
 
   const clearFile = () => {
     setSelectedFile(null);
-    setVideoUrl('');
+    setVideoUrl("");
   };
 
-  const isValid = (selectedFile || videoUrl) && selectedType && analysisState.status === 'idle';
-  const isProcessing = analysisState.status !== 'idle';
+  const isValid =
+    (selectedFile || videoUrl) &&
+    selectedType &&
+    analysisState.status === "idle";
+  const isProcessing = analysisState.status !== "idle";
   const isUploading = !!uploadState;
   const showProgress = isProcessing || isUploading;
 
@@ -149,19 +158,24 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
           </TabsList>
 
           <TabsContent value="upload" className="mt-6">
-            <div className={`
+            <div
+              className={`
               relative border border-dashed rounded-lg p-10 text-center
-              ${selectedFile
-                ? 'border-zinc-700 bg-black/20'
-                : 'border-zinc-800 hover:border-zinc-700 transition-colors duration-300 group'
+              ${
+                selectedFile
+                  ? "border-zinc-700 bg-black/20"
+                  : "border-zinc-800 hover:border-zinc-700 transition-colors duration-300 group"
               }
-            `}>
+            `}
+            >
               {selectedFile ? (
                 <div className="flex items-center justify-between">
                   <div className="flex items-center">
                     <Upload className="h-8 w-8 text-zinc-500 mr-3" />
                     <div className="text-left">
-                      <p className="text-zinc-300 font-medium">{selectedFile.name}</p>
+                      <p className="text-zinc-300 font-medium">
+                        {selectedFile.name}
+                      </p>
                       <p className="text-zinc-500 text-sm">
                         {formatFileSize(selectedFile.size)}
                       </p>
@@ -248,9 +262,10 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
                 disabled={showProgress}
                 className={`
                   px-4 py-3 rounded-lg text-sm font-medium tracking-wide transition-all duration-300
-                  ${selectedType === type.value
-                    ? 'bg-zinc-100 text-zinc-900'
-                    : 'bg-black/20 text-zinc-400 hover:bg-black/40 hover:text-zinc-300'
+                  ${
+                    selectedType === type.value
+                      ? "bg-zinc-100 text-zinc-900"
+                      : "bg-black/20 text-zinc-400 hover:bg-black/40 hover:text-zinc-300"
                   }
                 `}
               >
@@ -266,9 +281,10 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
             size="lg"
             className={`
               w-full h-14 text-base font-medium tracking-wide
-              ${!isValid
-                ? 'bg-zinc-800 text-zinc-500'
-                : 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200'
+              ${
+                !isValid
+                  ? "bg-zinc-800 text-zinc-500"
+                  : "bg-zinc-100 text-zinc-900 hover:bg-zinc-200"
               }
               transition-all duration-300
             `}
@@ -294,7 +310,9 @@ export function VideoUpload({ onComplete, onSubmit }: VideoUploadProps) {
                   />
                 </svg>
                 <span>
-                  {analysisState.status === 'uploading' ? 'Uploading...' : 'Analyzing...'}
+                  {analysisState.status === "uploading"
+                    ? "Uploading..."
+                    : "Analyzing..."}
                 </span>
               </div>
             ) : (

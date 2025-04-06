@@ -1,11 +1,60 @@
 import Dashboard from "@/components/dashboard/Dashboard";
+import CursorEffect from "@/components/ui/CursorEffect";
+import DashboardShell from "@/components/dashboard/DashboardShell";
+import DashboardCard, {
+  DashboardCardGrid,
+} from "@/components/dashboard/DashboardCard";
+
+const THEME = {
+  color: "rgba(255, 255, 255, 0.05)",
+  gradient: {
+    from: "from-white/40",
+    to: "to-white/60",
+  },
+};
+
+const products = [
+  {
+    name: "Alyzitron",
+    path: "/dashboard/alyzitron",
+    description: "Analytics and insights platform",
+  },
+  {
+    name: "Editron",
+    path: "/dashboard/editron",
+    description: "Collaborative editing tools",
+  },
+  {
+    name: "Kundli",
+    path: "/dashboard/kundli",
+    description: "Astrological calculations engine",
+  },
+  {
+    name: "Meditron",
+    path: "/dashboard/meditron",
+    description: "Meditation and wellness tracker",
+  },
+  {
+    name: "Shield",
+    path: "/dashboard/shield",
+    description: "Security and protection suite",
+  },
+  {
+    name: "ThinkForge",
+    path: "/dashboard/thinkforge",
+    description: "AI-powered idea generation",
+  },
+  {
+    name: "Musitron",
+    path: "/dashboard/musitron",
+    description: "Music analysis and insights platform",
+  },
+];
 
 export default function DashboardPage() {
   return (
     <>
-<<<<<<< HEAD
       <Dashboard />
-=======
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <DashboardShell>
         {/* Dashboard Header */}
@@ -21,7 +70,7 @@ export default function DashboardPage() {
             Manage all your products and services from one place
           </p>
         </div>
-        <DashboardCard.Grid>
+        <DashboardCardGrid>
           {products.map((product) => (
             <DashboardCard
               key={product.name}
@@ -30,9 +79,8 @@ export default function DashboardPage() {
               href={product.path}
             />
           ))}
-        </DashboardCard.Grid>
+        </DashboardCardGrid>
       </DashboardShell>
->>>>>>> main
     </>
   );
 }

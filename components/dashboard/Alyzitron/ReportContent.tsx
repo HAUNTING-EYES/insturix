@@ -22,7 +22,7 @@ interface ReportContentProps {
   metrics: Metrics;
   score: number;
   insights: string[];
-  results: any;
+  results: Record<string, unknown>;
 }
 
 function formatMetricValue(value: number | string | undefined): string {

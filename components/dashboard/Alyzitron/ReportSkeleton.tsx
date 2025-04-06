@@ -1,6 +1,6 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export function ReportSkeleton() {
   return (
@@ -39,10 +39,7 @@ export function ReportSkeleton() {
             <div className="h-6 w-28 bg-zinc-800 rounded" />
             <div className="space-y-2">
               {[...Array(3)].map((_, i) => (
-                <div
-                  key={i}
-                  className="p-3 bg-black/20 rounded-lg"
-                >
+                <div key={i} className="p-3 bg-black/20 rounded-lg">
                   <div className="h-4 w-full bg-zinc-800 rounded" />
                 </div>
               ))}
@@ -54,10 +51,7 @@ export function ReportSkeleton() {
             <div className="h-6 w-32 bg-zinc-800 rounded" />
             <div className="grid sm:grid-cols-2 gap-4">
               {[...Array(4)].map((_, i) => (
-                <div
-                  key={i}
-                  className="p-3 bg-black/20 rounded-lg"
-                >
+                <div key={i} className="p-3 bg-black/20 rounded-lg">
                   <div className="h-4 w-24 bg-zinc-800 rounded mb-2" />
                   <div className="h-5 w-16 bg-zinc-800 rounded" />
                 </div>

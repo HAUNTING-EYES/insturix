@@ -1,8 +1,8 @@
-"use client";
+"use client"
 
-import DashboardShell from "@/components/dashboard/DashboardShell";
-import DashboardCard from "@/components/dashboard/DashboardCard";
-import CursorEffect from "@/components/ui/CursorEffect";
+import DashboardShell from "@/components/dashboard/DashboardShell"
+import DashboardCard, { DashboardCardGrid } from "@/components/dashboard/DashboardCard"
+import CursorEffect from "@/components/ui/CursorEffect"
 
 const THEME = {
   color: "rgba(255, 255, 255, 0.05)",
@@ -10,7 +10,7 @@ const THEME = {
     from: "from-white/40",
     to: "to-white/60",
   },
-};
+}
 
 const products = [
   {
@@ -21,7 +21,7 @@ const products = [
   {
     name: "Musitron",
     path: "/dashboard/musitron",
-    description: "Idea Powered  full music generation",
+    description: "Idea Powered full music generation",
   },
   {
     name: "Shield",
@@ -48,7 +48,7 @@ const products = [
     path: "/dashboard/meditron",
     description: "Meditation and wellness tracker",
   },
-];
+]
 
 export default function Dashboard() {
   return (
@@ -61,14 +61,10 @@ export default function Dashboard() {
                         shadow-[0_0_0_1px_rgba(255,255,255,0.02)]
                         hover:shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
         >
-          <h1 className="text-3xl font-semibold tracking-tight text-white/90">
-            Insturance Dashboard
-          </h1>
-          <p className="text-white/60 mt-2 text-lg font-light">
-            Manage all your products and services from one place
-          </p>
+          <h1 className="text-3xl font-semibold tracking-tight text-white/90">Insturance Dashboard</h1>
+          <p className="text-white/60 mt-2 text-lg font-light">Manage all your products and services from one place</p>
         </div>
-        <DashboardCard.Grid>
+        <DashboardCardGrid>
           {products.map((product) => (
             <DashboardCard
               key={product.name}
@@ -77,8 +73,9 @@ export default function Dashboard() {
               href={product.path}
             />
           ))}
-        </DashboardCard.Grid>
+        </DashboardCardGrid>
       </DashboardShell>
     </>
-  );
+  )
 }
+

@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient, Query } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { simulateProgress, updateQueueState, estimateQueueWaitTime } from "../utils/progress";
 
 export interface Analysis {
@@ -15,7 +15,7 @@ export interface Analysis {
   queuePosition?: number;
   results?: {
     category: string;
-    metrics?: Record<string, any>;
+    metrics?: Record<string, unknown>;
     insights?: string[];
   };
   error?: {
@@ -29,12 +29,12 @@ export interface Analysis {
   };
 }
 
-interface AnalysisProgress {
+{ /* interface AnalysisProgress {
   progress: number;
   status: Analysis['status'];
   queuePosition?: number;
   estimatedWaitTime?: number;
-}
+} */}
 
 const POLL_INTERVAL = 2000; // 2 seconds
 

@@ -2,9 +2,9 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { VideoUpload } from './VideoUpload';
-import { AnalysisList } from './AnalysisList';
+import { AnalysisList } from '../../../hooks/AnalysisList';
 import { AlyzitronAnalysis, VideoType } from '@/app/api/services/alyzitron/types';
-import type { Analysis } from '../hooks/useAnalysisState';
+import type { Analysis } from '@/hooks/useAnalysisState';
 
 interface ClientWrapperProps {
   initialAnalyses: AlyzitronAnalysis[];
