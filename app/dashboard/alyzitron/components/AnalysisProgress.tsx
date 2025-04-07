@@ -26,22 +26,23 @@ interface AnalysisProgressProps {
   type?: VideoType;
   status?: AnalysisStatus;
   progress?: number;
-  queuePosition?: number; // Display queue position if available
-  // expectedWaitSeconds removed
+  queuePosition?: number;
+  unread?: boolean;
   error?: AnalysisError;
+  expectedDurationSeconds?: number;
   onCancel?: (taskId: string) => void;
 }
 
 export function AnalysisProgress({
-  // Destructure props directly, removing duplicate analysisId
   analysisId,
   taskId,
   title,
   status,
   progress = 0,
   queuePosition,
-  // expectedWaitSeconds removed
+  unread = false,
   error,
+  expectedDurationSeconds,
   onCancel
 }: AnalysisProgressProps) {
   const router = useRouter();
@@ -96,7 +97,7 @@ export function AnalysisProgress({
         initial={{ scale: 0.8, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ delay: 0.1, duration: 0.3 }} // Slight delay for the icon animation
-        className="h-10 w-10 rounded-lg bg-gradient-to-tr from-green-500 to-emerald-400 text-white flex items-center justify-center"
+        className={`h-10 w-10 rounded-lg ${unread ? 'bg-gradient-to-tr from-green-500 to-emerald-400 text-white' : 'bg-white text-black'} flex items-center justify-center`}
       >
         <motion.svg
           initial={{ pathLength: 0 }}
@@ -172,7 +173,7 @@ export function AnalysisProgress({
             <ProgressBar
               progress={progress}
               status={status}
-              expectedDurationSeconds={30} // Default duration matches AnalysisList.tsx
+              expectedDurationSeconds={expectedDurationSeconds}
             />
           </div>
         )}

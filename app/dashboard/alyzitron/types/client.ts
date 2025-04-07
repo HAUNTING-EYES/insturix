@@ -12,6 +12,7 @@ export interface ClientAlyzitronAnalysis {
   estimatedTime: number;
   progress: number;
   queuePosition?: number;
+  unread: boolean;
   results: any | null;
   error?: {
     code: string;

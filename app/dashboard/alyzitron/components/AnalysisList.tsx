@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {  useQuery } from '@tanstack/react-query';
+import React, { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
-import { ChevronRight } from 'lucide-react';
-import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
+import { ChevronLeft, ChevronRight } from 'lucide-react'; // Added ChevronLeft
+// Removed useVideoAnalysis - not used directly here anymore
 import { AnalysisProgress } from './AnalysisProgress';
-import { AnalysisStatus as ApiAnalysisStatus } from '@/app/api/services/alyzitron/types';
+// Removed ApiAnalysisStatus - not used directly
 import type { ClientAlyzitronAnalysis } from '../types/client';
 
 interface FetchedAlyzitronAnalysis extends ClientAlyzitronAnalysis {
@@ -15,15 +15,18 @@ interface FetchedAlyzitronAnalysis extends ClientAlyzitronAnalysis {
   queuePosition?: number;
 }
 
-interface ManagedAnalysis extends FetchedAlyzitronAnalysis {
-  displayStatus: ApiAnalysisStatus;
-  estimatedProgress: number;
-  processingStartTime?: number;
+interface PaginatedResponse {
+  data: FetchedAlyzitronAnalysis[];
+  pagination: {
+    totalItems: number;
+    totalPages: number;
+    currentPage: number;
+    itemsPerPage: number;
+  };
 }
 
 interface AnalysisListProps {
-  initialAnalyses: FetchedAlyzitronAnalysis[];
-  maxDisplayItems?: number;
+  itemsPerPage?: number;
 }
 
 interface AnalysisUpdateEvent extends Partial<Omit<ClientAlyzitronAnalysis, '_id' | 'metadata'>> {
@@ -32,254 +35,122 @@ interface AnalysisUpdateEvent extends Partial<Omit<ClientAlyzitronAnalysis, '_id
   metadata?: Partial<ClientAlyzitronAnalysis['metadata']>;
 }
 
-export function AnalysisList({ initialAnalyses, maxDisplayItems }: AnalysisListProps) {
-  const { cancelAnalysis } = useVideoAnalysis();
-  const [managedAnalyses, setManagedAnalyses] = useState<ManagedAnalysis[]>([]);
-  const [showAll, setShowAll] = useState(false);
-  const analysisRefs = useRef<Record<string, ManagedAnalysis>>({});
+const DEFAULT_ITEMS_PER_PAGE = 10;
 
-  const { data: fetchedAnalyses = initialAnalyses, isSuccess } = useQuery<FetchedAlyzitronAnalysis[], Error>({
-    queryKey: ['analyses'],
+export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AnalysisListProps) {
+  const queryClient = useQueryClient();
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
+    queryKey: ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }],
     queryFn: async () => {
-      const response = await fetch('/api/services/alyzitron/analyses');
-      if (!response.ok) throw new Error('Failed to fetch analyses');
-      return response.json();
+      const url = `/api/services/alyzitron/analyses?status=completed,failed&page=${currentPage}&limit=${itemsPerPage}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const errorData = await response.text();
+        console.error("Failed to fetch analyses:", errorData);
+        throw new Error(`Failed to fetch analyses (status: ${response.status})`);
+      }
+      const data: PaginatedResponse = await response.json();
+      return data;
     },
-    initialData: initialAnalyses,
-    refetchOnMount: true,
+    placeholderData: (previousData) => previousData,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
-    refetchInterval: false,
-    staleTime: 1000 * 60 * 5,
-    gcTime: 1000 * 60 * 10,
+    staleTime: 1000 * 60 * 1,
+    gcTime: 1000 * 60 * 5,
   });
 
-  useEffect(() => {
-    const newRefs: Record<string, ManagedAnalysis> = {};
-    managedAnalyses.forEach(a => {
-      newRefs[a._id] = a;
-    });
-    analysisRefs.current = newRefs;
-  }, [managedAnalyses]);
+  const analyses = paginatedData?.data ?? [];
+  const { totalPages = 1 } = paginatedData?.pagination ?? {};
 
-  const updateAnalysisState = useCallback((analysisId: string, updates: Partial<ManagedAnalysis>) => {
-    setManagedAnalyses(prevAnalyses =>
-      prevAnalyses.map(a => {
-        if (a._id === analysisId) {
-          const updatedAnalysis = { ...a, ...updates };
-          analysisRefs.current[analysisId] = updatedAnalysis;
-          return updatedAnalysis;
-        }
-        return a;
-      })
-    );
-  }, []);
-
-  // SSE event handler
-  useEffect(() => {
-    const handleAnalysisUpdate = (data: AnalysisUpdateEvent) => {
-      const analysisId = data.analysisId || data._id;
-      if (!analysisId) return;
-
-      setManagedAnalyses(prevAnalyses => {
-        // Create a new array to avoid mutation
-        const newAnalyses = [...prevAnalyses];
-        const existingIndex = newAnalyses.findIndex(a => a._id === analysisId);
-        const currentProgress = existingIndex !== -1 ? newAnalyses[existingIndex].estimatedProgress : 0;
-        
-        // Determine correct status and progress
-        let newStatus: ApiAnalysisStatus = data.status ?? 'queued';
-        let newProgress = data.progress ?? currentProgress;
-
-        // State transition rules
-        if (existingIndex !== -1) {
-          const existing = newAnalyses[existingIndex];
-          
-          // Protect completed state
-          if (existing.displayStatus === 'completed') {
-            return prevAnalyses; // No changes to completed analysis
-          }
-          
-          // Protect processing state from going back to queued
-          if (existing.displayStatus === 'processing' && newStatus === 'queued') {
-            newStatus = 'processing';
-            newProgress = existing.estimatedProgress;
-          }
-        }
-        
-        if (existingIndex === -1) {
-          // Add new analysis with verified state
-          // Use the ID directly since we're working with strings on the client
-          const normalizedId = (data._id || data.analysisId)?.toString() || '';
-
-          // Create base analysis with required fields
-          const newAnalysis: ManagedAnalysis = {
-            _id: normalizedId,
-            displayStatus: newStatus,
-            estimatedProgress: newProgress,
-            clerkUserId: data.clerkUserId || '',
-            videoUrl: data.videoUrl || '',
-            gcsPath: data.gcsPath || '',
-            type: data.type || 'SHORT_FORM',
-            status: data.status || 'queued',
-            taskId: data.taskId || '',
-            estimatedTime: data.estimatedTime || 0,
-            progress: data.progress || 0,
-            results: null,
-            metadata: {
-              originalFilename: data.metadata?.originalFilename || 'Untitled',
-              videoSize: data.metadata?.videoSize || 0,
-              videoDuration: data.metadata?.videoDuration || 0,
-              mimeType: data.metadata?.mimeType || 'video/mp4'
-            },
-            createdAt: new Date(),
-            updatedAt: new Date(),
-            processingStartTime: newStatus === 'processing' ? Date.now() : undefined
-          };
-
-          // Override with any valid update data
-          if (data.error) newAnalysis.error = data.error;
-          if (data.queuePosition) newAnalysis.queuePosition = data.queuePosition;
-          if (data.metadata?.title) newAnalysis.metadata.title = data.metadata.title;
-          if (data.metadata?.description) newAnalysis.metadata.description = data.metadata.description;
-          if (data.metadata?.niche) newAnalysis.metadata.niche = data.metadata.niche;
-          if (data.metadata?.target_audience) newAnalysis.metadata.target_audience = data.metadata.target_audience;
-          if (data.metadata?.additional_details) newAnalysis.metadata.additional_details = data.metadata.additional_details;
-
-          return [newAnalysis, ...prevAnalyses];
-        }
-        
-        // Update existing analysis with state protection
-        // Use the ID directly since we're working with strings on the client
-        const normalizedUpdateId = (data._id || data.analysisId)?.toString() || '';
-
-        // Update existing analysis while preserving required fields
-        const existingAnalysis = newAnalyses[existingIndex];
-        const updatedAnalysis: ManagedAnalysis = {
-          ...existingAnalysis,
-          _id: normalizedUpdateId,
-          displayStatus: newStatus,
-          estimatedProgress: newProgress,
-          processingStartTime: newStatus === 'processing' && existingAnalysis.displayStatus !== 'processing'
-            ? Date.now()
-            : existingAnalysis.processingStartTime
-        };
-
-        // Safely update optional fields from the event
-        if (data.error) updatedAnalysis.error = data.error;
-        if (data.queuePosition) updatedAnalysis.queuePosition = data.queuePosition;
-        if (data.metadata) {
-          updatedAnalysis.metadata = {
-            ...existingAnalysis.metadata,
-            ...(data.metadata.title && { title: data.metadata.title }),
-            ...(data.metadata.description && { description: data.metadata.description }),
-            ...(data.metadata.niche && { niche: data.metadata.niche }),
-            ...(data.metadata.target_audience && { target_audience: data.metadata.target_audience }),
-            ...(data.metadata.additional_details && { additional_details: data.metadata.additional_details })
-          };
-        }
-
-        newAnalyses[existingIndex] = updatedAnalysis;
-        
-        return newAnalyses;
-      });
-    };
-
-    // Import emitter dynamically to avoid circular deps if any
-    let cleanupListener: (() => void) | undefined;
-    
-    import('@/lib/sseManager').then(({ analysisEventEmitter }) => {
-      analysisEventEmitter.on('analysisUpdate', handleAnalysisUpdate);
-      cleanupListener = () => analysisEventEmitter.off('analysisUpdate', handleAnalysisUpdate);
-    });
-
-    return () => {
-      cleanupListener?.();
-    };
-  }, []);
-
-  // Initialize managed analyses from fetched data
-  useEffect(() => {
-    if (!isSuccess || !fetchedAnalyses) return;
-
-    const initialManagedState: ManagedAnalysis[] = fetchedAnalyses.map(analysis => ({
-      ...analysis,
-      displayStatus: analysis.status,
-      estimatedProgress: analysis.status === 'completed' ? 1 : 0,
-    }));
-
-    setManagedAnalyses(initialManagedState);
-  }, [isSuccess, fetchedAnalyses]);
-
-  // Handle analysis cancellation
-  const handleCancel = async (taskId: string) => {
-    const analysisToCancel = Object.values(analysisRefs.current).find(a => a.taskId === taskId);
-    if (!analysisToCancel) return;
-
-    const analysisId = analysisToCancel._id;
-
-    updateAnalysisState(analysisId, {
-      displayStatus: 'failed',
-      status: 'failed',
-      error: { code: 'USER_CANCELLED', message: 'Cancelled by user' },
-      estimatedProgress: 0
-    });
-
-    try {
-      await cancelAnalysis(taskId);
-    } catch (error) {
-      console.error('Failed to cancel analysis:', error);
-    }
+  const handlePreviousPage = () => {
+    setCurrentPage((prev) => Math.max(prev - 1, 1));
   };
+
+  const handleNextPage = () => {
+    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+  };
+
+  // Removed local state management (managedAnalyses, analysisRefs)
+  // Removed updateAnalysisState callback
+  // Removed SSE event handler useEffect - assuming centralized handling updates the query cache
+
+  // Removed useEffect for deriving managedAnalyses
+
+  // Removed handleCancel - not applicable to completed/failed items in this list
 
   return (
     <div>
+      {/* Title - Simplified */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-medium text-zinc-100">
-          {showAll ? "All Analyses" : "Recent Analyses"}
+          Completed Analyses
         </h2>
-        <Button
-          variant="ghost"
-          className="text-zinc-400 hover:text-zinc-300"
-          onClick={() => setShowAll(!showAll)}
-        >
-          {showAll ? (
-            <>
-              Show Recent
-              <ChevronRight className="ml-2 h-4 w-4 rotate-180" />
-            </>
-          ) : (
-            <>
-              View All
-              <ChevronRight className="ml-2 h-4 w-4" />
-            </>
-          )}
-        </Button>
+        {/* Removed View All / Show Recent Button */}
       </div>
-      <div className="space-y-4 max-h-[600px] overflow-y-auto">
-        {(showAll ? managedAnalyses : managedAnalyses.slice(0, maxDisplayItems || 5)).map((analysis) => (
+      {/* Analysis List Area */}
+      <div className="space-y-4 min-h-[200px] relative"> {/* Added min-height */}
+        {/* Loading Overlay - Uses isLoading from the paginated query */}
+        {isLoading && (
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 to-black/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-md transition-opacity duration-300">
+            <div className="w-8 h-8 border-4 border-zinc-600 border-t-zinc-100 rounded-full animate-spin" />
+          </div>
+        )}
+        {/* Error Message */}
+        {isError && (
+            <div className="text-center py-8 text-red-500">
+                Error loading analyses: {error?.message || 'Unknown error'}
+            </div>
+        )}
+        {/* Map over the paginated analyses */}
+        {analyses.map((analysis: FetchedAlyzitronAnalysis) => (
           <AnalysisProgress
             key={analysis._id}
-            analysisId={analysis._id}
+            analysisId={analysis._id.toString()}
             taskId={analysis.taskId}
             title={analysis.metadata?.originalFilename}
             type={analysis.type}
-            status={analysis.displayStatus}
-            progress={analysis.estimatedProgress}
-            queuePosition={analysis.displayStatus === 'queued' ? analysis.queuePosition : undefined}
+            status={analysis.status}
+            progress={analysis.progress ?? (analysis.status === 'completed' ? 1 : 0)}
             error={analysis.error}
-            onCancel={analysis.taskId && (analysis.displayStatus === 'queued' || analysis.displayStatus === 'processing') ? handleCancel : undefined}
+            unread={analysis.unread}
+            expectedDurationSeconds={analysis.expectedDurationSeconds}
+            onCancel={undefined}
           />
         ))}
 
-        {managedAnalyses.length === 0 && (
-          <div className="text-center py-8">
-            <p className="text-zinc-500">No analyses yet</p>
-            <p className="text-sm text-zinc-600">
-              Upload a video to start analyzing
-            </p>
+        {/* Empty State Message */}
+        {analyses.length === 0 && !isLoading && !isError && (
+          <div className="text-center py-8 text-zinc-500">
+            No completed analyses found.
           </div>
         )}
+      </div>
+
+      {/* Pagination Controls */}
+      <div className="flex items-center justify-center space-x-4 mt-6">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handlePreviousPage}
+          disabled={currentPage === 1 || isLoading}
+        >
+          <ChevronLeft className="mr-2 h-4 w-4" />
+          Previous
+        </Button>
+        <span className="text-sm text-zinc-400">
+          Page {currentPage} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleNextPage}
+          disabled={currentPage === totalPages || isLoading}
+        >
+          Next
+          <ChevronRight className="ml-2 h-4 w-4" />
+        </Button>
       </div>
     </div>
   );

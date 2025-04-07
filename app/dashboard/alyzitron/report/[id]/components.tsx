@@ -95,7 +95,7 @@ export function AnalysisDetails({ analysisData }: AnalysisDetailsProps) {
                         <p className="text-sm text-zinc-400 leading-relaxed">{value.description}</p>
                       </div>
                       <div className="flex items-center ml-4 shrink-0">
-                       {section === 'compliance' ? (
+                       {section === 'compliance_risks' ? (
                           value.score ? (
                             <ScoreIndicator score={value.score} invert />
                           ) : null

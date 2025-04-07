@@ -27,11 +27,21 @@ async function getAnalysis(id: string) {
     }
 
     const { analyses } = await getCollections();
-    const analysis = await analyses.findOne({
-      _id: objectId,
-      clerkUserId: session.userId,
-      status: 'completed',
-    });
+    
+    // Find and update the analysis document
+    const analysis = await analyses.findOneAndUpdate(
+      {
+        _id: objectId,
+        clerkUserId: session.userId,
+        status: 'completed',
+      },
+      {
+        $set: { unread: false }
+      },
+      {
+        returnDocument: 'after'
+      }
+    );
 
     if (!analysis) return null;
 

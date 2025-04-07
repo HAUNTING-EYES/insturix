@@ -1,10 +1,11 @@
 "use client";
 
-import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query'; // Added useQuery
+import { useState, useEffect } from 'react'; // Added useEffect
 import { useUser } from '@clerk/nextjs';
 import { useSSEConnection } from '@/hooks/useSSEConnection';
 import { VideoUpload } from './VideoUpload';
+import { InProgressAnalyses } from './InProgressAnalyses'; // Import the new component
 import { AnalysisList } from './AnalysisList';
 import { VideoType, AnalysisStatus } from '@/app/api/services/alyzitron/types';
 import type { Analysis } from '../hooks/useAnalysisState';
@@ -17,11 +18,26 @@ interface ClientWrapperProps {
 export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const queryClient = useQueryClient();
   const { user } = useUser();
-  
-  // Track all active analyses with their states
   const [activeAnalyses, setActiveAnalyses] = useState<Set<string>>(new Set());
 
-  // Initialize SSE connection
+  // Initialize and manage the 'analyses' query state
+  const { data: analysesData = initialAnalyses } = useQuery<ClientAlyzitronAnalysis[]>({
+    queryKey: ['analyses'],
+    queryFn: async () => {
+      // This function ideally shouldn't be called often if initialData is provided
+      // and updates happen via setQueryData/SSE. Fetch only if necessary.
+      console.warn("Fetching analyses directly in ClientWrapper, should be rare.");
+      const response = await fetch('/api/services/alyzitron/analyses');
+      if (!response.ok) throw new Error('Failed to fetch analyses');
+      return response.json();
+    },
+    initialData: initialAnalyses,
+    staleTime: 1000 * 60 * 5, // Keep data fresh for 5 mins
+    gcTime: 1000 * 60 * 10,  // Garbage collect after 10 mins
+    refetchOnWindowFocus: false, // Avoid refetching on window focus
+  });
+
+  // Initialize SSE connection (assuming this hook might update the ['analyses'] query cache)
   useSSEConnection(user?.id || '');
 
 
@@ -44,6 +60,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
           gcsPath: analysis.videoUrl || '',
           progress: analysis.progress || 0,
           estimatedTime: analysis.estimatedTime || 60,
+          unread: true,
           results: null,
           metadata: {
             originalFilename: analysis.title || '',
@@ -83,46 +100,52 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     });
   };
 
+  // Effect to update activeAnalyses based on the query data
+  useEffect(() => {
+    const currentActive = new Set<string>();
+    analysesData.forEach(a => {
+      if (['pending', 'queued', 'processing'].includes(a.status)) {
+        currentActive.add(a._id.toString());
+      }
+    });
+    setActiveAnalyses(currentActive);
+  }, [analysesData]);
+
   return (
     <div className="space-y-8">
       <VideoUpload
         onSubmit={(analysisId: string, analysis) => {
+          // Optimistic update via handleAnalysisUpdate
           handleAnalysisUpdate(analysisId, {
             ...analysis,
-            status: 'queued',
+            status: 'queued', // Start as queued
             progress: 0
           });
-          setActiveAnalyses(prev => {
-            const newSet = new Set(prev);
-            newSet.add(analysisId);
-            return newSet;
-          });
+          // No need to manually setActiveAnalyses here, useEffect handles it
         }}
         onComplete={(analysisId: string, analysis) => {
           if (!analysisId) return;
           
           // Update with completed status before invalidating
+          // Ensure final update reflects completion
           handleAnalysisUpdate(analysisId, {
             ...analysis,
             status: 'completed',
             progress: 1
           });
-          
-          // Remove from active analyses
-          setActiveAnalyses(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(analysisId);
-            return newSet;
-          });
-          
-          // Then refresh to get server data
+
+          // Invalidate to ensure consistency, though SSE might handle this
+          // Consider if this invalidation is still needed with SSE updates
           queryClient.invalidateQueries({ queryKey: ['analyses'] });
         }}
-        activeAnalyses={activeAnalyses}
+        activeAnalyses={activeAnalyses} // Pass the derived active analyses
       />
+      {/* Add the InProgressAnalyses section */}
+      <InProgressAnalyses />
+
+      {/* AnalysisList now only shows completed/failed */}
       <AnalysisList
-        initialAnalyses={initialAnalyses}
-        maxDisplayItems={5}
+        itemsPerPage={10}
       />
     </div>
   );

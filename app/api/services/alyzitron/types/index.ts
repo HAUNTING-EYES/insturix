@@ -88,6 +88,7 @@ export interface AlyzitronAnalysis {
   estimatedTime: number;    // in seconds
   progress: number;         // 0-1 for processing status
   queuePosition?: number;   // Only present when status is 'queued'
+  unread: boolean;          // Indicates if the analysis results are unread
   results: AnalysisResults | null;
   error?: {
     code: string;

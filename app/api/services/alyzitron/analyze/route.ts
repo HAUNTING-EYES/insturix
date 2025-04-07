@@ -89,6 +89,7 @@ export async function POST(request: Request) {
         gcsPath: video_url.startsWith('services/alyzitron/') ? video_url : '',
         type: formatVideoType(type) as AlyzitronAnalysis['type'], // Use type from AlyzitronAnalysis
         status: 'queued',
+        unread: true,
         taskId: responseData.task_id,
         estimatedTime: responseData.estimated_time || 120,
         progress: 0,
