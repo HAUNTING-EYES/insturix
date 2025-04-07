@@ -354,22 +354,13 @@ function UserMenu() {
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <Link href="/signin">
+          <Link href="/waitlist">
             <Button
               variant="ghost"
               className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
               onClick={(e) => e.currentTarget.blur()}
             >
-              Sign In
-            </Button>
-          </Link>
-          <Link href="/signup">
-            <Button
-              variant="default"
-              className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
-              onClick={(e) => e.currentTarget.blur()}
-            >
-              Sign Up
+              Join Waitlist
             </Button>
           </Link>
         </div>
@@ -432,3 +423,41 @@ function MobileNavItem({
     </button>
   );
 }
+
+
+
+{/*{isSignedIn ? (
+  <div className="flex items-center space-x-2">
+    <Button
+      variant="ghost"
+      className="touch-feedback bg-transparent focus:bg-transparent focus-visible:ring-0"
+      onClick={(e) => {
+        e.currentTarget.blur();
+        router.push("/dashboard");
+      }}
+    >
+      Dashboard
+    </Button>
+  </div>
+) : (
+  <div className="flex items-center gap-2">
+    <Link href="/signin">
+      <Button
+        variant="ghost"
+        className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
+        onClick={(e) => e.currentTarget.blur()}
+      >
+        Sign In
+      </Button>
+    </Link>
+    <Link href="/signup">
+      <Button
+        variant="default"
+        className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
+        onClick={(e) => e.currentTarget.blur()}
+      >
+        Sign Up
+      </Button>
+    </Link>
+  </div>
+)} */}
