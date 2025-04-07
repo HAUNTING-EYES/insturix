@@ -69,9 +69,9 @@ export default function DashboardSidebar() {
             `}
       >
         {/* Logo section */}
-        <div className="h-16 flex items-center px-4 border-b border-white/10">
+        <div className="h-16 flex items-center justify-center px-4 border-b border-white/10">
           <Link href="/" className={`font-bold text-lg logotext flex items-center justify-center h-full`}>
-            INSTURANCE
+            INSTURIX
           </Link>
         </div>
 

@@ -22,7 +22,7 @@ export default function Dashboard() {
                         shadow-[0_0_0_1px_rgba(255,255,255,0.02)]
                         hover:shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
         >
-          <h1 className="text-3xl font-semibold tracking-tight text-white/90">Insturance Dashboard</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-white/90">Insturix Dashboard</h1>
           <p className="text-white/60 mt-2 text-lg font-light">Manage all your products and services from one place</p>
         </div>
       </DashboardShell>

@@ -219,7 +219,7 @@ export default function SupportContent() {
               </div>
               <div className="flex items-center space-x-2 text-blue-500">
                 <Mail className="w-5 h-5" />
-                <span>support@insturance.com</span>
+                <span>support@insturix.com</span>
               </div>
             </div>
           </motion.div>

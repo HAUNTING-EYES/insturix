@@ -1,11 +1,11 @@
 export const companyData = {
-  name: "Insturance",
+  name: "Insturix",
   mission:
     "To empower social media users, influencers, and content creators by safeguarding their digital presence, simplifying their growth journey, and providing them with tools to focus on what they do best—creating impactful content thus creating a whole ecosystem for the creators.",
   vision:
     "We strive to revolutionize the influencer ecosystem with protection, innovation, and growth, ensuring creators feel secure. By unifying social media platforms, we offer seamless experiences and plan to integrate General AI, empowering tools to help creators achieve their goals.",
   story:
-    "Insturance was born out of a simple realization: creators face endless challenges—from copyright claims to community guideline strikes—that can jeopardize their hard work. Recognizing the need for a robust safety net, we set out to design a platform that not only protects creators but also enhances their journey toward success.",
+    "Insturix was born out of a simple realization: creators face endless challenges—from copyright claims to community guideline strikes—that can jeopardize their hard work. Recognizing the need for a robust safety net, we set out to design a platform that not only protects creators but also enhances their journey toward success.",
   values: [
     { name: "Empowerment", icon: "Zap" },
     { name: "Innovation", icon: "BrainCircuit" },

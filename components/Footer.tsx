@@ -42,13 +42,13 @@ const supportLinks = [
 ];
 
 const companySocials = [
-  { icon: BsTwitterX, label: "Twitter", link: "https://x.com/insturance_co" },
+  { icon: BsTwitterX, label: "Twitter", link: "https://x.com/insturix_co" },
   {
     icon: Linkedin,
     label: "LinkedIn",
-    link: "https://linkedin.com/company/insturance",
+    link: "https://linkedin.com/company/insturix",
   },
-  { icon: Github, label: "GitHub", link: "https://github.com/insturance" },
+  { icon: Github, label: "GitHub", link: "https://github.com/insturix" },
 ];
 
 const validationSchema = Yup.object({
@@ -205,7 +205,7 @@ export default function Footer() {
           <div className="border-t border-neutral-200/50 dark:border-neutral-800/50 mt-12 pt-4">
             <div className="flex flex-col md:flex-row justify-between items-center gap-6">
               <div className="flex flex-wrap justify-center md:justify-start items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
-                <span>© 2025 Insturance. All rights reserved.</span>
+                <span>© 2025 Insturix. All rights reserved.</span>
                 <div className="h-1 w-1 rounded-full bg-muted-foreground/30 hidden md:block" />
                 {companyLinks.map((item) => (
                   <Link

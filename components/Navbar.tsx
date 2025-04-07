@@ -19,8 +19,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
-import DarkLogo from "@/public/brand/insturance_black.png";
-import LightLogo from "@/public/brand/insturance_white.png";
+import DarkLogo from "@/public/brand/insturix_black.png";
+import LightLogo from "@/public/brand/insturix_white.png";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter, usePathname } from "next/navigation";
 
@@ -51,7 +51,7 @@ const LogoAnimation = () => {
             {theme === "light" ? (
               <Image
                 src={DarkLogo}
-                alt="Insturance Logo"
+                alt="Insturix Logo"
                 width={48}
                 height={48}
                 className="rounded-full"
@@ -59,7 +59,7 @@ const LogoAnimation = () => {
             ) : (
               <Image
                 src={LightLogo}
-                alt="Insturance Logo"
+                alt="Insturix Logo"
                 width={48}
                 height={48}
                 className="rounded-full"
@@ -76,7 +76,7 @@ const LogoAnimation = () => {
             className="absolute inset-0 flex items-center"
           >
             <span className="logotext flex items-center h-full transform">
-              INSTURANCE
+              INSTURIX
             </span>
           </motion.div>
         )}
@@ -91,13 +91,12 @@ const menuItems = [
     href: "/products",
     subItems: [
       { title: "Alyzitron", href: "/products/alyzitron" },
-      { title: "Musicotron", href: "/products/musicotron" },
+      { title: "Musitron", href: "/products/musitron" },
       { title: "Socialize", href: "/products/socialize" },
       { title: "Editron", href: "/products/editron" },
       { title: "Shield", href: "/products/shield" },
       { title: "ThinkForge", href: "/products/thinkforge" },
       { title: "Meditron", href: "/products/meditron" },
-      { title: "Musicotron", href: "/musicotron" },
     ],
   },
   {

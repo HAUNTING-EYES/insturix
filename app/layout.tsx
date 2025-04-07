@@ -11,7 +11,7 @@ import { TransitionProvider } from "@/components/Loader/TransitionProvider";
 import { Inter } from "next/font/google";
 
 export const metadata: Metadata = {
-  title: "Insturance",
+  title: "Insturix",
   description: "Building Future, Together.",
 };
 

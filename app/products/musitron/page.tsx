@@ -66,11 +66,11 @@ const useCases = [
 
 const headerContent = {
   title: "Create Custom Music with",
-  highlightText: "Musicotron",
+  highlightText: "Musitron",
   description:
     "Generate unique AI-powered music across multiple genres, add your own lyrics, and create the perfect soundtrack for any project.",
   videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
-  videoTitle: "AI Music Generation with Musicotron",
+  videoTitle: "AI Music Generation with Musitron",
   getStartedLink: "/signup",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
@@ -89,7 +89,7 @@ const headerContent = {
     "Kundli Analysis Complete:\n- Rising Sign: Leo\n- Moon Sign: Taurus\n- Key Planetary Positions\n- Life Path Number: 7\n- Current Dasha: Jupiter",
 }; */}
 
-export default function Musicotron() {
+export default function Musitron() {
   return (
     <>
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />

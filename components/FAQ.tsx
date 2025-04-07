@@ -13,9 +13,9 @@ import { ArrowRight } from "lucide-react";
 
 const faqs = [
   {
-    question: "What is Insturance?",
+    question: "What is Insturix?",
     answer:
-      "Insturance is a suite of AI-powered digital solutions designed to help businesses and individuals enhance their digital experiences with cutting-edge technology.",
+      "Insturix is a suite of AI-powered digital solutions designed to help businesses and individuals enhance their digital experiences with cutting-edge technology.",
   },
   {
     question: "How do I get started?",
@@ -48,7 +48,7 @@ const faqs = [
       "Yes, our products are designed with integration in mind. We provide comprehensive APIs and documentation for seamless integration.",
   },
   {
-    question: "What makes Insturance different?",
+    question: "What makes Insturix different?",
     answer:
       "Our unique combination of AI technology, user-focused design, and commitment to innovation sets us apart. We're constantly evolving to meet our users' needs.",
   },

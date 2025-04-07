@@ -22,11 +22,11 @@ export interface BlogPost {
 export const blogPosts: BlogPost[] = [
   {
     id: "1",
-    title: "How Insturance Protects Influencer's Accounts",
+    title: "How Insturix Protects Influencer's Accounts",
     content:
-      "In the high-stakes world of social media, where influencers invest countless hours and creativity to build their digital empires, one misstep—whether a copyright dispute, an unexpected community guideline violation, or a hacked account—can erase years of effort overnight. Enter Insturance: the first-of-its-kind insurance platform designed exclusively for content creators. Insturance offers comprehensive protection against account suspensions, legal disputes over intellectual property, and even revenue loss during appeals. For a monthly subscription, creators gain access to 24/7 legal support, rapid account recovery services, and financial compensation for lost partnerships during downtime. The platform also provides proactive safeguards, like AI-powered content audits to flag potential guideline violations before posting. With Insturance, influencers can innovate boldly, knowing their livelihood is shielded from the unpredictable risks of platform algorithms and content ownership",
+      "In the high-stakes world of social media, where influencers invest countless hours and creativity to build their digital empires, one misstep—whether a copyright dispute, an unexpected community guideline violation, or a hacked account—can erase years of effort overnight. Enter Insturix: the first-of-its-kind insurance platform designed exclusively for content creators. Insturix offers comprehensive protection against account suspensions, legal disputes over intellectual property, and even revenue loss during appeals. For a monthly subscription, creators gain access to 24/7 legal support, rapid account recovery services, and financial compensation for lost partnerships during downtime. The platform also provides proactive safeguards, like AI-powered content audits to flag potential guideline violations before posting. With Insturix, influencers can innovate boldly, knowing their livelihood is shielded from the unpredictable risks of platform algorithms and content ownership",
     excerpt:
-      "Influencers face growing risks online – Insturance safeguards their platforms, giving them peace of mind to focus on creating engaging content, building their brand, and connecting with their audience freely.",
+      "Influencers face growing risks online – Insturix safeguards their platforms, giving them peace of mind to focus on creating engaging content, building their brand, and connecting with their audience freely.",
     date: "23 January 2025",
     author: {
       name: "Nimit Jain",

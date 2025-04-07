@@ -41,7 +41,7 @@ export const LoadingScreen = () => {
           repeat: Infinity,
         }}
       >
-        INSTURANCE
+        INSTURIX
       </motion.h1>
     </motion.div>
   );

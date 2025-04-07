@@ -96,7 +96,7 @@ export default function TimeLine() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
       >
-        Journey of Insturance ✨
+        Journey of Insturix ✨
       </motion.h2>
       <div className="max-w-6xl mx-auto">
         {timelineData.map((yearData, index) => (

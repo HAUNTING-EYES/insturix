@@ -92,7 +92,7 @@ export async function POST(req: Request) {
     const headersList = await headers();
     const host = headersList.get("host");
     const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
-    const callbackUrl = `${protocol}://${host}/api/services/musicotron/callback`;
+    const callbackUrl = `${protocol}://${host}/api/services/musitron/callback`;
     const payload = {
       prompt: body.customMode ? body.lyrics : body.songDescription,
       style: body.customMode ? body.style : "",

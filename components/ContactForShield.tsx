@@ -218,7 +218,7 @@ export default function ContactForShield() {
                     <div className="space-y-3">
                       <div className="flex items-center text-sm">
                         <Mail className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>info@insturance.com</span>
+                        <span>info@insturix.com</span>
                       </div>
                       <div className="flex items-center text-sm">
                         <User className="h-4 w-4 mr-3 text-zinc-500" />

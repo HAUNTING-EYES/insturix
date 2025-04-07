@@ -23,9 +23,9 @@ export const timelineData: TimeLineItem[] = [
       },
       {
         date: "August 20",
-        description: "Began brainstorming additional features for Insturance",
+        description: "Began brainstorming additional features for Insturix",
       },
-      { date: "September 19", description: "Official launch of Insturance" },
+      { date: "September 19", description: "Official launch of Insturix" },
       {
         date: "November 15",
         description: "Finalized three key subscription-based products/services",
@@ -44,7 +44,7 @@ export const timelineData: TimeLineItem[] = [
       {
         date: "November 23",
         description:
-          "Pitched Insturance at Jaypee Business School during RideHack competition",
+          "Pitched Insturix at Jaypee Business School during RideHack competition",
       },
       {
         date: "December 12",
@@ -83,7 +83,7 @@ export const timelineData: TimeLineItem[] = [
       {
         date: "January 21",
         description:
-          "Proposed creation of a social media platform integrated into Insturance",
+          "Proposed creation of a social media platform integrated into Insturix",
       },
       {
         date: "January 24",

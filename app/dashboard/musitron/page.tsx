@@ -1,5 +1,5 @@
-import MusicotronDashboard from '@/components/dashboard/Musitron/MusicotronDashboard';
+import MusitronDashboard from '@/components/dashboard/Musitron/MusitronDashboard';
 
-export default function MusicotronPage() {
-  return <MusicotronDashboard />;
+export default function MusitronPage() {
+  return <MusitronDashboard />;
 }

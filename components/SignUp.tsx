@@ -28,7 +28,7 @@ export default function SignUpPage() {
                   <CardHeader className="relative z-10">
                     <CardTitle>Create your account</CardTitle>
                     <CardDescription>
-                      Welcome To Insturance! Please fill in the details to get started.
+                      Welcome To Insturix! Please fill in the details to get started.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="grid gap-y-6 px-6 relative z-10">

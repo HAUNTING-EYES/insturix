@@ -189,7 +189,7 @@ export default function TeamContent() {
               <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl" />
             </h1>
             <p className="text-zinc-600 dark:text-zinc-400 mb-12 text-lg">
-              Meet the talented individuals behind Insturance
+              Meet the talented individuals behind Insturix
             </p>
 
             {/* Leadership */}
