@@ -1,8 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 import { auth } from "@clerk/nextjs/server";
-import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
-import { serializeAnalyses } from "../../../utils/serialization";
+import { getCollections } from "@/utils/mongodb";
+import { serializeAnalyses } from "@/utils/serialization";
 
 export const dynamic = "force-dynamic";
 

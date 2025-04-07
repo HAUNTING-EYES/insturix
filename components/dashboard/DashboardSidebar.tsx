@@ -1,32 +1,18 @@
-"use client";
+"use client"
 
-import { useUser, useClerk } from "@clerk/nextjs";
-import Link from "next/link";
-import { useState } from "react";
-import { Home, Settings, CreditCard, LogOut } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogOverlay,
-} from "@/components/ui/dialog";
-import { UserProfile } from "@clerk/nextjs";
-import Image from "next/image";
+import { useUser } from "@clerk/nextjs"
+import Link from "next/link"
+import { useState } from "react"
+import { Home } from "lucide-react"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogOverlay } from "@/components/ui/dialog"
+import { UserProfile } from "@clerk/nextjs"
+import UserDropdown from "@/components/ui/CustomToolTip"
 
 export default function DashboardSidebar() {
-  const { user } = useUser();
-  const { signOut } = useClerk();
-  const [isOpen, setIsOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isUpgradeOpen, setIsUpgradeOpen] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { user } = useUser()
+  const [isOpen, setIsOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [isUpgradeOpen, setIsUpgradeOpen] = useState(false)
 
   const products = [
     { name: "Alyzitron", path: "/dashboard/alyzitron" },
@@ -36,7 +22,7 @@ export default function DashboardSidebar() {
     { name: "Shield", path: "/dashboard/shield" },
     { name: "ThinkForge", path: "/dashboard/thinkforge" },
     { name: "Musitron", path: "/dashboard/musitron" },
-  ];
+  ]
 
   return (
     <>
@@ -74,25 +60,17 @@ export default function DashboardSidebar() {
       </div>
 
       <nav
-        style={{ willChange: "transform" }}
         className={`
                 fixed top-0 left-0 bottom-0 h-[100dvh] w-[85vw] sm:w-[280px] lg:w-[240px]
                 bg-zinc-900 border-r border-white/10
                 flex flex-col z-[95]
                 transition-all duration-300 ease-in-out
-                ${
-                  isOpen
-                    ? "translate-x-0 opacity-100"
-                    : "-translate-x-full opacity-0 lg:translate-x-0 lg:opacity-100"
-                }
+                ${isOpen ? "translate-x-0 opacity-100" : "-translate-x-full opacity-0 lg:translate-x-0 lg:opacity-100"}
             `}
       >
         {/* Logo section */}
         <div className="h-16 flex items-center px-4 border-b border-white/10">
-          <Link
-            href="/"
-            className={`font-bold text-lg logotext flex items-center justify-center h-full`}
-          >
+          <Link href="/" className={`font-bold text-lg logotext flex items-center justify-center h-full`}>
             INSTURANCE
           </Link>
         </div>
@@ -108,12 +86,12 @@ export default function DashboardSidebar() {
                 onClick={() => setIsOpen(false)}
               >
                 <Home className="h-5 w-5 mr-2" />
-                <span className="text-sm font-medium tracking-wide text-white">
-                  Overview
-                </span>
+                <span className="text-sm font-medium tracking-wide text-white">Overview</span>
               </Link>
             </li>
-            <div className="h-px bg-white/10 my-2"></div>
+            <li>
+              <div className="h-px bg-white/10 my-2"></div>
+            </li>
             {products.map((product) => (
               <li key={product.name}>
                 <Link
@@ -122,9 +100,7 @@ export default function DashboardSidebar() {
                   className={`flex items-center px-4 py-2.5 rounded-lg w-full transition-all duration-200 text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1`}
                   onClick={() => setIsOpen(false)}
                 >
-                  <span className="text-sm font-medium tracking-wide text-white">
-                    {product.name}
-                  </span>
+                  <span className="text-sm font-medium tracking-wide text-white">{product.name}</span>
                 </Link>
               </li>
             ))}
@@ -134,62 +110,10 @@ export default function DashboardSidebar() {
         {/* Profile section */}
         {user && (
           <div className="border-t border-white/10 p-4">
-            <DropdownMenu open={dropdownOpen} onOpenChange={setDropdownOpen}>
-              <DropdownMenuTrigger className="w-full focus-visible:outline-none">
-                <div className="flex items-center gap-4 py-2 px-3 rounded-lg hover:bg-white/5 transition-colors">
-                  {user.imageUrl && (
-                    <Image
-                      src={user.imageUrl}
-                      alt={user.username || "Profile"}
-                      width={40}
-                      height={40}
-                      className="w-10 h-10 rounded-full"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate primtext text-left">
-                      @{user.username}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate text-left">
-                      {user.primaryEmailAddress?.emailAddress}
-                    </p>
-                  </div>
-                </div>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                className="w-56 z-[100] mb-1"
-                align="center"
-                sideOffset={-190}
-              >
-                <DropdownMenuItem
-                  onClick={() => {
-                    setDropdownOpen(false);
-                    setIsSettingsOpen(true);
-                  }}
-                >
-                  <Settings className="mr-2 h-4 w-4" />
-                  <span>Settings</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setDropdownOpen(false);
-                    setIsUpgradeOpen(true);
-                  }}
-                >
-                  <CreditCard className="mr-2 h-4 w-4" />
-                  <span>Upgrade Plan</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => {
-                    setDropdownOpen(false);
-                    signOut();
-                  }}
-                >
-                  <LogOut className="mr-2 h-4 w-4 text-red-400" />
-                  <span className="text-red-400">Logout</span>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <UserDropdown
+              onSettingsClick={() => setIsSettingsOpen(true)}
+              onUpgradeClick={() => setIsUpgradeOpen(true)}
+            />
           </div>
         )}
       </nav>
@@ -229,12 +153,11 @@ export default function DashboardSidebar() {
             <DialogTitle>Upgrade Plan</DialogTitle>
           </DialogHeader>
           <div className="py-6">
-            <p className="text-center text-muted-foreground">
-              Upgrade options coming soon...
-            </p>
+            <p className="text-center text-muted-foreground">Upgrade options coming soon...</p>
           </div>
         </DialogContent>
       </Dialog>
     </>
-  );
+  )
 }
+
