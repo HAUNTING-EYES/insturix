@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useUser } from '@clerk/nextjs'; // Import useUser
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight } from 'lucide-react'; // Added ChevronLeft
-// Removed useVideoAnalysis - not used directly here anymore
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { AnalysisProgress } from './AnalysisProgress';
-// Removed ApiAnalysisStatus - not used directly
 import type { ClientAlyzitronAnalysis } from '../types/client';
 
 interface FetchedAlyzitronAnalysis extends ClientAlyzitronAnalysis {
@@ -15,7 +14,7 @@ interface FetchedAlyzitronAnalysis extends ClientAlyzitronAnalysis {
   queuePosition?: number;
 }
 
-interface PaginatedResponse {
+export interface PaginatedResponse { // Add export keyword
   data: FetchedAlyzitronAnalysis[];
   pagination: {
     totalItems: number;
@@ -40,6 +39,7 @@ const DEFAULT_ITEMS_PER_PAGE = 10;
 export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AnalysisListProps) {
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
+  const { user } = useUser(); // Get user object from Clerk
 
   const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
     queryKey: ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }],
@@ -62,23 +62,88 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   });
 
   const analyses = paginatedData?.data ?? [];
-  const { totalPages = 1 } = paginatedData?.pagination ?? {};
+  const { totalItems = 0 } = paginatedData?.pagination ?? {}; // Only extract totalItems initially
+  // Calculate actual total pages, ensuring it's 0 if totalItems is 0
+  const actualTotalPages = totalItems > 0 ? Math.ceil(totalItems / itemsPerPage) : 0;
+
+  // --- SSE Integration ---
+  useEffect(() => {
+    if (!user?.id) {
+      // console.log("SSE: User ID not available yet.");
+      return; // Don't connect if user ID is not loaded
+    }
+
+    // console.log(`SSE: Setting up connection for user ${user.id}...`);
+    const endpointUrl = `/api/sse?userId=${encodeURIComponent(user.id)}`;
+    const eventSource = new EventSource(endpointUrl);
+
+    eventSource.onopen = () => {
+      // console.log("SSE connection established.");
+    };
+
+    eventSource.onerror = (error) => {
+      console.error("SSE connection error:", error);
+      eventSource.close(); // Close on error
+    };
+    const handleAnalysisUpdate = (eventData: AnalysisUpdateEvent) => {
+      const analysisId = eventData._id || eventData.analysisId;
+      const status = eventData.status;
+
+      // Check if it's a completion/failure event and has an ID
+      if (analysisId && status && ['completed', 'failed'].includes(status)) {
+        // console.log(`SSE: Received update for ${analysisId}, status: ${status}. Invalidating query.`);
+
+        // Invalidate the query for the first page of completed analyses.
+        // This will trigger a refetch, ensuring the list includes the new item
+        // with all its necessary data fetched from the API.
+        queryClient.invalidateQueries({
+          queryKey: ['analyses', { scope: 'completed', page: 1, limit: itemsPerPage }],
+          // Optional: You might want to ensure it refetches immediately
+          // refetchType: 'active'
+        });
+
+        // Optional: If the user is *not* on page 1, you might also want to invalidate
+        // the currently viewed page so the total count updates, though the item
+        // won't appear until they navigate to page 1 or the item happens to fall
+        // onto their current page after refetch (less likely for newly completed).
+        if (currentPage !== 1) {
+           queryClient.invalidateQueries({
+             queryKey: ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }],
+             // refetchType: 'inactive' // Don't force refetch if not active view
+           });
+        }
+      }
+    };
+
+    // Use the default 'onmessage' handler as specified
+    eventSource.onmessage = (event) => {
+      try {
+        // console.log("SSE message received:", event.data);
+        const eventData = JSON.parse(event.data) as AnalysisUpdateEvent;
+        // Pass the parsed data to the existing handler
+        handleAnalysisUpdate(eventData);
+      } catch (e) {
+        console.error("Failed to parse SSE message data:", e);
+      }
+    };
+
+    // Cleanup function: close the connection when the component unmounts
+    return () => {
+      // console.log("Closing SSE connection.");
+      eventSource.close();
+    };
+    // Add user.id to dependencies to reconnect if user changes
+  }, [queryClient, itemsPerPage, currentPage, user?.id]);
+
 
   const handlePreviousPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
   };
 
   const handleNextPage = () => {
-    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
+    // Use actualTotalPages for boundary check
+    setCurrentPage((prev) => Math.min(prev + 1, actualTotalPages));
   };
-
-  // Removed local state management (managedAnalyses, analysisRefs)
-  // Removed updateAnalysisState callback
-  // Removed SSE event handler useEffect - assuming centralized handling updates the query cache
-
-  // Removed useEffect for deriving managedAnalyses
-
-  // Removed handleCancel - not applicable to completed/failed items in this list
 
   return (
     <div>
@@ -87,10 +152,9 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
         <h2 className="text-xl font-medium text-zinc-100">
           Completed Analyses
         </h2>
-        {/* Removed View All / Show Recent Button */}
       </div>
       {/* Analysis List Area */}
-      <div className="space-y-4 min-h-[200px] relative"> {/* Added min-height */}
+      <div className="space-y-4 min-h-[200px] relative">
         {/* Loading Overlay - Uses isLoading from the paginated query */}
         {isLoading && (
           <div className="absolute inset-0 bg-gradient-to-b from-black/30 to-black/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-md transition-opacity duration-300">
@@ -112,11 +176,14 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
             title={analysis.metadata?.originalFilename}
             type={analysis.type}
             status={analysis.status}
-            progress={analysis.progress ?? (analysis.status === 'completed' ? 1 : 0)}
             error={analysis.error}
             unread={analysis.unread}
             expectedDurationSeconds={analysis.expectedDurationSeconds}
             onCancel={undefined}
+            // Pass down necessary props for cache update
+            queryClient={queryClient}
+            currentPage={currentPage}
+            itemsPerPage={itemsPerPage}
           />
         ))}
 
@@ -128,30 +195,60 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
         )}
       </div>
 
-      {/* Pagination Controls */}
+      {/* Pagination Controls - Conditionally render or always show disabled */}
+      {/* Option 1: Always show, but disabled */}
       <div className="flex items-center justify-center space-x-4 mt-6">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handlePreviousPage}
-          disabled={currentPage === 1 || isLoading}
-        >
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          Previous
-        </Button>
-        <span className="text-sm text-zinc-400">
-          Page {currentPage} of {totalPages}
-        </span>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleNextPage}
-          disabled={currentPage === totalPages || isLoading}
-        >
-          Next
-          <ChevronRight className="ml-2 h-4 w-4" />
-        </Button>
-      </div>
+         <Button
+           variant="outline"
+           size="sm"
+           onClick={handlePreviousPage}
+           // Disable if on page 1 OR if there are no pages at all
+           disabled={currentPage === 1 || actualTotalPages === 0 || isLoading}
+         >
+           <ChevronLeft className="mr-2 h-4 w-4" />
+           Previous
+         </Button>
+         <span className="text-sm text-zinc-400">
+           {/* Display page 1 of 0 when empty */}
+           Page {actualTotalPages === 0 ? 1 : currentPage} of {actualTotalPages} ({totalItems} total)
+         </span>
+         <Button
+           variant="outline"
+           size="sm"
+           onClick={handleNextPage}
+           // Disable if on the last page OR if there are no pages at all
+           disabled={currentPage >= actualTotalPages || actualTotalPages === 0 || isLoading}
+         >
+           Next
+           <ChevronRight className="ml-2 h-4 w-4" />
+         </Button>
+       </div>
+      {/* Option 2: Hide pagination if totalItems is 0 (uncomment below and remove above div) */}
+      {/* {actualTotalPages > 0 && (
+        <div className="flex items-center justify-center space-x-4 mt-6">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePreviousPage}
+            disabled={currentPage === 1 || isLoading}
+          >
+            <ChevronLeft className="mr-2 h-4 w-4" />
+            Previous
+          </Button>
+          <span className="text-sm text-zinc-400">
+            Page {currentPage} of {actualTotalPages} ({totalItems} total)
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNextPage}
+            disabled={currentPage === actualTotalPages || isLoading}
+          >
+            Next
+            <ChevronRight className="ml-2 h-4 w-4" />
+          </Button>
+        </div>
+      )} */}
     </div>
   );
 }

@@ -92,7 +92,6 @@ export async function POST(request: Request) {
         unread: true,
         taskId: responseData.task_id,
         estimatedTime: responseData.estimated_time || 120,
-        progress: 0,
         results: null,
         metadata: {
           originalFilename: title || type+' Analysis',

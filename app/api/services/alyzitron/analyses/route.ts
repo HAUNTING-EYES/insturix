@@ -34,6 +34,13 @@ export async function GET(request: Request) {
 
     const userAnalyses = await query.toArray();
 
+    // Log raw data from DB
+    logger.info('Raw analyses from DB', {
+      userId: session.userId,
+      data: userAnalyses.map(a => ({ id: a._id, status: a.status, processingStartTime: a.processingStartTime }))
+    });
+
+
     logger.info('Fetched analyses', {
       userId: session.userId,
       page,
@@ -42,9 +49,21 @@ export async function GET(request: Request) {
       totalItems
     });
 
-    // Return both the paginated data and pagination info
+    // Serialize processingStartTime to timestamp
+    const serializedAnalyses = userAnalyses.map(a => ({
+      ...a,
+      processingStartTime: a.processingStartTime ? new Date(a.processingStartTime).getTime() : null
+    }));
+
+    // Log serialized data before sending
+    logger.info('Serialized analyses for response', {
+        userId: session.userId,
+        data: serializedAnalyses.map(a => ({ id: a._id, status: a.status, processingStartTime: a.processingStartTime }))
+    });
+
+
     return NextResponse.json({
-      data: userAnalyses,
+      data: serializedAnalyses,
       pagination: {
         totalItems,
         totalPages: Math.ceil(totalItems / limit),

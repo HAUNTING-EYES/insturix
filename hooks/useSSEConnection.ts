@@ -16,8 +16,16 @@ export function useSSEConnection(userId: string) {
 
       eventSource.onmessage = (event) => {
         try {
+          console.log('Raw SSE event data:', event.data);
           const data = JSON.parse(event.data);
-          console.log('SSE event received:', data);
+          console.log('SSE event parsed:', {
+            analysisId: data.analysisId,
+            status: data.status,
+            progress: data.progress,
+            expectedDurationSeconds: data.expectedDurationSeconds,
+            estimatedTime: data.estimatedTime,
+            type: data.type
+          });
           
           // Check for essential fields instead of strictly relying on type === 'analysisUpdate'
           if (data.analysisId && data.status) {
@@ -34,26 +42,28 @@ export function useSSEConnection(userId: string) {
                 const incomingStatus = data.status;
                 const existingStatus = existing.status;
                 let newStatus = incomingStatus ?? existingStatus;
-                let newProgress = data.progress ?? existing.progress;
-
-                console.log(`SSE Debug: ID=${data.analysisId}, ExistingStatus=${existingStatus}, IncomingStatus=${incomingStatus}`);
+                // Progress is handled client-side now
+                console.log(`SSE Status Debug: ID=${data.analysisId}`, {
+                    existingStatus: existingStatus,
+                    incomingStatus: incomingStatus
+                });
 
                 // Toast notifications on status transitions
                 if (existingStatus !== incomingStatus) {
                   if (incomingStatus === 'processing') {
                     toast({
                       title: 'Analysis Started',
-                      description: `Your analysis "${data.metadata?.originalFilename || data.type}" is now processing.`,
+                      description: `Your analysis "${data.metadata?.originalFilename}" is now processing.`,
                     });
                   } else if (incomingStatus === 'completed') {
                     toast({
                       title: 'Analysis Completed',
-                      description: `Your analysis "${data.metadata?.originalFilename || data.type}" has finished.`,
+                      description: `Your analysis "${data.metadata?.originalFilename}" has finished.`,
                     });
                   } else if (incomingStatus === 'failed') {
                     toast({
                       title: 'Analysis Failed',
-                      description: `Your analysis "${data.metadata?.originalFilename || data.type}" has failed.`,
+                      description: `Your analysis "${data.metadata?.originalFilename}" has failed.`,
                       variant: 'destructive',
                     });
                   }
@@ -67,7 +77,6 @@ export function useSSEConnection(userId: string) {
                 if (existingStatus === 'processing' && incomingStatus === 'queued') {
                     console.log(`SSE Debug: ID=${data.analysisId}, Preventing backward transition from processing to queued.`);
                     newStatus = 'processing'; // Protect processing state
-                    newProgress = existing.progress;
                 }
 
                 // Create the updated item, ensuring SSE data takes precedence for relevant fields
@@ -77,16 +86,26 @@ export function useSSEConnection(userId: string) {
                     ...(data.taskId && { taskId: data.taskId }),
                     ...(data.videoUrl && { videoUrl: data.videoUrl }),
                     ...(data.gcsPath && { gcsPath: data.gcsPath }),
-                    ...(data.estimatedTime !== undefined && { estimatedTime: data.estimatedTime }),
+                    // Use estimatedTime as expectedDurationSeconds if it exists
+                    ...(data.estimatedTime !== undefined && {
+                      estimatedTime: data.estimatedTime,
+                      expectedDurationSeconds: data.estimatedTime
+                    }),
                     ...(data.results && { results: data.results }),
                     ...(data.metadata && { metadata: { ...existing.metadata, ...data.metadata } }),
-                    error: data.error !== undefined ? data.error : existing.error, // Prioritize SSE error state
-                    queuePosition: data.queuePosition, // Update queue position (might become undefined)
-                    // Crucially, apply the calculated status and progress
+                    error: data.error !== undefined ? data.error : existing.error,
+                    queuePosition: data.queuePosition,
                     status: newStatus,
-                    progress: newProgress,
-                    updatedAt: new Date(), // Always update timestamp
+                    processingStartTime: data.processingStartTime ? new Date(data.processingStartTime).getTime() : existing.processingStartTime,
+                    updatedAt: new Date()
                 };
+
+                console.log('SSE updating analysis:', {
+                    id: data.analysisId,
+                    estimatedTime: data.estimatedTime,
+                    expectedDurationSeconds: updatedItem.expectedDurationSeconds,
+                    status: newStatus
+                });
 
                 console.log(`SSE Debug: ID=${data.analysisId}, Final computed status: ${newStatus}`); // Log final status
                 const updatedAnalyses = [...analyses];
@@ -105,8 +124,8 @@ export function useSSEConnection(userId: string) {
                     taskId: data.taskId || '',
                     videoUrl: data.videoUrl || '',
                     gcsPath: data.gcsPath || '',
-                    progress: data.progress || 0,
                     estimatedTime: data.estimatedTime || 0,
+                    expectedDurationSeconds: data.estimatedTime || 0, // Use estimatedTime for duration
                     unread: true,
                     results: data.results || null,
                     metadata: data.metadata || { originalFilename: 'New Analysis', videoSize: 0, videoDuration: 0, mimeType: '' },

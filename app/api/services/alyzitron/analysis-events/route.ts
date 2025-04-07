@@ -1,12 +1,14 @@
 import { NextResponse, NextRequest } from 'next/server';
 import { getAuth } from '@clerk/nextjs/server';
-import { addClient, removeClient, analysisEventEmitter } from '@/lib/sseManager'; // Import manager functions
+import { addClient, removeClient, analysisEventEmitter } from '@/lib/sseManager';
 
 // --- IMPORTANT ---
 // This route now uses the in-memory sseManager.
 // Your callback endpoints (handling Python server updates) MUST emit events
 // using analysisEventEmitter.emit('analysisUpdate', { userId, ...analysisData });
 // For production scaling, replace sseManager with Redis Pub/Sub or similar.
+// This in-memory approach won't work across multiple server instances (horizontal scaling) because
+// events emitted on one server won't be received by clients connected to other servers.
 
 interface AnalysisEventData {
   userId: string;

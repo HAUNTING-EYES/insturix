@@ -10,7 +10,8 @@ export interface ClientAlyzitronAnalysis {
   status: AnalysisStatus;
   taskId: string;
   estimatedTime: number;
-  progress: number;
+  expectedDurationSeconds?: number; // Add expected duration
+  processingStartTime?: number; // Timestamp in ms when processing started
   queuePosition?: number;
   unread: boolean;
   results: any | null;

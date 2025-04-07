@@ -27,13 +27,14 @@ export function InProgressAnalyses() {
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     refetchOnReconnect: false,
-    // enabled: false, // Removed duplicate/incorrect line
   });
 
-  // Filter for in-progress analyses
-  const inProgressAnalyses = (allAnalyses || []).filter(a =>
-    inProgressStatuses.includes(a.status)
-  ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); // Show newest first
+  // Filter for in-progress analyses, ensuring allAnalyses is an array
+  const inProgressAnalyses = Array.isArray(allAnalyses)
+    ? allAnalyses.filter(a =>
+        inProgressStatuses.includes(a.status)
+      ).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) // Show newest first
+    : []; // Default to empty array if allAnalyses is not an array
 
   const handleCancel = async (taskId: string) => {
     // Find the analysis associated with the taskId to get the _id for potential optimistic update
@@ -50,7 +51,7 @@ export function InProgressAnalyses() {
     });
 
     try {
-      await cancelAnalysis(taskId); // Call the API hook
+      await cancelAnalysis(taskId);
       // Optional: Invalidate if SSE doesn't reliably report cancellation status
       // queryClient.invalidateQueries({ queryKey: ['analyses'] });
     } catch (error) {
@@ -70,21 +71,23 @@ export function InProgressAnalyses() {
         In Progress
       </h2>
       <div className="space-y-4">
-        {inProgressAnalyses.map((analysis) => (
-          <AnalysisProgress
-            key={analysis._id}
-            analysisId={analysis._id.toString()}
-            taskId={analysis.taskId}
-            title={analysis.metadata?.originalFilename}
-            type={analysis.type}
-            status={analysis.status}
-            progress={analysis.progress ?? 0}
-            queuePosition={analysis.status === 'queued' ? analysis.queuePosition : undefined}
-            error={analysis.error}
-            // Show cancel button only for statuses where it makes sense
-            onCancel={analysis.taskId && ['queued', 'processing'].includes(analysis.status) ? handleCancel : undefined}
-          />
-        ))}
+        {inProgressAnalyses.map((analysis) => {
+          return (
+            <AnalysisProgress
+              key={analysis._id}
+              analysisId={analysis._id.toString()}
+              taskId={analysis.taskId}
+              title={analysis.metadata?.originalFilename}
+              type={analysis.type}
+              status={analysis.status}
+              queuePosition={analysis.status === 'queued' ? analysis.queuePosition : undefined}
+              expectedDurationSeconds={analysis.expectedDurationSeconds}
+              processingStartTime={analysis.processingStartTime}
+              error={analysis.error}
+              onCancel={analysis.taskId && ['queued', 'processing'].includes(analysis.status) ? handleCancel : undefined}
+            />
+          );
+        })}
       </div>
     </div>
   );

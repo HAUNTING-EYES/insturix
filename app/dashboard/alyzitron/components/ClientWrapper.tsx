@@ -1,11 +1,11 @@
 "use client";
 
-import { useQuery, useQueryClient } from '@tanstack/react-query'; // Added useQuery
-import { useState, useEffect } from 'react'; // Added useEffect
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useSSEConnection } from '@/hooks/useSSEConnection';
 import { VideoUpload } from './VideoUpload';
-import { InProgressAnalyses } from './InProgressAnalyses'; // Import the new component
+import { InProgressAnalyses } from './InProgressAnalyses';
 import { AnalysisList } from './AnalysisList';
 import { VideoType, AnalysisStatus } from '@/app/api/services/alyzitron/types';
 import type { Analysis } from '../hooks/useAnalysisState';
@@ -58,7 +58,6 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
           taskId: analysis.taskId || '',
           videoUrl: analysis.videoUrl || '',
           gcsPath: analysis.videoUrl || '',
-          progress: analysis.progress || 0,
           estimatedTime: analysis.estimatedTime || 60,
           unread: true,
           results: null,
@@ -91,7 +90,6 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
       newData[existingIndex] = {
         ...existing,
         status: analysis.status as AnalysisStatus,
-        progress: analysis.progress ?? existing.progress,
         estimatedTime: analysis.estimatedTime ?? existing.estimatedTime,
         results: existing.results,
       };

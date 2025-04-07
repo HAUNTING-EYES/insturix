@@ -1,18 +1,17 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CircleDot, PlayCircle, XCircle, ChevronRight } from 'lucide-react';
-import { ProgressBar } from './ProgressBar';
-// Removed formatTimeRemaining as progress is now estimated differently
 import { useRouter } from 'next/navigation';
-// Removed useAnalysisState hook
+import { QueryClient } from '@tanstack/react-query'; // Import QueryClient type
 
 import { AnalysisStatus, VideoType } from '@/app/api/services/alyzitron/types';
+// Import the PaginatedResponse type (adjust path if necessary)
+import type { PaginatedResponse } from './AnalysisList';
 
-// Define error structure inline based on usage in AnalysisList
 interface AnalysisError {
   code: string;
   message: string;
@@ -25,12 +24,16 @@ interface AnalysisProgressProps {
   title?: string;
   type?: VideoType;
   status?: AnalysisStatus;
-  progress?: number;
   queuePosition?: number;
   unread?: boolean;
   error?: AnalysisError;
   expectedDurationSeconds?: number;
+  processingStartTime?: number; // timestamp in ms
   onCancel?: (taskId: string) => void;
+  // Add props for cache update
+  queryClient?: QueryClient;
+  currentPage?: number;
+  itemsPerPage?: number;
 }
 
 export function AnalysisProgress({
@@ -38,107 +41,45 @@ export function AnalysisProgress({
   taskId,
   title,
   status,
-  progress = 0,
   queuePosition,
   unread = false,
   error,
-  expectedDurationSeconds,
-  onCancel
+  expectedDurationSeconds = 60,
+  processingStartTime,
+  onCancel,
+  // Destructure new props
+  queryClient,
+  currentPage,
+  itemsPerPage
 }: AnalysisProgressProps) {
   const router = useRouter();
-  // Removed useAnalysisState hook and merging logic
+  const [timeLeft, setTimeLeft] = useState<number>(expectedDurationSeconds);
 
-  // State rendering functions
-  // Removed formatSeconds helper
+  useEffect(() => {
+    if (status !== 'processing') {
+      return; // Skip countdown if not processing
+    }
 
-  const renderQueuedState = () => (
-    <motion.div
-      key="queued"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="text-right"
-    >
-      <div className="space-y-1">
-        <div className="bg-black/20 px-3 py-1 rounded-full inline-block">
-          <span className="text-sm text-zinc-400">
-            {/* Display queue position if available, otherwise just 'Queued' */}
-            {queuePosition != null ? `Queue: #${queuePosition}` : 'Queued'}
-          </span>
-        </div>
-      </div>
-    </motion.div>
-  );
+    const interval = setInterval(() => {
+      const now = Date.now();
 
-  const renderProcessingState = () => (
-    <motion.div
-      key="processing"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="text-sm font-medium text-zinc-100"
-    >
-      {Math.round(progress * 100)}%
-    </motion.div>
-  );
+      if (!processingStartTime) {
+        setTimeLeft(expectedDurationSeconds);
+        return;
+      }
 
-  const renderCompletedState = () => (
-    <motion.div
-      key="completed"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="flex items-center gap-2"
-    >
-      <motion.div
-        initial={{ scale: 0.8, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        transition={{ delay: 0.1, duration: 0.3 }} // Slight delay for the icon animation
-        className={`h-10 w-10 rounded-lg ${unread ? 'bg-gradient-to-tr from-green-500 to-emerald-400 text-white' : 'bg-white text-black'} flex items-center justify-center`}
-      >
-        <motion.svg
-          initial={{ pathLength: 0 }}
-          animate={{ pathLength: 1 }}
-          transition={{ duration: 0.4, ease: "easeOut", delay: 0.2 }} // Delay path animation
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          className="h-6 w-6"
-        >
-          <motion.path d="M20 6L9 17l-5-5" />
-        </motion.svg>
-      </motion.div>
-      <ChevronRight className="h-5 w-5 text-zinc-500" />
-    </motion.div>
-  );
+      const elapsed = now - processingStartTime;
+      const rawRemaining = (processingStartTime + expectedDurationSeconds * 1000 - now) / 1000;
+      const remaining = Math.max(1, rawRemaining);
 
-  const renderErrorState = () => (
-    <motion.div
-      key="failed"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.3 }}
-      className="text-right"
-    >
-      <div className="text-sm font-medium text-red-400">Failed</div>
-      {error?.message && (
-        <div className="text-sm text-zinc-500">{error.message}</div>
-      )}
-    </motion.div>
-  );
+      setTimeLeft(remaining);
+    }, 1000);
 
-  if (!status) return null;
+    return () => clearInterval(interval);
+  }, [processingStartTime, expectedDurationSeconds, status]);
 
-  // Simplified state management
-  const isActive = status === 'processing' || status === 'queued'; // Based on passed status
-  // Allow cancel if status is queued or processing (simulated or real) and handler exists
-  const canCancel = (status === 'queued' || status === 'processing') && onCancel && taskId;
+  const isActive = status === 'processing' || status === 'queued';
+  const canCancel = status === 'queued' && onCancel && taskId;
   const isCompleted = status === 'completed';
 
   const handleCancel = (e: React.MouseEvent) => {
@@ -149,7 +90,33 @@ export function AnalysisProgress({
   };
 
   const handleClick = () => {
-    if (isCompleted) {
+    if (isCompleted && queryClient && currentPage && itemsPerPage) {
+      // Construct the query key for the current page
+      const queryKey = ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }];
+
+      // Optimistically update the cache
+      queryClient.setQueryData<PaginatedResponse>(queryKey, (oldData) => {
+        if (!oldData) return undefined;
+
+        // Find the analysis and update its 'unread' status
+        const newData = oldData.data.map(analysis =>
+          analysis._id === analysisId ? { ...analysis, unread: false } : analysis
+        );
+
+        return {
+          ...oldData,
+          data: newData,
+        };
+      });
+
+      // Mark the analysis as read on the backend (fire-and-forget)
+      // Ensure this API endpoint exists and handles PATCH requests
+      fetch(`/api/services/alyzitron/analyses/${analysisId}/read`, { method: 'PATCH' })
+
+      // Navigate to the report page
+      router.push(`/dashboard/alyzitron/report/${analysisId}`);
+    } else if (isCompleted) {
+      // Fallback if props are missing (shouldn't happen ideally)
       router.push(`/dashboard/alyzitron/report/${analysisId}`);
     }
   };
@@ -168,16 +135,6 @@ export function AnalysisProgress({
         `}
         onClick={handleClick}
       >
-        {status === 'processing' && (
-          <div className="absolute top-0 left-0 right-0">
-            <ProgressBar
-              progress={progress}
-              status={status}
-              expectedDurationSeconds={expectedDurationSeconds}
-            />
-          </div>
-        )}
-
         <CardContent className="flex items-center p-4">
           <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4">
             <PlayCircle className="h-6 w-6 text-zinc-400" />
@@ -185,24 +142,81 @@ export function AnalysisProgress({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              {/* Ensure title is displayed, fallback if necessary */}
               <h3 className="text-sm font-medium text-zinc-100 truncate" title={title || 'Analysis'}>
                 {title || 'Analysis'}
               </h3>
-              {isActive && (
-                <CircleDot className="h-3 w-3 text-zinc-500 animate-pulse" />
-              )}
+
             </div>
             <p className="text-sm text-zinc-500">ID: {analysisId}</p>
           </div>
 
           <div className="ml-4 flex items-center gap-4">
-            <div className="text-right min-h-[40px] flex items-center justify-end"> {/* Added min-height and flex for layout consistency */}
-              <AnimatePresence mode="wait" initial={false}> {/* Disable initial animation for presence */}
-                {status === 'queued' && renderQueuedState()} {/* Render queued state based on status */}
-                {status === 'processing' && renderProcessingState()}
-                {status === 'completed' && renderCompletedState()}
-                {status === 'failed' && renderErrorState()}
+            <div className="text-right min-h-[40px] flex flex-col items-end justify-center">
+              <AnimatePresence mode="wait" initial={false}>
+                {status === 'queued' && (
+                  <motion.div
+                    key="queued"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="text-sm text-zinc-400"
+                  >
+                    {queuePosition != null ? `Queue: #${queuePosition}` : 'Queued'}
+                  </motion.div>
+                )}
+                {status === 'processing' && (
+                  <motion.div
+                    key="processing"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="flex items-center gap-2 text-sm text-zinc-200"
+                  >
+                    <CircleDot className="h-4 w-4 animate-pulse text-zinc-300" />
+                    <span>Processing (~{Math.ceil(timeLeft)}s left)</span>
+                  </motion.div>
+                )}
+                {status === 'completed' && (
+                  <motion.div
+                    key="completed"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="flex items-center gap-2"
+                  >
+                    <div className={`h-10 w-10 rounded-lg ${unread ? 'bg-white text-black':'text-white'} flex items-center justify-center`}>
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        className="h-6 w-6"
+                      >
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-zinc-500" />
+                  </motion.div>
+                )}
+                {status === 'failed' && (
+                  <motion.div
+                    key="failed"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="text-right"
+                  >
+                    <div className="text-sm font-medium text-red-400">Failed</div>
+                    {error?.message && (
+                      <div className="text-sm text-zinc-500">{error.message}</div>
+                    )}
+                  </motion.div>
+                )}
               </AnimatePresence>
             </div>
 
