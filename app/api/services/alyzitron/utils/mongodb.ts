@@ -1,4 +1,4 @@
-import { MongoClient, Collection, Db } from 'mongodb';
+import { MongoClient, Db } from 'mongodb';
 import { AlyzitronUserData, AlyzitronAnalysis } from '../types';
 
 if (!process.env.MONGODB_URI) {

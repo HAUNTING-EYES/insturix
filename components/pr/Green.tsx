@@ -30,7 +30,7 @@ export default function Green() {
             /> 
           </Price>
           <Paragraph className="text-left">
-            1. Kund-li
+            1. Socialize
             <br />
             2. thinkforge Basic
             <br />

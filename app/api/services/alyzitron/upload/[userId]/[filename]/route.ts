@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
 import { logger } from "../../../utils/logger";
@@ -8,7 +8,7 @@ async function ensureDirectory(path: string) {
   try {
     await mkdir(path, { recursive: true });
   } catch (error) {
-    if ((error as any).code !== 'EEXIST') {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
       throw error;
     }
   }

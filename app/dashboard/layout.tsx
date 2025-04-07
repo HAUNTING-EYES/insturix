@@ -3,6 +3,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { usePathname } from "next/navigation";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
+import { useAuth } from "@clerk/nextjs";
+import NotSignedIn from "@/components/NotSignedup";
 
 export default function DashboardLayout({
     children,
@@ -10,6 +12,10 @@ export default function DashboardLayout({
     children: React.ReactNode;
 }) {
     const pathname = usePathname();
+    const {isSignedIn} = useAuth();
+    if (!isSignedIn) {
+        return <NotSignedIn />;
+    }
     return (
         <>
             <DashboardSidebar />

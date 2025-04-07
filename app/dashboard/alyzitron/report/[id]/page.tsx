@@ -22,7 +22,7 @@ async function getAnalysis(id: string) {
     let objectId: ObjectId;
     try {
       objectId = new ObjectId(id);
-    } catch (error) {
+    } catch {
       return null;
     }
 
@@ -59,19 +59,20 @@ export default async function AnalysisReport({ params }: PageProps) {
   };
 
   // Map metrics to their groups
-  if (analysis.results?.metrics) {
-    Object.entries(analysis.results.metrics).forEach(([group, groupMetrics]) => {
+  if (analysis.results) {
+    Object.entries(analysis.results).forEach(([group, groupMetrics]) => {
       if (typeof groupMetrics === 'object' && groupMetrics !== null) {
         const metrics: Record<string, MetricData> = {};
-        Object.entries(groupMetrics).forEach(([key, value]: [string, any]) => {
-          if (typeof value === 'object' && value !== null) {
+        Object.entries(groupMetrics).forEach(([key, value]) => {
+          if (typeof value === 'object' && value !== null && 'score' in value) {
+            const metric = value as { score?: number; description?: string };
             metrics[key] = {
-              score: typeof value.score === 'number' ? value.score : undefined,
-              description: typeof value.description === 'string' ? value.description : ''
+              score: typeof metric.score === 'number' ? metric.score : undefined,
+              description: typeof metric.description === 'string' ? metric.description : ''
             };
           }
         });
-        analysisData[group] = metrics;
+        if (group != 'category' && group != 'creator_feedback') {analysisData[group] = metrics;}
       }
     });
   }
@@ -79,10 +80,7 @@ export default async function AnalysisReport({ params }: PageProps) {
   return (
     <div className="container mx-auto p-8">
       <div className="max-w-5xl mx-auto">
-        <AnalysisDetails
-          params={{ id: resolvedParams.id }}
-          analysisData={analysisData}
-        />
+        <AnalysisDetails analysisData={analysisData} />
       </div>
     </div>
   );

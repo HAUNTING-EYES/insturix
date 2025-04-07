@@ -4,18 +4,15 @@ import { auth } from "@clerk/nextjs/server";
 import { logger } from "../../utils/logger";
 import { ObjectId } from "mongodb";
 
-interface RouteParams {
-  params: {
-    id: string;
-  };
-}
+type Context = {
+  params: Promise<{ id: string }>;
+};
 
-export async function GET(request: Request, { params }: RouteParams) {
+export async function GET(request: Request, context: Context) {
   try {
-    // Await both auth and params
     const [session, { id }] = await Promise.all([
       auth(),
-      Promise.resolve(params)
+      context.params
     ]);
 
     if (!session?.userId) {
@@ -71,3 +68,6 @@ export async function GET(request: Request, { params }: RouteParams) {
     );
   }
 }
+
+// Required for dynamic API routes
+export const dynamic = 'force-dynamic';

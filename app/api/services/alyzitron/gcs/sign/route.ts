@@ -68,7 +68,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { filename, contentType, fileSize } = await request.json();
+    const { filename, contentType } = await request.json();
 
     if (!filename || !contentType) {
       logger.warn('Missing required fields');

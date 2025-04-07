@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, AlertTriangle, CheckCircle, AlertCircle } from "lucide-react";
+import { ArrowLeft, CheckCircle, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import type { AnalysisData, MetricData } from '../../types';
 
@@ -21,13 +21,10 @@ const ScoreIndicator = ({ score, invert }: { score: number, invert?: boolean }) 
 };
 
 interface AnalysisDetailsProps {
-  params: { 
-    id: string;
-  };
   analysisData: AnalysisData;
 }
 
-export function AnalysisDetails({ params, analysisData }: AnalysisDetailsProps) {
+export function AnalysisDetails({ analysisData }: AnalysisDetailsProps) {
   // Calculate overall score from all metrics that have scores
   const scores: number[] = [];
   Object.entries(analysisData).forEach(([key, value]) => {
@@ -124,23 +121,23 @@ export function AnalysisDetails({ params, analysisData }: AnalysisDetailsProps) 
           <div>
             <h3 className="text-sm font-medium text-zinc-300 mb-4">Strengths</h3>
             <ul className="space-y-3">
-              {analysisData.creator_feedback.strengths.map((strength: string, index: number) => (
+              {analysisData?.creator_feedback?.strengths?.map((strength: string, index: number) => (
                 <li key={index} className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg">
                   <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
                   <span className="leading-relaxed">{strength}</span>
                 </li>
-              ))}
+              )) || []}
             </ul>
           </div>
           <div>
             <h3 className="text-sm font-medium text-zinc-300 mb-4">Improvements</h3>
             <ul className="space-y-3">
-              {analysisData.creator_feedback.improvements.map((improvement: string, index: number) => (
+              {analysisData?.creator_feedback?.improvements?.map((improvement: string, index: number) => (
                 <li key={index} className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg">
                   <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0" />
                   <span className="leading-relaxed">{improvement}</span>
                 </li>
-              ))}
+              )) || []}
             </ul>
           </div>
         </CardContent>

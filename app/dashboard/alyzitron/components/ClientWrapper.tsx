@@ -1,64 +1,85 @@
 "use client";
 
 import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { useSSEConnection } from '@/hooks/useSSEConnection';
 import { VideoUpload } from './VideoUpload';
 import { AnalysisList } from './AnalysisList';
-import { AlyzitronAnalysis, VideoType } from '@/app/api/services/alyzitron/types';
+import { VideoType, AnalysisStatus } from '@/app/api/services/alyzitron/types';
 import type { Analysis } from '../hooks/useAnalysisState';
+import type { ClientAlyzitronAnalysis } from '../types/client';
 
 interface ClientWrapperProps {
-  initialAnalyses: AlyzitronAnalysis[];
-}
-
-function convertToAlyzitronAnalysis(analysis: Analysis, analysisId: string): Omit<AlyzitronAnalysis, '_id'> & { _id: string } {
-  return {
-    _id: analysisId,
-    clerkUserId: 'pending', // Will be set by server
-    gcsPath: analysis.videoUrl || '',
-    type: analysis.type as VideoType,
-    status: 'queued',
-    taskId: analysis.taskId,
-    videoUrl: analysis.videoUrl,
-    estimatedTime: analysis.estimatedTime || 60,
-    progress: 0,
-    results: null,
-    metadata: {
-      originalFilename: analysis.title || '',
-      fileSize: 0,
-      mimeType: '',
-    },
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+  initialAnalyses: ClientAlyzitronAnalysis[];
 }
 
 export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const queryClient = useQueryClient();
+  const { user } = useUser();
+  
+  // Track all active analyses with their states
+  const [activeAnalyses, setActiveAnalyses] = useState<Set<string>>(new Set());
+
+  // Initialize SSE connection
+  useSSEConnection(user?.id || '');
+
 
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {
     if (!analysisId) return;
     
-    queryClient.setQueryData(['analyses'], (old: AlyzitronAnalysis[] = []) => {
-      const optimisticAnalysis = convertToAlyzitronAnalysis(analysis, analysisId);
-      const existingIndex = old.findIndex(a => a._id.toString() === analysisId);
+    queryClient.setQueryData<ClientAlyzitronAnalysis[]>(['analyses'], old => {
+      const currentData = old || [];
+      const existingIndex = currentData.findIndex(a => a._id.toString() === analysisId);
       
-      if (existingIndex !== -1) {
-        // Update existing analysis but preserve certain server-side fields
-        const existing = old[existingIndex];
-        const updated = {
-          ...optimisticAnalysis,
-          clerkUserId: existing.clerkUserId,
-          createdAt: existing.createdAt,
+      // Handle new analysis with optimistic update
+      if (existingIndex === -1) {
+        const optimisticAnalysis: ClientAlyzitronAnalysis = {
+          _id: analysisId, // Will be replaced by server response
+          clerkUserId: 'pending',
+          type: analysis.type as VideoType,
+          status: analysis.status as AnalysisStatus,
+          taskId: analysis.taskId || '',
+          videoUrl: analysis.videoUrl || '',
+          gcsPath: analysis.videoUrl || '',
+          progress: analysis.progress || 0,
+          estimatedTime: analysis.estimatedTime || 60,
+          results: null,
+          metadata: {
+            originalFilename: analysis.title || '',
+            videoSize: 0,
+            videoDuration: 0,
+            mimeType: '',
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
         };
-        return [
-          ...old.slice(0, existingIndex),
-          updated,
-          ...old.slice(existingIndex + 1)
-        ];
+        return [optimisticAnalysis, ...currentData];
       }
       
-      // Add new analysis
-      return [optimisticAnalysis, ...old];
+      const existing = currentData[existingIndex];
+      
+      // Skip updates for completed analyses
+      if (existing.status === 'completed') {
+        return currentData;
+      }
+      
+      // Preserve processing state
+      if (existing.status === 'processing' && analysis.status === 'queued') {
+        return currentData;
+      }
+      
+      // Safe update of existing analysis
+      const newData = [...currentData];
+      newData[existingIndex] = {
+        ...existing,
+        status: analysis.status as AnalysisStatus,
+        progress: analysis.progress ?? existing.progress,
+        estimatedTime: analysis.estimatedTime ?? existing.estimatedTime,
+        results: existing.results,
+      };
+      
+      return newData;
     });
   };
 
@@ -71,22 +92,37 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
             status: 'queued',
             progress: 0
           });
+          setActiveAnalyses(prev => {
+            const newSet = new Set(prev);
+            newSet.add(analysisId);
+            return newSet;
+          });
         }}
         onComplete={(analysisId: string, analysis) => {
           if (!analysisId) return;
+          
           // Update with completed status before invalidating
           handleAnalysisUpdate(analysisId, {
             ...analysis,
             status: 'completed',
             progress: 1
           });
+          
+          // Remove from active analyses
+          setActiveAnalyses(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(analysisId);
+            return newSet;
+          });
+          
           // Then refresh to get server data
           queryClient.invalidateQueries({ queryKey: ['analyses'] });
         }}
+        activeAnalyses={activeAnalyses}
       />
       <AnalysisList
         initialAnalyses={initialAnalyses}
-        onAnalysisUpdate={handleAnalysisUpdate}
+        maxDisplayItems={5}
       />
     </div>
   );

@@ -27,7 +27,7 @@ async function testGCSConfig() {
 
     // Test 2: List files (tests permissions)
     console.log('\n2. Testing list permissions...');
-    const [files] = await bucket.getFiles({ maxResults: 1 });
+    await bucket.getFiles({ maxResults: 1 }); // Just test if operation succeeds
     console.log('✅ Can list files in bucket');
 
     // Test 3: Test file upload

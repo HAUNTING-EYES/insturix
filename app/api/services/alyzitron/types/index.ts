@@ -96,7 +96,8 @@ export interface AlyzitronAnalysis {
   };
   metadata: {
     originalFilename: string;
-    fileSize: number;       // in bytes
+    videoSize: number;       // in bytes
+    videoDuration: number;   // in seconds
     mimeType: string;
     title?: string;
     description?: string;

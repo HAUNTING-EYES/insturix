@@ -1,28 +1,44 @@
 "use client";
 
-import React from 'react';
-import { useQueryClient, useQuery } from '@tanstack/react-query';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import {  useQuery } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { ChevronRight } from 'lucide-react';
 import { useVideoAnalysis } from '../hooks/useVideoAnalysis';
-import { useAnalysisRefresh } from '../hooks/useAnalysisRefresh';
 import { AnalysisProgress } from './AnalysisProgress';
-import { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
+import { AnalysisStatus as ApiAnalysisStatus } from '@/app/api/services/alyzitron/types';
+import type { ClientAlyzitronAnalysis } from '../types/client';
 
-type AnalysisStatus = 'pending' | 'queued' | 'processing' | 'completed' | 'failed';
-
-import type { Analysis } from '../hooks/useAnalysisState';
-
-interface AnalysisListProps {
-  initialAnalyses: AlyzitronAnalysis[];
-  onAnalysisUpdate?: (analysisId: string, analysis: Analysis) => void;
+interface FetchedAlyzitronAnalysis extends ClientAlyzitronAnalysis {
+  expectedWaitSeconds?: number;
+  expectedDurationSeconds?: number;
+  queuePosition?: number;
 }
 
-export function AnalysisList({ initialAnalyses, onAnalysisUpdate }: AnalysisListProps) {
-  const queryClient = useQueryClient();
+interface ManagedAnalysis extends FetchedAlyzitronAnalysis {
+  displayStatus: ApiAnalysisStatus;
+  estimatedProgress: number;
+  processingStartTime?: number;
+}
 
-  // Single query with aggressive polling
-  const { data: analyses = initialAnalyses } = useQuery<AlyzitronAnalysis[], Error>({
+interface AnalysisListProps {
+  initialAnalyses: FetchedAlyzitronAnalysis[];
+  maxDisplayItems?: number;
+}
+
+interface AnalysisUpdateEvent extends Partial<Omit<ClientAlyzitronAnalysis, '_id' | 'metadata'>> {
+  _id?: string;
+  analysisId?: string;
+  metadata?: Partial<ClientAlyzitronAnalysis['metadata']>;
+}
+
+export function AnalysisList({ initialAnalyses, maxDisplayItems }: AnalysisListProps) {
+  const { cancelAnalysis } = useVideoAnalysis();
+  const [managedAnalyses, setManagedAnalyses] = useState<ManagedAnalysis[]>([]);
+  const [showAll, setShowAll] = useState(false);
+  const analysisRefs = useRef<Record<string, ManagedAnalysis>>({});
+
+  const { data: fetchedAnalyses = initialAnalyses, isSuccess } = useQuery<FetchedAlyzitronAnalysis[], Error>({
     queryKey: ['analyses'],
     queryFn: async () => {
       const response = await fetch('/api/services/alyzitron/analyses');
@@ -30,118 +46,185 @@ export function AnalysisList({ initialAnalyses, onAnalysisUpdate }: AnalysisList
       return response.json();
     },
     initialData: initialAnalyses,
-    refetchInterval: (query) => {
-      const currentAnalyses = query.state.data;
-      if (!currentAnalyses) return 200;
-
-      // Poll frequently if any analysis is in progress or recently created
-      const hasActive = currentAnalyses.some(
-        (analysis: AlyzitronAnalysis) => {
-          // Check if analysis is active or recently created (within last minute)
-          const isRecent = (Date.now() - new Date(analysis.createdAt).getTime()) < 60000;
-          return ['queued', 'processing'].includes(analysis.status) || isRecent;
-        }
-      );
-  
-      // Poll every 200ms if active analyses, otherwise poll slower
-      return hasActive ? 200 : 2000;
-    },
-    gcTime: 0, // Don't cache to ensure fresh data
-    staleTime: 0, // Always consider data stale to enable refetching
     refetchOnMount: true,
-    refetchOnWindowFocus: true,
-    refetchOnReconnect: true,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    refetchInterval: false,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
   });
 
-  const { cancelAnalysis } = useVideoAnalysis();
+  useEffect(() => {
+    const newRefs: Record<string, ManagedAnalysis> = {};
+    managedAnalyses.forEach(a => {
+      newRefs[a._id] = a;
+    });
+    analysisRefs.current = newRefs;
+  }, [managedAnalyses]);
 
-  // Update progress and notify parent of status changes
-  // Store last update time for each analysis to prevent too frequent updates
-  const lastUpdateRef = React.useRef<Record<string, number>>({});
-  
-  // Debounced update function
-  const debouncedUpdate = React.useCallback((analysis: AlyzitronAnalysis, progress: number) => {
-    const now = Date.now();
-    const lastUpdate = lastUpdateRef.current[analysis._id.toString()] || 0;
-    
-    // Only update if enough time has passed (500ms)
-    if (now - lastUpdate > 500 && onAnalysisUpdate) {
-      lastUpdateRef.current[analysis._id.toString()] = now;
-      onAnalysisUpdate(analysis._id.toString(), {
-        analysisId: analysis._id.toString(),
-        taskId: analysis.taskId,
-        type: analysis.type,
-        title: analysis.metadata.originalFilename,
-        videoUrl: analysis.videoUrl,
-        status: analysis.status === 'pending' ? 'queued' : analysis.status,
-        progress,
-        estimatedTime: analysis.estimatedTime
-      });
-    }
-  }, [onAnalysisUpdate]);
-
-  const analysesWithProgress = React.useMemo(() => {
-    return analyses.map((analysis: AlyzitronAnalysis) => {
-      const startTime = new Date(analysis.createdAt).getTime();
-      const elapsed = (Date.now() - startTime) / 1000;
-      const estimatedTime = analysis.estimatedTime || 60;
-
-      // Don't assume failure state during transitions
-      if (elapsed < 60) { // Within first minute
-        if (analysis.status === 'failed') {
-          // Keep showing as queued for recently created analyses that appear failed
-          const updatedAnalysis = {
-            ...analysis,
-            status: 'queued' as const,
-            progress: 0,
-            error: undefined // Clear any error state
-          };
-          debouncedUpdate(updatedAnalysis, 0);
+  const updateAnalysisState = useCallback((analysisId: string, updates: Partial<ManagedAnalysis>) => {
+    setManagedAnalyses(prevAnalyses =>
+      prevAnalyses.map(a => {
+        if (a._id === analysisId) {
+          const updatedAnalysis = { ...a, ...updates };
+          analysisRefs.current[analysisId] = updatedAnalysis;
           return updatedAnalysis;
         }
-      }
+        return a;
+      })
+    );
+  }, []);
 
-      switch (analysis.status) {
-        case 'queued':
-          if (elapsed >= 2) {
-            // Transition to processing after short delay
-            const updatedAnalysis = {
-              ...analysis,
-              status: 'processing' as const,
-              progress: 0
-            };
-            debouncedUpdate(updatedAnalysis, 0);
-            return updatedAnalysis;
-          }
-          return analysis;
+  // SSE event handler
+  useEffect(() => {
+    const handleAnalysisUpdate = (data: AnalysisUpdateEvent) => {
+      const analysisId = data.analysisId || data._id;
+      if (!analysisId) return;
 
-        case 'processing':
-          // Simulate progress with asymptotic approach
-          const progressRatio = elapsed / estimatedTime;
-          const progress = Math.min(
-            1 - 1 / (1 + progressRatio * 2),
-            0.95
-          );
+      setManagedAnalyses(prevAnalyses => {
+        // Create a new array to avoid mutation
+        const newAnalyses = [...prevAnalyses];
+        const existingIndex = newAnalyses.findIndex(a => a._id === analysisId);
+        const currentProgress = existingIndex !== -1 ? newAnalyses[existingIndex].estimatedProgress : 0;
+        
+        // Determine correct status and progress
+        let newStatus: ApiAnalysisStatus = data.status ?? 'queued';
+        let newProgress = data.progress ?? currentProgress;
+
+        // State transition rules
+        if (existingIndex !== -1) {
+          const existing = newAnalyses[existingIndex];
           
-          const updatedAnalysis = {
-            ...analysis,
-            progress
+          // Protect completed state
+          if (existing.displayStatus === 'completed') {
+            return prevAnalyses; // No changes to completed analysis
+          }
+          
+          // Protect processing state from going back to queued
+          if (existing.displayStatus === 'processing' && newStatus === 'queued') {
+            newStatus = 'processing';
+            newProgress = existing.estimatedProgress;
+          }
+        }
+        
+        if (existingIndex === -1) {
+          // Add new analysis with verified state
+          // Use the ID directly since we're working with strings on the client
+          const normalizedId = (data._id || data.analysisId)?.toString() || '';
+
+          // Create base analysis with required fields
+          const newAnalysis: ManagedAnalysis = {
+            _id: normalizedId,
+            displayStatus: newStatus,
+            estimatedProgress: newProgress,
+            clerkUserId: data.clerkUserId || '',
+            videoUrl: data.videoUrl || '',
+            gcsPath: data.gcsPath || '',
+            type: data.type || 'SHORT_FORM',
+            status: data.status || 'queued',
+            taskId: data.taskId || '',
+            estimatedTime: data.estimatedTime || 0,
+            progress: data.progress || 0,
+            results: null,
+            metadata: {
+              originalFilename: data.metadata?.originalFilename || 'Untitled',
+              videoSize: data.metadata?.videoSize || 0,
+              videoDuration: data.metadata?.videoDuration || 0,
+              mimeType: data.metadata?.mimeType || 'video/mp4'
+            },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+            processingStartTime: newStatus === 'processing' ? Date.now() : undefined
           };
-          debouncedUpdate(updatedAnalysis, progress);
-          return updatedAnalysis;
 
-        case 'completed':
-          return { ...analysis, progress: 1 };
+          // Override with any valid update data
+          if (data.error) newAnalysis.error = data.error;
+          if (data.queuePosition) newAnalysis.queuePosition = data.queuePosition;
+          if (data.metadata?.title) newAnalysis.metadata.title = data.metadata.title;
+          if (data.metadata?.description) newAnalysis.metadata.description = data.metadata.description;
+          if (data.metadata?.niche) newAnalysis.metadata.niche = data.metadata.niche;
+          if (data.metadata?.target_audience) newAnalysis.metadata.target_audience = data.metadata.target_audience;
+          if (data.metadata?.additional_details) newAnalysis.metadata.additional_details = data.metadata.additional_details;
 
-        default:
-          return analysis;
-      }
+          return [newAnalysis, ...prevAnalyses];
+        }
+        
+        // Update existing analysis with state protection
+        // Use the ID directly since we're working with strings on the client
+        const normalizedUpdateId = (data._id || data.analysisId)?.toString() || '';
 
-      return analysis;
+        // Update existing analysis while preserving required fields
+        const existingAnalysis = newAnalyses[existingIndex];
+        const updatedAnalysis: ManagedAnalysis = {
+          ...existingAnalysis,
+          _id: normalizedUpdateId,
+          displayStatus: newStatus,
+          estimatedProgress: newProgress,
+          processingStartTime: newStatus === 'processing' && existingAnalysis.displayStatus !== 'processing'
+            ? Date.now()
+            : existingAnalysis.processingStartTime
+        };
+
+        // Safely update optional fields from the event
+        if (data.error) updatedAnalysis.error = data.error;
+        if (data.queuePosition) updatedAnalysis.queuePosition = data.queuePosition;
+        if (data.metadata) {
+          updatedAnalysis.metadata = {
+            ...existingAnalysis.metadata,
+            ...(data.metadata.title && { title: data.metadata.title }),
+            ...(data.metadata.description && { description: data.metadata.description }),
+            ...(data.metadata.niche && { niche: data.metadata.niche }),
+            ...(data.metadata.target_audience && { target_audience: data.metadata.target_audience }),
+            ...(data.metadata.additional_details && { additional_details: data.metadata.additional_details })
+          };
+        }
+
+        newAnalyses[existingIndex] = updatedAnalysis;
+        
+        return newAnalyses;
+      });
+    };
+
+    // Import emitter dynamically to avoid circular deps if any
+    let cleanupListener: (() => void) | undefined;
+    
+    import('@/lib/sseManager').then(({ analysisEventEmitter }) => {
+      analysisEventEmitter.on('analysisUpdate', handleAnalysisUpdate);
+      cleanupListener = () => analysisEventEmitter.off('analysisUpdate', handleAnalysisUpdate);
     });
-  }, [analyses, debouncedUpdate]);
 
+    return () => {
+      cleanupListener?.();
+    };
+  }, []);
+
+  // Initialize managed analyses from fetched data
+  useEffect(() => {
+    if (!isSuccess || !fetchedAnalyses) return;
+
+    const initialManagedState: ManagedAnalysis[] = fetchedAnalyses.map(analysis => ({
+      ...analysis,
+      displayStatus: analysis.status,
+      estimatedProgress: analysis.status === 'completed' ? 1 : 0,
+    }));
+
+    setManagedAnalyses(initialManagedState);
+  }, [isSuccess, fetchedAnalyses]);
+
+  // Handle analysis cancellation
   const handleCancel = async (taskId: string) => {
+    const analysisToCancel = Object.values(analysisRefs.current).find(a => a.taskId === taskId);
+    if (!analysisToCancel) return;
+
+    const analysisId = analysisToCancel._id;
+
+    updateAnalysisState(analysisId, {
+      displayStatus: 'failed',
+      status: 'failed',
+      error: { code: 'USER_CANCELLED', message: 'Cancelled by user' },
+      estimatedProgress: 0
+    });
+
     try {
       await cancelAnalysis(taskId);
     } catch (error) {
@@ -152,36 +235,44 @@ export function AnalysisList({ initialAnalyses, onAnalysisUpdate }: AnalysisList
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-medium text-zinc-100">Recent Analysis</h2>
-        <Button variant="ghost" className="text-zinc-400 hover:text-zinc-300">
-          View All
-          <ChevronRight className="ml-2 h-4 w-4" />
+        <h2 className="text-xl font-medium text-zinc-100">
+          {showAll ? "All Analyses" : "Recent Analyses"}
+        </h2>
+        <Button
+          variant="ghost"
+          className="text-zinc-400 hover:text-zinc-300"
+          onClick={() => setShowAll(!showAll)}
+        >
+          {showAll ? (
+            <>
+              Show Recent
+              <ChevronRight className="ml-2 h-4 w-4 rotate-180" />
+            </>
+          ) : (
+            <>
+              View All
+              <ChevronRight className="ml-2 h-4 w-4" />
+            </>
+          )}
         </Button>
       </div>
-      <div className="space-y-4">
-        {analysesWithProgress.map((analysis) => (
+      <div className="space-y-4 max-h-[600px] overflow-y-auto">
+        {(showAll ? managedAnalyses : managedAnalyses.slice(0, maxDisplayItems || 5)).map((analysis) => (
           <AnalysisProgress
-            key={analysis._id.toString()}
-            analysisId={analysis._id.toString()}
+            key={analysis._id}
+            analysisId={analysis._id}
             taskId={analysis.taskId}
-            title={analysis.metadata.originalFilename}
+            title={analysis.metadata?.originalFilename}
             type={analysis.type}
-            status={analysis.status}
-            progress={
-              analysis.status === 'processing'
-                ? analysis.progress
-                : analysis.status === 'completed'
-                  ? 1
-                  : 0
-            }
-            estimatedTime={analysis.estimatedTime}
-            queuePosition={analysis.status === 'queued' ? 1 : undefined}
+            status={analysis.displayStatus}
+            progress={analysis.estimatedProgress}
+            queuePosition={analysis.displayStatus === 'queued' ? analysis.queuePosition : undefined}
             error={analysis.error}
-            onCancel={handleCancel}
+            onCancel={analysis.taskId && (analysis.displayStatus === 'queued' || analysis.displayStatus === 'processing') ? handleCancel : undefined}
           />
         ))}
 
-        {analysesWithProgress.length === 0 && (
+        {managedAnalyses.length === 0 && (
           <div className="text-center py-8">
             <p className="text-zinc-500">No analyses yet</p>
             <p className="text-sm text-zinc-600">

@@ -22,7 +22,7 @@ export function useAnalysisRefresh({
     error,
   } = useQuery<AlyzitronAnalysis, Error, AlyzitronAnalysis, [string, string | undefined]>({
     queryKey: ['analysis', analysisId],
-    queryFn: async ({ queryKey: [_, id] }) => {
+    queryFn: async ({ queryKey: [, id] }) => {
       if (!id) {
         throw new Error('Analysis ID is required');
       }

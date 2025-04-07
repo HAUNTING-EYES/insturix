@@ -1,15 +1,11 @@
 import { auth } from "@clerk/nextjs/server";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { ObjectId } from 'mongodb';
 import { AlyzitronAnalysis } from '../types';
 import { logger } from '../utils/logger';
 import { getCollections } from '../utils/mongodb';
 
 const PYTHON_SERVER_URL = process.env.PYTHON_SERVER_URL || 'http://localhost:8000';
-
-function isYouTubeUrl(url: string): boolean {
-  return url.includes('youtube.com') || url.includes('youtu.be');
-}
 
 function getGcsUrl(gcsPath: string): string {
   return `gs://${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
@@ -48,6 +44,7 @@ export async function POST(request: Request) {
       const pythonRequestData = {
         type: formatVideoType(type),
         video_url: videoUrl,
+        user_id: session.userId, // ADD THIS LINE
         title: title || undefined,
         description: description || undefined,
         niche: niche || undefined,
@@ -90,19 +87,16 @@ export async function POST(request: Request) {
         clerkUserId: session.userId,
         videoUrl: video_url,
         gcsPath: video_url.startsWith('services/alyzitron/') ? video_url : '',
-        type: formatVideoType(type), // Store formatted type
+        type: formatVideoType(type) as AlyzitronAnalysis['type'], // Use type from AlyzitronAnalysis
         status: 'queued',
         taskId: responseData.task_id,
         estimatedTime: responseData.estimated_time || 120,
-        queueStartTime: new Date(),
-        processingStartTime: new Date(),
-        completionTime: new Date(),
-        hasMetrics: false,
-        hasInsights: false,
+        progress: 0,
         results: null,
         metadata: {
-          originalFilename: title || 'Untitled',
-          fileSize: 0,
+          originalFilename: title || type+' Analysis',
+          videoSize: 0,
+          videoDuration: 0,
           mimeType: 'video/mp4'
         },
         createdAt: new Date(),
