@@ -1,0 +1,465 @@
+import { useState, useCallback } from 'react';
+import { useToast } from '@/hooks/use-toast';
+import { CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
+import { createElement } from 'react';
+import { logger } from '@/app/api/services/alyzitron/utils/logger';
+
+interface UploadState {
+  progress: number;
+  speed: number;
+  remaining: number;
+}
+
+interface AnalysisState {
+  status: 'idle' | 'uploading' | 'analyzing' | 'completed' | 'failed';
+  progress: number;
+  error?: {
+    message: string;
+    action?: string;
+  };
+}
+
+interface AnalysisMetadata {
+  title?: string;
+  description?: string;
+  niche?: string;
+  target_audience?: string;
+  additional_details?: string;
+}
+
+interface AnalysisUploadState {
+  uploadState: UploadState | null;
+  analysisState: AnalysisState;
+  abortController: AbortController | null;
+}
+
+function formatVideoType(type: string): string {
+  return type.toUpperCase().replace(/\s+/g, '_');
+}
+
+export function useVideoAnalysis() {
+  const { toast } = useToast();
+  
+  // Track state for multiple analyses
+  const [uploadStates, setUploadStates] = useState<Map<string, AnalysisUploadState>>(new Map());
+
+  const resetState = useCallback((analysisId: string) => {
+    setUploadStates(prev => {
+      const newStates = new Map(prev);
+      newStates.set(analysisId, {
+        uploadState: null,
+        analysisState: {
+          status: 'idle',
+          progress: 0,
+        },
+        abortController: null
+      });
+      return newStates;
+    });
+  }, []);
+
+  const cancelUpload = useCallback((analysisId: string) => {
+    const state = uploadStates.get(analysisId);
+    if (state?.abortController) {
+      state.abortController.abort();
+      setUploadStates(prev => {
+        const newStates = new Map(prev);
+        newStates.set(analysisId, {
+          ...state,
+          abortController: null,
+          uploadState: null,
+          analysisState: {
+            status: 'idle',
+            progress: 0,
+          }
+        });
+        return newStates;
+      });
+    }
+  }, [uploadStates]);
+
+  const uploadFile = useCallback(async (file: File, analysisId: string): Promise<string> => {
+    const controller = new AbortController();
+    
+    setUploadStates(prev => {
+      const newStates = new Map(prev);
+      const currentState = newStates.get(analysisId) || {
+        uploadState: null,
+        analysisState: { status: 'idle', progress: 0 },
+        abortController: null
+      };
+      newStates.set(analysisId, {
+        ...currentState,
+        abortController: controller,
+        analysisState: { status: 'uploading', progress: 0 }
+      });
+      return newStates;
+    });
+
+    try {
+      const signResponse = await fetch('/api/services/alyzitron/gcs/sign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType: file.type,
+          fileSize: file.size,
+        }),
+      });
+
+      if (!signResponse.ok) {
+        const error = await signResponse.json();
+        throw new Error(error.error?.message || 'Failed to get upload URL');
+      }
+
+      const { url, gcsPath, contentType } = await signResponse.json();
+      logger.info('Starting file upload', {
+        data: {
+          gcsPath,
+          size: file.size,
+          contentType
+        }
+      });
+
+      await new Promise((resolve, reject) => {
+        const startTime = Date.now();
+        const xhr = new XMLHttpRequest();
+        
+        controller.signal.addEventListener('abort', () => {
+          xhr.abort();
+          reject(new Error('Upload cancelled'));
+        });
+        
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const progress = event.loaded / event.total;
+            const speed = event.loaded / ((Date.now() - startTime) / 1000);
+            const remaining = (file.size - event.loaded) / speed;
+            
+            setUploadStates(prev => {
+              const newStates = new Map(prev);
+              const currentState = newStates.get(analysisId);
+              if (currentState) {
+                newStates.set(analysisId, {
+                  ...currentState,
+                  uploadState: {
+                    progress,
+                    speed,
+                    remaining
+                  }
+                });
+              }
+              return newStates;
+            });
+          }
+        };
+        
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            logger.info('File upload completed successfully', {
+              data: { gcsPath }
+            });
+            toast({
+              variant: "default",
+              title: "Upload Successful",
+              description: "Your video has been uploaded successfully",
+              icon: createElement(CheckCircle2, { className: "h-4 w-4 text-green-500" })
+            });
+            resolve(gcsPath);
+          } else {
+            const errorMessage = `Upload failed with status ${xhr.status}`;
+            logger.error('Upload failed', {
+              data: {
+                status: xhr.status,
+                statusText: xhr.statusText,
+                gcsPath
+              }
+            });
+            reject(new Error(errorMessage));
+          }
+        };
+        
+        xhr.onerror = () => {
+          logger.error('Upload failed', {
+            data: { gcsPath }
+          });
+          reject(new Error('Upload failed'));
+        };
+        
+        xhr.onabort = () => {
+          logger.info('Upload cancelled by user', {
+            data: { gcsPath }
+          });
+          toast({
+            variant: "default",
+            title: "Upload Cancelled",
+            description: "Video upload was cancelled",
+            icon: createElement(XCircle, { className: "h-4 w-4 text-zinc-500" })
+          });
+          reject(new Error('Upload cancelled'));
+        };
+        
+        xhr.open('PUT', url);
+        xhr.setRequestHeader('Content-Type', contentType);
+        xhr.send(file);
+      });
+
+      return gcsPath;
+
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Upload cancelled') {
+        logger.info('Upload cancelled successfully');
+        return ''; 
+      }
+      const errorMessage = error instanceof Error ? error.message : 'Upload failed';
+      logger.error('Upload process failed', {
+        data: {
+          error: errorMessage,
+          filename: file.name
+        }
+      });
+
+      setUploadStates(prev => {
+        const newStates = new Map(prev);
+        const currentState = newStates.get(analysisId);
+        if (currentState) {
+          newStates.set(analysisId, {
+            ...currentState,
+            analysisState: {
+              status: 'failed',
+              progress: 0,
+              error: {
+                message: 'Failed to upload video',
+                action: 'Please try again or use a different video file',
+              }
+            }
+          });
+        }
+        return newStates;
+      });
+
+      throw error;
+    } finally {
+      setUploadStates(prev => {
+        const newStates = new Map(prev);
+        const currentState = newStates.get(analysisId);
+        if (currentState) {
+          newStates.set(analysisId, {
+            ...currentState,
+            abortController: null
+          });
+        }
+        return newStates;
+      });
+    }
+  }, [toast]);
+
+  const submitAnalysis = useCallback(async (
+    videoUrl: string,
+    videoType: string,
+    analysisId: string,
+    metadata?: AnalysisMetadata,
+    fileMetadata?: { size?: number; duration?: number }
+  ) => {
+    try {
+      setUploadStates(prev => {
+        const newStates = new Map(prev);
+        const currentState = newStates.get(analysisId) || {
+          uploadState: null,
+          analysisState: { status: 'idle', progress: 0 },
+          abortController: null
+        };
+        newStates.set(analysisId, {
+          ...currentState,
+          analysisState: {
+            status: 'analyzing',
+            progress: 0
+          }
+        });
+        return newStates;
+      });
+
+      const requestData = {
+        type: formatVideoType(videoType),
+        video_url: videoUrl,
+        metadata: {
+          ...metadata,
+          videoSize: fileMetadata?.size,
+          videoDuration: fileMetadata?.duration
+        }
+      };
+
+      logger.info('Submitting analysis request', {
+        data: requestData
+      });
+
+      const response = await fetch('/api/services/alyzitron/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to initiate analysis');
+      }
+
+      const { analysisId: resultId, taskId, estimatedTime } = await response.json();
+      logger.info('Analysis request submitted successfully', { 
+        data: { analysisId: resultId, taskId, estimatedTime }
+      });
+      
+      toast({
+        variant: "default",
+        title: "Analysis Started",
+        description: "Your video is being analyzed",
+        icon: createElement(CheckCircle2, { className: "h-4 w-4 text-green-500" })
+      });
+
+      resetState(analysisId);
+
+      return { analysisId: resultId, taskId, estimatedTime };
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
+      logger.error('Analysis submission failed', {
+        data: { error: errorMessage }
+      });
+
+      setUploadStates(prev => {
+        const newStates = new Map(prev);
+        const currentState = newStates.get(analysisId);
+        if (currentState) {
+          newStates.set(analysisId, {
+            ...currentState,
+            analysisState: {
+              status: 'idle',
+              progress: 0,
+              error: {
+                message: 'Failed to start analysis',
+                action: 'Please try again',
+              }
+            }
+          });
+        }
+        return newStates;
+      });
+
+      toast({
+        variant: "destructive",
+        title: "Analysis Failed",
+        description: "Failed to start video analysis",
+        icon: createElement(AlertCircle, { className: "h-4 w-4" })
+      });
+
+      throw error;
+    }
+  }, [resetState, toast]);
+
+  const analyzeFile = useCallback(async (
+    file: File,
+    videoType: string,
+    analysisId: string,
+    metadata?: AnalysisMetadata
+  ) => {
+    try {
+      const gcsPath = await uploadFile(file, analysisId);
+      
+      if (gcsPath) {
+        const fileMetadata = {
+          size: file.size,
+          duration: metadata?.additional_details
+            ? JSON.parse(metadata.additional_details).videoDuration
+            : undefined
+        };
+        return await submitAnalysis(gcsPath, videoType, analysisId, {
+          title: file.name,
+          ...metadata,
+        }, fileMetadata);
+      }
+      
+      return;
+
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Analysis failed';
+      
+      if (errorMessage === 'Upload cancelled') {
+        return;
+      }
+      
+      logger.error('File analysis process failed', {
+        data: {
+          error: errorMessage,
+          filename: file.name
+        }
+      });
+
+      setUploadStates(prev => {
+        const newStates = new Map(prev);
+        const currentState = newStates.get(analysisId);
+        if (currentState) {
+          newStates.set(analysisId, {
+            ...currentState,
+            analysisState: {
+              status: 'idle',
+              progress: 0,
+              error: {
+                message: errorMessage,
+                action: 'Please try again',
+              }
+            }
+          });
+        }
+        return newStates;
+      });
+
+      throw error;
+    }
+  }, [uploadFile, submitAnalysis]);
+
+  const cancelAnalysis = useCallback(async (taskId: string) => {
+    try {
+      logger.info('Canceling analysis', { data: { taskId } });
+      
+      const response = await fetch('/api/services/alyzitron/cancel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ taskId }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error?.message || 'Failed to cancel analysis');
+      }
+
+      logger.info('Analysis canceled successfully', { data: { taskId } });
+      toast({
+        variant: "default",
+        title: "Analysis Cancelled",
+        description: "Video analysis was cancelled",
+        icon: createElement(XCircle, { className: "h-4 w-4 text-zinc-500" })
+      });
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to cancel analysis';
+      logger.error('Analysis cancellation failed', {
+        data: { error: errorMessage, taskId }
+      });
+      throw error;
+    }
+  }, [toast]);
+
+  return {
+    uploadStates,
+    analyzeFile,
+    submitAnalysis,
+    cancelAnalysis,
+    cancelUpload,
+    resetState,
+  };
+}

@@ -1,6 +1,6 @@
 import { Space_Grotesk } from "next/font/google";
 import { Heading, Paragraph, Price, PricingWrapper } from "./Price";
-import { Currency } from "../Currency"; // Import the Currency component
+import { Currency } from "../Currency";
 
 const grotesk = Space_Grotesk({ subsets: ["latin"] });
 

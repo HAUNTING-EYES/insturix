@@ -1,92 +1,149 @@
 "use client";
 
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useUser } from '@clerk/nextjs';
+import { useSSEConnection } from '@/hooks/useSSEConnection';
 import { VideoUpload } from './VideoUpload';
-import { AnalysisList } from '../../../hooks/AnalysisList';
-import { AlyzitronAnalysis, VideoType } from '@/app/api/services/alyzitron/types';
-import type { Analysis } from '@/hooks/useAnalysisState';
+import { InProgressAnalyses } from './InProgressAnalyses';
+import { AnalysisList } from './AnalysisList';
+import { VideoType, AnalysisStatus } from '@/app/api/services/alyzitron/types';
+import type { Analysis } from '@/app/dashboard/alyzitron/hooks/useAnalysisState';
+import type { ClientAlyzitronAnalysis } from '@/app/dashboard/alyzitron/types/client';
 
 interface ClientWrapperProps {
-  initialAnalyses: AlyzitronAnalysis[];
-}
-
-function convertToAlyzitronAnalysis(analysis: Analysis, analysisId: string): Omit<AlyzitronAnalysis, '_id'> & { _id: string } {
-  return {
-    _id: analysisId,
-    clerkUserId: 'pending', // Will be set by server
-    gcsPath: analysis.videoUrl || '',
-    type: analysis.type as VideoType,
-    status: 'queued',
-    taskId: analysis.taskId,
-    videoUrl: analysis.videoUrl,
-    estimatedTime: analysis.estimatedTime || 60,
-    progress: 0,
-    results: null,
-    metadata: {
-      originalFilename: analysis.title || '',
-      fileSize: 0,
-      mimeType: '',
-    },
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
+  initialAnalyses: ClientAlyzitronAnalysis[];
 }
 
 export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const queryClient = useQueryClient();
+  const { user } = useUser();
+  const [activeAnalyses, setActiveAnalyses] = useState<Set<string>>(new Set());
+
+  // Initialize and manage the 'analyses' query state
+  const { data: analysesData = initialAnalyses } = useQuery<ClientAlyzitronAnalysis[]>({
+    queryKey: ['analyses'],
+    queryFn: async () => {
+      // This function ideally shouldn't be called often if initialData is provided
+      // and updates happen via setQueryData/SSE. Fetch only if necessary.
+      console.warn("Fetching analyses directly in ClientWrapper, should be rare.");
+      const response = await fetch('/api/services/alyzitron/analyses');
+      if (!response.ok) throw new Error('Failed to fetch analyses');
+      return response.json();
+    },
+    initialData: initialAnalyses,
+    staleTime: 1000 * 60 * 5, // Keep data fresh for 5 mins
+    gcTime: 1000 * 60 * 10,  // Garbage collect after 10 mins
+    refetchOnWindowFocus: false, // Avoid refetching on window focus
+  });
+
+  // Initialize SSE connection (assuming this hook might update the ['analyses'] query cache)
+  useSSEConnection(user?.id || '');
+
 
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {
     if (!analysisId) return;
     
-    queryClient.setQueryData(['analyses'], (old: AlyzitronAnalysis[] = []) => {
-      const optimisticAnalysis = convertToAlyzitronAnalysis(analysis, analysisId);
-      const existingIndex = old.findIndex(a => a._id.toString() === analysisId);
+    queryClient.setQueryData<ClientAlyzitronAnalysis[]>(['analyses'], old => {
+      const currentData = old || [];
+      const existingIndex = currentData.findIndex(a => a._id.toString() === analysisId);
       
-      if (existingIndex !== -1) {
-        // Update existing analysis but preserve certain server-side fields
-        const existing = old[existingIndex];
-        const updated = {
-          ...optimisticAnalysis,
-          clerkUserId: existing.clerkUserId,
-          createdAt: existing.createdAt,
+      // Handle new analysis with optimistic update
+      if (existingIndex === -1) {
+        const optimisticAnalysis: ClientAlyzitronAnalysis = {
+          _id: analysisId, // Will be replaced by server response
+          clerkUserId: 'pending',
+          type: analysis.type as VideoType,
+          status: analysis.status as AnalysisStatus,
+          taskId: analysis.taskId || '',
+          videoUrl: analysis.videoUrl || '',
+          gcsPath: analysis.videoUrl || '',
+          estimatedTime: analysis.estimatedTime || 60,
+          unread: true,
+          results: null,
+          metadata: {
+            originalFilename: analysis.title || '',
+            videoSize: 0,
+            videoDuration: 0,
+            mimeType: '',
+          },
+          createdAt: new Date(),
+          updatedAt: new Date(),
         };
-        return [
-          ...old.slice(0, existingIndex),
-          updated,
-          ...old.slice(existingIndex + 1)
-        ];
+        return [optimisticAnalysis, ...currentData];
       }
       
-      // Add new analysis
-      return [optimisticAnalysis, ...old];
+      const existing = currentData[existingIndex];
+      
+      // Skip updates for completed analyses
+      if (existing.status === 'completed') {
+        return currentData;
+      }
+      
+      // Preserve processing state
+      if (existing.status === 'processing' && analysis.status === 'queued') {
+        return currentData;
+      }
+      
+      // Safe update of existing analysis
+      const newData = [...currentData];
+      newData[existingIndex] = {
+        ...existing,
+        status: analysis.status as AnalysisStatus,
+        estimatedTime: analysis.estimatedTime ?? existing.estimatedTime,
+        results: existing.results,
+      };
+      
+      return newData;
     });
   };
+
+  // Effect to update activeAnalyses based on the query data
+  useEffect(() => {
+    const currentActive = new Set<string>();
+    analysesData.forEach(a => {
+      if (['pending', 'queued', 'processing'].includes(a.status)) {
+        currentActive.add(a._id.toString());
+      }
+    });
+    setActiveAnalyses(currentActive);
+  }, [analysesData]);
 
   return (
     <div className="space-y-8">
       <VideoUpload
         onSubmit={(analysisId: string, analysis) => {
+          // Optimistic update via handleAnalysisUpdate
           handleAnalysisUpdate(analysisId, {
             ...analysis,
-            status: 'queued',
+            status: 'queued', // Start as queued
             progress: 0
           });
+          // No need to manually setActiveAnalyses here, useEffect handles it
         }}
         onComplete={(analysisId: string, analysis) => {
           if (!analysisId) return;
+          
           // Update with completed status before invalidating
+          // Ensure final update reflects completion
           handleAnalysisUpdate(analysisId, {
             ...analysis,
             status: 'completed',
             progress: 1
           });
-          // Then refresh to get server data
+
+          // Invalidate to ensure consistency, though SSE might handle this
+          // Consider if this invalidation is still needed with SSE updates
           queryClient.invalidateQueries({ queryKey: ['analyses'] });
         }}
+        activeAnalyses={activeAnalyses} // Pass the derived active analyses
       />
+      {/* Add the InProgressAnalyses section */}
+      <InProgressAnalyses />
+
+      {/* AnalysisList now only shows completed/failed */}
       <AnalysisList
-        initialAnalyses={initialAnalyses}
-        onAnalysisUpdate={handleAnalysisUpdate}
+        itemsPerPage={10}
       />
     </div>
   );

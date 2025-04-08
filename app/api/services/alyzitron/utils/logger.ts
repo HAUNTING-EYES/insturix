@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogData {
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 // Environment variable to control debug logging
@@ -69,8 +69,18 @@ export function logError(context: string, error: unknown) {
   });
 }
 
+interface CallbackData {
+  task_id: string;
+  results?: {
+    status?: string;
+    success?: boolean;
+    error?: unknown;
+    data?: unknown;
+  };
+}
+
 // Helper for logging callback data
-export function logCallback(data: any) {
+export function logCallback(data: CallbackData) {
   if (ALYZITRON_DEBUG) {
     logger.debug('Received callback data', {
       data: {
@@ -78,7 +88,7 @@ export function logCallback(data: any) {
         status: data.results?.status,
         success: data.results?.success,
         error: data.results?.error,
-        ...(data.results?.data && { hasData: true })
+        ...(typeof data.results?.data === 'object' && data.results.data ? { hasData: true } : {})
       },
       rawData: data // Log full data in debug mode
     });
@@ -93,10 +103,10 @@ export function logCallback(data: any) {
   }
 }
 
-type RouteHandler = (req: NextRequest, ...args: any[]) => Promise<NextResponse>;
+type RouteHandler = (req: NextRequest, ...args: unknown[]) => Promise<NextResponse>;
 
 export function withLogging(handler: RouteHandler): RouteHandler {
-  return async (req: NextRequest, ...args: any[]) => {
+  return async (req: NextRequest, ...args: unknown[]) => {
     const start = Date.now();
     const method = req.method;
     const url = req.url;
