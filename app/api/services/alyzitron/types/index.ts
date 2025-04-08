@@ -107,7 +107,7 @@ export interface AlyzitronAnalysis {
   };
   createdAt: Date;
   updatedAt: Date;
-  processingStartTime?: number | Date;
+  processingStartTime?: number; // timestamp in ms
 }
 
 export interface ServiceError {

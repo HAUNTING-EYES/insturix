@@ -2,7 +2,7 @@ import { auth } from '@clerk/nextjs/server';
 import { ObjectId } from 'mongodb';
 import { getCollections } from '@/app/api/services/alyzitron/utils/mongodb';
 import { notFound } from 'next/navigation';
-import { serializeAnalysis } from '../../../../../utils/serialization';
+import { serializeAnalysis } from '../../utils/serialization';
 import type { AnalysisData, MetricData } from '../../../../../lib/types';
 import { AnalysisDetails } from './components';
 
