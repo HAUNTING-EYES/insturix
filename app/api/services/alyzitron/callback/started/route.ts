@@ -31,7 +31,7 @@ export async function POST(request: Request) {
       {
         $set: {
           status: 'processing',
-          processingStartTime: now,
+          processingStartTime: now.getTime(),
           updatedAt: now,
         },
       }

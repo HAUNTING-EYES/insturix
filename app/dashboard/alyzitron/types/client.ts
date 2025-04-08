@@ -14,7 +14,7 @@ export interface ClientAlyzitronAnalysis {
   processingStartTime?: number; // Timestamp in ms when processing started
   queuePosition?: number;
   unread: boolean;
-  results: any | null;
+  results: Record<string, unknown> | null;
   error?: {
     code: string;
     message: string;

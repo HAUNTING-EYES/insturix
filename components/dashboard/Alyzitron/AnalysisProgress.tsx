@@ -67,8 +67,6 @@ export function AnalysisProgress({
         setTimeLeft(expectedDurationSeconds);
         return;
       }
-
-      const elapsed = now - processingStartTime;
       const rawRemaining = (processingStartTime + expectedDurationSeconds * 1000 - now) / 1000;
       const remaining = Math.max(1, rawRemaining);
 

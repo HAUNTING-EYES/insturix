@@ -1,12 +1,12 @@
-import { auth } from '@clerk/nextjs/server';
-import { ObjectId } from 'mongodb';
-import { getCollections } from '@/app/api/services/alyzitron/utils/mongodb';
-import { notFound } from 'next/navigation';
-import { serializeAnalysis } from '../../utils/serialization';
-import type { AnalysisData, MetricData } from '../../../../../lib/types';
-import { AnalysisDetails } from './components';
+import { auth } from "@clerk/nextjs/server";
+import { ObjectId } from "mongodb";
+import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
+import { notFound } from "next/navigation";
+import { serializeAnalysis } from "../../utils/serialization";
+import type { AnalysisData, MetricData } from "../../../../../lib/types";
+import { AnalysisDetails } from "./components";
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{
@@ -27,19 +27,19 @@ async function getAnalysis(id: string) {
     }
 
     const { analyses } = await getCollections();
-    
+
     // Find and update the analysis document
     const analysis = await analyses.findOneAndUpdate(
       {
         _id: objectId,
         clerkUserId: session.userId,
-        status: 'completed',
+        status: "completed",
       },
       {
-        $set: { unread: false }
+        $set: { unread: false },
       },
       {
-        returnDocument: 'after'
+        returnDocument: "after",
       }
     );
 
@@ -47,7 +47,7 @@ async function getAnalysis(id: string) {
 
     return serializeAnalysis(analysis);
   } catch (error) {
-    console.error('Error fetching analysis:', error);
+    console.error("Error fetching analysis:", error);
     return null;
   }
 }
@@ -55,34 +55,58 @@ async function getAnalysis(id: string) {
 export default async function AnalysisReport({ params }: PageProps) {
   const resolvedParams = await params;
   const analysis = await getAnalysis(resolvedParams.id);
-  
+
   if (!analysis) {
     notFound();
   }
 
   const analysisData: AnalysisData = {
     category: analysis.type,
-    creator_feedback: analysis.results?.creator_feedback || {
-      strengths: [],
-      improvements: []
-    }
+    creator_feedback:
+      analysis.results?.creator_feedback &&
+      typeof analysis.results.creator_feedback === "object" &&
+      analysis.results.creator_feedback !== null &&
+      "strengths" in analysis.results.creator_feedback &&
+      "improvements" in analysis.results.creator_feedback
+        ? {
+            strengths: Array.isArray(
+              analysis.results.creator_feedback.strengths
+            )
+              ? analysis.results.creator_feedback.strengths
+              : [],
+            improvements: Array.isArray(
+              analysis.results.creator_feedback.improvements
+            )
+              ? analysis.results.creator_feedback.improvements
+              : [],
+          }
+        : {
+            strengths: [],
+            improvements: [],
+          },
   };
 
   // Map metrics to their groups
   if (analysis.results) {
     Object.entries(analysis.results).forEach(([group, groupMetrics]) => {
-      if (typeof groupMetrics === 'object' && groupMetrics !== null) {
+      if (typeof groupMetrics === "object" && groupMetrics !== null) {
         const metrics: Record<string, MetricData> = {};
         Object.entries(groupMetrics).forEach(([key, value]) => {
-          if (typeof value === 'object' && value !== null && 'score' in value) {
+          if (typeof value === "object" && value !== null && "score" in value) {
             const metric = value as { score?: number; description?: string };
             metrics[key] = {
-              score: typeof metric.score === 'number' ? metric.score : undefined,
-              description: typeof metric.description === 'string' ? metric.description : ''
+              score:
+                typeof metric.score === "number" ? metric.score : undefined,
+              description:
+                typeof metric.description === "string"
+                  ? metric.description
+                  : "",
             };
           }
         });
-        if (group != 'category' && group != 'creator_feedback') {analysisData[group] = metrics;}
+        if (group != "category" && group != "creator_feedback") {
+          analysisData[group] = metrics;
+        }
       }
     });
   }

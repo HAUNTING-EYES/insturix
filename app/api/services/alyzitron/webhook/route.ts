@@ -49,7 +49,7 @@ export async function POST(request: Request) {
         {
           $set: {
             status: 'processing',
-            processingStartTime: new Date(),
+            processingStartTime: new Date().getTime(),
             updatedAt: new Date()
           }
         }
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
         {
           $set: {
             status: 'completed',
-            completionTime: new Date(),
+            completionTime: new Date().getTime(),
             results: data.results.data,
             hasMetrics: !!data.results.data?.engagement_metrics,
             hasInsights: !!data.results.data?.creator_feedback,
