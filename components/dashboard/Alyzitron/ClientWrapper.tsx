@@ -37,8 +37,27 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     refetchOnWindowFocus: false, // Avoid refetching on window focus
   });
 
-  // Initialize SSE connection (assuming this hook might update the ['analyses'] query cache)
-  useSSEConnection(user?.id || '');
+  // Initialize SSE connection
+  const userId = user?.id || '';
+  useSSEConnection(userId);
+
+  // Effect to refetch analyses on mount if initial data contains active items
+  // This ensures we get the latest status after a page refresh for ongoing analyses
+  // before relying solely on subsequent SSE updates.
+  useEffect(() => {
+    const hasActiveInitialAnalyses = initialAnalyses.some(a =>
+      ['queued', 'processing'].includes(a.status)
+    );
+
+    if (hasActiveInitialAnalyses && userId) {
+      console.log("ClientWrapper: Initial analyses include active items. Triggering refetch.");
+      // Invalidate immediately to get the latest status for active items after refresh.
+      // SSE will handle subsequent updates.
+      queryClient.invalidateQueries({ queryKey: ['analyses'] });
+    }
+  // Run only once on mount, dependent on initialAnalyses and userId
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]); // queryClient and initialAnalyses are stable or correctly handled by ESLint rule
 
 
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {
@@ -90,8 +109,10 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
       newData[existingIndex] = {
         ...existing,
         status: analysis.status as AnalysisStatus,
+        // Update both estimatedTime and expectedDurationSeconds for consistency with SSE handler
         estimatedTime: analysis.estimatedTime ?? existing.estimatedTime,
-        results: existing.results,
+        expectedDurationSeconds: analysis.estimatedTime ?? existing.expectedDurationSeconds, // Add this line
+        results: existing.results, // Keep existing results unless explicitly updated
       };
       
       return newData;
@@ -101,11 +122,14 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   // Effect to update activeAnalyses based on the query data
   useEffect(() => {
     const currentActive = new Set<string>();
-    analysesData.forEach(a => {
-      if (['pending', 'queued', 'processing'].includes(a.status)) {
-        currentActive.add(a._id.toString());
-      }
-    });
+    // Ensure analysesData is an array before iterating
+    if (Array.isArray(analysesData)) {
+      analysesData.forEach(a => {
+        if (['pending', 'queued', 'processing'].includes(a.status)) {
+          currentActive.add(a._id.toString());
+        }
+      });
+    }
     setActiveAnalyses(currentActive);
   }, [analysesData]);
 

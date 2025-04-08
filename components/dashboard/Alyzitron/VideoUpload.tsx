@@ -11,6 +11,7 @@ import { Upload, Link2, X } from 'lucide-react';
 import { useVideoAnalysis } from '@/app/dashboard/alyzitron/hooks/useVideoAnalysis';
 import { UploadProgress } from './UploadProgress';
 import { formatFileSize } from '@/app/dashboard/alyzitron/utils/progress';
+import { useToast } from '@/hooks/use-toast';
 
 interface VideoUploadProps {
   onSubmit: (analysisId: string, analysis: Analysis) => void;
@@ -35,10 +36,14 @@ interface UploadState {
   duration: number;
 }
 
+const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1 GB
+const MAX_DURATION_SECONDS = 55 * 60; // 55 minutes
+
 export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [uploadState, setUploadState] = useState<UploadState>({ file: null, url: '', duration: 0 });
   const [selectedType, setSelectedType] = useState<VideoType | ''>('');
   const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const {
     uploadStates,
@@ -59,23 +64,72 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      // Check file size
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        toast({
+          title: "File Too Large",
+          description: `File size cannot exceed ${formatFileSize(MAX_FILE_SIZE_BYTES)}.`,
+          variant: "destructive",
+        });
+        event.target.value = ''; // Clear the input
+        return;
+      }
+
+      // Check video duration
       const video = document.createElement('video');
       video.preload = 'metadata';
-      
-      const duration = await new Promise<number>((resolve) => {
-        video.onloadedmetadata = () => {
-          resolve(Math.round(video.duration));
-        };
-        video.src = URL.createObjectURL(file);
-      });
-      
-      URL.revokeObjectURL(video.src);
-      setUploadState({ file, url: '', duration });
+
+      try {
+        const duration = await new Promise<number>((resolve, reject) => {
+          video.onloadedmetadata = () => {
+            resolve(Math.round(video.duration));
+          };
+          video.onerror = (e) => {
+            console.error("Error loading video metadata:", e);
+            reject(new Error("Could not read video metadata."));
+          };
+          video.src = URL.createObjectURL(file);
+        });
+
+        URL.revokeObjectURL(video.src); // Clean up object URL
+
+        if (duration > MAX_DURATION_SECONDS) {
+          toast({
+            title: "Video Too Long",
+            description: `Video duration cannot exceed ${MAX_DURATION_SECONDS / 60} minutes.`,
+            variant: "destructive",
+          });
+          event.target.value = ''; // Clear the input
+          return;
+        }
+
+        setUploadState({ file, url: '', duration });
+
+      } catch (error) {
+        console.error("Error processing video file:", error);
+        toast({
+          title: "Error Processing File",
+          description: error instanceof Error ? error.message : "An unknown error occurred while reading the video file.",
+          variant: "destructive",
+        });
+        event.target.value = ''; // Clear the input
+        if (video.src) URL.revokeObjectURL(video.src); // Ensure cleanup on error
+      }
     }
   };
 
   const handleSubmit = useCallback(async () => {
     if (!selectedType || (!uploadState.file && !uploadState.url)) return;
+
+    // Frontend URL format validation
+    if (uploadState.url && !isValidYoutubeUrl(uploadState.url)) {
+      toast({
+        title: "Invalid URL",
+        description: "Please enter a valid YouTube video URL.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     const submissionId = crypto.randomUUID();
     
@@ -112,18 +166,55 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         });
       }
     } catch (err) {
-      if (err instanceof Error && err.message !== 'Upload cancelled') {
-        console.error('Submission failed:', err);
+      let title = "Submission Failed";
+      let description = "An unexpected error occurred. Please try again.";
+
+      if (err instanceof Error) {
+        // Specific backend errors (assuming backend returns these messages)
+        if (err.message.includes('INVALID_YOUTUBE_URL')) {
+          description = "The provided YouTube URL is invalid or not accessible.";
+        } else if (err.message.includes('YOUTUBE_VIDEO_TOO_LONG')) {
+          description = `YouTube video duration cannot exceed ${MAX_DURATION_SECONDS / 60} minutes.`;
+        } else if (err.message.includes('YOUTUBE_VIDEO_PRIVATE')) {
+          description = "The YouTube video is private or unlisted.";
+        } else if (err.message.includes('Failed to create analysis')) {
+          // Existing server offline check
+          description = "Alyzitron Server is offline. Please try again later.";
+        } else if (err.message === 'Upload cancelled') {
+          // Ignore cancellation errors for toast
+          return;
+        } else {
+          // Generic error
+          console.error('Submission failed:', err);
+        }
+      } else {
+        // Non-Error object thrown
+        console.error('Submission failed with non-Error object:', err);
+        description = "An unknown error occurred. Please try again.";
       }
+
+      toast({
+        title: title,
+        description: description,
+        variant: "destructive",
+      });
+      // Optionally reset state if submission fails definitively
+      // resetUploadState();
     }
-  }, [uploadState, selectedType, analyzeFile, submitAnalysis, onSubmit]);
+  }, [uploadState, selectedType, analyzeFile, submitAnalysis, onSubmit, toast]); // Added toast dependency
 
   const clearFile = () => {
     setUploadState(prev => ({ ...prev, file: null }));
   };
 
   const handleUrlChange = (url: string) => {
+    // Basic check: Clear file if URL is entered
     setUploadState({ file: null, url, duration: 0 });
+  };
+
+  const isValidYoutubeUrl = (url: string): boolean => {
+    const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/;
+    return youtubeRegex.test(url);
   };
 
   const handleCancel = async () => {

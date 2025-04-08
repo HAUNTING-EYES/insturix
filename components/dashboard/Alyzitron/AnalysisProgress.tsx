@@ -6,10 +6,9 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { CircleDot, PlayCircle, XCircle, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { QueryClient } from '@tanstack/react-query'; // Import QueryClient type
+import { QueryClient } from '@tanstack/react-query';
 
 import { AnalysisStatus, VideoType } from '@/app/api/services/alyzitron/types';
-// Import the PaginatedResponse type (adjust path if necessary)
 import type { PaginatedResponse } from './AnalysisList';
 
 interface AnalysisError {
@@ -53,28 +52,54 @@ export function AnalysisProgress({
   itemsPerPage
 }: AnalysisProgressProps) {
   const router = useRouter();
-  const [timeLeft, setTimeLeft] = useState<number>(expectedDurationSeconds);
+  // Helper function to calculate remaining time
+  const calculateRemainingTime = (startTime: number | undefined | string, duration: number): number => {
+    if (typeof startTime === 'string') {
+      startTime = Date.parse(startTime);
+    }
+
+    if (typeof startTime !== 'number' || isNaN(startTime) || typeof duration !== 'number') {
+      // Return a default/fallback or indicate an error state if needed
+      // For now, returning duration might be a safe fallback, or 0 if processing hasn't started
+      return duration > 0 ? duration : 0;
+    }
+
+    const endTime = startTime + duration * 1000;
+    const now = Date.now();
+    const remaining = Math.max(0, Math.round((endTime - now) / 1000));
+    return remaining;
+  };
+
+  const [timeLeft, setTimeLeft] = useState<number>(() =>
+    calculateRemainingTime(processingStartTime, expectedDurationSeconds)
+  );
 
   useEffect(() => {
+    // Update initial time when props change, especially after status becomes 'processing'
+    setTimeLeft(calculateRemainingTime(processingStartTime, expectedDurationSeconds));
+
     if (status !== 'processing') {
       return; // Skip countdown if not processing
     }
 
+    // Set up the interval only when processing
     const interval = setInterval(() => {
-      const now = Date.now();
-
-      if (!processingStartTime) {
-        setTimeLeft(expectedDurationSeconds);
-        return;
-      }
-      const rawRemaining = (processingStartTime + expectedDurationSeconds * 1000 - now) / 1000;
-      const remaining = Math.max(1, rawRemaining);
-
-      setTimeLeft(remaining);
+      setTimeLeft(prevTime => {
+        const newRemaining = calculateRemainingTime(processingStartTime, expectedDurationSeconds);
+        // Stop interval if time runs out (or goes slightly negative due to rounding/timing)
+        if (newRemaining <= 0) {
+          clearInterval(interval);
+          // Optionally trigger a refresh or status update here if needed
+          return 0; // Ensure it doesn't display negative
+        }
+        return newRemaining;
+      });
     }, 1000);
 
+    // Cleanup function
     return () => clearInterval(interval);
-  }, [processingStartTime, expectedDurationSeconds, status]);
+
+  }, [processingStartTime, expectedDurationSeconds, status]); // Rerun effect if these change
 
   const isActive = status === 'processing' || status === 'queued';
   const canCancel = status === 'queued' && onCancel && taskId;
@@ -106,10 +131,6 @@ export function AnalysisProgress({
           data: newData,
         };
       });
-
-      // Mark the analysis as read on the backend (fire-and-forget)
-      // Ensure this API endpoint exists and handles PATCH requests
-      fetch(`/api/services/alyzitron/analyses/${analysisId}/read`, { method: 'PATCH' })
 
       // Navigate to the report page
       router.push(`/dashboard/alyzitron/report/${analysisId}`);
@@ -173,7 +194,11 @@ export function AnalysisProgress({
                     className="flex items-center gap-2 text-sm text-zinc-200"
                   >
                     <CircleDot className="h-4 w-4 animate-pulse text-zinc-300" />
-                    <span>Processing (~{Math.ceil(timeLeft)}s left)</span>
+                    {timeLeft <= 1 ? (
+                      <span>Finishing up...</span>
+                    ) : (
+                      <span>Processing (~{timeLeft}s left)</span>
+                    )}
                   </motion.div>
                 )}
                 {status === 'completed' && (

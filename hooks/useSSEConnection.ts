@@ -32,7 +32,7 @@ export function useSSEConnection(userId: string) {
             console.log(`SSE Handler: Processing event for analysisId=${data.analysisId}, status=${data.status}, type=${data.type}`); // Add log here
             // Directly update the React Query cache
             queryClient.setQueryData<ClientAlyzitronAnalysis[]>(['analyses'], (oldData) => {
-              const analyses = oldData || [];
+              const analyses = Array.isArray(oldData) ? oldData : []; // Ensure analyses is always an array
               const index = analyses.findIndex(a => a._id.toString() === data.analysisId);
 
               if (index !== -1) {

@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { analysisEventEmitter } from '@/lib/sseManager';
 import { getCollections } from '@/app/api/services/alyzitron/utils/mongodb';
 
-// Add necessary imports for validation/authentication if needed
-
 export async function POST(request: Request) {
   try {
     const body = await request.json();
