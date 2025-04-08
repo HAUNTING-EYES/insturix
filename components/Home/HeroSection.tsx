@@ -8,57 +8,83 @@ import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
 
 export default function HeroSection() {
-  const [baseCount] = useState(0); // Starting with a default base count
-  const [dailyIncrement, setDailyIncrement] = useState(0); // Today's increment
+  const [baseCount] = useState(20); // Starting with a real base count
+  const [displayCount, setDisplayCount] = useState(baseCount);
   const [isHovering, setIsHovering] = useState(false);
 
   useEffect(() => {
-    const todayKey = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
-
-    // Calculate a daily target (random between 0-20)
-    const getDailyTarget = () => {
-      // Generate a deterministic random number for today
-      const seed = parseInt(todayKey.replace(/-/g, ""));
-      const pseudoRandom = Math.sin(seed) * 10000;
-      return Math.floor(Math.abs(pseudoRandom) % 21); // 0-20 range
+    // Get the current date and time
+    const now = new Date();
+    const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    
+    // Create a deterministic seed based on date (same for everyone on the same day)
+    const dateSeed = parseInt(todayKey.replace(/-/g, ""));
+    
+    // Use the seed to generate today's total increment (consistent for all users)
+    const dailyMax = Math.floor((Math.abs(Math.sin(dateSeed) * 10000) % 21)); // 0-20 range
+    
+    // Calculate how much of the day has passed (0 to 1 scale)
+    const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
+    
+    // Calculate how many increments should have happened by now
+    const expectedIncrements = Math.floor(dailyMax * dayProgress);
+    
+    // Set the initial count
+    setDisplayCount(baseCount + expectedIncrements);
+    
+    // Schedule next increment
+    const calculateTimeToNextIncrement = () => {
+      // How many increments have already happened
+      const completedIncrements = displayCount - baseCount;
+      
+      // If we've reached today's max, no more increments needed
+      if (completedIncrements >= dailyMax) return null;
+      
+      // Calculate the progress percentage needed for the next increment
+      const nextIncrementProgress = (completedIncrements + 1) / dailyMax;
+      
+      // Calculate what time that would be
+      const minutesInDay = 24 * 60;
+      const targetMinutes = nextIncrementProgress * minutesInDay;
+      const currentMinutes = currentHour * 60 + currentMinute;
+      
+      // How many minutes until next increment
+      return Math.max(1, targetMinutes - currentMinutes);
     };
-
-    // Get daily progress from storage or initialize
-    const getStoredProgress = () => {
-      if (typeof window === "undefined") return 0;
-
-      const stored = localStorage.getItem(`waitlist_progress_${todayKey}`);
-      return stored ? parseInt(stored) : 0;
+    
+    const minutesToNext = calculateTimeToNextIncrement();
+    if (!minutesToNext) return; // No more increments today
+    
+    const interval = setInterval(() => {
+      setDisplayCount(prev => {
+        // Don't exceed today's maximum
+        if (prev >= baseCount + dailyMax) return prev;
+        return prev + 1;
+      });
+    }, minutesToNext * 60 * 1000); // Convert minutes to milliseconds
+    
+    // Real-time updates for more frequent visual feedback
+    const visualInterval = setInterval(() => {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
+      const expectedIncrements = Math.floor(dailyMax * dayProgress);
+      
+      setDisplayCount(prev => {
+        const targetCount = baseCount + expectedIncrements;
+        if (prev < targetCount) return targetCount;
+        return prev;
+      });
+    }, 60000); // Check every minute for visual updates
+    
+    return () => {
+      clearInterval(interval);
+      clearInterval(visualInterval);
     };
-
-    const dailyTarget = getDailyTarget();
-    const currentProgress = getStoredProgress();
-    setDailyIncrement(currentProgress);
-
-    // Only continue incrementing if we haven't reached today's target
-    if (currentProgress < dailyTarget) {
-      const interval = setInterval(() => {
-        setDailyIncrement((prev) => {
-          const newValue = Math.min(prev + 1, dailyTarget);
-
-          // Store progress in localStorage
-          if (typeof window !== "undefined") {
-            localStorage.setItem(
-              `waitlist_progress_${todayKey}`,
-              newValue.toString()
-            );
-          }
-
-          return newValue;
-        });
-      }, 30000); // Increment every 30 seconds until reaching today's target
-
-      return () => clearInterval(interval);
-    }
-  }, []);
-
-  // Display base count plus today's increment
-  const waitlistCount = baseCount + dailyIncrement;
+  }, [baseCount,displayCount]);
 
   const heroMessages = [
     "Level Up Your Content",
@@ -97,7 +123,7 @@ export default function HeroSection() {
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--primary))/10 px-4 py-1.5 text-xs font-medium text-[rgb(var(--primary))]">
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>
-                  Join {waitlistCount.toLocaleString()}+ creators on our
+                  Join {displayCount.toLocaleString()}+ creators on our
                   waitlist
                 </span>
               </span>
@@ -193,13 +219,13 @@ export default function HeroSection() {
                 <Users className="h-3.5 w-3.5" />
                 <AnimatePresence mode="popLayout">
                   <motion.span
-                    key={waitlistCount}
+                    key={displayCount}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
                     transition={{ duration: 0.3 }}
                   >
-                    {waitlistCount.toLocaleString()}
+                    {displayCount.toLocaleString()}
                   </motion.span>
                 </AnimatePresence>
                 <span>creators already joined</span>
