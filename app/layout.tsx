@@ -23,7 +23,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider waitlistUrl="/waitlist">
+    <ClerkProvider
+      waitlistUrl="/waitlist"
+      appearance={{
+        layout: {
+          unsafe_disableDevelopmentModeWarnings: true,
+        },
+      }}
+    >
       <html lang="en" className={inter.className}>
         <body>
           <ReactQueryProvider>

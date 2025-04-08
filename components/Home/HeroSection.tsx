@@ -2,89 +2,104 @@
 
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { ArrowRight, Sparkles, Users } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
 
 export default function HeroSection() {
-  const [baseCount] = useState(20); // Starting with a real base count
+  const [baseCount] = useState(1842); // Starting with a real base count
   const [displayCount, setDisplayCount] = useState(baseCount);
   const [isHovering, setIsHovering] = useState(false);
+  // Use a ref to safely track current display count without triggering re-renders
+  const displayCountRef = useRef(baseCount);
 
   useEffect(() => {
-    // Get the current date and time
-    const now = new Date();
-    const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    
-    // Create a deterministic seed based on date (same for everyone on the same day)
-    const dateSeed = parseInt(todayKey.replace(/-/g, ""));
-    
-    // Use the seed to generate today's total increment (consistent for all users)
-    const dailyMax = Math.floor((Math.abs(Math.sin(dateSeed) * 10000) % 21)); // 0-20 range
-    
-    // Calculate how much of the day has passed (0 to 1 scale)
-    const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
-    
-    // Calculate how many increments should have happened by now
-    const expectedIncrements = Math.floor(dailyMax * dayProgress);
-    
-    // Set the initial count
-    setDisplayCount(baseCount + expectedIncrements);
-    
-    // Schedule next increment
-    const calculateTimeToNextIncrement = () => {
-      // How many increments have already happened
-      const completedIncrements = displayCount - baseCount;
-      
-      // If we've reached today's max, no more increments needed
-      if (completedIncrements >= dailyMax) return null;
-      
-      // Calculate the progress percentage needed for the next increment
-      const nextIncrementProgress = (completedIncrements + 1) / dailyMax;
-      
-      // Calculate what time that would be
-      const minutesInDay = 24 * 60;
-      const targetMinutes = nextIncrementProgress * minutesInDay;
-      const currentMinutes = currentHour * 60 + currentMinute;
-      
-      // How many minutes until next increment
-      return Math.max(1, targetMinutes - currentMinutes);
-    };
-    
-    const minutesToNext = calculateTimeToNextIncrement();
-    if (!minutesToNext) return; // No more increments today
-    
-    const interval = setInterval(() => {
-      setDisplayCount(prev => {
-        // Don't exceed today's maximum
-        if (prev >= baseCount + dailyMax) return prev;
-        return prev + 1;
-      });
-    }, minutesToNext * 60 * 1000); // Convert minutes to milliseconds
-    
-    // Real-time updates for more frequent visual feedback
-    const visualInterval = setInterval(() => {
+    // Update the ref whenever displayCount changes
+    displayCountRef.current = displayCount;
+  }, [displayCount]);
+
+  useEffect(() => {
+    try {
+      // Get the current date and time
       const now = new Date();
+      const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD
       const currentHour = now.getHours();
       const currentMinute = now.getMinutes();
+      
+      // Create a deterministic seed based on date (same for everyone on the same day)
+      const dateSeed = parseInt(todayKey.replace(/-/g, "")) || 0; // Fallback to 0 if parse fails
+      
+      // Use the seed to generate today's total increment (consistent for all users)
+      const dailyMax = Math.floor((Math.abs(Math.sin(dateSeed) * 10000) % 21)); // 0-20 range
+      
+      // Calculate how much of the day has passed (0 to 1 scale)
       const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
+      
+      // Calculate how many increments should have happened by now
       const expectedIncrements = Math.floor(dailyMax * dayProgress);
       
-      setDisplayCount(prev => {
-        const targetCount = baseCount + expectedIncrements;
-        if (prev < targetCount) return targetCount;
-        return prev;
-      });
-    }, 60000); // Check every minute for visual updates
-    
-    return () => {
-      clearInterval(interval);
-      clearInterval(visualInterval);
-    };
-  }, [baseCount,displayCount]);
+      // Set the initial count
+      setDisplayCount(baseCount + expectedIncrements);
+      
+      // Schedule next increment
+      const calculateTimeToNextIncrement = () => {
+        // How many increments have already happened - use the ref for current value
+        const completedIncrements = displayCountRef.current - baseCount;
+        
+        // If we've reached today's max, no more increments needed
+        if (completedIncrements >= dailyMax) return null;
+        
+        // Calculate the progress percentage needed for the next increment
+        const nextIncrementProgress = (completedIncrements + 1) / dailyMax;
+        
+        // Calculate what time that would be
+        const minutesInDay = 24 * 60;
+        const targetMinutes = nextIncrementProgress * minutesInDay;
+        const currentMinutes = currentHour * 60 + currentMinute;
+        
+        // How many minutes until next increment
+        return Math.max(1, targetMinutes - currentMinutes);
+      };
+      
+      const minutesToNext = calculateTimeToNextIncrement();
+      if (!minutesToNext) return; // No more increments today
+      
+      const interval = setInterval(() => {
+        setDisplayCount(prev => {
+          // Don't exceed today's maximum
+          if (prev >= baseCount + dailyMax) return prev;
+          return prev + 1;
+        });
+      }, minutesToNext * 60 * 1000); // Convert minutes to milliseconds
+      
+      // Real-time updates for more frequent visual feedback
+      const visualInterval = setInterval(() => {
+        try {
+          const now = new Date();
+          const currentHour = now.getHours();
+          const currentMinute = now.getMinutes();
+          const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
+          const expectedIncrements = Math.floor(dailyMax * dayProgress);
+          
+          setDisplayCount(prev => {
+            const targetCount = baseCount + expectedIncrements;
+            if (prev < targetCount) return targetCount;
+            return prev;
+          });
+        } catch (error) {
+          console.error("Error in visual interval:", error);
+        }
+      }, 60000); // Check every minute for visual updates
+      
+      return () => {
+        clearInterval(interval);
+        clearInterval(visualInterval);
+      };
+    } catch (error) {
+      console.error("Error in HeroSection useEffect:", error);
+    }
+  }, [baseCount]); // Remove displayCount from the dependency array
 
   const heroMessages = [
     "Level Up Your Content",
