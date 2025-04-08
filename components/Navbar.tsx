@@ -163,21 +163,27 @@ export default function Navbar() {
     }
   }, [isMobile, isOpen]);
 
-    const navClasses = `fixed top-0 left-0 right-0 z-40 transition-all border-transparent ${isMobile ? "duration-150" : "duration-500"}`;
-    const mobileOpenScrolledClasses = "bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20";
-    const scrolledClasses = "bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl";
-    const transparentClasses = "bg-transparent dark:bg-transparent border-transparent";
+  const navClasses = `fixed top-0 left-0 right-0 z-40 transition-all border-transparent ${
+    isMobile ? "duration-150" : "duration-500"
+  }`;
+  const mobileOpenScrolledClasses =
+    "bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20";
+  const scrolledClasses =
+    "bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl";
+  const transparentClasses =
+    "bg-transparent dark:bg-transparent border-transparent";
 
-    const getNavClasses = () => {
-      if (pathname === '/') {
+  const getNavClasses = () => {
+    if (pathname === "/") {
       if (isMobile && (isOpen || scrolled)) return mobileOpenScrolledClasses;
       return scrolled ? scrolledClasses : transparentClasses;
-      }
-      return isMobile ? mobileOpenScrolledClasses : scrolledClasses;
-    };
+    }
+    return isMobile ? mobileOpenScrolledClasses : scrolledClasses;
+  };
 
-    return (
-      <nav className={`${navClasses} ${getNavClasses()}`}><div className="w-full max-w-none px-6">
+  return (
+    <nav className={`${navClasses} ${getNavClasses()}`}>
+      <div className="w-full max-w-none px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo Section */}
           <div className="flex-none">
@@ -353,13 +359,22 @@ function UserMenu() {
         </div>
       ) : (
         <div className="flex items-center gap-2">
-          <Link href="/waitlist">
+          <Link href="/signin">
             <Button
               variant="ghost"
               className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
               onClick={(e) => e.currentTarget.blur()}
             >
-              Join Waitlist
+              Sign In
+            </Button>
+          </Link>
+          <Link href="/signup">
+            <Button
+              variant="default"
+              className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
+              onClick={(e) => e.currentTarget.blur()}
+            >
+              Sign Up
             </Button>
           </Link>
         </div>
@@ -422,41 +437,3 @@ function MobileNavItem({
     </button>
   );
 }
-
-
-
-{/*{isSignedIn ? (
-  <div className="flex items-center space-x-2">
-    <Button
-      variant="ghost"
-      className="touch-feedback bg-transparent focus:bg-transparent focus-visible:ring-0"
-      onClick={(e) => {
-        e.currentTarget.blur();
-        router.push("/dashboard");
-      }}
-    >
-      Dashboard
-    </Button>
-  </div>
-) : (
-  <div className="flex items-center gap-2">
-    <Link href="/signin">
-      <Button
-        variant="ghost"
-        className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
-        onClick={(e) => e.currentTarget.blur()}
-      >
-        Sign In
-      </Button>
-    </Link>
-    <Link href="/signup">
-      <Button
-        variant="default"
-        className="button-reset h-9 px-4 py-2 text-sm focus:bg-transparent focus-visible:ring-0"
-        onClick={(e) => e.currentTarget.blur()}
-      >
-        Sign Up
-      </Button>
-    </Link>
-  </div>
-)} */}

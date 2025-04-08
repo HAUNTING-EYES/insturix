@@ -1,33 +1,12 @@
 "use client";
 
 import Navbar from "@/components/Navbar";
-import CustomSignIn from "@/components/CustomSignIn";
 import CursorEffect from "@/components/ui/CursorEffect";
+import { SignIn } from "@clerk/nextjs";
 
 export default function SignInPage() {
   return (
     <div className="min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))] relative">
-      {/* Background pattern */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 opacity-[0.03]">
-          <svg className="w-full h-full">
-            <pattern
-              id="grid"
-              width="32"
-              height="32"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M0 .5H32M.5 0V32"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-            </pattern>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
-      </div>
       <div className="relative z-10">
         <CursorEffect
           variant="glow"
@@ -38,7 +17,7 @@ export default function SignInPage() {
         <Navbar />
       </div>
       <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
-        <CustomSignIn />
+        <SignIn />
       </div>
     </div>
   );
