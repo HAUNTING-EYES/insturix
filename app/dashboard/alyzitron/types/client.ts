@@ -1,5 +1,12 @@
-import { VideoType, AnalysisStatus } from '@/app/api/services/alyzitron/types';
+export type AnalysisStatus =
+  | 'pending'
+  | 'queued'
+  | 'processing'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'; 
 
+import { VideoType } from '@/app/api/services/alyzitron/types';
 // Client-side types that avoid server-only dependencies
 export interface ClientAlyzitronAnalysis {
   _id: string;  // Using string instead of ObjectId for client-side
@@ -7,7 +14,7 @@ export interface ClientAlyzitronAnalysis {
   videoUrl: string;
   gcsPath: string;
   type: VideoType;
-  status: AnalysisStatus;
+  status: AnalysisStatus; // Now uses the locally defined type
   taskId: string;
   estimatedTime: number;
   expectedDurationSeconds?: number; // Add expected duration

@@ -64,7 +64,7 @@ export function useVideoAnalysis() {
 
       if (!signResponse.ok) {
         const error = await signResponse.json();
-        throw new Error(error.error?.message || "Failed to get upload URL");
+        throw new Error(error.message || "Failed to get upload URL"); // Directly access message property
       }
 
       const { url, gcsPath, contentType } = await signResponse.json();
@@ -165,7 +165,7 @@ export function useVideoAnalysis() {
         if (!response.ok) {
           const error = await response.json();
           throw new Error(
-            error.error?.message || "Failed to initiate analysis"
+            error.message || "Failed to initiate analysis" // Directly access message property
           );
         }
 
@@ -251,7 +251,7 @@ export function useVideoAnalysis() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || "Failed to cancel analysis");
+        throw new Error(error.message || "Failed to cancel analysis"); // Directly access message property
       }
 
       logger.info("Analysis canceled successfully", { data: { taskId } });

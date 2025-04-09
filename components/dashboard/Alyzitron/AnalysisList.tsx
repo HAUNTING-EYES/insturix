@@ -14,7 +14,7 @@ interface FetchedAlyzitronAnalysis extends ClientAlyzitronAnalysis {
   queuePosition?: number;
 }
 
-export interface PaginatedResponse { // Add export keyword
+export interface PaginatedResponse {
   data: FetchedAlyzitronAnalysis[];
   pagination: {
     totalItems: number;
@@ -42,9 +42,9 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   const { user } = useUser(); // Get user object from Clerk
 
   const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
-    queryKey: ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }],
+    queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }], // Use a scope reflecting terminal statuses
     queryFn: async () => {
-      const url = `/api/services/alyzitron/analyses?status=completed,failed&page=${currentPage}&limit=${itemsPerPage}`;
+      const url = `/api/services/alyzitron/analyses?status=completed,failed,cancelled&page=${currentPage}&limit=${itemsPerPage}`; // Added cancelled status
       const response = await fetch(url);
       if (!response.ok) {
         const errorData = await response.text();
@@ -61,7 +61,10 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
     gcTime: 1000 * 60 * 5,
   });
 
-  const analyses = paginatedData?.data ?? [];
+  // Filter received data client-side to strictly enforce terminal statuses
+  const analyses = (paginatedData?.data ?? []).filter(analysis =>
+    ['completed', 'failed', 'cancelled'].includes(analysis.status)
+  );
   const { totalItems = 0 } = paginatedData?.pagination ?? {}; // Only extract totalItems initially
   // Calculate actual total pages, ensuring it's 0 if totalItems is 0
   const actualTotalPages = totalItems > 0 ? Math.ceil(totalItems / itemsPerPage) : 0;
@@ -70,7 +73,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   useEffect(() => {
     if (!user?.id) {
       // console.log("SSE: User ID not available yet.");
-      return; // Don't connect if user ID is not loaded
+      return;
     }
 
     // console.log(`SSE: Setting up connection for user ${user.id}...`);
@@ -90,25 +93,19 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
       const status = eventData.status;
 
       // Check if it's a completion/failure event and has an ID
-      if (analysisId && status && ['completed', 'failed'].includes(status)) {
+      if (analysisId && status && ['completed', 'failed', 'cancelled'].includes(status)) { // Added cancelled status
         // console.log(`SSE: Received update for ${analysisId}, status: ${status}. Invalidating query.`);
 
         // Invalidate the query for the first page of completed analyses.
         // This will trigger a refetch, ensuring the list includes the new item
         // with all its necessary data fetched from the API.
         queryClient.invalidateQueries({
-          queryKey: ['analyses', { scope: 'completed', page: 1, limit: itemsPerPage }],
-          // Optional: You might want to ensure it refetches immediately
-          // refetchType: 'active'
+          queryKey: ['analyses', { scope: 'finished', page: 1, limit: itemsPerPage }], // Align invalidation key
         });
 
-        // Optional: If the user is *not* on page 1, you might also want to invalidate
-        // the currently viewed page so the total count updates, though the item
-        // won't appear until they navigate to page 1 or the item happens to fall
-        // onto their current page after refetch (less likely for newly completed).
         if (currentPage !== 1) {
            queryClient.invalidateQueries({
-             queryKey: ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }],
+             queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }], // Align invalidation key
              // refetchType: 'inactive' // Don't force refetch if not active view
            });
         }
@@ -132,7 +129,6 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
       // console.log("Closing SSE connection.");
       eventSource.close();
     };
-    // Add user.id to dependencies to reconnect if user changes
   }, [queryClient, itemsPerPage, currentPage, user?.id]);
 
 
@@ -141,7 +137,6 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   };
 
   const handleNextPage = () => {
-    // Use actualTotalPages for boundary check
     setCurrentPage((prev) => Math.min(prev + 1, actualTotalPages));
   };
 
@@ -223,32 +218,6 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
            <ChevronRight className="ml-2 h-4 w-4" />
          </Button>
        </div>
-      {/* Option 2: Hide pagination if totalItems is 0 (uncomment below and remove above div) */}
-      {/* {actualTotalPages > 0 && (
-        <div className="flex items-center justify-center space-x-4 mt-6">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handlePreviousPage}
-            disabled={currentPage === 1 || isLoading}
-          >
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Previous
-          </Button>
-          <span className="text-sm text-zinc-400">
-            Page {currentPage} of {actualTotalPages} ({totalItems} total)
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNextPage}
-            disabled={currentPage === actualTotalPages || isLoading}
-          >
-            Next
-            <ChevronRight className="ml-2 h-4 w-4" />
-          </Button>
-        </div>
-      )} */}
     </div>
   );
 }

@@ -4,11 +4,12 @@ import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { CircleDot, PlayCircle, XCircle, ChevronRight } from 'lucide-react';
+import { CircleDot, PlayCircle, XCircle, ChevronRight, Ban } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
 
-import { AnalysisStatus, VideoType } from '@/app/api/services/alyzitron/types';
+import type { AnalysisStatus } from '@/app/dashboard/alyzitron/types/client'
+import type { VideoType } from '@/app/api/services/alyzitron/types'
 import type { PaginatedResponse } from './AnalysisList';
 
 interface AnalysisError {
@@ -29,7 +30,6 @@ interface AnalysisProgressProps {
   expectedDurationSeconds?: number;
   processingStartTime?: number; // timestamp in ms
   onCancel?: (taskId: string) => void;
-  // Add props for cache update
   queryClient?: QueryClient;
   currentPage?: number;
   itemsPerPage?: number;
@@ -46,7 +46,6 @@ export function AnalysisProgress({
   expectedDurationSeconds = 60,
   processingStartTime,
   onCancel,
-  // Destructure new props
   queryClient,
   currentPage,
   itemsPerPage
@@ -79,7 +78,7 @@ export function AnalysisProgress({
     setTimeLeft(calculateRemainingTime(processingStartTime, expectedDurationSeconds));
 
     if (status !== 'processing') {
-      return; // Skip countdown if not processing
+      return;
     }
 
     // Set up the interval only when processing
@@ -99,20 +98,25 @@ export function AnalysisProgress({
     // Cleanup function
     return () => clearInterval(interval);
 
-  }, [processingStartTime, expectedDurationSeconds, status]); // Rerun effect if these change
+  }, [processingStartTime, expectedDurationSeconds, status]);
 
   const isActive = status === 'processing' || status === 'queued';
-  const canCancel = status === 'queued' && onCancel && taskId;
+  // const canCancel = status === 'queued' && onCancel && taskId;
+  const canCancel = false; // Disable cancel button for now, until future debugging and fixes
   const isCompleted = status === 'completed';
+  const isCancelled = status === 'cancelled';
 
   const handleCancel = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (canCancel && taskId) {
-      onCancel(taskId);
+      // onCancel(taskId); // Disable cancel button for now, until future debugging and fixes
     }
   };
 
   const handleClick = () => {
+    // Disable click action for cancelled items
+    if (isCancelled) return;
+
     if (isCompleted && queryClient && currentPage && itemsPerPage) {
       // Construct the query key for the current page
       const queryKey = ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }];
@@ -151,6 +155,7 @@ export function AnalysisProgress({
           relative bg-black/40 border-zinc-800 backdrop-blur-xl
           ${isActive ? 'ring-1 ring-zinc-700' : ''}
           ${isCompleted ? 'cursor-pointer hover:bg-black/50 transition-colors duration-300' : ''}
+          ${isCancelled ? 'opacity-60' : ''} // Optionally dim cancelled items
         `}
         onClick={handleClick}
       >
@@ -238,6 +243,19 @@ export function AnalysisProgress({
                     {error?.message && (
                       <div className="text-sm text-zinc-500">{error.message}</div>
                     )}
+                  </motion.div>
+                )}
+                {status === 'cancelled' && (
+                  <motion.div
+                    key="cancelled"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="flex items-center gap-2 text-sm text-zinc-500"
+                  >
+                    <Ban className="h-4 w-4" />
+                    <span>Cancelled</span>
                   </motion.div>
                 )}
               </AnimatePresence>

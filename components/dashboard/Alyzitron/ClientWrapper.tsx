@@ -41,23 +41,8 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const userId = user?.id || '';
   useSSEConnection(userId);
 
-  // Effect to refetch analyses on mount if initial data contains active items
-  // This ensures we get the latest status after a page refresh for ongoing analyses
-  // before relying solely on subsequent SSE updates.
-  useEffect(() => {
-    const hasActiveInitialAnalyses = initialAnalyses.some(a =>
-      ['queued', 'processing'].includes(a.status)
-    );
-
-    if (hasActiveInitialAnalyses && userId) {
-      console.log("ClientWrapper: Initial analyses include active items. Triggering refetch.");
-      // Invalidate immediately to get the latest status for active items after refresh.
-      // SSE will handle subsequent updates.
-      queryClient.invalidateQueries({ queryKey: ['analyses'] });
-    }
-  // Run only once on mount, dependent on initialAnalyses and userId
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]); // queryClient and initialAnalyses are stable or correctly handled by ESLint rule
+  // Removed the useEffect that caused an immediate refetch on mount
+  // We will now rely on initialData + SSE updates for state changes.
 
 
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {

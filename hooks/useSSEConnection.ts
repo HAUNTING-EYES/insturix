@@ -69,7 +69,7 @@ export function useSSEConnection(userId: string) {
                   }
                 }
 
-                if (existingStatus === 'completed' || existingStatus === 'failed') {
+                if (existingStatus === 'completed' || existingStatus === 'failed' || existingStatus === 'cancelled') { // Added 'cancelled' to terminal states
                     console.log(`SSE Debug: ID=${data.analysisId}, Status is terminal (${existingStatus}), skipping update.`);
                     return analyses; // Don't update terminal states via SSE
                 }

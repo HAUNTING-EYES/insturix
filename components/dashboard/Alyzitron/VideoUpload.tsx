@@ -379,7 +379,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                 transition-all duration-300
               `}
               onClick={handleSubmit}
-              disabled={!(uploadState.file || uploadState.url) || !selectedType}
+              disabled={!(uploadState.file || uploadState.url) || !selectedType || !!(currentUploadState && currentAnalysisId)}
             >
               {currentUploadState && currentAnalysisId ? (
                 <div className="flex items-center gap-2">

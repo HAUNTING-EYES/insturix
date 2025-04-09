@@ -32,7 +32,7 @@ export function AnalysisDetails({ analysisData }: AnalysisDetailsProps) {
       Object.values(value as Record<string, MetricData>).forEach(metric => {
         if (metric && typeof metric.score === 'number') {
           // Don't include compliance risk scores in overall score
-          if (key !== 'compliance') {
+          if (key !== 'compliance_risks') {
             scores.push(metric.score);
           }
         }
