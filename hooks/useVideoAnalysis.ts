@@ -82,8 +82,11 @@ export function useVideoAnalysis() {
         headers: {
           "Content-Type": contentType,
           "Content-Length": file.size.toString(),
+          "Origin": window.location.origin,
         },
         body: file,
+        mode: "cors",
+        credentials: "include",
       });
 
       if (!uploadResponse.ok) {

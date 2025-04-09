@@ -30,7 +30,11 @@ async function configureBucketCors() {
       {
         maxAgeSeconds: 3600,
         method: ['PUT', 'GET', 'HEAD', 'POST', 'OPTIONS'],
-        origin: ['*'],
+        origin: [
+          'http://localhost:3000',
+          'https://localhost:3000',
+          process.env.NEXT_PUBLIC_APP_URL || 'https://www.insturix.com',
+        ],
         responseHeader: [
           'Content-Type',
           'Content-Length',
@@ -38,6 +42,7 @@ async function configureBucketCors() {
           'Origin',
           'Authorization',
           'Host',
+          'Access-Control-Allow-Origin',
           'x-goog-*'
         ],
       },
