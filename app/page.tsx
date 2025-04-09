@@ -29,7 +29,7 @@ export default function Home() {
       <HeroSection />
       <WhoWeAre />
       <WhyUs />
-      <Testimo />
+      {/* <Testimo /> */}
       <Footer />
     </div>
   );

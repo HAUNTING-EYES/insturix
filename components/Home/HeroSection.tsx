@@ -165,7 +165,7 @@ export default function HeroSection() {
             >
               <Link href="/waitlist">
                 <motion.button
-                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-[rgb(var(--primary))] to-[rgb(var(--secondary))] px-8 py-4 text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_40px_rgba(var(--primary),0.5)] active:scale-[0.98]"
+                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 px-8 py-4 text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_50px_5px_rgba(var(--primary),0.6)] active:scale-[0.98]"
                   onMouseEnter={() => setIsHovering(true)}
                   onMouseLeave={() => setIsHovering(false)}
                   whileHover={{ scale: 1.03 }}
@@ -183,14 +183,14 @@ export default function HeroSection() {
                   </span>
 
                   {/* Animated background effect */}
-                  <motion.div
-                    className="absolute inset-0 z-0 bg-gradient-to-r from-[rgb(var(--secondary))] to-[rgb(var(--primary))] opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                    <motion.div
+                    className="absolute inset-0 z-0 bg-gradient-to-r from-purple-600 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
                     animate={{
                       backgroundPosition: isHovering ? "100% 0%" : "0% 0%",
                     }}
                     transition={{ duration: 0.8, ease: "easeInOut" }}
                     style={{ backgroundSize: "200% 100%" }}
-                  />
+                    />
 
                   {/* Shine effect */}
                   <motion.div
@@ -209,30 +209,9 @@ export default function HeroSection() {
                 </motion.button>
               </Link>
 
-              {/* Waitlist counter with subtle animation */}
-              <motion.div
-                className="mt-4 text-sm text-muted-foreground/70 flex items-center justify-center gap-1.5"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 1.5, duration: 0.5 }}
-              >
-                <Users className="h-3.5 w-3.5" />
-                <AnimatePresence mode="popLayout">
-                  <motion.span
-                    key={displayCount}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    {displayCount.toLocaleString()}
-                  </motion.span>
-                </AnimatePresence>
-                <span>creators already joined</span>
-              </motion.div>
             </motion.div>
 
-            <motion.div
+            {/* <motion.div
               className="flex flex-col sm:flex-row gap-4 sm:gap-6 w-full justify-center items-center mt-4"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -250,7 +229,7 @@ export default function HeroSection() {
               >
                 <span className="relative">Learn More</span>
               </Link>
-            </motion.div>
+            </motion.div> */}
           </motion.div>
         </div>
       </div>
