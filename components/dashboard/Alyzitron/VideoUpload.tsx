@@ -166,7 +166,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         });
       }
     } catch (err) {
-      let title = "Submission Failed";
+      const title = "Submission Failed";
       let description = "An unexpected error occurred. Please try again.";
 
       if (err instanceof Error) {

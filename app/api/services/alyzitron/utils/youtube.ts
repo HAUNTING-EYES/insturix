@@ -97,12 +97,14 @@ export async function validateYouTubeVideo(url: string): Promise<{ valid: boolea
     logger.info('YouTube video validation successful', { data: { videoId, durationSeconds } });
     return { valid: true, duration: durationSeconds };
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     logger.error('Error validating YouTube video', {
       data: {
         videoId,
-        error: error.message || String(error),
-        response: error.response?.data // Include API response error if available
+        // Safely access message if it's an Error, otherwise stringify
+        error: error instanceof Error ? error.message : String(error),
+        // Safely access nested property, assuming error might have response.data
+        response: (error as { response?: { data?: unknown } })?.response?.data
       }
     });
     // Return a generic API error to the client

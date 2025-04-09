@@ -45,7 +45,7 @@ export function AnalysisProgress({
   error,
   expectedDurationSeconds = 60,
   processingStartTime,
-  onCancel,
+  // onCancel,
   queryClient,
   currentPage,
   itemsPerPage
@@ -83,7 +83,7 @@ export function AnalysisProgress({
 
     // Set up the interval only when processing
     const interval = setInterval(() => {
-      setTimeLeft(prevTime => {
+      setTimeLeft( () => {
         const newRemaining = calculateRemainingTime(processingStartTime, expectedDurationSeconds);
         // Stop interval if time runs out (or goes slightly negative due to rounding/timing)
         if (newRemaining <= 0) {
