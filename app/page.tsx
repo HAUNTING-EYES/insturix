@@ -1,6 +1,5 @@
 "use client";
 import { motion, useScroll, useSpring } from "framer-motion";
-import Testimo from "@/components/Testimo";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import WhoWeAre from "@/components/WhoWeAre";
