@@ -1,6 +1,6 @@
 # Modern Web Application
 
-A full-stack web application built with Next.js, React, and TypeScript, featuring modern UI components and robust data management.
+A full-stack web application built with Next.js, React, and TypeScript, featuring modern UI components and robust data management using MongoDB.
 
 ## 🚀 Features
 
