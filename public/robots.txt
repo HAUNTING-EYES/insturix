@@ -1,0 +1,32 @@
+# *
+User-agent: *
+Allow: /
+Disallow: /api/*
+Disallow: /admin/*
+Disallow: /_next/*
+Disallow: /_static/*
+Disallow: /auth/*
+Disallow: /dashboard/*
+Disallow: /profile/*
+Disallow: /settings/*
+Disallow: /checkout/*
+Disallow: /cart/*
+Disallow: /search/*
+
+# GPTBot
+User-agent: GPTBot
+Disallow: /
+
+# ChatGPT-User
+User-agent: ChatGPT-User
+Disallow: /
+
+# Google-Extended
+User-agent: Google-Extended
+Allow: /
+
+# Host
+Host: https://insturix.com
+
+# Sitemaps
+Sitemap: https://insturix.com/sitemap.xml
