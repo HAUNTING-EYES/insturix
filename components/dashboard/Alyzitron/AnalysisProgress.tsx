@@ -202,7 +202,8 @@ export function AnalysisProgress({
                     {timeLeft <= 1 ? (
                       <span>Finishing up...</span>
                     ) : (
-                      <span>Processing (~{timeLeft}s left)</span>
+                      // <span>Processing (~{timeLeft}s left)</span> //Disabled cuz meaningless rn
+                      <span>Processing</span>
                     )}
                   </motion.div>
                 )}

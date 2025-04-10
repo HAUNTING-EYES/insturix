@@ -10,7 +10,7 @@ export default function ReportLayout({
   return (
     <div className="relative">
       {/* Navigation */}
-      <div className="fixed top-0 left-0 right-0 h-16 bg-black/40 backdrop-blur-xl border-b border-zinc-800 z-10">
+      {/* <div className="fixed top-0 left-0 right-0 h-16 bg-black/40 backdrop-blur-xl border-b border-zinc-800 z-10">
         <div className="container h-full mx-auto flex items-center px-8">
           <Link
             href="/dashboard/alyzitron"
@@ -20,7 +20,7 @@ export default function ReportLayout({
             <span>Back to Dashboard</span>
           </Link>
         </div>
-      </div>
+      </div> */}
 
       {/* Content */}
       <div className="pt-16">
