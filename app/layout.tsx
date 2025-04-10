@@ -30,7 +30,7 @@ export const metadata: Metadata = {
       { url: "./favicon.ico", sizes: "any" }, // ICO favicon
       { url: "../public/icons/icon.svg", type: "image/svg+xml" }, // SVG favicon
       {
-        url: "../public/icons/favicon-32x32.png",
+        url: "../public/icons/favicon-16x16.png",
         sizes: "16x16",
         type: "image/png",
       },
