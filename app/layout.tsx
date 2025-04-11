@@ -64,6 +64,12 @@ export default function RootLayout({
   return (
     <ClerkProvider waitlistUrl="/waitlist">
       <html lang="en" className={inter.className}>
+        <head>
+          <meta
+            name="google-site-verification"
+            content={process.env.GOOGLE_VERIFICATION_ID}
+          />
+        </head>
         <body>
           <ReactQueryProvider>
             <ThemeProvider>

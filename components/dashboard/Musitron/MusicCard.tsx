@@ -71,11 +71,10 @@ export default function MusicCard({ music }: MusicCardProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [isRepeat] = useState(false);
   const [showLyrics, setShowLyrics] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isFullscreen] = useState(false);
   const [audioQuality, setAudioQuality] = useState("high");
   const [showWaveform, setShowWaveform] = useState(true);
   const [vinylRotation, setVinylRotation] = useState(0);
-  const [waveformData, setWaveformData] = useState<number[]>([]);
 
   // Refs
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -121,29 +120,29 @@ export default function MusicCard({ music }: MusicCardProps) {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !audioContextRef.current || !analyserRef.current) return;
-  
+
     // Store a flag on the audio element to track if source was created
     interface ExtendedHTMLAudioElement extends HTMLAudioElement {
       _hasAudioSource?: boolean;
     }
 
     const hasSource = (audio as ExtendedHTMLAudioElement)._hasAudioSource;
-    
+
     if (!hasSource) {
       try {
         const source = audioContextRef.current.createMediaElementSource(audio);
         source.connect(analyserRef.current);
         analyserRef.current.connect(audioContextRef.current.destination);
-        
+
         // Mark this audio element as having a source
         (audio as ExtendedHTMLAudioElement)._hasAudioSource = true;
       } catch (error) {
         console.error("Error connecting audio to analyzer:", error);
       }
     }
-  
+
     return () => {
-      // Cleanup handled by browser since MediaElementSource is 
+      // Cleanup handled by browser since MediaElementSource is
       // automatically garbage collected when no longer referenced
     };
   }, []);
@@ -250,36 +249,6 @@ export default function MusicCard({ music }: MusicCardProps) {
 
     draw();
   }, [isPlaying, showWaveform]);
-
-  // Generate random waveform data for initial display
-  useEffect(() => {
-    const generateRandomWaveform = () => {
-      const data = [];
-      for (let i = 0; i < 100; i++) {
-        // Create a more musical pattern with some peaks and valleys
-        const base = Math.sin(i / 10) * 0.5 + 0.5;
-        const random = Math.random() * 0.3;
-        data.push(base + random);
-      }
-      setWaveformData(data);
-    };
-
-    generateRandomWaveform();
-  }, []);
-
-  // Handle fullscreen mode
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, []);
-
   // Audio control functions
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -685,38 +654,6 @@ export default function MusicCard({ music }: MusicCardProps) {
                     </Button>
                   </div>
                 </div>
-
-                {/* Waveform visualization */}
-                {showWaveform && (
-                  <div className="relative h-20 mb-4">
-                    {isPlaying ? (
-                      <canvas
-                        ref={canvasRef}
-                        width="400"
-                        height="80"
-                        className="w-full h-full"
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center">
-                        {waveformData.map((value, index) => (
-                          <div
-                            key={index}
-                            className="w-1 mx-[1px] bg-gradient-to-t from-green-500/80 to-green-400/40 rounded-sm"
-                            style={{
-                              height: `${value * 100}%`,
-                              opacity:
-                                index / waveformData.length <
-                                progressPercent / 100
-                                  ? 1
-                                  : 0.4,
-                            }}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* Custom audio player */}
                 <div className="space-y-3">
                   {audioUrl && (

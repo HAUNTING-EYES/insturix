@@ -37,6 +37,12 @@ const nextConfig: NextConfig = {
         hostname:"apiboxfiles.erweima.ai",
         port:"",
         pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"mfile.erweima.ai",
+        port:"",
+        pathname:"/**"
       }
     ],
   },

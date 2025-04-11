@@ -53,7 +53,6 @@ const musitronTrackSchema = new Schema<IMusitronTrack>({
   },
   prompt: {
     type: String,
-    required: true,
   },
   model_name: {
     type: String,
