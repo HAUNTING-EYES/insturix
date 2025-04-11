@@ -4,7 +4,7 @@ import { useFormik } from "formik";
 import * as Yup from "yup";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Github, Linkedin, ArrowRight } from "lucide-react";
+import { Linkedin, Instagram, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
 import { BsTwitterX } from "react-icons/bs";
 import { useMutation } from "@tanstack/react-query";
@@ -42,13 +42,13 @@ const supportLinks = [
 ];
 
 const companySocials = [
-  { icon: BsTwitterX, label: "Twitter", link: "https://x.com/insturix_co" },
+  { icon: BsTwitterX, label: "Twitter", link: "https://x.com/insturix" },
   {
     icon: Linkedin,
     label: "LinkedIn",
     link: "https://linkedin.com/company/insturix",
   },
-  { icon: Github, label: "GitHub", link: "https://github.com/insturix" },
+  { icon: Instagram, label: "Instagram", link: "https://instagram.com/insturix" },
 ];
 
 const validationSchema = Yup.object({
