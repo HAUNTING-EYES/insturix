@@ -85,14 +85,39 @@ export default function History() {
       }
     }
 
+    // Fixed position scroll lock method
     if (active && typeof active === "object") {
-      document.body.style.overflow = "hidden";
+      const scrollY = window.scrollY;
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.width = "100%";
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      document.body.setAttribute("data-scroll-lock", scrollY.toString());
     } else {
-      document.body.style.overflow = "auto";
+      const scrollY = parseInt(document.body.getAttribute("data-scroll-lock") || "0", 10);
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.width = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.removeAttribute("data-scroll-lock");
+      window.scrollTo(0, -scrollY);
     }
 
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      // Always restore scroll on unmount
+      const scrollY = parseInt(document.body.getAttribute("data-scroll-lock") || "0", 10);
+      document.body.style.position = "";
+      document.body.style.top = "";
+      document.body.style.width = "";
+      document.body.style.left = "";
+      document.body.style.right = "";
+      document.body.removeAttribute("data-scroll-lock");
+      window.scrollTo(0, -scrollY);
+    };
   }, [active]);
 
   useOutsideClick(ref as React.RefObject<HTMLDivElement>, () =>
@@ -156,24 +181,34 @@ export default function History() {
     document.body.removeChild(link);
   };
 
+  // Show improved loading UI with card container and centered skeletons
   if (loading) {
     return (
-      <div className="max-w-2xl mx-auto w-full p-4">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold">Your Music History</h2>
-        </div>
-        {[1, 2, 3, 4].map((i) => (
-          <div
-            key={i}
-            className="flex gap-4 items-center p-4 mb-4 border rounded-xl"
-          >
-            <Skeleton className="h-14 w-14 rounded-lg" />
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-3 w-24" />
-            </div>
+      <div className="max-w-2xl mx-auto w-full px-2 sm:px-4 py-6">
+        {/* Match dashboard card style: background, border, rounded, shadow */}
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-6 shadow">
+          <div className="flex flex-col gap-2 mb-4">
+            <h2 className="text-2xl font-bold">Your Music History</h2>
           </div>
-        ))}
+          {/* Responsive loading skeletons */}
+          <div className="min-h-[220px] sm:min-h-[300px] max-h-[70vh] overflow-y-auto custom-scrollbar pr-1 sm:pr-2 mt-2">
+            <ul className="space-y-3 pb-4">
+              {[1, 2, 3, 4].map((i) => (
+                <li
+                  key={i}
+                  className="p-3 sm:p-4 flex gap-3 sm:gap-4 items-center border border-neutral-200 dark:border-neutral-800 rounded-2xl shadow-sm bg-white/80 dark:bg-neutral-800/40"
+                >
+                  <Skeleton className="h-12 w-12 sm:h-16 sm:w-16 rounded-xl" />
+                  <div className="flex-1 min-w-0 space-y-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-24" />
+                  </div>
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       </div>
     );
   }
@@ -181,7 +216,8 @@ export default function History() {
   if (error) {
     return (
       <div className="max-w-2xl mx-auto w-full p-4">
-        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-6 text-center">
+        {/* Match dashboard card style for error state */}
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-6 text-center shadow">
           <h3 className="text-red-600 dark:text-red-400 font-medium text-lg mb-2">
             Error Loading History
           </h3>
@@ -201,7 +237,8 @@ export default function History() {
   if (tracks.length === 0) {
     return (
       <div className="max-w-2xl mx-auto w-full p-4">
-        <div className="bg-neutral-50 dark:bg-neutral-800/20 border border-neutral-200 dark:border-neutral-800 rounded-xl p-10 text-center">
+        {/* Match dashboard card style for empty state */}
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-10 text-center shadow">
           <Music className="w-12 h-12 text-neutral-400 mx-auto mb-4" />
           <h3 className="font-medium text-lg mb-2">No Music Created Yet</h3>
           <p className="text-neutral-500 dark:text-neutral-400 mb-6">
@@ -224,54 +261,58 @@ export default function History() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm h-full w-full z-10"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm h-full w-full z-10"
           />
         )}
       </AnimatePresence>
 
       <AnimatePresence>
-        {active && typeof active === "object" ? (
-          <div className="fixed inset-0 flex items-start justify-center z-[100] p-4 pt-16 sm:pt-24 overflow-auto">
+        {active && typeof active === "object" && (
+          <div className="fixed inset-0 z-[100] h-screen w-screen flex items-center justify-center bg-black/50 backdrop-blur-sm p-2 sm:p-6 overflow-hidden">
             <motion.button
               key={`button-${active.id}-${id}`}
               layout
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0, transition: { duration: 0.05 } }}
-              className="fixed top-4 right-4 flex items-center justify-center bg-white dark:bg-neutral-800 rounded-full h-8 w-8 shadow-md z-[101]"
+              className="absolute top-6 right-6 flex items-center justify-center bg-white dark:bg-neutral-800 rounded-full h-10 w-10 shadow-lg z-[101] border border-neutral-200 dark:border-neutral-800"
               onClick={() => setActive(null)}
+              aria-label="Close"
+              title="Close"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </motion.button>
 
             <motion.div
               layoutId={`card-${active.id}-${id}`}
               ref={ref}
-              initial={{ y: 20 }}
-              animate={{ y: 0 }}
-              className="w-full max-w-[500px] flex flex-col bg-white dark:bg-neutral-900 rounded-2xl overflow-hidden shadow-xl mb-16"
+              initial={{ scale: 0.98, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.98, opacity: 0 }}
+              className="w-full max-w-2xl min-h-[60vh] max-h-[calc(100vh-3rem)] flex flex-col bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl overflow-hidden shadow-2xl relative"
             >
+              {/* Large cover image */}
               <motion.div layoutId={`image-${active.id}-${id}`}>
                 <div className="relative">
                   <Image
                     priority
-                    width={500}
-                    height={500}
+                    width={800}
+                    height={400}
                     src={active.image_url || "/placeholder.svg"}
                     alt={active.title}
-                    className="w-full h-60 sm:h-72 object-cover object-center"
+                    className="w-full h-64 sm:h-80 object-cover object-center"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end">
-                    <div className="p-4 text-white">
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex items-end pointer-events-none">
+                    <div className="p-6 text-white">
                       <motion.h3
                         layoutId={`title-${active.id}-${id}`}
-                        className="font-bold text-xl sm:text-2xl"
+                        className="font-bold text-2xl sm:text-3xl drop-shadow"
                       >
                         {active.title}
                       </motion.h3>
                       <motion.p
                         layoutId={`description-${active.id}-${id}`}
-                        className="text-white/80"
+                        className="text-white/80 text-base sm:text-lg"
                       >
                         {active.tags} • {formatDuration(active.duration)}
                       </motion.p>
@@ -280,31 +321,32 @@ export default function History() {
                 </div>
               </motion.div>
 
-              <div className="p-4 space-y-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
+              {/* Popup content */}
+              <div className="p-6 space-y-8 flex-1 overflow-y-auto custom-scrollbar">
                 <div>
-                  <div>
-                    <h4 className="font-medium text-lg mb-2">Listen</h4>
-                    <div className="bg-neutral-50 dark:bg-neutral-800 p-3 rounded-lg">
-                      <audio controls className="w-full">
-                        <source src={active.audio_url} type="audio/mpeg" />
-                        Your browser does not support the audio element.
-                      </audio>
-                    </div>
+                  <h4 className="font-medium text-lg mb-2">Listen</h4>
+                  <div className="bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 shadow-sm">
+                    <audio controls className="w-full">
+                      <source src={active.audio_url} type="audio/mpeg" />
+                      Your browser does not support the audio element.
+                    </audio>
                   </div>
+                </div>
+                <div>
                   <h4 className="font-medium text-lg mb-2">Prompt</h4>
-                  <p className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-800 p-3 rounded-lg">
+                  {/* Scrollable lyrics/prompt section */}
+                  <div className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 max-h-60 overflow-y-auto custom-scrollbar">
                     {active.prompt
                       ? active.prompt
                       : "This is an instrumental track."}
-                  </p>
+                  </div>
                 </div>
                 <div className="flex justify-between items-center">
                   <p className="text-sm text-neutral-500 dark:text-neutral-400">
                     Created on {formatDate(active.createTime)}
                   </p>
                 </div>
-
-                <div className="pt-2">
+                <div>
                   <Button
                     variant="outline"
                     className="w-full"
@@ -317,14 +359,14 @@ export default function History() {
               </div>
             </motion.div>
           </div>
-        ) : null}
+        )}
       </AnimatePresence>
 
-      <div className="max-w-2xl mx-auto w-full p-4">
-        <div className="sticky top-0 z-[5] bg-white dark:bg-neutral-900 pt-2 pb-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+      <div className="max-w-2xl mx-auto w-full px-2 sm:px-4 py-6">
+        {/* Match dashboard card style for main container */}
+        <div className="bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl p-4 sm:p-6 shadow">
+          <div className="flex flex-col gap-2 mb-4">
             <h2 className="text-2xl font-bold">Your Music History</h2>
-
             <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
               <div className="relative w-full sm:w-auto">
                 <input
@@ -332,7 +374,7 @@ export default function History() {
                   placeholder="Search tracks..."
                   value={filter}
                   onChange={(e) => setFilter(e.target.value)}
-                  className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:focus:ring-neutral-700 dark:bg-neutral-800 dark:border-neutral-700"
+                  className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-800 rounded-xl focus:outline-none focus:ring-2 focus:ring-neutral-300 dark:focus:ring-neutral-700 dark:bg-neutral-800 transition-all"
                 />
                 {filter && (
                   <button
@@ -346,11 +388,11 @@ export default function History() {
                   </button>
                 )}
               </div>
-
+              {/* Sort button with fixed width and height for consistency */}
               <Button
                 variant="outline"
                 size="sm"
-                className="flex items-center gap-1"
+                className="flex items-center gap-1 w-32 h-10 min-w-[8rem] min-h-[2.5rem] justify-center"
                 onClick={() =>
                   setSortOrder(sortOrder === "newest" ? "oldest" : "newest")
                 }
@@ -368,7 +410,6 @@ export default function History() {
               </Button>
             </div>
           </div>
-
           {filteredAndSortedTracks.length > 0 && (
             <div className="text-sm text-neutral-500 dark:text-neutral-400">
               Showing {filteredAndSortedTracks.length}{" "}
@@ -376,21 +417,18 @@ export default function History() {
               {filter && <span> matching &quot;{filter}&quot;</span>}
             </div>
           )}
-        </div>
-
-        {filteredAndSortedTracks.length === 0 ? (
-          <div className="text-center p-8 bg-neutral-50 dark:bg-neutral-800/20 rounded-xl border border-neutral-200 dark:border-neutral-800">
-            <p className="text-neutral-600 dark:text-neutral-400">
-              No tracks match your search.
-            </p>
-          </div>
-        ) : (
-          <div className="h-[calc(100vh-200px)] overflow-y-auto custom-scrollbar pr-2">
-            <ul className="space-y-3 pb-4">
-              {filteredAndSortedTracks.map((track, index) => (
-                <li key={`card-${track.id}-${id}`}>
-                  <motion.div
+          {filteredAndSortedTracks.length === 0 ? (
+            <div className="text-center p-8 bg-white/80 dark:bg-neutral-800/40 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow mt-6">
+              <p className="text-neutral-600 dark:text-neutral-400">No tracks match your search.</p>
+            </div>
+          ) : (
+            <div className="min-h-[220px] sm:min-h-[300px] max-h-[70vh] overflow-y-auto custom-scrollbar pr-1 sm:pr-2 mt-2">
+              {/* Responsive height for music history list */}
+              <ul className="space-y-3 pb-4">
+                {filteredAndSortedTracks.map((track, index) => (
+                  <motion.li
                     layoutId={`card-${track.id}-${id}`}
+                    key={`card-${track.id}-${id}`}
                     initial={{ opacity: 0, y: 10 }}
                     animate={{
                       opacity: 1,
@@ -398,21 +436,17 @@ export default function History() {
                       transition: { delay: index * 0.05, duration: 0.2 },
                     }}
                     onClick={() => setActive(track)}
-                    className="p-4 flex gap-4 items-center hover:bg-neutral-50 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 rounded-xl cursor-pointer transition-colors"
+                    className="p-3 sm:p-4 flex gap-3 sm:gap-4 items-center hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 rounded-2xl cursor-pointer transition-colors shadow-sm bg-white dark:bg-neutral-900"
                   >
-                    <motion.div
-                      layoutId={`image-${track.id}-${id}`}
-                      className="shrink-0"
-                    >
+                    <motion.div layoutId={`image-${track.id}-${id}`} className="shrink-0">
                       <Image
                         width={100}
                         height={100}
                         src={track.image_url || "/placeholder.svg"}
                         alt={track.title}
-                        className="h-16 w-16 rounded-lg object-cover object-center"
+                        className="h-12 w-12 sm:h-16 sm:w-16 rounded-xl object-cover object-center"
                       />
                     </motion.div>
-
                     <div className="flex-1 min-w-0">
                       <motion.h3
                         layoutId={`title-${track.id}-${id}`}
@@ -430,22 +464,18 @@ export default function History() {
                         {formatDate(track.createTime)}
                       </p>
                     </div>
-
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="shrink-0"
-                      onClick={(e) => downloadTrack(track, e)}
-                    >
+                    <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => downloadTrack(track, e)}>
                       <Download className="h-4 w-4" />
                       <span className="sr-only">Download</span>
                     </Button>
-                  </motion.div>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+                  </motion.li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Removed duplicate card list rendering to prevent layout issues */}
       </div>
     </>
   );

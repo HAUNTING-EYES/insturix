@@ -40,9 +40,9 @@ export default function MusitronDashboard() {
     totalGenerated > 0 ? Math.round(totalDuration / totalGenerated) : 0;
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="container mx-auto p-8">
-        <div className="grid lg:grid-cols-3 gap-8">
+    <div className="min-h-screen bg-transparent">
+      <div className="container mx-auto p-8 bg-transparent">
+        <div className="grid lg:grid-cols-3 gap-8 bg-transparent">
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
             <MusicGenerator onMusicGenerated={handleMusicGenerated} />

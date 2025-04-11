@@ -19,7 +19,7 @@ export default function DashboardLayout({
   return (
     <>
       <DashboardSidebar />
-      <main className="min-h-screen bg-zinc-950/95 backdrop-blur-xl lg:pl-[240px]">
+      <main className="min-h-screen bg-zinc-950/95 backdrop-blur-xl lg:pl-[64px]">
         <AnimatePresence mode="wait">
           <motion.div
             key={pathname}
@@ -27,7 +27,7 @@ export default function DashboardLayout({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2, ease: "easeInOut" }}
-            className="min-h-screen bg-transparent"
+            className="min-h-screen"
           >
             {children}
           </motion.div>

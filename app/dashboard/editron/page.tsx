@@ -23,7 +23,7 @@ const features = [
   },
 ];
 
-export default function EditronDashboard() {
+export default function Dashboard() {
   return (
     <DashboardShell>
       {/* Dashboard Header */}
