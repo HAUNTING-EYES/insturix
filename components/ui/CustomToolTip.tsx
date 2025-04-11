@@ -96,7 +96,7 @@ export default function UserDropdown({
       {/* Dropdown Trigger Button */}
       <button
         onClick={toggleDropdown}
-        className="flex items-center justify-between w-full px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors text-white"
+        className="flex items-center justify-between w-full overflow-hidden p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors text-white"
       >
         <div className="flex items-center gap-2">
           <div className="relative w-8 h-8 overflow-hidden rounded-md">
@@ -144,7 +144,7 @@ export default function UserDropdown({
 
               <button
                 onClick={handleSettingsClick}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-white hover:bg-white/10 transition-colors"
+                className="w-full flex items-center gap-2 p-2 rounded-md text-left text-white hover:bg-white/10 transition-colors"
               >
                 <Settings className="w-4 h-4" />
                 <span className="text-sm">Settings</span>
@@ -152,7 +152,7 @@ export default function UserDropdown({
 
               <button
                 onClick={handleSignOut}
-                className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-white hover:bg-white/10 transition-colors"
+                className="w-full flex items-center gap-2 p-2 rounded-md text-left text-white hover:bg-white/10 transition-colors"
               >
                 <LogOut className="w-4 h-4" />
                 <span className="text-sm">Sign Out</span>
@@ -163,7 +163,7 @@ export default function UserDropdown({
               <div className="text-xs text-zinc-400 mb-2 px-3">Preferences</div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between px-3 py-2">
+                <div className="flex items-center justify-between p-2">
                   <div className="text-sm text-white">Theme</div>
                   <div className="flex bg-zinc-800 rounded-full p-1">
                     <button
@@ -278,7 +278,7 @@ export default function UserDropdown({
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between px-3 py-2">
+                <div className="flex items-center justify-between p-2">
                   <div className="text-sm text-white">Language</div>
                   <button className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 rounded-md px-2 py-1 text-white text-sm">
                     <span>English</span>

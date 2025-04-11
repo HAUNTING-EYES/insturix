@@ -54,12 +54,6 @@ const products = [
     description: "Advanced Editor",
   },
   {
-    name: "Kundli",
-    path: "/dashboard/kundli",
-    icon: Star,
-    description: "Astrological Charts",
-  },
-  {
     name: "Shield",
     path: "/dashboard/shield",
     icon: Shield,
@@ -165,8 +159,9 @@ export default function DashboardSidebar() {
       </div>
 
       {/* Mobile Overlay */}
+      {/* Mobile Overlay */}
       <div
-        className={`fixed inset-0 bg-background/80 backdrop-blur-sm z-[90] transition-opacity duration-300 lg:hidden ${
+        className={`fixed inset-0 bg-black/50 z-[90] transition-opacity duration-300 lg:hidden ${
           isMobileOpen ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
         onClick={() => setIsMobileOpen(false)}
@@ -176,79 +171,108 @@ export default function DashboardSidebar() {
       <TooltipProvider delayDuration={300}>
         <aside
           className={cn(
-            "fixed top-0 left-0 bottom-0 h-[100dvh] z-[95] border-r bg-background transition-all duration-300 ease-in-out flex flex-col",
-            isCollapsed ? "w-[70px]" : "w-[240px]",
+            "fixed top-0 left-0 bottom-0 h-[100dvh] z-[95] overflow-hidden border-r border-white/10 bg-zinc-900 flex flex-col transition-all duration-300 ease-in-out",
+            isCollapsed ? "w-[64px]" : "w-[240px]",
             isMobileOpen
               ? "translate-x-0"
               : "-translate-x-full lg:translate-x-0"
           )}
         >
           {/* Header */}
-          <div className="flex items-center justify-between h-16 px-4 border-b">
-            <Link href="/" className="flex items-center gap-2">
-              {!isCollapsed && (
-                <span className="font-bold text-xl tracking-tight">
+          {/* Logo/header section */}
+          <div className="h-16 flex items-center justify-center px-4 border-b border-white/10 bg-zinc-900 relative">
+            {!isCollapsed ? (
+              <>
+                <Link
+                  href="/"
+                  className="flex items-center justify-center h-full w-full font-bold text-2xl tracking-wide text-white logotext"
+                  style={{
+                    fontFamily: "'Blanka', 'Montserrat', 'Arial', sans-serif",
+                    letterSpacing: "0.15em"
+                  }}
+                >
                   INSTURIX
-                </span>
-              )}
-              {isCollapsed && <Sparkles className="h-5 w-5" />}
-            </Link>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleSidebar}
-              className="hidden lg:flex"
-            >
-              {isCollapsed ? (
-                <ChevronRight className="h-4 w-4" />
-              ) : (
-                <ChevronLeft className="h-4 w-4" />
-              )}
-            </Button>
+                </Link>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={toggleSidebar}
+                  className="hidden lg:flex ml-auto"
+                >
+                  <ChevronLeft className="h-5 w-5 text-white" />
+                </Button>
+              </>
+            ) : (
+              // Collapsed: Only show expand button as top icon, centered
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={toggleSidebar}
+                className="mx-auto"
+                style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center" }}
+                aria-label="Expand sidebar"
+              >
+                <ChevronRight className="h-6 w-6 text-white" />
+              </Button>
+            )}
           </div>
 
           {/* Navigation */}
-          <div className="flex-1 overflow-y-auto py-4 px-3">
-            {/* Overview */}
-            <div className="mb-4">
-              <NavItem
-                href="/dashboard"
-                icon={<Home className="h-5 w-5" />}
-                label="Overview"
-                isCollapsed={isCollapsed}
-              />
-            </div>
-
-            {/* Products Section */}
-            <div className="space-y-1">
-              {!isCollapsed && (
-                <h3 className="px-4 text-xs font-medium text-muted-foreground mb-2">
-                  Products
-                </h3>
-              )}
-
-              {products.map((product) => (
+          {/* Navigation section */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden py-6">
+            <ul className="px-2 space-y-3">
+              {/* Overview */}
+              <li key="Dashboard">
                 <NavItem
-                  key={product.name}
-                  href={product.path}
-                  icon={<product.icon className="h-5 w-5" />}
-                  label={product.name}
+                  href="/dashboard"
+                  icon={<Home className="h-5 w-5" />}
+                  label="Overview"
                   isCollapsed={isCollapsed}
-                  description={product.description}
                 />
+              </li>
+              {/* Divider with extra spacing */}
+              <li>
+                <div className="h-px bg-white/10 my-4"></div>
+              </li>
+              {/* Products Section */}
+              {!isCollapsed && (
+                <li>
+                  <h3 className="px-2 text-xs font-medium text-muted-foreground mb-4 text-white/70">
+                    Products
+                  </h3>
+                </li>
+              )}
+              {products.map((product) => (
+                <li key={product.name}>
+                  <NavItem
+                    href={product.path}
+                    icon={<product.icon className="h-5 w-5" />}
+                    label={product.name}
+                    isCollapsed={isCollapsed}
+                    description={product.description}
+                  />
+                </li>
               ))}
-            </div>
+            </ul>
           </div>
 
           {/* Footer with User Profile */}
-          <div className="border-t p-4">
-            {user && (
-              <UserDropdown
-                onSettingsClick={() => setIsSettingsOpen(true)}
-                onUpgradeClick={() => setIsUpgradeOpen(true)}
-              />
-            )}
-          </div>
+          {/* Profile section */}
+          {user && (
+            <div className="border-t border-white/10 py-4 px-2 mt-2 flex justify-center">
+              <div
+                onClick={() => {
+                  if (isCollapsed) setIsCollapsed(false);
+                }}
+                style={{ cursor: "pointer", width: "100%", display: "flex", justifyContent: "center" }}
+              >
+                <UserDropdown
+                  onSettingsClick={() => setIsSettingsOpen(true)}
+                  onUpgradeClick={() => setIsUpgradeOpen(true)}
+                />
+              </div>
+            </div>
+          )}
         </aside>
       </TooltipProvider>
 
@@ -280,7 +304,7 @@ export default function DashboardSidebar() {
             <DialogTitle>Upgrade Plan</DialogTitle>
           </DialogHeader>
           <div className="py-6 space-y-4">
-            <div className="rounded-lg border p-4 bg-muted/50">
+            <div className="rounded-lg border py-4 px-2 bg-muted/50">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="font-medium">Pro Plan</h3>
@@ -334,21 +358,34 @@ function NavItem({
       href={href}
       prefetch={true}
       className={cn(
-        "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all duration-200",
-        isActive
-          ? `${theme.activeBackground} ${theme.activeText}`
-          : `text-muted-foreground ${theme.hoverBackground} ${theme.hoverText} hover:translate-x-1`
+        "flex items-center rounded-lg w-full transition-all duration-200 text-white/80 hover:bg-white/10 hover:text-white hover:translate-x-1",
+        isActive && "bg-white/10 text-white",
+        isCollapsed
+          ? "justify-center px-2 gap-0 py-2"
+          : "px-2 gap-3 py-2"
       )}
+      style={isCollapsed ? { minWidth: 0 } : {}}
     >
       <span
         className={cn(
-          "flex shrink-0 items-center justify-center",
-          isActive && theme.activeText
+          "flex items-center justify-center",
+          isActive && "text-white"
         )}
+        style={{
+          width: 32,
+          height: 32,
+          minWidth: 32,
+          minHeight: 32,
+          maxWidth: 32,
+          maxHeight: 32,
+          padding: 2,
+          marginRight: !isCollapsed ? 8 : 0,
+          marginLeft: 0,
+        }}
       >
         {icon}
       </span>
-      {!isCollapsed && <span>{label}</span>}
+      {!isCollapsed && <span className="text-sm font-medium tracking-wide">{label}</span>}
     </Link>
   );
 

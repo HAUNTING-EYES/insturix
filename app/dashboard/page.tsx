@@ -25,11 +25,6 @@ const products = [
     description: "Collaborative editing tools",
   },
   {
-    name: "Kundli",
-    path: "/dashboard/kundli",
-    description: "Astrological calculations engine",
-  },
-  {
     name: "Meditron",
     path: "/dashboard/meditron",
     description: "Meditation and wellness tracker",
