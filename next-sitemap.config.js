@@ -72,28 +72,28 @@ const config = {
   },
   transform: async (config) => {
     // Custom transform function to set priority and changefreq
-    const path = config?.loc || '/';
-    
+    const path = config?.loc || "/";
+
     // Default values
     let priority = 0.6;
-    let changefreq = 'monthly';
+    let changefreq = "monthly";
 
     // Set priority based on path
-    if (path === '/') {
+    if (path === "/") {
       priority = 1.0;
-      changefreq = 'daily';
-    } else if (path?.startsWith('/blog')) {
+      changefreq = "daily";
+    } else if (path?.startsWith("/blog")) {
       priority = 0.8;
-      changefreq = 'weekly';
-    } else if (path?.startsWith('/products')) {
+      changefreq = "weekly";
+    } else if (path?.startsWith("/products")) {
       priority = 0.9;
-      changefreq = 'weekly';
-    } else if (path?.startsWith('/categories')) {
+      changefreq = "weekly";
+    } else if (path?.startsWith("/categories")) {
       priority = 0.85;
-      changefreq = 'weekly';
-    } else if (path?.startsWith('/about') || path?.startsWith('/contact')) {
+      changefreq = "weekly";
+    } else if (path?.startsWith("/about") || path?.startsWith("/contact")) {
       priority = 0.7;
-      changefreq = 'monthly';
+      changefreq = "monthly";
     }
 
     return {

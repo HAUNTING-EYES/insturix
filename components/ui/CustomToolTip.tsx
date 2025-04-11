@@ -4,6 +4,34 @@ import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { ChevronDown, LogOut, Settings } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
+import NotSignedIn from "../NotSignedup";
+
+// User type interface from MongoDB
+interface Payment {
+  date: Date;
+  time: string;
+  amount: number;
+  payment_id: string;
+  phone_number: string;
+}
+
+interface UserData {
+  id: string;
+  clerkUserId: string;
+  email: string;
+  userType: string;
+  payments: Payment[];
+}
+
+// API function to fetch user data
+const fetchUserData = async (): Promise<UserData> => {
+  const response = await fetch("/api/user");
+  if (!response.ok) {
+    throw new Error("Failed to fetch user data");
+  }
+  return response.json();
+};
 
 export default function UserDropdown({
   onSettingsClick,
@@ -16,6 +44,14 @@ export default function UserDropdown({
   const { signOut } = useClerk();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Use React Query to fetch user data
+  const { data: userData, isLoading } = useQuery({
+    queryKey: ["userData", user?.id],
+    queryFn: fetchUserData,
+    enabled: !!user, // Only run query if user is logged in
+    staleTime: 5 * 60 * 1000, // 5 minutes
+  });
 
   // Handle click outside to close dropdown
   useEffect(() => {
@@ -53,7 +89,7 @@ export default function UserDropdown({
     setIsOpen(false);
   };
 
-  if (!user) return null;
+  if (!user) return <NotSignedIn />;
 
   return (
     <div className="relative w-full" ref={dropdownRef}>
@@ -66,24 +102,24 @@ export default function UserDropdown({
           <div className="relative w-8 h-8 overflow-hidden rounded-md">
             {user.imageUrl ? (
               <Image
-                src={user.imageUrl || "/placeholder.svg"}
-                alt={user.fullName || "User"}
+                src={user.imageUrl}
+                alt={user.fullName || ""}
                 width={32}
                 height={32}
                 className="object-cover"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center bg-zinc-700 text-white">
-                {user.firstName?.charAt(0) || user.username?.charAt(0) || "U"}
+                {user.firstName?.charAt(0) || user.username?.charAt(0)}
               </div>
             )}
           </div>
           <div className="text-left">
             <p className="text-sm font-medium truncate max-w-[140px]">
-              {user.fullName || user.username}
+              {user.fullName}
             </p>
             <p className="text-xs text-zinc-400 truncate max-w-[140px]">
-              {user.primaryEmailAddress?.emailAddress}
+              {isLoading ? "Loading..." : userData?.userType}
             </p>
           </div>
         </div>
@@ -99,6 +135,13 @@ export default function UserDropdown({
         <div className="absolute bottom-full left-0 mb-2 w-full bg-zinc-900 border border-white/10 rounded-lg overflow-hidden shadow-lg z-10 transition-all duration-200 ease-in-out">
           <div className="p-3 text-white">
             <div className="space-y-2 mb-3">
+              {/* User info with type */}
+              <div className="px-3 py-2 mb-2">
+                <p className="text-sm text-white">
+                  {user.primaryEmailAddress?.emailAddress}
+                </p>
+              </div>
+
               <button
                 onClick={handleSettingsClick}
                 className="w-full flex items-center gap-2 px-3 py-2 rounded-md text-left text-white hover:bg-white/10 transition-colors"

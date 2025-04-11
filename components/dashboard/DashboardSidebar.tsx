@@ -18,7 +18,6 @@ export default function DashboardSidebar() {
     { name: "Alyzitron", path: "/dashboard/alyzitron" },
     { name: "Editron", path: "/dashboard/editron" },
     { name: "Kundli", path: "/dashboard/kundli" },
-    { name: "Meditron", path: "/dashboard/meditron" },
     { name: "Shield", path: "/dashboard/shield" },
     { name: "ThinkForge", path: "/dashboard/thinkforge" },
     { name: "Musitron", path: "/dashboard/musitron" },
