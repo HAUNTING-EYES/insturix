@@ -5,7 +5,6 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 const SUNO_API_KEY = process.env.SUNO_API_KEY;
 const SUNO_API_URL = process.env.SUNO_URI as string;
-const SITE_URL = process.env.SITE_URL || "http://localhost:3000";
 
 if (!SUNO_API_KEY) {
   throw new Error("SUNO_API_KEY environment variable is not set");

@@ -103,7 +103,7 @@ export async function POST(req: Request) {
     const payload = {
       prompt: body.customMode ? body.lyrics : body.songDescription,
       style: body.customMode ? body.style : "",
-      title: body.title || "Generated Song",
+      title: body.title,
       customMode: body.customMode,
       instrumental: body.instrumental,
       model: "V3_5",
