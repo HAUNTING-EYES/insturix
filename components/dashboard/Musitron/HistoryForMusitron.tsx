@@ -45,7 +45,11 @@ interface Track {
   createTime: string;
 }
 
-export default function History() {
+interface HistoryProps {
+  shouldRefetch?: boolean;
+}
+
+export default function History({ shouldRefetch }: HistoryProps) {
   const [active, setActive] = useState<Track | boolean | null>(null);
   const [tracks, setTracks] = useState<Track[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -55,28 +59,35 @@ export default function History() {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
 
-  useEffect(() => {
-    async function fetchTracks() {
-      try {
-        setLoading(true);
-        const response = await fetch("/api/services/musitron/history");
+  const fetchTracks = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/services/musitron/history");
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch tracks");
-        }
-
-        const data = await response.json();
-        setTracks(data.tracks || []);
-      } catch (err) {
-        console.error("Error fetching tracks:", err);
-        setError("Failed to load your music history.");
-      } finally {
-        setLoading(false);
+      if (!response.ok) {
+        throw new Error("Failed to fetch tracks");
       }
-    }
 
+      const data = await response.json();
+      setTracks(data.tracks || []);
+    } catch (err) {
+      console.error("Error fetching tracks:", err);
+      setError("Failed to load your music history.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchTracks();
   }, []);
+
+  // Add a new useEffect to refetch when shouldRefetch changes
+  useEffect(() => {
+    if (shouldRefetch) {
+      fetchTracks();
+    }
+  }, [shouldRefetch]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {

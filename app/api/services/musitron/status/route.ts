@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
+import Musitron from "@/schemas/Musitron";
+import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 const SUNO_API_KEY = process.env.SUNO_API_KEY;
 const SUNO_API_URL = process.env.SUNO_URI as string;
@@ -92,33 +94,61 @@ export async function GET(req: Request) {
             model_name: item.modelName,
             title: item.title,
             tags: Array.isArray(item.tags) ? item.tags.join(", ") : item.tags,
-            createTime: item.createTime?.toString(),
+            createTime: item.createTime?.toString() || new Date().toString(),
             duration: item.duration,
           })
         );
 
         // Get the user ID from Clerk
-        const session = await auth();
+        const { userId } = await auth();
         
         // Save tracks to MongoDB if user is authenticated
-        if (session?.userId && formattedTracks.length > 0) {
+        if (userId && formattedTracks.length > 0) {
           try {
-            // Use internal fetch on server side
-            await fetch(`${SITE_URL}/api/services/musitron/save`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                // Include cookies to pass authentication
-                "Cookie": req.headers.get("cookie") || ""
-              },
-              body: JSON.stringify({ tracks: formattedTracks }),
-              credentials: "include",
-            });
+            // Connect to database directly
+            await connectToDatabase(process.env.MONGODB_URI as string);
+            
+            // Find existing user record or create a new one
+            const existingRecord = await Musitron.findOne({ userId });
+            
+            if (existingRecord) {
+              // Add new tracks to the existing record, avoiding duplicates
+              for (const track of formattedTracks) {
+                // Check if track with this ID already exists
+                const trackExists = existingRecord.tracks.some(
+                  (existingTrack: { id: string }) => existingTrack.id === track.id
+                );
+                
+                if (!trackExists) {
+                  existingRecord.tracks.push(track);
+                }
+              }
+              
+              await existingRecord.save();
+              console.log("Tracks added to existing record");
+            } else {
+              // Create a new record for this user
+              const newRecord = new Musitron({
+                userId,
+                tracks: formattedTracks,
+              });
+              
+              await newRecord.save();
+              console.log("New tracks record created");
+            }
           } catch (error) {
             console.error("Error saving tracks to database:", error);
             // Continue with the response even if saving fails
           }
+        } else if (!userId) {
+          console.log("User not authenticated, skipping database save");
+        } else if (formattedTracks.length === 0) {
+          console.log("No tracks to save");
         }
+
+        // Log the formatted tracks for debugging
+        console.log(`Returning ${formattedTracks.length} tracks to client`);
+        console.log("Track details:", formattedTracks.map((t: { id: string; title: string }) => ({id: t.id, title: t.title})));
 
         return NextResponse.json({
           status: "complete",

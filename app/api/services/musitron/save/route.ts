@@ -5,11 +5,11 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 export async function POST(req: Request) {
   try {
-    const session = await auth();
-    
-    if (!session?.userId) {
+    // Get user authentication (match format used in musitron/route.ts)
+    const { userId } = await auth();
+    if (!userId) {
       return NextResponse.json(
-        { error: "Unauthorized. User not authenticated." },
+        { error: "Authentication required" },
         { status: 401 }
       );
     }
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     await connectToDatabase(process.env.MONGODB_URI as string);
 
     // Find existing user record or create a new one
-    const existingRecord = await Musitron.findOne({ userId: session.userId });
+    const existingRecord = await Musitron.findOne({ userId: userId });
 
     if (existingRecord) {
       // Add new tracks to the existing record, avoiding duplicates
@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     } else {
       // Create a new record for this user
       const newRecord = new Musitron({
-        userId: session.userId,
+        userId: userId,
         tracks,
       });
 
@@ -60,7 +60,8 @@ export async function POST(req: Request) {
         message: "New tracks record created",
       });
     }
-  } catch {
+  } catch (error) {
+    console.error("Error saving tracks to database:", error);
     return NextResponse.json(
       { error: "Failed to save tracks" },
       { status: 500 }

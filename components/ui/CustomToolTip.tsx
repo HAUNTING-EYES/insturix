@@ -116,7 +116,7 @@ export default function UserDropdown({
           </div>
           <div className="text-left">
             <p className="text-sm font-medium truncate max-w-[140px]">
-              {user.fullName}
+              {user.username}
             </p>
             <p className="text-xs text-zinc-400 truncate max-w-[140px]">
               {isLoading ? "Loading..." : userData?.userType}
@@ -154,8 +154,8 @@ export default function UserDropdown({
                 onClick={handleSignOut}
                 className="w-full flex items-center gap-2 p-2 rounded-md text-left text-white hover:bg-white/10 transition-colors"
               >
-                <LogOut className="w-4 h-4" />
-                <span className="text-sm">Sign Out</span>
+                <LogOut className="w-4 h-4 text-red-600" />
+                <span className="text-sm text-red-600">Sign Out</span>
               </button>
             </div>
 
@@ -276,14 +276,6 @@ export default function UserDropdown({
                       </svg>
                     </button>
                   </div>
-                </div>
-
-                <div className="flex items-center justify-between p-2">
-                  <div className="text-sm text-white">Language</div>
-                  <button className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 rounded-md px-2 py-1 text-white text-sm">
-                    <span>English</span>
-                    <ChevronDown className="w-3 h-3" />
-                  </button>
                 </div>
               </div>
             </div>

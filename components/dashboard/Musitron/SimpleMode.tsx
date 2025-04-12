@@ -5,16 +5,22 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { FileMusic, Music } from "lucide-react";
+import { FileMusic, Music, Music4 } from "lucide-react";
 
 interface SimpleModeProps {
-  onSubmit: (data: { songDescription: string; instrumental: boolean }) => void;
+  onSubmit: (data: {
+    songDescription: string;
+    instrumental: boolean;
+    title: string;
+  }) => void;
   loading: boolean;
 }
 
 export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
   const [songDescription, setSongDescription] = useState("");
+  const [title, setTitle] = useState("");
   const [instrumental, setInstrumental] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -25,14 +31,38 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
       return;
     }
 
+    if (!title) {
+      toast.error("Please enter a title for your song");
+      return;
+    }
+
     onSubmit({
       songDescription,
       instrumental,
+      title,
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-2">
+        <Label
+          htmlFor="title"
+          className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
+        >
+          <Music4 className="h-4 w-4" />
+          Song Title
+        </Label>
+        <Input
+          id="title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Enter a title for your song"
+          className="bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
+          required
+        />
+      </div>
+
       <div className="space-y-2">
         <Label
           htmlFor="songDescription"

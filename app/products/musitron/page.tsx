@@ -7,10 +7,10 @@ import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
 
 const THEME = {
-  color: "rgba(138, 43, 226, 0.15)",
+  color: "rgba(234, 179, 8, 0.20)",
   gradient: {
-    from: "from-purple-400",
-    to: "to-violet-600",
+    from: "from-amber-400",
+    to: "to-amber-600",
   },
 };
 const features = [
