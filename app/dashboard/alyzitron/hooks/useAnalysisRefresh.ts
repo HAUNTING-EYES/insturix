@@ -1,6 +1,6 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback } from 'react';
-import { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback } from "react";
+import { AlyzitronAnalysis } from "@/app/api/services/alyzitron/types";
 
 interface UseAnalysisRefreshProps {
   analysisId?: string;
@@ -20,15 +20,20 @@ export function useAnalysisRefresh({
     data: analysis,
     isLoading,
     error,
-  } = useQuery<AlyzitronAnalysis, Error, AlyzitronAnalysis, [string, string | undefined]>({
-    queryKey: ['analysis', analysisId],
+  } = useQuery<
+    AlyzitronAnalysis,
+    Error,
+    AlyzitronAnalysis,
+    [string, string | undefined]
+  >({
+    queryKey: ["analysis", analysisId],
     queryFn: async ({ queryKey: [, id] }) => {
       if (!id) {
-        throw new Error('Analysis ID is required');
+        throw new Error("Analysis ID is required");
       }
       const response = await fetch(`/api/services/alyzitron/analyses/${id}`);
       if (!response.ok) {
-        throw new Error('Failed to fetch analysis');
+        throw new Error("Failed to fetch analysis");
       }
       const data = await response.json();
       return data as AlyzitronAnalysis;
@@ -38,7 +43,7 @@ export function useAnalysisRefresh({
       if (!query.state.data) return false;
       // Keep polling while analysis is in progress
       const status = query.state.data.status;
-      return ['pending', 'queued', 'processing'].includes(status)
+      return ["pending", "queued", "processing"].includes(status)
         ? refreshInterval
         : false;
     },
@@ -46,7 +51,7 @@ export function useAnalysisRefresh({
     staleTime: 0, // Always fetch fresh data
     retry: (failureCount, error) => {
       // Retry up to 3 times unless it's a 404
-      if (error instanceof Error && error.message.includes('not found')) {
+      if (error instanceof Error && error.message.includes("not found")) {
         return false;
       }
       return failureCount < 3;
@@ -57,12 +62,13 @@ export function useAnalysisRefresh({
   const refresh = useCallback(() => {
     if (analysisId) {
       queryClient.invalidateQueries({
-        queryKey: ['analysis', analysisId],
+        queryKey: ["analysis", analysisId],
       });
     }
   }, [analysisId, queryClient]);
 
-  const isInProgress = analysis && ['pending', 'queued', 'processing'].includes(analysis.status);
+  const isInProgress =
+    analysis && ["pending", "queued", "processing"].includes(analysis.status);
 
   return {
     analysis,

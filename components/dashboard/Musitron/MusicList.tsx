@@ -39,7 +39,7 @@ export default function MusicList({ generatedMusic }: MusicListProps) {
       prevCountRef.current = 0;
       musicIdsRef.current = [];
     };
-  }, []);
+  }, [mounted]);
 
   // Debug log music data
   useEffect(() => {

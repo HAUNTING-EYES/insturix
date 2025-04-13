@@ -100,7 +100,7 @@ const features = [
   },
 ];
 
-export function ProductsPage() {
+export default function ProductsPage() {
   return (
     <>
       <div className="text-center  mt-32">

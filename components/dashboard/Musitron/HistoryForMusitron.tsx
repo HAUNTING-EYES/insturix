@@ -105,6 +105,7 @@ export default function History({ shouldRefetch }: HistoryProps) {
   useEffect(() => {
     fetchTracks();
   }, []);
+  // ignore the eslint error. Causes infinite loading shit.
 
   // Add a new useEffect to refetch when shouldRefetch changes
   useEffect(() => {
@@ -113,6 +114,7 @@ export default function History({ shouldRefetch }: HistoryProps) {
       fetchTracks(true); // Pass true to indicate this is a refetch
     }
   }, [shouldRefetch]);
+  // ignore the eslint error. Causes infinite loading shit.
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
