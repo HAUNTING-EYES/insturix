@@ -57,7 +57,7 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
             htmlFor="title"
             className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
           >
-            <Music4 className="h-4 w-4" />
+            <Music4 className="h-4 w-4 text-yellow-500" />
             Title
           </Label>
           <Input
@@ -75,7 +75,7 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
             htmlFor="style"
             className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
           >
-            <Mic2 className="h-4 w-4" />
+            <Mic2 className="h-4 w-4 text-yellow-500" />
             Style of Music
           </Label>
           <Input
@@ -95,7 +95,7 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
 
       <div className="flex items-center justify-between p-3 rounded-lg bg-black/20">
         <div className="flex items-center gap-3">
-          <FileMusic className="h-5 w-5 text-purple-500" />
+          <FileMusic className="h-5 w-5 text-yellow-500" />
           <span className="text-zinc-100">Instrumental Only</span>
         </div>
         <Switch
@@ -111,7 +111,7 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
             htmlFor="lyrics"
             className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
           >
-            <PenTool className="h-4 w-4" />
+            <PenTool className="h-4 w-4 text-yellow-500" />
             Lyrics
           </Label>
           <Textarea
@@ -136,7 +136,7 @@ export default function CustomMode({ onSubmit, loading }: CustomModeProps) {
           ${
             loading
               ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-              : "bg-purple-600 hover:bg-purple-700 text-white"
+              : "bg-yellow-600 hover:bg-yellow-700 text-white"
           }
           transition-all duration-300
         `}

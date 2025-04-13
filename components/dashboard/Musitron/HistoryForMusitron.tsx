@@ -59,9 +59,14 @@ export default function History({ shouldRefetch }: HistoryProps) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
 
-  const fetchTracks = async () => {
+  const fetchTracks = async (isRefetch = false) => {
     try {
-      setLoading(true);
+      // Only set loading to true for initial fetch, not for refetches
+      if (!isRefetch) {
+        setLoading(true);
+      }
+
+      console.log(`Fetching tracks (isRefetch: ${isRefetch})`);
       const response = await fetch("/api/services/musitron/history");
 
       if (!response.ok) {
@@ -69,12 +74,31 @@ export default function History({ shouldRefetch }: HistoryProps) {
       }
 
       const data = await response.json();
-      setTracks(data.tracks || []);
+
+      // Compare data to see if anything changed
+      if (isRefetch && data.tracks) {
+        const currentIds = new Set(tracks.map((t) => t.id));
+        const newTracks = data.tracks.filter(
+          (t: Track) => !currentIds.has(t.id)
+        );
+
+        if (newTracks.length > 0) {
+          console.log(`Found ${newTracks.length} new tracks in history`);
+          setTracks(data.tracks);
+        } else {
+          console.log("No new tracks found in refetch");
+        }
+      } else {
+        setTracks(data.tracks || []);
+      }
     } catch (err) {
       console.error("Error fetching tracks:", err);
       setError("Failed to load your music history.");
     } finally {
-      setLoading(false);
+      // Only update loading state for initial fetch
+      if (!isRefetch) {
+        setLoading(false);
+      }
     }
   };
 
@@ -85,7 +109,8 @@ export default function History({ shouldRefetch }: HistoryProps) {
   // Add a new useEffect to refetch when shouldRefetch changes
   useEffect(() => {
     if (shouldRefetch) {
-      fetchTracks();
+      console.log("Refetching tracks due to shouldRefetch flag change");
+      fetchTracks(true); // Pass true to indicate this is a refetch
     }
   }, [shouldRefetch]);
 
@@ -106,7 +131,10 @@ export default function History({ shouldRefetch }: HistoryProps) {
       document.body.style.right = "0";
       document.body.setAttribute("data-scroll-lock", scrollY.toString());
     } else {
-      const scrollY = parseInt(document.body.getAttribute("data-scroll-lock") || "0", 10);
+      const scrollY = parseInt(
+        document.body.getAttribute("data-scroll-lock") || "0",
+        10
+      );
       document.body.style.position = "";
       document.body.style.top = "";
       document.body.style.width = "";
@@ -120,7 +148,10 @@ export default function History({ shouldRefetch }: HistoryProps) {
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       // Always restore scroll on unmount
-      const scrollY = parseInt(document.body.getAttribute("data-scroll-lock") || "0", 10);
+      const scrollY = parseInt(
+        document.body.getAttribute("data-scroll-lock") || "0",
+        10
+      );
       document.body.style.position = "";
       document.body.style.top = "";
       document.body.style.width = "";
@@ -347,9 +378,14 @@ export default function History({ shouldRefetch }: HistoryProps) {
                   <h4 className="font-medium text-lg mb-2">Prompt</h4>
                   {/* Scrollable lyrics/prompt section */}
                   <div className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-800 p-4 rounded-lg border border-neutral-200 dark:border-neutral-800 max-h-60 overflow-y-auto custom-scrollbar">
-                    {active.prompt
-                      ? active.prompt
-                      : "This is an instrumental track."}
+                    {active.prompt.startsWith("[Instrumental]") ? (
+                      <p>
+                        This is an instrumental generated song. This
+                        doesn&apos;t contain any lyrics.
+                      </p>
+                    ) : (
+                      active.prompt
+                    )}
                   </div>
                 </div>
                 <div className="flex justify-between items-center">
@@ -430,7 +466,9 @@ export default function History({ shouldRefetch }: HistoryProps) {
           )}
           {filteredAndSortedTracks.length === 0 ? (
             <div className="text-center p-8 bg-white/80 dark:bg-neutral-800/40 rounded-2xl border border-neutral-200 dark:border-neutral-800 shadow mt-6">
-              <p className="text-neutral-600 dark:text-neutral-400">No tracks match your search.</p>
+              <p className="text-neutral-600 dark:text-neutral-400">
+                No tracks match your search.
+              </p>
             </div>
           ) : (
             <div className="min-h-[220px] sm:min-h-[300px] max-h-[70vh] overflow-y-auto custom-scrollbar pr-1 sm:pr-2 mt-2">
@@ -449,7 +487,10 @@ export default function History({ shouldRefetch }: HistoryProps) {
                     onClick={() => setActive(track)}
                     className="p-3 sm:p-4 flex gap-3 sm:gap-4 items-center hover:bg-neutral-100 dark:hover:bg-neutral-800 border border-neutral-200 dark:border-neutral-800 rounded-2xl cursor-pointer transition-colors shadow-sm bg-white dark:bg-neutral-900"
                   >
-                    <motion.div layoutId={`image-${track.id}-${id}`} className="shrink-0">
+                    <motion.div
+                      layoutId={`image-${track.id}-${id}`}
+                      className="shrink-0"
+                    >
                       <Image
                         width={100}
                         height={100}
@@ -475,7 +516,12 @@ export default function History({ shouldRefetch }: HistoryProps) {
                         {formatDate(track.createTime)}
                       </p>
                     </div>
-                    <Button variant="ghost" size="icon" className="shrink-0" onClick={(e) => downloadTrack(track, e)}>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="shrink-0"
+                      onClick={(e) => downloadTrack(track, e)}
+                    >
                       <Download className="h-4 w-4" />
                       <span className="sr-only">Download</span>
                     </Button>
@@ -485,7 +531,6 @@ export default function History({ shouldRefetch }: HistoryProps) {
             </div>
           )}
         </div>
-
         {/* Removed duplicate card list rendering to prevent layout issues */}
       </div>
     </>

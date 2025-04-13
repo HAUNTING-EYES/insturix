@@ -50,7 +50,7 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
           htmlFor="title"
           className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
         >
-          <Music4 className="h-4 w-4" />
+          <Music4 className="h-4 w-4 text-yellow-500" />
           Song Title
         </Label>
         <Input
@@ -68,7 +68,7 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
           htmlFor="songDescription"
           className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
         >
-          <Music className="h-4 w-4" />
+          <Music className="h-4 w-4 text-yellow-500" />
           Song Description
         </Label>
         <Textarea
@@ -87,13 +87,13 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
 
       <div className="flex items-center justify-between p-3 rounded-lg bg-black/20">
         <div className="flex items-center gap-3">
-          <FileMusic className="h-5 w-5 text-purple-500" />
+          <FileMusic className="h-5 w-5 text-yellow-500" />
           <span className="text-zinc-100">Instrumental Only</span>
         </div>
         <Switch
           checked={instrumental}
           onCheckedChange={setInstrumental}
-          className="bg-zinc-700 data-[state=checked]:bg-purple-600"
+          className="bg-zinc-700 data-[state=checked]:bg-yellow-600"
         />
       </div>
 
@@ -104,7 +104,7 @@ export default function SimpleMode({ onSubmit, loading }: SimpleModeProps) {
           ${
             loading
               ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-              : "bg-purple-600 hover:bg-purple-700 text-white"
+              : "bg-yellow-600 hover:bg-yellow-700 text-white"
           }
           transition-all duration-300
         `}

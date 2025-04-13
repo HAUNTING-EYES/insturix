@@ -35,10 +35,12 @@ export default function MusitronDashboard() {
   const handleMusicGenerated = useCallback((newMusic: GeneratedMusic[]) => {
     if (newMusic && newMusic.length > 0) {
       console.log("Handling new music:", newMusic);
-      musicUpdateCountRef.current += 1;
-
+      
       try {
-        // Ensure we don't add duplicates
+        // Explicitly increment counter to force re-render of MusicList
+        musicUpdateCountRef.current += 1;
+        
+        // Immediately update state with the new music
         setGeneratedMusic((prev) => {
           const existingIds = new Set(prev.map((item) => item.id));
           const uniqueNewMusic = newMusic.filter(
@@ -52,11 +54,24 @@ export default function MusitronDashboard() {
 
           console.log(`Adding ${uniqueNewMusic.length} new tracks`);
           // Add the new music at the beginning for better visibility
-          return [...uniqueNewMusic, ...prev];
+          const updatedMusic = [...uniqueNewMusic, ...prev];
+          
+          // Ensure immediate UI update in the next frame
+          window.requestAnimationFrame(() => {
+            console.log("Forcing immediate UI refresh for MusicList");
+            
+            // Force component to re-render with the new data
+            musicUpdateCountRef.current += 1;
+            
+            // Then trigger history refetch after a small delay
+            setTimeout(() => {
+              console.log("Triggering history refetch");
+              setShouldRefetchHistory(true);
+            }, 300);
+          });
+          
+          return updatedMusic;
         });
-
-        // Trigger history refetch
-        setShouldRefetchHistory(true);
       } catch (error) {
         console.error("Error updating music state:", error);
         toast.error("Error displaying the generated music");
@@ -65,15 +80,22 @@ export default function MusitronDashboard() {
       console.warn("Received empty music data");
     }
   }, []);
-
-  // Force component update on music changes
+  
+  // Force component update on music changes with dedicated effect
   useEffect(() => {
     if (generatedMusic.length > 0) {
-      const forceUpdate = setTimeout(() => {
-        console.log(`Music state updated with ${generatedMusic.length} tracks`);
-      }, 100);
-
-      return () => clearTimeout(forceUpdate);
+      console.log(`Music state updated with ${generatedMusic.length} tracks`);
+      
+      // Force re-render if needed
+      const forceRerender = setTimeout(() => {
+        if (musicUpdateCountRef.current > 0) {
+          console.log("Forcing UI update for MusicList");
+          // This is just to trigger a re-render if needed
+          musicUpdateCountRef.current = musicUpdateCountRef.current;
+        }
+      }, 500);
+      
+      return () => clearTimeout(forceRerender);
     }
   }, [generatedMusic]);
 
@@ -82,8 +104,9 @@ export default function MusitronDashboard() {
     if (shouldRefetchHistory) {
       // Reset after a short delay to ensure the refetch has been triggered
       const timer = setTimeout(() => {
+        console.log("Resetting shouldRefetchHistory flag");
         setShouldRefetchHistory(false);
-      }, 1000);
+      }, 2000); // Increased timeout to ensure history component has time to react
 
       return () => clearTimeout(timer);
     }
@@ -106,13 +129,11 @@ export default function MusitronDashboard() {
           <div className="lg:col-span-2 space-y-8">
             <MusicGenerator onMusicGenerated={handleMusicGenerated} />
 
-            {/* Music list section - force key refresh when music updates */}
-            {generatedMusic.length > 0 && (
-              <MusicList
-                key={`music-list-${musicUpdateCountRef.current}`}
-                generatedMusic={generatedMusic}
-              />
-            )}
+            {/* Music list section - always render it to ensure transitions work */}
+            <MusicList
+              key={`music-list-${musicUpdateCountRef.current}`}
+              generatedMusic={generatedMusic}
+            />
           </div>
 
           {/* Stats & Insights */}
@@ -120,14 +141,14 @@ export default function MusitronDashboard() {
             <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
               <CardHeader>
                 <CardTitle className="text-lg font-medium text-zinc-100 flex items-center gap-2">
-                  <Settings2 className="h-5 w-5 text-purple-500" />
+                  <Settings2 className="h-5 w-5 text-yellow-500" />
                   Analytics Overview
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="p-4 bg-black/20 rounded-lg">
                   <div className="flex items-center gap-3 text-sm font-medium text-zinc-400 mb-1">
-                    <FileMusic className="h-4 w-4 text-purple-500" />
+                    <FileMusic className="h-4 w-4 text-yellow-500" />
                     Generated Music
                   </div>
                   <div className="text-3xl font-semibold text-zinc-100">
@@ -138,7 +159,7 @@ export default function MusitronDashboard() {
 
                 <div className="p-4 bg-black/20 rounded-lg">
                   <div className="flex items-center gap-3 text-sm font-medium text-zinc-400 mb-1">
-                    <Music2 className="h-4 w-4 text-purple-500" />
+                    <Music2 className="h-4 w-4 text-yellow-500" />
                     Average Duration
                   </div>
                   <div className="text-3xl font-semibold text-zinc-100">
@@ -152,7 +173,7 @@ export default function MusitronDashboard() {
 
                 <div className="p-4 bg-black/20 rounded-lg">
                   <div className="flex items-center gap-3 text-sm font-medium text-zinc-400 mb-1">
-                    <Music2 className="h-4 w-4 text-purple-500" />
+                    <Music2 className="h-4 w-4 text-yellow-500" />
                     Total Duration
                   </div>
                   <div className="text-3xl font-semibold text-zinc-100">

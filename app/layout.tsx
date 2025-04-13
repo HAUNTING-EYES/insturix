@@ -69,6 +69,7 @@ export default function RootLayout({
             name="google-site-verification"
             content={process.env.GOOGLE_VERIFICATION_ID}
           />
+          <script async src={process.env.GOOGLE_ADSENSE} crossOrigin="anonymous"></script>
         </head>
         <body>
           <ReactQueryProvider>
