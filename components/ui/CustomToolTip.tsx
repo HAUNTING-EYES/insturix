@@ -259,6 +259,7 @@ export default function UserDropdown({
                     <button
                       className="p-1 rounded-full bg-zinc-700"
                       title="Auto Theme"
+                      type="button"
                     >
                       <svg
                         width="16"
@@ -285,6 +286,7 @@ export default function UserDropdown({
             <button
               onClick={handleUpgradeClick}
               className="w-full py-2 bg-white hover:bg-gray-100 rounded-md text-zinc-900 font-medium text-sm transition-colors"
+              type="button"
             >
               Upgrade Plan
             </button>

@@ -2,10 +2,12 @@
 import { fetchBlogPosts } from "./lib/blog-posts.js";
 
 const config = {
-  siteUrl: process.env.SITE_URL,
+  siteUrl: process.env.SITE_URL || "https://insturix.com",
   generateRobotsTxt: true,
   generateIndexSitemap: true,
   sitemapSize: 7000,
+  changefreq: 'daily',
+  priority: 0.9,
   exclude: [
     "/api/*",
     "/admin/*",
@@ -27,14 +29,67 @@ const config = {
   ],
   // Add additionalPaths to handle dynamic routes
   additionalPaths: async () => {
+    // Create a set to track URLs we've already added to prevent duplicates
+    const addedPaths = new Set();
+    
     const blogPosts = await fetchBlogPosts();
-
-    return blogPosts.map((post) => ({
-      loc: `/blog/${post.slug}`,
-      changefreq: "weekly",
-      priority: 0.8,
+    const blogPaths = blogPosts.map((post) => ({
+      loc: `/resources/blogs/${post.slug}`,
+      changefreq: "daily",
+      priority: 0.9,
       lastmod: post.updatedAt || new Date().toISOString(),
     }));
+
+    // Add product pages
+    const productSlugs = ["ai-video-editor", "business-analytics", "influencer-protection", "brand-deals"];
+    const productPaths = productSlugs.map((slug) => ({
+      loc: `/products/${slug}`,
+      changefreq: "daily",
+      priority: 1.0,
+      lastmod: new Date().toISOString(),
+    }));
+
+    // Add important static pages
+    const staticPages = [
+      {
+        loc: "/about",
+        changefreq: "weekly",
+        priority: 0.8,
+        lastmod: new Date().toISOString(),
+      },
+      {
+        loc: "/contactus",
+        changefreq: "weekly",
+        priority: 0.8,
+        lastmod: new Date().toISOString(),
+      },
+      {
+        loc: "/pricing",
+        changefreq: "daily",
+        priority: 0.9,
+        lastmod: new Date().toISOString(),
+      },
+      {
+        loc: "/waitlist",
+        changefreq: "always",
+        priority: 1.0,
+        lastmod: new Date().toISOString(),
+      }
+    ];
+
+    // Combine all paths
+    const paths = [...blogPaths, ...productPaths, ...staticPages];
+    
+    // Only return paths that haven't been added yet
+    const uniquePaths = paths.filter(path => {
+      if (addedPaths.has(path.loc)) {
+        return false;
+      }
+      addedPaths.add(path.loc);
+      return true;
+    });
+
+    return uniquePaths;
   },
   robotsTxtOptions: {
     policies: [
@@ -68,32 +123,53 @@ const config = {
         allow: ["/"],
       },
     ],
-    additionalSitemaps: [`${process.env.SITE_URL}/sitemap.xml`],
+    additionalSitemaps: [],
   },
-  transform: async (config) => {
+  transform: async (config, path) => {
     // Custom transform function to set priority and changefreq
-    const path = config?.loc || "/";
+    const url = config?.loc || "/";
+    
+    // Skip duplicate entries for the same URL
+    // This is to prevent multiple entries for the homepage
+    if (url === "/" && path === "/") {
+      // Set priority and changefreq for homepage
+      return {
+        loc: "/",
+        changefreq: "always",
+        priority: 1.0,
+        lastmod: new Date().toISOString(),
+        alternateRefs: [
+          {
+            href: `${config.siteUrl || ""}${path}`,
+            hreflang: "en",
+          },
+        ],
+      };
+    }
 
-    // Default values
-    let priority = 0.6;
-    let changefreq = "monthly";
+    // Set priority based on path
+    let priority = 0.8;
+    let changefreq = "weekly";
 
     // Set priority based on path
     if (path === "/") {
       priority = 1.0;
+      changefreq = "always";
+    } else if (path?.startsWith("/resources/blogs")) {
+      priority = 0.9;
       changefreq = "daily";
-    } else if (path?.startsWith("/blog")) {
+    } else if (path?.startsWith("/products")) {
+      priority = 1.0;
+      changefreq = "daily";
+    } else if (path?.startsWith("/waitlist")) {
+      priority = 1.0;
+      changefreq = "always";
+    } else if (path?.startsWith("/about") || path?.startsWith("/contactus")) {
       priority = 0.8;
       changefreq = "weekly";
-    } else if (path?.startsWith("/products")) {
+    } else if (path?.startsWith("/pricing")) {
       priority = 0.9;
-      changefreq = "weekly";
-    } else if (path?.startsWith("/categories")) {
-      priority = 0.85;
-      changefreq = "weekly";
-    } else if (path?.startsWith("/about") || path?.startsWith("/contact")) {
-      priority = 0.7;
-      changefreq = "monthly";
+      changefreq = "daily";
     }
 
     return {
@@ -101,6 +177,12 @@ const config = {
       changefreq,
       priority,
       lastmod: new Date().toISOString(),
+      alternateRefs: [
+        {
+          href: `${config.siteUrl || ""}${path}`,
+          hreflang: "en",
+        },
+      ],
     };
   },
   // Add Google verification
