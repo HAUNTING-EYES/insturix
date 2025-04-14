@@ -2,11 +2,11 @@ import { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Shield | Influencer Protection",
-  description: "Comprehensive digital insurance and protection service designed specifically for content creators and influencers to safeguard their online presence and livelihoods.",
-  keywords: "influencer protection, content creator insurance, digital asset protection, online brand safety, Insturix Shield",
+  description: "Comprehensive digital protection policy and protection service designed specifically for content creators and influencers to support their online presence and livelihoods.",
+  keywords: "influencer protection, content creator protection, digital asset protection, online brand safety, Insturix Shield",
   openGraph: {
     title: "Shield | Influencer Protection",
-    description: "Comprehensive digital insurance and protection service designed specifically for content creators and influencers to safeguard their online presence and livelihoods.",
+    description: "Comprehensive digital protection policy and protection service designed specifically for content creators and influencers to support their online presence and livelihoods.",
     images: [
       {
         url: "/icons/products/shield-og-image.jpg",
@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Shield | Influencer Protection",
-    description: "Comprehensive digital insurance and protection service designed specifically for content creators and influencers to safeguard their online presence and livelihoods.",
+    description: "Comprehensive digital protection policy and protection service designed specifically for content creators and influencers to support their online presence and livelihoods.",
     images: ["/icons/products/shield-twitter-image.jpg"],
   },
 };

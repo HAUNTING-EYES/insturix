@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description:
     "Have questions about our products or services? Reach out to the Insturix team for support, partnership inquiries, or general information.",
   keywords:
-    "contact Insturix, creator support, product inquiries, business partnerships, customer service",
+    "Contact Insturix , Get in touch with Insturix , Insturix support ,Contact creator services , Reach out to Insturix team , Insturix customer support ,Contact for partnerships , Creator inquiries , Business inquiries Insturix , Support for Insturix products",
   openGraph: {
     title: "Contact Us | Get in Touch",
     description:

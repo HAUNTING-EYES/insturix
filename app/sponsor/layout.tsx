@@ -3,7 +3,7 @@ import { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Sponsor | Partner With Creators",
   description: "Connect your brand with authentic content creators who align with your values and audience. Build meaningful partnerships that drive engagement and conversions.",
-  keywords: "sponsor creators, brand partnerships, influencer collaborations, content marketing, Insturix sponsors",
+  keywords: "sponsor creators, brand partnerships, influencer collaborations, content marketing, Insturix sponsors,Brand deals",
   openGraph: {
     title: "Sponsor | Partner With Creators",
     description: "Connect your brand with authentic content creators who align with your values and audience. Build meaningful partnerships that drive engagement and conversions.",

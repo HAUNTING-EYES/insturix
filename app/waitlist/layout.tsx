@@ -3,7 +3,7 @@ import { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Join the Waitlist | Early Access",
   description: "Be among the first to experience Insturix's revolutionary creator tools. Join our waitlist for early access and exclusive updates on our upcoming releases.",
-  keywords: "Insturix waitlist, early access, creator tools beta, product launch, exclusive updates",
+  keywords: "Insturix waitlist, early access, creator tools , product launch, exclusive updates",
   openGraph: {
     title: "Join the Waitlist | Early Access",
     description: "Be among the first to experience Insturix's revolutionary creator tools. Join our waitlist for early access and exclusive updates on our upcoming releases.",

@@ -1,12 +1,12 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Meditron | AI Image Creator",
-  description: "Powerful AI image generation tool for creators to design thumbnails, graphics, and visual content that captures audience attention and enhances brand identity.",
-  keywords: "AI image generation, thumbnail creator, graphics design, visual content, Insturix Meditron",
+  title: "Meditron | Creator Business Marketplace",
+  description: "AI-driven creator-brand matchmaking. Meditron connects influencers and businesses through smart, data-backed collaborations.",
+  keywords: "AI influencer marketing ,Creator brand collaboration ,AI matchmaking platform ,Influencer-brand connect,Smart influencer marketing , Creator-brand deals, Influencer campaign tool",
   openGraph: {
-    title: "Meditron | AI Image Creator",
-    description: "Powerful AI image generation tool for creators to design thumbnails, graphics, and visual content that captures audience attention and enhances brand identity.",
+    title: "Meditron | Creator Business Marketplace",
+    description: "AI-driven creator-brand matchmaking. Meditron connects influencers and businesses through smart, data-backed collaborations.",
     images: [
       {
         url: "/icons/products/meditron-og-image.jpg",
@@ -18,8 +18,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Meditron | AI Image Creator",
-    description: "Powerful AI image generation tool for creators to design thumbnails, graphics, and visual content that captures audience attention and enhances brand identity.",
+    title: "Meditron | Creator Business Marketplace",
+    description: "AI-driven creator-brand matchmaking. Meditron connects influencers and businesses through smart, data-backed collaborations.",
     images: ["/icons/products/meditron-twitter-image.jpg"],
   },
 };

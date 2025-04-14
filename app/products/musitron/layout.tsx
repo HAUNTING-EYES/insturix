@@ -1,25 +1,25 @@
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Musitron | AI Audio Generator",
-  description: "Innovative AI audio generation platform for creators to produce royalty-free music, sound effects, and voiceovers that enhance video content and audience engagement.",
-  keywords: "AI audio generation, royalty-free music, sound effects, voiceover creator, Insturix Musitron",
+  title: "Musitron | AI Music Generator",
+  description: "Innovative AI Music generation platform for creators to produce royalty-free and copyright-free music, sound effects that enhance video content and audience engagement.",
+  keywords: "AI Music generation, royalty-free music, sound effects, Insturix Musitron , Copyright-free Music content creation tools",
   openGraph: {
-    title: "Musitron | AI Audio Generator",
-    description: "Innovative AI audio generation platform for creators to produce royalty-free music, sound effects, and voiceovers that enhance video content and audience engagement.",
+    title: "Musitron | AI Music Generator",
+    description: "Innovative AI Music generation platform for creators to produce royalty-free and copyright-free music, sound effects that enhance video content and audience engagement.",
     images: [
       {
         url: "/icons/products/musitron-og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Insturix Musitron - AI Audio Generator",
+        alt: "Insturix Musitron - AI Music Generator",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Musitron | AI Audio Generator",
-    description: "Innovative AI audio generation platform for creators to produce royalty-free music, sound effects, and voiceovers that enhance video content and audience engagement.",
+    title: "Musitron | AI Music Generator",
+    description: "Innovative AI Music generation platform for creators to produce royalty-free and copyright-free music, sound effects that enhance video content and audience engagement.",
     images: ["/icons/products/musitron-twitter-image.jpg"],
   },
 };

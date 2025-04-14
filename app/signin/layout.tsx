@@ -3,7 +3,7 @@ import { Metadata } from "next";
 export const metadata: Metadata = {
   title: "Sign In | Access Your Account",
   description: "Sign in to access your Insturix account and tools. Get back to creating content with our suite of AI-powered tools and services for content creators.",
-  keywords: "Insturix login, creator account, sign in, creator platform access, content tools login",
+  keywords: "Insturix login, creator account, sign in, creator platform access, content tools login,AI tools login",
   openGraph: {
     title: "Sign In | Access Your Account",
     description: "Sign in to access your Insturix account and tools. Get back to creating content with our suite of AI-powered tools and services for content creators.",
