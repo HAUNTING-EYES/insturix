@@ -16,25 +16,15 @@ export default function HeroSection() {
   const { data: userCountData, isLoading } = useQuery({
     queryKey: ["userCount"],
     queryFn: async () => {
-      const response = await axios.get('https://api.clerk.com/v1/waitlist_entries', {
-        headers: {
-          'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.status !== 200) {
-        throw new Error('Failed to fetch user count');
-      }
+      const response = await axios.get('/api/waitlist/count');
       return response.data;
     },
-    refetchInterval: 600000,
-    placeholderData: (previousData) => previousData,
-    refetchOnWindowFocus: false,
-    staleTime: 600000,
+    refetchInterval: 600000, // Refetch every 10 minutes
+    placeholderData: { total_count: 30 }, // Default data while loading
+    refetchOnWindowFocus: false, // Don't refetch when tab becomes focused
+    staleTime: 600000, // Consider data fresh for 10 minutes
   });
-  
-  const displayCount = userCountData?.total_users;
+  const displayCount = userCountData?.total_count || 20;
 
   const heroMessages = [
     "Level Up Your Content",
