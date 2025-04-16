@@ -18,7 +18,7 @@ export default function HeroSection() {
     queryFn: async () => {
       const response = await axios.get('https://api.clerk.com/v1/waitlist_entries', {
         headers: {
-          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_CLERK_SECRET_KEY}`,
+          'Authorization': `Bearer ${process.env.CLERK_SECRET_KEY}`,
           'Content-Type': 'application/json'
         }
       });
