@@ -27,19 +27,26 @@ export default function Purple() {
           <Price>
             {" "}
             <Currency
-              priceUSD={50}
-              priceINR={500}
-              priceEUR={40}
-              priceGBP={30}
+              priceUSD={59}
+              priceINR={599}
+              priceEUR={49}
+              priceGBP={39}
               perMonth={true}
-            /> {" "}
+            />{" "}
           </Price>
           <Paragraph className="text-left">
-            1. All features of Plus
+            Everything in Plus
+            <br />
+            1.Alyzitron Pro
             <br />
             2. Editron Pro
             <br />
-            3. TechieTiwari Pro
+            3. Socialize Pro
+            <br />
+            4. Musitron Pro
+            <br />
+            5. ThinkForge Pro
+            <br />
           </Paragraph>
         </PricingWrapper>
       </div>

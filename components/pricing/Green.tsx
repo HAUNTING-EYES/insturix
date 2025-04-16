@@ -30,13 +30,15 @@ export default function Green() {
             /> 
           </Price>
           <Paragraph className="text-left">
-            1. Socialize
+            1.Alyzitron Basic
             <br />
-            2. thinkforge Basic
+            2. Editron Basic
             <br />
-            3. Meditron Basic
+            3. Socialize Basic
             <br />
-            4. Socialize
+            4. Musitron Basic
+            <br />
+            5. ThinkForge Basic
             <br />
           </Paragraph>
         </PricingWrapper>

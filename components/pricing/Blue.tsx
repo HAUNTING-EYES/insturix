@@ -21,23 +21,26 @@ export default function Blue() {
           <Heading>Plus</Heading>
           <Price>
             <Currency
-              priceUSD={20}
-              priceINR={200}
-              priceEUR={10}
-              priceGBP={15}
+              priceUSD={29}
+              priceINR={299}
+              priceEUR={19}
+              priceGBP={19}
               perMonth={true}
             />
           </Price>
           <Paragraph className="text-left">
-            1. All features of Free
+            Everything in Free.
             <br />
-            2. thinkforge Pro
+            1. Alyzitron Pro
             <br />
-            3. Meditron Pro
+            2. Editron Pro
             <br />
-            4. Editron Basic
+            3. Socialize Pro
             <br />
-            5. TechieTiwari Basic
+            4. ThinkForge Pro
+            <br />
+            5. Musitron Pro
+            <br />
           </Paragraph>
         </PricingWrapper>
       </div>

@@ -21,21 +21,26 @@ export default function Red() {
           <Heading>Premium</Heading>
           <Price>
             <Currency
-              priceUSD={80}
-              priceINR={1000}
-              priceEUR={70}
-              priceGBP={50}
+              priceUSD={89}
+              priceINR={1299}
+              priceEUR={79}
+              priceGBP={59}
               perMonth={true}
-            /> 
+            />
           </Price>
           <Paragraph className="text-left">
-            1. All features of Pro
+            Everything in Pro
             <br />
-            2. Editron Pro+
+            1.Alyzitron Prem 
             <br />
-            3. Meditron Pro+
+            2. Editron Prem 
             <br />
-            4. Priority Support
+            3. Socialize Prem 
+            <br />
+            4. Musitron Prem 
+            <br />
+            5. ThinkForge Prem 
+            <br />
           </Paragraph>
         </PricingWrapper>
       </div>
