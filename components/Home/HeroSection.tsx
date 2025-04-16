@@ -2,89 +2,39 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { ArrowRight, Sparkles, Users } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
+import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
 
 export default function HeroSection() {
-  const [baseCount] = useState(20); // Starting with a real base count
-  const [displayCount, setDisplayCount] = useState(baseCount);
   const [isHovering, setIsHovering] = useState(false);
 
-  useEffect(() => {
-    // Get the current date and time
-    const now = new Date();
-    const todayKey = now.toISOString().split("T")[0]; // YYYY-MM-DD
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-    
-    // Create a deterministic seed based on date (same for everyone on the same day)
-    const dateSeed = parseInt(todayKey.replace(/-/g, ""));
-    
-    // Use the seed to generate today's total increment (consistent for all users)
-    const dailyMax = Math.floor((Math.abs(Math.sin(dateSeed) * 10000) % 21)); // 0-20 range
-    
-    // Calculate how much of the day has passed (0 to 1 scale)
-    const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
-    
-    // Calculate how many increments should have happened by now
-    const expectedIncrements = Math.floor(dailyMax * dayProgress);
-    
-    // Set the initial count
-    setDisplayCount(baseCount + expectedIncrements);
-    
-    // Schedule next increment
-    const calculateTimeToNextIncrement = () => {
-      // How many increments have already happened
-      const completedIncrements = displayCount - baseCount;
-      
-      // If we've reached today's max, no more increments needed
-      if (completedIncrements >= dailyMax) return null;
-      
-      // Calculate the progress percentage needed for the next increment
-      const nextIncrementProgress = (completedIncrements + 1) / dailyMax;
-      
-      // Calculate what time that would be
-      const minutesInDay = 24 * 60;
-      const targetMinutes = nextIncrementProgress * minutesInDay;
-      const currentMinutes = currentHour * 60 + currentMinute;
-      
-      // How many minutes until next increment
-      return Math.max(1, targetMinutes - currentMinutes);
-    };
-    
-    const minutesToNext = calculateTimeToNextIncrement();
-    if (!minutesToNext) return; // No more increments today
-    
-    const interval = setInterval(() => {
-      setDisplayCount(prev => {
-        // Don't exceed today's maximum
-        if (prev >= baseCount + dailyMax) return prev;
-        return prev + 1;
+  // Fetch user count using TanStack React Query
+  const { data: userCountData, isLoading } = useQuery({
+    queryKey: ["userCount"],
+    queryFn: async () => {
+      const response = await axios.get('https://api.clerk.com/v1/waitlist_entries', {
+        headers: {
+          'Authorization': `Bearer ${process.env.NEXT_PUBLIC_CLERK_SECRET_KEY}`,
+          'Content-Type': 'application/json'
+        }
       });
-    }, minutesToNext * 60 * 1000); // Convert minutes to milliseconds
-    
-    // Real-time updates for more frequent visual feedback
-    const visualInterval = setInterval(() => {
-      const now = new Date();
-      const currentHour = now.getHours();
-      const currentMinute = now.getMinutes();
-      const dayProgress = (currentHour * 60 + currentMinute) / (24 * 60);
-      const expectedIncrements = Math.floor(dailyMax * dayProgress);
-      
-      setDisplayCount(prev => {
-        const targetCount = baseCount + expectedIncrements;
-        if (prev < targetCount) return targetCount;
-        return prev;
-      });
-    }, 60000); // Check every minute for visual updates
-    
-    return () => {
-      clearInterval(interval);
-      clearInterval(visualInterval);
-    };
-  }, [baseCount,displayCount]);
+
+      if (response.status !== 200) {
+        throw new Error('Failed to fetch user count');
+      }
+      return response.data;
+    },
+    refetchInterval: 600000,
+    placeholderData: (previousData) => previousData,
+    refetchOnWindowFocus: false,
+    staleTime: 600000,
+  });
+  
+  const displayCount = userCountData?.total_users;
 
   const heroMessages = [
     "Level Up Your Content",
@@ -123,8 +73,7 @@ export default function HeroSection() {
               <span className="inline-flex items-center gap-1.5 rounded-full bg-[rgb(var(--primary))/10 px-4 py-1.5 text-xs font-medium text-[rgb(var(--primary))]">
                 <Sparkles className="h-3.5 w-3.5" />
                 <span>
-                  Join {displayCount.toLocaleString()}+ creators on our
-                  waitlist
+                  {isLoading ? "Loading..." : `Join ${displayCount.toLocaleString()}+ creators on our waitlist`}
                 </span>
               </span>
             </motion.div>
@@ -183,14 +132,14 @@ export default function HeroSection() {
                   </span>
 
                   {/* Animated background effect */}
-                    <motion.div
+                  <motion.div
                     className="absolute inset-0 z-0 bg-gradient-to-r from-purple-600 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
                     animate={{
                       backgroundPosition: isHovering ? "100% 0%" : "0% 0%",
                     }}
                     transition={{ duration: 0.8, ease: "easeInOut" }}
                     style={{ backgroundSize: "200% 100%" }}
-                    />
+                  />
 
                   {/* Shine effect */}
                   <motion.div
@@ -208,28 +157,7 @@ export default function HeroSection() {
                   />
                 </motion.button>
               </Link>
-
             </motion.div>
-
-            {/* <motion.div
-              className="flex flex-col sm:flex-row gap-4 sm:gap-6 w-full justify-center items-center mt-4"
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 1.5 }}
-            >
-              <Link
-                href="/signup"
-                className="w-full sm:w-auto group relative rounded-full bg-[rgb(var(--foreground))] px-8 py-3 text-sm font-semibold text-[rgb(var(--background))] shadow-xl transition-all duration-300 ease-out hover:scale-105 hover:shadow-2xl active:scale-[0.98]"
-              >
-                <span className="relative">Get Started</span>
-              </Link>
-              <Link
-                href="/about"
-                className="w-full sm:w-auto group relative rounded-full border border-[rgb(var(--foreground))]/10 bg-[rgb(var(--background))]/50 px-8 py-3 text-sm font-semibold md:backdrop-blur-none backdrop-blur-sm transition-all duration-300 ease-out hover:scale-105 hover:bg-[rgb(var(--foreground))]/5 active:scale-[0.98]"
-              >
-                <span className="relative">Learn More</span>
-              </Link>
-            </motion.div> */}
           </motion.div>
         </div>
       </div>
