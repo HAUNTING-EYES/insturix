@@ -16,7 +16,7 @@ export default function HeroSection() {
   const { data: userCountData, isLoading } = useQuery({
     queryKey: ["userCount"],
     queryFn: async () => {
-      const response = await axios.get('/api/waitlist/count');
+      const response = await axios.get('/api/waitlist');
       return response.data;
     },
     refetchInterval: 600000, // Refetch every 10 minutes
