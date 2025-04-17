@@ -383,7 +383,6 @@ export function PlanHistoryDialog({
                       <TabsTrigger value="all">All Plans</TabsTrigger>
                       <TabsTrigger value="active">Active</TabsTrigger>
                       <TabsTrigger value="expired">Expired</TabsTrigger>
-                      <TabsTrigger value="canceled">Canceled</TabsTrigger>
                     </TabsList>
                   </div>
 

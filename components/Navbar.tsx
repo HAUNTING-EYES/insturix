@@ -212,6 +212,7 @@ export default function Navbar() {
                       <Link href={item.href}>
                         <NavigationMenuLink
                           className={navigationMenuTriggerStyle()}
+                          asChild
                         >
                           {item.title}
                         </NavigationMenuLink>
