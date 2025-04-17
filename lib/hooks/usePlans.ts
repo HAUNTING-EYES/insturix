@@ -28,7 +28,7 @@ export function usePlans() {
       const { data } = await axios.get("/api/user/plans");
       
       // Convert date strings to Date objects
-      const plans = data.plans.map((plan: any) => ({
+      const plans = data.plans.map((plan: Omit<Plan, 'startDate' | 'endDate'> & { startDate: string; endDate: string | null }) => ({
         ...plan,
         startDate: new Date(plan.startDate),
         endDate: plan.endDate ? new Date(plan.endDate) : null,

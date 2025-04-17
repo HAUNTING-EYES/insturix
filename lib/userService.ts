@@ -1,6 +1,5 @@
 import User from "@/schemas/user";
 import { UserType } from "@/types/userTypes";
-import mongoose from "mongoose";
 
 /**
  * Upgrades a user to a premium plan
