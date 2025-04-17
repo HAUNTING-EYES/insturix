@@ -43,8 +43,9 @@ export function PlanHistoryDialog({
   open,
   onOpenChange,
 }: {
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  plans: Plan[];
 }) {
   const { data, isLoading, isError, upgradePlan, isUpgrading, cancelPlan, isCanceling } = usePlans()
   const [sorting, setSorting] = useState<SortingState>([])
