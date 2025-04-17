@@ -1,3 +1,6 @@
+/* eslint-disable react-hooks/exhaustive-deps */
+// Do not remove this line. It is required for the useEffect hook to work correctly.
+
 "use client";
 
 import Image from "next/image";
