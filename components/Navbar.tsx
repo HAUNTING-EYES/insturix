@@ -50,7 +50,7 @@ const LogoAnimation = () => {
           >
             {theme === "light" ? (
               <Image
-                src={DarkLogo}
+                src={DarkLogo || "/placeholder.svg"}
                 alt="Insturix Logo"
                 width={48}
                 height={48}
@@ -58,7 +58,7 @@ const LogoAnimation = () => {
               />
             ) : (
               <Image
-                src={LightLogo}
+                src={LightLogo || "/placeholder.svg"}
                 alt="Insturix Logo"
                 width={48}
                 height={48}
@@ -209,14 +209,14 @@ export default function Navbar() {
                         {item.title}
                       </NavigationMenuTrigger>
                     ) : (
-                      <Link href={item.href}>
-                        <NavigationMenuLink
+                      <NavigationMenuLink asChild>
+                        <Link
+                          href={item.href}
                           className={navigationMenuTriggerStyle()}
-                          asChild
                         >
                           {item.title}
-                        </NavigationMenuLink>
-                      </Link>
+                        </Link>
+                      </NavigationMenuLink>
                     )}
                     {item.subItems && (
                       <NavigationMenuContent>
