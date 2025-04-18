@@ -15,10 +15,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const { planType, paymentId, phoneNumber } = await request.json();
+    const { planType, paymentId } = await request.json();
 
     // Validate inputs
-    if (!planType || !paymentId || !phoneNumber) {
+    if (!planType || !paymentId) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -27,10 +27,7 @@ export async function POST(request: Request) {
 
     // Validate plan type
     if (!Object.values(UserType).includes(planType as UserType)) {
-      return NextResponse.json(
-        { error: "Invalid plan type" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid plan type" }, { status: 400 });
     }
 
     await connectToDatabase(process.env.MONGODB_URI as string);
@@ -39,8 +36,7 @@ export async function POST(request: Request) {
     const updatedUser = await updateUserPlan(
       userId,
       planType as UserType,
-      paymentId,
-      phoneNumber
+      paymentId
     );
 
     return NextResponse.json({
@@ -58,14 +54,11 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Error upgrading plan:", error);
-    
+
     if (error instanceof Error) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    
+
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 }

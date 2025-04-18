@@ -18,7 +18,6 @@ import {
   Share2,
   Sparkles,
   PanelLeftOpen,
-  Crown,
 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -348,25 +347,6 @@ export default function DashboardSidebar() {
           {/* Footer with User Profile and Plan Status */}
           {user && (
             <div className="border-t border-white/10 py-4 px-2 mt-2 flex flex-col items-center">
-              {!isCollapsed && userPlan && (
-                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mb-3 w-full px-2">
-                  <div className="flex items-center justify-between bg-gradient-to-r from-violet-900/30 to-fuchsia-900/30 rounded-md p-2 border border-white/10">
-                    <div className="flex items-center">
-                      <Crown className="h-4 w-4 text-amber-400 mr-2" />
-                      <span className="text-xs font-medium text-white">{userPlan} Plan</span>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsUpgradeOpen(true)}
-                      className="h-6 text-xs px-2 hover:bg-white/10"
-                    >
-                      Change
-                    </Button>
-                  </div>
-                </motion.div>
-              )}
-
               <div
                 onClick={() => {
                   if (isCollapsed) setIsCollapsed(false)

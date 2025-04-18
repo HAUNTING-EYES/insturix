@@ -60,8 +60,7 @@ export async function POST(req: Request) {
         message: "New tracks record created",
       });
     }
-  } catch (error) {
-    console.error("Error saving tracks to database:", error);
+  } catch {
     return NextResponse.json(
       { error: "Failed to save tracks" },
       { status: 500 }

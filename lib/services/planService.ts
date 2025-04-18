@@ -69,7 +69,6 @@ export async function updateUserPlan(
   clerkUserId: string,
   newPlanType: UserType,
   paymentId: string,
-  phoneNumber: string
 ) {
   const user = await User.findOne({ clerkUserId });
 
@@ -115,7 +114,6 @@ export async function updateUserPlan(
     time: new Date().toLocaleTimeString(),
     amount: planPrices[newPlanType],
     payment_id: paymentId,
-    phone_number: phoneNumber,
   });
 
   // Update user type

@@ -18,7 +18,7 @@ enum UserType {
 
 // Rate limits by user type
 const RATE_LIMITS: Record<UserType, number> = {
-  Free: 19,
+  Free: 1,
   Pro: 2,
   Premium: 3,
   Ultra: 4,
