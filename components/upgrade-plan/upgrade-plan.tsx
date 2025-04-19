@@ -10,6 +10,9 @@ import { PlanSelection } from "@/components/upgrade-plan/PaymentSelection"
 import { PlanSummary } from "@/components/upgrade-plan/PlanSummary"
 import { PaymentForm } from "@/components/upgrade-plan/PaymentForm"
 import { cn } from "@/lib/utils"
+import { useMutation } from "@tanstack/react-query"
+import axios from "axios"
+import { UserType } from "@/types/userTypes"
 
 export type PlanFeature = {
   id: string
@@ -29,6 +32,7 @@ export type Plan = {
   savings?: number
   color?: string
   gradient?: string
+  userType: UserType // Associate each plan with a UserType
 }
 
 // Sample plans data - in a real app, this might come from an API
@@ -37,10 +41,11 @@ const defaultPlans: Plan[] = [
     id: "basic",
     name: "Basic",
     description: "Essential features for individuals",
-    price: 9.99,
+    price: 0,
     billingPeriod: "monthly",
     color: "#6366f1",
     gradient: "from-indigo-500 to-purple-500",
+    userType: UserType.Free,
     features: [
       { id: "feature-1", name: "Core functionality", included: true },
       { id: "feature-2", name: "Basic support", included: true },
@@ -51,14 +56,15 @@ const defaultPlans: Plan[] = [
     ],
   },
   {
-    id: "pro",
-    name: "Pro",
+    id: "plus",
+    name: "Plus",
     description: "Advanced features for professionals",
     price: 19.99,
     billingPeriod: "monthly",
     popularPlan: true,
     color: "#8b5cf6",
     gradient: "from-violet-500 to-fuchsia-500",
+    userType: UserType.Plus,
     features: [
       { id: "feature-1", name: "Core functionality", included: true },
       { id: "feature-2", name: "Priority support", included: true, highlight: true },
@@ -69,13 +75,14 @@ const defaultPlans: Plan[] = [
     ],
   },
   {
-    id: "enterprise",
-    name: "Enterprise",
+    id: "pro",
+    name: "Pro",
     description: "Complete solution for teams",
     price: 49.99,
     billingPeriod: "monthly",
     color: "#ec4899",
     gradient: "from-pink-500 to-rose-500",
+    userType: UserType.Pro,
     features: [
       { id: "feature-1", name: "Core functionality", included: true },
       { id: "feature-2", name: "24/7 dedicated support", included: true, highlight: true },
@@ -125,11 +132,9 @@ export function UpgradePlan({
     if (currentStep < 3) {
       setAnimationDirection("forward")
       setCurrentStep(currentStep + 1)
-    } else {
-      // Complete the upgrade process
-      if (selectedPlan && onComplete) {
-        onComplete(selectedPlan)
-      }
+    } else if (currentStep === 3) {
+      // Use the dedicated payment handling function
+      handlePaymentComplete()
     }
   }
 
@@ -162,29 +167,35 @@ export function UpgradePlan({
     return price + calculateTax(price)
   }
 
-  // Animation variants
-  const pageVariants = {
-    initial: (direction: "forward" | "backward") => ({
-      x: direction === "forward" ? 50 : -50,
-      opacity: 0,
-    }),
-    animate: {
-      x: 0,
-      opacity: 1,
-      transition: {
-        x: { type: "spring", stiffness: 300, damping: 30 },
-        opacity: { duration: 0.2 },
-      },
+  // React Query mutation for plan upgrade
+  const upgradePlanMutation = useMutation({
+    mutationFn: async (plan: Plan) => {
+      const response = await axios.patch("/api/user/plans/upgrade", {
+        userType: plan.userType,
+        planDetails: {
+          name: plan.name,
+          price: plan.price,
+          billingPeriod: plan.billingPeriod,
+          features: plan.features.filter(f => f.included).map(f => f.name),
+          startDate: new Date().toISOString(),
+        }
+      });
+      
+      return response.data;
     },
-    exit: (direction: "forward" | "backward") => ({
-      x: direction === "forward" ? -50 : 50,
-      opacity: 0,
-      transition: {
-        x: { type: "spring", stiffness: 300, damping: 30 },
-        opacity: { duration: 0.2 },
-      },
-    }),
-  }
+    onSuccess: () => {
+      if (onComplete && selectedPlan) {
+        onComplete(selectedPlan);
+      }
+    }
+  });
+
+  // New function specific for handling payment completion
+  const handlePaymentComplete = () => {
+    if (!selectedPlan) return;
+    
+    upgradePlanMutation.mutate(selectedPlan);
+  };
 
   // Background gradient animation
   useEffect(() => {
@@ -246,7 +257,6 @@ export function UpgradePlan({
                 initial="initial"
                 animate="animate"
                 exit="exit"
-                variants={pageVariants}
                 className="mt-8"
               >
                 {currentStep === 1 && (
@@ -299,7 +309,7 @@ export function UpgradePlan({
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button
                   onClick={handleNextStep}
-                  disabled={currentStep === 1 && !selectedPlan}
+                  disabled={(currentStep === 1 && !selectedPlan) || upgradePlanMutation.isPending}
                   className={cn(
                     "flex items-center gap-2 transition-all duration-300",
                     currentStep === 3
@@ -307,7 +317,9 @@ export function UpgradePlan({
                       : "bg-primary hover:bg-primary/90",
                   )}
                 >
-                  {currentStep === 3 ? "Complete Payment" : "Continue"}
+                  {currentStep === 3 
+                    ? (upgradePlanMutation.isPending ? "Processing..." : "Complete Payment") 
+                    : "Continue"}
                   {currentStep < 3 && <ArrowRight className="h-4 w-4" />}
                 </Button>
               </motion.div>

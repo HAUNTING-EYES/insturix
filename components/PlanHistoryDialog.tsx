@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo } from "react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   type ColumnDef,
@@ -47,34 +47,32 @@ export function PlanHistoryDialog({
   onOpenChange: (open: boolean) => void;
   plans: Plan[];
 }) {
-  const { data, isLoading, isError, upgradePlan, isUpgrading, cancelPlan, isCanceling } = usePlans()
+  const { data, isLoading, isError, cancelPlan, isCanceling } = usePlans()
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
   const [activeTab, setActiveTab] = useState("all")
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const router = useRouter()
-  const handleUpgradePlan = (planType: UserType) => {
-    const mockPaymentId = `pay_${Math.random().toString(36).substring(2, 15)}`
-    const mockPhoneNumber = "+1234567890"
 
-    upgradePlan(
-      {
-        planType,
-        paymentId: mockPaymentId,
-        phoneNumber: mockPhoneNumber,
-      },
-      {
-        onSuccess: () => {
-          toast.success(`Successfully upgraded to ${planType} plan!`)
-          router.refresh()
-        },
-        onError: (error) => {
-          toast.error(`Failed to upgrade plan: ${error.message}`)
-        },
-      }
-    )
-  }
+  // Map user type to plan name for better display
+  const currentPlanName = useMemo(() => {
+    if (!data?.userType) return "No active plan";
+    
+    switch (data.userType) {
+      case UserType.Free:
+        return "Free";
+      case UserType.Plus:
+        return "Plus";
+      case UserType.Pro:
+        return "Pro";
+      case UserType.Premium:
+        return "Premium";
+      default:
+        return data?.currentPlan?.name || "Free";
+    }
+  }, [data?.userType, data?.currentPlan?.name]);
+
   const handleCancelPlan = () => {
     cancelPlan()
     toast.success("Plan canceled successfully")
@@ -394,7 +392,7 @@ export function PlanHistoryDialog({
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold">
-                            {data?.currentPlan?.name || "No active plan"}
+                            {currentPlanName}
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
                             {data?.currentPlan
@@ -427,16 +425,6 @@ export function PlanHistoryDialog({
                           className="pl-8"
                         />
                       </div>
-                      <Button
-                        onClick={() => {
-                          // Example upgrade to Pro plan
-                          // In a real app, this would open a payment flow
-                          handleUpgradePlan(UserType.Pro);
-                        }}
-                        disabled={isUpgrading}
-                      >
-                        {isUpgrading ? "Upgrading..." : "Upgrade Plan"}
-                      </Button>
                     </div>
 
                     <div className="rounded-md border">
