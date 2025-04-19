@@ -29,8 +29,11 @@ export async function upgradeUserToPremium(
       endDate,
       price: planDetails.price,
       status: "active",
-      features: planDetails.features || ["Premium features", "Priority support", "Unlimited storage"],
+      features: planDetails.features || ["Ultra access", "100GB storage", "Dedicated support", "All features", "Custom branding", "API access"],
     };
+    
+    // Update user type
+    user.userType = UserType.Premium;
     
     // This is critical when updating a nested object
     user.markModified("currentPlan");
@@ -54,16 +57,38 @@ export async function cancelUserPlan(clerkUserId: string) {
       throw new Error("User not found");
     }
     
-    // Update the current plan status to canceled
-    user.currentPlan.status = "canceled";
+    // Only proceed if there's an active plan
+    if (!user.currentPlan || user.currentPlan.status !== "active") {
+      throw new Error("No active plan to cancel");
+    }
     
-    // Mark the nested object as modified
+    // Mark current plan as canceled
+    user.currentPlan.status = "canceled";
+    user.currentPlan.endDate = new Date();
+    
+    // Set user type back to Free
+    user.userType = UserType.Free;
+    
+    // Create new free plan
+    const oneMonthLater = new Date();
+    oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+    
+    user.currentPlan = {
+      name: UserType.Free,
+      startDate: new Date(),
+      endDate: oneMonthLater,
+      price: 0,
+      status: "active",
+      features: ["Basic access", "Limited storage", "Community support"],
+    };
+    
+    // Mark nested objects as modified
     user.markModified("currentPlan");
     
     await user.save();
     return user;
   } catch (error) {
-    console.error("Error canceling user plan:", error);
+    console.error("Error canceling plan:", error);
     throw error;
   }
-} 
+}

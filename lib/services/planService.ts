@@ -6,46 +6,37 @@ interface PlanPricing {
   [key: string]: number;
 }
 
-// Plan prices
+// Plan prices - updated to match the current user types
 const planPrices: PlanPricing = {
   [UserType.Free]: 0,
-  [UserType.Pro]: 9.99,
-  [UserType.Premium]: 19.99,
-  [UserType.Ultra]: 29.99,
-  [UserType.Exclusive]: 49.99,
+  [UserType.Plus]: 9.99,
+  [UserType.Pro]: 19.99,
+  [UserType.Premium]: 29.99,
 };
 
-// Features for each plan type
+// Features for each plan type - updated to match the current user types
 const planFeatures: { [key: string]: string[] } = {
   [UserType.Free]: ["Basic access", "Limited storage", "Community support"],
+  [UserType.Plus]: [
+    "Plus access", 
+    "10GB storage", 
+    "Priority support", 
+    "Advanced features"
+  ],
   [UserType.Pro]: [
-    "Everything in Free",
-    "Advanced features",
-    "Priority support",
-    "More storage",
+    "Premium access", 
+    "50GB storage", 
+    "24/7 support", 
+    "All features", 
+    "Custom branding"
   ],
   [UserType.Premium]: [
-    "Everything in Pro",
-    "Premium features",
-    "Dedicated support",
-    "Enhanced storage",
-    "Custom integrations",
-  ],
-  [UserType.Ultra]: [
-    "Everything in Premium",
-    "Ultra features",
-    "24/7 support",
-    "Unlimited storage",
-    "Advanced analytics",
-    "Custom solutions",
-  ],
-  [UserType.Exclusive]: [
-    "Everything in Ultra",
-    "Exclusive features",
-    "Personal account manager",
-    "White-glove support",
-    "Enterprise solutions",
-    "Custom development",
+    "Ultra access", 
+    "100GB storage", 
+    "Dedicated support", 
+    "All features", 
+    "Custom branding", 
+    "API access"
   ],
 };
 
@@ -69,6 +60,7 @@ export async function updateUserPlan(
   clerkUserId: string,
   newPlanType: UserType,
   paymentId: string,
+  phoneNumber: string, // Added required phone_number parameter
 ) {
   const user = await User.findOne({ clerkUserId });
 
@@ -114,6 +106,7 @@ export async function updateUserPlan(
     time: new Date().toLocaleTimeString(),
     amount: planPrices[newPlanType],
     payment_id: paymentId,
+    phone_number: phoneNumber, // Add phone number
   });
 
   // Update user type
@@ -122,6 +115,10 @@ export async function updateUserPlan(
   // Set current plan
   user.currentPlan = newPlan;
   // No need to push to planHistory here as the pre-save middleware will handle it
+
+  // Mark modified nested objects
+  user.markModified('currentPlan');
+  user.markModified('payments');
 
   await user.save();
   return user;
@@ -176,6 +173,9 @@ export async function cancelUserPlan(clerkUserId: string) {
   user.currentPlan = freePlan;
   // No need to push to planHistory here as the pre-save middleware will handle it
 
+  // Mark modified nested objects
+  user.markModified('currentPlan');
+
   await user.save();
   return user;
-} 
+}
