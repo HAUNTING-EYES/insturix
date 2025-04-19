@@ -1,22 +1,29 @@
-# Modern Web Application
+# Insturix Platform
 
-A full-stack web application built with Next.js, React, and TypeScript, featuring modern UI components and robust data management using MongoDB.
+A modern full-stack web application built with Next.js 15.3, React 19.1, and TypeScript 5.7, featuring innovative AI-powered tools, creator services, and robust data management with MongoDB.
 
 ## 🚀 Features
 
+- **Multiple AI-Powered Products**:
+  - Alyzitron: Content analysis and moderation
+  - Editron: AI-powered video editing
+  - Musitron: AI music generation
+  - ThinkForge: Creative ideation and brainstorming
+  - Meditron: Creator-business matching
+  - Shield: Digital protection for creators
+  - Socialize: Social media landing page builder
+  - Kundli: Data analysis
+
 - **Authentication**: Secure user authentication powered by Clerk
-- **Data Management**: Efficient data fetching and caching with React Query
-- **Modern UI**: Beautiful and responsive interface using Radix UI and Tailwind CSS
-- **Type Safety**: Full TypeScript support
-- **API Rate Limiting**: Implemented to prevent abuse and ensure fair usage
-- **Real-time Updates**: Webhook support with Svix
-- **Payment Integration**: Razorpay integration for secure transactions
-- **Analytics**: Vercel Analytics and Speed Insights for performance monitoring
-- **Internationalization**: Multi-language support
-- **Dark Mode**: Theme switching capability
-- **Responsive Design**: Mobile-first approach
-- **SEO Optimization**: Built-in SEO features
-- **Accessibility**: WCAG 2.1 compliant
+- **Payment System**: Multi-tier subscription management with Razorpay integration
+- **Data Management**: Efficient data fetching and caching with React Query 5
+- **Modern UI**: Beautiful responsive interface using Radix UI, Tailwind CSS 4 and Framer Motion
+- **Real-time Updates**: Server-sent events (SSE) and webhook support with Svix
+- **Analytics**: Integrated with Vercel Analytics and Speed Insights
+- **Dark Mode**: Seamless theme switching with system preference detection
+- **Type Safety**: Full TypeScript support throughout the application
+- **SEO Optimization**: Structured data, meta tags, and optimized content
+- **Accessibility**: WCAG 2.1 compliant components and navigation
 
 ## 🛠️ Tech Stack
 
@@ -24,39 +31,74 @@ A full-stack web application built with Next.js, React, and TypeScript, featurin
 - **UI Library**: React 19.1.0
 - **Styling**: Tailwind CSS 4.1.3
 - **State Management**: React Query 5.72.2
-- **Authentication**: Clerk
+- **Authentication**: Clerk with custom UI integration
 - **Database**: MongoDB (Mongoose)
 - **Payment Processing**: Razorpay
-- **Webhooks**: Svix
+- **Webhooks**: Svix for auth and service events
 - **Type Safety**: TypeScript 5.7.2
-- **UI Components**: Radix UI
-- **Form Handling**: Formik + Yup
+- **UI Components**: Radix UI and Shadcn/UI
+- **Form Handling**: React Hook Form with Zod validation
 - **Animation**: Framer Motion
 - **Icons**: Lucide React, Tabler Icons
 - **Notifications**: React Hot Toast, Sonner
 - **Markdown**: React Markdown
 - **Syntax Highlighting**: React Syntax Highlighter
+- **Real-time Communication**: Server-Sent Events (SSE)
+- **Analytics**: Vercel Analytics, Speed Insights
+- **SEO**: Next.js metadata API, structured data
+- **Media Processing**: Cloud-based AI services
 
 ## 📦 Project Structure
 
 ```text
-├── app/              # Next.js app directory
-│   ├── api/         # API routes
-│   ├── (auth)/      # Authentication routes
-│   ├── (dashboard)/ # Dashboard routes
-│   └── (marketing)/ # Marketing pages
-├── components/       # Reusable UI components
-│   ├── ui/          # Base UI components
-│   ├── forms/       # Form components
-│   └── layout/      # Layout components
-├── hooks/           # Custom React hooks
-├── lib/             # Utility functions and configurations
-│   ├── db/          # Database utilities
-│   ├── api/         # API utilities
-│   └── utils/       # Helper functions
-├── providers/       # Context providers
-├── public/          # Static assets
-└── schemas/         # Data validation schemas
+├── app/                         # Next.js app directory
+│   ├── api/                     # API routes
+│   │   ├── services/            # Service-specific APIs
+│   │   │   ├── alyzitron/       # Alyzitron service APIs
+│   │   │   │   ├── analyze/     # Content analysis endpoints
+│   │   │   │   ├── callback/    # Service callbacks
+│   │   │   │   ├── upload/      # Media upload endpoints
+│   │   │   │   ├── utils/       # Service utilities  
+│   │   │   │   └── types/       # Type definitions
+│   │   │   └── ...              # Other services
+│   │   ├── user/                # User management API
+│   │   └── ...                  # Other API endpoints
+│   ├── dashboard/               # Dashboard routes
+│   │   ├── alyzitron/           # Alyzitron dashboard
+│   │   ├── editron/             # Editron dashboard
+│   │   └── ...                  # Other product dashboards
+│   ├── products/                # Product landing pages
+│   │   ├── alyzitron/           # Alyzitron product page
+│   │   ├── editron/             # Editron product page
+│   │   └── ...                  # Other product pages
+│   ├── signin/                  # Authentication routes
+│   ├── signup/                  # Registration routes
+│   └── ...                      # Other app routes
+├── components/                  # Reusable UI components
+│   ├── ui/                      # Base UI components
+│   ├── dashboard/               # Dashboard components
+│   │   ├── Alyzitron/           # Alyzitron components
+│   │   ├── Musitron/            # Musitron components
+│   │   └── ...                  # Other product components
+│   ├── new-product-page/        # Product page components
+│   ├── upgrade-plan/            # Subscription components
+│   └── data/                    # Static data components
+├── hooks/                       # Custom React hooks
+│   ├── use-toast.ts             # Toast notifications hook
+│   ├── useSSEConnection.ts      # Server-sent events hook
+│   ├── useVideoAnalysis.ts      # Video processing hook
+│   └── ...                      # Other utility hooks
+├── lib/                         # Utility functions
+│   ├── services/                # Service utilities
+│   ├── utils.ts                 # General utilities
+│   ├── types.ts                 # Shared type definitions
+│   └── seo/                     # SEO-related utilities
+├── providers/                   # Context providers
+├── public/                      # Static assets
+└── schemas/                     # Database schemas
+    ├── user.ts                  # User schema
+    ├── apiUsage.ts              # API usage tracking
+    └── ...                      # Other schemas
 ```
 
 ## 🔄 React Query Implementation
@@ -159,37 +201,6 @@ const { data: posts, isLoading: isLoadingPosts } = useQuery({
 ## 🚫 API Rate Limiting
 
 The application implements rate limiting to prevent abuse and ensure fair usage. Rate limiting is configured at multiple levels:
-
-### 1. Edge Rate Limiting
-
-```typescript
-// middleware.ts
-import { NextResponse } from 'next/server';
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, '10 s'),
-  analytics: true,
-});
-
-export const config = {
-  matcher: '/api/:path*',
-};
-
-export default async function middleware(request: NextRequest) {
-  const ip = request.ip ?? '127.0.0.1';
-  const { success, pending, limit, reset, remaining } = await ratelimit.limit(ip);
-  
-  if (!success) {
-    return new Response(
-      JSON.stringify({
-        error: 'Too Many Requests',
-        reset: reset,
-        remaining: remaining,
-      }),
-      {
         status: 429,
         headers: {
           'Content-Type': 'application/json',
@@ -203,7 +214,7 @@ export default async function middleware(request: NextRequest) {
   
   return NextResponse.next();
 }
-```
+``
 
 ### 2. API Route Rate Limiting
 
