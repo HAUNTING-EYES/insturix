@@ -15,7 +15,7 @@ export default function SignupPage() {
         <Navbar />
       </div>
       <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
-        <SignUp routing="hash" />
+        <SignUp routing="hash" forceRedirectUrl={"/dashboard"} signInUrl="/signin"/>
       </div>
     </div>
   );

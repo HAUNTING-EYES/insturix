@@ -1,7 +1,13 @@
-"use client"
+"use client";
 
-import { useState, useMemo } from "react"
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { useState, useMemo } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   type ColumnDef,
   flexRender,
@@ -12,13 +18,20 @@ import {
   type SortingState,
   getFilteredRowModel,
   type ColumnFiltersState,
-} from "@tanstack/react-table"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+} from "@tanstack/react-table";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Search,
   ArrowUpDown,
@@ -30,14 +43,23 @@ import {
   ChevronRight,
   Package,
   AlertCircle,
-} from "lucide-react"
-import { motion, AnimatePresence } from "framer-motion"
-import { usePlans, Plan } from "@/lib/hooks/usePlans"
-import { format } from "date-fns"
-import { toast } from "sonner"
-import { useRouter } from "next/navigation"
-import { UserType } from "@/types/userTypes"
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { usePlans, Plan } from "@/lib/hooks/usePlans";
+import { format } from "date-fns";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
+import { UserType } from "@/types/userTypes";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function PlanHistoryDialog({
   open,
@@ -47,18 +69,18 @@ export function PlanHistoryDialog({
   onOpenChange: (open: boolean) => void;
   plans: Plan[];
 }) {
-  const { data, isLoading, isError, cancelPlan, isCanceling } = usePlans()
-  const [sorting, setSorting] = useState<SortingState>([])
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
-  const [activeTab, setActiveTab] = useState("all")
-  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
-  const router = useRouter()
+  const { data, isLoading, isError, cancelPlan, isCanceling } = usePlans();
+  const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [activeTab, setActiveTab] = useState("all");
+  const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+  const router = useRouter();
 
   // Map user type to plan name for better display
   const currentPlanName = useMemo(() => {
     if (!data?.userType) return "No active plan";
-    
+
     switch (data.userType) {
       case UserType.Free:
         return "Free";
@@ -74,12 +96,12 @@ export function PlanHistoryDialog({
   }, [data?.userType, data?.currentPlan?.name]);
 
   const handleCancelPlan = () => {
-    cancelPlan()
-    toast.success("Plan canceled successfully")
-    setCancelConfirmOpen(false)
-    setSelectedPlan(null)
-    router.refresh()
-  }
+    cancelPlan();
+    toast.success("Plan canceled successfully");
+    setCancelConfirmOpen(false);
+    setSelectedPlan(null);
+    router.refresh();
+  };
 
   // Define columns for the table
   const columns: ColumnDef<Plan>[] = [
@@ -95,7 +117,7 @@ export function PlanHistoryDialog({
             Plan Name
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
-        )
+        );
       },
       cell: ({ row }) => {
         return (
@@ -103,27 +125,27 @@ export function PlanHistoryDialog({
             <Package className="h-4 w-4 text-purple-500" />
             {row.getValue("name")}
           </div>
-        )
+        );
       },
     },
     {
       accessorKey: "startDate",
       header: "Start Date",
       cell: ({ row }) => {
-        const date = row.getValue("startDate") as Date
+        const date = row.getValue("startDate") as Date;
         return (
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
             <span>{format(date, "MMM dd, yyyy")}</span>
           </div>
-        )
+        );
       },
     },
     {
       accessorKey: "endDate",
       header: "End Date",
       cell: ({ row }) => {
-        const date = row.getValue("endDate") as Date | null
+        const date = row.getValue("endDate") as Date | null;
         return (
           <div className="flex items-center gap-2">
             {date ? (
@@ -135,7 +157,7 @@ export function PlanHistoryDialog({
               <span className="text-muted-foreground italic">Ongoing</span>
             )}
           </div>
-        )
+        );
       },
     },
     {
@@ -150,22 +172,22 @@ export function PlanHistoryDialog({
             Price
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
-        )
+        );
       },
       cell: ({ row }) => {
-        const price = Number.parseFloat(row.getValue("price"))
+        const price = Number.parseFloat(row.getValue("price"));
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
           currency: "USD",
-        }).format(price)
-        return <span className="font-medium">{formatted}</span>
+        }).format(price);
+        return <span className="font-medium">{formatted}</span>;
       },
     },
     {
       accessorKey: "status",
       header: "Status",
       cell: ({ row }) => {
-        const status = row.getValue("status") as string
+        const status = row.getValue("status") as string;
         return (
           <Badge
             className={`flex items-center gap-1 ${
@@ -177,33 +199,40 @@ export function PlanHistoryDialog({
             }`}
           >
             {status === "active" ? (
-              <CheckCircle2 className="h-3 w-3" />
+              <CheckCircle2 className="h-3 w-3 text-green-700" />
             ) : status === "expired" ? (
-              <Clock className="h-3 w-3" />
+              <Clock className="h-3 w-3 text-yellow-500" />
             ) : (
-              <XCircle className="h-3 w-3" />
+              <XCircle className="h-3 w-3 text-red-600" />
             )}
             {status.charAt(0).toUpperCase() + status.slice(1)}
           </Badge>
-        )
+        );
       },
       filterFn: (row, id, value) => {
-        return value.includes(activeTab) ? true : activeTab === "all" || row.getValue(id) === value
+        return value.includes(activeTab)
+          ? true
+          : activeTab === "all" || row.getValue(id) === value;
       },
     },
     {
       id: "actions",
       cell: ({ row }) => {
-        const plan = row.original
+        const plan = row.original;
         return (
-          <Button variant="ghost" size="sm" className="flex items-center gap-1" onClick={() => setSelectedPlan(plan)}>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="flex items-center gap-1"
+            onClick={() => setSelectedPlan(plan)}
+          >
             Details
             <ChevronRight className="h-4 w-4" />
           </Button>
-        )
+        );
       },
     },
-  ]
+  ];
 
   const table = useReactTable({
     data: data?.plans || [],
@@ -218,7 +247,7 @@ export function PlanHistoryDialog({
       sorting,
       columnFilters,
     },
-  })
+  });
 
   if (isLoading) {
     return (
@@ -229,7 +258,7 @@ export function PlanHistoryDialog({
           </div>
         </DialogContent>
       </Dialog>
-    )
+    );
   }
 
   if (isError) {
@@ -247,7 +276,7 @@ export function PlanHistoryDialog({
           </div>
         </DialogContent>
       </Dialog>
-    )
+    );
   }
 
   return (
@@ -259,7 +288,9 @@ export function PlanHistoryDialog({
               <UserCog className="h-5 w-5 text-purple-500" />
               Plan History
             </DialogTitle>
-            <DialogDescription>View your subscription plan history and details.</DialogDescription>
+            <DialogDescription>
+              View your subscription plan history and details.
+            </DialogDescription>
           </DialogHeader>
 
           <AnimatePresence mode="wait">
@@ -272,7 +303,12 @@ export function PlanHistoryDialog({
                 transition={{ duration: 0.2 }}
               >
                 <div className="mb-4">
-                  <Button variant="ghost" size="sm" onClick={() => setSelectedPlan(null)} className="gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setSelectedPlan(null)}
+                    className="gap-2"
+                  >
                     <ChevronRight className="h-4 w-4 rotate-180" />
                     Back to plans
                   </Button>
@@ -281,10 +317,14 @@ export function PlanHistoryDialog({
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="text-lg font-medium">{selectedPlan.name}</h3>
+                      <h3 className="text-lg font-medium">
+                        {selectedPlan.name}
+                      </h3>
                       <p className="text-sm text-muted-foreground">
                         {format(selectedPlan.startDate, "MMM dd, yyyy")} -{" "}
-                        {selectedPlan.endDate ? format(selectedPlan.endDate, "MMM dd, yyyy") : "Present"}
+                        {selectedPlan.endDate
+                          ? format(selectedPlan.endDate, "MMM dd, yyyy")
+                          : "Present"}
                       </p>
                     </div>
                     <Badge
@@ -296,7 +336,8 @@ export function PlanHistoryDialog({
                             : "bg-red-100 text-red-800"
                       }`}
                     >
-                      {selectedPlan.status.charAt(0).toUpperCase() + selectedPlan.status.slice(1)}
+                      {selectedPlan.status.charAt(0).toUpperCase() +
+                        selectedPlan.status.slice(1)}
                     </Badge>
                   </div>
 
@@ -313,17 +354,27 @@ export function PlanHistoryDialog({
                         </p>
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">Billing Cycle</p>
+                        <p className="text-sm text-muted-foreground">
+                          Billing Cycle
+                        </p>
                         <p className="font-medium">Monthly</p>
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">Start Date</p>
-                        <p className="font-medium">{format(selectedPlan.startDate, "MMM dd, yyyy")}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Start Date
+                        </p>
+                        <p className="font-medium">
+                          {format(selectedPlan.startDate, "MMM dd, yyyy")}
+                        </p>
                       </div>
                       <div>
-                        <p className="text-sm text-muted-foreground">End Date</p>
+                        <p className="text-sm text-muted-foreground">
+                          End Date
+                        </p>
                         <p className="font-medium">
-                          {selectedPlan.endDate ? format(selectedPlan.endDate, "MMM dd, yyyy") : "Ongoing"}
+                          {selectedPlan.endDate
+                            ? format(selectedPlan.endDate, "MMM dd, yyyy")
+                            : "Ongoing"}
                         </p>
                       </div>
                     </div>
@@ -341,14 +392,16 @@ export function PlanHistoryDialog({
                         ))}
                       </ul>
                     ) : (
-                      <p className="text-muted-foreground">No features listed</p>
+                      <p className="text-muted-foreground">
+                        No features listed
+                      </p>
                     )}
                   </div>
 
                   {selectedPlan.status === "active" && (
                     <div className="flex justify-end gap-2">
-                      <Button 
-                        variant="outline" 
+                      <Button
+                        variant="outline"
                         onClick={() => {
                           setSelectedPlan(null);
                           // Open change plan UI here
@@ -356,8 +409,8 @@ export function PlanHistoryDialog({
                       >
                         Change Plan
                       </Button>
-                      <Button 
-                        variant="destructive" 
+                      <Button
+                        variant="destructive"
                         onClick={() => setCancelConfirmOpen(true)}
                         disabled={isCanceling}
                       >
@@ -375,7 +428,12 @@ export function PlanHistoryDialog({
                 exit={{ opacity: 0, y: -20 }}
                 transition={{ duration: 0.2 }}
               >
-                <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="w-full">
+                <Tabs
+                  defaultValue="all"
+                  value={activeTab}
+                  onValueChange={setActiveTab}
+                  className="w-full"
+                >
                   <div className="flex justify-between items-center mb-4">
                     <TabsList className="bg-muted/50">
                       <TabsTrigger value="all">All Plans</TabsTrigger>
@@ -388,7 +446,9 @@ export function PlanHistoryDialog({
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                       <Card>
                         <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium text-muted-foreground">Current Plan</CardTitle>
+                          <CardTitle className="text-sm font-medium text-muted-foreground">
+                            Current Plan
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold">
@@ -406,11 +466,17 @@ export function PlanHistoryDialog({
                       </Card>
                       <Card>
                         <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium text-muted-foreground">Plan History</CardTitle>
+                          <CardTitle className="text-sm font-medium text-muted-foreground">
+                            Plan History
+                          </CardTitle>
                         </CardHeader>
                         <CardContent>
-                          <div className="text-2xl font-bold">{data?.plans.length || 0}</div>
-                          <p className="text-xs text-muted-foreground mt-1">Total plans</p>
+                          <div className="text-2xl font-bold">
+                            {data?.plans.length || 0}
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Total plans
+                          </p>
                         </CardContent>
                       </Card>
                     </div>
@@ -420,8 +486,16 @@ export function PlanHistoryDialog({
                         <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
                         <Input
                           placeholder="Search plans..."
-                          value={(table.getColumn("name")?.getFilterValue() as string) ?? ""}
-                          onChange={(event) => table.getColumn("name")?.setFilterValue(event.target.value)}
+                          value={
+                            (table
+                              .getColumn("name")
+                              ?.getFilterValue() as string) ?? ""
+                          }
+                          onChange={(event) =>
+                            table
+                              .getColumn("name")
+                              ?.setFilterValue(event.target.value)
+                          }
                           className="pl-8"
                         />
                       </div>
@@ -436,7 +510,10 @@ export function PlanHistoryDialog({
                                 <TableHead key={header.id}>
                                   {header.isPlaceholder
                                     ? null
-                                    : flexRender(header.column.columnDef.header, header.getContext())}
+                                    : flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext()
+                                      )}
                                 </TableHead>
                               ))}
                             </TableRow>
@@ -445,17 +522,26 @@ export function PlanHistoryDialog({
                         <TableBody>
                           {table.getRowModel().rows?.length ? (
                             table.getRowModel().rows.map((row) => (
-                              <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
+                              <TableRow
+                                key={row.id}
+                                data-state={row.getIsSelected() && "selected"}
+                              >
                                 {row.getVisibleCells().map((cell) => (
                                   <TableCell key={cell.id}>
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                    {flexRender(
+                                      cell.column.columnDef.cell,
+                                      cell.getContext()
+                                    )}
                                   </TableCell>
                                 ))}
                               </TableRow>
                             ))
                           ) : (
                             <TableRow>
-                              <TableCell colSpan={columns.length} className="h-24 text-center">
+                              <TableCell
+                                colSpan={columns.length}
+                                className="h-24 text-center"
+                              >
                                 No plan history found.
                               </TableCell>
                             </TableRow>
@@ -466,7 +552,8 @@ export function PlanHistoryDialog({
 
                     <div className="flex items-center justify-between mt-4">
                       <div className="text-sm text-muted-foreground">
-                        Showing {table.getFilteredRowModel().rows.length} of {data?.plans.length || 0} plans
+                        Showing {table.getFilteredRowModel().rows.length} of{" "}
+                        {data?.plans.length || 0} plans
                       </div>
                       <div className="flex items-center space-x-2">
                         <Button
@@ -504,12 +591,16 @@ export function PlanHistoryDialog({
               Cancel Subscription
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to cancel your subscription? You&apos;ll lose access to premium features when your current billing cycle ends.
+              Are you sure you want to cancel your subscription? You&apos;ll
+              lose access to premium features when your current billing cycle
+              ends.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isCanceling}>Keep Subscription</AlertDialogCancel>
-            <AlertDialogAction 
+            <AlertDialogCancel disabled={isCanceling}>
+              Keep Subscription
+            </AlertDialogCancel>
+            <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault();
                 handleCancelPlan();

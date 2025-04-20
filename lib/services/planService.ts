@@ -1,6 +1,6 @@
 import User from "@/schemas/user";
 import { UserType } from "@/types/userTypes";
-import { IPlan } from "@/schemas/user";
+import type { IPlan } from "@/schemas/user";
 
 interface PlanPricing {
   [key: string]: number;
@@ -18,30 +18,33 @@ const planPrices: PlanPricing = {
 const planFeatures: { [key: string]: string[] } = {
   [UserType.Free]: ["Basic access", "Limited storage", "Community support"],
   [UserType.Plus]: [
-    "Plus access", 
-    "10GB storage", 
-    "Priority support", 
-    "Advanced features"
+    "Plus access",
+    "10GB storage",
+    "Priority support",
+    "Advanced features",
   ],
   [UserType.Pro]: [
-    "Premium access", 
-    "50GB storage", 
-    "24/7 support", 
-    "All features", 
-    "Custom branding"
+    "Premium access",
+    "50GB storage",
+    "24/7 support",
+    "All features",
+    "Custom branding",
   ],
   [UserType.Premium]: [
-    "Ultra access", 
-    "100GB storage", 
-    "Dedicated support", 
-    "All features", 
-    "Custom branding", 
-    "API access"
+    "Ultra access",
+    "100GB storage",
+    "Dedicated support",
+    "All features",
+    "Custom branding",
+    "API access",
   ],
 };
 
 // Create a new user with free plan
-export async function createUserWithFreePlan(clerkUserId: string, email: string) {
+export async function createUserWithFreePlan(
+  clerkUserId: string,
+  email: string
+) {
   const user = new User({
     clerkUserId,
     email,
@@ -60,7 +63,7 @@ export async function updateUserPlan(
   clerkUserId: string,
   newPlanType: UserType,
   paymentId: string,
-  phoneNumber: string, // Added required phone_number parameter
+  phoneNumber: string
 ) {
   const user = await User.findOne({ clerkUserId });
 
@@ -68,22 +71,18 @@ export async function updateUserPlan(
     throw new Error("User not found");
   }
 
+  // Mark ALL existing active plans as expired
+  for (let i = 0; i < user.planHistory.length; i++) {
+    if (user.planHistory[i].status === "active") {
+      user.planHistory[i].status = "expired";
+      user.planHistory[i].endDate = new Date();
+    }
+  }
+
   // Mark the current plan as expired if it exists
   if (user.currentPlan && user.currentPlan.status === "active") {
     user.currentPlan.status = "expired";
     user.currentPlan.endDate = new Date();
-
-    // Find the plan in the history and update it too
-    const planIndex = user.planHistory.findIndex(
-      (plan: IPlan) => 
-        plan.status === "active" && 
-        plan.name === user.currentPlan.name
-    );
-
-    if (planIndex !== -1) {
-      user.planHistory[planIndex].status = "expired";
-      user.planHistory[planIndex].endDate = new Date();
-    }
   }
 
   // Calculate end date (1 month from now)
@@ -106,7 +105,7 @@ export async function updateUserPlan(
     time: new Date().toLocaleTimeString(),
     amount: planPrices[newPlanType],
     payment_id: paymentId,
-    phone_number: phoneNumber, // Add phone number
+    phone_number: phoneNumber,
   });
 
   // Update user type
@@ -114,11 +113,14 @@ export async function updateUserPlan(
 
   // Set current plan
   user.currentPlan = newPlan;
-  // No need to push to planHistory here as the pre-save middleware will handle it
+
+  // Explicitly add to plan history instead of relying on middleware
+  user.planHistory.push(newPlan);
 
   // Mark modified nested objects
-  user.markModified('currentPlan');
-  user.markModified('payments');
+  user.markModified("currentPlan");
+  user.markModified("planHistory");
+  user.markModified("payments");
 
   await user.save();
   return user;
@@ -141,11 +143,10 @@ export async function cancelUserPlan(clerkUserId: string) {
   user.currentPlan.status = "canceled";
   user.currentPlan.endDate = new Date();
 
-  // Find the plan in the history and update it too
+  // Find and update the plan in the history
   const planIndex = user.planHistory.findIndex(
-    (plan: IPlan) => 
-      plan.status === "active" && 
-      plan.name === user.currentPlan.name
+    (plan: IPlan) =>
+      plan.status === "active" && plan.name === user.currentPlan.name
   );
 
   if (planIndex !== -1) {
@@ -156,10 +157,23 @@ export async function cancelUserPlan(clerkUserId: string) {
   // Set user type back to Free
   user.userType = UserType.Free;
 
+  // CRITICAL FIX: Remove any existing active Free plans from history
+  // This prevents duplicate Free plans when canceling
+  for (let i = 0; i < user.planHistory.length; i++) {
+    if (
+      user.planHistory[i].name === UserType.Free &&
+      user.planHistory[i].status === "active"
+    ) {
+      // Either remove it or mark as expired
+      user.planHistory[i].status = "expired";
+      user.planHistory[i].endDate = new Date();
+    }
+  }
+
   // Set up a new free plan
   const oneMonthLater = new Date();
   oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
-  
+
   const freePlan = {
     name: UserType.Free,
     startDate: new Date(),
@@ -171,11 +185,120 @@ export async function cancelUserPlan(clerkUserId: string) {
 
   // Set current plan
   user.currentPlan = freePlan;
-  // No need to push to planHistory here as the pre-save middleware will handle it
+
+  // Explicitly add to plan history instead of relying on middleware
+  user.planHistory.push(freePlan);
 
   // Mark modified nested objects
-  user.markModified('currentPlan');
+  user.markModified("currentPlan");
+  user.markModified("planHistory");
 
   await user.save();
   return user;
+}
+
+// Add this function to fix existing users with duplicate Free plans
+export async function fixDuplicateFreePlans(clerkUserId: string) {
+  const user = await User.findOne({ clerkUserId });
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  // Count active Free plans
+  let activeFreePlans = 0;
+  let lastActiveFreePlanIndex = -1;
+
+  for (let i = 0; i < user.planHistory.length; i++) {
+    if (
+      user.planHistory[i].name === UserType.Free &&
+      user.planHistory[i].status === "active"
+    ) {
+      activeFreePlans++;
+      lastActiveFreePlanIndex = i;
+    }
+  }
+
+  // If there are multiple active Free plans, fix them
+  if (activeFreePlans > 1) {
+    for (let i = 0; i < user.planHistory.length; i++) {
+      if (
+        user.planHistory[i].name === UserType.Free &&
+        user.planHistory[i].status === "active" &&
+        i !== lastActiveFreePlanIndex
+      ) {
+        // Mark all but the last one as expired
+        user.planHistory[i].status = "expired";
+        user.planHistory[i].endDate = new Date();
+      }
+    }
+
+    // Make sure currentPlan points to the remaining active Free plan
+    if (lastActiveFreePlanIndex !== -1) {
+      user.currentPlan = user.planHistory[lastActiveFreePlanIndex];
+    }
+
+    user.markModified("currentPlan");
+    user.markModified("planHistory");
+
+    await user.save();
+  }
+
+  return user;
+}
+
+// Get the latest plan and clean up duplicate active plans
+export async function getAndCleanLatestPlan(clerkUserId: string) {
+  const user = await User.findOne({ clerkUserId });
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  // Find all active plans first
+  const activePlans: IPlan[] = user.planHistory.filter((plan: IPlan) => plan.status === "active");
+  
+  // If we have more than one active plan, we need to fix this
+  if (activePlans.length > 1) {
+    // Sort by start date (newest first)
+    const sortedActivePlans = [...activePlans].sort(
+      (a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime()
+    );
+
+    // Keep only the first one (most recent) active
+    const mostRecentPlan = sortedActivePlans[0];
+    
+    // Deactivate all other plans
+    for (let i = 0; i < user.planHistory.length; i++) {
+      const plan = user.planHistory[i];
+      if (plan.status === "active" && 
+          !(plan.name === mostRecentPlan.name && 
+            plan.startDate.toString() === mostRecentPlan.startDate.toString())) {
+        user.planHistory[i].status = "expired";
+        user.planHistory[i].endDate = new Date();
+      }
+    }
+
+    // Make sure currentPlan points to the most recent active plan
+    user.currentPlan = mostRecentPlan;
+
+    user.markModified("currentPlan");
+    user.markModified("planHistory");
+
+    await user.save();
+    
+    return mostRecentPlan;
+  }
+
+  // If we have exactly one active plan, make sure it's set as current
+  if (activePlans.length === 1) {
+    // Make sure currentPlan points to the active plan
+    user.currentPlan = activePlans[0];
+    user.markModified("currentPlan");
+    await user.save();
+    return activePlans[0];
+  }
+
+  // If no active plans, return the current plan
+  return user.currentPlan;
 }

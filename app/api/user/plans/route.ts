@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import User, { IPlan } from "@/schemas/user";
+import { getAndCleanLatestPlan } from "@/lib/services/planService";
 
 export async function GET() {
   try {
@@ -26,8 +27,20 @@ export async function GET() {
       );
     }
 
+    // Clean up any duplicate active plans before returning to frontend
+    await getAndCleanLatestPlan(userId);
+    
+    // Reload user after cleanup
+    const updatedUser = await User.findOne({ clerkUserId: userId });
+    if (!updatedUser) {
+      return NextResponse.json(
+        { error: "User not found after cleanup" },
+        { status: 404 }
+      );
+    }
+
     // Format plan history for the client
-    const formattedPlans = user.planHistory ? user.planHistory.map((plan: IPlan) => ({
+    const formattedPlans = updatedUser.planHistory ? updatedUser.planHistory.map((plan: IPlan) => ({
       id: plan._id?.toString() || "",
       name: plan.name,
       startDate: plan.startDate,
@@ -38,18 +51,18 @@ export async function GET() {
     })) : [];
 
     return NextResponse.json({
-      currentPlan: user.currentPlan ? {
-        id: user.currentPlan._id?.toString() || "",
-        name: user.currentPlan.name,
-        startDate: user.currentPlan.startDate,
-        endDate: user.currentPlan.endDate,
-        price: user.currentPlan.price,
-        status: user.currentPlan.status,
-        features: user.currentPlan.features || [],
+      currentPlan: updatedUser.currentPlan ? {
+        id: updatedUser.currentPlan._id?.toString() || "",
+        name: updatedUser.currentPlan.name,
+        startDate: updatedUser.currentPlan.startDate,
+        endDate: updatedUser.currentPlan.endDate,
+        price: updatedUser.currentPlan.price,
+        status: updatedUser.currentPlan.status,
+        features: updatedUser.currentPlan.features || [],
       } : null,
       plans: formattedPlans,
-      userType: user.userType,
-      signUpDate: user.signUpDate,
+      userType: updatedUser.userType,
+      signUpDate: updatedUser.signUpDate,
     });
   } catch (error) {
     console.error("Error fetching user plans:", error);
