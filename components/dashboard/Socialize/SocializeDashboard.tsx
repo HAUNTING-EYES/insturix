@@ -1,737 +1,776 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
-import { Instagram, MoreHorizontal, Music, Plus, Youtube } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
+import { toast } from "sonner";
+import { motion } from "framer-motion";
+import Link from "next/link";
+import {
+  ExternalLink,
+  Plus,
+  Trash2,
+  Bell,
+  Copy,
+  Check,
+  Share2,
+} from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
 import { getPlatformIcon } from "./SocializeIcons";
 import { MobileView } from "./MobileView";
-import { useUser } from "@clerk/nextjs";
+import Image from "next/image";
 
-export default function Dashboard() {
-  const [links, setLinks] = useState<{ platform: string; url: string }[]>([]);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newLink, setNewLink] = useState({ platform: "youtube", url: "" });
-  const [logo, setLogo] = useState<string | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [showEditImageModal, setShowEditImageModal] = useState(false);
-  const [showEditDetailsModal, setShowEditDetailsModal] = useState(false);
-  const buttonRef = useRef<HTMLButtonElement>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [image, setImage] = useState<string | null>(null);
-  const [profileTitle, setProfileTitle] = useState("@yourname");
-  const [bio, setBio] = useState("@description");
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [isHovering, setIsHovering] = useState(false);
-  const [glowPosition, setGlowPosition] = useState({ x: 0, y: 0 });
-  const [showUpdatePopup, setShowUpdatePopup] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [message, setMessage] = useState("");
+// Types
+interface Link {
+  platform: string;
+  url: string;
+}
+
+interface UserData {
+  links?: Link[];
+  bio?: string;
+  notifications?: { message: string; duration: number }[];
+}
+
+interface LinkPreview {
+  title: string;
+  description: string;
+  image: string | null;
+  url: string;
+}
+
+// API client
+const api = axios.create({
+  baseURL: "/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+export default function DashboardForSocialize() {
   const { user } = useUser();
-  const uniqueUsername = user?.username;
-  const [isLoading, setIsLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const uniqueUsername = user?.username || "";
 
+  // State
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showUpdatePopup, setShowUpdatePopup] = useState(false);
+  const [newLink, setNewLink] = useState({ platform: "youtube", url: "" });
+  const [duration, setDuration] = useState(1);
+  const [message, setMessage] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [selectedLinkIndex, setSelectedLinkIndex] = useState<number | null>(
+    null
+  );
+  const [bio, setBio] = useState("");
+  const [showEditBioModal, setShowEditBioModal] = useState(false);
+
+  // Queries
+  const { data: userData, isLoading } = useQuery({
+    queryKey: ["userData", uniqueUsername],
+    queryFn: async () => {
+      if (!uniqueUsername) return { links: [], bio: "", notifications: [] };
+      const { data } = await api.get(
+        `/socialize?uniqueUsername=${uniqueUsername}`
+      );
+      return data;
+    },
+    enabled: !!uniqueUsername,
+  });
+
+  const { data: previewData, isLoading: isPreviewLoading } = useQuery({
+    queryKey: [
+      "linkPreview",
+      selectedLinkIndex !== null
+        ? userData?.links?.[selectedLinkIndex]?.url
+        : null,
+    ],
+    queryFn: async () => {
+      if (selectedLinkIndex === null || !userData?.links?.[selectedLinkIndex]) {
+        return null;
+      }
+      const url = userData.links[selectedLinkIndex].url;
+      const { data } = await api.get(
+        `/link-preview?url=${encodeURIComponent(url)}`
+      );
+      return data as LinkPreview;
+    },
+    enabled:
+      selectedLinkIndex !== null && !!userData?.links?.[selectedLinkIndex],
+  });
+
+  // Mutations
+  const updateUserDataMutation = useMutation({
+    mutationFn: async (data: Partial<UserData>) => {
+      return api.post("/socialize", { uniqueUsername, ...data });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["userData", uniqueUsername] });
+    },
+    onError: (error) => {
+      toast.error("Failed to update profile");
+      console.error("Update error:", error);
+    },
+  });
+
+  // Effects
   useEffect(() => {
-    setProfileTitle(uniqueUsername ?? "");
-  }, [user]);
+    if (userData) {
+      setBio(userData.bio || "");
+      setMessage(userData.notifications?.[0]?.message || "");
+      setDuration(userData.notifications?.[0]?.duration || 1);
+    }
+  }, [userData]);
 
+  // Handlers
   const handleAddLink = async () => {
-    if (newLink.url.trim()) {
-      const updatedLinks = [...links, newLink];
-      setLinks(updatedLinks);
-      setShowAddModal(false);
-      setNewLink({ platform: "youtube", url: "" });
+    if (!newLink.url.trim()) return;
 
-      try {
-        await updateUserData(uniqueUsername ?? "", { links: updatedLinks });
-      } catch (err) {
-        console.error("Failed to save links:", err);
+    const updatedLinks = [...(userData?.links || []), newLink];
+
+    updateUserDataMutation.mutate(
+      { links: updatedLinks },
+      {
+        onSuccess: () => {
+          setShowAddModal(false);
+          setNewLink({ platform: "youtube", url: "" });
+          toast.success("Link added successfully");
+        },
       }
-    }
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64 = reader.result as string;
-        setImage(base64);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const handleClear = () => {
-    setImage(null);
-    if (fileInput.current) fileInput.current.value = "";
-  };
-
-  const handleUpload = async () => {
-    if (image) {
-      setLogo(image);
-      setShowEditImageModal(false);
-
-      try {
-        await updateUserData(uniqueUsername ?? "", { profileImage: image });
-      } catch (err) {
-        console.error("Failed to upload image:", err);
-      }
-    }
-  };
-
-  async function handleSaveDeatils() {
-    setShowEditDetailsModal(false);
-
-    try {
-      await updateUserData(uniqueUsername ?? "", {
-        username: profileTitle,
-        bio,
-      });
-    } catch (err) {
-      console.error("Failed to update profile info:", err);
-    }
-  }
-
-  const handleAddUpdate = async () => {
-    if (duration >= 1 && duration <= 24 && message.length > 0) {
-      setShowUpdatePopup(false);
-
-      try {
-        await updateUserData(uniqueUsername ?? "", {
-          notifications: [{ message, duration }],
-        });
-      } catch (err) {
-        console.error("Failed to update popup message:", err);
-      }
-    }
+    );
   };
 
   const handleRemoveLink = async (indexToRemove: number) => {
-    const updatedLinks = links.filter((_, index) => index !== indexToRemove);
-    setLinks(updatedLinks);
+    const updatedLinks: Link[] = (userData?.links || []).filter(
+      (index: number) => index !== indexToRemove
+    );
 
-    try {
-      await updateUserData(uniqueUsername ?? "", { links: updatedLinks });
-    } catch (error) {
-      console.error("Failed to update links after removal:", error);
-    }
-  };
-
-  useEffect(() => {
-    async function fetchUserData() {
-      setIsLoading(true);
-      try {
-        const res = await fetch(
-          `/api/socialize?uniqueUsername=${uniqueUsername}`
-        );
-        const data = await res.json();
-        if (res.ok) {
-          setLinks(data.links || []);
-          setProfileTitle(data.username || "");
-          setBio(data.bio || "");
-          setLogo(data.profileImage || null);
-          setMessage(data.notifications?.[0]?.message || "");
-          setDuration(data.notifications?.[0]?.duration || 0);
-        }
-      } catch (err) {
-        console.error("Failed to load user data:", err);
-      } finally {
-        setIsLoading(false);
+    updateUserDataMutation.mutate(
+      { links: updatedLinks },
+      {
+        onSuccess: () => {
+          if (selectedLinkIndex === indexToRemove) {
+            setSelectedLinkIndex(null);
+          }
+          toast.success("Link removed");
+        },
       }
-    }
-
-    fetchUserData();
-  }, [uniqueUsername]);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-      setIsHovering(true);
-    };
-
-    const handleMouseLeave = () => {
-      setIsHovering(false);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseleave", handleMouseLeave);
-
-    // Cleanup
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseleave", handleMouseLeave);
-    };
-  }, []);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setGlowPosition((prev) => ({
-        x: prev.x + (mousePosition.x - prev.x) * 0.4,
-        y: prev.y + (mousePosition.y - prev.y) * 0.4,
-      }));
-    }, 12);
-
-    return () => clearInterval(interval);
-  }, [mousePosition]);
-
-  type UserData = {
-    links?: { platform: string; url: string }[];
-    profileImage?: string;
-    username?: string;
-    bio?: string;
-    notifications?: { message: string; duration: number }[];
+    );
   };
 
-  async function updateUserData(
-    uniqueUsername: string,
-    data: Partial<UserData>
-  ) {
-    const response = await fetch("/api/socialize", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
+  const handleSaveBio = async () => {
+    updateUserDataMutation.mutate(
+      { bio },
+      {
+        onSuccess: () => {
+          setShowEditBioModal(false);
+          toast.success("Bio updated successfully");
+        },
+      }
+    );
+  };
+
+  const handleAddUpdate = async () => {
+    if (duration < 1 || duration > 24 || !message.trim()) return;
+
+    updateUserDataMutation.mutate(
+      {
+        notifications: [{ message, duration }],
       },
-      body: JSON.stringify({ uniqueUsername, ...data }),
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Failed to update user data");
-    }
-
-    return await response.json();
-  }
+      {
+        onSuccess: () => {
+          setShowUpdatePopup(false);
+          toast.success("Notification updated");
+        },
+      }
+    );
+  };
 
   const handleCopyUrl = () => {
-    const url = `http://localhost:3000/socialize/${uniqueUsername}`;
+    const url = `https://insturix.com/socialize/${uniqueUsername}`;
     navigator.clipboard
       .writeText(url)
       .then(() => {
-        alert("URL copied to clipboard!");
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+        toast.success("URL copied to clipboard");
       })
-      .catch((err) => {
-        alert("Failed to copy URL.");
+      .catch(() => {
+        toast.error("Failed to copy URL");
       });
+  };
+
+  const handleSelectLink = (index: number) => {
+    setSelectedLinkIndex(index);
   };
 
   return (
     <div className="min-h-screen bg-black flex flex-col">
-      <div className="flex flex-row flex-1 justify-center items-start p-20">
+      {/* Header */}
+      <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-3">
+          <Share2 className="h-8 w-8 text-teal-500" />
+          Socialize
+        </h1>
+        <p className="mt-3 text-lg text-zinc-400 font-light">Transform your ideas into unique musical compositions</p>
+      </div>
+      <div className="flex flex-col flex-1 justify-start items-center p-4 md:p-8 lg:p-10">
         <div
           className="fixed inset-0 -left-1/8 -top-20 z-[0] pointer-events-none
-    bg-[radial-gradient(ellipse_at_top,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)]
-    w-full h-[100vh] transition-all duration-700"
-        />
-
-        <div
-          className="pointer-events-none fixed z-50 transition-opacity duration-300 ease-out"
-          style={{
-            left: `${glowPosition.x}px`,
-            top: `${glowPosition.y}px`,
-            width: "650px",
-            height: "650px",
-            borderRadius: "50%",
-            background:
-              "radial-gradient(circle, rgba(14, 107, 156, 0.3) 0%, rgba(14, 107, 156, 0.1) 40%, rgba(255,0,0,0) 70%)",
-            transform: "translate(-50%, -50%)",
-            opacity: isHovering ? 0.6 : 0,
-            mixBlendMode: "screen",
-            filter: "blur(10px)",
-          }}
+          bg-[radial-gradient(ellipse_at_top,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)]
+          w-full h-[100vh] transition-all duration-700"
         />
 
         {/* Main Content */}
         {isLoading ? (
-          <div className="flex-1 flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center w-full max-w-6xl">
             <div className="w-16 h-16 border-t-4 border-b-4 border-[#0e6b9c] rounded-full animate-spin"></div>
           </div>
         ) : (
-          <main className="max-w-full relative ">
-            <div className="bg-black/20 p-4 rounded-lg mb-8 w-min-fit">
-              <div className="flex items-center justify-between gap-28">
-                <div className="flex items-center gap-2 ">
-                  <span className="text-orange-400">🔥</span>
-                  <span className="text-white">Your link is live:</span>
-                  <a
-                    href={`http://localhost:3000/socialize/${uniqueUsername}`}
-                    className="text-blue-400 hover:underline"
-                  >
-                    insturix.com/socialize/{uniqueUsername}
-                  </a>
-                </div>
-                <button
-                  className="bg-white text-black px-4 py-1.5 rounded-full text-sm hover:bg-gray-200 transition"
-                  onClick={handleCopyUrl}
-                >
-                  Copy URL
-                </button>
-              </div>
-            </div>
-
-            {/* Profile Section */}
-            <div className="mb-8">
-              <div className="flex items-center gap-4 mb-6">
-                {logo ? (
-                  <img
-                    src={logo}
-                    alt="Profile"
-                    className="w-16 h-16 rounded-full border-2 border-white"
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-gray-700 flex items-center justify-center">
-                    <img
-                      src="/blogs/blank_profile.png"
-                      alt="Profile"
-                      className="w-16 h-16 rounded-full border-2 border-white"
-                    />
-                  </div>
-                )}
-                <div>
-                  <h1 className="text-xl font-bold">
-                    {profileTitle || "Title"}
-                  </h1>
-                  <p className="text-gray-400">{bio || "Your Bio"}</p>
-                </div>
-                <button
-                  ref={buttonRef}
-                  className="ml-auto"
-                  onClick={() => setShowEditModal(true)}
-                >
-                  <MoreHorizontal className="w-6 h-6 text-gray-400" />
-                </button>
-              </div>
-              <div className="flex gap-3 mb-6">
-                <Instagram className="w-5 h-5 text-gray-400" />
-                <Music className="w-5 h-5 text-gray-400" />
-                <Youtube className="w-5 h-5 text-gray-400" />
-              </div>
-            </div>
-
-            <button
-              className="w-full bg-black/40 text-white py-3 rounded-lg mb-6 flex items-center justify-center gap-2 hover:bg-black/80 transition border border-[#0e6b9c]"
-              onClick={() => setShowAddModal(true)}
-            >
-              <Plus className="w-5 h-5" />
-              <span>Add</span>
-            </button>
-
-            {message == "" && duration == 0 ? (
-              <div
-                className="text-start text-gray-400 px-2 bg-black/70 w-fit py-1 rounded-md hover:bg-[#0c4362] transition-colors cursor-pointer"
-                onClick={() => setShowUpdatePopup(true)}
+          <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
+            <div className="lg:col-span-2">
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+                className="bg-black/20 p-4 rounded-lg mb-8 backdrop-blur-sm border border-[#0e6b9c]/30"
               >
-                <p>Add a New Update</p>
-              </div>
-            ) : (
-              <div className="text-center text-gray-400 flex justify-start items-center gap-3">
-                <div className="w-8 h-8 bg-gray-800 rounded-full flex items-center justify-center">
-                  <span className="text-xl">🔔</span>
-                </div>
-                <p className=" text-white font-bold">
-                  {message} (Duration: {duration} hours)
-                </p>
-                <button
-                  className="ml-2 p-2 rounded-full hover:bg-gray-700 transition"
-                  onClick={() => setShowUpdatePopup(true)}
-                  title="Edit Notification"
-                >
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-5 w-5 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={2}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M15.232 5.232l3.536 3.536M9 13l6-6m2.121-2.121a3 3 0 114.243 4.243l-10 10a1 1 0 01-.293.207l-4 2a1 1 0 01-1.316-1.316l2-4a1 1 0 01.207-.293l10-10z"
-                    />
-                  </svg>
-                </button>
-              </div>
-            )}
-
-            <div className="space-y-4 mb-8 mt-5">
-              {links.length !== 0 ? (
-                links.map((link, index) => (
-                  <div
-                    key={index}
-                    className="w-full bg-black/40 text-white py-3 rounded-lg mb-6 flex items-center justify-between gap-2 hover:bg-black/80 transition border border-[#0e6b9c] px-5"
-                  >
-                    <div className="flex items-center gap-4">
-                      {getPlatformIcon(link.platform)}
-                      <span className="text-white">{link.url}</span>
-                    </div>
-                    <button
-                      className="text-gray-400 hover:text-white"
-                      onClick={() => handleRemoveLink(index)}
+                <div className="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-orange-400">🔥</span>
+                    <span className="text-white">Your link is live:</span>
+                    <Link
+                      href={`https://insturix.com/socialize/${uniqueUsername}`}
+                      className="text-blue-400 hover:underline truncate max-w-[200px] md:max-w-none"
+                      target="_blank"
+                      rel="noopener noreferrer"
                     >
-                      <svg
-                        className="w-5 h-5"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M6 18L18 6M6 6l12 12"
-                        />
-                      </svg>
-                    </button>
+                      insturix.com/socialize/{uniqueUsername}
+                    </Link>
                   </div>
-                ))
-              ) : (
-                <div className="mt-16 text-center text-gray-400">
-                  <div className="w-12 h-12 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <span className="text-2xl">✨</span>
-                  </div>
-                  <p className="mb-2">Show the world who you are.</p>
-                  <p>Add a link to get started.</p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="bg-white text-black hover:bg-gray-200 hover:text-black"
+                    onClick={handleCopyUrl}
+                  >
+                    {copied ? (
+                      <Check className="w-4 h-4 mr-2" />
+                    ) : (
+                      <Copy className="w-4 h-4 mr-2" />
+                    )}
+                    {copied ? "Copied!" : "Copy URL"}
+                  </Button>
                 </div>
+              </motion.div>
+
+              {/* Profile Section */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.1 }}
+                className="mb-8"
+              >
+                <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
+                  <CardHeader>
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#0e6b9c]">
+                        <Image
+                          src={user?.imageUrl as string}
+                          width={32}
+                          height={64}
+                          alt={`${user?.username}'s profile picture`}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <div>
+                        <CardTitle className="text-xl text-white">
+                          {user?.username}
+                        </CardTitle>
+                        <CardDescription className="text-gray-300">
+                          {userData?.bio ||
+                            "No bio yet. Click edit to add one."}
+                        </CardDescription>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="ml-auto"
+                        onClick={() => setShowEditBioModal(true)}
+                      >
+                        Edit Bio
+                      </Button>
+                    </div>
+                  </CardHeader>
+                </Card>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.2 }}
+                className="mb-6"
+              >
+                <Button
+                  className="w-full bg-gradient-to-r from-[#0e6b9c]/80 to-[#0e6b9c]/40 hover:from-[#0e6b9c] hover:to-[#0e6b9c]/60 text-white border border-[#0e6b9c]/50 shadow-lg shadow-[#0e6b9c]/20"
+                  onClick={() => setShowAddModal(true)}
+                >
+                  <Plus className="w-5 h-5 mr-2" />
+                  Add New Link
+                </Button>
+              </motion.div>
+
+              {userData?.notifications?.[0]?.message ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
+                  className="mb-6"
+                >
+                  <Card className="bg-black/40 border-[#0e6b9c]/30">
+                    <CardContent className="p-4 flex items-center gap-3">
+                      <div className="w-8 h-8 bg-[#0e6b9c]/30 rounded-full flex items-center justify-center">
+                        <Bell className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-white font-medium">
+                          {userData.notifications[0].message}
+                        </p>
+                        <p className="text-gray-400 text-sm">
+                          Duration: {userData.notifications[0].duration} hours
+                        </p>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowUpdatePopup(true)}
+                      >
+                        Edit
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              ) : (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
+                  className="mb-6"
+                >
+                  <Button
+                    variant="outline"
+                    className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                    onClick={() => setShowUpdatePopup(true)}
+                  >
+                    <Bell className="w-4 h-4 mr-2" />
+                    Add a New Update
+                  </Button>
+                </motion.div>
               )}
+
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.4 }}
+              >
+                <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
+                  <CardHeader>
+                    <CardTitle className="text-xl text-white">
+                      Your Links
+                    </CardTitle>
+                    <CardDescription>
+                      {userData?.links?.length
+                        ? `You have ${userData.links.length} link${userData.links.length > 1 ? "s" : ""}`
+                        : "Add your first link to get started"}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    {userData?.links?.length ? (
+                      <div className="grid gap-4">
+                        {userData.links.map((link: Link, index: number) => (
+                          <motion.div
+                            key={index}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.3, delay: index * 0.1 }}
+                            className={`w-full bg-black/40 py-3 rounded-lg flex items-center justify-between gap-2 hover:bg-black/60 transition border ${selectedLinkIndex === index ? "border-[#0e6b9c]" : "border-[#0e6b9c]/30"} px-5 cursor-pointer`}
+                            onClick={() => handleSelectLink(index)}
+                          >
+                            <div className="flex items-center gap-4 flex-1 truncate">
+                              {getPlatformIcon(link.platform)}
+                              <span className="text-white truncate">
+                                {link.url}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                asChild
+                                onClick={(
+                                  e: React.MouseEvent<HTMLButtonElement>
+                                ) => e.stopPropagation()}
+                              >
+                                <Link
+                                  href={link.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-gray-400 hover:text-white"
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                </Link>
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-gray-400 hover:text-white"
+                                onClick={(
+                                  e: React.MouseEvent<HTMLButtonElement>
+                                ) => {
+                                  e.stopPropagation();
+                                  handleRemoveLink(index);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-center py-8">
+                        <div className="w-12 h-12 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <span className="text-2xl">✨</span>
+                        </div>
+                        <p className="mb-2 text-lg font-medium text-white">
+                          Show the world who you are.
+                        </p>
+                        <p className="text-gray-400">
+                          Add a link to get started.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              </motion.div>
             </div>
 
-            {showEditModal && (
-              <ProfileMenuPopup
-                anchorRef={buttonRef as React.RefObject<HTMLElement>}
-                onEditImage={() => {
-                  setShowEditImageModal((prev) => !prev);
-                }}
-                onEditNameBio={() => {
-                  setShowEditDetailsModal((prev) => !prev);
-                }}
-                onClose={() => setShowEditModal(false)}
-              />
-            )}
+            {/* Link Preview Section */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5, delay: 0.5 }}
+              className="lg:col-span-1 sticky top-20"
+            >
+              <Card className="bg-black/30 border-[#0e6b9c]/30 backdrop-blur-sm h-full">
+                <CardHeader>
+                  <CardTitle className="text-lg text-white">
+                    Link Preview
+                  </CardTitle>
+                  <CardDescription>
+                    Select a link to see how it appears to visitors
+                  </CardDescription>
+                </CardHeader>
 
-            {showEditImageModal && (
-              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-                <div className="bg-black border border-[#45454c] rounded-2xl shadow-lg w-full max-w-md p-6 relative">
-                  <button
-                    onClick={() => setShowEditImageModal(false)}
-                    className="absolute top-4 right-4 text-white text-2xl font-bold"
-                  >
-                    ×
-                  </button>
-                  <h2 className="text-2xl font-semibold text-center mb-6 ">
-                    Upload image
-                  </h2>
-
-                  {!image ? (
-                    <div
-                      className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center mb-6 cursor-pointer"
-                      onClick={() =>
-                        fileInput.current && fileInput.current.click()
-                      }
-                    >
-                      <svg
-                        width="40"
-                        height="48"
-                        fill="none"
-                        className="mb-4 text-white "
-                        viewBox="0 0 40 48"
-                      >
-                        <rect
-                          x="8"
-                          y="8"
-                          width="24"
-                          height="32"
-                          rx="2"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                        />
-                        <path
-                          d="M16 20h8M16 24h8"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <p className="text-white text-center">
-                        <span className="font-medium">
-                          Select file to upload,
-                        </span>
-                        <br />
-                        or drag-and-drop file
-                      </p>
-                      <input
-                        ref={fileInput}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif"
-                        className="hidden"
-                        onChange={handleFileChange}
-                      />
-                    </div>
+                <CardContent>
+                  {selectedLinkIndex !== null ? (
+                    isPreviewLoading ? (
+                      <div className="space-y-3">
+                        <Skeleton className="h-[200px] w-full bg-gray-800" />
+                        <Skeleton className="h-4 w-3/4 bg-gray-800" />
+                        <Skeleton className="h-4 w-full bg-gray-800" />
+                        <Skeleton className="h-4 w-1/2 bg-gray-800" />
+                      </div>
+                    ) : (
+                      <div className="rounded-lg overflow-hidden border border-[#0e6b9c]/30">
+                        <div className="aspect-video bg-gray-800 relative overflow-hidden">
+                          {previewData?.image ? (
+                            <Image
+                              src={previewData.image as string}
+                              alt={previewData.title as string}
+                              width={64}
+                              height={64}
+                              className="w-full h-full object-cover"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-gray-900">
+                              <Share2 className="w-10 h-10 text-gray-700" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="p-4 bg-black/60">
+                          <h3 className="font-medium text-white mb-2 line-clamp-2">
+                            {previewData?.title || "No title available"}
+                          </h3>
+                          <p className="text-gray-300 text-sm line-clamp-3">
+                            {previewData?.description ||
+                              "No description available"}
+                          </p>
+                          <div className="mt-4 flex items-center justify-between">
+                            <Badge
+                              variant="outline"
+                              className="text-xs text-gray-400 truncate max-w-[180px]"
+                            >
+                              {userData?.links?.[selectedLinkIndex]?.platform}
+                            </Badge>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="text-[#0e6b9c] hover:text-[#0e6b9c]/80 p-0"
+                              asChild
+                            >
+                              <a
+                                href={userData?.links?.[selectedLinkIndex]?.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Visit
+                                <ExternalLink className="w-3 h-3 ml-1" />
+                              </a>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )
                   ) : (
-                    <div className="flex flex-col items-center mb-6">
-                      <img
-                        src={image}
-                        alt="Preview"
-                        className="max-h-56 max-w-full rounded-xl object-contain border mb-2"
-                      />
-                      <button
-                        type="button"
-                        className="text-sm text-blue-600 underline hover:text-blue-800"
-                        onClick={() =>
-                          fileInput.current && fileInput.current.click()
-                        }
-                      >
-                        Change
-                      </button>
-                      <input
-                        ref={fileInput}
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/bmp,image/heic,image/heif"
-                        className="hidden"
-                        onChange={handleFileChange}
-                      />
+                    <div className="flex flex-col items-center justify-center p-8 text-center">
+                      <div className="w-16 h-16 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mb-4">
+                        <ExternalLink className="w-8 h-8 text-[#0e6b9c]" />
+                      </div>
+                      <h3 className="text-white font-medium mb-2">
+                        No link selected
+                      </h3>
+                      <p className="text-gray-400 text-sm">
+                        Click on a link from your list to see a preview of how
+                        it will appear to your visitors
+                      </p>
                     </div>
                   )}
+                </CardContent>
 
-                  <p className="text-xs text-white  text-center mb-6">
-                    Allowed file types: JPEG, PNG, WebP, GIF, AVIF, BMP, HEIC,
-                    HEIF
-                  </p>
-                  <div className="flex gap-4">
-                    <button
-                      className={`flex-1 py-2 rounded-full border border-gray-200 font-semibold ${
-                        image
-                          ? "bg-white text-gray-700 hover:bg-gray-100 cursor-pointer"
-                          : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      }`}
-                      disabled={!image}
-                      onClick={handleClear}
-                    >
-                      Clear
-                    </button>
-                    <button
-                      className={`flex-1 py-2 rounded-full border border-gray-200 font-semibold ${
-                        image
-                          ? "bg-gradient-to-r from-blue-600/80 to-purple-500/80 f shadow text-white cursor-pointer"
-                          : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                      }`}
-                      disabled={!image}
-                      onClick={handleUpload}
-                    >
-                      Upload
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {showEditDetailsModal && (
-              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-                <div className="bg-black rounded-3xl w-full max-w-lg p-8 relative border border-[#45454c]">
-                  <button
-                    onClick={() => setShowEditDetailsModal(false)}
-                    className="absolute top-6 right-6 text-gray-400 hover:text-gray-700 text-2xl font-bold"
-                    aria-label="Close"
-                  >
-                    ×
-                  </button>
-                  <h2 className="text-2xl font-semibold text-center mb-8">
-                    Display bio
-                  </h2>
-                  <div className="mb-2">
-                    <label
-                      className="block text-gray-400 text-sm mb-1"
-                      htmlFor="bio"
-                    >
-                      Bio
-                    </label>
-                    <textarea
-                      id="bio"
-                      value={bio}
-                      onChange={(e) => setBio(e.target.value)}
-                      className="w-full rounded-xl  bg-[#121212] border-[#2d2d36] px-4 py-3 text-base outline-none border-none resize-none"
-                      rows={3}
-                      maxLength={80}
-                    />
-                    <div className="flex justify-end text-xs text-gray-400 mt-1">
-                      {bio.length} / 80
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleSaveDeatils}
-                    className="w-full mt-6 bg-gradient-to-r from-blue-600/80 to-purple-500/80  shadow text-white font-semibold py-3 rounded-full text-lg transition"
-                  >
-                    Save
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {showUpdatePopup && (
-              <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 ">
-                <div className="bg-black rounded-2xl p-8 w-[400px] shadow-2xl relative border border-[#45454c]">
-                  <h2 className="text-xl font-bold mb-4 text-white">
-                    Add New Update Popup
-                  </h2>
-
-                  <label className="block text-sm text-gray-300 mb-1">
-                    Duration (hours)
-                  </label>
-                  <input
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={duration}
-                    onChange={(e) =>
-                      setDuration(Math.max(1, Math.min(24, +e.target.value)))
-                    }
-                    className="w-full mb-4 p-2 rounded bg-[#22222a] text-white border border-[#2d2d36] focus:outline-none"
+                <CardFooter className="border-t border-[#0e6b9c]/30 pt-4">
+                  <MobileView
+                    logo={user?.imageUrl || null}
+                    profileTitle={user?.username || ""}
+                    bio={userData?.bio || ""}
+                    links={userData?.links || []}
                   />
-                  <span className="text-xs text-gray-400 mb-2 block">
-                    Between 1 and 24 hours
-                  </span>
-
-                  <label className="block text-sm text-gray-300 mb-1">
-                    Popup Message
-                  </label>
-                  <textarea
-                    value={message}
-                    onChange={(e) => setMessage(e.target.value.slice(0, 150))}
-                    maxLength={150}
-                    rows={3}
-                    className="w-full mb-2 p-2 rounded bg-[#22222a] text-white border border-[#2d2d36] focus:outline-none resize-none"
-                    placeholder="Enter your update message (max 150 chars)"
-                  />
-                  <div className="text-xs text-gray-400 mb-4 text-right">
-                    {message.length}/150
-                  </div>
-
-                  {/* Actions */}
-                  <div className="flex gap-4">
-                    <button
-                      className="flex-1 py-2 rounded bg-gradient-to-r from-blue-500 to-purple-500 text-white font-semibold"
-                      onClick={handleAddUpdate}
-                      disabled={!message || duration < 1 || duration > 24}
-                    >
-                      Add Update
-                    </button>
-                    <button
-                      className="flex-1 py-2 rounded bg-[#22222a] text-gray-300 border border-[#2d2d36]"
-                      onClick={() => setShowUpdatePopup(false)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </main>
-        )}
-
-        <MobileView
-          logo={logo}
-          profileTitle={profileTitle}
-          bio={bio}
-          links={links}
-        />
-
-        {showAddModal && (
-          <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
-            <div className="bg-black rounded-xl p-6 w-full max-w-md border border-[#2d2d36]">
-              <h2 className="text-xl font-bold text-white mb-6">
-                Add New Link
-              </h2>
-              <select
-                className="w-full p-3 mb-4 bg-[#121212] text-white rounded-lg border border-[#2d2d36]"
-                value={newLink.platform}
-                onChange={(e) =>
-                  setNewLink({ ...newLink, platform: e.target.value })
-                }
-              >
-                <option value="youtube">YouTube</option>
-                <option value="instagram">Instagram</option>
-                <option value="tiktok">TikTok</option>
-                <option value="twitter">Twitter</option>
-                <option value="github">Github</option>
-                <option value="website">Website</option>
-              </select>
-              <input
-                type="url"
-                placeholder="https://"
-                className="w-full p-3 mb-6 bg-[#121212] border-[#2d2d36] text-white rounded-lg border "
-                value={newLink.url}
-                onChange={(e) =>
-                  setNewLink({ ...newLink, url: e.target.value })
-                }
-              />
-              <div className="flex gap-3">
-                <button
-                  onClick={handleAddLink}
-                  className="flex-1 bg-gradient-to-r from-blue-600/80 to-purple-500/80 shadow text-white py-3 rounded-lg font-semibold "
-                >
-                  Add Link
-                </button>
-                <button
-                  onClick={() => setShowAddModal(false)}
-                  className="flex-1 bg-[#121212] text-gray-400 py-3 rounded-lg hover:bg-[#1a1a1f]"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+                </CardFooter>
+              </Card>
+            </motion.div>
           </div>
         )}
+
+        {/* Modals */}
+        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+          <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <Plus className="w-5 h-5 text-[#0e6b9c]" />
+                Add New Link
+              </DialogTitle>
+              <DialogDescription>
+                Add a new social media or website link to your profile
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Platform</label>
+                <Select
+                  value={newLink.platform}
+                  onValueChange={(value) =>
+                    setNewLink({ ...newLink, platform: value })
+                  }
+                >
+                  <SelectTrigger className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30">
+                    <SelectValue placeholder="Select platform" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#121212] border-[#0e6b9c]/30">
+                    <SelectItem value="youtube">YouTube</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                    <SelectItem value="tiktok">TikTok</SelectItem>
+                    <SelectItem value="twitter">Twitter</SelectItem>
+                    <SelectItem value="github">Github</SelectItem>
+                    <SelectItem value="website">Website</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">URL</label>
+                <Input
+                  type="url"
+                  placeholder="https://"
+                  value={newLink.url}
+                  onChange={(e) =>
+                    setNewLink({ ...newLink, url: e.target.value })
+                  }
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddModal(false)}>
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddLink}
+                disabled={!newLink.url.trim()}
+                className={`${
+                  newLink.url.trim()
+                    ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+                    : "bg-gray-800 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                Add Link
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showEditBioModal} onOpenChange={setShowEditBioModal}>
+          <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
+            <DialogHeader>
+              <DialogTitle className="text-xl">Edit Bio</DialogTitle>
+              <DialogDescription>Update your profile bio</DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Bio</label>
+                <Textarea
+                  value={bio}
+                  onChange={(e) => setBio(e.target.value)}
+                  placeholder="Tell people about yourself..."
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white resize-none"
+                  rows={3}
+                  maxLength={80}
+                />
+                <div className="flex justify-end text-xs text-gray-400">
+                  {bio.length} / 80
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowEditBioModal(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSaveBio}
+                className="bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+              >
+                Save Changes
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={showUpdatePopup} onOpenChange={setShowUpdatePopup}>
+          <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-xl">
+                <Bell className="w-5 h-5 text-[#0e6b9c]" />
+                Update Notification
+              </DialogTitle>
+              <DialogDescription>
+                Add a notification that will be shown to your profile visitors
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">
+                  Duration (hours)
+                </label>
+                <Input
+                  type="number"
+                  min={1}
+                  max={24}
+                  value={duration}
+                  onChange={(e) =>
+                    setDuration(Math.max(1, Math.min(24, +e.target.value)))
+                  }
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                />
+                <p className="text-xs text-gray-400">Between 1 and 24 hours</p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Message</label>
+                <Textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value.slice(0, 150))}
+                  placeholder="Enter your notification message..."
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white resize-none"
+                  rows={3}
+                  maxLength={150}
+                />
+                <div className="flex justify-end text-xs text-gray-400">
+                  {message.length} / 150
+                </div>
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowUpdatePopup(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleAddUpdate}
+                disabled={!message || duration < 1 || duration > 24}
+                className={`${
+                  message && duration >= 1 && duration <= 24
+                    ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+                    : "bg-gray-800 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                Save Notification
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
-  );
-}
-
-function ProfileMenuPopup({
-  onEditImage,
-  onEditNameBio,
-  onClose,
-  anchorRef,
-}: {
-  onEditImage: () => void;
-  onEditNameBio: () => void;
-  onClose: () => void;
-  anchorRef?: React.RefObject<HTMLElement>;
-}) {
-  const popupRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handleClick(e: MouseEvent): void {
-      if (
-        popupRef.current &&
-        !popupRef.current.contains(e.target as Node) &&
-        (!anchorRef ||
-          !anchorRef.current ||
-          !anchorRef.current.contains(e.target as Node))
-      ) {
-        onClose();
-      }
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [onClose, anchorRef]);
-
-  return (
-    <div
-      ref={popupRef}
-      className="absolute right-0 -mt-102 w-72 bg-[#1a1a1f] rounded-2xl shadow-xl z-50 py-2"
-      style={{ minWidth: 260 }}
-    >
-      <button
-        className="flex items-center w-full px-5 py-3 text-white hover:bg-gray-100 hover:text-black hover:rounded-md text-base font-medium transition"
-        onClick={onEditImage}
-      >
-        Edit Image
-      </button>
-      <button
-        className="flex items-center w-full px-5 py-3 text-white hover:bg-gray-100 hover:text-black hover:rounded-md text-base font-medium transition"
-        onClick={onEditNameBio}
-      >
-        Edit display bio
-      </button>
     </div>
   );
 }
