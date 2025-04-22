@@ -1,7 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { fetchLocationData } from "../lib/QFunctions";
+import { usePricing } from "@/lib/PricingContext";
 
 export interface CurrencyProps {
   priceUSD: number;
@@ -13,22 +12,19 @@ export interface CurrencyProps {
 }
 
 export function Currency({ priceUSD, priceINR, priceEUR, priceGBP, className, perMonth }: CurrencyProps) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["location"],
-    queryFn: fetchLocationData,
-  });
+  const { locationData, isLoading, isError } = usePricing();
 
   if (isLoading) return <div>Loading...</div>;
   if (isError) return <div>Error fetching location data</div>;
 
   let price;
-  if (data?.currency === "USD") {
+  if (locationData?.currency === "USD") {
     price = priceUSD; // Price in USD
-  } else if (data?.currency === "INR") {
+  } else if (locationData?.currency === "INR") {
     price = priceINR; // Price in INR
-  } else if (data?.currency === "EUR") {
+  } else if (locationData?.currency === "EUR") {
     price = priceEUR; // Price in EUR
-  } else if (data?.currency === "GBP") {
+  } else if (locationData?.currency === "GBP") {
     price = priceGBP; // Price in GBP
   } else {
     price = priceUSD; // Default price
@@ -36,7 +32,7 @@ export function Currency({ priceUSD, priceINR, priceEUR, priceGBP, className, pe
 
   return (
     <div className={className as string}>
-      {data?.symbol}
+      {locationData?.symbol}
       {price}
       {perMonth ? "/mo" : ""}
     </div>

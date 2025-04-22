@@ -1,4 +1,6 @@
+import React from "react";
 import { Metadata } from "next";
+import { PricingProviderWrapper } from "@/components/pricing/PricingProviderWrapper";
 
 export const metadata: Metadata = {
   title: "Pricing | Plans & Packages",
@@ -29,5 +31,5 @@ export default function PricingLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
-} 
+  return <PricingProviderWrapper>{children}</PricingProviderWrapper>;
+}
