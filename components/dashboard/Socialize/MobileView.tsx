@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { getPlatformIcon } from "./SocializeIcons";
+import Image from "next/image";
 
 interface MobileViewProps {
   logo: string | null;
@@ -39,13 +40,25 @@ export function MobileView({
               <div className="flex flex-row items-center justify-center gap-5">
                 <div className="min-w-16 h-16 rounded-full mb-4 flex items-center justify-center bg-gray-700 overflow-hidden border-4 border-[#0e6b9c] shadow-lg">
                   {logo ? (
-                    <img
+                    <Image
                       src={logo}
+                      width={64}
+                      height={64}
                       alt="Profile"
                       className="w-full h-full object-cover"
+                      unoptimized
+                      onError={(e) => {
+                        // Replace with default image on error
+                        const target = e.target as HTMLImageElement;
+                        target.onerror = null; // Prevent infinite loop
+                        target.src = "/blogs/blank_profile.png";
+                      }}
                     />
                   ) : (
-                    <img
+                    <Image
+                      width={64}
+                      height={64}
+                      priority
                       src="/blogs/blank_profile.png"
                       alt="Profile"
                       className="w-16 h-16 rounded-full"
@@ -54,7 +67,7 @@ export function MobileView({
                 </div>
                 <div className=" flex flex-col w-full text-end">
                   <h2 className="text-white font-bold text-base flex items-center">
-                    {profileTitle}
+                    {profileTitle ? `@${profileTitle}` : ""}
                   </h2>
                   <p className="text-gray-300 text-start mt-2 text-xs">
                     {bio || "This is your bio. Tell the world about yourself!"}

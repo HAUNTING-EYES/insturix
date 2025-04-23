@@ -1,12 +1,23 @@
 import { NextRequest } from "next/server";
 import { WithId, Document, MongoClient, Db } from "mongodb";
 
+interface Link {
+  platform: string;
+  url: string;
+}
+
+interface Notification {
+  message: string;
+  timestamp: Date;
+  read: boolean;
+}
+
 interface UserData {
   uniqueUsername: string;
   username?: string;
   bio?: string;
-  links?: any[];
-  notifications?: any[];
+  links?: Link[];
+  notifications?: Notification[];
   profileImage?: string;
 }
 
@@ -53,10 +64,16 @@ export async function POST(request: NextRequest) {
     const { uniqueUsername, ...updateFields } = body;
 
     if (!uniqueUsername) {
-      return Response.json({ error: "uniqueUsername required" }, { status: 400 });
+      return Response.json(
+        { error: "uniqueUsername required" },
+        { status: 400 }
+      );
     }
 
-    const updateData: Record<string, any> = {};
+    const updateData: Record<
+      string,
+      string | Link[] | Notification[] | undefined
+    > = {};
 
     Object.entries(updateFields).forEach(([key, value]) => {
       if (value !== undefined) {
@@ -70,9 +87,10 @@ export async function POST(request: NextRequest) {
       .updateOne({ uniqueUsername }, { $set: updateData }, { upsert: true });
 
     return Response.json({ message: "User data saved" }, { status: 200 });
-  } catch (e: any) {
-    console.log(e.message);
-    return Response.json({ error: e.message }, { status: 500 });
+  } catch (e: unknown) {
+    const error = e as Error;
+    console.log(error.message);
+    return Response.json({ error: error.message }, { status: 500 });
   }
 }
 
@@ -84,22 +102,51 @@ export async function GET(request: NextRequest) {
     console.log("uniqueUsername(uniqueUsername) from request:", uniqueUsername);
 
     if (!uniqueUsername) {
-      return Response.json({ error: "uniqueUsername required" }, { status: 400 });
+      return Response.json(
+        { error: "uniqueUsername required" },
+        { status: 400 }
+      );
     }
 
     const { db } = await connectToDatabase();
-    const userData = await db
+    
+    // First try to find in users collection
+    let userData = await db
       .collection<WithId<Document>>("users")
       .findOne({ uniqueUsername });
+
+    if (!userData) {
+      console.log("User not found in 'users' collection, trying 'socialize' collection");
+      
+      // If not found, try the socialize collection (with username field)
+      userData = await db
+        .collection<WithId<Document>>("socialize")
+        .findOne({ username: uniqueUsername });
+        
+      if (userData) {
+        console.log("User found in socialize collection");
+      }
+    }
 
     if (!userData) {
       return Response.json({ error: "User not found" }, { status: 404 });
     }
 
-    console.log("User data retrieved:", userData);
+    // If found from socialize collection, adapt field names to match expected format
+    if (userData.clerkUserId && !userData.hasOwnProperty('uniqueUsername')) {
+      console.log("Adapting Socialize schema to user schema format");
+      userData = {
+        ...userData,
+        uniqueUsername: userData.username || uniqueUsername
+      };
+    }
 
+    console.log("User data retrieved:", userData);
+    console.log("clerkUserId:", userData.clerkUserId);
+    
     return Response.json(userData, { status: 200 });
-  } catch (e: any) {
-    return Response.json({ error: e.message }, { status: 500 });
+  } catch (e: unknown) {
+    const error = e as Error;
+    return Response.json({ error: error.message }, { status: 500 });
   }
 }

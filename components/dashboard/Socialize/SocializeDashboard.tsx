@@ -100,7 +100,7 @@ export default function DashboardForSocialize() {
     queryFn: async () => {
       if (!uniqueUsername) return { links: [], bio: "", notifications: [] };
       const { data } = await api.get(
-        `/socialize?uniqueUsername=${uniqueUsername}`
+        `/services/socialize?uniqueUsername=${uniqueUsername}`
       );
       return data;
     },
@@ -131,7 +131,7 @@ export default function DashboardForSocialize() {
   // Mutations
   const updateUserDataMutation = useMutation({
     mutationFn: async (data: Partial<UserData>) => {
-      return api.post("/socialize", { uniqueUsername, ...data });
+      return api.post("/services/socialize", { uniqueUsername, ...data });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["userData", uniqueUsername] });

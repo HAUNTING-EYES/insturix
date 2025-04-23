@@ -43,6 +43,12 @@ const nextConfig: NextConfig = {
         hostname:"mfile.erweima.ai",
         port:"",
         pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"img.clerk.com",
+        port:"",
+        pathname:"/**"
       }
     ],
   },
