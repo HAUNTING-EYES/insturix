@@ -221,9 +221,6 @@ export default function SocializeClientWrapper() {
 
   return (
     <div className="relative">
-      {/* Background gradient */}
-      <div className="fixed inset-0 -left-1/8 -top-20 z-[-1] pointer-events-none bg-[radial-gradient(ellipse_at_top,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)] w-full h-[100vh] transition-all duration-700" />
-
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <div className="w-16 h-16 border-t-4 border-b-4 border-[#0e6b9c] rounded-full animate-spin"></div>

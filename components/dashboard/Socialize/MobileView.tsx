@@ -29,8 +29,8 @@ export function MobileView({
           <div className="w-24 h-2 bg-[#1a1a1f] rounded-b-xl mx-auto mt-3 mb-6" />
 
           <div
-            className="absolute inset-0 -left-1/8 -top-20 z-[-1] pointer-events-none
-            bg-[radial-gradient(ellipse_at_top,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)]
+            className="absolute inset-0 -top-70 z-[-1] pointer-events-none
+            bg-[radial-gradient(circle,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)] opacity-80
             w-full h-full transition-all duration-700"
           />
 
