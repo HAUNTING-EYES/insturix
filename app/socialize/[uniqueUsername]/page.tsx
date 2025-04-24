@@ -26,8 +26,7 @@ interface ISocializeResponse extends Document {
   links: ILink[];
   notifications?: {
     message: string;
-    timestamp: Date;
-    read: boolean;
+    duration: number;
   }[];
   createdAt: Date;
   updatedAt: Date;
@@ -43,27 +42,6 @@ const fetchSocializeUser = async (
     `/api/services/socialize?uniqueUsername=${uniqueUsername}`
   );
   return data;
-};
-
-/**
- * Fetch user profile image using the userId
- */
-const fetchUserImage = async (userId: string) => {
-  console.log("fetchUserImage called with userId:", userId);
-  if (!userId) {
-    console.log("No userId provided to fetchUserImage, returning null");
-    return null;
-  }
-  try {
-    const response = await axios.get(
-      `/api/services/socialize/images?userId=${userId}`
-    );
-    console.log("API response for image:", response.data);
-    return response.data.image_url;
-  } catch (error) {
-    console.error("Error in fetchUserImage:", error);
-    return null;
-  }
 };
 
 export default function SocializePublicProfile() {
@@ -82,14 +60,6 @@ export default function SocializePublicProfile() {
     enabled: !!uniqueUsername,
     retry: 1,
     staleTime: 1000 * 60 * 5, // 5 minutes
-  });
-
-  // Fetch user profile image from Clerk if we have the clerkUserId
-  const { data: profileImageUrl, isLoading: isLoadingImage } = useQuery({
-    queryKey: ["userImage", socializeData?.clerkUserId],
-    queryFn: () => fetchUserImage(socializeData?.clerkUserId as string),
-    enabled: !!socializeData?.clerkUserId,
-    staleTime: 1000 * 60 * 60, // Cache for 1 hour
   });
 
   const handleNotificationClick = () => {
@@ -115,10 +85,7 @@ export default function SocializePublicProfile() {
     };
   }, []);
 
-  if (
-    isLoadingSocializeData ||
-    (socializeData?.clerkUserId && isLoadingImage)
-  ) {
+  if (isLoadingSocializeData) {
     return (
       <div className="min-h-screen bg-[#0e1117] flex items-center justify-center relative overflow-hidden">
         {/* Blue gradient background */}
@@ -175,7 +142,7 @@ export default function SocializePublicProfile() {
   const hasNotifications = notifications && notifications.length > 0;
 
   // Use either fetched profile image or the one from socializeData
-  const actualProfileImage = profileImageUrl || socializeData.profileImage;
+  const actualProfileImage = socializeData.profileImage;
 
   return (
     <>
