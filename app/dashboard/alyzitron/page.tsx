@@ -3,6 +3,7 @@ import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 import { auth } from "@clerk/nextjs/server";
 import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
 import { serializeAnalyses } from "@/app/dashboard/alyzitron/utils/serialization";
+import { BarChart2, Star, Loader } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -96,12 +97,15 @@ export default async function AlyzitronDashboard() {
         <div className="lg:col-span-2 space-y-8">
           {/* Hero Section */}
           <div>
-            <h1 className="text-4xl font-semibold tracking-tight text-zinc-100">
-              Alyzitron
-            </h1>
-            <p className="mt-3 text-lg text-zinc-400 font-light">
-              Transform your content with precise, data-driven insights
-            </p>
+            <div>
+              <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-3">
+                <BarChart2 className="h-8 w-8" color="#3b81f5" />
+                Alyzitron
+              </h1>
+              <p className="mt-3 text-lg text-zinc-400 font-light">
+                Transform your content with precise, data-driven insights
+              </p>
+            </div>
           </div>
 
           {/* Client Components */}
@@ -112,13 +116,15 @@ export default async function AlyzitronDashboard() {
         <div className="space-y-8">
           <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
             <CardHeader>
-              <CardTitle className="text-lg font-medium text-zinc-100">
+              <CardTitle className="text-lg font-medium text-zinc-100 flex items-center gap-2">
+                <BarChart2 className="h-5 w-5" color="#3b81f5" />
                 Analytics Overview
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="p-4 bg-black/20 rounded-lg">
-                <div className="text-sm font-medium text-zinc-400 mb-1">
+                <div className="flex items-center gap-3 text-sm font-medium text-zinc-400 mb-1">
+                  <BarChart2 className="h-4 w-4" color="#3b81f5" />
                   Monthly Analysis
                 </div>
                 <div className="text-3xl font-semibold text-zinc-100">
@@ -129,7 +135,8 @@ export default async function AlyzitronDashboard() {
                 </div>
               </div>
               <div className="p-4 bg-black/20 rounded-lg">
-                <div className="text-sm font-medium text-zinc-400 mb-1">
+                <div className="flex items-center gap-3 text-sm font-medium text-zinc-400 mb-1">
+                  <Star className="h-4 w-4" color="#3b81f5" />
                   Average Score
                 </div>
                 <div className="text-3xl font-semibold text-zinc-100">
@@ -140,7 +147,8 @@ export default async function AlyzitronDashboard() {
                 </div>
               </div>
               <div className="p-4 bg-black/20 rounded-lg">
-                <div className="text-sm font-medium text-zinc-400 mb-1">
+                <div className="flex items-center gap-3 text-sm font-medium text-zinc-400 mb-1">
+                  <Loader className="h-4 w-4" color="#3b81f5" />
                   Processing Queue
                 </div>
                 <div className="text-3xl font-semibold text-zinc-100">
