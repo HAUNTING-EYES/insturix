@@ -2,6 +2,7 @@ import User, { IPlan } from "@/schemas/user";
 import Socialize from "@/schemas/Socialize";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { UserType } from "@/types/userTypes";
+import { NextRequest } from "next/server";
 
 // Interface for MongoDB duplicate key errors
 interface MongoDBError extends Error {
@@ -10,7 +11,7 @@ interface MongoDBError extends Error {
   keyValue?: Record<string, unknown>;
 }
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     await connectToDatabase(process.env.MONGODB_URI || "");
     const payload = await req.json();
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
         const now = new Date();
         const oneMonthLater = new Date(now);
         oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+
 
         const freePlan: IPlan = {
           name: UserType.Free,
@@ -185,3 +187,4 @@ export async function POST(req: Request) {
     return new Response("Webhook processing error", { status: 400 });
   }
 }
+

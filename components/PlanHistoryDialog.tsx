@@ -60,6 +60,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useQuery } from "@tanstack/react-query";
+import { fetchLocationData } from "@/lib/QFunctions";
 
 export function PlanHistoryDialog({
   open,
@@ -76,6 +78,21 @@ export function PlanHistoryDialog({
   const [activeTab, setActiveTab] = useState("all");
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const router = useRouter();
+  
+  // Fix React Query usage by using proper options object
+  const { data: locationData } = useQuery({
+    queryKey: ["locationData"],
+    queryFn: fetchLocationData,
+  });
+
+  const currencyFormatter = useMemo(() => {
+    // Default to USD if locationData is undefined or missing currency
+    const currency = locationData?.currency || "USD";
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+    });
+  }, [locationData?.currency]);
 
   // Map user type to plan name for better display
   const currentPlanName = useMemo(() => {
@@ -120,10 +137,38 @@ export function PlanHistoryDialog({
         );
       },
       cell: ({ row }) => {
+        const planName = row.getValue("name") as string;
+        
+        // Define color based on plan type
+        let textColorClass = "";
+        let iconColor = "";
+        
+        switch (planName) {
+          case "Free":
+            textColorClass = "text-green-600 font-medium";
+            iconColor = "text-green-500";
+            break;
+          case "Plus":
+            textColorClass = "text-blue-600 font-medium";
+            iconColor = "text-blue-500";
+            break;
+          case "Pro":
+            textColorClass = "text-purple-600 font-medium";
+            iconColor = "text-purple-500";
+            break;
+          case "Premium":
+            textColorClass = "text-amber-600 font-medium";
+            iconColor = "text-amber-500";
+            break;
+          default:
+            textColorClass = "font-medium";
+            iconColor = "text-muted-foreground";
+        }
+        
         return (
-          <div className="flex items-center gap-2 font-medium">
-            <Package className="h-4 w-4 text-purple-500" />
-            {row.getValue("name")}
+          <div className="flex items-center gap-2">
+            <Package className={`h-4 w-4 ${iconColor}`} />
+            <span className={textColorClass}>{planName}</span>
           </div>
         );
       },
@@ -176,10 +221,7 @@ export function PlanHistoryDialog({
       },
       cell: ({ row }) => {
         const price = Number.parseFloat(row.getValue("price"));
-        const formatted = new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: "USD",
-        }).format(price);
+        const formatted = currencyFormatter.format(price);
         return <span className="font-medium">{formatted}</span>;
       },
     },
@@ -347,10 +389,7 @@ export function PlanHistoryDialog({
                       <div>
                         <p className="text-sm text-muted-foreground">Price</p>
                         <p className="font-medium">
-                          {new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                          }).format(selectedPlan.price)}
+                          {currencyFormatter.format(selectedPlan.price)}
                         </p>
                       </div>
                       <div>
@@ -439,6 +478,7 @@ export function PlanHistoryDialog({
                       <TabsTrigger value="all">All Plans</TabsTrigger>
                       <TabsTrigger value="active">Active</TabsTrigger>
                       <TabsTrigger value="expired">Expired</TabsTrigger>
+                      <TabsTrigger value="canceled">Canceled</TabsTrigger>
                     </TabsList>
                   </div>
 
@@ -456,10 +496,9 @@ export function PlanHistoryDialog({
                           </div>
                           <p className="text-xs text-muted-foreground mt-1">
                             {data?.currentPlan
-                              ? `${new Intl.NumberFormat("en-US", {
-                                  style: "currency",
-                                  currency: "USD",
-                                }).format(data.currentPlan.price)} / month`
+                              ? `${currencyFormatter.format(
+                                  data.currentPlan.price
+                                )} / month`
                               : "Subscribe to a plan"}
                           </p>
                         </CardContent>
@@ -572,6 +611,289 @@ export function PlanHistoryDialog({
                         >
                           Next
                         </Button>
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  {/* Active Plans Tab */}
+                  <TabsContent value="active" className="mt-0">
+                    <div className="flex justify-between gap-4 mb-4">
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search active plans..."
+                          value={
+                            (table
+                              .getColumn("name")
+                              ?.getFilterValue() as string) ?? ""
+                          }
+                          onChange={(event) =>
+                            table
+                              .getColumn("name")
+                              ?.setFilterValue(event.target.value)
+                          }
+                          className="pl-8"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          {table.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                              {headerGroup.headers.map((header) => (
+                                <TableHead key={header.id}>
+                                  {header.isPlaceholder
+                                    ? null
+                                    : flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext()
+                                      )}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableHeader>
+                        <TableBody>
+                          {table.getFilteredRowModel().rows?.length ? (
+                            table
+                              .getFilteredRowModel()
+                              .rows.filter(
+                                (row) => row.getValue("status") === "active"
+                              )
+                              .map((row) => (
+                                <TableRow
+                                  key={row.id}
+                                  data-state={row.getIsSelected() && "selected"}
+                                >
+                                  {row.getVisibleCells().map((cell) => (
+                                    <TableCell key={cell.id}>
+                                      {flexRender(
+                                        cell.column.columnDef.cell,
+                                        cell.getContext()
+                                      )}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={columns.length}
+                                className="h-24 text-center"
+                              >
+                                No active plans found.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing{" "}
+                        {
+                          table
+                            .getFilteredRowModel()
+                            .rows.filter(
+                              (row) => row.getValue("status") === "active"
+                            ).length
+                        }{" "}
+                        of{" "}
+                        {data?.plans.filter((plan) => plan.status === "active")
+                          .length || 0}{" "}
+                        active plans
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  {/* Expired Plans Tab */}
+                  <TabsContent value="expired" className="mt-0">
+                    <div className="flex justify-between gap-4 mb-4">
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search expired plans..."
+                          value={
+                            (table
+                              .getColumn("name")
+                              ?.getFilterValue() as string) ?? ""
+                          }
+                          onChange={(event) =>
+                            table
+                              .getColumn("name")
+                              ?.setFilterValue(event.target.value)
+                          }
+                          className="pl-8"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          {table.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                              {headerGroup.headers.map((header) => (
+                                <TableHead key={header.id}>
+                                  {header.isPlaceholder
+                                    ? null
+                                    : flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext()
+                                      )}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableHeader>
+                        <TableBody>
+                          {table.getFilteredRowModel().rows?.length ? (
+                            table
+                              .getFilteredRowModel()
+                              .rows.filter(
+                                (row) => row.getValue("status") === "expired"
+                              )
+                              .map((row) => (
+                                <TableRow
+                                  key={row.id}
+                                  data-state={row.getIsSelected() && "selected"}
+                                >
+                                  {row.getVisibleCells().map((cell) => (
+                                    <TableCell key={cell.id}>
+                                      {flexRender(
+                                        cell.column.columnDef.cell,
+                                        cell.getContext()
+                                      )}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={columns.length}
+                                className="h-24 text-center"
+                              >
+                                No expired plans found.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing{" "}
+                        {
+                          table
+                            .getFilteredRowModel()
+                            .rows.filter(
+                              (row) => row.getValue("status") === "expired"
+                            ).length
+                        }{" "}
+                        of{" "}
+                        {data?.plans.filter((plan) => plan.status === "expired")
+                          .length || 0}{" "}
+                        expired plans
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  {/* Canceled Plans Tab */}
+                  <TabsContent value="canceled" className="mt-0">
+                    <div className="flex justify-between gap-4 mb-4">
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search canceled plans..."
+                          value={
+                            (table
+                              .getColumn("name")
+                              ?.getFilterValue() as string) ?? ""
+                          }
+                          onChange={(event) =>
+                            table
+                              .getColumn("name")
+                              ?.setFilterValue(event.target.value)
+                          }
+                          className="pl-8"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          {table.getHeaderGroups().map((headerGroup) => (
+                            <TableRow key={headerGroup.id}>
+                              {headerGroup.headers.map((header) => (
+                                <TableHead key={header.id}>
+                                  {header.isPlaceholder
+                                    ? null
+                                    : flexRender(
+                                        header.column.columnDef.header,
+                                        header.getContext()
+                                      )}
+                                </TableHead>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableHeader>
+                        <TableBody>
+                          {table.getFilteredRowModel().rows?.length ? (
+                            table
+                              .getFilteredRowModel()
+                              .rows.filter(
+                                (row) => row.getValue("status") === "canceled"
+                              )
+                              .map((row) => (
+                                <TableRow
+                                  key={row.id}
+                                  data-state={row.getIsSelected() && "selected"}
+                                >
+                                  {row.getVisibleCells().map((cell) => (
+                                    <TableCell key={cell.id}>
+                                      {flexRender(
+                                        cell.column.columnDef.cell,
+                                        cell.getContext()
+                                      )}
+                                    </TableCell>
+                                  ))}
+                                </TableRow>
+                              ))
+                          ) : (
+                            <TableRow>
+                              <TableCell
+                                colSpan={columns.length}
+                                className="h-24 text-center"
+                              >
+                                No canceled plans found.
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing{" "}
+                        {
+                          table
+                            .getFilteredRowModel()
+                            .rows.filter(
+                              (row) => row.getValue("status") === "canceled"
+                            ).length
+                        }{" "}
+                        of{" "}
+                        {data?.plans.filter(
+                          (plan) => plan.status === "canceled"
+                        ).length || 0}{" "}
+                        canceled plans
                       </div>
                     </div>
                   </TabsContent>
