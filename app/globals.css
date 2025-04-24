@@ -129,20 +129,14 @@
 }
 
 @utility bg-grid-neutral-100 {
-  background-image: linear-gradient(
-      to right,
-      rgb(245 245 245 / 0.1) 1px,
-      transparent 1px
-    ),
+  background-image:
+    linear-gradient(to right, rgb(245 245 245 / 0.1) 1px, transparent 1px),
     linear-gradient(to bottom, rgb(245 245 245 / 0.1) 1px, transparent 1px);
 }
 
 @utility bg-grid-neutral-900 {
-  background-image: linear-gradient(
-      to right,
-      rgb(23 23 23 / 0.1) 1px,
-      transparent 1px
-    ),
+  background-image:
+    linear-gradient(to right, rgb(23 23 23 / 0.1) 1px, transparent 1px),
     linear-gradient(to bottom, rgb(23 23 23 / 0.1) 1px, transparent 1px);
 }
 
@@ -278,7 +272,9 @@
 @utility page-transition-enter-active {
   opacity: 1;
   transform: translate3d(0, 0, 0);
-  transition: opacity 300ms, transform 300ms;
+  transition:
+    opacity 300ms,
+    transform 300ms;
 }
 
 @utility page-transition-exit {
@@ -289,7 +285,9 @@
 @utility page-transition-exit-active {
   opacity: 0;
   transform: translate3d(0, -20px, 0);
-  transition: opacity 300ms, transform 300ms;
+  transition:
+    opacity 300ms,
+    transform 300ms;
 }
 
 @utility glow-effect {
@@ -357,8 +355,16 @@
   }
 
   body {
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-      Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    font-family:
+      system-ui,
+      -apple-system,
+      BlinkMacSystemFont,
+      "Segoe UI",
+      Roboto,
+      Oxygen,
+      Ubuntu,
+      Cantarell,
+      sans-serif;
     -webkit-font-smoothing: antialiased;
     position: relative;
     /* Remove width and overflow that can affect fixed positioning */
@@ -766,4 +772,15 @@
 
 .animate-progress {
   animation: progress 3s ease-in-out infinite;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }

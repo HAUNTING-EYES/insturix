@@ -71,7 +71,7 @@ const headerContent = {
     "Create a stunning landing page for all your content, social profiles, and links. Make it easier for your audience to find everything you share online.",
   videoUrl: "https://www.youtube.com/embed/kIhb5pEo_j0?si=6Nah3lDaJg_RwTIp",
   videoTitle: "Create Your Perfect Landing Page with Socialize",
-  getStartedLink: "/signup",
+  getStartedLink: "/dashboard/socialize",
   accentColor: THEME.color,
   accentGradient: THEME.gradient,
 };

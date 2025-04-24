@@ -43,6 +43,36 @@ const nextConfig: NextConfig = {
         hostname:"mfile.erweima.ai",
         port:"",
         pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"img.clerk.com",
+        port:"",
+        pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"www.youtube.com",
+        port:"",
+        pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"static.cdninstagram.com",
+        port:"",
+        pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"github.githubassets.com",
+        port:"",
+        pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"avatars.githubusercontent.com",
+        port:"",
+        pathname:"/**"
       }
     ],
   },
