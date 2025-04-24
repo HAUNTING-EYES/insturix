@@ -271,7 +271,7 @@ export default function DashboardForSocialize() {
             Transform your ideas into unique musical compositions
           </p>
         </div>
-        <div className="flex flex-col flex-1 justify-start items-center p-4 md:p-8 lg:p-10">
+        <div className="flex flex-col flex-1 justify-start items-center">
           <div
             className="fixed inset-0 -left-1/8 -top-20 z-[0] pointer-events-none
           bg-[radial-gradient(ellipse_at_top,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)]
@@ -592,7 +592,7 @@ export default function DashboardForSocialize() {
                         </div>
                       )
                     ) : (
-                      <div className="flex flex-col items-center justify-center p-8 text-center">
+                      <div className="flex flex-col items-center justify-center text-center">
                         <div className="w-16 h-16 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mb-4">
                           <ExternalLink className="w-8 h-8 text-[#0e6b9c]" />
                         </div>
