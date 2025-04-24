@@ -5,12 +5,18 @@ interface ILink {
   url: string;
 }
 
+interface INotification {
+  message: string;
+  duration: number;
+}
+
 interface ISocialize extends Document {
   clerkUserId: string;
   username: string;
   profileImage: string;
   bio: string;
   links: ILink[];
+  notifications: INotification[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +30,22 @@ const linkSchema = new Schema<ILink>(
     url: {
       type: String,
       required: true,
+    },
+  },
+  { _id: false }
+);
+
+const notificationSchema = new Schema<INotification>(
+  {
+    message: {
+      type: String,
+      required: true,
+    },
+    duration: {
+      type: Number,
+      required: true,
+      min: 1,
+      max: 24,
     },
   },
   { _id: false }
@@ -51,6 +73,10 @@ const socializeSchema = new Schema<ISocialize>(
     },
     links: {
       type: [linkSchema],
+      default: [],
+    },
+    notifications: {
+      type: [notificationSchema],
       default: [],
     },
   },

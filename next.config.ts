@@ -49,6 +49,24 @@ const nextConfig: NextConfig = {
         hostname:"img.clerk.com",
         port:"",
         pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"www.youtube.com",
+        port:"",
+        pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"static.cdninstagram.com",
+        port:"",
+        pathname:"/**"
+      },
+      {
+        protocol:"https",
+        hostname:"github.githubassets.com",
+        port:"",
+        pathname:"/**"
       }
     ],
   },

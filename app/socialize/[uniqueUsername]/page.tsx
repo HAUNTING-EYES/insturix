@@ -9,19 +9,45 @@ import axios from "axios";
 import Image from "next/image";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import type { Document } from "mongoose";
 
-interface Link {
+// Import interfaces from Socialize schema
+interface ILink {
   platform: string;
   url: string;
 }
 
-const fetchUserData = async (uniqueUsername: string) => {
+interface ISocializeResponse extends Document {
+  clerkUserId: string;
+  username: string;
+  uniqueUsername: string;
+  profileImage: string;
+  bio: string;
+  links: ILink[];
+  notifications?: {
+    message: string;
+    timestamp: Date;
+    read: boolean;
+  }[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+ * Fetch user data from the Socialize API
+ */
+const fetchSocializeUser = async (
+  uniqueUsername: string
+): Promise<ISocializeResponse> => {
   const { data } = await axios.get(
     `/api/services/socialize?uniqueUsername=${uniqueUsername}`
   );
   return data;
 };
 
+/**
+ * Fetch user profile image using the userId
+ */
 const fetchUserImage = async (userId: string) => {
   console.log("fetchUserImage called with userId:", userId);
   if (!userId) {
@@ -40,19 +66,19 @@ const fetchUserImage = async (userId: string) => {
   }
 };
 
-export default function PublicProfile() {
+export default function SocializePublicProfile() {
   const { uniqueUsername } = useParams();
   const [showNotification, setShowNotification] = useState(false);
   const notificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Use React Query to fetch and cache user data
+  // Use React Query to fetch and cache Socialize user data
   const {
-    data: userData,
-    isLoading: isLoadingUserData,
-    error: userDataError,
+    data: socializeData,
+    isLoading: isLoadingSocializeData,
+    error: socializeDataError,
   } = useQuery({
     queryKey: ["socializeUser", uniqueUsername],
-    queryFn: () => fetchUserData(uniqueUsername as string),
+    queryFn: () => fetchSocializeUser(uniqueUsername as string),
     enabled: !!uniqueUsername,
     retry: 1,
     staleTime: 1000 * 60 * 5, // 5 minutes
@@ -60,9 +86,9 @@ export default function PublicProfile() {
 
   // Fetch user profile image from Clerk if we have the clerkUserId
   const { data: profileImageUrl, isLoading: isLoadingImage } = useQuery({
-    queryKey: ["userImage", userData?.clerkUserId],
-    queryFn: () => fetchUserImage(userData?.clerkUserId),
-    enabled: !!userData?.clerkUserId,
+    queryKey: ["userImage", socializeData?.clerkUserId],
+    queryFn: () => fetchUserImage(socializeData?.clerkUserId as string),
+    enabled: !!socializeData?.clerkUserId,
     staleTime: 1000 * 60 * 60, // Cache for 1 hour
   });
 
@@ -89,7 +115,10 @@ export default function PublicProfile() {
     };
   }, []);
 
-  if (isLoadingUserData || (userData?.clerkUserId && isLoadingImage)) {
+  if (
+    isLoadingSocializeData ||
+    (socializeData?.clerkUserId && isLoadingImage)
+  ) {
     return (
       <div className="min-h-screen bg-[#0e1117] flex items-center justify-center relative overflow-hidden">
         {/* Blue gradient background */}
@@ -104,7 +133,7 @@ export default function PublicProfile() {
     );
   }
 
-  if (userDataError || !userData) {
+  if (socializeDataError || !socializeData) {
     return (
       <>
         <Navbar />
@@ -120,9 +149,11 @@ export default function PublicProfile() {
             <div className="w-20 h-20 bg-[#1a1a1f] rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-[#0e6b9c]/20">
               <span className="text-3xl">🔍</span>
             </div>
-            <h2 className="text-2xl font-bold mb-2">User Not Found</h2>
+            <h2 className="text-2xl font-bold mb-2">
+              Socialize User Not Found
+            </h2>
             <p className="text-gray-400">
-              This profile doesn&apos;t exist or has been removed.
+              This Socialize profile doesn&apos;t exist or has been removed.
             </p>
             <button
               className="mt-6 px-4 py-2 bg-[#0e6b9c] hover:bg-[#0d5d87] rounded-full text-white font-medium transition-all"
@@ -137,19 +168,14 @@ export default function PublicProfile() {
     );
   }
 
-  // Extract username from either the data object or from the params
-  // This ensures we always have a username to display
-  const displayName = userData.username || uniqueUsername;
-  const { bio, links, notifications } = userData;
+  // Extract profile data from the Socialize response
+  const { username, bio, links = [], notifications = [] } = socializeData;
+
+  const displayName = username || uniqueUsername;
   const hasNotifications = notifications && notifications.length > 0;
 
-  // Debug log for image URL right before rendering
-  console.log(
-    "Before rendering - profileImageUrl:",
-    profileImageUrl,
-    "typeof:",
-    typeof profileImageUrl
-  );
+  // Use either fetched profile image or the one from socializeData
+  const actualProfileImage = profileImageUrl || socializeData.profileImage;
 
   return (
     <>
@@ -168,12 +194,12 @@ export default function PublicProfile() {
           <div className="w-full bg-[#1a1a1f]/40 backdrop-blur-md rounded-xl mb-6 p-6 border border-[#2a2a35] shadow-xl relative">
             <div className="flex items-center gap-4">
               <div className="w-24 h-24 rounded-full overflow-hidden bg-gray-700 flex items-center justify-center border-4 border-[#0e6b9c] shadow-lg">
-                {profileImageUrl ? (
+                {actualProfileImage ? (
                   <Image
-                    src={profileImageUrl}
+                    src={actualProfileImage as string}
                     width={100}
                     height={100}
-                    alt={displayName || "Profile"}
+                    alt={(displayName as string) || "Profile"}
                     className="w-full h-full object-cover"
                     priority
                     onError={(e) => {
@@ -185,7 +211,11 @@ export default function PublicProfile() {
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-white text-2xl font-bold">
-                    {displayName ? displayName.charAt(0).toUpperCase() : "?"}
+                    {displayName
+                      ? typeof displayName === "string"
+                        ? displayName.charAt(0).toUpperCase()
+                        : String(displayName).charAt(0).toUpperCase()
+                      : "?"}
                   </div>
                 )}
               </div>
@@ -197,7 +227,7 @@ export default function PublicProfile() {
                 <p className="text-gray-300 text-sm">
                   {bio
                     ? bio.substring(0, 60) + (bio.length > 60 ? "..." : "")
-                    : "This profile has no bio yet."}
+                    : "This Socialize profile has no bio yet."}
                 </p>
               </div>
             </div>
@@ -261,10 +291,10 @@ export default function PublicProfile() {
             </div>
           )}
 
-          {/* Links */}
+          {/* Social Links from Socialize */}
           <div className="w-full max-w-sm space-y-3 mb-8">
             {links && links.length > 0 ? (
-              links.map((link: Link, i: number) => (
+              links.map((link: ILink, i: number) => (
                 <a
                   key={i}
                   href={link.url}
@@ -302,7 +332,7 @@ export default function PublicProfile() {
                 <div className="w-16 h-16 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mx-auto mb-4">
                   <span className="text-2xl">✨</span>
                 </div>
-                <p className="text-gray-400">No links added yet</p>
+                <p className="text-gray-400">No social links added yet</p>
               </div>
             )}
           </div>
