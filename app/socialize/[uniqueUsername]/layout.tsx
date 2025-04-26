@@ -41,7 +41,7 @@ export async function generateMetadata({
   const { username, bio, profileImage } = userData;
   const displayName = username || uniqueUsername;
   const userBio = bio || "Socialize profile.";
-  const title = `${displayName} Socialize Profile | Insturix`;
+  const title = `${displayName} Socialize Profile `;
   const description =
     userBio.length > 150 ? `${userBio.substring(0, 147)}...` : userBio;
 

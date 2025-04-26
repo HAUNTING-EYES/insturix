@@ -1,72 +1,63 @@
+import {
+  Twitter,
+  Instagram,
+  Facebook,
+  Linkedin,
+  Github,
+  Youtube,
+  Twitch,
+  Globe,
+  Mail,
+  Music,
+  AirplayIcon as Spotify,
+  LinkIcon,
+  Dribbble,
+  Figma,
+  Codepen,
+  Slack,
+  DiscIcon as Discord,
+} from "lucide-react";
+
 export function getPlatformIcon(platform: string) {
-  const iconClass = "w-6 h-6";
-  switch (platform) {
-    case "youtube":
-      return (
-        <svg viewBox="0 0 24 24" className={iconClass} fill="#FF0000">
-          <path d="M19.615 3.184c-3.604-.246-11.631-.245-15.23 0-3.897.266-4.356 2.62-4.385 8.816.029 6.185.484 8.549 4.385 8.816 3.6.245 11.626.246 15.23 0 3.897-.266 4.356-2.62 4.385-8.816-.029-6.185-.484-8.549-4.385-8.816zm-10.615 12.816v-8l8 3.993-8 4.007z" />
-        </svg>
-      );
-    case "instagram":
-      return (
-        <svg
-          viewBox="0 0 24 24"
-          className={iconClass}
-          fill="url(#instagram-gradient)"
-        >
-          <defs>
-            <linearGradient
-              id="instagram-gradient"
-              x1="0%"
-              y1="0%"
-              x2="100%"
-              y2="100%"
-            >
-              <stop offset="0%" stopColor="#fdf497" />
-              <stop offset="5%" stopColor="#fdf497" />
-              <stop offset="45%" stopColor="#fd5949" />
-              <stop offset="60%" stopColor="#d6249f" />
-              <stop offset="90%" stopColor="#285AEB" />
-            </linearGradient>
-          </defs>
-          <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
-        </svg>
-      );
-    case "tiktok":
-      return (
-        <svg viewBox="0 0 16 16" className={iconClass} fill="#fff">
-          <path d="M9 0h1.98c.144.715.54 1.617 1.235 2.512C12.895 3.389 13.797 4 15 4v2c-1.753 0-3.07-.814-4-1.829V11a5 5 0 1 1-5-5v2a3 3 0 1 0 3 3z" />
-        </svg>
-      );
+  const iconProps = { className: "w-5 h-5 text-white" };
+
+  const normalizedPlatform = platform.toLowerCase();
+
+  switch (normalizedPlatform) {
     case "twitter":
-      return (
-        <svg viewBox="0 0 24 24" className={iconClass} fill="#1DA1F2">
-          <path d="M23.643 4.937c-.835.37-1.732.62-2.675.733.962-.576 1.7-1.49 2.048-2.578-.9.534-1.897.922-2.958 1.13-.85-.904-2.06-1.47-3.4-1.47-2.572 0-4.658 2.086-4.658 4.66 0 .364.042.718.12 1.06-3.873-.195-7.304-2.05-9.602-4.868-.4.69-.63 1.49-.63 2.342 0 1.616.823 3.043 2.072 3.878-.764-.025-1.482-.234-2.11-.583v.06c0 2.257 1.605 4.14 3.737 4.568-.392.106-.803.162-1.227.162-.3 0-.593-.028-.877-.082.593 1.85 2.313 3.198 4.352 3.234-1.595 1.25-3.604 1.995-5.786 1.995-.376 0-.747-.022-1.112-.065 2.062 1.323 4.51 2.093 7.14 2.093 8.57 0 13.255-7.098 13.255-13.254 0-.2-.005-.402-.014-.602.91-.658 1.7-1.477 2.323-2.41z" />
-        </svg>
-      );
+    case "x":
+      return <Twitter {...iconProps} />;
+    case "instagram":
+      return <Instagram {...iconProps} />;
+    case "facebook":
+      return <Facebook {...iconProps} />;
+    case "linkedin":
+      return <Linkedin {...iconProps} />;
     case "github":
-      return (
-        <svg viewBox="0 0 24 24" className={iconClass} fill="#181717">
-          <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
-        </svg>
-      );
+      return <Github {...iconProps} />;
+    case "youtube":
+      return <Youtube {...iconProps} />;
+    case "twitch":
+      return <Twitch {...iconProps} />;
     case "website":
-      return (
-        <svg viewBox="0 0 24 24" className={iconClass} fill="#4285F4">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-        </svg>
-      );
+      return <Globe {...iconProps} />;
+    case "email":
+      return <Mail {...iconProps} />;
+    case "spotify":
+      return <Spotify {...iconProps} />;
+    case "music":
+      return <Music {...iconProps} />;
+    case "dribbble":
+      return <Dribbble {...iconProps} />;
+    case "figma":
+      return <Figma {...iconProps} />;
+    case "codepen":
+      return <Codepen {...iconProps} />;
+    case "slack":
+      return <Slack {...iconProps} />;
+    case "discord":
+      return <Discord {...iconProps} />;
     default:
-      return (
-        <svg viewBox="0 0 24 24" className={iconClass} fill="currentColor">
-          <path
-            d="M12 4v16m-8-8h16"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
+      return <LinkIcon {...iconProps} />;
   }
 }

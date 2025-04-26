@@ -6,15 +6,23 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
-import Link from "next/link";
 import {
-  ExternalLink,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { SocializeHeader } from "./SocializeHeader";
+import { SocializeShareBar } from "./SocializeShareBar";
+import { SocializeAddLinkButton } from "./SocializeAddLinkButton";
+import { SocializeNotificationCard } from "./SocializeNotificationCard";
+import { SocializeLinksCard } from "./SocializeLinksCard";
+import { SocializeLinkPreviewCard } from "./SocializeLinkPreviewCard";
+import {
   Plus,
-  Trash2,
   Bell,
-  Copy,
-  Check,
-  Share2,
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -27,44 +35,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { getPlatformIcon } from "./SocializeIcons";
-import { MobileView } from "./MobileView";
-import Image from "next/image";
 
-// Import interfaces from the Socialize schema
-import type { Document } from "mongoose";
-
-// Interface definitions directly matching the Socialize schema
 interface ILink {
   platform: string;
   url: string;
 }
 
-interface ISocialize extends Document {
+interface ISocialize {
   clerkUserId: string;
   username: string;
   profileImage: string;
   bio: string;
   links: ILink[];
-  uniqueUsername?: string; // For compatibility with API
+  uniqueUsername?: string;
   notifications?: { message: string; duration: number }[];
   createdAt: Date;
   updatedAt: Date;
@@ -77,7 +60,6 @@ interface LinkPreview {
   url: string;
 }
 
-// API client
 const api = axios.create({
   baseURL: "/api",
   headers: {
@@ -85,12 +67,12 @@ const api = axios.create({
   },
 });
 
-export default function DashboardForSocialize() {
+export default function SocializeDashboard() {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const uniqueUsername = user?.username || "";
 
-  // State
+  // State management and other hooks remain unchanged...
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUpdatePopup, setShowUpdatePopup] = useState(false);
   const [newLink, setNewLink] = useState<ILink>({
@@ -100,14 +82,12 @@ export default function DashboardForSocialize() {
   const [duration, setDuration] = useState(1);
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState(false);
-  const [selectedLinkIndex, setSelectedLinkIndex] = useState<number | null>(
-    null
-  );
+  const [selectedLinkIndex, setSelectedLinkIndex] = useState<number | null>(null);
   const [bio, setBio] = useState("");
   const [showEditBioModal, setShowEditBioModal] = useState(false);
 
-  // Queries
-  const { data: userData, isLoading } = useQuery<ISocialize>({
+  // Queries and mutations remain unchanged...
+  const { data: userData, isLoading } = useQuery({
     queryKey: ["userData", uniqueUsername],
     queryFn: async () => {
       if (!uniqueUsername)
@@ -119,7 +99,7 @@ export default function DashboardForSocialize() {
           links: [],
           createdAt: new Date(),
           updatedAt: new Date(),
-        } as unknown as ISocialize;
+        } as ISocialize;
 
       const { data } = await api.get<ISocialize>(
         `/services/socialize?uniqueUsername=${uniqueUsername}`
@@ -130,27 +110,18 @@ export default function DashboardForSocialize() {
   });
 
   const { data: previewData, isLoading: isPreviewLoading } = useQuery({
-    queryKey: [
-      "linkPreview",
-      selectedLinkIndex !== null
-        ? userData?.links?.[selectedLinkIndex]?.url
-        : null,
-    ],
+    queryKey: ["linkPreview", selectedLinkIndex !== null ? userData?.links?.[selectedLinkIndex]?.url : null],
     queryFn: async () => {
       if (selectedLinkIndex === null || !userData?.links?.[selectedLinkIndex]) {
         return null;
       }
       const url = userData.links[selectedLinkIndex].url;
-      const { data } = await api.get(
-        `/link-preview?url=${encodeURIComponent(url)}`
-      );
+      const { data } = await api.get(`/link-preview?url=${encodeURIComponent(url)}`);
       return data as LinkPreview;
     },
-    enabled:
-      selectedLinkIndex !== null && !!userData?.links?.[selectedLinkIndex],
+    enabled: selectedLinkIndex !== null && !!userData?.links?.[selectedLinkIndex],
   });
 
-  // Mutations
   const updateUserDataMutation = useMutation({
     mutationFn: async (data: Partial<ISocialize>) => {
       return api.patch("/services/socialize", { username: uniqueUsername, ...data });
@@ -164,21 +135,10 @@ export default function DashboardForSocialize() {
     },
   });
 
-  // Effects
-  useEffect(() => {
-    if (userData) {
-      setBio(userData.bio || "");
-      setMessage(userData.notifications?.[0]?.message || "");
-      setDuration(userData.notifications?.[0]?.duration || 1);
-    }
-  }, [userData]);
-
-  // Handlers
+  // Event handlers remain unchanged...
   const handleAddLink = async () => {
     if (!newLink.url.trim()) return;
-
     const updatedLinks = [...(userData?.links || []), newLink];
-
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
@@ -193,11 +153,7 @@ export default function DashboardForSocialize() {
 
   const handleRemoveLink = async (indexToRemove: number) => {
     if (!userData?.links) return;
-
-    const updatedLinks = userData.links.filter(
-      (_, index) => index !== indexToRemove
-    );
-
+    const updatedLinks = userData.links.filter((_, index) => index !== indexToRemove);
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
@@ -225,7 +181,6 @@ export default function DashboardForSocialize() {
 
   const handleAddUpdate = async () => {
     if (duration < 1 || duration > 24 || !message.trim()) return;
-
     updateUserDataMutation.mutate(
       {
         notifications: [{ message, duration }],
@@ -241,8 +196,7 @@ export default function DashboardForSocialize() {
 
   const handleCopyUrl = () => {
     const url = `https://insturix.com/socialize/${uniqueUsername}`;
-    navigator.clipboard
-      .writeText(url)
+    navigator.clipboard.writeText(url)
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 2000);
@@ -257,371 +211,85 @@ export default function DashboardForSocialize() {
     setSelectedLinkIndex(index);
   };
 
+  useEffect(() => {
+    if (userData) {
+      setBio(userData.bio || "");
+      setMessage(userData.notifications?.[0]?.message || "");
+      setDuration(userData.notifications?.[0]?.duration || 1);
+    }
+  }, [userData]);
+
   return (
-    <div className="min-h-screen bg-black flex flex-col">
-      {/* Header */}
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-3">
-            <Share2 className="h-8 w-8 text-teal-500" />
-            Socialize
-          </h1>
-          <p className="mt-3 text-lg text-zinc-400 font-light">
-            Transform your ideas into unique musical compositions
-          </p>
+    <div className="relative">
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="w-16 h-16 border-t-4 border-b-4 border-[#0e6b9c] rounded-full animate-spin"></div>
         </div>
-        <div className="flex flex-col flex-1 justify-start items-center">
-          <div
-            className="fixed inset-0 -left-1/8 -top-20 z-[0] pointer-events-none
-          bg-[radial-gradient(ellipse_at_top,_#0e6b9c_2%,_#0e6b9c_2%,_transparent_60%)]
-          w-full h-[100vh] transition-all duration-700"
-          />
-
-          {/* Main Content */}
-          {isLoading ? (
-            <div className="flex-1 flex items-center justify-center w-full max-w-6xl">
-              <div className="w-16 h-16 border-t-4 border-b-4 border-[#0e6b9c] rounded-full animate-spin"></div>
-            </div>
-          ) : (
-            <div className="w-full max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
-              <div className="lg:col-span-2">
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5 }}
-                  className="bg-black/20 p-4 rounded-lg mb-8 backdrop-blur-sm border border-[#0e6b9c]/30"
-                >
-                  <div className="flex items-center justify-between gap-4 flex-wrap md:flex-nowrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-orange-400">🔥</span>
-                      <span className="text-white">Your link is live:</span>
-                      <Link
-                        href={`https://insturix.com/socialize/${uniqueUsername}`}
-                        className="text-blue-400 hover:underline truncate max-w-[200px] md:max-w-none"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        insturix.com/socialize/{uniqueUsername}
-                      </Link>
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="bg-white text-black hover:bg-gray-200 hover:text-black"
-                      onClick={handleCopyUrl}
-                    >
-                      {copied ? (
-                        <Check className="w-4 h-4 mr-2" />
-                      ) : (
-                        <Copy className="w-4 h-4 mr-2" />
-                      )}
-                      {copied ? "Copied!" : "Copy URL"}
-                    </Button>
-                  </div>
-                </motion.div>
-
-                {/* Profile Section */}
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.1 }}
-                  className="mb-8"
-                >
-                  <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
-                    <CardHeader>
-                      <div className="flex items-center gap-4">
-                        <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#0e6b9c]">
-                          <Image
-                            src={user?.imageUrl as string}
-                            width={32}
-                            height={64}
-                            alt={`${user?.username}'s profile picture`}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <div>
-                          <CardTitle className="text-xl text-white">
-                            {user?.username}
-                          </CardTitle>
-                          <CardDescription className="text-gray-300">
-                            {userData?.bio ||
-                              "No bio yet. Click edit to add one."}
-                          </CardDescription>
-                        </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="ml-auto"
-                          onClick={() => setShowEditBioModal(true)}
-                        >
-                          Edit Bio
-                        </Button>
-                      </div>
-                    </CardHeader>
-                  </Card>
-                </motion.div>
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.2 }}
-                  className="mb-6"
-                >
+      ) : (
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="relative z-10 space-y-6"
+        >
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Main Content Area */}
+            <div className="lg:col-span-2 space-y-6">
+              <SocializeHeader
+                user={user ? { username: user.username ?? undefined, imageUrl: user.imageUrl ?? undefined } : null}
+                bio={bio}
+                onEditBio={() => setShowEditBioModal(true)}
+              />
+              <SocializeShareBar
+                uniqueUsername={uniqueUsername}
+                copied={copied}
+                onCopy={handleCopyUrl}
+              />
+              <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
+              {userData?.notifications?.[0]?.message ? (
+                <SocializeNotificationCard
+                  message={userData.notifications[0].message}
+                  duration={userData.notifications[0].duration}
+                  onEdit={() => setShowUpdatePopup(true)}
+                />
+              ) : (
+                <div className="mb-6">
                   <Button
-                    className="w-full bg-gradient-to-r from-[#0e6b9c]/80 to-[#0e6b9c]/40 hover:from-[#0e6b9c] hover:to-[#0e6b9c]/60 text-white border border-[#0e6b9c]/50 shadow-lg shadow-[#0e6b9c]/20"
-                    onClick={() => setShowAddModal(true)}
+                    variant="outline"
+                    className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                    onClick={() => setShowUpdatePopup(true)}
                   >
-                    <Plus className="w-5 h-5 mr-2" />
-                    Add New Link
+                    <Bell className="w-4 h-4 mr-2" />
+                    Add a New Update
                   </Button>
-                </motion.div>
-
-                {userData?.notifications?.[0]?.message ? (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.3 }}
-                    className="mb-6"
-                  >
-                    <Card className="bg-black/40 border-[#0e6b9c]/30">
-                      <CardContent className="p-4 flex items-center gap-3">
-                        <div className="w-8 h-8 bg-[#0e6b9c]/30 rounded-full flex items-center justify-center">
-                          <Bell className="w-4 h-4 text-white" />
-                        </div>
-                        <div className="flex-1">
-                          <p className="text-white font-medium">
-                            {userData.notifications[0].message}
-                          </p>
-                          <p className="text-gray-400 text-sm">
-                            Duration: {userData.notifications[0].duration} hours
-                          </p>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setShowUpdatePopup(true)}
-                        >
-                          Edit
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: 0.3 }}
-                    className="mb-6"
-                  >
-                    <Button
-                      variant="outline"
-                      className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
-                      onClick={() => setShowUpdatePopup(true)}
-                    >
-                      <Bell className="w-4 h-4 mr-2" />
-                      Add a New Update
-                    </Button>
-                  </motion.div>
-                )}
-
-                <motion.div
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.4 }}
-                >
-                  <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
-                    <CardHeader>
-                      <CardTitle className="text-xl text-white">
-                        Your Links
-                      </CardTitle>
-                      <CardDescription>
-                        {userData?.links?.length
-                          ? `You have ${userData.links.length} link${userData.links.length > 1 ? "s" : ""}`
-                          : "Add your first link to get started"}
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      {userData?.links?.length ? (
-                        <div className="grid gap-4">
-                          {userData.links.map((link: ILink, index: number) => (
-                            <motion.div
-                              key={index}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3, delay: index * 0.1 }}
-                              className={`w-full bg-black/40 py-3 rounded-lg flex items-center justify-between gap-2 hover:bg-black/60 transition border ${selectedLinkIndex === index ? "border-[#0e6b9c]" : "border-[#0e6b9c]/30"} px-5 cursor-pointer`}
-                              onClick={() => handleSelectLink(index)}
-                            >
-                              <div className="flex items-center gap-4 flex-1 truncate">
-                                {getPlatformIcon(link.platform)}
-                                <span className="text-white truncate">
-                                  {link.url}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  asChild
-                                  onClick={(
-                                    e: React.MouseEvent<HTMLButtonElement>
-                                  ) => e.stopPropagation()}
-                                >
-                                  <Link
-                                    href={link.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-gray-400 hover:text-white"
-                                  >
-                                    <ExternalLink className="w-4 h-4" />
-                                  </Link>
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-gray-400 hover:text-white"
-                                  onClick={(
-                                    e: React.MouseEvent<HTMLButtonElement>
-                                  ) => {
-                                    e.stopPropagation();
-                                    handleRemoveLink(index);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </motion.div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="text-center py-8">
-                          <div className="w-12 h-12 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <span className="text-2xl">✨</span>
-                          </div>
-                          <p className="mb-2 text-lg font-medium text-white">
-                            Show the world who you are.
-                          </p>
-                          <p className="text-gray-400">
-                            Add a link to get started.
-                          </p>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              </div>
-
-              {/* Link Preview Section */}
-              <motion.div
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.5, delay: 0.5 }}
-                className="lg:col-span-1 sticky top-20"
-              >
-                <Card className="bg-black/30 border-[#0e6b9c]/30 backdrop-blur-sm h-full">
-                  <CardHeader>
-                    <CardTitle className="text-lg text-white">
-                      Link Preview
-                    </CardTitle>
-                    <CardDescription>
-                      Select a link to see how it appears to visitors
-                    </CardDescription>
-                  </CardHeader>
-
-                  <CardContent>
-                    {selectedLinkIndex !== null ? (
-                      isPreviewLoading ? (
-                        <div className="space-y-3">
-                          <Skeleton className="h-[200px] w-full bg-gray-800" />
-                          <Skeleton className="h-4 w-3/4 bg-gray-800" />
-                          <Skeleton className="h-4 w-full bg-gray-800" />
-                          <Skeleton className="h-4 w-1/2 bg-gray-800" />
-                        </div>
-                      ) : (
-                        <div className="rounded-lg overflow-hidden border border-[#0e6b9c]/30">
-                          <div className="aspect-video bg-gray-800 relative overflow-hidden">
-                            {previewData?.image ? (
-                              <Image
-                                src={previewData.image as string}
-                                alt={previewData.title as string}
-                                width={64}
-                                height={64}
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                                <Share2 className="w-10 h-10 text-gray-700" />
-                              </div>
-                            )}
-                          </div>
-                          <div className="p-4 bg-black/60">
-                            <h3 className="font-medium text-white mb-2 line-clamp-2">
-                              {previewData?.title || "No title available"}
-                            </h3>
-                            <p className="text-gray-300 text-sm line-clamp-3">
-                              {previewData?.description ||
-                                "No description available"}
-                            </p>
-                            <div className="mt-4 flex items-center justify-between">
-                              <Badge
-                                variant="outline"
-                                className="text-xs text-gray-400 truncate max-w-[180px]"
-                              >
-                                {userData?.links?.[selectedLinkIndex]?.platform}
-                              </Badge>
-                              <Button
-                                variant="link"
-                                size="sm"
-                                className="text-[#0e6b9c] hover:text-[#0e6b9c]/80 p-0"
-                                asChild
-                              >
-                                <a
-                                  href={
-                                    userData?.links?.[selectedLinkIndex]?.url
-                                  }
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                >
-                                  Visit
-                                  <ExternalLink className="w-3 h-3 ml-1" />
-                                </a>
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      )
-                    ) : (
-                      <div className="flex flex-col items-center justify-center text-center">
-                        <div className="w-16 h-16 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mb-4">
-                          <ExternalLink className="w-8 h-8 text-[#0e6b9c]" />
-                        </div>
-                        <h3 className="text-white font-medium mb-2">
-                          No link selected
-                        </h3>
-                        <p className="text-gray-400 text-sm">
-                          Click on a link from your list to see a preview of how
-                          it will appear to your visitors
-                        </p>
-                      </div>
-                    )}
-                  </CardContent>
-
-                  <CardFooter className="border-t border-[#0e6b9c]/30 pt-4">
-                    <MobileView
-                      logo={user?.imageUrl || null}
-                      profileTitle={user?.username || ""}
-                      bio={userData?.bio || ""}
-                      links={userData?.links || []}
-                    />
-                  </CardFooter>
-                </Card>
-              </motion.div>
+                </div>
+              )}
+              <SocializeLinksCard
+                links={userData?.links || []}
+                selectedLinkIndex={selectedLinkIndex}
+                onSelectLink={handleSelectLink}
+                onRemoveLink={handleRemoveLink}
+              />
             </div>
-          )}
 
-          {/* Modals */}
-          <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+            {/* Sidebar */}
+            <div className="lg:col-span-1 sticky top-20">
+              <SocializeLinkPreviewCard
+                selectedLinkIndex={selectedLinkIndex}
+                isPreviewLoading={isPreviewLoading}
+                previewData={previewData ?? null}
+                userLinks={userData?.links || []}
+                userBio={userData?.bio || ""}
+                userLogo={user && "imageUrl" in user ? user.imageUrl ?? null : null}
+                userName={user && "username" in user ? user.username ?? undefined : undefined}
+              />
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Modals */}
+      <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
             <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
               <DialogHeader>
                 <DialogTitle className="flex items-center gap-2 text-xl">
@@ -801,8 +469,6 @@ export default function DashboardForSocialize() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
     </div>
   );
 }

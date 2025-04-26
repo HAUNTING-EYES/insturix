@@ -1,33 +1,33 @@
-"use client";
+"use client"
 
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
-import { ExternalLink, Share2 } from "lucide-react";
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { MobileView } from "./MobileView";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Badge } from "@/components/ui/badge"
+import { ExternalLink, Share2 } from "lucide-react"
+import Image from "next/image"
+import { Button } from "@/components/ui/button"
+import { SocializePreview } from "./PreviewSocialize"
 
 interface LinkPreview {
-  title: string;
-  description: string;
-  image: string | null;
-  url: string;
+  title: string
+  description: string
+  image: string | null
+  url: string
 }
 
 interface ILink {
-  platform: string;
-  url: string;
+  platform: string
+  url: string
 }
 
 interface SocializeLinkPreviewCardProps {
-  selectedLinkIndex: number | null;
-  isPreviewLoading: boolean;
-  previewData: LinkPreview | null;
-  userLinks: ILink[];
-  userBio: string;
-  userLogo: string | null | undefined;
-  userName: string | undefined;
+  selectedLinkIndex: number | null
+  isPreviewLoading: boolean
+  previewData: LinkPreview | null
+  userLinks: ILink[]
+  userBio: string
+  userLogo: string | null | undefined
+  userName: string | undefined
 }
 
 export function SocializeLinkPreviewCard({
@@ -43,9 +43,7 @@ export function SocializeLinkPreviewCard({
     <Card className="bg-black/30 border-[#0e6b9c]/30 backdrop-blur-sm h-full">
       <CardHeader>
         <CardTitle className="text-lg text-white">Link Preview</CardTitle>
-        <CardDescription>
-          Select a link to see how it appears to visitors
-        </CardDescription>
+        <CardDescription>Select a link to see how it appears to visitors</CardDescription>
       </CardHeader>
       <CardContent>
         {selectedLinkIndex !== null ? (
@@ -61,10 +59,10 @@ export function SocializeLinkPreviewCard({
               <div className="aspect-video bg-gray-800 relative overflow-hidden">
                 {previewData?.image ? (
                   <Image
-                    src={previewData.image as string}
-                    alt={previewData.title as string}
-                    width={64}
-                    height={64}
+                    src={previewData.image || "/placeholder.svg"}
+                    alt={previewData.title || "Link preview"}
+                    width={500}
+                    height={300}
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -81,22 +79,15 @@ export function SocializeLinkPreviewCard({
                   {previewData?.description || "No description available"}
                 </p>
                 <div className="mt-4 flex items-center justify-between">
-                  <Badge
-                    variant="outline"
-                    className="text-xs text-gray-400 truncate max-w-[180px]"
-                  >
+                  <Badge variant="outline" className="text-xs text-gray-400 truncate max-w-[180px]">
                     {userLinks?.[selectedLinkIndex]?.platform}
                   </Badge>
-                  <Button
-                    variant="link"
-                    size="sm"
-                    className="text-[#0e6b9c] hover:text-[#0e6b9c]/80 p-0"
-                    asChild
-                  >
+                  <Button variant="link" size="sm" className="text-[#0e6b9c] hover:text-[#0e6b9c]/80 p-0" asChild>
                     <a
                       href={userLinks?.[selectedLinkIndex]?.url}
                       target="_blank"
                       rel="noopener noreferrer"
+                      className="flex items-center"
                     >
                       Visit
                       <ExternalLink className="w-3 h-3 ml-1" />
@@ -107,7 +98,7 @@ export function SocializeLinkPreviewCard({
             </div>
           )
         ) : (
-          <div className="flex flex-col items-center justify-center text-center">
+          <div className="flex flex-col items-center justify-center text-center p-8">
             <div className="w-16 h-16 bg-[#0e6b9c]/20 rounded-full flex items-center justify-center mb-4">
               <ExternalLink className="w-8 h-8 text-[#0e6b9c]" />
             </div>
@@ -119,7 +110,7 @@ export function SocializeLinkPreviewCard({
         )}
       </CardContent>
       <CardFooter className="border-t border-[#0e6b9c]/30 pt-4">
-        <MobileView
+        <SocializePreview
           logo={userLogo || null}
           profileTitle={userName || ""}
           bio={userBio || ""}
@@ -127,5 +118,5 @@ export function SocializeLinkPreviewCard({
         />
       </CardFooter>
     </Card>
-  );
+  )
 }

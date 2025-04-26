@@ -1,80 +1,88 @@
-"use client"
+"use client";
 
-import { useState, useRef, useEffect } from "react"
-import { motion, AnimatePresence } from "framer-motion"
-import { ChevronDown, LogOut, Settings, UserCog, CreditCard } from "lucide-react"
-import { useUser, useClerk } from "@clerk/nextjs"
-import { useQuery } from "@tanstack/react-query"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { ThemeToggle } from "@/components/ThemeForToolTip"
-import NotSignedIn from "../NotSignedup"
-import { PaymentHistoryDialog } from "@/components/PaymentDialog"
-import { PlanHistoryDialog } from "@/components/PlanHistoryDialog"
+import { useState, useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-
+  ChevronDown,
+  LogOut,
+  Settings,
+  UserCog,
+  CreditCard,
+} from "lucide-react";
+import { useUser, useClerk } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { ThemeToggle } from "@/components/ThemeForToolTip";
+import NotSignedIn from "../NotSignedup";
+import { PaymentHistoryDialog } from "@/components/PaymentDialog";
+import { PlanHistoryDialog } from "@/components/PlanHistoryDialog";
+import { Select, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // User type interface from MongoDB
 interface Payment {
-  date: Date
-  time: string
-  amount: number
-  payment_id: string
-  phone_number: string
-  status?: string
+  date: Date;
+  time: string;
+  amount: number;
+  payment_id: string;
+  phone_number: string;
+  status?: string;
 }
 
 // Plan type interface
 interface Plan {
-  id: string
-  name: string
-  startDate: Date
-  endDate: Date | null
-  price: number
-  status: "active" | "expired" | "canceled"
-  features?: string[]
+  id: string;
+  name: string;
+  startDate: Date;
+  endDate: Date | null;
+  price: number;
+  status: "active" | "expired" | "canceled";
+  features?: string[];
 }
 
 interface UserData {
-  id: string
-  clerkUserId: string
-  email: string
-  userType: string
-  payments: Payment[]
-  plans?: Plan[]
-  notifications?: number
+  id: string;
+  clerkUserId: string;
+  email: string;
+  userType: string;
+  payments: Payment[];
+  plans?: Plan[];
+  notifications?: number;
 }
 
 // API function to fetch user data
 const fetchUserData = async (): Promise<UserData> => {
-  const response = await fetch("/api/user")
+  const response = await fetch("/api/user");
   if (!response.ok) {
-    throw new Error("Failed to fetch user data")
+    throw new Error("Failed to fetch user data");
   }
-  return response.json()
-}
+  return response.json();
+};
 
 export default function UserDropdown({
   onSettingsClick,
   onUpgradeClick,
 }: {
-  onSettingsClick: () => void
-  onUpgradeClick: () => void
+  onSettingsClick: () => void;
+  onUpgradeClick: () => void;
 }) {
-  const { user } = useUser()
-  const { signOut } = useClerk()
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const { user } = useUser();
+  const { signOut } = useClerk();
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   // State for dialogs
-  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false)
-  const [planHistoryOpen, setPlanHistoryOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<"account" | "preferences">("account")
+  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
+  const [planHistoryOpen, setPlanHistoryOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"account" | "preferences">(
+    "account"
+  );
 
   // Use React Query to fetch user data with better error handling and loading states
   const {
@@ -88,64 +96,67 @@ export default function UserDropdown({
     staleTime: 5 * 60 * 1000,
     retry: 3,
     refetchOnWindowFocus: false,
-  })
+  });
 
   // Handle click outside to close dropdown
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setIsOpen(false)
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
       }
     }
 
-    document.addEventListener("mousedown", handleClickOutside)
+    document.addEventListener("mousedown", handleClickOutside);
     return () => {
-      document.removeEventListener("mousedown", handleClickOutside)
-    }
-  }, [])
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   // Handle escape key to close dropdown
   useEffect(() => {
     function handleEscapeKey(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setIsOpen(false)
+        setIsOpen(false);
       }
     }
 
-    document.addEventListener("keydown", handleEscapeKey)
+    document.addEventListener("keydown", handleEscapeKey);
     return () => {
-      document.removeEventListener("keydown", handleEscapeKey)
-    }
-  }, [])
+      document.removeEventListener("keydown", handleEscapeKey);
+    };
+  }, []);
 
   const toggleDropdown = () => {
-    setIsOpen(!isOpen)
-  }
+    setIsOpen(!isOpen);
+  };
 
   const handleSignOut = () => {
-    signOut()
-    setIsOpen(false)
-  }
+    signOut();
+    setIsOpen(false);
+  };
 
   const handleSettingsClick = () => {
-    onSettingsClick()
-    setIsOpen(false)
-  }
+    onSettingsClick();
+    setIsOpen(false);
+  };
 
   const handleUpgradeClick = () => {
-    onUpgradeClick()
-    setIsOpen(false)
-  }
+    onUpgradeClick();
+    setIsOpen(false);
+  };
 
   const handlePaymentHistoryClick = () => {
-    setPaymentHistoryOpen(true)
-    setIsOpen(false)
-  }
+    setPaymentHistoryOpen(true);
+    setIsOpen(false);
+  };
 
   const handlePlanHistoryClick = () => {
-    setPlanHistoryOpen(true)
-    setIsOpen(false)
-  }
+    setPlanHistoryOpen(true);
+    setIsOpen(false);
+  };
 
   // Sample data for demonstration
   const samplePayments: Payment[] = userData?.payments || [
@@ -173,7 +184,7 @@ export default function UserDropdown({
       phone_number: "+1 (555) 123-4567",
       status: "Completed",
     },
-  ]
+  ];
 
   const samplePlans: Plan[] = userData?.plans || [
     {
@@ -194,13 +205,13 @@ export default function UserDropdown({
       status: "expired",
       features: ["Feature 1", "Feature 2"],
     },
-  ]
+  ];
 
-  if (!user) return <NotSignedIn />
+  if (!user) return <NotSignedIn />;
 
-  const userType = userData?.userType || "User"
-  const isPremium = userType.toLowerCase().includes("premium")
-  const notifications = userData?.notifications || 0
+  const userType = userData?.userType || "User";
+  const isPremium = userType.toLowerCase().includes("premium");
+  const notifications = userData?.notifications || 0;
 
   return (
     <div className="relative w-full" ref={dropdownRef}>
@@ -219,7 +230,10 @@ export default function UserDropdown({
         <div className="flex items-center gap-2">
           <div className="relative">
             <Avatar className="h-8 w-8 border border-white/10">
-              <AvatarImage src={user.imageUrl || undefined} alt={user.fullName || "User"} />
+              <AvatarImage
+                src={user.imageUrl || undefined}
+                alt={user.fullName || "User"}
+              />
               <AvatarFallback className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
                 {user.firstName?.charAt(0) || user.username?.charAt(0) || "U"}
               </AvatarFallback>
@@ -231,10 +245,16 @@ export default function UserDropdown({
             )}
           </div>
           <div className="text-left">
-            <p className="text-sm font-medium truncate max-w-[140px]">{user.username}</p>
+            <p className="text-sm font-medium truncate max-w-[140px]">
+              {user.username}
+            </p>
             <div className="flex items-center gap-1">
               <p className="text-xs text-zinc-400 truncate max-w-[140px]">
-                {isLoading ? "Loading..." : isError ? "Error loading data" : userType}
+                {isLoading
+                  ? "Loading..."
+                  : isError
+                    ? "Error loading data"
+                    : userType}
               </p>
               {isPremium && (
                 <Badge
@@ -247,7 +267,11 @@ export default function UserDropdown({
             </div>
           </div>
         </div>
-        <motion.div animate={{ rotate: isOpen ? 180 : 0 }} transition={{ duration: 0.2 }} className="text-zinc-400">
+        <motion.div
+          animate={{ rotate: isOpen ? 180 : 0 }}
+          transition={{ duration: 0.2 }}
+          className="text-zinc-400"
+        >
           <ChevronDown className="w-4 h-4" />
         </motion.div>
       </motion.button>
@@ -266,14 +290,23 @@ export default function UserDropdown({
               {/* User info header */}
               <div className="flex items-center gap-3 px-3 py-2 mb-3">
                 <Avatar className="h-10 w-10 border border-white/10">
-                  <AvatarImage src={user.imageUrl || undefined} alt={user.fullName || "User"} />
+                  <AvatarImage
+                    src={user.imageUrl || undefined}
+                    alt={user.fullName || "User"}
+                  />
                   <AvatarFallback className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
-                    {user.firstName?.charAt(0) || user.username?.charAt(0) || "U"}
+                    {user.firstName?.charAt(0) ||
+                      user.username?.charAt(0) ||
+                      "U"}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="font-medium">{user.fullName || user.username}</p>
-                  <p className="text-xs text-zinc-400">{user.primaryEmailAddress?.emailAddress}</p>
+                  <p className="font-medium">
+                    {user.fullName || user.username}
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    {user.primaryEmailAddress?.emailAddress}
+                  </p>
                 </div>
               </div>
 
@@ -308,7 +341,9 @@ export default function UserDropdown({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <motion.button
-                          whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.1)" }}
+                          whileHover={{
+                            backgroundColor: "rgba(255, 255, 255, 0.1)",
+                          }}
                           whileTap={{ scale: 0.98 }}
                           onClick={handleSettingsClick}
                           className="w-full flex items-center gap-2 p-2 rounded-md text-left text-white transition-colors"
@@ -328,7 +363,9 @@ export default function UserDropdown({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <motion.button
-                          whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.1)" }}
+                          whileHover={{
+                            backgroundColor: "rgba(255, 255, 255, 0.1)",
+                          }}
                           whileTap={{ scale: 0.98 }}
                           onClick={handlePaymentHistoryClick}
                           className="w-full flex items-center gap-2 p-2 rounded-md text-left text-white transition-colors"
@@ -348,7 +385,9 @@ export default function UserDropdown({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <motion.button
-                          whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.1)" }}
+                          whileHover={{
+                            backgroundColor: "rgba(255, 255, 255, 0.1)",
+                          }}
                           whileTap={{ scale: 0.98 }}
                           onClick={handlePlanHistoryClick}
                           className="w-full flex items-center gap-2 p-2 rounded-md text-left text-white transition-colors"
@@ -359,7 +398,9 @@ export default function UserDropdown({
                         </motion.button>
                       </TooltipTrigger>
                       <TooltipContent side="right">
-                        <p className="text-xs">View your subscription plan history</p>
+                        <p className="text-xs">
+                          View your subscription plan history
+                        </p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
@@ -367,7 +408,9 @@ export default function UserDropdown({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <motion.button
-                          whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.1)" }}
+                          whileHover={{
+                            backgroundColor: "rgba(255, 255, 255, 0.1)",
+                          }}
                           whileTap={{ scale: 0.98 }}
                           onClick={handleSignOut}
                           className="w-full flex items-center gap-2 p-2 rounded-md text-left text-red-500 transition-colors"
@@ -392,11 +435,11 @@ export default function UserDropdown({
                     </div>
                   </div>
                   <div className="space-y-2">
-                  <Select>
-                  <SelectTrigger className="w-[180px]">
-                  <SelectValue placeholder="English" />
-                  </SelectTrigger>
-                  </Select>
+                    <Select>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="English" />
+                      </SelectTrigger>
+                    </Select>
                   </div>
                 </div>
               )}
@@ -409,17 +452,26 @@ export default function UserDropdown({
                 onClick={handleUpgradeClick}
                 className="w-full py-2 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 rounded-md text-white font-medium text-sm transition-all"
                 type="button"
+                disabled
               >
-                Upgrade Plan
+                Comming Soon
               </motion.button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
       {/* Payment History Dialog */}
-      <PaymentHistoryDialog open={paymentHistoryOpen} onOpenChange={setPaymentHistoryOpen} payments={samplePayments} />
+      <PaymentHistoryDialog
+        open={paymentHistoryOpen}
+        onOpenChange={setPaymentHistoryOpen}
+        payments={samplePayments}
+      />
       {/* Plan History Dialog */}
-      <PlanHistoryDialog open={planHistoryOpen} onOpenChange={setPlanHistoryOpen} plans={samplePlans} />
+      <PlanHistoryDialog
+        open={planHistoryOpen}
+        onOpenChange={setPlanHistoryOpen}
+        plans={samplePlans}
+      />
     </div>
-  )
+  );
 }
