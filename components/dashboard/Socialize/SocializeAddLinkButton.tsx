@@ -10,7 +10,8 @@ interface SocializeAddLinkButtonProps {
 export function SocializeAddLinkButton({ onClick }: SocializeAddLinkButtonProps) {
   return (
     <Button
-      className="w-full bg-gradient-to-r from-[#0ea5e9]/80 to-[#0ea5e9]/40 hover:from-[#0ea5e9] hover:to-[#0ea5e9]/60 text-white border border-[#0ea5e9]/50 shadow-lg shadow-[#0ea5e9]/20"
+      variant="custom"
+      className="w-full bg-gradient-to-r from-[#0e6b9c]/80 to-[#0e6b9c]/40 hover:from-[#0e6b9c] hover:to-[#0e6b9c]/60 text-white border border-[#0e6b9c]/50 shadow-lg shadow-[#0e6b9c]/20"
       onClick={onClick}
     >
       <Plus className="w-5 h-5 mr-2" />
