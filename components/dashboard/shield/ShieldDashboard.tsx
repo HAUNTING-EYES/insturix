@@ -565,7 +565,7 @@ export default function CreatorApplicationForm() {
                                       <SelectTrigger>
                                         <SelectValue placeholder="Select platform" />
                                       </SelectTrigger>
-                                      <SelectContent>
+                                      <SelectContent className="bg-gray-800">
                                         {platformOptions.map((option) => (
                                           <SelectItem
                                             key={option}
