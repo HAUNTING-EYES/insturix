@@ -3,7 +3,7 @@ import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 import { auth } from "@clerk/nextjs/server";
 import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
 import { serializeAnalyses } from "@/app/dashboard/alyzitron/utils/serialization";
-import { BarChart2, Star, Loader } from "lucide-react";
+import { BarChart2, Sparkles, Star, Loader } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -99,7 +99,7 @@ export default async function AlyzitronDashboard() {
           <div>
             <div>
               <h1 className="text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-3">
-                <BarChart2 className="h-8 w-8" color="#3b81f5" />
+                <Sparkles className="h-8 w-8" color="#3b81f5" />
                 Alyzitron
               </h1>
               <p className="mt-3 text-lg text-zinc-400 font-light">
