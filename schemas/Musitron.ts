@@ -4,8 +4,8 @@ interface IMusitronTrack {
   id: string;
   audio_url: string;
   source_audio_url: string;
-  stream_audio_url: string;
-  source_stream_audio_url: string;
+  stream_audio_url?: string;
+  source_stream_audio_url?: string;
   image_url: string;
   source_image_url: string;
   prompt: string;
@@ -37,11 +37,11 @@ const musitronTrackSchema = new Schema<IMusitronTrack>({
   },
   stream_audio_url: {
     type: String,
-    required: true,
+    required: false,
   },
   source_stream_audio_url: {
     type: String,
-    required: true,
+    required: false,
   },
   image_url: {
     type: String,
