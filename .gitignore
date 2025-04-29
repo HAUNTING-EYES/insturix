@@ -11,3 +11,5 @@ node_modules
 .DS_Store
 # clerk configuration (can include secrets)
 /.clerk/
+
+editron-457314-dbaa23a9bf46.json

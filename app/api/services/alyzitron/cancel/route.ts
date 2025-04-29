@@ -4,9 +4,9 @@ import { getCollections } from '../utils/mongodb';
 import { logger, withLogging } from '../utils/logger';
 import { Storage } from '@google-cloud/storage'; // Import GCS Storage
 
-const PYTHON_SERVER_URL = process.env.PYTHON_SERVER_URL;
-if (!PYTHON_SERVER_URL) {
-  throw new Error('PYTHON_SERVER_URL environment variable is not set');
+const ALYZITRON_BACKEND_URL = process.env.ALYZITRON_BACKEND_URL;
+if (!ALYZITRON_BACKEND_URL) {
+  throw new Error('ALYZITRON_BACKEND_URL environment variable is not set');
 }
 
 // --- GCS Configuration Check ---
@@ -99,7 +99,7 @@ async function handleCancelRequest(req: NextRequest) {
     });
 
     // Request cancellation from Python server
-    const response = await fetch(`${PYTHON_SERVER_URL}/api/v1/task/${taskId}`, {
+    const response = await fetch(`${ALYZITRON_BACKEND_URL}/api/v1/task/${taskId}`, {
       method: 'DELETE',
     });
 
