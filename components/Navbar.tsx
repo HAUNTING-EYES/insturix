@@ -50,7 +50,7 @@ const LogoAnimation = () => {
           >
             {theme === "light" ? (
               <Image
-                src={DarkLogo || "/placeholder.svg"}
+                src={DarkLogo}
                 alt="Insturix Logo"
                 width={48}
                 height={48}
@@ -58,7 +58,7 @@ const LogoAnimation = () => {
               />
             ) : (
               <Image
-                src={LightLogo || "/placeholder.svg"}
+                src={LightLogo}
                 alt="Insturix Logo"
                 width={48}
                 height={48}
@@ -129,6 +129,10 @@ const menuItems = [
     title: "Contribute",
     href: "/contribute",
   },
+  {
+    title:"Partner with us",
+    href:"/contactus",
+  }
 ];
 
 export default function Navbar() {
