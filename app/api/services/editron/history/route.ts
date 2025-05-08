@@ -1,5 +1,5 @@
 // GET /api/services/editron/history
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getTasksCollection } from "@/lib/editron-mongo";
 import { EditronTask, EditronTaskResult } from "@/lib/types"; // Import EditronTaskResult
 import { Storage } from "@google-cloud/storage"; // Import GCS Storage
@@ -9,16 +9,19 @@ import { auth } from "@clerk/nextjs/server"; // Import Clerk auth
 function getGcsCredentialsOptions(): { keyFilename: string } | undefined {
   const keyFilename = process.env.EDITRON_SECRET_KEY_JSON;
   if (!keyFilename) {
-    console.warn("[GCS Creds] EDITRON_SECRET_KEY_JSON (path to key file) not set. Falling back to Application Default Credentials.");
+    console.warn(
+      "[GCS Creds] EDITRON_SECRET_KEY_JSON (path to key file) not set. Falling back to Application Default Credentials."
+    );
     return undefined;
   }
   // Assume the env var contains the path to the key file
-  console.log(`[GCS Creds] Using keyFilename from EDITRON_SECRET_KEY_JSON: ${keyFilename}`);
+  console.log(
+    `[GCS Creds] Using keyFilename from EDITRON_SECRET_KEY_JSON: ${keyFilename}`
+  );
   return { keyFilename };
 }
 
-
-export async function GET(req: NextRequest) {
+export async function GET() {
   let userId: string | null = null; // Declare userId outside try block
   try {
     // Use Clerk authentication
@@ -39,7 +42,9 @@ export async function GET(req: NextRequest) {
       .find({ user_id: userId }) // Assuming user_id in MongoDB matches Clerk's userId
       .sort({ created_at: -1 });
     const tasksArray = await tasksCursor.toArray(); // Fetch all tasks first
-    console.log(`[History API] Found ${tasksArray.length} tasks in DB for user ${userId}`); // Log initial count
+    console.log(
+      `[History API] Found ${tasksArray.length} tasks in DB for user ${userId}`
+    ); // Log initial count
 
     // Initialize GCS client once if needed
     let storage: Storage | null = null;
@@ -57,8 +62,8 @@ export async function GET(req: NextRequest) {
           try {
             // Initialize storage client if not already done, using specific keyfile if available
             if (!storage) {
-               const options = getGcsCredentialsOptions();
-               storage = new Storage(options); // Pass { keyFilename: path } or undefined
+              const options = getGcsCredentialsOptions();
+              storage = new Storage(options); // Pass { keyFilename: path } or undefined
             }
 
             const gcsUrls = Array.isArray(task.result.gcsUrl)
@@ -68,40 +73,50 @@ export async function GET(req: NextRequest) {
             const signedUrls = [];
 
             for (const url of gcsUrls) {
-               const expectedPrefix = `https://storage.googleapis.com/${bucketName}/`;
-               if (typeof url !== 'string' || !url.startsWith(expectedPrefix)) {
-                  console.warn(`[History] Skipping URL with unexpected format for task ${task._id}: ${url}. Expected prefix: ${expectedPrefix}`);
-                  continue;
-               }
-               // Extract object name from HTTPS URL
-               const objectName = url.substring(expectedPrefix.length);
-                if (!objectName) {
-                   console.warn(`[History] Could not extract object name from HTTPS URL for task ${task._id}: ${url}`);
-                   continue;
-               }
-               console.log(`[History] Extracted object name: ${objectName} from URL: ${url}`); // Log extracted name
-               const file = storage.bucket(bucketName).file(objectName);
+              const expectedPrefix = `https://storage.googleapis.com/${bucketName}/`;
+              if (typeof url !== "string" || !url.startsWith(expectedPrefix)) {
+                console.warn(
+                  `[History] Skipping URL with unexpected format for task ${task._id}: ${url}. Expected prefix: ${expectedPrefix}`
+                );
+                continue;
+              }
+              // Extract object name from HTTPS URL
+              const objectName = url.substring(expectedPrefix.length);
+              if (!objectName) {
+                console.warn(
+                  `[History] Could not extract object name from HTTPS URL for task ${task._id}: ${url}`
+                );
+                continue;
+              }
+              console.log(
+                `[History] Extracted object name: ${objectName} from URL: ${url}`
+              ); // Log extracted name
+              const file = storage.bucket(bucketName).file(objectName);
 
-               try {
-                   // Generate playback URL
-                   const [playableUrl] = await file.getSignedUrl({
-                     action: "read",
-                     expires,
-                   });
+              try {
+                // Generate playback URL
+                const [playableUrl] = await file.getSignedUrl({
+                  action: "read",
+                  expires,
+                });
 
-                   // Generate download URL
-                   const filename = objectName.split('/').pop() || 'generated_video.mp4';
-                   const [downloadUrl] = await file.getSignedUrl({
-                     action: "read",
-                     expires,
-                     responseDisposition: `attachment; filename="${filename}"`,
-                   });
+                // Generate download URL
+                const filename =
+                  objectName.split("/").pop() || "generated_video.mp4";
+                const [downloadUrl] = await file.getSignedUrl({
+                  action: "read",
+                  expires,
+                  responseDisposition: `attachment; filename="${filename}"`,
+                });
 
-                   signedUrls.push({ playableUrl, downloadUrl });
-               } catch (signError: any) {
-                   console.error(`[History] Error generating signed URL for ${objectName} in task ${task._id}:`, signError);
-                   // Skip this URL on error
-               }
+                signedUrls.push({ playableUrl, downloadUrl });
+              } catch (signError: Error | unknown) {
+                console.error(
+                  `[History] Error generating signed URL for ${objectName} in task ${task._id}:`,
+                  signError
+                );
+                // Skip this URL on error
+              }
             }
 
             // If signed URLs were generated, modify the task object
@@ -113,23 +128,28 @@ export async function GET(req: NextRequest) {
               newResult.signedUrls = signedUrls; // Add signed URLs
 
               const newTask: EditronTask = {
-                 ...task,
-                 result: newResult,
+                ...task,
+                result: newResult,
               };
               return newTask; // Return the modified task
             } else if (gcsUrls.length > 0) {
-                console.warn(`[History] No signed URLs generated for task ${task._id}, returning original data.`);
-                // Optionally remove gcsUrl even if generation failed
-                const newResult: EditronTaskResult = { ...task.result };
-                delete newResult.gcsUrl;
-                const newTask: EditronTask = {
-                    ...task,
-                    result: newResult,
-                };
-                return newTask;
+              console.warn(
+                `[History] No signed URLs generated for task ${task._id}, returning original data.`
+              );
+              // Optionally remove gcsUrl even if generation failed
+              const newResult: EditronTaskResult = { ...task.result };
+              delete newResult.gcsUrl;
+              const newTask: EditronTask = {
+                ...task,
+                result: newResult,
+              };
+              return newTask;
             }
-          } catch (gcsError: any) {
-            console.error(`[History] Error during GCS operations for task ${task._id}:`, gcsError);
+          } catch (gcsError: Error | unknown) {
+            console.error(
+              `[History] Error during GCS operations for task ${task._id}:`,
+              gcsError
+            );
             // Return the original task if there's a broader GCS error
           }
         }
@@ -138,20 +158,26 @@ export async function GET(req: NextRequest) {
       })
     );
 
-     if (!bucketName) {
-        console.error("[History] EDITRON_GCS_BUCKET_NAME environment variable is not set. Signed URLs cannot be generated for completed tasks.");
-     }
-     console.log(`[History API] Returning ${processedTasks.length} processed tasks for user ${userId}`); // Log final count
- 
-     return NextResponse.json(
-       { tasks: processedTasks }, // Return the processed tasks
-       { status: 200 }
-     );
-   } catch (err: any) {
-     console.error(`[History API] Error fetching history for user ${userId || 'UNKNOWN'}:`, err); // Log errors
-     return NextResponse.json(
-      { error: err.message || "Internal server error" },
-      { status: 500 }
+    if (!bucketName) {
+      console.error(
+        "[History] EDITRON_GCS_BUCKET_NAME environment variable is not set. Signed URLs cannot be generated for completed tasks."
+      );
+    }
+    console.log(
+      `[History API] Returning ${processedTasks.length} processed tasks for user ${userId}`
+    ); // Log final count
+
+    return NextResponse.json(
+      { tasks: processedTasks }, // Return the processed tasks
+      { status: 200 }
     );
+  } catch (err: Error | unknown) {
+    const errorMessage =
+      err instanceof Error ? err.message : "Internal server error";
+    console.error(
+      `[History API] Error fetching history for user ${userId || "UNKNOWN"}:`,
+      err
+    ); // Log errors
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

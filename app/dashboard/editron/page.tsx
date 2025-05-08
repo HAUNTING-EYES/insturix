@@ -1,14 +1,14 @@
 // Editron Dashboard with YouTube validation and UI update
 "use client";
 
-import { useState, useRef, useEffect, FormEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
-import { ProgressBar } from "@/components/ui/progress-bar";
-import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
-import { ArrowRight, Loader2, Clock } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { HistoryPanel } from "@/components/dashboard/Editron/HistoryPanel";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
 
 type TaskStatus = "QUEUED" | "PROCESSING" | "COMPLETED" | "FAILED" | null;
 
@@ -31,18 +31,92 @@ interface EditronTaskStatusResponse {
   error?: EditronTaskError;
 }
 
+interface EditronTaskSubmitResponse {
+  task_id: string;
+}
+
+interface HistoryTask {
+  _id: string;
+  status: TaskStatus;
+  youtube_url?: string;
+  created_at?: string;
+}
+
+// API functions using axios
+const checkTaskStatus = async (
+  taskId: string
+): Promise<EditronTaskStatusResponse> => {
+  try {
+    const { data } = await axios.get<EditronTaskStatusResponse>(
+      `/api/services/editron/status/${taskId}`
+    );
+    return data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      throw new Error(
+        error.response?.data?.error || "Failed to fetch task status"
+      );
+    }
+    throw error;
+  }
+};
+
+const submitEditronTask = async (
+  youtubeUrl: string
+): Promise<EditronTaskSubmitResponse> => {
+  try {
+    const { data } = await axios.post<EditronTaskSubmitResponse>(
+      "/api/services/editron/submit",
+      { youtube_url: youtubeUrl }
+    );
+    return data;
+  } catch (error) {
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 429) {
+        throw new Error("RATE_LIMITED");
+      }
+      throw new Error(error.response?.data?.error || "Failed to submit task");
+    }
+    throw error;
+  }
+};
+
+const fetchActiveTask = async (): Promise<HistoryTask | undefined> => {
+  try {
+    const { data } = await axios.get("/api/services/editron/history");
+    console.log("[Active Task Check] History API Response:", data);
+
+    const tasks = data?.tasks || [];
+    console.log("[Active Task Check] Tasks found:", tasks);
+
+    const activeTask = tasks.find((task: HistoryTask) => {
+      console.log(
+        `[Active Task Check] Checking task ${task._id} with status: ${task.status}`
+      );
+      return task.status === "QUEUED" || task.status === "PROCESSING";
+    });
+
+    console.log("[Active Task Check] Active task found:", activeTask);
+    return activeTask;
+  } catch (error) {
+    console.error("Error checking for active task:", error);
+    return undefined;
+  }
+};
+
+// Define query keys
+const QueryKeys = {
+  taskStatus: (taskId: string) => ["editron", "task", taskId],
+  activeTask: ["editron", "active-task"],
+};
+
 export default function EditronDashboard() {
+  const queryClient = useQueryClient();
   const [inputValue, setInputValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskId, setTaskId] = useState<string | null>(null);
-  const [taskStatus, setTaskStatus] = useState<TaskStatus>(null);
-  const [taskResult, setTaskResult] = useState<EditronTaskResult | null>(null);
-  const [taskError, setTaskError] = useState<string | null>(null);
   const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const [showSubmitted, setShowSubmitted] = useState(false);
-  const [isCheckingActiveTask, setIsCheckingActiveTask] = useState(true); // New state for initial check
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
 
   // Rate limit countdown
   const [now, setNow] = useState(Date.now());
@@ -52,125 +126,93 @@ export default function EditronDashboard() {
     return () => clearInterval(interval);
   }, [rateLimitUntil]);
 
-  // Check for existing active task on mount
+  // Check for active task
+  const { isLoading: isCheckingActiveTask, data: activeTaskData } = useQuery({
+    queryKey: QueryKeys.activeTask,
+    queryFn: fetchActiveTask,
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+    retry: 1,
+  });
+
+  // Set task ID when active task is found
   useEffect(() => {
-    const checkActiveTask = async () => {
-      setIsCheckingActiveTask(true);
-      setError(null); // Clear previous errors
-      try {
-        const res = await fetch("/api/services/editron/history");
-        if (!res.ok) {
-          // Don't necessarily show error, just proceed without finding active task
-          console.error("Failed to fetch history for active task check");
-          setIsCheckingActiveTask(false);
-          return;
-        }
-        const data = await res.json();
-        console.log("[Active Task Check] History API Response:", data); // Log the raw response
-        const tasks = data?.tasks || [];
-        console.log("[Active Task Check] Tasks found:", tasks); // Log the tasks array
+    if (activeTaskData) {
+      console.log(
+        `[Active Task Check] Found active task ID: ${activeTaskData._id}`
+      );
+      setTaskId(activeTaskData._id);
+    }
+  }, [activeTaskData]);
 
-        const activeTask = tasks.find(
-          (task: any) => {
-             console.log(`[Active Task Check] Checking task ${task._id} with status: ${task.status}`); // Log each task status
-             return task.status === "QUEUED" || task.status === "PROCESSING";
-          }
-        );
+  // Task status query
+  const { data: taskData } = useQuery<EditronTaskStatusResponse>({
+    queryKey: QueryKeys.taskStatus(taskId || ""),
+    queryFn: () => checkTaskStatus(taskId as string),
+    enabled: !!taskId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || data.status === "QUEUED" || data.status === "PROCESSING") {
+        return 1500; // Poll every 1.5 seconds while in progress
+      }
+      return false; // Stop polling when complete or failed
+    },
+    staleTime: 0, // Always fetch fresh status
+  });
 
-        console.log("[Active Task Check] Active task found:", activeTask); // Log the result of find
-
-        if (activeTask) {
-          console.log(`[Active Task Check] Setting active task ID: ${activeTask._id}`);
-          setTaskId(activeTask._id); // Set the active task ID to trigger polling
+  // Task submission mutation
+  const taskSubmitMutation = useMutation({
+    mutationFn: submitEditronTask,
+    onSuccess: (data) => {
+      setTaskId(data.task_id);
+      setShowSubmitted(true);
+      setInputValue("");
+      setTimeout(() => setShowSubmitted(false), 1800);
+      // Immediately refetch status for the new task
+      queryClient.invalidateQueries({
+        queryKey: QueryKeys.taskStatus(data.task_id),
+      });
+    },
+    onError: (error: Error) => {
+      if (error.message === "RATE_LIMITED") {
+        const response = error.cause as Response;
+        if (response?.json) {
+          response
+            .json()
+            .then((data) => {
+              const retryTimestamp = data.next_allowed_at
+                ? new Date(data.next_allowed_at).getTime()
+                : Date.now() + 60000;
+              setRateLimitUntil(retryTimestamp);
+            })
+            .catch(() => {
+              // Default rate limit if we can't parse the response
+              setRateLimitUntil(Date.now() + 60000);
+            });
         } else {
-          console.log("[Active Task Check] No active task found in history.");
+          // Fallback if no structured response
+          setRateLimitUntil(Date.now() + 60000);
         }
-      } catch (err) {
-        console.error("Error checking for active task:", err);
-        // Optionally set an error state here if needed
-      } finally {
-        setIsCheckingActiveTask(false);
+      } else {
+        setError(error.message || "Task submission failed.");
       }
-    };
+    },
+  });
 
-    checkActiveTask();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run only on mount
-
-  // Polling for task status
-  useEffect(() => {
-    if (!taskId) return;
-    setTaskStatus("QUEUED");
-    setTaskResult(null);
-    setTaskError(null);
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/services/editron/status/${taskId}`);
-        if (!res.ok) throw new Error("Failed to fetch status");
-        const data: EditronTaskStatusResponse = await res.json();
-        setTaskStatus(data.status);
-        if (data.status === "COMPLETED") {
-          setTaskResult(data.result || null);
-          clearInterval(pollingRef.current!);
-          pollingRef.current = null;
-        } else if (data.status === "FAILED") {
-          setTaskError(data.error?.message || "Task failed.");
-          clearInterval(pollingRef.current!);
-          pollingRef.current = null;
-        }
-      } catch {
-        setTaskError("Failed to fetch task status.");
-        clearInterval(pollingRef.current!);
-        pollingRef.current = null;
-      }
-    };
-
-    poll();
-    pollingRef.current = setInterval(poll, 1500);
-
-    return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-    };
-  }, [taskId]);
+  // Extract values from the task data with proper typing
+  const taskStatus =
+    (taskData as EditronTaskStatusResponse | undefined)?.status || null;
+  const taskResult =
+    (taskData as EditronTaskStatusResponse | undefined)?.result || null;
+  const taskError =
+    (taskData as EditronTaskStatusResponse | undefined)?.error?.message || null;
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
     setError(null);
     setTaskId(null);
-    setTaskStatus(null);
-    setTaskResult(null);
-    setTaskError(null);
-    setShowSubmitted(false);
 
-    try {
-      const res = await fetch("/api/services/editron/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ youtube_url: inputValue }),
-      });
-
-      if (res.status === 201) {
-        const data = await res.json();
-        setTaskId(data.task_id);
-        setShowSubmitted(true);
-        setInputValue("");
-        setTimeout(() => setShowSubmitted(false), 1800);
-      } else if (res.status === 429) {
-        const data = await res.json();
-        // Use next_allowed_at from the API response
-        const retryTimestamp = data.next_allowed_at ? new Date(data.next_allowed_at).getTime() : null;
-        setRateLimitUntil(retryTimestamp);
-      } else {
-        const data = await res.json().catch(() => ({}));
-        setError(data?.error || "Submission failed.");
-      }
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
+    taskSubmitMutation.mutate(inputValue);
   };
 
   return (
@@ -182,17 +224,29 @@ export default function EditronDashboard() {
       {/* Aurora Animated Background */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-0"
-        style={{
-          background:
-            "radial-gradient(ellipse 80% 60% at 20% 30%, rgba(0,200,255,0.18) 0%, transparent 70%)," +
-            "radial-gradient(ellipse 60% 40% at 80% 70%, rgba(255,0,200,0.14) 0%, transparent 70%)," +
-            "radial-gradient(ellipse 60% 60% at 60% 20%, rgba(0,255,180,0.12) 0%, transparent 70%)",
-          animation: "auroraMove 12s ease-in-out infinite alternate"
-        }}
+        className="pointer-events-none absolute inset-0 z-0 aurora-background"
       />
-      <style>
+      <style jsx global>
         {`
+          .aurora-background {
+            background:
+              radial-gradient(
+                ellipse 80% 60% at 20% 30%,
+                rgba(0, 200, 255, 0.18) 0%,
+                transparent 70%
+              ),
+              radial-gradient(
+                ellipse 60% 40% at 80% 70%,
+                rgba(255, 0, 200, 0.14) 0%,
+                transparent 70%
+              ),
+              radial-gradient(
+                ellipse 60% 60% at 60% 20%,
+                rgba(0, 255, 180, 0.12) 0%,
+                transparent 70%
+              );
+            animation: auroraMove 12s ease-in-out infinite alternate;
+          }
           @keyframes auroraMove {
             0% {
               filter: blur(0px) brightness(1);
@@ -213,10 +267,10 @@ export default function EditronDashboard() {
         <div>
           <h1 className="text-4xl font-semibold text-zinc-100">Editron v0.1</h1>
           <p className="mt-4 text-lg text-zinc-400 font-light">
-            Generate YouTube Shorts instantly from your favorite podcasts. Enter the link below:
+            Generate YouTube Shorts instantly from your favorite podcasts. Enter
+            the link below:
           </p>
         </div>
-
 
         {/* Submission Success Message */}
         {showSubmitted && (
@@ -229,17 +283,18 @@ export default function EditronDashboard() {
 
         {/* Polling/Status UI */}
         {taskId && (taskStatus === "QUEUED" || taskStatus === "PROCESSING") && (
-            <div className="flex flex-col items-center gap-4 py-8">
+          <div className="flex flex-col items-center gap-4 py-8">
             <Loader2 className="h-8 w-8 animate-spin text-blue-500" />
             <span className="text-blue-400 font-medium">
               {taskStatus === "QUEUED"
-              ? "Task is queued..."
-              : "Generating shorts..."}
+                ? "Task is queued..."
+                : "Generating shorts..."}
             </span>
             <p className="text-sm text-zinc-400 text-center">
-              This process can take up to 5 minutes to complete. Feel free to switch windows.
+              This process can take up to 5 minutes to complete. Feel free to
+              switch windows.
             </p>
-            </div>
+          </div>
         )}
 
         {/* Completed Result */}
@@ -253,8 +308,11 @@ export default function EditronDashboard() {
                 <span className="text-green-400 font-medium">
                   Your shorts are ready:
                 </span>
-                {taskResult.signedUrls.map((urls, i) => (
-                  <div key={i} className="border border-zinc-700 p-3 rounded-lg bg-zinc-900/60">
+                {taskResult.signedUrls.map((urls: SignedUrlPair, i: number) => (
+                  <div
+                    key={i}
+                    className="border border-zinc-700 p-3 rounded-lg bg-zinc-900/60"
+                  >
                     <p className="text-sm text-zinc-300 mb-2">Short {i + 1}</p>
                     <video
                       src={urls.playableUrl}
@@ -289,9 +347,6 @@ export default function EditronDashboard() {
               className="mt-2"
               onClick={() => {
                 setTaskId(null);
-                setTaskStatus(null);
-                setTaskResult(null);
-                setTaskError(null);
               }}
             >
               Try Again
@@ -301,10 +356,12 @@ export default function EditronDashboard() {
 
         {/* Initial Loading Check */}
         {isCheckingActiveTask && (
-           <div className="flex flex-col items-center gap-2 py-8">
-             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
-             <span className="text-zinc-400 text-sm">Checking for active tasks...</span>
-           </div>
+          <div className="flex flex-col items-center gap-2 py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
+            <span className="text-zinc-400 text-sm">
+              Checking for active tasks...
+            </span>
+          </div>
         )}
 
         {/* Input Form - Show only if not checking and no active/processing task */}
@@ -319,16 +376,23 @@ export default function EditronDashboard() {
                 placeholder="Paste YouTube podcast link here"
                 className="bg-black/30 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:ring-2 focus:ring-blue-500"
                 value={inputValue}
-                onChange={e => setInputValue(e.target.value)}
-                disabled={isLoading || !!(rateLimitUntil && rateLimitUntil > now)}
+                onChange={(e) => setInputValue(e.target.value)}
+                disabled={
+                  taskSubmitMutation.isPending ||
+                  !!(rateLimitUntil && rateLimitUntil > now)
+                }
               />
               <Button
                 variant="default"
                 className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 flex items-center gap-2"
                 type="submit"
-                disabled={isLoading || !inputValue.trim() || !!(rateLimitUntil && rateLimitUntil > now)}
+                disabled={
+                  taskSubmitMutation.isPending ||
+                  !inputValue.trim() ||
+                  !!(rateLimitUntil && rateLimitUntil > now)
+                }
               >
-                {isLoading ? (
+                {taskSubmitMutation.isPending ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                   <ArrowRight className="h-5 w-5" />
@@ -357,7 +421,8 @@ export default function EditronDashboard() {
         )}
 
         <p className="text-sm text-zinc-500">
-          Editron v0.1 (Beta): Currently supports YouTube Short generation from podcasts. Stay tuned for advanced editing features!
+          Editron v0.1 (Beta): Currently supports YouTube Short generation from
+          podcasts. Stay tuned for advanced editing features!
         </p>
       </div>
     </div>

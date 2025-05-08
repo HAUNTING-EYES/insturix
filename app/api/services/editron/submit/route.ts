@@ -58,7 +58,8 @@ export async function POST(req: NextRequest) {
         const nextAllowed = new Date(lastCreated.getTime() + twentyFourHoursMs);
         return NextResponse.json(
           {
-            error: "Rate limit exceeded. Only 1 task submission per 24 hours is allowed.",
+            error:
+              "Rate limit exceeded. Only 1 task submission per 24 hours is allowed.",
             next_allowed_at: nextAllowed.toISOString(),
           },
           { status: 429 } // Too Many Requests
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
         // Send Clerk userId as user_id to Python backend
         body: JSON.stringify({ youtube_url, user_id: userId }),
       });
-    } catch (networkError: any) {
+    } catch (networkError: Error | unknown) {
       console.error("Network error calling Python API:", networkError);
       return NextResponse.json(
         { error: "Failed to connect to the processing service" },
@@ -95,55 +96,64 @@ export async function POST(req: NextRequest) {
     const responseStatus = pythonResponse.status;
     let responseData;
     try {
-        // Try to parse JSON, but handle cases where the body might be empty or not JSON
-        const text = await pythonResponse.text();
-        if (text) {
-            responseData = JSON.parse(text);
-        }
+      // Try to parse JSON, but handle cases where the body might be empty or not JSON
+      const text = await pythonResponse.text();
+      if (text) {
+        responseData = JSON.parse(text);
+      }
     } catch (parseError) {
-        console.error(`Failed to parse JSON response from Python API (Status: ${responseStatus}):`, parseError);
-        // Don't necessarily fail here, maybe the status code is enough
+      console.error(
+        `Failed to parse JSON response from Python API (Status: ${responseStatus}):`,
+        parseError
+      );
+      // Don't necessarily fail here, maybe the status code is enough
     }
-
 
     if (responseStatus === 201) {
       // Task accepted by Python API
       const task_id = responseData?.task_id;
       if (!task_id) {
-         console.error("Python API returned 201 but no task_id");
-         return NextResponse.json(
-            { error: "Processing service returned an invalid response" },
-            { status: 500 }
-         );
+        console.error("Python API returned 201 but no task_id");
+        return NextResponse.json(
+          { error: "Processing service returned an invalid response" },
+          { status: 500 }
+        );
       }
-       // Optionally: Store the task_id and initial status in MongoDB here if needed
+      // Optionally: Store the task_id and initial status in MongoDB here if needed
       console.log(`Task submitted successfully. Task ID: ${task_id}`);
       return NextResponse.json({ task_id }, { status: 201 });
-
     } else if (responseStatus >= 400 && responseStatus < 500) {
       // Client error from Python API (e.g., bad URL, validation error)
-      const errorMessage = responseData?.detail || "Invalid request to processing service";
-      console.error(`Python API returned client error (${responseStatus}): ${errorMessage}`);
+      const errorMessage =
+        responseData?.detail || "Invalid request to processing service";
+      console.error(
+        `Python API returned client error (${responseStatus}): ${errorMessage}`
+      );
       return NextResponse.json(
         { error: errorMessage },
         { status: responseStatus } // Forward the client error status
       );
-
     } else {
       // Server error from Python API or unexpected status
       const errorMessage = responseData?.detail || "Processing service failed";
-      console.error(`Python API returned server error (${responseStatus}): ${errorMessage}`);
+      console.error(
+        `Python API returned server error (${responseStatus}): ${errorMessage}`
+      );
       return NextResponse.json(
         { error: "The processing service encountered an error" },
         { status: 502 } // Bad Gateway
       );
     }
-
-  } catch (error: any) {
+  } catch (error: Error | unknown) {
     // Catch-all for unexpected errors in this route handler
     console.error("Unexpected error in Editron submit route:", error);
     return NextResponse.json(
-      { error: error.message || "An internal server error occurred" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "An internal server error occurred",
+      },
       { status: 500 }
     );
   }

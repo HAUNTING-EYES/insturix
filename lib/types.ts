@@ -18,7 +18,7 @@ export interface EditronTaskResult {
   gcsUrl?: string | string[]; // Make original optional, allow string or array
   signedUrls?: { playableUrl: string; downloadUrl: string }[]; // Add new field for signed URLs
   // Allow other potential properties within the result object
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface EditronTask {
@@ -32,6 +32,6 @@ export interface EditronTask {
   error?: {
     code?: string;
     message?: string;
-    details?: any;
+    details?: unknown;
   };
 }
