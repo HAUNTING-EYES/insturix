@@ -2,14 +2,11 @@ import { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Editron | Creator Command Center",
-  description:
-    "Editron Command Center ",
-  keywords:
-    "Editron Command Center",
+  description: "Editron Command Center",
+  keywords: "Editron Command Center",
   openGraph: {
     title: "Editron Command Center",
-    description:
-      "Editron Command Center",
+    description: "Editron Command Center",
     images: [
       {
         url: "/icons/contact-og-image.jpg",
@@ -22,11 +19,9 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Editron Command Center",
-    description:
-      "Editron Command Center",
+    description: "Editron Command Center",
     images: ["/icons/contact-twitter-image.jpg"],
   },
-  
 };
 
 export default function ContactLayout({

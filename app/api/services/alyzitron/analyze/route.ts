@@ -6,7 +6,7 @@ import { logger } from '../utils/logger';
 import { getCollections } from '../utils/mongodb';
 import { validateYouTubeVideo } from '../utils/youtube'; // Import the validator
 
-const PYTHON_SERVER_URL = process.env.PYTHON_SERVER_URL || 'http://localhost:8000';
+const ALYZITRON_BACKEND_URL = process.env.ALYZITRON_BACKEND_URL || 'http://localhost:8000';
 
 function getGcsUrl(gcsPath: string): string {
   // Ensure GCS_BUCKET_NAME is defined before using it
@@ -87,11 +87,11 @@ export async function POST(request: Request) {
       logger.info('Sending request to Python server', {
         data: { 
           request: pythonRequestData,
-          url: `${PYTHON_SERVER_URL}/api/v1/analyze`
+          url: `${ALYZITRON_BACKEND_URL}/api/v1/analyze`
         }
       });
 
-      const pythonResponse = await fetch(`${PYTHON_SERVER_URL}/api/v1/analyze`, {
+      const pythonResponse = await fetch(`${ALYZITRON_BACKEND_URL}/api/v1/analyze`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
