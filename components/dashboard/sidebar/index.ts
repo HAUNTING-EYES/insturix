@@ -1,0 +1,8 @@
+export { default as DashboardSidebar, useSidebar } from "../DashboardSidebar"
+export { NavItem } from "./NavItem"
+export { SidebarHeader } from "./SidebarHeader"
+export { SidebarNavigation } from "./SidebarNavigation"
+export { SidebarFooter } from "./SidebarFooter"
+export { SidebarContext } from "./context"
+export { products, defaultTheme } from "./constants"
+export type { NavItemProps, SidebarContextType, Product } from "./types"

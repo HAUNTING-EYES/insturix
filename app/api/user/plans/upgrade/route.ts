@@ -6,7 +6,6 @@ import User from "@/schemas/user";
 
 export async function PATCH(request: Request) {
   try {
-    // Get authenticated user ID from Clerk
     const { userId } = await auth();
 
     if (!userId) {
@@ -16,10 +15,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Parse request body
     const { userType, planDetails } = await request.json();
 
-    // Validate user type
     if (!userType || !Object.values(UserType).includes(userType as UserType)) {
       return NextResponse.json(
         { error: "Invalid or missing user type" },
@@ -27,10 +24,8 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Connect to database
     await connectToDatabase(process.env.MONGODB_URI as string);
 
-    // Get the user first to handle both userType and currentPlan together
     const user = await User.findOne({ clerkUserId: userId });
     
     if (!user) {
@@ -40,60 +35,18 @@ export async function PATCH(request: Request) {
       );
     }
     
-    // Update userType
-    user.userType = userType;
-    
-    // If this is an upgrade (not Free), update the currentPlan as well
-    if (userType !== UserType.Free && planDetails) {
-      const now = new Date();
-      const endDate = planDetails.endDate || new Date(now);
-      // If using a monthly subscription, set end date to one month later by default
-      if (!planDetails.endDate) {
-        endDate.setMonth(endDate.getMonth() + 1);
-      }
-      
-      // Update or create currentPlan - ensure all required fields are present
-      user.currentPlan = {
-        name: userType as UserType, // Use the userType as the plan name for consistency
-        startDate: planDetails.startDate ? new Date(planDetails.startDate) : now,
-        endDate: endDate,
-        price: planDetails.price || 0,
-        status: "active",
-        features: planDetails.features || [],
-      };
-      
-      // We don't need to manually add to plan history as the pre-save middleware will handle it
-    } 
-    // If downgrading to Free, mark current plan as canceled
-    else if (userType === UserType.Free && user.currentPlan) {
-      // Set current plan's endDate to now and status to canceled
-      user.currentPlan.endDate = new Date();
-      user.currentPlan.status = "canceled";
-      
-      // We don't need to manually add to plan history as the pre-save middleware will handle it
-      
-      // Create a new Free plan
-      user.currentPlan = {
-        name: UserType.Free,
-        startDate: new Date(),
-        endDate: null,
-        price: 0,
-        status: "active",
-        features: ["Basic features"]
-      };
-    }
+    // This endpoint is deprecated - plan upgrades should go through payment system
+    return NextResponse.json(
+      { error: "This upgrade endpoint is deprecated. Use the payment system for plan upgrades." },
+      { status: 400 }
+    );
 
-    // Mark modified nested objects
     user.markModified('currentPlan');
-    
-    // Save the updated user document
     await user.save();
 
-    // Return success response
     return NextResponse.json({
       success: true,
       message: `User plan updated to ${userType}`,
-      userType: user.userType,
       currentPlan: user.currentPlan
     });
   } catch (error) {

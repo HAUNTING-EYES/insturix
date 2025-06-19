@@ -13,3 +13,9 @@ node_modules
 /.clerk/
 
 editron-457314-dbaa23a9bf46.json
+
+.roo
+
+/app/api/test
+
+secret_md_files

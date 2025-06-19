@@ -22,6 +22,22 @@ export async function GET(request: NextRequest) {
       currency = "USD";
       symbol = "$";
       break;
+    case "CA":
+      currency = "CAD";
+      symbol = "C$";
+      break;
+    case "AU":
+      currency = "AUD";
+      symbol = "A$";
+      break;
+    case "SG":
+      currency = "SGD";
+      symbol = "S$";
+      break;
+    case "AE": // UAE
+      currency = "AED";
+      symbol = "د.إ";
+      break;
     case "DE": // Germany
     case "FR": // France
     case "ES": // Spain

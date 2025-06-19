@@ -31,9 +31,9 @@ export async function GET(request: Request, context: Context) {
 
     const { analyses } = await getCollections();
 
+    // First, try to find the analysis regardless of user
     const analysis = await analyses.findOne({
-      _id: new ObjectId(id),
-      clerkUserId: session.userId
+      _id: id
     });
 
     if (!analysis) {
@@ -44,6 +44,23 @@ export async function GET(request: Request, context: Context) {
       return NextResponse.json(
         { error: 'Analysis not found' },
         { status: 404 }
+      );
+    }
+
+    // Check if the analysis is public or belongs to the current user
+    const isOwner = analysis.clerkUserId === session.userId;
+    const isPublic = analysis.metadata?.isPublic === true;
+
+    if (!isOwner && !isPublic) {
+      logger.warn('Access denied to private analysis', {
+        userId: session.userId,
+        analysisId: id,
+        owner: analysis.clerkUserId,
+        isPublic: isPublic
+      });
+      return NextResponse.json(
+        { error: 'Access denied. This analysis is private.' },
+        { status: 403 }
       );
     }
 

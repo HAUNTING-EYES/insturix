@@ -119,7 +119,7 @@ const menuItems = [
   },
   {
     title: "Pricing",
-    href: "/pricing",
+    href: "/upgrade",
   },
   {
     title: "Contact Us",

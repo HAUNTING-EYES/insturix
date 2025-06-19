@@ -34,33 +34,49 @@ export async function GET(request: Request) {
 
     const userAnalyses = await query.toArray();
 
-    // Log raw data from DB
-    logger.info('Raw analyses from DB', {
-      userId: session.userId,
-      data: userAnalyses.map(a => ({ id: a._id, status: a.status, processingStartTime: a.processingStartTime }))
-    });
+    // Check for stale analyses and mark them as failed
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const staleAnalyses = userAnalyses.filter(analysis =>
+      analysis.status !== 'completed' &&
+      analysis.status !== 'failed' &&
+      new Date(analysis.updatedAt) < oneHourAgo
+    );
 
+    // Mark stale analyses as failed in MongoDB
+    if (staleAnalyses.length > 0) {
+      const staleIds = staleAnalyses.map(a => a._id);
+      await analyses.updateMany(
+        { _id: { $in: staleIds } },
+        {
+          $set: {
+            status: 'failed',
+            error: {
+              code: 'TIMEOUT_ERROR',
+              message: 'Analysis timed out after 1 hour without completion'
+            },
+            updatedAt: new Date()
+          }
+        }
+      );
 
-    logger.info('Fetched analyses', {
-      userId: session.userId,
-      page,
-      limit,
-      count: userAnalyses.length,
-      totalItems
-    });
+      // Update the in-memory analyses to reflect the changes
+      staleAnalyses.forEach(analysis => {
+        analysis.status = 'failed';
+        analysis.error = {
+          code: 'TIMEOUT_ERROR',
+          message: 'Analysis timed out after 1 hour without completion'
+        };
+        analysis.updatedAt = new Date();
+      });
 
-    // Serialize processingStartTime to timestamp
+    }
+
+    // Serialize processingStartTime to timestamp and convert ObjectId to string
     const serializedAnalyses = userAnalyses.map(a => ({
       ...a,
+      _id: a._id.toString(),
       processingStartTime: a.processingStartTime ? new Date(a.processingStartTime).getTime() : null
     }));
-
-    // Log serialized data before sending
-    logger.info('Serialized analyses for response', {
-        userId: session.userId,
-        data: serializedAnalyses.map(a => ({ id: a._id, status: a.status, processingStartTime: a.processingStartTime }))
-    });
-
 
     return NextResponse.json({
       data: serializedAnalyses,
@@ -109,7 +125,7 @@ export async function PATCH(request: Request) {
     
     const result = await analyses.updateOne(
       {
-        _id: new ObjectId(analysisId),
+        _id: analysisId,
         clerkUserId: session.userId
       },
       {

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import User, { IPlan } from "@/schemas/user";
-import { getAndCleanLatestPlan } from "@/lib/services/planService";
+import { getUserPlanWithServiceLimits } from "@/lib/services/planService";
 
 export async function GET() {
   try {
@@ -17,7 +17,6 @@ export async function GET() {
 
     await connectToDatabase(process.env.MONGODB_URI as string);
 
-    // Find the user by clerkUserId
     const user = await User.findOne({ clerkUserId: userId });
 
     if (!user) {
@@ -27,42 +26,35 @@ export async function GET() {
       );
     }
 
-    // Clean up any duplicate active plans before returning to frontend
-    await getAndCleanLatestPlan(userId);
+    // Get user plan with service limits from plans collection
+    const userPlanWithServiceLimits = await getUserPlanWithServiceLimits(userId);
     
-    // Reload user after cleanup
-    const updatedUser = await User.findOne({ clerkUserId: userId });
-    if (!updatedUser) {
-      return NextResponse.json(
-        { error: "User not found after cleanup" },
-        { status: 404 }
-      );
-    }
-
-    // Format plan history for the client
-    const formattedPlans = updatedUser.planHistory ? updatedUser.planHistory.map((plan: IPlan) => ({
-      id: plan._id?.toString() || "",
+    const formattedPlans = user.planHistory ? user.planHistory.map((plan: IPlan, index: number) => ({
+      id: plan.planId || `plan-${index}`, // Use planId or fallback to generated ID
       name: plan.name,
       startDate: plan.startDate,
       endDate: plan.endDate,
       price: plan.price,
+      currency: plan.currency,
       status: plan.status,
-      features: plan.features || [],
+      features: [], // Add empty features array for backward compatibility
     })) : [];
 
     return NextResponse.json({
-      currentPlan: updatedUser.currentPlan ? {
-        id: updatedUser.currentPlan._id?.toString() || "",
-        name: updatedUser.currentPlan.name,
-        startDate: updatedUser.currentPlan.startDate,
-        endDate: updatedUser.currentPlan.endDate,
-        price: updatedUser.currentPlan.price,
-        status: updatedUser.currentPlan.status,
-        features: updatedUser.currentPlan.features || [],
+      currentPlan: userPlanWithServiceLimits ? {
+        id: userPlanWithServiceLimits.planId || 'current',
+        name: userPlanWithServiceLimits.name,
+        startDate: userPlanWithServiceLimits.startDate,
+        endDate: userPlanWithServiceLimits.endDate,
+        price: userPlanWithServiceLimits.price,
+        currency: userPlanWithServiceLimits.currency,
+        status: userPlanWithServiceLimits.status,
+        features: [], // Return empty features for backward compatibility
+        serviceLimits: userPlanWithServiceLimits.serviceLimits, // Include service limits
       } : null,
       plans: formattedPlans,
-      userType: updatedUser.userType,
-      signUpDate: updatedUser.signUpDate,
+      userType: user.currentPlan?.name || "free",
+      signUpDate: user.signUpDate,
     });
   } catch (error) {
     console.error("Error fetching user plans:", error);
@@ -105,13 +97,16 @@ export async function POST(req: Request) {
     const endDate = new Date(now);
     endDate.setMonth(endDate.getMonth() + durationInMonths);
 
+    // This POST method is deprecated - use proper plan upgrade endpoints instead
     user.currentPlan = {
+      planId: "", // This should be updated to use proper plan creation
       name,
       startDate: now,
       endDate,
       price,
+      currency: user.preferences?.currency || "USD",
       status: "active",
-      features,
+      serviceLimits: user.currentPlan.serviceLimits, // Keep existing service limits
     };
 
     user.markModified("currentPlan");

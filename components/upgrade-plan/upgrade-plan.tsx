@@ -1,18 +1,21 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { ArrowRight, ArrowLeft, Sparkles } from "lucide-react"
+import { ArrowRight, ArrowLeft, Sparkles, CheckCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { StepIndicator } from "@/components/upgrade-plan/StepIndicator"
 import { PlanSelection } from "@/components/upgrade-plan/PaymentSelection"
 import { PlanSummary } from "@/components/upgrade-plan/PlanSummary"
 import { PaymentForm } from "@/components/upgrade-plan/PaymentForm"
+import { CurrencySelector } from "@/components/CurrencySelector"
+import { useCurrency } from "@/lib/CurrencyContext"
 import { cn } from "@/lib/utils"
-import { useMutation } from "@tanstack/react-query"
-import axios from "axios"
 import { UserType } from "@/types/userTypes"
+import { getPlanDisplayName } from "@/lib/planUtils"
+import { toast } from "sonner"
+import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig"
 
 export type PlanFeature = {
   id: string
@@ -32,97 +35,159 @@ export type Plan = {
   savings?: number
   color?: string
   gradient?: string
-  userType: UserType // Associate each plan with a UserType
+  userType: UserType
 }
 
-// Sample plans data - in a real app, this might come from an API
-const defaultPlans: Plan[] = [
+// Base plan prices in USD for reference
+const basePlansUSD: Plan[] = [
   {
-    id: "basic",
-    name: "Basic",
-    description: "Essential features for individuals",
+    id: "free",
+    name: getPlanDisplayName(UserType.Free),
+    description: "Get started with basic features",
     price: 0,
     billingPeriod: "monthly",
-    color: "#6366f1",
-    gradient: "from-indigo-500 to-purple-500",
+    color: "#10b981",
+    gradient: "from-green-500 to-emerald-500",
     userType: UserType.Free,
     features: [
-      { id: "feature-1", name: "Core functionality", included: true },
-      { id: "feature-2", name: "Basic support", included: true },
+      { id: "feature-1", name: "Basic functionality", included: true },
+      { id: "feature-2", name: "Community support", included: true },
       { id: "feature-3", name: "1 project", included: true },
-      { id: "feature-4", name: "Limited storage", included: true },
-      { id: "feature-5", name: "Advanced analytics", included: false },
-      { id: "feature-6", name: "Team collaboration", included: false },
+      { id: "feature-4", name: "Basic analytics", included: true },
     ],
   },
   {
     id: "plus",
-    name: "Plus",
+    name: getPlanDisplayName(UserType.Plus),
     description: "Advanced features for professionals",
-    price: 19.99,
+    price: 2.99,
     billingPeriod: "monthly",
     popularPlan: true,
-    color: "#8b5cf6",
-    gradient: "from-violet-500 to-fuchsia-500",
+    color: PLAN_THEME.planColors.plus,
+    gradient: PLAN_THEME.gradients.primary.replace("bg-gradient-to-r ", ""),
     userType: UserType.Plus,
     features: [
       { id: "feature-1", name: "Core functionality", included: true },
       { id: "feature-2", name: "Priority support", included: true, highlight: true },
       { id: "feature-3", name: "10 projects", included: true, highlight: true },
-      { id: "feature-4", name: "Unlimited storage", included: true, highlight: true },
-      { id: "feature-5", name: "Advanced analytics", included: true },
-      { id: "feature-6", name: "Team collaboration", included: false },
+      { id: "feature-4", name: "Advanced analytics", included: true },
     ],
   },
   {
     id: "pro",
-    name: "Pro",
+    name: getPlanDisplayName(UserType.Pro),
     description: "Complete solution for teams",
-    price: 49.99,
+    price: 5.99,
     billingPeriod: "monthly",
-    color: "#ec4899",
-    gradient: "from-pink-500 to-rose-500",
+    color: PLAN_THEME.planColors.pro,
+    gradient: PLAN_THEME.gradients.primary.replace("bg-gradient-to-r ", ""),
     userType: UserType.Pro,
     features: [
       { id: "feature-1", name: "Core functionality", included: true },
       { id: "feature-2", name: "24/7 dedicated support", included: true, highlight: true },
       { id: "feature-3", name: "Unlimited projects", included: true, highlight: true },
-      { id: "feature-4", name: "Unlimited storage", included: true },
-      { id: "feature-5", name: "Advanced analytics", included: true },
-      { id: "feature-6", name: "Team collaboration", included: true, highlight: true },
+      { id: "feature-4", name: "Advanced analytics", included: true },
+      { id: "feature-5", name: "Team collaboration", included: true, highlight: true },
+    ],
+  },
+  {
+    id: "premium",
+    name: getPlanDisplayName(UserType.Premium),
+    description: "Ultimate solution for enterprises",
+    price: 9.99,
+    billingPeriod: "monthly",
+    color: "#f59e0b",
+    gradient: "from-amber-500 to-orange-500",
+    userType: UserType.Premium,
+    features: [
+      { id: "feature-1", name: "Everything in Pro", included: true },
+      { id: "feature-2", name: "Dedicated support", included: true, highlight: true },
+      { id: "feature-3", name: "Custom integrations", included: true, highlight: true },
+      { id: "feature-4", name: "API access", included: true, highlight: true },
     ],
   },
 ]
 
-// Yearly plans with discount
-const yearlyPlans: Plan[] = defaultPlans.map((plan) => ({
-  ...plan,
-  id: `${plan.id}-yearly`,
-  billingPeriod: "yearly",
-  price: plan.price * 10, // 2 months free
-  savings: plan.price * 2,
-}))
+// Currency conversion rates (approximate, in production use real-time rates)
+const CURRENCY_RATES: Record<string, number> = {
+  USD: 1,
+  EUR: 0.85,
+  GBP: 0.73,
+  INR: 83.12,
+  CAD: 1.36,
+  AUD: 1.52,
+  SGD: 1.34,
+  AED: 3.67,
+}
+
+// Country-specific tax rates
+const TAX_RATES: Record<string, number> = {
+  USD: 0.0875, // Average US sales tax
+  EUR: 0.20,   // Average EU VAT
+  GBP: 0.20,   // UK VAT
+  INR: 0.18,   // India GST
+  CAD: 0.13,   // Canada HST/GST
+  AUD: 0.10,   // Australia GST
+  SGD: 0.07,   // Singapore GST
+  AED: 0.05,   // UAE VAT
+}
+
+function convertPrice(usdPrice: number, targetCurrency: string): number {
+  const rate = CURRENCY_RATES[targetCurrency] || 1
+  return Math.round((usdPrice * rate) * 100) / 100
+}
+
+function getTaxRate(currency: string): number {
+  return TAX_RATES[currency] || 0.18 // Default to 18% if currency not found
+}
 
 export type UpgradePlanProps = {
   plans?: Plan[]
   onComplete?: (selectedPlan: Plan) => void
   onCancel?: () => void
   taxRate?: number
+  currentUserPlan?: UserType
+  currentPlanData?: {
+    endDate: Date | null;
+    startDate: Date;
+    status: string;
+  } | null;
 }
 
 export function UpgradePlan({
-  plans = [...defaultPlans, ...yearlyPlans],
+  plans = basePlansUSD,
   onComplete,
   onCancel,
-  taxRate = 0.08,
+  taxRate,
+  currentUserPlan = UserType.Free,
+  currentPlanData,
 }: UpgradePlanProps) {
+  const { selectedCurrency, selectedSymbol, version } = useCurrency()
   const [currentStep, setCurrentStep] = useState(1)
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly")
   const [animationDirection, setAnimationDirection] = useState<"forward" | "backward">("forward")
+  const [paymentSuccess, setPaymentSuccess] = useState(false)
 
-  // Filter plans based on billing cycle
-  const filteredPlans = plans.filter((plan) => plan.billingPeriod === billingCycle)
+  // Get currency-specific tax rate
+  const effectiveTaxRate = taxRate || getTaxRate(selectedCurrency)
+
+  // Convert plans to current currency
+  const convertedPlans = useMemo(() => {
+    return plans.map(plan => ({
+      ...plan,
+      price: convertPrice(plan.price, selectedCurrency)
+    }))
+  }, [plans, selectedCurrency, version])
+
+  // Update selected plan when currency changes
+  useEffect(() => {
+    if (selectedPlan) {
+      const updatedPlan = convertedPlans.find(p => p.id === selectedPlan.id)
+      if (updatedPlan) {
+        setSelectedPlan(updatedPlan)
+      }
+    }
+  }, [convertedPlans, selectedPlan])
 
   const handlePlanSelect = (plan: Plan) => {
     setSelectedPlan(plan)
@@ -130,11 +195,14 @@ export function UpgradePlan({
 
   const handleNextStep = () => {
     if (currentStep < 3) {
+      // If Free plan is selected, skip payment and go directly to completion
+      if (selectedPlan?.price === 0 && currentStep === 1) {
+        handlePaymentSuccess()
+        return
+      }
+      
       setAnimationDirection("forward")
       setCurrentStep(currentStep + 1)
-    } else if (currentStep === 3) {
-      // Use the dedicated payment handling function
-      handlePaymentComplete()
     }
   }
 
@@ -145,152 +213,169 @@ export function UpgradePlan({
     }
   }
 
-  const handleBillingCycleChange = (cycle: "monthly" | "yearly") => {
-    setBillingCycle(cycle)
-
-    // Update selected plan to match the new billing cycle
-    if (selectedPlan) {
-      const matchingPlan = plans.find((plan) => plan.name === selectedPlan.name && plan.billingPeriod === cycle)
-      if (matchingPlan) {
-        setSelectedPlan(matchingPlan)
-      }
-    }
-  }
-
-  // Calculate tax amount
   const calculateTax = (price: number) => {
-    return price * taxRate
+    return price * effectiveTaxRate
   }
 
-  // Calculate total amount
   const calculateTotal = (price: number) => {
     return price + calculateTax(price)
   }
 
-  // React Query mutation for plan upgrade
-  const upgradePlanMutation = useMutation({
-    mutationFn: async (plan: Plan) => {
-      const response = await axios.patch("/api/user/plans/upgrade", {
-        userType: plan.userType,
-        planDetails: {
-          name: plan.name,
-          price: plan.price,
-          billingPeriod: plan.billingPeriod,
-          features: plan.features.filter(f => f.included).map(f => f.name),
-          startDate: new Date().toISOString(),
-        }
-      });
-      
-      return response.data;
-    },
-    onSuccess: () => {
-      if (onComplete && selectedPlan) {
-        onComplete(selectedPlan);
-      }
-    }
-  });
-
-  // New function specific for handling payment completion
-  const handlePaymentComplete = () => {
-    if (!selectedPlan) return;
+  const handlePaymentSuccess = () => {
+    setPaymentSuccess(true)
+    toast.success("Payment successful! Your plan has been upgraded.")
     
-    upgradePlanMutation.mutate(selectedPlan);
-  };
-
-  // Background gradient animation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const gradientElement = document.getElementById("animated-gradient")
-      if (gradientElement) {
-        gradientElement.style.backgroundPosition = `${Math.random() * 100}% ${Math.random() * 100}%`
+    // Call onComplete after a short delay to show success state
+    setTimeout(() => {
+      if (onComplete && selectedPlan) {
+        onComplete(selectedPlan)
       }
-    }, 3000)
+    }, 2000)
+  }
 
-    return () => clearInterval(interval)
-  }, [])
+  const handlePaymentError = (error: string) => {
+    toast.error(`Payment failed: ${error}`)
+  }
+
+  if (paymentSuccess) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <Card className="w-full max-w-md backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl">
+          <CardContent className="p-8 text-center">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", duration: 0.5 }}
+              className="mb-4"
+            >
+              <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
+            </motion.div>
+            <motion.h2
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="text-2xl font-bold text-white mb-2"
+            >
+              Payment Successful!
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="text-white/70 mb-4"
+            >
+              Your {selectedPlan?.name} plan has been activated successfully.
+            </motion.p>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+            >
+              <Button
+                onClick={() => onComplete?.(selectedPlan!)}
+                className={`${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')}`}
+              >
+                Continue to Dashboard
+              </Button>
+            </motion.div>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   return (
-    <div className="relative w-full max-w-4xl mx-auto">
-      {/* Animated background gradient */}
-      <div
-        id="animated-gradient"
-        className="absolute inset-0 bg-gradient-to-br from-violet-900/20 via-fuchsia-900/20 to-indigo-900/20 rounded-xl blur-3xl -z-10 transition-all duration-[3000ms] ease-in-out"
-        style={{ backgroundSize: "200% 200%" }}
-      />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <Card className="w-full max-w-6xl max-h-[90vh] overflow-y-auto backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl">
+        <CardContent className="p-6">
+          <div className="flex flex-col items-center text-center mb-6">
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.5 }}
+              className="mb-2"
+            >
+              <Sparkles className="h-6 w-6 text-primary mb-2" />
+            </motion.div>
+            <motion.h2
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.5 }}
+              className="text-xl md:text-2xl font-bold tracking-tight text-white"
+            >
+              Upgrade Your Experience
+            </motion.h2>
+            <motion.p
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3, duration: 0.5 }}
+              className="text-muted-foreground mt-2 text-sm"
+            >
+              Choose the plan that works best for you
+            </motion.p>
+            
+            {/* Currency Selector */}
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4, duration: 0.5 }}
+              className="mt-4"
+            >
+              <CurrencySelector compact={true} />
+            </motion.div>
+          </div>
 
-      <Card className="w-full backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl overflow-hidden">
-        <CardContent className="p-0">
-          <div className="p-6 md:p-8">
-            <div className="flex flex-col items-center text-center mb-8">
-              <motion.div
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1, duration: 0.5 }}
-                className="mb-2"
-              >
-                <Sparkles className="h-8 w-8 text-primary mb-2" />
-              </motion.div>
-              <motion.h2
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2, duration: 0.5 }}
-                className="text-2xl md:text-3xl font-bold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-pink-400"
-              >
-                Upgrade Your Experience
-              </motion.h2>
-              <motion.p
-                initial={{ opacity: 0, y: -20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3, duration: 0.5 }}
-                className="text-muted-foreground mt-2 max-w-md"
-              >
-                Choose the plan that works best for you and unlock premium features
-              </motion.p>
-            </div>
+          <StepIndicator currentStep={currentStep} totalSteps={3} />
 
-            <StepIndicator currentStep={currentStep} totalSteps={3} />
+          <AnimatePresence mode="wait" custom={animationDirection}>
+            <motion.div
+              key={currentStep}
+              custom={animationDirection}
+              initial="initial"
+              animate="animate"
+              exit="exit"
+              className="mt-6"
+            >
+              {currentStep === 1 && (
+                <PlanSelection
+                  plans={convertedPlans}
+                  selectedPlan={selectedPlan}
+                  onSelectPlan={handlePlanSelect}
+                  billingCycle="monthly"
+                  onBillingCycleChange={() => {}}
+                  currentUserPlan={currentUserPlan}
+                  currentPlanData={currentPlanData}
+                />
+              )}
 
-            <AnimatePresence mode="wait" custom={animationDirection}>
-              <motion.div
-                key={currentStep}
-                custom={animationDirection}
-                initial="initial"
-                animate="animate"
-                exit="exit"
-                className="mt-8"
-              >
-                {currentStep === 1 && (
-                  <PlanSelection
-                    plans={filteredPlans}
-                    selectedPlan={selectedPlan}
-                    onSelectPlan={handlePlanSelect}
-                    billingCycle={billingCycle}
-                    onBillingCycleChange={handleBillingCycleChange}
-                  />
-                )}
+              {currentStep === 2 && selectedPlan && (
+                <PlanSummary
+                  plan={selectedPlan}
+                  taxRate={effectiveTaxRate}
+                  taxAmount={calculateTax(selectedPlan.price)}
+                  totalAmount={calculateTotal(selectedPlan.price)}
+                />
+              )}
 
-                {currentStep === 2 && selectedPlan && (
-                  <PlanSummary
-                    plan={selectedPlan}
-                    taxRate={taxRate}
-                    taxAmount={calculateTax(selectedPlan.price)}
-                    totalAmount={calculateTotal(selectedPlan.price)}
-                  />
-                )}
+              {currentStep === 3 && selectedPlan && (
+                <PaymentForm
+                  plan={selectedPlan}
+                  totalAmount={calculateTotal(selectedPlan.price)}
+                  onPaymentSuccess={handlePaymentSuccess}
+                  onPaymentError={handlePaymentError}
+                />
+              )}
+            </motion.div>
+          </AnimatePresence>
 
-                {currentStep === 3 && selectedPlan && (
-                  <PaymentForm plan={selectedPlan} totalAmount={calculateTotal(selectedPlan.price)} />
-                )}
-              </motion.div>
-            </AnimatePresence>
-
-            <div className="flex justify-between mt-8 pt-6 border-t border-white/10">
+          {currentStep < 3 && (
+            <div className="flex justify-between mt-6 pt-4 border-t border-white/10">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 {currentStep > 1 ? (
                   <Button
                     variant="outline"
                     onClick={handlePreviousStep}
-                    className="flex items-center gap-2 bg-transparent border-white/20 hover:bg-white/10 transition-all duration-300"
+                    className="flex items-center gap-2 bg-transparent border-white/20 hover:bg-white/10"
                   >
                     <ArrowLeft className="h-4 w-4" />
                     Back
@@ -299,7 +384,7 @@ export function UpgradePlan({
                   <Button
                     variant="outline"
                     onClick={onCancel}
-                    className="bg-transparent border-white/20 hover:bg-white/10 transition-all duration-300"
+                    className="bg-transparent border-white/20 hover:bg-white/10"
                   >
                     Cancel
                   </Button>
@@ -309,22 +394,15 @@ export function UpgradePlan({
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button
                   onClick={handleNextStep}
-                  disabled={(currentStep === 1 && !selectedPlan) || upgradePlanMutation.isPending}
-                  className={cn(
-                    "flex items-center gap-2 transition-all duration-300",
-                    currentStep === 3
-                      ? "bg-gradient-to-r from-violet-600 to-pink-600 hover:from-violet-500 hover:to-pink-500"
-                      : "bg-primary hover:bg-primary/90",
-                  )}
+                  disabled={currentStep === 1 && !selectedPlan}
+                  className="flex items-center gap-2 bg-primary hover:bg-primary/90"
                 >
-                  {currentStep === 3 
-                    ? (upgradePlanMutation.isPending ? "Processing..." : "Complete Payment") 
-                    : "Continue"}
-                  {currentStep < 3 && <ArrowRight className="h-4 w-4" />}
+                  Continue
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
               </motion.div>
             </div>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

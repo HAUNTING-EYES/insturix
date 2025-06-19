@@ -40,7 +40,7 @@ const faqs = [
   {
     question: "What are your pricing plans?",
     answer:
-      "We offer flexible pricing plans tailored to different needs and scales. Visit our pricing page to find the perfect plan for you.",
+      "We offer flexible pricing plans tailored to different needs and scales. Visit the Upgrade page to find the perfect plan for you.",
   },
   {
     question: "Can I integrate with existing systems?",

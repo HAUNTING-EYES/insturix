@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, CSSProperties } from "react";
+import { PLAN_THEME } from "@/lib/themeConfig";
 
 type CursorEffectProps = {
   variant?: "glow" | "invert" | "spotlight";
@@ -13,9 +14,9 @@ type CursorEffectProps = {
 
 export default function CursorEffect({
   variant = "glow",
-  size = 400,
-  color = "rgba(255, 255, 255, 0.3)", // White with opacity, default glow color
-  blur = 150,
+  size = PLAN_THEME.glow.size,
+  color = PLAN_THEME.glow.color, // Futuristic zinc glow color
+  blur = PLAN_THEME.glow.blur,
   opacity = 0.6,
   delay = 0.1,
 }: CursorEffectProps) {

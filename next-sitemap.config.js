@@ -64,7 +64,7 @@ const config = {
         lastmod: new Date().toISOString(),
       },
       {
-        loc: "/pricing",
+        loc: "/upgrade",
         changefreq: "daily",
         priority: 0.9,
         lastmod: new Date().toISOString(),

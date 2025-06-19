@@ -10,19 +10,17 @@ if (!ALYZITRON_BACKEND_URL) {
 }
 
 // --- GCS Configuration Check ---
-const gcsProjectId = process.env.GCS_PROJECT_ID; // Use GCS_ prefix
-const gcsClientEmail = process.env.GCS_CLIENT_EMAIL; // Use GCS_ prefix
-const gcsPrivateKey = process.env.GCS_PRIVATE_KEY; // Use GCS_ prefix
-const bucketName = process.env.GCS_BUCKET_NAME;
+const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+  : null;
+const bucketName = process.env.ALYZITRON_GCS_BUCKET_NAME;
 
-const gcsConfigured = gcsProjectId && gcsClientEmail && gcsPrivateKey && bucketName;
+const gcsConfigured = gcsCredentials && bucketName;
 
 if (!gcsConfigured) {
     logger.error("GCS environment variables are not fully configured for cancellation cleanup. Deletion skipped.", {
         data: {
-            hasProjectId: !!gcsProjectId,
-            hasClientEmail: !!gcsClientEmail,
-            hasPrivateKey: !!gcsPrivateKey, // Don't log the key itself
+            hasCredentials: !!gcsCredentials,
             hasBucketName: !!bucketName,
         }
     });
@@ -94,7 +92,7 @@ async function handleCancelRequest(req: NextRequest) {
       userId: session.userId,
       data: {
         taskId,
-        analysisId: analysis._id.toString()
+        analysisId: analysis._id
       }
     });
 
@@ -109,7 +107,7 @@ async function handleCancelRequest(req: NextRequest) {
         userId: session.userId,
         data: {
           taskId,
-          analysisId: analysis._id.toString(),
+          analysisId: analysis._id,
           error: error.error
         }
       });
@@ -137,37 +135,33 @@ async function handleCancelRequest(req: NextRequest) {
     );
 
     // --- Delete GCS file if it exists ---
-    if (gcsConfigured && analysis.gcsPath) {
+    const isGcsVideo = analysis.videoUrl.startsWith(`gs://${bucketName}/`);
+    if (gcsConfigured && isGcsVideo) {
         try {
             // Initialize storage only if needed and configured
              if (!storage) {
                 storage = new Storage({
-                    projectId: gcsProjectId,
-                    credentials: {
-                        client_email: gcsClientEmail,
-                        private_key: gcsPrivateKey?.replace(/\\n/g, '\n'),
-                    },
+                    projectId: gcsCredentials.project_id,
+                    credentials: gcsCredentials,
                 });
             }
             const bucket = storage.bucket(bucketName!); // Use non-null assertion as gcsConfigured checks bucketName
-            const objectName = analysis.gcsPath.startsWith(`gs://${bucketName}/`)
-                ? analysis.gcsPath.substring(`gs://${bucketName}/`.length)
-                : analysis.gcsPath;
+            const objectName = analysis.videoUrl.substring(`gs://${bucketName}/`.length);
 
             if (objectName) {
-                logger.info('Deleting GCS file for cancelled analysis', { data: { userId: session.userId, gcsPath: analysis.gcsPath, objectName } });
+                logger.info('Deleting GCS file for cancelled analysis', { data: { userId: session.userId, videoUrl: analysis.videoUrl, objectName } });
                 await bucket.file(objectName).delete({ ignoreNotFound: true });
-                logger.info('Successfully deleted GCS file for cancelled analysis', { data: { userId: session.userId, gcsPath: analysis.gcsPath, objectName } });
+                logger.info('Successfully deleted GCS file for cancelled analysis', { data: { userId: session.userId, videoUrl: analysis.videoUrl, objectName } });
             } else {
-                 logger.error('Could not extract object name from gcsPath for cancelled analysis', { data: { userId: session.userId, gcsPath: analysis.gcsPath } });
+                 logger.error('Could not extract object name from videoUrl for cancelled analysis', { data: { userId: session.userId, videoUrl: analysis.videoUrl } });
             }
         } catch (deleteError) {
             const errorMessage = deleteError instanceof Error ? deleteError.message : 'Unknown GCS deletion error';
-            logger.error('Failed to delete GCS file for cancelled analysis', { data: { userId: session.userId, gcsPath: analysis.gcsPath, error: errorMessage } });
+            logger.error('Failed to delete GCS file for cancelled analysis', { data: { userId: session.userId, videoUrl: analysis.videoUrl, error: errorMessage } });
             // Log the error but allow the cancellation response to proceed
         }
-    } else if (analysis.gcsPath) {
-         logger.warn('Skipping GCS deletion for cancelled analysis because GCS is not configured.', { data: { userId: session.userId, gcsPath: analysis.gcsPath } });
+    } else if (isGcsVideo) {
+         logger.warn('Skipping GCS deletion for cancelled analysis because GCS is not configured.', { data: { userId: session.userId, videoUrl: analysis.videoUrl } });
     }
     // --- End GCS Deletion ---
 
@@ -175,7 +169,7 @@ async function handleCancelRequest(req: NextRequest) {
       userId: session.userId,
       data: {
         taskId,
-        analysisId: analysis._id.toString()
+        analysisId: analysis._id
       }
     });
 

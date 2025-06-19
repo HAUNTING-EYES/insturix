@@ -206,6 +206,25 @@
   max-width: 1280px;
 }
 
+@utility mobile-touch-friendly {
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@utility mobile-spacing {
+  @apply p-3 sm:p-4 md:p-6;
+}
+
+@utility mobile-text {
+  @apply text-sm sm:text-base;
+}
+
+@utility mobile-grid {
+  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 lg:gap-6;
+}
+
 @utility responsive-text {
   @apply text-base sm:text-lg md:text-xl;
 }
@@ -379,6 +398,24 @@
   @media (max-width: 768px) {
     body {
       max-width: 100vw;
+    }
+    
+    /* Improve mobile card padding */
+    .mobile-card {
+      padding: 12px;
+    }
+    
+    /* Better mobile grid spacing */
+    .mobile-grid {
+      gap: 12px;
+    }
+  }
+  
+  /* Tablet specific improvements */
+  @media (min-width: 768px) and (max-width: 1024px) {
+    .container {
+      padding-left: 24px;
+      padding-right: 24px;
     }
   }
 
@@ -687,7 +724,7 @@
 
   .logotext {
     @apply font-['Blanka'] text-xl tracking-[0.4em] whitespace-nowrap leading-none;
-    transform: translateY(-5px);
+    /* transform: translateY(-5px); */
   }
 }
 

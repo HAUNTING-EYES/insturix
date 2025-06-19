@@ -3,37 +3,24 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const connectToDatabase = async (ConnectionString: string) => {
+const connectToDatabase = async (uri?: string) => {
   try {
-    const uri = ConnectionString as string;
-    
-    // Extract database name from connection string
-    let dbName = "prod"; // Default database name
-    
-    try {
-      // Parse the connection string to extract the database name
-      const uriObj = new URL(uri);
-      const pathParts = uriObj.pathname.split('/');
-      if (pathParts.length > 1 && pathParts[1]) {
-        dbName = pathParts[1];
-      }
-    } catch {
-      console.warn("Could not parse database name from connection string, using default 'prod'");
+    const mongoUri = uri || process.env.MONGODB_URI;
+
+    if (!mongoUri) {
+      throw new Error("MONGODB_URI is not defined in environment variables");
     }
-    
-    // Connect to MongoDB with options to create database if it doesn't exist
-    await mongoose.connect(uri, {
-      autoCreate: true, // Create the database if it doesn't exist
+
+    await mongoose.connect(mongoUri, {
+      autoCreate: true,
     });
-    
-    // Check if the connection is successful
+
     if (mongoose.connection.readyState === 1) {
-      console.log(`Connected to MongoDB database: ${dbName}`);
+      console.log(`Connected to MongoDB database`);
     }
-    
   } catch (error) {
     console.error("Error connecting to database:", error);
-    throw error; // Re-throw to allow proper handling in API routes
+    throw error;
   }
 };
 

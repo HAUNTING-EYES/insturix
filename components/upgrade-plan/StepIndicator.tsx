@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion"
 import { cn } from "@/lib/utils"
+import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig"
 
 interface StepIndicatorProps {
   currentStep: number
@@ -29,7 +30,7 @@ export function StepIndicator({ currentStep }: StepIndicatorProps) {
                     width: currentStep > step.number ? "100%" : "0%",
                   }}
                   transition={{ duration: 0.5, ease: "easeInOut" }}
-                  className="h-full bg-gradient-to-r from-violet-500 to-pink-500"
+                  className={`h-full bg-gradient-to-r ${PLAN_THEME.gradients.primary}`}
                 />
               </div>
             )}
@@ -39,9 +40,9 @@ export function StepIndicator({ currentStep }: StepIndicatorProps) {
               className={cn(
                 "relative flex items-center justify-center w-8 h-8 rounded-full border-2 text-sm font-medium transition-all duration-300",
                 currentStep === step.number
-                  ? "border-primary bg-primary text-primary-foreground"
+                  ? `border-transparent ${getGradientClass('primary')} text-white shadow-lg`
                   : currentStep > step.number
-                    ? "border-primary bg-primary text-primary-foreground"
+                    ? `border-transparent ${getGradientClass('success')} text-white shadow-lg`
                     : "border-white/20 bg-black/40 text-white/60",
               )}
             >
@@ -69,15 +70,6 @@ export function StepIndicator({ currentStep }: StepIndicatorProps) {
                 <span>{step.number}</span>
               )}
 
-              {/* Pulse animation for current step */}
-              {currentStep === step.number && (
-                <motion.span
-                  initial={{ opacity: 0.7, scale: 0.9 }}
-                  animate={{ opacity: 0, scale: 1.5 }}
-                  transition={{ duration: 1.5, repeat: Number.POSITIVE_INFINITY }}
-                  className="absolute inset-0 rounded-full bg-primary"
-                />
-              )}
             </div>
 
             {/* Step label */}
@@ -88,9 +80,9 @@ export function StepIndicator({ currentStep }: StepIndicatorProps) {
               className={cn(
                 "mt-2 text-sm font-medium",
                 currentStep === step.number
-                  ? "text-primary"
+                  ? `bg-gradient-to-r ${PLAN_THEME.gradients.primary} bg-clip-text text-transparent`
                   : currentStep > step.number
-                    ? "text-primary"
+                    ? `bg-gradient-to-r ${PLAN_THEME.gradients.success} bg-clip-text text-transparent`
                     : "text-white/60",
               )}
             >

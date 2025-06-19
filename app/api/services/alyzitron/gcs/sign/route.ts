@@ -4,23 +4,18 @@ import { Storage, GetSignedUrlConfig } from '@google-cloud/storage';
 import { logger } from "../../utils/logger";
 
 // Check if we have complete GCS configuration
-const hasGCSConfig = !!(
-  process.env.GCS_PROJECT_ID &&
-  process.env.GCS_BUCKET_NAME &&
-  process.env.GCS_CLIENT_EMAIL &&
-  process.env.GCS_PRIVATE_KEY
-);
+const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+  : null;
+const hasGCSConfig = !!(gcsCredentials && process.env.ALYZITRON_GCS_BUCKET_NAME);
 
 // Initialize storage with credentials if available
 const storage = hasGCSConfig ? new Storage({
-  projectId: process.env.GCS_PROJECT_ID,
-  credentials: {
-    client_email: process.env.GCS_CLIENT_EMAIL,
-    private_key: process.env.GCS_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-  }
+  projectId: gcsCredentials.project_id,
+  credentials: gcsCredentials,
 }) : null;
 
-const bucket = hasGCSConfig ? storage?.bucket(process.env.GCS_BUCKET_NAME!) : null;
+const bucket = hasGCSConfig ? storage?.bucket(process.env.ALYZITRON_GCS_BUCKET_NAME!) : null;
 
 async function configureBucketCors() {
   if (!bucket) return;
@@ -112,7 +107,7 @@ export async function POST(request: Request) {
       };
 
       const [signedUrl] = await file.getSignedUrl(signUrlConfig);
-      const publicUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
+      const publicUrl = `https://storage.googleapis.com/${process.env.ALYZITRON_GCS_BUCKET_NAME}/${gcsPath}`;
 
       logger.info('Generated GCS signed URL', {
         userId: session.userId,

@@ -3,24 +3,23 @@ import { auth } from '@clerk/nextjs/server';
 import { Storage } from '@google-cloud/storage';
 import { logger } from '../../utils/logger';
 
-const storage = new Storage({
-    projectId: process.env.GCP_PROJECT_ID,
-    credentials: {
-        client_email: process.env.GCP_CLIENT_EMAIL,
-        private_key: process.env.GCP_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-    },
-});
-
-const bucketName = process.env.GCS_BUCKET_NAME;
-
-if (!bucketName) {
-    logger.error("GCS_BUCKET_NAME environment variable is not set.");
-    throw new Error("Server configuration error: GCS bucket name missing.");
-}
-
-const bucket = storage.bucket(bucketName);
-
 export async function POST(request: Request) {
+    const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+        ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+        : null;
+    const bucketName = process.env.ALYZITRON_GCS_BUCKET_NAME;
+
+    if (!gcsCredentials || !bucketName) {
+        logger.error("GCS environment variables are not configured.");
+        return NextResponse.json({ message: 'Server configuration error: GCS credentials or bucket name missing.' }, { status: 500 });
+    }
+
+    const storage = new Storage({
+        projectId: gcsCredentials.project_id,
+        credentials: gcsCredentials,
+    });
+
+    const bucket = storage.bucket(bucketName);
     const { userId } = await auth(); // Await the auth() call
     if (!userId) {
         logger.warn('Unauthorized attempt to delete GCS file');

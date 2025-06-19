@@ -1,190 +1,105 @@
-import User, { IPlan } from "@/schemas/user";
-import Socialize from "@/schemas/Socialize";
-import connectToDatabase from "@/schemas/ConnectToDatabase";
-import { UserType } from "@/types/userTypes";
+import { UserInitializationService } from "@/lib/services/userInitializationService";
 import { NextRequest } from "next/server";
+import { Webhook } from "svix";
 
-// Interface for MongoDB duplicate key errors
-interface MongoDBError extends Error {
-  code?: number;
-  keyPattern?: Record<string, number | string>;
-  keyValue?: Record<string, unknown>;
+interface WebhookPayload {
+  type: string;
+  data: {
+    id: string;
+    email_addresses?: Array<{ email_address: string }>;
+  };
 }
 
 export async function POST(req: NextRequest) {
   try {
-    await connectToDatabase(process.env.MONGODB_URI || "");
-    const payload = await req.json();
+    const webhookSecret = process.env.CLERK_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error("CLERK_WEBHOOK_SECRET is not configured");
+      return new Response("Webhook secret not configured", { status: 500 });
+    }
+
+    const rawPayload = await req.text();
+    const svixId = req.headers.get("svix-id");
+    const svixTimestamp = req.headers.get("svix-timestamp");
+    const svixSignature = req.headers.get("svix-signature");
+
+    if (!svixId || !svixTimestamp || !svixSignature) {
+      console.error("Missing required Svix headers");
+      return new Response("Missing required headers", { status: 401 });
+    }
+
+    const wh = new Webhook(webhookSecret);
+    let payload: WebhookPayload;
+
+    try {
+      payload = wh.verify(rawPayload, {
+        "svix-id": svixId,
+        "svix-timestamp": svixTimestamp,
+        "svix-signature": svixSignature,
+      }) as WebhookPayload;
+    } catch (err) {
+      console.error("Webhook verification failed:", err);
+      return new Response("Webhook verification failed", { status: 401 });
+    }
     
-    // Handle user creation event
     if (payload.type === "user.created") {
       try {
-        const now = new Date();
-        const oneMonthLater = new Date(now);
-        oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
+        const primaryEmail = payload.data.email_addresses?.[0]?.email_address || "";
+        const clerkUserId = payload.data.id;
 
-
-        const freePlan: IPlan = {
-          name: UserType.Free,
-          startDate: now,
-          endDate: oneMonthLater,
-          price: 0,
-          status: "active",
-          features: ["Basic access", "Limited storage", "Community support"],
-        };
-
-        // Get primary email
-        const primaryEmail =
-          payload.data.email_addresses?.[0]?.email_address || "";
-
-        // Create user account with try-catch to handle duplicate emails
-        try {
-          const newUser = new User({
-            clerkUserId: payload.data.id,
-            email: primaryEmail,
-            userType: UserType.Free,
-            payments: [],
-            signUpDate: now,
-            currentPlan: freePlan,
-            planHistory: [freePlan],
-          });
-          await newUser.save();
-          console.log("User created successfully:", payload.data.id);
-        } catch (error) {
-          const userError = error as MongoDBError;
-          if (
-            userError.code === 11000 &&
-            userError.keyPattern &&
-            "email" in userError.keyPattern
-          ) {
-            console.log(
-              `User with email ${primaryEmail} already exists, skipping creation`
-            );
-          } else {
-            throw error;
-          }
+        // Use UserInitializationService to ensure user exists
+        const initResult = await UserInitializationService.ensureUserExists(clerkUserId, primaryEmail);
+        
+        if (initResult.error) {
+          console.error("Error creating user:", initResult.error);
+          return new Response("Error creating user", { status: 500 });
         }
-
-        // Create Socialize profile if username is available
-        if (payload.data.username) {
-          try {
-            // Check if profile already exists
-            const existingProfile = await Socialize.findOne({ 
-              clerkUserId: payload.data.id 
-            });
-            
-            if (existingProfile) {
-              console.log(
-                `Socialize profile already exists for ${payload.data.username}, updating`
-              );
-              
-              existingProfile.username = payload.data.username;
-              
-              if (payload.data.image_url) {
-                existingProfile.profileImage = payload.data.image_url;
-              }
-              
-              await existingProfile.save();
-            } else {
-              // Create new profile
-              const newSocializeProfile = new Socialize({
-                clerkUserId: payload.data.id,
-                username: payload.data.username,
-                profileImage: payload.data.image_url || "",
-                bio: "",
-                links: [],
-                notifications: [],
-              });
-
-              await newSocializeProfile.save();
-              console.log(
-                "Socialize profile created for:",
-                payload.data.username
-              );
-            }
-          } catch (socializeError) {
-            console.error("Error handling Socialize profile:", socializeError);
-          }
+        
+        if (initResult.isNewUser) {
+          console.log("User created successfully:", clerkUserId);
+        } else {
+          console.log(`User with email ${primaryEmail} already exists, skipping creation`);
         }
       } catch (error) {
         console.error("Error in user.created handler:", error);
+        return new Response("Error creating user", { status: 500 });
       }
     }
     
-    // Handle user update event - FOCUSED ONLY ON USERNAME AND PROFILE IMAGE
-    else if (payload.type === "user.updated" && payload.data.id) {
+    else if (payload.type === "user.updated") {
       try {
         const clerkUserId = payload.data.id;
-        const username = payload.data.username;
-        const profileImage = payload.data.image_url;
-        
-        // Skip if no username is provided
-        if (!username) {
-          console.log("No username provided in update event, skipping");
-          return new Response("Username is required for update", { status: 400 });
-        }
-        
-        // Find the existing profile
-        const existingProfile = await Socialize.findOne({ clerkUserId });
-        
-        if (existingProfile) {
-          // Track if any updates are needed
-          let isUpdated = false;
-          const updates: Record<string, unknown> = {};
-          
-          // Check if username has changed
-          if (existingProfile.username !== username) {
-            updates.username = username;
-            isUpdated = true;
-            console.log(`Username update detected: ${existingProfile.username} → ${username}`);
-          }
-          
-          // Check if profile image has changed
-          if (profileImage && existingProfile.profileImage !== profileImage) {
-            updates.profileImage = profileImage;
-            isUpdated = true;
-            console.log("Profile image update detected");
-          }
-          
-          // Only update if changes were detected
-          if (isUpdated) {
-            const updatedProfile = await Socialize.findOneAndUpdate(
-              { clerkUserId },
-              { $set: updates },
-              { new: true }
-            );
-            
-            console.log("Socialize profile updated successfully:", {
-              username: updatedProfile?.username,
-              fieldsUpdated: Object.keys(updates)
-            });
-          } else {
-            console.log("No changes to username or profileImage detected");
-          }
-        } else {
-          // Create a new profile if it doesn't exist
-          const newSocializeProfile = new Socialize({
-            clerkUserId,
-            username,
-            profileImage: profileImage || "",
-            bio: "",
-            links: [],
-            notifications: [],
-          });
-          
-          await newSocializeProfile.save();
-          console.log(`New Socialize profile created for user: ${username}`);
-        }
+        const clerkUserData = {
+          email: payload.data.email_addresses?.[0]?.email_address,
+          emailAddresses: payload.data.email_addresses?.map((emailAddr, index) => ({
+            emailAddress: emailAddr.email_address,
+            id: `email_${index}`
+          }))
+        };
+
+        await UserInitializationService.syncUserFromClerk(clerkUserId, clerkUserData);
+        console.log("User updated successfully:", clerkUserId);
       } catch (error) {
-        console.error("Error updating Socialize profile:", error);
-        return new Response("Error updating Socialize profile", { status: 500 });
+        console.error("Error in user.updated handler:", error);
+        return new Response("Error updating user", { status: 500 });
+      }
+    }
+
+    else if (payload.type === "user.deleted") {
+      try {
+        const clerkUserId = payload.data.id;
+        
+        await UserInitializationService.handleUserDeletion(clerkUserId);
+        console.log("User deleted successfully:", clerkUserId);
+      } catch (error) {
+        console.error("Error in user.deleted handler:", error);
+        return new Response("Error deleting user", { status: 500 });
       }
     }
 
     return new Response("Webhook processed successfully", { status: 200 });
   } catch (err) {
     console.error("Error processing webhook:", err);
-    return new Response("Webhook processing error", { status: 400 });
+    return new Response("Webhook processing error", { status: 500 });
   }
 }
-

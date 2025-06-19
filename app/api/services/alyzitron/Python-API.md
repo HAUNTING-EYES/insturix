@@ -152,7 +152,7 @@ Cancels a queued task that hasn't started processing yet.
                 "score": 25,
                 "description": "Low risk - no copyrighted content detected"
             },
-            "guidelines_compliance": {
+            "guidelines_incompliance": {
                 "score": 90,
                 "description": "High compliance with platform guidelines"
             },

@@ -1,7 +1,4 @@
 import { useState, useCallback } from "react";
-import { useToast } from "@/hooks/use-toast";
-import { CheckCircle2, AlertCircle, XCircle } from "lucide-react";
-import { createElement } from "react";
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
 
 interface UploadState {
@@ -38,8 +35,6 @@ function formatVideoType(type: string): string {
 }
 
 export function useVideoAnalysis() {
-  const { toast } = useToast();
-
   // Track state for multiple analyses
   const [uploadStates, setUploadStates] = useState<
     Map<string, AnalysisUploadState>
@@ -167,14 +162,6 @@ export function useVideoAnalysis() {
               logger.info("File upload completed successfully", {
                 data: { gcsPath },
               });
-              toast({
-                variant: "default",
-                title: "Upload Successful",
-                description: "Your video has been uploaded successfully",
-                icon: createElement(CheckCircle2, {
-                  className: "h-4 w-4 text-green-500",
-                }),
-              });
               resolve(gcsPath);
             } else {
               const errorMessage = `Upload failed with status ${xhr.status}`;
@@ -199,14 +186,6 @@ export function useVideoAnalysis() {
           xhr.onabort = () => {
             logger.info("Upload cancelled by user", {
               data: { gcsPath },
-            });
-            toast({
-              variant: "default",
-              title: "Upload Cancelled",
-              description: "Video upload was cancelled",
-              icon: createElement(XCircle, {
-                className: "h-4 w-4 text-zinc-500",
-              }),
             });
             reject(new Error("Upload cancelled"));
           };
@@ -265,7 +244,7 @@ export function useVideoAnalysis() {
         });
       }
     },
-    [toast]
+    []
   );
 
   const submitAnalysis = useCallback(
@@ -332,15 +311,6 @@ export function useVideoAnalysis() {
           data: { analysisId: resultId, taskId, estimatedTime },
         });
 
-        toast({
-          variant: "default",
-          title: "Analysis Started",
-          description: "Your video is being analyzed",
-          icon: createElement(CheckCircle2, {
-            className: "h-4 w-4 text-green-500",
-          }),
-        });
-
         resetState(analysisId);
 
         return { analysisId: resultId, taskId, estimatedTime };
@@ -370,17 +340,10 @@ export function useVideoAnalysis() {
           return newStates;
         });
 
-        toast({
-          variant: "destructive",
-          title: "Analysis Failed",
-          description: "Failed to start video analysis",
-          icon: createElement(AlertCircle, { className: "h-4 w-4" }),
-        });
-
         throw error;
       }
     },
-    [resetState, toast]
+    [resetState]
   );
 
   const analyzeFile = useCallback(
@@ -472,12 +435,6 @@ export function useVideoAnalysis() {
         }
 
         logger.info("Analysis canceled successfully", { data: { taskId } });
-        toast({
-          variant: "default",
-          title: "Analysis Cancelled",
-          description: "Video analysis was cancelled",
-          icon: createElement(XCircle, { className: "h-4 w-4 text-zinc-500" }),
-        });
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Failed to cancel analysis";
@@ -487,7 +444,7 @@ export function useVideoAnalysis() {
         throw error;
       }
     },
-    [toast]
+    []
   );
 
   return {

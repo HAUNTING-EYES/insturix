@@ -8,7 +8,7 @@ import { CircleDot, PlayCircle, XCircle, ChevronRight, Ban } from 'lucide-react'
 import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
 
-import type { AnalysisStatus } from '@/app/dashboard/alyzitron/types/client'
+import type { AnalysisStatus } from '@/app/api/services/alyzitron/types'
 import type { VideoType } from '@/app/api/services/alyzitron/types'
 import type { PaginatedResponse } from './AnalysisList';
 
@@ -33,6 +33,7 @@ interface AnalysisProgressProps {
   queryClient?: QueryClient;
   currentPage?: number;
   itemsPerPage?: number;
+  videoUrl?: string;
 }
 
 export function AnalysisProgress({
@@ -48,9 +49,34 @@ export function AnalysisProgress({
   // onCancel,
   queryClient,
   currentPage,
-  itemsPerPage
+  itemsPerPage,
+  videoUrl
 }: AnalysisProgressProps) {
   const router = useRouter();
+  
+  // Extract YouTube video ID from URL
+  const extractYouTubeVideoId = (url: string): string | null => {
+    const regexes = [
+      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+      /(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]{11})/,
+      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
+      /(?:https?:\/\/)?(?:www\.)?youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+    ];
+
+    for (const regex of regexes) {
+      const match = url.match(regex);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+    return null;
+  };
+
+  // Check if videoUrl is a YouTube URL and get video ID
+  const isYouTubeUrl = videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'));
+  const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
+
   // Helper function to calculate remaining time
   const calculateRemainingTime = (startTime: number | undefined | string, duration: number): number => {
     if (typeof startTime === 'string') {
@@ -116,10 +142,11 @@ export function AnalysisProgress({
   const handleClick = () => {
     // Disable click action for cancelled items
     if (isCancelled) return;
-
-    if (isCompleted && queryClient && currentPage && itemsPerPage) {
+    
+    // Allow both completed and failed analyses to be clickable
+    if ((isCompleted || status === 'failed') && queryClient && currentPage && itemsPerPage) {
       // Construct the query key for the current page
-      const queryKey = ['analyses', { scope: 'completed', page: currentPage, limit: itemsPerPage }];
+      const queryKey = ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }];
 
       // Optimistically update the cache
       queryClient.setQueryData<PaginatedResponse>(queryKey, (oldData) => {
@@ -138,7 +165,7 @@ export function AnalysisProgress({
 
       // Navigate to the report page
       router.push(`/dashboard/alyzitron/report/${analysisId}`);
-    } else if (isCompleted) {
+    } else if (isCompleted || status === 'failed') {
       // Fallback if props are missing (shouldn't happen ideally)
       router.push(`/dashboard/alyzitron/report/${analysisId}`);
     }
@@ -154,14 +181,31 @@ export function AnalysisProgress({
         className={`
           relative bg-black/40 border-zinc-800 backdrop-blur-xl
           ${isActive ? 'ring-1 ring-zinc-700' : ''}
-          ${isCompleted ? 'cursor-pointer hover:bg-black/50 transition-colors duration-300' : ''}
+          ${(isCompleted || status === 'failed') ? 'cursor-pointer hover:bg-black/50 transition-colors duration-300' : ''}
           ${isCancelled ? 'opacity-60' : ''} // Optionally dim cancelled items
         `}
         onClick={handleClick}
       >
         <CardContent className="flex items-center p-4">
-          <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4">
-            <PlayCircle className="h-6 w-6 text-zinc-400" />
+          <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4 overflow-hidden">
+            {youtubeVideoId ? (
+              <img
+                src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
+                alt={title || 'YouTube Video'}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  // Fallback to play icon if thumbnail fails to load
+                  const target = e.target as HTMLImageElement;
+                  target.style.display = 'none';
+                  const playIcon = target.nextElementSibling as HTMLElement;
+                  if (playIcon) playIcon.style.display = 'flex';
+                }}
+              />
+            ) : null}
+            <PlayCircle
+              className={`h-6 w-6 text-zinc-400 ${youtubeVideoId ? 'hidden' : ''}`}
+              style={{ display: youtubeVideoId ? 'none' : 'block' }}
+            />
           </div>
 
           <div className="flex-1 min-w-0">
@@ -171,7 +215,7 @@ export function AnalysisProgress({
               </h3>
 
             </div>
-            <p className="text-sm text-zinc-500">ID: {analysisId}</p>
+            <p className="text-sm text-zinc-500 truncate max-w-full overflow-hidden">ID: {analysisId}</p>
           </div>
 
           <div className="ml-4 flex items-center gap-4">
@@ -238,12 +282,15 @@ export function AnalysisProgress({
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="text-right"
+                    className="flex items-center gap-2"
                   >
-                    <div className="text-sm font-medium text-red-400">Failed</div>
-                    {error?.message && (
-                      <div className="text-sm text-zinc-500">{error.message}</div>
-                    )}
+                    <div className="text-right">
+                      <div className="text-sm font-medium text-red-400">Failed</div>
+                      {error?.code && (
+                        <div className="text-sm text-zinc-500">{error.code}</div>
+                      )}
+                    </div>
+                    <ChevronRight className="h-5 w-5 text-zinc-500" />
                   </motion.div>
                 )}
                 {status === 'cancelled' && (

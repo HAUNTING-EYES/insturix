@@ -18,7 +18,7 @@ export default function Dashboard() {
       <DashboardShell>
         {/* Dashboard Header */}
         <div
-          className="mb-8 p-4 rounded-2xl bg-white/[0.02] backdrop-blur-xl border border-white/[0.08]
+          className="mt-8 p-4 rounded-2xl bg-white/[0.02] backdrop-blur-xl border border-white/[0.08]
                         shadow-[0_0_0_1px_rgba(255,255,255,0.02)]
                         hover:shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
         >

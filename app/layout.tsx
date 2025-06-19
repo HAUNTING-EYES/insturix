@@ -10,6 +10,8 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { TransitionProvider } from "@/components/Loader/TransitionProvider";
 import { Inter } from "next/font/google";
 import { keywords } from "@/lib/seo/keywords";
+import { PricingClientProvider } from "@/lib/PricingContext";
+import { CurrencyProvider } from "@/lib/CurrencyContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -152,15 +154,19 @@ export default function RootLayout({
         </head>
         <body>
           <ReactQueryProvider>
-            <ThemeProvider>
-              <TransitionProvider>
-                {children}
-                <Analytics />
-                <SpeedInsights />
-                <Toaster />
-                <ReactQueryDevtools />
-              </TransitionProvider>
-            </ThemeProvider>
+            <PricingClientProvider>
+              <CurrencyProvider>
+                <ThemeProvider>
+                  <TransitionProvider>
+                    {children}
+                    <Analytics />
+                    <SpeedInsights />
+                    <Toaster />
+                    <ReactQueryDevtools />
+                  </TransitionProvider>
+                </ThemeProvider>
+              </CurrencyProvider>
+            </PricingClientProvider>
           </ReactQueryProvider>
         </body>
       </html>

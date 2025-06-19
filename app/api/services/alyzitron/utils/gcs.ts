@@ -1,20 +1,21 @@
 import { Storage } from '@google-cloud/storage';
 import { ServiceError } from '../types';
 
-if (!process.env.GCS_PROJECT_ID || !process.env.GCS_CLIENT_EMAIL || !process.env.GCS_PRIVATE_KEY || !process.env.GCS_BUCKET_NAME) {
-  throw new Error('Missing required GCS environment variables');
+const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+  : null;
+
+if (!gcsCredentials || !process.env.ALYZITRON_GCS_BUCKET_NAME) {
+  throw new Error('Missing required GCS environment variables: GOOGLE_CLOUD_CREDENTIALS and ALYZITRON_GCS_BUCKET_NAME');
 }
 
 // Initialize GCS
 const storage = new Storage({
-  projectId: process.env.GCS_PROJECT_ID,
-  credentials: {
-    client_email: process.env.GCS_CLIENT_EMAIL,
-    private_key: process.env.GCS_PRIVATE_KEY.replace(/\\n/g, '\n'),
-  },
+  projectId: gcsCredentials.project_id,
+  credentials: gcsCredentials,
 });
 
-const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
+const bucket = storage.bucket(process.env.ALYZITRON_GCS_BUCKET_NAME);
 
 export class GCSManager {
   /**

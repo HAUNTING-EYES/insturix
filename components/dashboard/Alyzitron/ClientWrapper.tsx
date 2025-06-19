@@ -3,16 +3,15 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { useSSEConnection } from '@/hooks/useSSEConnection';
+import { useRtdb } from '@/providers/RtdbProvider';
 import { VideoUpload } from './VideoUpload';
 import { InProgressAnalyses } from './InProgressAnalyses';
 import { AnalysisList } from './AnalysisList';
-import { VideoType, AnalysisStatus } from '@/app/api/services/alyzitron/types';
-import type { Analysis } from '@/app/dashboard/alyzitron/hooks/useAnalysisState';
-import type { ClientAlyzitronAnalysis } from '@/app/dashboard/alyzitron/types/client';
+import { VideoType, AnalysisStatus, AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
+import type { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
 
 interface ClientWrapperProps {
-  initialAnalyses: ClientAlyzitronAnalysis[];
+  initialAnalyses: AlyzitronAnalysis[];
 }
 
 export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
@@ -21,11 +20,11 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const [activeAnalyses, setActiveAnalyses] = useState<Set<string>>(new Set());
 
   // Initialize and manage the 'analyses' query state
-  const { data: analysesData = initialAnalyses } = useQuery<ClientAlyzitronAnalysis[]>({
+  const { data: analysesData = initialAnalyses } = useQuery<AlyzitronAnalysis[]>({
     queryKey: ['analyses'],
     queryFn: async () => {
       // This function ideally shouldn't be called often if initialData is provided
-      // and updates happen via setQueryData/SSE. Fetch only if necessary.
+      // and updates happen via setQueryData/RTDB. Fetch only if necessary.
       console.warn("Fetching analyses directly in ClientWrapper, should be rare.");
       const response = await fetch('/api/services/alyzitron/analyses');
       if (!response.ok) throw new Error('Failed to fetch analyses');
@@ -37,31 +36,70 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     refetchOnWindowFocus: false, // Avoid refetching on window focus
   });
 
-  // Initialize SSE connection
-  const userId = user?.id || '';
-  useSSEConnection(userId);
+  // Initialize RTDB listener for real-time updates
+  const { allTasks } = useRtdb();
+  const alyzitronTasks = allTasks.alyzitron || [];
 
-  // Removed the useEffect that caused an immediate refetch on mount
-  // We will now rely on initialData + SSE updates for state changes.
+  // Sync RTDB data with our analyses query data
+  useEffect(() => {
+    if (alyzitronTasks.length === 0) return;
+
+
+    queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], (old) => {
+      const currentData = Array.isArray(old) ? old : Array.isArray(initialAnalyses) ? initialAnalyses : [];
+      
+      // Create a map of existing analyses by taskId for quick lookup
+      const analysisMap = new Map<string, AlyzitronAnalysis>();
+      currentData.forEach(analysis => {
+        if (analysis.taskId) {
+          analysisMap.set(analysis.taskId, analysis);
+        }
+      });
+
+      // Update existing analyses with RTDB data
+      alyzitronTasks.forEach(task => {
+        const existingAnalysis = analysisMap.get(task.taskId);
+        if (existingAnalysis) {
+          // Update status from RTDB
+          if (existingAnalysis.status !== task.status) {
+            analysisMap.set(task.taskId, {
+              ...existingAnalysis,
+              status: task.status as AnalysisStatus,
+              updatedAt: new Date(task.updatedAt),
+            });
+          }
+        } else {
+          // If we have a task in RTDB but no analysis in our data,
+          // this might be a new task - fetch the full analysis data
+          // Could potentially trigger a refetch here if needed
+        }
+      });
+
+      // Convert back to array and sort by updatedAt
+      const updatedAnalyses = Array.from(analysisMap.values())
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+
+      return updatedAnalyses;
+    });
+  }, [alyzitronTasks, queryClient, initialAnalyses]);
 
 
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {
     if (!analysisId) return;
     
-    queryClient.setQueryData<ClientAlyzitronAnalysis[]>(['analyses'], old => {
+    queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], old => {
       const currentData = old || [];
-      const existingIndex = currentData.findIndex(a => a._id.toString() === analysisId);
+      const existingIndex = currentData.findIndex(a => a._id === analysisId);
       
       // Handle new analysis with optimistic update
       if (existingIndex === -1) {
-        const optimisticAnalysis: ClientAlyzitronAnalysis = {
+        const optimisticAnalysis: AlyzitronAnalysis = {
           _id: analysisId, // Will be replaced by server response
           clerkUserId: 'pending',
           type: analysis.type as VideoType,
           status: analysis.status as AnalysisStatus,
           taskId: analysis.taskId || '',
           videoUrl: analysis.videoUrl || '',
-          gcsPath: analysis.videoUrl || '',
           estimatedTime: analysis.estimatedTime || 60,
           unread: true,
           results: null,
@@ -70,6 +108,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
             videoSize: 0,
             videoDuration: 0,
             mimeType: '',
+            isPublic: false,
           },
           createdAt: new Date(),
           updatedAt: new Date(),
@@ -94,7 +133,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
       newData[existingIndex] = {
         ...existing,
         status: analysis.status as AnalysisStatus,
-        // Update both estimatedTime and expectedDurationSeconds for consistency with SSE handler
+        // Update both estimatedTime and expectedDurationSeconds for consistency with RTDB handler
         estimatedTime: analysis.estimatedTime ?? existing.estimatedTime,
         expectedDurationSeconds: analysis.estimatedTime ?? existing.expectedDurationSeconds, // Add this line
         results: existing.results, // Keep existing results unless explicitly updated
@@ -110,7 +149,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     // Ensure analysesData is an array before iterating
     if (Array.isArray(analysesData)) {
       analysesData.forEach(a => {
-        if (['pending', 'queued', 'processing'].includes(a.status)) {
+        if (['listed', 'queued', 'processing'].includes(a.status)) {
           currentActive.add(a._id.toString());
         }
       });
@@ -141,8 +180,8 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
             progress: 1
           });
 
-          // Invalidate to ensure consistency, though SSE might handle this
-          // Consider if this invalidation is still needed with SSE updates
+          // Invalidate to ensure consistency, though RTDB might handle this
+          // Consider if this invalidation is still needed with RTDB updates
           queryClient.invalidateQueries({ queryKey: ['analyses'] });
         }}
         activeAnalyses={activeAnalyses} // Pass the derived active analyses

@@ -1,40 +1,41 @@
 "use client";
 
-import { usePricing } from "@/lib/PricingContext";
+import { useEffect } from "react";
+import { useCurrency } from "@/lib/CurrencyContext";
 
 export interface CurrencyProps {
   priceUSD: number;
   priceINR: number;
   priceEUR: number;
   priceGBP: number;
+  priceCAD?: number;
+  priceAUD?: number;
+  priceSGD?: number;
+  priceAED?: number;
   className?: string;
-  perMonth?: boolean; // Add this flag to determine if "/mo" should be appended
+  perMonth?: boolean;
 }
 
-export function Currency({ priceUSD, priceINR, priceEUR, priceGBP, className, perMonth }: CurrencyProps) {
-  const { locationData, isLoading, isError } = usePricing();
+export function Currency(props: CurrencyProps) {
+  const { selectedCurrency, selectedSymbol, isUserSelected } = useCurrency(); // Added isUserSelected
 
-  if (isLoading) return <div>Loading...</div>;
-  if (isError) return <div>Error fetching location data</div>;
+  // Log whenever this component renders, and what context it sees
+  useEffect(() => {
+    console.log(">>> Currency Component Rendered/Updated <<<");
+    console.log("Context values seen: ", { selectedCurrency, selectedSymbol, isUserSelected });
+    console.log("-----------------------------------------");
+  }); // NO DEPENDENCY ARRAY - run on every render
 
-  let price;
-  if (locationData?.currency === "USD") {
-    price = priceUSD; // Price in USD
-  } else if (locationData?.currency === "INR") {
-    price = priceINR; // Price in INR
-  } else if (locationData?.currency === "EUR") {
-    price = priceEUR; // Price in EUR
-  } else if (locationData?.currency === "GBP") {
-    price = priceGBP; // Price in GBP
-  } else {
-    price = priceUSD; // Default price
-  }
+  console.log("--- Currency Component (during render function execution) ---");
+  console.log("Received from context - selectedCurrency:", selectedCurrency);
+  console.log("Received from context - selectedSymbol:", selectedSymbol);
+  console.log("Received from context - isUserSelected:", isUserSelected);
+  console.log("--- End Currency Component ---");
 
   return (
-    <div className={className as string}>
-      {locationData?.symbol}
-      {price}
-      {perMonth ? "/mo" : ""}
+    <div className={props.className as string}>
+      DEBUG: {selectedSymbol} {selectedCurrency} (User Selected: {isUserSelected ? 'Yes' : 'No'})
+      {props.perMonth ? "/mo" : ""}
     </div>
   );
 }

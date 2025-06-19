@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 
 export interface AlyzitronUserData {
-  _id: ObjectId;
+  _id: string;
   clerkUserId: string;
   usage: {
     totalAnalyses: number;
@@ -44,8 +44,8 @@ export interface AlyzitronUserData {
 
 export type VideoType = 'SHORT_FORM' | 'EDUCATIONAL' | 'ENTERTAINMENT' | 'MUSIC' | 'PRODUCT_REVIEW' | 'VLOG';
 
-// Status workflow: pending -> queued -> processing -> completed/failed
-export type AnalysisStatus = 'pending' | 'queued' | 'processing' | 'completed' | 'failed';
+// Status workflow: listed -> queued -> processing -> completed/failed/cancelled
+export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 // API specific status (for webhook responses)
 export type APIAnalysisStatus = 'queued' | 'started' | 'processing' | 'completed' | 'failed';
@@ -57,7 +57,7 @@ interface MetricScore {
 
 interface ComplianceRisks {
   copyright_risk: MetricScore;
-  guidelines_compliance: MetricScore;
+  guidelines_incompliance: MetricScore;
   social_risk: MetricScore;
 }
 
@@ -78,14 +78,14 @@ interface AnalysisResults {
 }
 
 export interface AlyzitronAnalysis {
-  _id: ObjectId;
+  _id: string;
   clerkUserId: string;
   videoUrl: string;
-  gcsPath: string;          // Format: 'services/alyzitron/user_{id}/{filename}'
   type: VideoType;
   status: AnalysisStatus;
   taskId: string;
   estimatedTime: number;    // in seconds
+  expectedDurationSeconds?: number; // Add expected duration
   queuePosition?: number;   // Only present when status is 'queued'
   unread: boolean;          // Indicates if the analysis results are unread
   results: AnalysisResults | null;
@@ -104,6 +104,7 @@ export interface AlyzitronAnalysis {
     niche?: string;
     target_audience?: string;
     additional_details?: string;
+    isPublic: boolean;       // Determines if the analysis is public or private
   };
   createdAt: Date;
   updatedAt: Date;
