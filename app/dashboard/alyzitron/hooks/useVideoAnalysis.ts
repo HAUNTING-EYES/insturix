@@ -30,9 +30,6 @@ interface AnalysisUploadState {
   abortController: AbortController | null;
 }
 
-function formatVideoType(type: string): string {
-  return type.toUpperCase().replace(/\s+/g, "_");
-}
 
 export function useVideoAnalysis() {
   // Track state for multiple analyses
@@ -250,10 +247,8 @@ export function useVideoAnalysis() {
   const submitAnalysis = useCallback(
     async (
       videoUrl: string,
-      videoType: string,
       analysisId: string,
-      metadata?: AnalysisMetadata,
-      fileMetadata?: { size?: number; duration?: number }
+      metadata?: AnalysisMetadata
     ) => {
       try {
         setUploadStates((prev) => {
@@ -274,13 +269,8 @@ export function useVideoAnalysis() {
         });
 
         const requestData = {
-          type: formatVideoType(videoType),
           video_url: videoUrl,
-          metadata: {
-            ...metadata,
-            videoSize: fileMetadata?.size,
-            videoDuration: fileMetadata?.duration,
-          },
+          additional_details: metadata?.additional_details || JSON.stringify({}),
         };
 
         logger.info("Submitting analysis request", {
@@ -349,7 +339,6 @@ export function useVideoAnalysis() {
   const analyzeFile = useCallback(
     async (
       file: File,
-      videoType: string,
       analysisId: string,
       metadata?: AnalysisMetadata
     ) => {
@@ -365,13 +354,8 @@ export function useVideoAnalysis() {
           };
           return await submitAnalysis(
             gcsPath,
-            videoType,
             analysisId,
-            {
-              title: file.name,
-              ...metadata,
-            },
-            fileMetadata
+            metadata
           );
         }
 

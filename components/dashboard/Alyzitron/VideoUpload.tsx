@@ -20,16 +20,7 @@ interface VideoUploadProps {
   activeAnalyses: Set<string>;
 }
 
-import { VideoType } from "@/app/api/services/alyzitron/types";
-
-const VIDEO_TYPES: { label: string; value: VideoType }[] = [
-  { label: "Short Form", value: "SHORT_FORM" },
-  { label: "Educational", value: "EDUCATIONAL" },
-  { label: "Entertainment", value: "ENTERTAINMENT" },
-  { label: "Music", value: "MUSIC" },
-  { label: "Product Review", value: "PRODUCT_REVIEW" },
-  { label: "Vlog", value: "VLOG" },
-];
+// VideoType import removed - no longer needed as AI determines category automatically
 
 interface UploadState {
   file: File | null;
@@ -51,7 +42,6 @@ const YOUTUBE_PREVIEW_DEBOUNCE_MS = 1000; // 1 second debounce
 
 export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [uploadState, setUploadState] = useState<UploadState>({ file: null, url: '', duration: 0 });
-  const [selectedType, setSelectedType] = useState<VideoType | ''>('');
   const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
   const [youtubePreview, setYoutubePreview] = useState<YouTubePreview | null>(null);
   const [limitPopup, setLimitPopup] = useState<{
@@ -61,7 +51,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
     maxUsage?: number;
     savedFormData?: {
       uploadState: UploadState;
-      selectedType: VideoType | '';
       youtubePreview: YouTubePreview | null;
     };
   }>({
@@ -83,7 +72,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
 
   const resetUploadState = useCallback(() => {
     setUploadState({ file: null, url: '', duration: 0 });
-    setSelectedType('');
     setCurrentAnalysisId(null);
     setYoutubePreview(null);
     if (debounceRef.current) {
@@ -220,13 +208,12 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
 
   const handleSubmit = useCallback(async () => {
     if (isSubmitting) return;
-    if (!selectedType || (!uploadState.file && !uploadState.url)) return;
+    if (!uploadState.file && !uploadState.url) return;
 
     setIsSubmitting(true); // Prevent double tap only
     
     // Store form data for potential restoration on limit errors
     const savedUploadState = { ...uploadState };
-    const savedSelectedType = selectedType;
     const savedYoutubePreview = youtubePreview;
 
     // Frontend URL format validation (don't reset form for validation errors)
@@ -247,13 +234,8 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       if (uploadState.file) {
         result = await analyzeFile(
           uploadState.file,
-          selectedType,
           submissionId,
-          {
-            additional_details: JSON.stringify({
-              videoDuration: uploadState.duration
-            })
-          }
+          { additional_details: JSON.stringify({}) }
         );
         if (!result) {
           setIsSubmitting(false);
@@ -262,11 +244,8 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       } else if (uploadState.url) {
         result = await submitAnalysis(
           uploadState.url,
-          selectedType,
           submissionId,
-          {
-            title: youtubePreview?.title || undefined
-          }
+          { additional_details: JSON.stringify({}) }
         );
       }
 
@@ -277,8 +256,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         onSubmit(result.analysisId, {
           analysisId: result.analysisId,
           taskId: result.taskId,
-          type: selectedType,
-          title: uploadState.file?.name || uploadState.url,
+          title: uploadState.file?.name || youtubePreview?.title || uploadState.url,
           videoUrl: uploadState.url || uploadState.file?.name || '',
           status: 'queued',
           progress: 0,
@@ -319,7 +297,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
             maxUsage,
             savedFormData: {
               uploadState: savedUploadState,
-              selectedType: savedSelectedType,
               youtubePreview: savedYoutubePreview
             }
           });
@@ -359,7 +336,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       // Restore form data if it's a limit error or server issue
       if (shouldRestoreForm) {
         setUploadState(savedUploadState);
-        setSelectedType(savedSelectedType);
         setYoutubePreview(savedYoutubePreview);
       } else if (shouldResetForm) {
         resetUploadState();
@@ -373,7 +349,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
     } finally {
       setIsSubmitting(false);
     }
-  }, [uploadState, selectedType, analyzeFile, submitAnalysis, onSubmit, toast, isSubmitting, resetUploadState, youtubePreview]);
+  }, [uploadState, analyzeFile, submitAnalysis, onSubmit, toast, isSubmitting, resetUploadState, youtubePreview]);
 
   const clearFile = () => {
     setUploadState(prev => ({ ...prev, file: null }));
@@ -421,7 +397,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
     const savedData = limitPopup.savedFormData;
     if (savedData) {
       setUploadState(savedData.uploadState);
-      setSelectedType(savedData.selectedType);
       setYoutubePreview(savedData.youtubePreview);
     }
     setLimitPopup(prev => ({ ...prev, isOpen: false, savedFormData: undefined }));
@@ -433,15 +408,14 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       onComplete(currentAnalysisId, {
         analysisId: currentAnalysisId,
         taskId: '', // Already stored in ClientWrapper
-        type: selectedType,
-        title: uploadState.file?.name || uploadState.url,
+        title: uploadState.file?.name || youtubePreview?.title || uploadState.url,
         videoUrl: uploadState.url || uploadState.file?.name || '',
         status: 'completed',
         progress: 1,
       });
       resetUploadState();
     }
-  }, [currentAnalysisId, currentAnalysisState?.status, onComplete, resetUploadState, selectedType, uploadState]);
+  }, [currentAnalysisId, currentAnalysisState?.status, onComplete, resetUploadState, uploadState]);
 
   return (
     <Card className="relative bg-black/40 border-zinc-800 backdrop-blur-xl">
@@ -601,43 +575,20 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
           </Tabs>
 
           {/* Video Type Selection */}
-          <div className="mt-8">
-            <label className="block text-sm font-medium text-zinc-400 mb-4 uppercase tracking-wider">
-              Content Category
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {VIDEO_TYPES.map((type) => (
-                <button
-                  key={type.value}
-                  onClick={() => setSelectedType(type.value)}
-                  className={`
-                    px-4 py-3 rounded-lg text-sm font-medium tracking-wide transition-all duration-300
-                    ${selectedType === type.value
-                      ? 'bg-zinc-100 text-zinc-900'
-                      : 'bg-black/20 text-zinc-400 hover:bg-black/40 hover:text-zinc-300'
-                    }
-                  `}
-                >
-                  {type.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Submit Button */}
           <div className="mt-8">
             <Button
               size="lg"
               className={`
                 w-full h-14 text-base font-medium tracking-wide
-                ${!(uploadState.file || uploadState.url) || !selectedType
+                ${!(uploadState.file || uploadState.url)
                   ? 'bg-zinc-800 text-zinc-500'
                   : 'bg-zinc-100 text-zinc-900 hover:bg-zinc-200'
                 }
                 transition-all duration-300
               `}
               onClick={handleSubmit}
-              disabled={!(uploadState.file || uploadState.url) || !selectedType || isSubmitting || !!(currentUploadState && currentAnalysisId)}
+              disabled={!(uploadState.file || uploadState.url) || isSubmitting || !!(currentUploadState && currentAnalysisId)}
             >
               {isSubmitting || (currentUploadState && currentAnalysisId) ? (
                 <div className="flex items-center gap-2">

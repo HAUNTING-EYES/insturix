@@ -1,11 +1,43 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Eye, EyeOff, Check, Globe, X } from "lucide-react";
+import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Eye, EyeOff, Check, Globe, X, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
+import type { AnalysisResults } from "@/app/api/services/alyzitron/types";
+
+// Helper function to copy text to clipboard
+const copyToClipboard = async (text: string): Promise<boolean> => {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch (err) {
+    console.error('Failed to copy:', err);
+    return false;
+  }
+};
+
+// Helper function to format description with hashtags
+const formatDescription = (description: string) => {
+  const parts = description.split(/(#\w+)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith('#')) {
+      return (
+        <span key={index} className="text-blue-400 font-medium">
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+};
+
+// Helper function to format description text (no line breaks, just styling)
+const formatDescriptionText = (description: string) => {
+  return description;
+};
 
 const ScoreIndicator = ({
   score,
@@ -210,6 +242,26 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
 
 export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt, analysisId, isOwner, isPublic }: AnalysisDetailsProps) {
   const [currentIsPublic, setCurrentIsPublic] = useState(isPublic || false);
+  const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
+  const [currentDescriptionIndex, setCurrentDescriptionIndex] = useState(0);
+  const [showAllTitles, setShowAllTitles] = useState(false);
+  const [showAllDescriptions, setShowAllDescriptions] = useState(false);
+  const [copiedItems, setCopiedItems] = useState<Set<string>>(new Set());
+
+  // Helper function to handle copy with visual feedback
+  const handleCopy = async (text: string, itemId: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      setCopiedItems(prev => new Set(prev).add(itemId));
+      setTimeout(() => {
+        setCopiedItems(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(itemId);
+          return newSet;
+        });
+      }, 2000);
+    }
+  };
 
   // Extract YouTube video ID from URL
   const extractYouTubeVideoId = (url: string): string | null => {
@@ -233,28 +285,33 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
   // Check if videoUrl is a YouTube URL and get video ID
   const isYouTubeUrl = videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'));
   const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
-  // Calculate overall score from all metrics that have scores
-  const scores: number[] = [];
-  Object.entries(analysisData).forEach(([key, value]) => {
-    if (
-      key !== "category" &&
-      key !== "creator_feedback" &&
-      typeof value === "object"
-    ) {
-      Object.values(value as Record<string, MetricData>).forEach((metric) => {
-        if (metric && typeof metric.score === "number") {
-          // Don't include compliance risk scores in overall score
-          if (key !== "compliance_risks") {
-            scores.push(metric.score);
-          }
-        }
-      });
+
+  // Helper functions for title/description navigation
+  const nextTitle = () => {
+    if (analysisData.titles && analysisData.titles.length > 1) {
+      setCurrentTitleIndex((prev) => (prev + 1) % analysisData.titles!.length);
     }
-  });
-  const overallScore =
-    scores.length > 0
-      ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
-      : 0;
+  };
+
+  const prevTitle = () => {
+    if (analysisData.titles && analysisData.titles.length > 1) {
+      setCurrentTitleIndex((prev) => (prev - 1 + analysisData.titles!.length) % analysisData.titles!.length);
+    }
+  };
+
+  const nextDescription = () => {
+    if (analysisData.descriptions && analysisData.descriptions.length > 1) {
+      setCurrentDescriptionIndex((prev) => (prev + 1) % analysisData.descriptions!.length);
+    }
+  };
+
+  const prevDescription = () => {
+    if (analysisData.descriptions && analysisData.descriptions.length > 1) {
+      setCurrentDescriptionIndex((prev) => (prev - 1 + analysisData.descriptions!.length) % analysisData.descriptions!.length);
+    }
+  };
+  // Use the overall score from the new structure
+  const overallScore = analysisData.overall_score || 0;
 
   return (
     <div className="space-y-8">
@@ -361,11 +418,310 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
         </div>
       )}
 
-      {/* Main Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Overview Section */}
+      {analysisData.overview && (
+        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium text-zinc-100">Overview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-zinc-300 leading-relaxed">{analysisData.overview}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Analysis Summary - Remarks Section */}
+      {analysisData.remarks && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: "easeOut" }}
+        >
+          <Card className="bg-gradient-to-br from-blue-500/10 via-purple-500/10 to-indigo-500/10 border-blue-500/30 backdrop-blur-xl relative overflow-hidden">
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/5 via-transparent to-purple-500/5 animate-pulse" />
+            <CardHeader className="relative">
+              <CardTitle className="text-xl font-semibold text-blue-100 flex items-center gap-3">
+                <div className="p-2 bg-blue-500/20 rounded-lg">
+                  <CheckCircle className="h-5 w-5 text-blue-400" />
+                </div>
+                Analysis Summary
+                <div className="flex-1 h-px bg-gradient-to-r from-blue-500/30 to-transparent ml-4" />
+              </CardTitle>
+              <p className="text-blue-300/70 text-sm mt-2">
+                Key insights and conclusions from the complete analysis
+              </p>
+            </CardHeader>
+            <CardContent className="relative">
+              <div className="bg-black/20 rounded-lg p-6 border border-blue-500/20">
+                <p className="text-zinc-200 leading-relaxed text-lg font-medium">
+                  {analysisData.remarks}
+                </p>
+              </div>
+              <div className="flex items-center justify-end mt-4">
+                <button
+                  onClick={() => handleCopy(analysisData.remarks!, 'analysis-summary')}
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 border border-blue-500/30 hover:border-blue-500/50 rounded-lg transition-all duration-200 text-sm"
+                >
+                  {copiedItems.has('analysis-summary') ? (
+                    <>
+                      <Check className="h-3 w-3" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3 w-3" />
+                      Copy Summary
+                    </>
+                  )}
+                </button>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* AI-Generated Titles and Descriptions */}
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
+        {/* Titles Section */}
+        {analysisData.titles && analysisData.titles.length > 0 && (
+          <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl lg:col-span-2 self-start">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg font-medium text-zinc-100 flex items-center justify-between">
+                Recommended Titles
+                {analysisData.titles.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAllTitles(!showAllTitles)}
+                      className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                    >
+                      {showAllTitles ? 'Show One' : `Show All (${analysisData.titles.length})`}
+                    </button>
+                  </div>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AnimatePresence mode="wait">
+                {showAllTitles ? (
+                  <motion.div
+                    key="all-titles"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="space-y-3"
+                  >
+                    {analysisData.titles.map((title, index) => (
+                      <div key={index} className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="text-zinc-300 leading-relaxed flex-1 text-sm">{title}</p>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleCopy(title, `title-${index}`)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200"
+                              title="Copy title"
+                            >
+                              {copiedItems.has(`title-${index}`) ? (
+                                <Check className="h-3 w-3 text-green-400" />
+                              ) : (
+                                <Copy className="h-3 w-3 text-zinc-400" />
+                              )}
+                            </button>
+                            <span className="text-xs text-zinc-500">#{index + 1}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="single-title"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="space-y-3"
+                  >
+                    <div className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-zinc-300 leading-relaxed flex-1 text-sm">{analysisData.titles[currentTitleIndex]}</p>
+                        <button
+                          onClick={() => handleCopy(analysisData.titles[currentTitleIndex], `current-title`)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
+                          title="Copy title"
+                        >
+                          {copiedItems.has(`current-title`) ? (
+                            <Check className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-zinc-400" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    {analysisData.titles.length > 1 && (
+                      <div className="flex justify-between items-center">
+                        <button
+                          onClick={prevTitle}
+                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                        >
+                          <ChevronLeft className="h-3 w-3" />
+                          Previous
+                        </button>
+                        <span className="text-xs text-zinc-500">
+                          {currentTitleIndex + 1} of {analysisData.titles.length}
+                        </span>
+                        <button
+                          onClick={nextTitle}
+                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                        >
+                          Next
+                          <ChevronRight className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Descriptions Section */}
+        {analysisData.descriptions && analysisData.descriptions.length > 0 && (
+          <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl lg:col-span-3 self-start">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg font-medium text-zinc-100 flex items-center justify-between">
+                Recommended Descriptions
+                {analysisData.descriptions.length > 1 && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowAllDescriptions(!showAllDescriptions)}
+                      className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                    >
+                      {showAllDescriptions ? 'Show One' : `Show All (${analysisData.descriptions.length})`}
+                    </button>
+                  </div>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <AnimatePresence mode="wait">
+                {showAllDescriptions ? (
+                  <motion.div
+                    key="all-descriptions"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="space-y-4"
+                  >
+                    {analysisData.descriptions.map((description, index) => (
+                      <div key={index} className="p-4 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-zinc-300 leading-relaxed text-sm">
+                              {formatDescription(description)}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              onClick={() => handleCopy(description, `description-${index}`)}
+                              className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200"
+                              title="Copy description"
+                            >
+                              {copiedItems.has(`description-${index}`) ? (
+                                <Check className="h-3 w-3 text-green-400" />
+                              ) : (
+                                <Copy className="h-3 w-3 text-zinc-400" />
+                              )}
+                            </button>
+                            <span className="text-xs text-zinc-500">#{index + 1}</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key="single-description"
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    transition={{ duration: 0.3, ease: "easeInOut" }}
+                    className="space-y-3"
+                  >
+                    <div className="p-4 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-zinc-300 leading-relaxed text-sm">
+                            {formatDescription(analysisData.descriptions[currentDescriptionIndex])}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleCopy(analysisData.descriptions[currentDescriptionIndex], `current-description`)}
+                          className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
+                          title="Copy description"
+                        >
+                          {copiedItems.has(`current-description`) ? (
+                            <Check className="h-3 w-3 text-green-400" />
+                          ) : (
+                            <Copy className="h-3 w-3 text-zinc-400" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                    {analysisData.descriptions.length > 1 && (
+                      <div className="flex justify-between items-center">
+                        <button
+                          onClick={prevDescription}
+                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                        >
+                          <ChevronLeft className="h-3 w-3" />
+                          Previous
+                        </button>
+                        <span className="text-xs text-zinc-500">
+                          {currentDescriptionIndex + 1} of {analysisData.descriptions.length}
+                        </span>
+                        <button
+                          onClick={nextDescription}
+                          className="flex items-center gap-1 text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
+                        >
+                          Next
+                          <ChevronRight className="h-3 w-3" />
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* Target Audience Section */}
+      {analysisData.target_audience && (
+        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+          <CardHeader>
+            <CardTitle className="text-lg font-medium text-zinc-100">Target Audience</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-zinc-300 leading-relaxed">{analysisData.target_audience}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Main Grid - Masonry Layout */}
+      <div className="columns-1 lg:columns-2 gap-6 space-y-6">
         {Object.entries(analysisData).map(([section, data]) => {
-          // Skip category and creator_feedback as they're handled separately
-          if (section === "category" || section === "creator_feedback")
+          // Skip fields that are handled separately or are not metric groups
+          if (section === "category" ||
+              section === "creator_feedback" ||
+              section === "overall_score" ||
+              section === "overview" ||
+              section === "titles" ||
+              section === "descriptions" ||
+              section === "target_audience")
             return null;
 
           // Ensure data is a metrics object
@@ -380,7 +736,7 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
           return (
             <Card
               key={section}
-              className="bg-black/40 border-zinc-800 backdrop-blur-xl"
+              className="bg-black/40 border-zinc-800 backdrop-blur-xl break-inside-avoid mb-6"
             >
               <CardHeader>
                 <CardTitle className="text-lg font-medium text-zinc-100 capitalize">
@@ -404,11 +760,12 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                           </p>
                         </div>
                         <div className="flex items-center ml-4 shrink-0">
-                          {section === "compliance_risks" ? (
+                          {/* {section === "compliance_risks" ? (
                             value.score ? (
                               <ScoreIndicator score={value.score} invert />
                             ) : null
-                          ) : value.score ? (
+                          )}: */}
+                          { value.score ? (
                             <ScoreIndicator score={value.score} />
                           ) : null}
                         </div>
@@ -450,7 +807,7 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
           </div>
           <div>
             <h3 className="text-sm font-medium text-zinc-300 mb-4">
-              Improvements
+              Areas for Improvement
             </h3>
             <ul className="space-y-3">
               {analysisData?.creator_feedback?.improvements?.map(

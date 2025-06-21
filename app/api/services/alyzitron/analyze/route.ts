@@ -26,10 +26,6 @@ function getGcsUrl(gcsPath: string): string {
   return `gs://${bucketName}/${gcsPath}`;
 }
 
-// Function to format video type according to API spec
-function formatVideoType(type: string): string {
-  return type.toUpperCase().replace(/\s+/g, '_');
-}
 
 export async function POST(request: Request) {
   try {
@@ -41,11 +37,11 @@ export async function POST(request: Request) {
       );
     }
 
-    const { type, video_url, title, description, niche, target_audience, additional_details } = await request.json();
+    const { video_url, additional_details } = await request.json();
     
-    if (!type || !video_url) {
+    if (!video_url) {
       return NextResponse.json(
-        { error: 'Missing required fields' },
+        { error: 'Missing required field: video_url' },
         { status: 400 }
       );
     }
@@ -78,12 +74,7 @@ export async function POST(request: Request) {
 
     // Check service limits using enhanced middleware
     const requestData = {
-      type,
       video_url,
-      title,
-      description,
-      niche,
-      target_audience,
       additional_details,
       videoDuration
     };
@@ -108,29 +99,50 @@ export async function POST(request: Request) {
       // If it's a GCS file, format the videoUrl as gs://${bucketName}/${gcsPath}
       const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
 
+      // Generate appropriate title based on video source
+      let title: string;
+      if (isGCS) {
+        // For GCS files, extract filename from path
+        const pathParts = video_url.split('/');
+        const filename = pathParts[pathParts.length - 1];
+        title = decodeURIComponent(filename);
+      } else if (isMaybeYouTube) {
+        // For YouTube URLs, try to get title from oEmbed API
+        try {
+          const oEmbedResponse = await fetch(
+            `https://www.youtube.com/oembed?url=${encodeURIComponent(video_url)}&format=json`
+          );
+          if (oEmbedResponse.ok) {
+            const oEmbedData = await oEmbedResponse.json();
+            title = oEmbedData.title || video_url;
+          } else {
+            title = video_url;
+          }
+        } catch {
+          title = video_url;
+        }
+      } else {
+        title = video_url;
+      }
+
       // Create analysis record in MongoDB
       const analysisRecord: AlyzitronAnalysis = {
         _id: new ObjectId().toString(),
         clerkUserId: session.userId,
         videoUrl: finalVideoUrl,
-        type: formatVideoType(type) as AlyzitronAnalysis['type'],
         status: 'listed',
         unread: true,
         taskId: taskId,
         estimatedTime: 120, // Default estimate, will be updated by worker
         results: null,
         metadata: {
-          originalFilename: title || type + ' Analysis',
+          originalFilename: title,
           videoSize: 0,
           videoDuration: videoDuration,
           mimeType: 'video/mp4',
-          title,
-          description,
-          niche,
-          target_audience,
-          additional_details,
           isPublic: false // Default to private
         },
+        additional_details,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -143,20 +155,15 @@ export async function POST(request: Request) {
       await RTDBManager.createTask(
         session.userId,
         taskId,
-        title || `${type} Analysis`,
-        description
+        title,
+        undefined
       );
 
       // Publish to Pub/Sub for worker processing
       await PubSubManager.publishTask({
         taskId,
         userId: session.userId,
-        type: formatVideoType(type),
         videoUrl: finalVideoUrl,
-        title,
-        description,
-        niche,
-        targetAudience: target_audience,
         additionalDetails: additional_details,
       });
 
@@ -191,7 +198,6 @@ export async function POST(request: Request) {
         data: {
           analysisId: analysisRecord._id,
           taskId,
-          type: analysisRecord.type,
           userId: session.userId
         }
       });

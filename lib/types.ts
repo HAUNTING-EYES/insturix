@@ -5,11 +5,17 @@ export type MetricData = {
 
 export type AnalysisData = {
   category: string;
+  overall_score?: number;
+  overview?: string;
+  remarks?: string;
+  titles: string[];
+  descriptions: string[];
+  target_audience?: string;
   creator_feedback: {
     strengths: string[];
     improvements: string[];
   };
-  [key: string]: Record<string, MetricData> | string | { strengths: string[]; improvements: string[]; };
+  [key: string]: Record<string, MetricData> | string | string[] | number | { strengths: string[]; improvements: string[]; } | undefined;
 };
 // Editron Task interface
 

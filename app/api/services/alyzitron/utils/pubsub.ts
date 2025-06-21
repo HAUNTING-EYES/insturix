@@ -18,12 +18,7 @@ const pubsub = new PubSub({
 export interface TaskMessage {
   taskId: string;
   userId: string;
-  type: string;
   videoUrl: string;
-  title?: string;
-  description?: string;
-  niche?: string;
-  targetAudience?: string;
   additionalDetails?: string;
 }
 
