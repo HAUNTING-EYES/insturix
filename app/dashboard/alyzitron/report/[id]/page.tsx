@@ -86,7 +86,7 @@ export default async function AnalysisReport({ params }: PageProps) {
             errorCode={analysis.error?.code || 'UNKNOWN_ERROR'}
             errorMessage={analysis.error?.message || 'An unknown error occurred during analysis'}
             videoUrl={analysis.videoUrl}
-            videoTitle={analysis.metadata?.title || analysis.metadata?.originalFilename}
+            videoTitle={analysis.metadata?.originalFilename}
             createdAt={analysis.createdAt}
           />
         </div>
@@ -94,55 +94,45 @@ export default async function AnalysisReport({ params }: PageProps) {
     );
   }
 
+  // Handle new results structure
   const analysisData: AnalysisData = {
-    category: analysis.type,
-    creator_feedback:
-      analysis.results?.creator_feedback &&
-      typeof analysis.results.creator_feedback === "object" &&
-      analysis.results.creator_feedback !== null &&
-      "strengths" in analysis.results.creator_feedback &&
-      "improvements" in analysis.results.creator_feedback
-        ? {
-            strengths: Array.isArray(
-              analysis.results.creator_feedback.strengths
-            )
-              ? analysis.results.creator_feedback.strengths
-              : [],
-            improvements: Array.isArray(
-              analysis.results.creator_feedback.improvements
-            )
-              ? analysis.results.creator_feedback.improvements
-              : [],
-          }
-        : {
-            strengths: [],
-            improvements: [],
-          },
+    category: analysis.results?.category || 'Analysis',
+    overall_score: analysis.results?.overall_score || 0,
+    overview: analysis.results?.overview || '',
+    remarks: analysis.results?.remarks || '',
+    titles: analysis.results?.titles || [],
+    descriptions: analysis.results?.descriptions || [],
+    target_audience: analysis.results?.target_audience || '',
+    creator_feedback: {
+      strengths: analysis.results?.strengths || [],
+      improvements: analysis.results?.weaknesses || [],
+    },
   };
 
-  // Map metrics to their groups
-  if (analysis.results) {
-    Object.entries(analysis.results).forEach(([group, groupMetrics]) => {
-      if (typeof groupMetrics === "object" && groupMetrics !== null) {
-        const metrics: Record<string, MetricData> = {};
-        Object.entries(groupMetrics).forEach(([key, value]) => {
-          if (typeof value === "object" && value !== null && "score" in value) {
-            const metric = value as { score?: number; description?: string };
-            metrics[key] = {
-              score:
-                typeof metric.score === "number" ? metric.score : undefined,
-              description:
-                typeof metric.description === "string"
-                  ? metric.description
-                  : "",
-            };
-          }
-        });
-        if (group != "category" && group != "creator_feedback") {
-          analysisData[group] = metrics;
-        }
-      }
+  // Map analysis categories to metric groups
+  if (analysis.results?.analysis) {
+    analysis.results.analysis.forEach((category: any) => {
+      const metrics: Record<string, MetricData> = {};
+      category.metrics.forEach((metric: any) => {
+        metrics[metric.name.replace(/\s+/g, '_').toLowerCase()] = {
+          score: metric.score,
+          description: metric.description,
+        };
+      });
+      analysisData[category.category_name.replace(/\s+/g, '_').toLowerCase()] = metrics;
     });
+  }
+
+  // Map compliance risks
+  if (analysis.results?.compliance_risks) {
+    const complianceMetrics: Record<string, MetricData> = {};
+    analysis.results.compliance_risks.forEach((risk: any) => {
+      complianceMetrics[risk.name.replace(/\s+/g, '_').toLowerCase()] = {
+        score: risk.score,
+        description: risk.description,
+      };
+    });
+    analysisData.compliance_risks = complianceMetrics;
   }
 
   return (
@@ -151,7 +141,7 @@ export default async function AnalysisReport({ params }: PageProps) {
         <AnalysisDetails
           analysisData={analysisData}
           videoUrl={analysis.videoUrl}
-          videoTitle={analysis.metadata?.title || analysis.metadata?.originalFilename}
+          videoTitle={analysis.metadata?.originalFilename}
           createdAt={analysis.createdAt}
           analysisId={analysis._id}
           isOwner={isOwner}

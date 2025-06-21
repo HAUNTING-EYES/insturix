@@ -96,7 +96,7 @@ export function TaskNotificationPopup({
                   {config.label}
                 </Badge>
               </div>
-              <p className="text-sm font-medium text-zinc-100 truncate mt-1">
+              <p className="text-sm font-medium text-zinc-100 mt-1 overflow-hidden text-ellipsis whitespace-nowrap max-w-[200px]">
                 {taskUpdate.title || `Task ${taskUpdate.taskId.slice(0, 8)}`}
               </p>
               <p className="text-xs text-zinc-400">

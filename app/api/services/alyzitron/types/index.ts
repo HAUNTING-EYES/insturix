@@ -42,46 +42,48 @@ export interface AlyzitronUserData {
   updatedAt: Date;
 }
 
-export type VideoType = 'SHORT_FORM' | 'EDUCATIONAL' | 'ENTERTAINMENT' | 'MUSIC' | 'PRODUCT_REVIEW' | 'VLOG';
-
 // Status workflow: listed -> queued -> processing -> completed/failed/cancelled
 export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 // API specific status (for webhook responses)
 export type APIAnalysisStatus = 'queued' | 'started' | 'processing' | 'completed' | 'failed';
 
-interface MetricScore {
+// New flexible analysis result structure
+export interface Metric {
+  name: string;
   score: number;
   description: string;
 }
 
-interface ComplianceRisks {
-  copyright_risk: MetricScore;
-  guidelines_incompliance: MetricScore;
-  social_risk: MetricScore;
+export interface AnalysisCategory {
+  category_name: string;
+  metrics: Metric[];
 }
 
-interface CreatorFeedback {
-  strengths: string[];
-  improvements: string[];
-}
-
-interface CategoryMetrics {
-  [metric: string]: MetricScore;
-}
-
-interface AnalysisResults {
+export interface ComplianceRisk {
+  name: string;
   score: number;
-  creator_feedback: CreatorFeedback;
-  compliance_risks: ComplianceRisks;
-  [category: string]: number | CreatorFeedback | ComplianceRisks | CategoryMetrics;
+  description: string;
+}
+
+export interface AnalysisResults {
+  category: string;
+  overall_score: number;
+  overview: string;
+  remarks: string;
+  titles: string[];
+  descriptions: string[];
+  target_audience: string;
+  strengths: string[];
+  weaknesses: string[];
+  analysis: AnalysisCategory[];
+  compliance_risks: ComplianceRisk[];
 }
 
 export interface AlyzitronAnalysis {
   _id: string;
   clerkUserId: string;
   videoUrl: string;
-  type: VideoType;
   status: AnalysisStatus;
   taskId: string;
   estimatedTime: number;    // in seconds
@@ -89,6 +91,7 @@ export interface AlyzitronAnalysis {
   queuePosition?: number;   // Only present when status is 'queued'
   unread: boolean;          // Indicates if the analysis results are unread
   results: AnalysisResults | null;
+  additional_details?: string; // User preferences and requirements
   error?: {
     code: string;
     message: string;
@@ -99,11 +102,6 @@ export interface AlyzitronAnalysis {
     videoSize: number;       // in bytes
     videoDuration: number;   // in seconds
     mimeType: string;
-    title?: string;
-    description?: string;
-    niche?: string;
-    target_audience?: string;
-    additional_details?: string;
     isPublic: boolean;       // Determines if the analysis is public or private
   };
   createdAt: Date;
