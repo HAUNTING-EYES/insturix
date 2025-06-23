@@ -9,7 +9,6 @@ import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
 
 import type { AnalysisStatus } from '@/app/api/services/alyzitron/types'
-import type { VideoType } from '@/app/api/services/alyzitron/types'
 import type { PaginatedResponse } from './AnalysisList';
 
 interface AnalysisError {
@@ -22,7 +21,6 @@ interface AnalysisProgressProps {
   analysisId: string;
   taskId?: string;
   title?: string;
-  type?: VideoType;
   status?: AnalysisStatus;
   queuePosition?: number;
   unread?: boolean;

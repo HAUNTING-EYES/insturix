@@ -12,6 +12,7 @@ import { Inter } from "next/font/google";
 import { keywords } from "@/lib/seo/keywords";
 import { PricingClientProvider } from "@/lib/PricingContext";
 import { CurrencyProvider } from "@/lib/CurrencyContext";
+import { LocationProvider } from "@/lib/LocationProvider";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -154,19 +155,21 @@ export default function RootLayout({
         </head>
         <body>
           <ReactQueryProvider>
-            <PricingClientProvider>
-              <CurrencyProvider>
-                <ThemeProvider>
-                  <TransitionProvider>
-                    {children}
-                    <Analytics />
-                    <SpeedInsights />
-                    <Toaster />
-                    <ReactQueryDevtools />
-                  </TransitionProvider>
-                </ThemeProvider>
-              </CurrencyProvider>
-            </PricingClientProvider>
+            <LocationProvider>
+              <PricingClientProvider>
+                <CurrencyProvider>
+                  <ThemeProvider>
+                    <TransitionProvider>
+                      {children}
+                      <Analytics />
+                      <SpeedInsights />
+                      <Toaster />
+                      <ReactQueryDevtools />
+                    </TransitionProvider>
+                  </ThemeProvider>
+                </CurrencyProvider>
+              </PricingClientProvider>
+            </LocationProvider>
           </ReactQueryProvider>
         </body>
       </html>

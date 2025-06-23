@@ -20,7 +20,6 @@ interface VideoUploadProps {
   activeAnalyses: Set<string>;
 }
 
-// VideoType import removed - no longer needed as AI determines category automatically
 
 interface UploadState {
   file: File | null;

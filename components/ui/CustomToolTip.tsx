@@ -53,13 +53,7 @@ interface UserData {
   currentPlan: Plan;
 }
 
-const fetchUserData = async (): Promise<UserData> => {
-  const response = await fetch("/api/user");
-  if (!response.ok) {
-    throw new Error("Failed to fetch user data");
-  }
-  return response.json();
-};
+import { useUserInitialization } from "../dashboard/UserInitializationProvider";
 
 export default function UserDropdown({
   onSettingsClick,
@@ -72,7 +66,7 @@ export default function UserDropdown({
   isCollapsed?: boolean;
   onDialogStateChange?: (isOpen: boolean) => void;
 }) {
-  const { user } = useUser();
+  const { user: clerkUser } = useUser();
   const { signOut } = useClerk();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -81,13 +75,7 @@ export default function UserDropdown({
   const [planCancellationOpen, setPlanCancellationOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"account" | "preferences">("account");
 
-  const { data: userData, isLoading } = useQuery({
-    queryKey: ["userData", user?.id],
-    queryFn: fetchUserData,
-    enabled: !!user,
-    staleTime: 5 * 60 * 1000,
-    refetchOnWindowFocus: false,
-  });
+  const { user: userData, isLoading } = useUserInitialization();
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -161,7 +149,7 @@ export default function UserDropdown({
     setIsOpen(false);
   };
 
-  if (!user) return <NotSignedIn />;
+  if (!clerkUser) return <NotSignedIn />;
 
   const planName = getPlanDisplayName(userData?.currentPlan?.name) || "Free";
   const isPremium = planName.toLowerCase().includes("premium");
@@ -195,11 +183,11 @@ export default function UserDropdown({
           >
             <Avatar className="border border-white/20 h-8 w-8">
               <AvatarImage
-                src={user.imageUrl || undefined}
-                alt={user.fullName || "User"}
+                src={clerkUser.imageUrl || undefined}
+                alt={clerkUser.fullName || "User"}
               />
               <AvatarFallback className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white text-sm">
-                {user.firstName?.charAt(0) || user.username?.charAt(0) || "U"}
+                {clerkUser.firstName?.charAt(0) || clerkUser.username?.charAt(0) || "U"}
               </AvatarFallback>
             </Avatar>
           </motion.div>
@@ -218,7 +206,7 @@ export default function UserDropdown({
                   className="text-sm font-medium truncate"
                   layout
                 >
-                  {user.username}
+                  {clerkUser.username}
                 </motion.p>
                 <motion.div
                   className="flex items-center gap-1"
@@ -299,21 +287,21 @@ export default function UserDropdown({
               <div className="flex items-center gap-3 px-3 py-2 mb-3">
                 <Avatar className="h-10 w-10 border border-white/10">
                   <AvatarImage
-                    src={user.imageUrl || undefined}
-                    alt={user.fullName || "User"}
+                    src={clerkUser.imageUrl || undefined}
+                    alt={clerkUser.fullName || "User"}
                   />
                   <AvatarFallback className="bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
-                    {user.firstName?.charAt(0) ||
-                      user.username?.charAt(0) ||
+                    {clerkUser.firstName?.charAt(0) ||
+                      clerkUser.username?.charAt(0) ||
                       "U"}
                   </AvatarFallback>
                 </Avatar>
                 <div>
                   <p className="font-medium">
-                    {user.fullName || user.username}
+                    {clerkUser.fullName || clerkUser.username}
                   </p>
                   <p className="text-xs text-zinc-400">
-                    {user.primaryEmailAddress?.emailAddress}
+                    {clerkUser.primaryEmailAddress?.emailAddress}
                   </p>
                 </div>
               </div>

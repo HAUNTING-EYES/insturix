@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
@@ -41,6 +41,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   const { user } = useUser();
   const { allTasks } = useRtdb();
   const alyzitronTasks = allTasks.alyzitron || [];
+  const prevTasksRef = useRef<typeof alyzitronTasks>([]);
 
   const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
     queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }],
@@ -71,27 +72,28 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
 
   // --- RTDB Integration for real-time updates ---
   useEffect(() => {
-    if (alyzitronTasks.length === 0) return;
+    const prevTasks = prevTasksRef.current;
+    const prevTasksMap = new Map(prevTasks.map(task => [task.taskId, task]));
+    let shouldRefetch = false;
 
-    // Check for tasks that have completed/failed and invalidate the query to fetch full details
     alyzitronTasks.forEach(task => {
-      if (['completed', 'failed'].includes(task.status)) {
-        // Invalidate the query to refetch completed analyses
-        queryClient.invalidateQueries({
-          queryKey: ['analyses', { scope: 'finished', page: 1, limit: itemsPerPage }],
-        });
+      const prevTask = prevTasksMap.get(task.taskId);
+      const wasInProgress = prevTask && !['completed', 'failed', 'cancelled'].includes(prevTask.status);
+      const isNowFinished = ['completed', 'failed'].includes(task.status);
 
-        // Also invalidate current page if not page 1
-        if (currentPage !== 1) {
-          queryClient.invalidateQueries({
-            queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }],
-          });
-        }
+      if (wasInProgress && isNowFinished) {
+        shouldRefetch = true;
       }
     });
-  }, [alyzitronTasks, queryClient, itemsPerPage, currentPage]);
 
-
+    if (shouldRefetch) {
+      queryClient.invalidateQueries({
+        queryKey: ['analyses', { scope: 'finished' }],
+        exact: false
+      });
+    }
+    prevTasksRef.current = alyzitronTasks;
+  }, [alyzitronTasks, queryClient]);
   const handlePreviousPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
   };
@@ -129,7 +131,6 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
             analysisId={analysis._id.toString()}
             taskId={analysis.taskId}
             title={analysis.metadata?.originalFilename}
-            type={analysis.type}
             status={analysis.status}
             error={analysis.error}
             unread={analysis.unread}

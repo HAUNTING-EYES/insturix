@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogOverlay } from 
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import { useQuery } from "@tanstack/react-query"
+import { useUserInitialization } from "./UserInitializationProvider"
 
 // Import sidebar components
 import { SidebarContext, useSidebar } from "./sidebar/context"
@@ -32,22 +32,9 @@ export default function DashboardSidebar() {
   const [activeColor, setActiveColor] = useState("")
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [theme] = useState(defaultTheme)
-  const [userPlan, setUserPlan] = useState<string | null>(null)
+  const { user } = useUserInitialization()
+  const userPlan = user?.currentPlan?.name || null
   const [isProfileDialogOpen, setIsProfileDialogOpen] = useState(false)
-
-  // Fetch user data to get current plan
-  useQuery({
-    queryKey: ["userData"],
-    queryFn: async () => {
-      const response = await fetch("/api/user");
-      if (!response.ok) {
-        throw new Error("Failed to fetch user data");
-      }
-      return response.json();
-    },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    refetchOnWindowFocus: false,
-  });
 
   // Calculate if sidebar should be expanded
   // Don't expand on hover if dialogs are open
@@ -60,12 +47,6 @@ export default function DashboardSidebar() {
     setIsMobileOpen(false)
   }, [pathname])
 
-  useEffect(() => {
-    const storedPlan = localStorage.getItem("userPlan")
-    if (storedPlan) {
-      setUserPlan(storedPlan)
-    }
-  }, [])
 
   // Clear hover state when any dialog opens
   useEffect(() => {

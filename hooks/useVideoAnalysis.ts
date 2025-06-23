@@ -24,11 +24,6 @@ interface AnalysisMetadata {
   additional_details?: string;
 }
 
-// Function to format video type according to API spec
-function formatVideoType(type: string): string {
-  return type.toUpperCase().replace(/\s+/g, "_");
-}
-
 export function useVideoAnalysis() {
   const [uploadState, setUploadState] = useState<UploadState | null>(null);
   const [analysisState, setAnalysisState] = useState<AnalysisState>({
@@ -145,7 +140,7 @@ export function useVideoAnalysis() {
 
         // Format request according to API documentation
         const requestData = {
-          type: formatVideoType(videoType), // Properly format video type
+          type: videoType,
           video_url: videoUrl,
           ...metadata, // These fields already match the API format
         };

@@ -4,6 +4,11 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const connectToDatabase = async (uri?: string) => {
+  // Return if already connected
+  if (mongoose.connection.readyState >= 1) {
+    return;
+  }
+
   try {
     const mongoUri = uri || process.env.MONGODB_URI;
 
@@ -15,9 +20,8 @@ const connectToDatabase = async (uri?: string) => {
       autoCreate: true,
     });
 
-    if (mongoose.connection.readyState === 1) {
-      console.log(`Connected to MongoDB database`);
-    }
+    console.log(`Connected to MongoDB database`);
+
   } catch (error) {
     console.error("Error connecting to database:", error);
     throw error;

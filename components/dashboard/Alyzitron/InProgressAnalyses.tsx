@@ -138,7 +138,6 @@ export function InProgressAnalyses() {
               analysisId={analysis._id.toString()}
               taskId={analysis.taskId}
               title={analysis.metadata?.originalFilename}
-              type={analysis.type}
               status={analysis.status}
               queuePosition={analysis.status === 'queued' ? analysis.queuePosition : undefined}
               expectedDurationSeconds={analysis.expectedDurationSeconds}

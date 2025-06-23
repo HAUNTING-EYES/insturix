@@ -1,44 +1,20 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { BarChart2, ChevronDown, ChevronUp, Activity } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { BarChart2, ChevronDown } from 'lucide-react';
 import { AlyzitronAnalyticsOverview } from './AnalyticsOverview';
-import { useUser } from '@clerk/nextjs';
-import { useUserInitialization } from '@/components/dashboard/UserInitializationProvider';
-
-interface QuickStats {
-  monthlyAnalyses: number;
-  activeAnalyses: number;
-}
+import { useAnalytics } from './AnalyticsProvider';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export function CompactAnalytics() {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [quickStats, setQuickStats] = useState<QuickStats>({ monthlyAnalyses: 0, activeAnalyses: 0 });
-  const { user, isLoaded } = useUser();
-  const { isInitialized } = useUserInitialization();
+  const { stats, loading, error } = useAnalytics();
 
-  useEffect(() => {
-    const fetchQuickStats = async () => {
-      if (!user || !isLoaded || !isInitialized) return;
-
-      try {
-        const response = await fetch('/api/services/alyzitron/stats');
-        if (response.ok) {
-          const data = await response.json();
-          setQuickStats({
-            monthlyAnalyses: data.monthlyAnalyses || 0,
-            activeAnalyses: data.activeAnalyses || 0,
-          });
-        }
-      } catch (error) {
-        console.error('Failed to fetch quick stats:', error);
-      }
-    };
-
-    fetchQuickStats();
-  }, [user, isLoaded, isInitialized]);
+  const quickStats = {
+    monthlyAnalyses: stats?.monthlyAnalyses ?? 0,
+    activeAnalyses: stats?.activeAnalyses ?? 0,
+  };
 
   return (
     <div className="bg-black/40 border border-zinc-800 backdrop-blur-xl rounded-lg overflow-hidden">

@@ -7,7 +7,7 @@ import { useRtdb } from '@/providers/RtdbProvider';
 import { VideoUpload } from './VideoUpload';
 import { InProgressAnalyses } from './InProgressAnalyses';
 import { AnalysisList } from './AnalysisList';
-import { VideoType, AnalysisStatus, AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
+import { AnalysisStatus, AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
 import type { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
 
 interface ClientWrapperProps {
@@ -96,7 +96,6 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
         const optimisticAnalysis: AlyzitronAnalysis = {
           _id: analysisId, // Will be replaced by server response
           clerkUserId: 'pending',
-          type: analysis.type as VideoType,
           status: analysis.status as AnalysisStatus,
           taskId: analysis.taskId || '',
           videoUrl: analysis.videoUrl || '',

@@ -1,80 +1,43 @@
-# Backend Services Layer
+# Service Layer Documentation
 
-This directory contains core business logic services that handle cross-cutting concerns for all Insturix services. These services provide centralized functionality for common operations.
+This document outlines the best practices for fetching service usage and limit data within the application.
 
-## Available Services
+## Data Fetching Strategies
 
-### User Management
-- **userInitializationService.ts** - Handles new user setup and configuration across all services
-- **planService.ts** - Manages user subscription plans and plan-related operations
-- **planExpirationService.ts** - Handles plan expiration logic and notifications
+There are two primary methods for fetching user service data:
 
-### Usage Tracking
-- **serviceUsageService.ts** - Tracks and manages service usage across all platforms
-- Integrates with the limit middleware system for usage enforcement
+1.  **Server-Side Fetching (Preferred for Initial Load)**
+2.  **Client-Side Fetching (For Dynamic Updates)**
 
-### Financial Operations
-- **refundService.ts** - Handles refund processing and related business logic
-- Manages payment reversals and account adjustments
+---
 
-## Service Architecture
+### 1. Server-Side Fetching with `ServiceUsageService`
 
-### Design Principles
-- **Separation of Concerns** - Each service handles a specific domain
-- **Reusability** - Services can be used across multiple features and services
-- **Type Safety** - Full TypeScript implementation with proper error handling
-- **Database Agnostic** - Services work with the configured database layer
+This is the **preferred** method for fetching data required for the initial rendering of a page or component.
 
-### Integration Pattern
-```typescript
-import { userInitializationService } from '@/lib/services/userInitializationService';
-import { planService } from '@/lib/services/planService';
+-   **Service:** `lib/services/serviceUsageService.ts`
+-   **Key Method:** `ServiceUsageService.getServiceUsageForAllServices(userId)`
 
-// Services handle the business logic
-const result = await planService.upgradePlan(userId, newPlanId);
-```
+**When to use it:**
 
-### Error Handling
-All services follow consistent error handling patterns:
-- Return structured response objects
-- Include success/failure status
-- Provide descriptive error messages
-- Log errors appropriately
+-   Use this in **Server Components** to fetch all necessary data before the page is sent to the client.
+-   Ideal for parent components or layout files that need to provide initial data to their children.
+-   This approach eliminates loading spinners for initial content, improves performance, and is better for SEO.
 
-## Database Integration
+**Example:** The `FeatureUsageOverviewWrapper` component uses this service to fetch all usage data on the server and pass it as a prop to the client-side `FeatureUsageOverview` component.
 
-Services interact with:
-- MongoDB schemas (defined in `/schemas`)
-- Firebase authentication
-- Payment gateway APIs
-- External service APIs
+---
 
-## Usage Guidelines
+### 2. Client-Side Fetching with API Route
 
-### For New Services
-1. Check existing services before creating new functionality
-2. Follow the established service patterns
-3. Implement proper error handling and logging
-4. Add appropriate TypeScript types
-5. Consider transaction handling for data consistency
+This method should be used when data needs to be fetched or re-fetched dynamically on the client-side *after* the initial page load.
 
-### Service Dependencies
-- Authentication middleware
-- Database connection utilities
-- External API configurations
-- Logging and monitoring systems
+-   **API Route:** `app/api/user/feature-usage/route.ts`
 
-## Testing and Monitoring
+**When to use it:**
 
-Services should include:
-- Input validation
-- Error boundary handling
-- Performance monitoring hooks
-- Audit trail capabilities
+-   Use this inside **Client Components** (marked with `"use client"`) that need to update data in response to user actions (e.g., clicking a "Refresh" button).
+-   Suitable for components that display real-time or frequently changing data.
+-   Use this when you need to check a specific limit without a full page reload.
 
-## Security Considerations
-
-- Services validate all inputs
-- Authentication is handled at the middleware level
-- Sensitive operations include additional authorization checks
-- Data sanitization is performed before database operations
+**Example:** A "Refresh" button inside the `FeatureUsageOverview` component calls this API route to get the latest usage data without reloading the entire page.

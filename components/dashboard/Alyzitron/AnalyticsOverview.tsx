@@ -27,24 +27,7 @@ import {
 import { SERVICE_LIMIT_DEFINITIONS } from '@/lib/config/serviceLimits';
 import { useUserInitialization } from '@/components/dashboard/UserInitializationProvider';
 import { useConcurrentTasks } from '@/lib/hooks/useConcurrentTasks';
-
-interface ServiceUsageInfo {
-  hasAccess: boolean;
-  maxUsage: number;
-  currentUsage: number;
-  remaining: number;
-  resetPeriod: "weekly" | "monthly" | "daily" | "none";
-  lastReset?: Date;
-  isUnlimited: boolean;
-  timeUntilReset?: { days: number; hours: number; minutes: number; totalMs: number } | null;
-}
-
-interface AlyzitronStats {
-  activeAnalyses: number;
-  monthlyAnalyses: number;
-  completedAnalyses: number;
-  serviceLimits: Record<string, ServiceUsageInfo>;
-}
+import { useAnalytics, ServiceUsageInfo } from './AnalyticsProvider';
 
 // Icon mapping for limit types
 const iconMap: Record<string, React.ReactNode> = {
@@ -92,74 +75,17 @@ const formatTimeUntilReset = (timeUntilReset: { days: number; hours: number; min
 };
 
 const AlyzitronAnalyticsOverview: React.FC = () => {
-  const { user, isLoaded } = useUser();
-  const { isInitialized, isLoading: userInitLoading, error: userInitError } = useUserInitialization();
-  const { concurrentCount, isLoading: concurrentLoading } = useConcurrentTasks();
-  const [stats, setStats] = useState<AlyzitronStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    stats,
+    loading,
+    error,
+    userInitLoading,
+    userInitError,
+    isInitialized,
+    fetchStats,
+  } = useAnalytics();
   const [isExpanded, setIsExpanded] = useState(false);
 
-  const fetchStats = async () => {
-    if (!user || !isLoaded || !isInitialized) return;
-
-    try {
-      setLoading(true);
-      setError(null);
-
-      // Fetch service usage info
-      const serviceResponse = await fetch('/api/user/feature-usage');
-      const serviceResult = await serviceResponse.json();
-
-      if (!serviceResponse.ok) {
-        throw new Error(serviceResult.error || 'Failed to fetch service usage');
-      }
-
-      // Fetch Alyzitron-specific stats
-      const statsResponse = await fetch('/api/services/alyzitron/stats');
-      const statsResult = await statsResponse.json();
-
-      if (!statsResponse.ok) {
-        throw new Error(statsResult.error || 'Failed to fetch analysis stats');
-      }
-
-      let alyzitronLimits = serviceResult.data?.alyzitron || {};
-
-      // Inject real-time concurrent tasks count if available
-      if (!concurrentLoading && alyzitronLimits.maxConcurrentTasks) {
-        alyzitronLimits = {
-          ...alyzitronLimits,
-          maxConcurrentTasks: {
-            ...alyzitronLimits.maxConcurrentTasks,
-            currentUsage: concurrentCount,
-            remaining: alyzitronLimits.maxConcurrentTasks.isUnlimited ? -1 :
-              Math.max(0, alyzitronLimits.maxConcurrentTasks.maxUsage - concurrentCount)
-          }
-        };
-      }
-
-      setStats({
-        activeAnalyses: statsResult.activeAnalyses || 0,
-        monthlyAnalyses: statsResult.monthlyAnalyses || 0,
-        completedAnalyses: statsResult.completedAnalyses || 0,
-        serviceLimits: alyzitronLimits,
-      });
-    } catch (err) {
-      console.error('Error fetching Alyzitron stats:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    // Only fetch stats after user is fully initialized
-    if (isLoaded && isInitialized && !userInitLoading) {
-      fetchStats();
-    }
-  }, [isLoaded, user, isInitialized, userInitLoading, concurrentCount, concurrentLoading]);
-
-  // Show user initialization error if it occurred
   if (userInitError) {
     return (
       <TooltipProvider>
@@ -181,7 +107,6 @@ const AlyzitronAnalyticsOverview: React.FC = () => {
     );
   }
 
-  // Show loading if user is still being initialized
   if (userInitLoading || !isInitialized) {
     return (
       <TooltipProvider>
@@ -238,10 +163,10 @@ const AlyzitronAnalyticsOverview: React.FC = () => {
               <AlertCircle className="h-4 w-4" />
               {error}
             </div>
-            <Button 
-              onClick={fetchStats} 
-              variant="outline" 
-              size="sm" 
+            <Button
+              onClick={fetchStats}
+              variant="outline"
+              size="sm"
               className="mt-4 border-zinc-700 text-zinc-300"
             >
               <RefreshCw className="h-4 w-4 mr-2" />

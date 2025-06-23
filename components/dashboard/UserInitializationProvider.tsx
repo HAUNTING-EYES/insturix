@@ -7,14 +7,16 @@ interface UserInitializationContextType {
   isInitialized: boolean;
   isLoading: boolean;
   error: string | null;
-  userExists: boolean;
+ userExists: boolean;
+ user: User | null;
 }
 
 const UserInitializationContext = createContext<UserInitializationContextType>({
-  isInitialized: false,
-  isLoading: false,
-  error: null,
-  userExists: false,
+ isInitialized: false,
+ isLoading: false,
+ error: null,
+ userExists: false,
+ user: null,
 });
 
 export const useUserInitialization = () => useContext(UserInitializationContext);
@@ -32,6 +34,7 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
   const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [userExists, setUserExists] = useState(!!initialData);
+  const [userData, setUserData] = useState<User | null>(initialData);
 
   useEffect(() => {
     let isMounted = true;
@@ -49,9 +52,10 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
         if (!response.ok) {
           throw new Error('Failed to initialize user');
         }
-        await response.json();
+        const data = await response.json();
         
         if (isMounted) {
+          setUserData(data.user);
           setUserExists(true);
           setIsInitialized(true);
         }
@@ -80,6 +84,7 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
     isLoading,
     error,
     userExists,
+    user: userData,
   };
 
   return (
