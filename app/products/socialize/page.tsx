@@ -1,5 +1,4 @@
 import Header from "@/components/new-product-page/Header";
- // import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -76,19 +75,6 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-{ /* const demoContent = {
-  title: "Kundli Analysis Demo",
-  subtitle: "Experience our AI astrological analysis",
-  defaultInput: "Enter your birth details (Date, Time, Place)...",
-  inputPlaceholder: "DD/MM/YYYY, HH:MM, City...",
-  outputPlaceholder:
-    "Your personalized astrological analysis will appear here...",
-  buttonText: "Generate Kundli",
-  processingDelay: 2000,
-  simulatedResponse:
-    "Kundli Analysis Complete:\n- Rising Sign: Leo\n- Moon Sign: Taurus\n- Key Planetary Positions\n- Life Path Number: 7\n- Current Dasha: Jupiter",
-}; */}
-
 export default function Socialize() {
   return (
     <>
@@ -96,7 +82,6 @@ export default function Socialize() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

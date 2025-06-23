@@ -1,5 +1,4 @@
 import Header from "@/components/new-product-page/Header";
- // import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -87,20 +86,6 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-{
-  /*const demoContent = {
-  title: "Writing Enhancement Demo",
-  subtitle: "Experience our AI editing capabilities",
-  defaultInput: "Paste your text here for instant improvements...",
-  inputPlaceholder: "Enter your content to edit...",
-  outputPlaceholder: "Enhanced content will appear here...",
-  buttonText: "Enhance Text",
-  processingDelay: 2000,
-  simulatedResponse:
-    "Content Analysis Complete:\n- Grammar Score: 98%\n- Style: Professional\n- Tone: Confident\n- Suggestions: 3 improvements found\n- Readability: Grade A",
-}; */
-}
-
 export default function Editron() {
   return (
     <>
@@ -108,7 +93,6 @@ export default function Editron() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

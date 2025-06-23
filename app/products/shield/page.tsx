@@ -1,5 +1,4 @@
 import Header from "@/components/new-product-page/Header";
-// import InteractiveDemo from "@/components/new-product-page/InteractiveDemo";
 import Features from "@/components/new-product-page/Features";
 import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
@@ -77,18 +76,6 @@ const headerContent = {
   accentGradient: THEME.gradient,
 };
 
-{ /* const demoContent = {
-  title: "Security Scanner Demo",
-  subtitle: "Experience our security analysis in real-time",
-  defaultInput: "Enter a URL or piece of code to analyze...",
-  inputPlaceholder: "https://example.com or paste code here...",
-  outputPlaceholder: "Security analysis results will appear here...",
-  buttonText: "Scan Now",
-  processingDelay: 2000,
-  simulatedResponse:
-    "Security Scan Complete:\n- Threat Level: Low\n- Vulnerabilities: None detected\n- SSL/TLS: Valid\n- Firewall Status: Active",
-}; */}
-
 export default function Shield() {
   return (
     <>
@@ -96,7 +83,6 @@ export default function Shield() {
       <Navbar />
       <main className="min-h-screen">
         <Header {...headerContent} />
-        {/* <InteractiveDemo {...demoContent} /> */}
         <Features features={features} />
         <UseCases useCases={useCases} />
       </main>

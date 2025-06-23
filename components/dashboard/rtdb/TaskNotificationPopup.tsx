@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Clock, CheckCircle, AlertCircle, Loader, Eye } from 'lucide-react';
-import { TaskNotification, TaskStatus } from '@/types/rtdb';
+import { TaskNotification } from '@/types/rtdb';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
