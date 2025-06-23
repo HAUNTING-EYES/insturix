@@ -1,7 +1,7 @@
 import Dashboard from "@/components/dashboard/Dashboard";
 import CursorEffect from "@/components/ui/CursorEffect";
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import { FeatureUsageOverview } from "@/components/dashboard/FeatureUsageOverview";
+import { FeatureUsageOverviewWrapper } from "@/components/dashboard/FeatureUsageOverviewWrapper";
 import { Metadata } from "next";
 
 const THEME = {
@@ -44,7 +44,7 @@ export default function DashboardPage() {
       <DashboardShell>
         {/* Feature Usage Overview */}
         <div className="mb-8">
-          <FeatureUsageOverview />
+          <FeatureUsageOverviewWrapper />
         </div>
       </DashboardShell>
     </>

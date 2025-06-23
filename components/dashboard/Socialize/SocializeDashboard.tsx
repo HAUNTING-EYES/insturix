@@ -64,7 +64,11 @@ const api = axios.create({
   },
 });
 
-export default function SocializeDashboard() {
+export default function SocializeDashboard({
+  initialData,
+}: {
+  initialData: ISocialize | null;
+}) {
   const { user } = useUser();
   const queryClient = useQueryClient();
   const uniqueUsername = user?.username || "";
@@ -85,25 +89,17 @@ export default function SocializeDashboard() {
   const [showEditBioModal, setShowEditBioModal] = useState(false);
 
   // Queries and mutations remain unchanged...
-  const { data: userData, isLoading } = useQuery({
+  const { data: userData } = useQuery({
     queryKey: ["userData", uniqueUsername],
     queryFn: async () => {
-      if (!uniqueUsername)
-        return {
-          clerkUserId: "",
-          username: "",
-          profileImage: "",
-          bio: "",
-          links: [],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        } as ISocialize;
+      if (!uniqueUsername) return null;
 
       const { data } = await api.get<ISocialize>(
         `/services/socialize?uniqueUsername=${uniqueUsername}`
       );
       return data;
     },
+    initialData: initialData,
     enabled: !!uniqueUsername,
   });
 
@@ -218,88 +214,82 @@ export default function SocializeDashboard() {
 
   return (
     <div className="relative">
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="w-16 h-16 border-t-4 border-b-4 border-[#0e6b9c] rounded-full animate-spin"></div>
-        </div>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="relative z-10 space-y-6"
-        >
-          <div className="grid lg:grid-cols-3 gap-8">
-            {/* Main Content Area */}
-            <div className="lg:col-span-2 space-y-6">
-              <SocializeHeader
-                user={
-                  user
-                    ? {
-                        username: user.username ?? undefined,
-                        imageUrl: user.imageUrl ?? undefined,
-                      }
-                    : null
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+        className="relative z-10 space-y-6"
+      >
+        <div className="grid lg:grid-cols-3 gap-8">
+          {/* Main Content Area */}
+          <div className="lg:col-span-2 space-y-6">
+            <SocializeHeader
+              user={
+                user
+                  ? {
+                      username: user.username ?? undefined,
+                      imageUrl: user.imageUrl ?? undefined,
+                    }
+                  : null
+              }
+              bio={bio}
+              onEditBio={() => setShowEditBioModal(true)}
+            />
+            <SocializeShareBar
+              uniqueUsername={uniqueUsername}
+              onShare={(platform) => {
+                if (platform === "copy") {
+                  toast.success("URL copied to clipboard");
                 }
-                bio={bio}
-                onEditBio={() => setShowEditBioModal(true)}
+              }}
+            />
+            <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
+            {userData?.notifications?.[0]?.message ? (
+              <SocializeNotificationCard
+                message={userData.notifications[0].message}
+                duration={userData.notifications[0].duration}
+                onEdit={() => setShowUpdatePopup(true)}
               />
-              <SocializeShareBar
-                uniqueUsername={uniqueUsername}
-                onShare={(platform) => {
-                  if (platform === "copy") {
-                    toast.success("URL copied to clipboard");
-                  }
-                }}
-              />
-              <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
-              {userData?.notifications?.[0]?.message ? (
-                <SocializeNotificationCard
-                  message={userData.notifications[0].message}
-                  duration={userData.notifications[0].duration}
-                  onEdit={() => setShowUpdatePopup(true)}
-                />
-              ) : (
-                <div className="mb-6">
-                  <Button
-                    variant="outline"
-                    className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
-                    onClick={() => setShowUpdatePopup(true)}
-                  >
-                    <Bell className="w-4 h-4 mr-2" />
-                    Add a New Update
-                  </Button>
-                </div>
-              )}
-              <SocializeLinksCard
-                links={userData?.links || []}
-                selectedLinkIndex={selectedLinkIndex}
-                onSelectLink={handleSelectLink}
-                onRemoveLink={handleRemoveLink}
-              />
-            </div>
-
-            {/* Sidebar */}
-            <div className="lg:col-span-1 sticky top-20">
-              <SocializeLinkPreviewCard
-                selectedLinkIndex={selectedLinkIndex}
-                isPreviewLoading={isPreviewLoading}
-                previewData={previewData ?? null}
-                userLinks={userData?.links || []}
-                userBio={userData?.bio || ""}
-                userLogo={
-                  user && "imageUrl" in user ? (user.imageUrl ?? null) : null
-                }
-                userName={
-                  user && "username" in user
-                    ? (user.username ?? undefined)
-                    : undefined
-                }
-              />
-            </div>
+            ) : (
+              <div className="mb-6">
+                <Button
+                  variant="outline"
+                  className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                  onClick={() => setShowUpdatePopup(true)}
+                >
+                  <Bell className="w-4 h-4 mr-2" />
+                  Add a New Update
+                </Button>
+              </div>
+            )}
+            <SocializeLinksCard
+              links={userData?.links || []}
+              selectedLinkIndex={selectedLinkIndex}
+              onSelectLink={handleSelectLink}
+              onRemoveLink={handleRemoveLink}
+            />
           </div>
-        </motion.div>
-      )}
+
+          {/* Sidebar */}
+          <div className="lg:col-span-1 sticky top-20">
+            <SocializeLinkPreviewCard
+              selectedLinkIndex={selectedLinkIndex}
+              isPreviewLoading={isPreviewLoading}
+              previewData={previewData ?? null}
+              userLinks={userData?.links || []}
+              userBio={userData?.bio || ""}
+              userLogo={
+                user && "imageUrl" in user ? (user.imageUrl ?? null) : null
+              }
+              userName={
+                user && "username" in user
+                  ? (user.username ?? undefined)
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      </motion.div>
 
       {/* Modals */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>

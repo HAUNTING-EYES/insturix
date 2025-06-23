@@ -150,7 +150,7 @@ export class ServiceUsageService {
   /**
    * Get usage info for all services
    */
-  static async getAllServiceUsage(userId: string): Promise<Record<string, Record<string, ServiceUsageInfo>>> {
+  static async getServiceUsageForAllServices(userId: string): Promise<Record<string, Record<string, ServiceUsageInfo>>> {
     await connectToDatabase();
     
     // Auto-reset services that need to be reset (lazy reset)

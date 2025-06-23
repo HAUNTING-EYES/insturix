@@ -4,3 +4,12 @@ export enum UserType {
   Pro = "pro",
   Premium = "premium",
 }
+
+export interface User {
+  id: string;
+  clerkUserId: string;
+  email: string;
+  payments: any[];
+  currentPlan: any;
+  planUpdated: boolean;
+}

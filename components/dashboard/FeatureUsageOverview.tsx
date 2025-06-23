@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { useUser } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -21,7 +20,6 @@ import {
   Music
 } from 'lucide-react';
 import { getAllServiceLimitMappings } from '@/lib/config/serviceLimits';
-import { useUserInitialization } from '@/components/dashboard/UserInitializationProvider';
 import { useConcurrentTasks } from '@/lib/hooks/useConcurrentTasks';
 
 interface ServiceUsageInfo {
@@ -118,18 +116,14 @@ const formatResetPeriod = (period: string): string => {
   }
 };
 
-export const FeatureUsageOverview: React.FC = () => {
-  const { user, isLoaded } = useUser();
+export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> = ({ initialData }) => {
   const router = useRouter();
-  const { isInitialized, isLoading: userInitLoading, error: userInitError } = useUserInitialization();
   const { concurrentCount, isLoading: concurrentLoading } = useConcurrentTasks();
-  const [serviceUsage, setServiceUsage] = useState<ServiceUsageData>({});
-  const [loading, setLoading] = useState(true);
+  const [serviceUsage, setServiceUsage] = useState<ServiceUsageData>(initialData);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchServiceUsage = async () => {
-    if (!user || !isLoaded || !isInitialized) return;
-
     try {
       setLoading(true);
       setError(null);
@@ -141,26 +135,7 @@ export const FeatureUsageOverview: React.FC = () => {
         throw new Error(result.error || 'Failed to fetch service usage');
       }
 
-      // Extract actual data from Mongoose document if needed
-      let cleanData = result.data || {};
-      
-      // If we're getting Mongoose document properties, extract the _doc
-      if (cleanData._doc && typeof cleanData._doc === 'object') {
-        cleanData = cleanData._doc;
-      }
-      
-      // If still getting Mongoose properties, try to clean it up
-      if ((cleanData as any).$__ || (cleanData as any).$isNew) {
-        const services: any = {};
-        Object.keys(cleanData).forEach(key => {
-          if (!key.startsWith('$') && key !== '__v' && key !== '_id') {
-            services[key] = (cleanData as any)[key];
-          }
-        });
-        cleanData = services;
-      }
-
-      setServiceUsage(cleanData);
+      setServiceUsage(result.data || {});
     } catch (err) {
       console.error('Error fetching service usage:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
@@ -214,13 +189,6 @@ export const FeatureUsageOverview: React.FC = () => {
     return serviceUsage;
   };
 
-  useEffect(() => {
-    // Only fetch service usage after user is fully initialized
-    if (isLoaded && isInitialized && !userInitLoading) {
-      fetchServiceUsage();
-    }
-  }, [isLoaded, user, isInitialized, userInitLoading]);
-
   // Enhanced service usage with real-time concurrent count
   const [enhancedServiceUsage, setEnhancedServiceUsage] = useState<ServiceUsageData>({});
 
@@ -235,35 +203,6 @@ export const FeatureUsageOverview: React.FC = () => {
       updateEnhancedUsage();
     }
   }, [serviceUsage, concurrentCount, concurrentLoading]);
-
-  // Show user initialization error if it occurred
-  if (userInitError) {
-    return (
-      <Card className="w-full border-rose-200/60 dark:border-rose-800/60">
-        <CardHeader>
-          <CardTitle className="text-rose-700 dark:text-rose-300 flex items-center gap-2">
-            <TrendingDown className="h-5 w-5" />
-            User Initialization Error
-          </CardTitle>
-          <CardDescription className="text-rose-600 dark:text-rose-400">{userInitError}</CardDescription>
-        </CardHeader>
-      </Card>
-    );
-  }
-
-  // Show loading if user is still being initialized
-  if (userInitLoading || !isInitialized) {
-    return (
-      <Card className="w-full border-slate-200/60 dark:border-slate-800/60">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
-            <Loader2 className="h-5 w-5 animate-spin" />
-            Initializing Account...
-          </CardTitle>
-        </CardHeader>
-      </Card>
-    );
-  }
 
   if (loading) {
     return (
