@@ -5,7 +5,70 @@ export enum UserType {
   Premium = "premium",
 }
 
+export interface IServiceLimit {
+  limitType: string;
+  maxUsage: number;
+  currentUsage: number;
+  resetPeriod: "weekly" | "monthly" | "daily" | "none";
+  lastReset?: Date;
+}
+
+export interface IServiceLimits {
+  alyzitron: IServiceLimit[];
+  editron: IServiceLimit[];
+  shield: IServiceLimit[];
+  socialize: IServiceLimit[];
+  thinkforge: IServiceLimit[];
+  musitron: IServiceLimit[];
+}
+
+export interface IPlan {
+  planId: string;
+  name: UserType;
+  startDate: Date;
+  endDate: Date | null;
+  price: number;
+  currency: string;
+  status: "active" | "expired" | "canceled";
+  serviceLimits: IServiceLimits;
+}
+
+export interface IPayment {
+  paymentId: string;
+  orderId: string;
+  timestamp: Date;
+  amount: number;
+  currency: string;
+  status: "pending" | "completed" | "failed" | "refunded";
+  paymentMethod: "card" | "upi" | "netbanking" | "wallet";
+  planName: string;
+  razorpayPaymentId?: string;
+  razorpayOrderId?: string;
+}
+
 export interface User {
+  _id?: string;
+  clerkUserId: string;
+  email: string;
+  signUpDate: Date;
+  currentPlan: IPlan;
+  planHistory: IPlan[];
+  payments: IPayment[];
+  trialUsed: boolean;
+  preferences: {
+    currency: string;
+    notifications: {
+      planExpiry: boolean;
+      paymentReminders: boolean;
+    };
+  };
+  createdAt?: Date;
+  updatedAt?: Date;
+  __v?: number;
+}
+
+// Legacy interface for backward compatibility
+export interface LegacyUser {
   id: string;
   clerkUserId: string;
   email: string;

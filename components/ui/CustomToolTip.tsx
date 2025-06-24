@@ -25,8 +25,10 @@ import { PlanHistoryDialog } from "@/components/PlanHistoryDialog";
 import { PlanCancellationDialog } from "@/components/PlanCancellationDialog";
 import { cn } from "@/lib/utils";
 import { getPlanDisplayName } from "@/lib/planUtils";
+import { User, IPayment, IPlan } from "@/types/userTypes";
 
-interface Payment {
+// Legacy Payment interface for PaymentHistoryDialog compatibility
+interface LegacyPayment {
   date: Date;
   time: string;
   amount: number;
@@ -35,7 +37,8 @@ interface Payment {
   status?: string;
 }
 
-interface Plan {
+// Legacy Plan interface for PlanHistoryDialog compatibility
+interface LegacyPlan {
   id: string;
   name: string;
   startDate: Date;
@@ -45,13 +48,29 @@ interface Plan {
   features: string[];
 }
 
-interface UserData {
-  id: string;
-  clerkUserId: string;
-  email: string;
-  payments: Payment[];
-  currentPlan: Plan;
-}
+// Helper function to convert IPayment to LegacyPayment
+const convertToLegacyPayment = (payment: IPayment): LegacyPayment => {
+  const timestamp = new Date(payment.timestamp);
+  return {
+    date: timestamp,
+    time: timestamp.toLocaleTimeString(),
+    amount: payment.amount,
+    payment_id: payment.paymentId,
+    phone_number: '', // Not available in new schema
+    status: payment.status,
+  };
+};
+
+// Helper function to convert IPlan to LegacyPlan
+const convertToLegacyPlan = (plan: IPlan): LegacyPlan => ({
+  id: plan.planId,
+  name: plan.name,
+  startDate: plan.startDate,
+  endDate: plan.endDate,
+  price: plan.price,
+  status: plan.status,
+  features: [], // Not available in new schema
+});
 
 import { useUserInitialization } from "../dashboard/UserInitializationProvider";
 
@@ -444,13 +463,13 @@ export default function UserDropdown({
       <PaymentHistoryDialog
         open={paymentHistoryOpen}
         onOpenChange={setPaymentHistoryOpen}
-        payments={userData?.payments || []}
+        payments={userData?.payments?.map(convertToLegacyPayment) || []}
       />
 
       <PlanHistoryDialog
         open={planHistoryOpen}
         onOpenChange={setPlanHistoryOpen}
-        plans={userData ? [{ ...userData.currentPlan, id: "current" }] : []}
+        plans={userData ? [convertToLegacyPlan(userData.currentPlan)] : []}
       />
 
       <PlanCancellationDialog

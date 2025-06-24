@@ -26,30 +26,6 @@ interface RefundResult {
   error?: string;
 }
 
-const planFeatures: { [key: string]: string[] } = {
-  [UserType.Free]: ["Basic access", "Limited storage", "Community support"],
-  [UserType.Plus]: [
-    "Plus access",
-    "10GB storage",
-    "Priority support",
-    "Advanced features",
-  ],
-  [UserType.Pro]: [
-    "Premium access",
-    "50GB storage",
-    "24/7 support",
-    "All features",
-    "Custom branding",
-  ],
-  [UserType.Premium]: [
-    "Ultra access",
-    "100GB storage",
-    "Dedicated support",
-    "All features",
-    "Custom branding",
-    "API access",
-  ],
-};
 
 export async function initiateRefund(
   clerkUserId: string,
@@ -90,12 +66,21 @@ export async function initiateRefund(
       user.currentPlan.endDate = new Date();
 
       const freePlan = {
+        planId: "fallback-free-plan",
         name: UserType.Free,
         startDate: new Date(),
         endDate: null,
         price: 0,
+        currency: user.currentPlan?.currency || "USD",
         status: "active" as const,
-        features: planFeatures[UserType.Free],
+        serviceLimits: {
+          alyzitron: [],
+          editron: [],
+          shield: [],
+          socialize: [],
+          thinkforge: [],
+          musitron: [],
+        },
       };
 
       user.currentPlan = freePlan;

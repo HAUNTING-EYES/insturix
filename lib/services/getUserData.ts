@@ -3,30 +3,19 @@ import User from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import mongoose from "mongoose";
-import { UserType } from "@/types/userTypes";
+import { UserType, User as IUser, IPlan } from "@/types/userTypes";
 
-type UserDocument = {
-  _id: mongoose.Types.ObjectId;
-  clerkUserId: string;
-  email: string;
-  currentPlan: {
-    name: UserType;
-    startDate: Date;
-    endDate: Date;
-    price: number;
-    status: "active" | "expired" | "canceled";
-    features: string[];
-  };
+type UserDocument = mongoose.Document & IUser & {
   save: () => Promise<UserDocument>;
 };
 
 async function checkAndUpdateExpiredPlans(user: UserDocument) {
   const now = new Date();
   
-  if (user.currentPlan && 
-      user.currentPlan.endDate && 
-      user.currentPlan.status === "active" && 
-      new Date(user.currentPlan.endDate) < now && 
+  if (user.currentPlan &&
+      user.currentPlan.endDate &&
+      user.currentPlan.status === "active" &&
+      new Date(user.currentPlan.endDate) < now &&
       user.currentPlan.name !== UserType.Free) {
     
     user.currentPlan.status = "expired";
@@ -35,12 +24,21 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
     oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
     
     user.currentPlan = {
+      planId: "fallback-free-plan",
       name: UserType.Free,
       startDate: now,
       endDate: oneMonthLater,
       price: 0,
+      currency: user.currentPlan.currency || "USD",
       status: "active",
-      features: getPlanFeatures(UserType.Free),
+      serviceLimits: {
+        alyzitron: [],
+        editron: [],
+        shield: [],
+        socialize: [],
+        thinkforge: [],
+        musitron: [],
+      },
     };
     
     await user.save();
@@ -50,20 +48,6 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
   return false;
 }
 
-function getPlanFeatures(userType: UserType): string[] {
-  switch (userType) {
-    case UserType.Free:
-      return ["Basic access", "Limited storage", "Community support"];
-    case UserType.Plus:
-      return ["Plus access", "10GB storage", "Priority support", "Advanced features"];
-    case UserType.Pro:
-      return ["Premium access", "50GB storage", "24/7 support", "All features", "Custom branding"];
-    case UserType.Premium:
-      return ["Ultra access", "100GB storage", "Dedicated support", "All features", "Custom branding", "API access"];
-    default:
-      return ["Basic access"];
-  }
-}
 
 export async function getUserData() {
   try {
@@ -102,12 +86,24 @@ export async function getUserData() {
     const wasUpdated = await checkAndUpdateExpiredPlans(user);
 
     return {
-      id: user._id.toString(),
+      _id: user._id.toString(),
       clerkUserId: user.clerkUserId,
       email: user.email,
-      payments: user.payments,
+      signUpDate: user.signUpDate || new Date(),
       currentPlan: user.currentPlan,
-      planUpdated: wasUpdated,
+      planHistory: user.planHistory || [],
+      payments: user.payments || [],
+      trialUsed: user.trialUsed || false,
+      preferences: user.preferences || {
+        currency: "USD",
+        notifications: {
+          planExpiry: true,
+          paymentReminders: true,
+        },
+      },
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      __v: user.__v,
     };
   } catch (error) {
     console.error("Failed to fetch user data:", error);

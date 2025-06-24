@@ -2,32 +2,21 @@ import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import User from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import { UserType } from "@/types/userTypes";
+import { UserType, User as IUser, IPlan } from "@/types/userTypes";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import mongoose from "mongoose";
 
-type UserDocument = {
-  _id: mongoose.Types.ObjectId;
-  clerkUserId: string;
-  email: string;
-  currentPlan: {
-    name: UserType;
-    startDate: Date;
-    endDate: Date;
-    price: number;
-    status: "active" | "expired" | "canceled";
-    features: string[];
-  };
+type UserDocument = mongoose.Document & IUser & {
   save: () => Promise<UserDocument>;
 };
 
 async function checkAndUpdateExpiredPlans(user: UserDocument) {
   const now = new Date();
   
-  if (user.currentPlan && 
-      user.currentPlan.endDate && 
-      user.currentPlan.status === "active" && 
-      new Date(user.currentPlan.endDate) < now && 
+  if (user.currentPlan &&
+      user.currentPlan.endDate &&
+      user.currentPlan.status === "active" &&
+      new Date(user.currentPlan.endDate) < now &&
       user.currentPlan.name !== UserType.Free) {
     
     user.currentPlan.status = "expired";
@@ -36,12 +25,21 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
     oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
     
     user.currentPlan = {
+      planId: "fallback-free-plan",
       name: UserType.Free,
       startDate: now,
       endDate: oneMonthLater,
       price: 0,
+      currency: user.currentPlan.currency || "USD",
       status: "active",
-      features: getPlanFeatures(UserType.Free),
+      serviceLimits: {
+        alyzitron: [],
+        editron: [],
+        shield: [],
+        socialize: [],
+        thinkforge: [],
+        musitron: [],
+      },
     };
     
     await user.save();
@@ -89,11 +87,26 @@ export async function GET() {
     const wasUpdated = await checkAndUpdateExpiredPlans(user);
 
     return NextResponse.json({
-      id: user._id,
-      clerkUserId: user.clerkUserId,
-      email: user.email,
-      payments: user.payments,
-      currentPlan: user.currentPlan,
+      user: {
+        _id: user._id.toString(),
+        clerkUserId: user.clerkUserId,
+        email: user.email,
+        signUpDate: user.signUpDate || new Date(),
+        currentPlan: user.currentPlan,
+        planHistory: user.planHistory || [],
+        payments: user.payments || [],
+        trialUsed: user.trialUsed || false,
+        preferences: user.preferences || {
+          currency: "USD",
+          notifications: {
+            planExpiry: true,
+            paymentReminders: true,
+          },
+        },
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt,
+        __v: user.__v,
+      },
       planUpdated: wasUpdated,
     });
   } catch (error) {
@@ -146,12 +159,21 @@ export async function PUT(request: Request) {
     const endDate = userType === UserType.Free ? new Date(cycleEnd.setMonth(cycleEnd.getMonth() + 1)) : cycleEnd;
     
     user.currentPlan = {
+      planId: `fallback-${userType}-plan`,
       name: userType as UserType,
       startDate: now,
       endDate: endDate,
       price: price,
+      currency: user.currentPlan?.currency || "USD",
       status: "active",
-      features: getPlanFeatures(userType as UserType),
+      serviceLimits: user.currentPlan?.serviceLimits || {
+        alyzitron: [],
+        editron: [],
+        shield: [],
+        socialize: [],
+        thinkforge: [],
+        musitron: [],
+      },
     };
 
     await user.save();
@@ -212,12 +234,21 @@ export async function PATCH(request: Request) {
     const endDate = userType === UserType.Free ? new Date(cycleEnd.setMonth(cycleEnd.getMonth() + 1)) : cycleEnd;
     
     user.currentPlan = {
+      planId: `fallback-${userType}-plan`,
       name: userType as UserType,
       startDate: now,
       endDate: endDate,
       price: price,
+      currency: user.currentPlan?.currency || "USD",
       status: "active",
-      features: getPlanFeatures(userType as UserType),
+      serviceLimits: user.currentPlan?.serviceLimits || {
+        alyzitron: [],
+        editron: [],
+        shield: [],
+        socialize: [],
+        thinkforge: [],
+        musitron: [],
+      },
     };
 
     await user.save();
@@ -236,17 +267,3 @@ export async function PATCH(request: Request) {
   }
 }
 
-function getPlanFeatures(userType: UserType): string[] {
-  switch (userType) {
-    case UserType.Free:
-      return ["Basic access", "Limited storage", "Community support"];
-    case UserType.Plus:
-      return ["Plus access", "10GB storage", "Priority support", "Advanced features"];
-    case UserType.Pro:
-      return ["Premium access", "50GB storage", "24/7 support", "All features", "Custom branding"];
-    case UserType.Premium:
-      return ["Ultra access", "100GB storage", "Dedicated support", "All features", "Custom branding", "API access"];
-    default:
-      return ["Basic access"];
-  }
-}
