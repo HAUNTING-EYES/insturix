@@ -76,20 +76,33 @@ export function PlanCancellationDialog({
       
       const data = await response.json();
       
-      if (response.ok && data.success) {
+      if (response.ok && data.success !== false) {
         toast.success(data.message || "Plan cancelled successfully");
         
         // Invalidate queries to refresh UI
         queryClient.invalidateQueries({ queryKey: ["userData"] });
         queryClient.invalidateQueries({ queryKey: ["plans"] });
+        
+        // Close the dialog
+        onOpenChange(false);
+        
+        // Navigate to dashboard
         router.push('/dashboard');
       } else {
-        toast.error(data.error || "Failed to cancel plan");
-        setLoading(false);
+        // Handle API errors (including 500 errors)
+        const errorMessage = data.error || "Failed to cancel plan";
+        toast.error(errorMessage);
+        
+        // For specific errors like "already on free plan", close dialog and redirect
+        if (data.error?.includes("already on free plan")) {
+          onOpenChange(false);
+          router.push('/dashboard');
+        }
       }
     } catch (error) {
-      toast.error("Failed to cancel plan");
+      toast.error("Network error: Failed to cancel plan");
       console.error("Cancel plan error:", error);
+    } finally {
       setLoading(false);
     }
   };
@@ -98,6 +111,7 @@ export function PlanCancellationDialog({
     setStep("check");
     setEligibility(null);
     onOpenChange(false);
+    router.refresh();
   };
 
   if (currentPlan === "free") {
