@@ -14,9 +14,14 @@ const config: Config = {
           "50%": { transform: "translateX(0%)" },
           "100%": { transform: "translateX(100%)" }
         },
+        shine: {
+          '0%': { left: '-75%' },
+          '100%': { left: '125%' },
+        },
       },
       animation: {
         progress: "progress 2s ease-in-out infinite",
+        shine: "shine 1s linear infinite",
       },
     },
   },

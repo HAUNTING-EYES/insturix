@@ -20,14 +20,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import NotSignedIn from "../NotSignedup";
-import { PaymentHistoryDialog } from "@/components/PaymentDialog";
-import { PlanHistoryDialog } from "@/components/PlanHistoryDialog";
 import { PlanCancellationDialog } from "@/components/PlanCancellationDialog";
 import { cn } from "@/lib/utils";
 import { getPlanDisplayName } from "@/lib/planUtils";
 import { User, IPayment, IPlan } from "@/types/userTypes";
 
 import { useUserInitialization } from "../dashboard/UserInitializationProvider";
+import ManagePlanDialog from "@/components/upgrade-plan/ManagePlanDialog";
 
 export default function UserDropdown({
   onSettingsClick,
@@ -44,10 +43,9 @@ export default function UserDropdown({
   const { signOut } = useClerk();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
-  const [planHistoryOpen, setPlanHistoryOpen] = useState(false);
   const [planCancellationOpen, setPlanCancellationOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"account" | "preferences">("account");
+  const [managePlanOpen, setManagePlanOpen] = useState(false);
 
   const { user: userData, isLoading } = useUserInitialization();
 
@@ -89,9 +87,9 @@ export default function UserDropdown({
 
   // Notify parent when dialogs are opened/closed
   useEffect(() => {
-    const isAnyDialogOpen = paymentHistoryOpen || planHistoryOpen || planCancellationOpen;
+    const isAnyDialogOpen = planCancellationOpen;
     onDialogStateChange?.(isAnyDialogOpen);
-  }, [paymentHistoryOpen, planHistoryOpen, planCancellationOpen, onDialogStateChange]);
+  }, [planCancellationOpen, onDialogStateChange]);
 
   const handleSignOut = () => {
     signOut();
@@ -108,18 +106,13 @@ export default function UserDropdown({
     setIsOpen(false);
   };
 
-  const handlePaymentHistoryClick = () => {
-    setPaymentHistoryOpen(true);
-    setIsOpen(false);
-  };
-
-  const handlePlanHistoryClick = () => {
-    setPlanHistoryOpen(true);
-    setIsOpen(false);
-  };
-
   const handleCancelPlanClick = () => {
     setPlanCancellationOpen(true);
+    setIsOpen(false);
+  };
+
+  const handleManagePlanClick = () => {
+    setManagePlanOpen(true);
     setIsOpen(false);
   };
 
@@ -307,74 +300,21 @@ export default function UserDropdown({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <motion.button
-                          whileHover={{
-                            backgroundColor: "rgba(255, 255, 255, 0.1)",
-                          }}
+                          whileHover={{ backgroundColor: "rgba(255, 255, 255, 0.1)" }}
                           whileTap={{ scale: 0.98 }}
-                          onClick={handlePaymentHistoryClick}
-                          className="w-full flex items-center gap-3 p-2 rounded-lg text-left text-white transition-all duration-200 hover:bg-white/10"
-                          type="button"
-                        >
-                          <CreditCard className="w-4 h-4 text-white/80" />
-                          <span className="text-sm font-medium">Payment History</span>
-                        </motion.button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="bg-zinc-800 border-white/10">
-                        <p className="text-xs">View your payment history</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <motion.button
-                          whileHover={{
-                            backgroundColor: "rgba(255, 255, 255, 0.1)",
-                          }}
-                          whileTap={{ scale: 0.98 }}
-                          onClick={handlePlanHistoryClick}
+                          onClick={handleManagePlanClick}
                           className="w-full flex items-center gap-3 p-2 rounded-lg text-left text-white transition-all duration-200 hover:bg-white/10"
                           type="button"
                         >
                           <UserCog className="w-4 h-4 text-white/80" />
-                          <span className="text-sm font-medium">Plan History</span>
+                          <span className="text-sm font-medium">Manage Plan</span>
                         </motion.button>
                       </TooltipTrigger>
                       <TooltipContent side="right" className="bg-zinc-800 border-white/10">
-                        <p className="text-xs">
-                          View your subscription plan history
-                        </p>
+                        <p className="text-xs">View and manage your subscription plan</p>
                       </TooltipContent>
                     </Tooltip>
                   </TooltipProvider>
-
-                  {/* Cancel Plan Button - Only show for paid plans */}
-                  {planName !== "Free" && (
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <motion.button
-                            whileHover={{
-                              backgroundColor: "rgba(239, 68, 68, 0.1)",
-                            }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={handleCancelPlanClick}
-                            className="w-full flex items-center gap-3 p-2 rounded-lg text-left text-red-400 transition-all duration-200 hover:bg-red-500/10"
-                            type="button"
-                          >
-                            <UserCog className="w-4 h-4" />
-                            <span className="text-sm font-medium">Cancel Plan</span>
-                          </motion.button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="bg-zinc-800 border-white/10">
-                          <p className="text-xs">
-                            Cancel your current subscription
-                          </p>
-                        </TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  )}
 
                   <TooltipProvider>
                     <Tooltip>
@@ -402,36 +342,37 @@ export default function UserDropdown({
 
             <div className="p-3 bg-zinc-900 border-t border-white/10">
               <motion.button
-                whileHover={{ scale: 1.02 }}
+                whileHover={{ scale: 1.07 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={handleUpgradeClick}
-                className="w-full py-2.5 bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 rounded-lg text-white font-medium text-sm transition-all duration-200 shadow-lg hover:shadow-xl"
+                className="w-full py-2.5 bg-white/60 hover:bg-zinc-200/80 border border-white text-zinc-900 font-medium text-sm rounded-lg shadow-lg overflow-hidden relative group transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-amber-400 hover:shadow-[0_0_24px_6px_rgba(202,138,4,0.25)]"
                 type="button"
               >
-                Upgrade Plan
+                <span className="relative z-10 bg-gradient-to-r from-zinc-900 via-yellow-900 to-amber-800 bg-clip-text text-transparent font-extrabold text-base drop-shadow-sm select-none">
+                  Upgrade Plan
+                </span>
+                {/* Always-on shine */}
+                <span className="absolute left-[-75%] top-0 h-full w-3/4 bg-gradient-to-r from-white/90 via-yellow-200 to-transparent blur-sm opacity-40 animate-shine pointer-events-none" />
+                {/* Faster shine on hover */}
+                <span className="absolute left-[-75%] top-0 h-full w-3/4 bg-gradient-to-r from-white/90 via-yellow-200 to-transparent blur opacity-90 opacity-0 group-hover:opacity-100 group-hover:animate-shine-fast pointer-events-none transition-opacity duration-200" />
               </motion.button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <PaymentHistoryDialog
-        open={paymentHistoryOpen}
-        onOpenChange={setPaymentHistoryOpen}
-        payments={userData?.payments || []}
-      />
-
-      <PlanHistoryDialog
-        open={planHistoryOpen}
-        onOpenChange={setPlanHistoryOpen}
-        plans={userData?.planHistory || []}
-      />
-
       <PlanCancellationDialog
         open={planCancellationOpen}
         onOpenChange={setPlanCancellationOpen}
         currentPlan={userData?.currentPlan?.name || "free"}
         currentPlanPrice={userData?.currentPlan?.price || 0}
+      />
+
+      <ManagePlanDialog
+        open={managePlanOpen}
+        onOpenChange={setManagePlanOpen}
+        plans={userData?.planHistory || []}
+        currentPlan={userData?.currentPlan}
       />
     </div>
   );

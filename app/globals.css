@@ -821,3 +821,19 @@
     transform: translateY(0) scale(1);
   }
 }
+
+@keyframes shine {
+  0% { left: -75%; }
+  100% { left: 125%; }
+}
+.animate-shine {
+  animation: shine 5s linear infinite;
+}
+
+@keyframes shine-fast {
+  0% { left: -75%; }
+  100% { left: 125%; }
+}
+.animate-shine-fast {
+  animation: shine-fast 0.5s linear;
+}
