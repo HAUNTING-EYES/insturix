@@ -18,13 +18,13 @@ export async function GET(request: NextRequest) {
 
     if (serviceName) {
       // Get usage for specific service
-      const allUsage = await ServiceUsageService.getAllServiceUsage(session.userId);
+      const allUsage = await ServiceUsageService.getServiceUsageForAllServices(session.userId);
       const serviceUsage = allUsage[serviceName] || {};
       
       return NextResponse.json(serviceUsage);
     } else {
       // Get usage for all services
-      const allUsage = await ServiceUsageService.getAllServiceUsage(session.userId);
+      const allUsage = await ServiceUsageService.getServiceUsageForAllServices(session.userId);
       
       return NextResponse.json(allUsage);
     }

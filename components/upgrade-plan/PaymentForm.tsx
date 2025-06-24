@@ -18,7 +18,6 @@ import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
 interface Plan {
   name: string;
   price: number;
-  billingPeriod: string;
   userType: UserType;
   features: Array<{ name: string; included: boolean }>;
 }
@@ -296,7 +295,7 @@ export function PaymentForm({ plan, totalAmount, onPaymentSuccess, onPaymentErro
               <div className="space-y-4">
                 <div className="flex justify-between">
                   <span className="text-white/60">
-                    {plan.name} Plan ({plan.billingPeriod})
+                    {plan.name} Plan
                   </span>
                   <span className={`font-medium bg-gradient-to-r ${PLAN_THEME.gradients.primary} bg-clip-text text-transparent`}>
                     {selectedSymbol}{plan.price.toFixed(2)}

@@ -24,7 +24,6 @@ export async function GET(request: NextRequest) {
       serviceLimits: plan.serviceLimits,
       pricing: plan.pricing[currency as keyof typeof plan.pricing] || plan.pricing.USD,
       allPricing: plan.pricing,
-      billingPeriod: plan.billingPeriod,
       isActive: plan.isActive,
       sortOrder: plan.sortOrder,
     }));
@@ -60,7 +59,6 @@ export async function POST(request: NextRequest) {
       description: planData.description,
       serviceLimits: planData.serviceLimits,
       pricing: planData.pricing,
-      billingPeriod: planData.billingPeriod || "monthly",
       isActive: planData.isActive !== undefined ? planData.isActive : true,
       sortOrder: planData.sortOrder || 0,
     });
@@ -76,7 +74,6 @@ export async function POST(request: NextRequest) {
         description: plan.description,
         serviceLimits: plan.serviceLimits,
         pricing: plan.pricing,
-        billingPeriod: plan.billingPeriod,
         isActive: plan.isActive,
         sortOrder: plan.sortOrder,
       },

@@ -17,17 +17,15 @@ export interface DBPlan {
     musitron: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
   };
   pricing: {
-    amount: number;
-    currency: string;
-    symbol: string;
+    monthly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
+    yearly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
   };
   allPricing: {
-    USD: { amount: number; currency: string; symbol: string };
-    INR: { amount: number; currency: string; symbol: string };
-    EUR: { amount: number; currency: string; symbol: string };
-    GBP: { amount: number; currency: string; symbol: string };
+    [key: string]: {
+      monthly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
+      yearly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
+    }
   };
-  billingPeriod: string;
   isActive: boolean;
   sortOrder: number;
 }

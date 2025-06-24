@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion"
 import { Check, Shield, Zap, Clock } from "lucide-react"
-import type { Plan } from "./upgrade-plan"
+import type { Plan } from "./UpgradePageContent"
 import { Card, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
 import { useCurrency } from "@/lib/CurrencyContext"
@@ -64,11 +64,6 @@ export function PlanSummary({ plan, taxRate, taxAmount, totalAmount }: PlanSumma
                 <motion.div variants={itemVariants} className="flex justify-between">
                   <span className="text-white/60">Plan</span>
                   <span className="font-medium">{plan.name}</span>
-                </motion.div>
-
-                <motion.div variants={itemVariants} className="flex justify-between">
-                  <span className="text-white/60">Billing</span>
-                  <span className="font-medium capitalize">{plan.billingPeriod}</span>
                 </motion.div>
 
                 <Separator className="bg-white/10" />

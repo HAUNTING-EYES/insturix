@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Check, Sparkles, Info } from "lucide-react";
-import type { Plan } from "./upgrade-plan";
+import type { Plan } from "./UpgradePageContent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";

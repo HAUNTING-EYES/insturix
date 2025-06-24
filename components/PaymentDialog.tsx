@@ -40,16 +40,7 @@ import {
   CreditCard,
   DollarSign,
 } from "lucide-react"
-
-// Payment type from your existing interface
-interface Payment {
-  date: Date
-  time: string
-  amount: number
-  payment_id: string
-  phone_number: string
-  status?: string
-}
+import { IPayment } from "@/types/userTypes"
 
 export function PaymentHistoryDialog({
   open,
@@ -58,7 +49,7 @@ export function PaymentHistoryDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  payments: Payment[]
+  payments: IPayment[]
 }) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
@@ -91,14 +82,14 @@ export function PaymentHistoryDialog({
   const latestPayment = useMemo(() => {
     if (!payments.length) return null
     return payments.reduce((latest, payment) => {
-      return new Date(payment.date) > new Date(latest.date) ? payment : latest
+      return new Date(payment.timestamp) > new Date(latest.timestamp) ? payment : latest
     }, payments[0])
   }, [payments])
 
   // Define columns for the table
-  const columns: ColumnDef<Payment>[] = [
+  const columns: ColumnDef<IPayment>[] = [
     {
-      accessorKey: "date",
+      accessorKey: "timestamp",
       header: ({ column }) => {
         return (
           <Button
@@ -112,7 +103,7 @@ export function PaymentHistoryDialog({
         )
       },
       cell: ({ row }) => {
-        const date = row.getValue("date") as Date
+        const date = row.getValue("timestamp") as Date
         return (
           <div className="flex items-center gap-2">
             <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -122,13 +113,6 @@ export function PaymentHistoryDialog({
       },
       filterFn: (row, id, value) => {
         return value.includes(activeTab) ? true : activeTab === "all" || row.getValue(id) === value
-      },
-    },
-    {
-      accessorKey: "time",
-      header: "Time",
-      cell: ({ row }) => {
-        return <span className="text-muted-foreground">{row.getValue("time")}</span>
       },
     },
     {
@@ -160,17 +144,10 @@ export function PaymentHistoryDialog({
       },
     },
     {
-      accessorKey: "payment_id",
+      accessorKey: "paymentId",
       header: "Payment ID",
       cell: ({ row }) => {
-        return <span className="font-mono text-xs">{row.getValue("payment_id")}</span>
-      },
-    },
-    {
-      accessorKey: "phone_number",
-      header: "Phone Number",
-      cell: ({ row }) => {
-        return <span className="text-muted-foreground">{row.getValue("phone_number")}</span>
+        return <span className="font-mono text-xs">{row.getValue("paymentId")}</span>
       },
     },
     {
@@ -198,7 +175,7 @@ export function PaymentHistoryDialog({
       cell: ({ row }) => {
         const payment = row.original
         return (
-          <Button variant="ghost" size="icon" onClick={() => console.log("View payment", payment.payment_id)}>
+          <Button variant="ghost" size="icon" onClick={() => console.log("View payment", payment.paymentId)}>
             <Eye className="h-4 w-4" />
           </Button>
         )
@@ -238,12 +215,15 @@ export function PaymentHistoryDialog({
 
     const rows = payments.map((payment) => {
       return [
-        new Date(payment.date).toLocaleDateString(),
-        payment.time,
+        new Date(payment.timestamp).toLocaleDateString(),
         payment.amount,
-        payment.payment_id,
-        payment.phone_number,
+        payment.paymentId,
         payment.status || "Completed",
+        payment.currency,
+        payment.paymentMethod,
+        payment.planName,
+        payment.razorpayPaymentId || '',
+        payment.razorpayOrderId || '',
       ].join(",")
     })
 
@@ -332,7 +312,7 @@ export function PaymentHistoryDialog({
                       : "$0.00"}
                   </div>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {latestPayment ? new Date(latestPayment.date).toLocaleDateString() : "No payments"}
+                    {latestPayment ? new Date(latestPayment.timestamp).toLocaleDateString() : "No payments"}
                   </p>
                 </CardContent>
               </Card>
@@ -343,8 +323,8 @@ export function PaymentHistoryDialog({
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Search by Payment ID..."
-                  value={(table.getColumn("payment_id")?.getFilterValue() as string) ?? ""}
-                  onChange={(event) => table.getColumn("payment_id")?.setFilterValue(event.target.value)}
+                  value={(table.getColumn("paymentId")?.getFilterValue() as string) ?? ""}
+                  onChange={(event) => table.getColumn("paymentId")?.setFilterValue(event.target.value)}
                   className="pl-10"
                 />
               </div>

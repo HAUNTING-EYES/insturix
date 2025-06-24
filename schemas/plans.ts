@@ -4,6 +4,12 @@ export interface IPricing {
   amount: number;
   currency: string;
   symbol: string;
+  razorpayPlanId?: string;
+}
+
+export interface IBillingCyclePricing {
+  monthly: IPricing;
+  yearly: IPricing;
 }
 
 export interface IPlanServiceLimit {
@@ -29,16 +35,15 @@ export interface IPlan extends Document {
   description: string;
   serviceLimits: IPlanServiceLimits;
   pricing: {
-    USD: IPricing;
-    INR: IPricing;
-    EUR: IPricing;
-    GBP: IPricing;
-    CAD: IPricing;
-    AUD: IPricing;
-    SGD: IPricing;
-    AED: IPricing;
+    USD: IBillingCyclePricing;
+    INR: IBillingCyclePricing;
+    EUR: IBillingCyclePricing;
+    GBP: IBillingCyclePricing;
+    CAD: IBillingCyclePricing;
+    AUD: IBillingCyclePricing;
+    SGD: IBillingCyclePricing;
+    AED: IBillingCyclePricing;
   };
-  billingPeriod: "monthly" | "yearly";
   isActive: boolean;
   sortOrder: number;
   createdAt: Date;
@@ -60,6 +65,14 @@ const pricingSchema = new Schema<IPricing>({
     type: String,
     required: true,
   },
+  razorpayPlanId: {
+    type: String,
+  },
+}, { _id: false });
+
+const billingCyclePricingSchema = new Schema<IBillingCyclePricing>({
+  monthly: { type: pricingSchema, required: true },
+  yearly: { type: pricingSchema, required: true },
 }, { _id: false });
 
 const planServiceLimitSchema = new Schema<IPlanServiceLimit>({
@@ -132,19 +145,14 @@ const planSchema = new Schema<IPlan>({
     required: true,
   },
   pricing: {
-    USD: { type: pricingSchema, required: true },
-    INR: { type: pricingSchema, required: true },
-    EUR: { type: pricingSchema, required: true },
-    GBP: { type: pricingSchema, required: true },
-    CAD: { type: pricingSchema, required: true },
-    AUD: { type: pricingSchema, required: true },
-    SGD: { type: pricingSchema, required: true },
-    AED: { type: pricingSchema, required: true },
-  },
-  billingPeriod: {
-    type: String,
-    enum: ["monthly", "yearly"],
-    default: "monthly",
+    USD: { type: billingCyclePricingSchema, required: true },
+    INR: { type: billingCyclePricingSchema, required: true },
+    EUR: { type: billingCyclePricingSchema, required: true },
+    GBP: { type: billingCyclePricingSchema, required: true },
+    CAD: { type: billingCyclePricingSchema, required: true },
+    AUD: { type: billingCyclePricingSchema, required: true },
+    SGD: { type: billingCyclePricingSchema, required: true },
+    AED: { type: billingCyclePricingSchema, required: true },
   },
   isActive: {
     type: Boolean,

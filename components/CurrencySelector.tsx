@@ -15,7 +15,6 @@ const SUPPORTED_CURRENCIES = [
   { code: "SGD", symbol: "S$", name: "Singapore Dollar", flag: "🇸🇬" },
   { code: "AED", symbol: "د.إ", name: "UAE Dirham", flag: "🇦🇪" },
 ];
-
 interface CurrencySelectorProps {
   onCurrencyChange?: (currency: string, symbol: string) => void;
   className?: string;

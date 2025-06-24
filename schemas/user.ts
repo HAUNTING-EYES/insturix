@@ -1,5 +1,5 @@
 import mongoose, { Document, Schema } from "mongoose";
-import { UserType } from "@/types/userTypes";
+import { UserType, IUserPlan } from "@/types/userTypes";
 
 export interface IServiceLimit {
   limitType: string;
@@ -26,6 +26,7 @@ export interface IPlan {
   price: number;
   currency: string;
   status: "active" | "expired" | "canceled";
+  razorpaySubscriptionId?: string;
   serviceLimits: IServiceLimits;
 }
 
@@ -46,8 +47,8 @@ interface IUser extends Document {
   clerkUserId: string;
   email: string;
   signUpDate: Date;
-  currentPlan: IPlan;
-  planHistory: IPlan[];
+  currentPlan: IUserPlan;
+  planHistory: IUserPlan[];
   payments: IPayment[];
   trialUsed: boolean; // Track if user has used their one-time trial
   preferences: {

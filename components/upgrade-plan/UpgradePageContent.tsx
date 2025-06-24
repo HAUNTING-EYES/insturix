@@ -11,112 +11,46 @@ import { StepIndicator } from "@/components/upgrade-plan/StepIndicator";
 import { PlanSelection } from "@/components/upgrade-plan/PaymentSelection";
 import { PlanSummary } from "@/components/upgrade-plan/PlanSummary";
 import { PaymentForm } from "@/components/upgrade-plan/PaymentForm";
-import { CurrencySelector } from "@/components/CurrencySelector";
 import { useCurrency } from "@/lib/CurrencyContext";
 import { cn } from "@/lib/utils";
 import { UserType } from "@/types/userTypes";
 import { getPlanDisplayName } from "@/lib/planUtils";
 import { toast } from "sonner";
-import type { Plan } from "@/components/upgrade-plan/upgrade-plan";
+import { usePlansFromDB, DBPlan } from "@/lib/hooks/usePlansFromDB";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
 
-const basePlansUSD: Plan[] = [
-  {
-    id: "free",
-    name: getPlanDisplayName(UserType.Free),
-    description: "Get started with basic features",
-    price: 0,
-    billingPeriod: "monthly",
-    color: "#10b981",
-    gradient: "from-green-500 to-emerald-500",
-    userType: UserType.Free,
-    features: [
-      { id: "feature-1", name: "Basic functionality", included: true },
-      { id: "feature-2", name: "Community support", included: true },
-      { id: "feature-3", name: "1 project", included: true },
-      { id: "feature-4", name: "Basic analytics", included: true },
-    ],
-  },
-  {
-    id: "plus",
-    name: getPlanDisplayName(UserType.Plus),
-    description: "Advanced features for professionals",
-    price: 2.99,
-    billingPeriod: "monthly",
-    popularPlan: true,
-    color: PLAN_THEME.planColors.plus,
-    gradient: "from-blue-500 to-blue-600",
-    userType: UserType.Plus,
-    features: [
-      { id: "feature-1", name: "Core functionality", included: true },
-      { id: "feature-2", name: "Priority support", included: true, highlight: true },
-      { id: "feature-3", name: "10 projects", included: true, highlight: true },
-      { id: "feature-4", name: "Advanced analytics", included: true },
-    ],
-  },
-  {
-    id: "pro",
-    name: getPlanDisplayName(UserType.Pro),
-    description: "Complete solution for teams",
-    price: 5.99,
-    billingPeriod: "monthly",
-    color: PLAN_THEME.planColors.pro,
-    gradient: "from-purple-500 to-purple-600",
-    userType: UserType.Pro,
-    features: [
-      { id: "feature-1", name: "Core functionality", included: true },
-      { id: "feature-2", name: "24/7 dedicated support", included: true, highlight: true },
-      { id: "feature-3", name: "Unlimited projects", included: true, highlight: true },
-      { id: "feature-4", name: "Advanced analytics", included: true },
-      { id: "feature-5", name: "Team collaboration", included: true, highlight: true },
-    ],
-  },
-  {
-    id: "premium",
-    name: getPlanDisplayName(UserType.Premium),
-    description: "Ultimate solution for enterprises",
-    price: 9.99,
-    billingPeriod: "monthly",
-    color: "#f59e0b",
-    gradient: "from-amber-500 to-orange-500",
-    userType: UserType.Premium,
-    features: [
-      { id: "feature-1", name: "Everything in Pro", included: true },
-      { id: "feature-2", name: "Dedicated support", included: true, highlight: true },
-      { id: "feature-3", name: "Custom integrations", included: true, highlight: true },
-      { id: "feature-4", name: "API access", included: true, highlight: true },
-    ],
-  },
-];
-
-const CURRENCY_RATES: Record<string, number> = {
-  USD: 1,
-  EUR: 0.85,
-  GBP: 0.73,
-  INR: 83.12,
-  CAD: 1.36,
-  AUD: 1.52,
-  SGD: 1.34,
-  AED: 3.67,
-};
-
-const TAX_RATES: Record<string, number> = {
-  USD: 0.0875,
-  EUR: 0.20,
-  GBP: 0.20,
-  INR: 0.18,
-  CAD: 0.13,
-  AUD: 0.10,
-  SGD: 0.07,
-  AED: 0.05,
-};
-
-function convertPrice(usdPrice: number, targetCurrency: string): number {
-  const rate = CURRENCY_RATES[targetCurrency] || 1;
-  return Math.round((usdPrice * rate) * 100) / 100;
+type PlanFeature = {
+  id: string
+  name: string
+  included: boolean
+  highlight?: boolean
 }
 
+export type Plan = {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  features: PlanFeature[];
+  popularPlan?: boolean;
+  savings?: number;
+  color?: string;
+  gradient?: string;
+  userType: UserType;
+  billingPeriod: "monthly" | "yearly";
+};
+
 function getTaxRate(currency: string): number {
+  const TAX_RATES: Record<string, number> = {
+    USD: 0.0875,
+    EUR: 0.20,
+    GBP: 0.20,
+    INR: 0.18,
+    CAD: 0.13,
+    AUD: 0.10,
+    SGD: 0.07,
+    AED: 0.05,
+  };
   return TAX_RATES[currency] || 0.18;
 }
 
@@ -138,6 +72,7 @@ export function UpgradePageContent({
   const router = useRouter();
   const { user } = useUser();
   const { selectedCurrency, selectedSymbol, version } = useCurrency();
+  const { plans: dbPlans, isLoading: plansLoading, isError } = usePlansFromDB();
   
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
@@ -154,18 +89,41 @@ export function UpgradePageContent({
 
   const effectiveTaxRate = getTaxRate(selectedCurrency);
 
-  const convertedPlans = useMemo(() => {
-    return basePlansUSD.map(plan => {
-      const basePrice = convertPrice(plan.price, selectedCurrency);
-      const finalPrice = billingCycle === "yearly" ? basePrice * 12 * 0.84 : basePrice; // 16% discount for yearly
+  const convertedPlans: Plan[] = useMemo(() => {
+    if (plansLoading || !dbPlans) return [];
+
+    return dbPlans.map((dbPlan: DBPlan): Plan => {
+      const pricing = (dbPlan.allPricing && dbPlan.allPricing[selectedCurrency]) 
+        ? dbPlan.allPricing[selectedCurrency] 
+        : dbPlan.pricing;
+        
+      const monthlyPrice = pricing.monthly.amount;
+      const yearlyPrice = pricing.yearly.amount;
+
+      const basePrice = billingCycle === "monthly" ? monthlyPrice : yearlyPrice;
+      
+      // The features should ideally come from the DB plan
+      const features : PlanFeature[] = [
+        { id: "feature-1", name: "Core functionality", included: true },
+        { id: "feature-2", name: "Priority support", included: true, highlight: dbPlan.type === "plus" || dbPlan.type === "pro" },
+        { id: "feature-3", name: "Advanced features", included: dbPlan.type === "pro" || dbPlan.type === "premium" },
+      ];
+
       return {
-        ...plan,
-        price: finalPrice,
+        id: dbPlan.type,
+        name: dbPlan.name,
+        description: dbPlan.description,
+        price: basePrice,
         billingPeriod: billingCycle,
-        savings: billingCycle === "yearly" ? basePrice * 12 * 0.16 : undefined
+        features: features, 
+        popularPlan: dbPlan.type === "plus",
+        color: PLAN_THEME.planColors[dbPlan.type as keyof typeof PLAN_THEME.planColors],
+        gradient: `from-${PLAN_THEME.planColors[dbPlan.type as keyof typeof PLAN_THEME.planColors]}-500 to-${PLAN_THEME.planColors[dbPlan.type as keyof typeof PLAN_THEME.planColors]}-600`,
+        userType: dbPlan.type as UserType,
+        savings: billingCycle === "yearly" ? monthlyPrice * 12 - yearlyPrice : undefined,
       };
     });
-  }, [selectedCurrency, version, billingCycle]);
+  }, [dbPlans, plansLoading, billingCycle, selectedCurrency]);
 
   useEffect(() => {
     const fetchUserPlan = async () => {
@@ -365,16 +323,7 @@ export function UpgradePageContent({
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
             Choose the perfect plan to unlock premium features and take your productivity to the next level
           </p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3, duration: 0.5 }}
-            className="flex justify-center mb-8"
-          >
-            <CurrencySelector compact={false} />
-          </motion.div>
-        </motion.div>
+         </motion.div>
       )}
 
       {currentStep < 3 && (

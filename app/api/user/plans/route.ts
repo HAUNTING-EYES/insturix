@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User, { IPlan } from "@/schemas/user";
+import User from "@/schemas/user";
 import { getUserPlanWithServiceLimits } from "@/lib/services/planService";
+import { IUserPlan } from "@/types/userTypes";
 
 export async function GET() {
   try {
@@ -29,7 +30,7 @@ export async function GET() {
     // Get user plan with service limits from plans collection
     const userPlanWithServiceLimits = await getUserPlanWithServiceLimits(userId);
     
-    const formattedPlans = user.planHistory ? user.planHistory.map((plan: IPlan, index: number) => ({
+    const formattedPlans = user.planHistory ? user.planHistory.map((plan: IUserPlan, index: number) => ({
       id: plan.planId || `plan-${index}`, // Use planId or fallback to generated ID
       name: plan.name,
       startDate: plan.startDate,

@@ -1,18 +1,18 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User, { IPlan } from "@/schemas/user";
+import User from "@/schemas/user";
 import Plan from "@/schemas/plans";
-import { UserType } from "@/types/userTypes";
+import { UserType, IUserPlan } from "@/types/userTypes";
 
 // Get plan price for specific currency
-export async function getPlanPrice(planType: UserType, currency: string = "USD"): Promise<number> {
+export async function getPlanPrice(planType: UserType, currency: string = "USD", billingCycle: 'monthly' | 'yearly' = 'monthly'): Promise<number> {
   await connectToDatabase();
   
   const plan = await Plan.findOne({ type: planType, isActive: true });
-  if (!plan || !plan.pricing[currency]) {
-    throw new Error(`Plan ${planType} not found or currency ${currency} not supported`);
+  if (!plan || !plan.pricing[currency] || !plan.pricing[currency][billingCycle]) {
+    throw new Error(`Plan ${planType} not found or currency ${currency} with ${billingCycle} billing not supported`);
   }
   
-  return plan.pricing[currency].amount;
+  return plan.pricing[currency][billingCycle].amount;
 }
 
 // Get plan service limits
@@ -40,7 +40,6 @@ export async function getPlansForCurrency(currency: string = "USD") {
     description: plan.description,
     pricing: plan.pricing[currency] || plan.pricing.USD,
     serviceLimits: plan.serviceLimits,
-    billingPeriod: plan.billingPeriod
   }));
 }
 
@@ -75,7 +74,7 @@ export async function cancelUserPlan(clerkUserId: string) {
     endDate: now,
   };
   
-  const planExists = user.planHistory.some((plan: IPlan) =>
+  const planExists = user.planHistory.some((plan: IUserPlan) =>
     plan.planId === user.currentPlan.planId &&
     plan.startDate.getTime() === user.currentPlan.startDate.getTime()
   );
@@ -180,14 +179,14 @@ export async function updateUserPlan(
   // Add current plan to history before expiring it
   if (user.currentPlan && user.currentPlan.status === "active") {
     // Check if this plan is already in history
-    const planExists = user.planHistory.some((plan: IPlan) =>
+    const planExists = user.planHistory.some((plan: IUserPlan) =>
       plan.planId === user.currentPlan.planId &&
       plan.startDate.getTime() === user.currentPlan.startDate.getTime()
     );
     
     if (!planExists) {
       // Ensure all required fields are present
-      const currentPlanForHistory: IPlan = {
+      const currentPlanForHistory: IUserPlan = {
         planId: user.currentPlan.planId || "",
         name: user.currentPlan.name,
         startDate: user.currentPlan.startDate,

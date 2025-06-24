@@ -20,13 +20,17 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
   const [isUserSelected, setIsUserSelected] = useState<boolean>(false);
   const [version, setVersion] = useState<number>(0);
 
+  const setSelectedCurrency = (currency: string, symbol: string) => {
+    setStateCurrency(currency);
+    setStateSymbol(symbol);
+    setVersion(prev => prev + 1);
+  };
+
   const updateSelectedCurrencyState = (currency: string, symbol: string) => {
     // Only update if currency actually changed
     if (selectedCurrency !== currency || selectedSymbol !== symbol) {
-      setStateCurrency(currency);
-      setStateSymbol(symbol);
+      setSelectedCurrency(currency, symbol);
       setIsUserSelected(true);
-      setVersion(prevVersion => prevVersion + 1);
       
       localStorage.setItem('preferred-currency', currency);
       localStorage.setItem('preferred-symbol', symbol);
@@ -46,16 +50,13 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     const savedSymbol = localStorage.getItem('preferred-symbol');
     
     if (savedCurrency && savedSymbol) {
-      setStateCurrency(savedCurrency);
-      setStateSymbol(savedSymbol);
+      setSelectedCurrency(savedCurrency, savedSymbol);
       setIsUserSelected(true);
     } else if (locationData?.currency && locationData?.symbol) {
-      setStateCurrency(locationData.currency);
-      setStateSymbol(locationData.symbol);
+      setSelectedCurrency(locationData.currency, locationData.symbol);
       setIsUserSelected(false);
     } else {
-      setStateCurrency("USD");
-      setStateSymbol("$");
+      setSelectedCurrency("USD", "$");
       setIsUserSelected(false);
     }
   }, [locationData]);

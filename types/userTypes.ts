@@ -51,8 +51,8 @@ export interface User {
   clerkUserId: string;
   email: string;
   signUpDate: Date;
-  currentPlan: IPlan;
-  planHistory: IPlan[];
+  currentPlan: IUserPlan;
+  planHistory: IUserPlan[];
   payments: IPayment[];
   trialUsed: boolean;
   preferences: {
@@ -67,12 +67,7 @@ export interface User {
   __v?: number;
 }
 
-// Legacy interface for backward compatibility
-export interface LegacyUser {
-  id: string;
-  clerkUserId: string;
-  email: string;
-  payments: any[];
-  currentPlan: any;
-  planUpdated: boolean;
+export interface IUserPlan extends IPlan {
+  razorpaySubscriptionId?: string;
+  cancelAtPeriodEnd?: boolean;
 }

@@ -45,11 +45,11 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePlans, Plan } from "@/lib/hooks/usePlans";
+import { usePlans } from "@/lib/hooks/usePlans";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { UserType } from "@/types/userTypes";
+import { UserType, IPlan } from "@/types/userTypes";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,15 +66,16 @@ import { fetchLocationData } from "@/lib/QFunctions";
 export function PlanHistoryDialog({
   open,
   onOpenChange,
+  plans,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  plans: Plan[];
+  plans: IPlan[];
 }) {
   const { data, isLoading, isError, cancelPlan, isCanceling } = usePlans();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
+  const [selectedPlan, setSelectedPlan] = useState<IPlan | null>(null);
   const [activeTab, setActiveTab] = useState("all");
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const router = useRouter();
@@ -121,7 +122,7 @@ export function PlanHistoryDialog({
   };
 
   // Define columns for the table
-  const columns: ColumnDef<Plan>[] = [
+  const columns: ColumnDef<IPlan>[] = [
     {
       accessorKey: "name",
       header: ({ column }) => {
@@ -276,8 +277,8 @@ export function PlanHistoryDialog({
     },
   ];
 
-  const table = useReactTable({
-    data: data?.plans || [],
+  const table = useReactTable<IPlan>({
+    data: plans || [],
     columns,
     getCoreRowModel: getCoreRowModel(),
     getPaginationRowModel: getPaginationRowModel(),
@@ -417,24 +418,6 @@ export function PlanHistoryDialog({
                         </p>
                       </div>
                     </div>
-                  </div>
-
-                  <div className="rounded-lg border p-4">
-                    <h4 className="font-medium mb-2">Features</h4>
-                    {selectedPlan.features?.length ? (
-                      <ul className="space-y-2">
-                        {selectedPlan.features.map((feature, index) => (
-                          <li key={index} className="flex items-center gap-2">
-                            <CheckCircle2 className="h-4 w-4 text-green-500" />
-                            <span>{feature}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="text-muted-foreground">
-                        No features listed
-                      </p>
-                    )}
                   </div>
 
                   {selectedPlan.status === "active" && (
