@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
+import { useMediaQuery } from "@/hooks/useMediaQuery"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   type ColumnDef,
@@ -64,6 +65,19 @@ export function PaymentHistoryDialog({
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({})
   const [pageSize, setPageSize] = useState(5)
   const [activeTab, setActiveTab] = useState("all")
+  const isMobile = useMediaQuery("(max-width: 640px)")
+
+  useEffect(() => {
+    if (isMobile) {
+      setColumnVisibility({
+        time: false,
+        phone_number: false,
+        payment_id: false,
+      })
+    } else {
+      setColumnVisibility({})
+    }
+  }, [isMobile])
 
   // Calculate summary statistics
   const totalAmount = useMemo(() => {
@@ -249,7 +263,7 @@ export function PaymentHistoryDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-[900px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-purple-500" />
@@ -259,21 +273,21 @@ export function PaymentHistoryDialog({
         </DialogHeader>
 
         <Tabs defaultValue="all" value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <div className="flex justify-between items-center mb-4">
-            <TabsList className="bg-muted/50">
-              <TabsTrigger value="all">All Payments</TabsTrigger>
-              <TabsTrigger value="Completed">Completed</TabsTrigger>
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-4">
+            <TabsList className="bg-muted/50 w-full sm:w-auto overflow-x-auto">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="Completed">Done</TabsTrigger>
               <TabsTrigger value="Pending">Pending</TabsTrigger>
               <TabsTrigger value="Failed">Failed</TabsTrigger>
             </TabsList>
-            <Button variant="outline" size="sm" onClick={exportToCSV} className="gap-1">
+            <Button variant="outline" size="sm" onClick={exportToCSV} className="gap-1 w-full sm:w-auto">
               <Download className="h-4 w-4" />
-              Export
+              Export CSV
             </Button>
           </div>
 
           <TabsContent value="all" className="mt-0">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mb-6">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">Total Spent</CardTitle>
@@ -325,18 +339,18 @@ export function PaymentHistoryDialog({
             </div>
 
             <div className="flex flex-col sm:flex-row justify-between gap-4 mb-4">
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <div className="relative w-full sm:max-w-xs">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Search payments..."
+                  placeholder="Search by Payment ID..."
                   value={(table.getColumn("payment_id")?.getFilterValue() as string) ?? ""}
                   onChange={(event) => table.getColumn("payment_id")?.setFilterValue(event.target.value)}
-                  className="pl-8"
+                  className="pl-10"
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                 <Select value={pageSize.toString()} onValueChange={(value) => setPageSize(Number(value))}>
-                  <SelectTrigger className="w-[120px]">
+                  <SelectTrigger className="w-full sm:w-auto">
                     <SelectValue placeholder="Rows per page" />
                   </SelectTrigger>
                   <SelectContent>
@@ -348,10 +362,9 @@ export function PaymentHistoryDialog({
                 </Select>
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="ml-auto gap-1">
-                      <SlidersHorizontal className="h-4 w-4" />
+                    <Button variant="outline" className="w-full sm:w-auto">
+                      <SlidersHorizontal className="mr-2 h-4 w-4" />
                       View
-                      <ChevronDown className="h-4 w-4 opacity-50" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
@@ -366,7 +379,7 @@ export function PaymentHistoryDialog({
                             checked={column.getIsVisible()}
                             onCheckedChange={(value) => column.toggleVisibility(!!value)}
                           >
-                            {column.id === "payment_id" ? "Payment ID" : column.id}
+                            {column.id.replace(/_/g, " ")}
                           </DropdownMenuCheckboxItem>
                         )
                       })}

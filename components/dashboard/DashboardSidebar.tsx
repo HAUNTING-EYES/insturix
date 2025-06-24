@@ -55,6 +55,13 @@ export default function DashboardSidebar() {
     }
   }, [isSettingsOpen, isProfileDialogOpen])
 
+  const handleDialogStateChange = (isOpen: boolean) => {
+    setIsProfileDialogOpen(isOpen);
+    if (isOpen) {
+      setIsMobileOpen(false);
+    }
+  };
+
   const handleUpgradeClick = () => {
     router.push('/upgrade')
   }
@@ -127,7 +134,7 @@ export default function DashboardSidebar() {
             isExpanded={isExpanded}
             onSettingsClick={() => setIsSettingsOpen(true)}
             onUpgradeClick={handleUpgradeClick}
-            onDialogStateChange={setIsProfileDialogOpen}
+            onDialogStateChange={handleDialogStateChange}
           />
         </motion.aside>
       </TooltipProvider>

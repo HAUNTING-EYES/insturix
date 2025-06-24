@@ -14,6 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { AlertTriangle, Clock, DollarSign, Shield, X } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 
 interface TrialEligibility {
   eligible: boolean;
@@ -42,6 +43,7 @@ export function PlanCancellationDialog({
   const [eligibility, setEligibility] = useState<TrialEligibility | null>(null);
   const [step, setStep] = useState<"check" | "confirm">("check");
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const checkEligibility = async () => {
     try {
@@ -80,15 +82,14 @@ export function PlanCancellationDialog({
         // Invalidate queries to refresh UI
         queryClient.invalidateQueries({ queryKey: ["userData"] });
         queryClient.invalidateQueries({ queryKey: ["plans"] });
-        
-        onOpenChange(false);
+        router.push('/dashboard');
       } else {
         toast.error(data.error || "Failed to cancel plan");
+        setLoading(false);
       }
     } catch (error) {
       toast.error("Failed to cancel plan");
       console.error("Cancel plan error:", error);
-    } finally {
       setLoading(false);
     }
   };
