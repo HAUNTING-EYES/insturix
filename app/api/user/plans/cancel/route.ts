@@ -5,6 +5,7 @@ import Razorpay from "razorpay";
 import { User } from "@/schemas/user";
 import { initiateRefund } from "@/lib/services/refundService";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
+import { cancelSubscription, lemonSqueezySetup } from "@lemonsqueezy/lemonsqueezy.js";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,23 +31,33 @@ export async function POST(request: NextRequest) {
       // Fetch user to get subscription/payment info
       await connectToDatabase();
       const user = await User.findOne({ clerkUserId: userId });
-      let razorpayCancelResult = null;
+      let providerCancelResult = null;
       let refundResult = null;
 
-      // Cancel Razorpay subscription if present
+      // Cancel subscription with the payment provider
       if (user && user.planHistory && user.planHistory.length > 0) {
-        // Find the most recent non-free plan in history (just canceled)
+        // Find the most recent non-free plan in history (the one just canceled in our DB)
         const lastPlan = user.planHistory[user.planHistory.length - 1];
-        if (lastPlan.razorpaySubscriptionId) {
+        const subscriptionId = lastPlan.subscriptionId; // Using the new schema
+
+        if (subscriptionId?.razorpay) {
           try {
             const razorpay = new Razorpay({
               key_id: process.env.RAZORPAY_KEY_ID!,
               key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
             });
-            await razorpay.subscriptions.cancel(lastPlan.razorpaySubscriptionId);
-            razorpayCancelResult = { success: true, message: "Razorpay subscription cancelled." };
+            await razorpay.subscriptions.cancel(subscriptionId.razorpay);
+            providerCancelResult = { success: true, provider: 'razorpay', message: "Razorpay subscription cancelled." };
           } catch (e) {
-            razorpayCancelResult = { success: false, error: (e as Error).message };
+            providerCancelResult = { success: false, provider: 'razorpay', error: (e as Error).message };
+          }
+        } else if (subscriptionId?.lemonsqueezy) {
+          try {
+            lemonSqueezySetup({ apiKey: process.env.LEMONSQUEEZY_API_KEY! });
+            await cancelSubscription(subscriptionId.lemonsqueezy);
+            providerCancelResult = { success: true, provider: 'lemonsqueezy', message: "Lemon Squeezy subscription cancelled." };
+          } catch (e) {
+            providerCancelResult = { success: false, provider: 'lemonsqueezy', error: (e as Error).message };
           }
         }
       }
@@ -71,7 +82,7 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({
         ...result,
-        razorpayCancelResult,
+        providerCancelResult,
         refundResult,
         message: result.refundEligible
           ? `Plan cancelled with refund of $${result.refundAmount}. Refund will be processed within 5-7 business days.`

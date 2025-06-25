@@ -346,7 +346,7 @@ async function setupPlans() {
           if (monthlyPrice.amount > 0) {
             console.log(`    Creating monthly plan...`);
             const monthlyPlan = await createPlan({
-              name: `${plan.name} Monthly`,
+              name: plan.name,
               amount: monthlyPrice.amount,
               currency: currency,
               period: 'monthly',
@@ -364,7 +364,7 @@ async function setupPlans() {
           if (yearlyPrice.amount > 0) {
             console.log(`    Creating yearly plan...`);
             const yearlyPlan = await createPlan({
-              name: `${plan.name} Yearly`,
+              name: plan.name,
               amount: yearlyPrice.amount,
               currency: currency,
               period: 'yearly',
@@ -380,6 +380,7 @@ async function setupPlans() {
         }
       }
 
+      plan.markModified('pricing');
       await plan.save();
       console.log(`Successfully upserted plan: ${plan.name}`);
     }
