@@ -1,73 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
 import Razorpay from "razorpay";
+import { auth } from "@clerk/nextjs/server";
+import connectToDatabase from "@/schemas/ConnectToDatabase";
 import Plan from "@/schemas/plans";
-import User from "@/schemas/user";
+import { UserType } from "@/types/userTypes";
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+});
 
 export async function POST(request: NextRequest) {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    await connectToDatabase();
+    const { planType, currency, billingCycle }: { planType: UserType; currency: string; billingCycle: 'monthly' | 'yearly' } = await request.json();
+
+    // Find the plan in our database
+    const dbPlan = await Plan.findOne({ type: planType });
+    if (!dbPlan) {
+      return NextResponse.json({ error: "Plan not found in database" }, { status: 404 });
     }
 
-    const { planId, currency } = await request.json(); // planId from our DB
-
-    if (!planId) {
-      return NextResponse.json({ error: "planId is required" }, { status: 400 });
-    }
-    
-    const user = await User.findOne({ clerkUserId: userId });
-    if (!user) {
-        return NextResponse.json({ error: "User not found" }, { status: 404 });
-    }
-
-    const plan = await Plan.findById(planId);
-    if (!plan) {
-      return NextResponse.json({ error: "Plan not found" }, { status: 404 });
-    }
-
-    console.log("Found plan in DB:", JSON.stringify(plan, null, 2));
-
-    // Find the razorpay plan_id from our plan schema
-    // Use .get() method for safe access on Mongoose Map
-    const razorpayPlanId = plan.razorpayPlanId?.get(currency);
-
+    // Get the specific Razorpay Plan ID for the selected currency and cycle
+    const razorpayPlanId = dbPlan.pricing[currency]?.[billingCycle]?.razorpayPlanId;
     if (!razorpayPlanId) {
-        console.error(`Razorpay plan ID not found for currency ${currency} in plan:`, plan.razorpayPlanId);
-        return NextResponse.json({ error: `Razorpay plan ID not found for currency ${currency}`}, { status: 400 });
+      return NextResponse.json({ error: `Razorpay plan ID not found for ${planType} ${currency} ${billingCycle}` }, { status: 400 });
     }
-
-    const razorpay = new Razorpay({
-      key_id: process.env.RAZORPAY_KEY_ID!,
-      key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-    });
 
     const subscription = await razorpay.subscriptions.create({
       plan_id: razorpayPlanId,
       customer_notify: 1,
       quantity: 1,
-      total_count: 12, // Default to 12 cycles, can be configured
+      total_count: billingCycle === 'monthly' ? 12 : 1, // 12 monthly payments or 1 yearly payment
       notes: {
-        clerkUserId: userId,
-        dbPlanId: planId,
+        userId: userId,
+        planType: planType,
+        billingCycle: billingCycle,
       },
     });
 
-    // We might need to associate the subscription with the user here,
-    // or wait for the webhook after first payment.
-    // For now, we return the subscription_id to the client.
-
     return NextResponse.json({
       subscriptionId: subscription.id,
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID
+      razorpayKey: process.env.RAZORPAY_KEY_ID,
     });
-
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error creating Razorpay subscription:", error);
     return NextResponse.json(
-      { error: "Failed to create subscription" },
+      {
+        error: "Failed to create subscription",
+        details: error.message,
+      },
       { status: 500 }
     );
   }
-} 
+}

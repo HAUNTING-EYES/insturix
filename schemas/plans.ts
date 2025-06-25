@@ -4,7 +4,7 @@ export interface IPricing {
   amount: number;
   currency: string;
   symbol: string;
-  razorpayPlanId?: string;
+  planId?: { [key: string]: string };
 }
 
 export interface IBillingCyclePricing {
@@ -65,8 +65,9 @@ const pricingSchema = new Schema<IPricing>({
     type: String,
     required: true,
   },
-  razorpayPlanId: {
-    type: String,
+  planId: {
+    type: Map,
+    of: String,
   },
 }, { _id: false });
 

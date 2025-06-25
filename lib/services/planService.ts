@@ -1,5 +1,5 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType, IUserPlan } from "@/types/userTypes";
 
@@ -62,62 +62,62 @@ export async function cancelUserPlan(clerkUserId: string) {
   const daysSinceStart = Math.floor((now.getTime() - planStartDate.getTime()) / (1000 * 60 * 60 * 24));
   const isWithinTrialPeriod = daysSinceStart <= 7;
 
-  // Mark trial as used if this is their first paid plan cancellation
-  if (!user.trialUsed && isWithinTrialPeriod) {
+  if (isWithinTrialPeriod && !user.trialUsed) {
+    // Mark trial as used
     user.trialUsed = true;
+
+    // Move current plan to history
+    const expiredPlan = {
+      ...user.currentPlan,
+      status: "canceled" as const,
+      endDate: now,
+    };
+    const planExists = user.planHistory.some((plan: IUserPlan) =>
+      plan.planId === user.currentPlan.planId &&
+      plan.startDate.getTime() === user.currentPlan.startDate.getTime()
+    );
+    if (!planExists) {
+      user.planHistory.push(expiredPlan);
+    }
+
+    // Create free plan with service limits
+    const freePlan = await Plan.findOne({ type: UserType.Free, isActive: true });
+    if (!freePlan) {
+      throw new Error("Free plan not found");
+    }
+    const { UserInitializationService } = await import("./userInitializationService");
+    const cleanServiceLimits = freePlan.serviceLimits.toObject ? freePlan.serviceLimits.toObject() : freePlan.serviceLimits;
+    const serviceLimits = UserInitializationService.convertPlanLimitsToUserLimits(cleanServiceLimits);
+    user.currentPlan = {
+      planId: freePlan._id.toString(),
+      name: UserType.Free,
+      startDate: now,
+      endDate: null, // Free plan never expires
+      price: 0,
+      currency: user.preferences.currency,
+      status: "active",
+      serviceLimits,
+    };
+    await user.save();
+    return {
+      success: true,
+      refundEligible: true,
+      daysUsed: daysSinceStart,
+      refundAmount: expiredPlan.price,
+    };
+  } else {
+    // Not in trial: schedule cancellation at period end
+    user.currentPlan.cancelAtPeriodEnd = true;
+    user.currentPlan.status = "canceled";
+    // Do NOT move to free plan yet; let cron/expiration handle it
+    await user.save();
+    return {
+      success: true,
+      refundEligible: false,
+      daysUsed: daysSinceStart,
+      refundAmount: 0,
+    };
   }
-
-  // Move current plan to history
-  const expiredPlan = {
-    ...user.currentPlan,
-    status: "canceled" as const,
-    endDate: now,
-  };
-  
-  const planExists = user.planHistory.some((plan: IUserPlan) =>
-    plan.planId === user.currentPlan.planId &&
-    plan.startDate.getTime() === user.currentPlan.startDate.getTime()
-  );
-  
-  if (!planExists) {
-    user.planHistory.push(expiredPlan);
-  }
-
-  // Create free plan with service limits
-  const freePlan = await Plan.findOne({ type: UserType.Free, isActive: true });
-  if (!freePlan) {
-    throw new Error("Free plan not found");
-  }
-
-  const { UserInitializationService } = await import("./userInitializationService");
-  
-  // Extract clean serviceLimits from Mongoose document
-  const cleanServiceLimits = freePlan.serviceLimits.toObject ? freePlan.serviceLimits.toObject() : freePlan.serviceLimits;
-  
-  const serviceLimits = UserInitializationService.convertPlanLimitsToUserLimits(cleanServiceLimits);
-
-  const oneMonthLater = new Date(now);
-  oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
-
-  user.currentPlan = {
-    planId: freePlan._id.toString(),
-    name: UserType.Free,
-    startDate: now,
-    endDate: null, // Free plan never expires
-    price: 0,
-    currency: user.preferences.currency,
-    status: "active",
-    serviceLimits,
-  };
-
-  await user.save();
-
-  return {
-    success: true,
-    refundEligible: isWithinTrialPeriod && !user.trialUsed,
-    daysUsed: daysSinceStart,
-    refundAmount: isWithinTrialPeriod ? expiredPlan.price : 0,
-  };
 }
 
 // Check if user is eligible for trial refund
@@ -152,14 +152,14 @@ export async function checkTrialRefundEligibility(clerkUserId: string) {
 export async function updateUserPlan(
   clerkUserId: string,
   newPlanType: UserType,
-  paymentDetails: {
-    paymentId: string;
-    orderId: string;
+  subscriptionDetails: {
+    provider: 'razorpay' | 'lemonsqueezy';
+    subscriptionId: string;
+    planId: string;
     amount: number;
     currency: string;
-    paymentMethod: string;
-    razorpayPaymentId?: string;
-    razorpayOrderId?: string;
+    paymentMethod?: "card" | "upi" | "netbanking" | "wallet";
+    latestInvoice?: string;
   }
 ) {
   await connectToDatabase();
@@ -175,84 +175,56 @@ export async function updateUserPlan(
     throw new Error(`Plan ${newPlanType} not found. Database setup is incomplete - run 'npm run setup-plans' first.`);
   }
 
-
-  // Add current plan to history before expiring it
+  // If there's an active plan, move it to history
   if (user.currentPlan && user.currentPlan.status === "active") {
-    // Check if this plan is already in history
-    const planExists = user.planHistory.some((plan: IUserPlan) =>
-      plan.planId === user.currentPlan.planId &&
-      plan.startDate.getTime() === user.currentPlan.startDate.getTime()
-    );
-    
-    if (!planExists) {
-      // Ensure all required fields are present
-      const currentPlanForHistory: IUserPlan = {
-        planId: user.currentPlan.planId || "",
-        name: user.currentPlan.name,
-        startDate: user.currentPlan.startDate,
-        endDate: new Date(), // Set end date to now since we're expiring it
-        price: user.currentPlan.price || 0,
-        currency: user.currentPlan.currency || paymentDetails.currency,
-        status: "expired" as const,
-        serviceLimits: user.currentPlan.serviceLimits, // Keep existing service limits
-      };
-      
-      user.planHistory.push(currentPlanForHistory);
-    }
-    
-    // Now expire current plan
-    user.currentPlan.status = "expired";
-    user.currentPlan.endDate = new Date();
+    const currentPlanAsHistory = {
+      ...user.currentPlan.toObject(),
+      status: "expired" as const,
+      endDate: new Date(),
+    };
+    user.planHistory.push(currentPlanAsHistory);
   }
 
-  // Create new plan with service limits from database plan
-  const endDate = new Date();
+  // Create the new plan
+  const startDate = new Date();
+  const endDate = new Date(startDate);
   endDate.setMonth(endDate.getMonth() + 1);
 
-  // Import the conversion utility
   const { UserInitializationService } = await import("./userInitializationService");
-  
-  // Ensure we have valid serviceLimits from the plan
-  if (!dbPlan.serviceLimits) {
-    console.error(`Plan ${newPlanType} does not have serviceLimits defined. Using fallback.`);
-    throw new Error(`Plan ${newPlanType} configuration is invalid - missing serviceLimits`);
-  }
-  
-  // Extract clean serviceLimits from Mongoose document
   const cleanServiceLimits = dbPlan.serviceLimits.toObject ? dbPlan.serviceLimits.toObject() : dbPlan.serviceLimits;
-  
   const serviceLimits = UserInitializationService.convertPlanLimitsToUserLimits(cleanServiceLimits);
 
   const newPlan = {
     planId: dbPlan._id.toString(),
     name: newPlanType,
-    startDate: new Date(),
+    startDate,
     endDate,
-    price: paymentDetails.amount,
-    currency: paymentDetails.currency,
+    price: subscriptionDetails.amount,
+    currency: subscriptionDetails.currency,
     status: "active" as const,
+    subscriptionId: { [subscriptionDetails.provider]: subscriptionDetails.subscriptionId },
     serviceLimits,
   };
 
-  // Add payment record
-  user.payments.push({
-    paymentId: paymentDetails.paymentId,
-    orderId: paymentDetails.orderId,
-    timestamp: new Date(),
-    amount: paymentDetails.amount,
-    currency: paymentDetails.currency,
-    status: "completed",
-    paymentMethod: paymentDetails.paymentMethod as any,
-    planName: dbPlan.name,
-    razorpayPaymentId: paymentDetails.razorpayPaymentId,
-    razorpayOrderId: paymentDetails.razorpayOrderId,
-  });
-
   user.currentPlan = newPlan;
+
+  // Add subscription record, preventing duplicates
+  const subscriptionExists = user.subscriptions.some((s: any) => s.subscriptionId === subscriptionDetails.subscriptionId);
+  if (!subscriptionExists) {
+    user.subscriptions.push({
+      provider: subscriptionDetails.provider,
+      subscriptionId: subscriptionDetails.subscriptionId,
+      planId: subscriptionDetails.planId,
+      status: "active",
+      startDate: new Date(),
+      latestInvoice: subscriptionDetails.latestInvoice,
+      paymentMethod: subscriptionDetails.paymentMethod,
+    });
+  }
   
   // Update user preferences if different currency
-  if (user.preferences.currency !== paymentDetails.currency) {
-    user.preferences.currency = paymentDetails.currency;
+  if (user.preferences.currency !== subscriptionDetails.currency) {
+    user.preferences.currency = subscriptionDetails.currency;
   }
 
   // Mark trial as used for first paid plan upgrade

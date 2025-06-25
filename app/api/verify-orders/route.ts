@@ -47,76 +47,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Ensure user exists (create if webhook failed)
-    try {
-      // Try to update user plan - if user doesn't exist, create them first
-      try {
-        const updatedUser = await updateUserPlan(userId, planDetails.userType as UserType, {
-          paymentId: razorpayPaymentId,
-          orderId: orderId,
-          amount: planDetails.price,
-          currency: planDetails.currency || "USD",
-          paymentMethod: planDetails.paymentMethod || "card",
-          razorpayPaymentId: razorpayPaymentId,
-          razorpayOrderId: orderId,
-        });
-
-        return NextResponse.json(
-          {
-            message: "Payment verified and plan upgraded successfully",
-            isOk: true,
-            currentPlan: updatedUser.currentPlan
-          },
-          { status: 200 }
-        );
-      } catch (userError: any) {
-        if (userError.message === "User not found") {
-          // User doesn't exist, create them first
-          console.log(`User not found during payment verification for Clerk ID: ${userId}, creating user...`);
-          
-          const clerkUser = await (await clerkClient()).users.getUser(userId);
-          const email = clerkUser.emailAddresses?.[0]?.emailAddress || "";
-          
-          if (!email) {
-            return NextResponse.json(
-              { message: "User email not found", isOk: false },
-              { status: 400 }
-            );
-          }
-          
-          // Create user with free plan first
-          await UserInitializationService.ensureUserExists(userId, email);
-          
-          // Now update to paid plan
-          const updatedUser = await updateUserPlan(userId, planDetails.userType as UserType, {
-            paymentId: razorpayPaymentId,
-            orderId: orderId,
-            amount: planDetails.price,
-            currency: planDetails.currency || "USD",
-            paymentMethod: planDetails.paymentMethod || "card",
-            razorpayPaymentId: razorpayPaymentId,
-            razorpayOrderId: orderId,
-          });
-
-          return NextResponse.json(
-            {
-              message: "Payment verified and plan upgraded successfully",
-              isOk: true,
-              currentPlan: updatedUser.currentPlan
-            },
-            { status: 200 }
-          );
-        } else {
-          throw userError;
-        }
-      }
-    } catch (error) {
-      console.error("Failed to create/update user during payment:", error);
-      return NextResponse.json(
-        { message: "User creation/update failed", isOk: false },
-        { status: 500 }
-      );
-    }
+    // The webhook will handle the plan upgrade.
+    // This endpoint just confirms the payment signature.
+    return NextResponse.json(
+      {
+        message: "Payment verification successful. Your plan will be updated shortly.",
+        isOk: true,
+      },
+      { status: 200 }
+    );
   } catch (error) {
     console.error("Payment verification error:", error);
     return NextResponse.json(

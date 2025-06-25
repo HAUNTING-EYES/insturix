@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import Razorpay from "razorpay";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 export async function POST(request: NextRequest) {

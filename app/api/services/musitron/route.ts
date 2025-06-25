@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { auth } from "@clerk/nextjs/server";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 const SUNO_API_KEY = process.env.SUNO_API_KEY;

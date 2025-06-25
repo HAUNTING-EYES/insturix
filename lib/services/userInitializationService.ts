@@ -1,5 +1,5 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
 import { IServiceLimits } from "@/schemas/user";

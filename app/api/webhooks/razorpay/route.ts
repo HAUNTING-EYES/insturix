@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
 import { DEFAULT_FREE_PLAN_LIMITS } from "@/lib/config/serviceLimits";
+import { updateUserPlan } from "@/lib/services/planService";
 
 interface RazorpayWebhookPayload {
   entity: string;
@@ -12,45 +13,36 @@ interface RazorpayWebhookPayload {
   event: string;
   contains: string[];
   payload: {
+    subscription: {
+      entity: {
+        id: string;
+        plan_id: string;
+        status: "active" | "pending" | "halted" | "cancelled" | "completed" | "expired";
+        current_start: number;
+        current_end: number;
+        latest_invoice: string;
+        notes?: {
+          userId?: string;
+          planName?: string;
+          userType?: string;
+        };
+      };
+    };
     payment: {
       entity: {
         id: string;
-        entity: string;
         amount: number;
         currency: string;
-        status: string;
-        order_id: string;
-        invoice_id?: string;
-        international: boolean;
-        method: string;
-        amount_refunded: number;
-        refund_status?: string;
-        captured: boolean;
-        description?: string;
-        card_id?: string;
-        bank?: string;
-        wallet?: string;
-        vpa?: string;
-        email: string;
-        contact: string;
+        method: "card" | "upi" | "netbanking" | "wallet";
         notes: {
           userId?: string;
           planName?: string;
           userType?: string;
         };
-        fee?: number;
-        tax?: number;
-        error_code?: string;
-        error_description?: string;
-        error_source?: string;
-        error_step?: string;
         error_reason?: string;
-        acquirer_data?: any;
-        created_at: number;
       };
     };
   };
-  created_at: number;
 }
 
 const verifyWebhookSignature = (
@@ -85,96 +77,36 @@ const getServiceLimitsFromPlan = async (planType: string) => {
 };
 
 const getFallbackServiceLimits = (planType: string) => {
-  // Always return the current free plan limits as fallback
-  // This ensures consistency with the setupPlans.js configuration
   console.warn(`Using fallback limits for plan type: ${planType}`);
   return DEFAULT_FREE_PLAN_LIMITS;
 };
 
-const updateUserPlan = async (
+const handleFailedSubscription = async (
   userId: string,
-  planType: string,
-  paymentId: string,
-  amount: number
-) => {
-  await connectToDatabase();
-  
-  const user = await User.findOne({ clerkUserId: userId });
-  if (!user) {
-    console.error(`User not found for payment: ${paymentId}, userId: ${userId}`);
-    return;
-  }
-
-  const now = new Date();
-  const endDate = new Date(now);
-  endDate.setMonth(endDate.getMonth() + 1);
-
-  // Fetch service limits from plans collection
-  const planServiceLimits = await getServiceLimitsFromPlan(planType);
-  
-  // Import and use the conversion utility
-  const { UserInitializationService } = await import("@/lib/services/userInitializationService");
-  const serviceLimits = UserInitializationService.convertPlanLimitsToUserLimits(planServiceLimits);
-
-  // Get plan ID from plans collection
-  const plan = await Plan.findOne({ type: planType.toLowerCase(), isActive: true });
-  const planId = plan?._id?.toString() || "";
-
-  user.currentPlan = {
-    planId: planId,
-    name: planType as UserType,
-    startDate: now,
-    endDate: endDate,
-    price: amount / 100,
-    currency: "INR", // Default, should be from payment
-    status: "active",
-    serviceLimits: serviceLimits,
-  };
-
-  user.payments.push({
-    paymentId: paymentId,
-    orderId: "",
-    timestamp: now,
-    amount: amount / 100,
-    currency: "INR",
-    status: "completed",
-    paymentMethod: "card", // Should be determined from payment data
-    planName: planType,
-    razorpayPaymentId: paymentId,
-  });
-
-  user.markModified('currentPlan');
-  user.markModified('payments');
-  await user.save();
-
-  console.log(`Plan updated successfully for user ${userId}, payment ${paymentId}`);
-};
-
-const handleFailedPayment = async (
-  userId: string,
-  paymentId: string,
-  amount: number,
+  subscriptionId: string,
+  planId: string,
   errorReason: string
 ) => {
   await connectToDatabase();
   
   const user = await User.findOne({ clerkUserId: userId });
   if (!user) {
-    console.error(`User not found for failed payment: ${paymentId}, userId: ${userId}`);
+    console.error(`User not found for failed subscription: ${subscriptionId}, userId: ${userId}`);
     return;
   }
 
-  user.payments.push({
-    timestamp: new Date(),
-    amount: amount / 100,
-    paymentId: paymentId,
-    status: "failed",
+  user.subscriptions.push({
+    provider: "razorpay",
+    subscriptionId,
+    planId,
+    status: "halted", // Or another appropriate status
+    startDate: new Date(),
   });
 
-  user.markModified('payments');
+  user.markModified('subscriptions');
   await user.save();
 
-  console.log(`Failed payment recorded for user ${userId}: ${errorReason}`);
+  console.log(`Failed subscription recorded for user ${userId}: ${errorReason}`);
 };
 
 export async function POST(request: NextRequest) {
@@ -209,37 +141,54 @@ export async function POST(request: NextRequest) {
 
     const payload: RazorpayWebhookPayload = JSON.parse(body);
     const { event, payload: webhookPayload } = payload;
-    const payment = webhookPayload.payment.entity;
-
-    console.log(`Received Razorpay webhook: ${event} for payment ${payment.id}`);
+    console.log(`Received Razorpay webhook: ${event}`);
 
     switch (event) {
       case "payment.captured":
-        if (payment.status === "captured" && payment.notes.userId) {
+      case "subscription.charged":
+      case "subscription.activated":
+      case "subscription.updated": {
+        const subscription = webhookPayload.subscription?.entity;
+        const payment = webhookPayload.payment?.entity;
+
+        if (subscription && payment && subscription.status === "active" && subscription.notes?.userId) {
           await updateUserPlan(
-            payment.notes.userId,
-            payment.notes.userType || UserType.Plus,
-            payment.id,
-            payment.amount
+            subscription.notes.userId,
+            (subscription.notes.userType as UserType) || UserType.Plus,
+            {
+              provider: "razorpay",
+              subscriptionId: subscription.id,
+              planId: subscription.plan_id,
+              amount: payment.amount / 100,
+              currency: payment.currency,
+              paymentMethod: payment.method,
+              latestInvoice: subscription.latest_invoice,
+            }
           );
         }
         break;
+      }
+      case "subscription.halted": {
+        const subscription = webhookPayload.subscription?.entity;
+        const payment = webhookPayload.payment?.entity;
 
-      case "payment.failed":
-        if (payment.notes.userId) {
-          await handleFailedPayment(
-            payment.notes.userId,
-            payment.id,
-            payment.amount,
-            payment.error_reason || "Unknown error"
+        if (subscription && payment && subscription.notes?.userId) {
+          await handleFailedSubscription(
+            subscription.notes.userId,
+            subscription.id,
+            subscription.plan_id,
+            payment.error_reason || "Subscription halted"
           );
         }
         break;
-
-      case "payment.authorized":
-        console.log(`Payment authorized: ${payment.id}`);
+      }
+      case "payment.authorized": {
+        const payment = webhookPayload.payment?.entity;
+        if (payment) {
+          console.log(`Payment event '${event}' received for payment ${payment.id}`);
+        }
         break;
-
+      }
       default:
         console.log(`Unhandled webhook event: ${event}`);
     }

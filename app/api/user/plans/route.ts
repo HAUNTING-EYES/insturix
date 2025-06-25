@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import { getUserPlanWithServiceLimits } from "@/lib/services/planService";
 import { IUserPlan } from "@/types/userTypes";
 

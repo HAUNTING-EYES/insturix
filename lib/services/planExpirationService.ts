@@ -1,4 +1,4 @@
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import { UserType } from "@/types/userTypes";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 

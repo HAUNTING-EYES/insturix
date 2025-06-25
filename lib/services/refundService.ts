@@ -1,15 +1,7 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import { UserType } from "@/types/userTypes";
-import Razorpay from "razorpay";
-
-// Initialize Razorpay instance once
-const getRazorpayInstance = () => {
-  return new Razorpay({
-    key_id: process.env.RAZORPAY_KEY_ID!,
-    key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-  });
-};
+import { createRefund, getRefundStatus as getPaymentRefundStatus } from "./paymentService";
 
 interface RefundOptions {
   paymentId: string;
@@ -48,15 +40,17 @@ export async function initiateRefund(
       return { success: false, error: "Payment already refunded" };
     }
 
-    const razorpay = getRazorpayInstance();
-
-    const refundAmount = options.amount || payment.amount * 100;
-    
-    const refund = await razorpay.payments.refund(options.paymentId, {
-      amount: refundAmount,
-      notes: options.notes || {},
-      receipt: `refund_${Date.now()}_${clerkUserId}`,
+    const refund = await createRefund({
+      paymentId: options.paymentId,
+      amount: options.amount,
+      reason: options.reason,
+      notes: options.notes,
+      currency: payment.currency,
     });
+
+    if (!refund.success) {
+      return { success: false, error: refund.error };
+    }
 
     payment.status = "refunded";
     user.markModified('payments');
@@ -114,9 +108,7 @@ export async function getRefundStatus(
   error?: string;
 }> {
   try {
-    const razorpay = getRazorpayInstance();
-
-    const refunds = await razorpay.payments.fetchMultipleRefund(paymentId);
+    const refunds = await getPaymentRefundStatus(paymentId);
 
     return {
       success: true,
@@ -150,13 +142,17 @@ export async function handlePartialRefund(
       return { success: false, error: "Payment not found" };
     }
 
-    const razorpay = getRazorpayInstance();
-
-    const refund = await razorpay.payments.refund(paymentId, {
-      amount: Math.round(refundAmount * 100),
-      notes: { reason, type: "partial_refund" },
-      receipt: `partial_refund_${Date.now()}_${clerkUserId}`,
+    const refund = await createRefund({
+      paymentId,
+      amount: refundAmount,
+      reason,
+      notes: { type: "partial_refund" },
+      currency: payment.currency,
     });
+
+    if (!refund.success) {
+      return { success: false, error: refund.error };
+    }
 
     user.payments.push({
       timestamp: new Date(),

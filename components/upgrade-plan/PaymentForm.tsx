@@ -10,7 +10,7 @@ import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { toast } from "@/hooks/use-toast";
 import { useCurrency } from "@/lib/CurrencyContext";
-import { getRazorpayOptions, convertCurrencyForRazorpay } from "@/lib/razorpayConfig";
+import { createCheckout } from "@/lib/services/paymentService";
 import { UserType } from "@/types/userTypes";
 import { useQueryClient } from "@tanstack/react-query";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
@@ -24,6 +24,7 @@ interface Plan {
 
 interface PaymentFormProps {
   plan: Plan;
+  billingCycle: 'monthly' | 'yearly';
   totalAmount: number;
   onPaymentSuccess?: () => void;
   onPaymentError?: (error: string) => void;
@@ -35,7 +36,7 @@ declare global {
   }
 }
 
-export function PaymentForm({ plan, totalAmount, onPaymentSuccess, onPaymentError }: PaymentFormProps) {
+export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess, onPaymentError }: PaymentFormProps) {
   const [loading, setLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
   const { user } = useUser();
@@ -67,151 +68,110 @@ export function PaymentForm({ plan, totalAmount, onPaymentSuccess, onPaymentErro
         description: "Please wait while we prepare your payment...",
       });
 
-      // Convert currency if needed for Razorpay
-      const { amount: razorpayAmount, currency: razorpayCurrency } = convertCurrencyForRazorpay(
-        totalAmount,
-        selectedCurrency
-      );
-
-      // Create order
-      const orderResponse = await fetch("/api/create-order", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          amount: razorpayAmount,
-          currency: razorpayCurrency,
-          originalAmount: totalAmount,
-          originalCurrency: selectedCurrency,
-          planDetails: {
-            name: plan.name,
-            userType: plan.userType,
-            price: plan.price,
-            currency: selectedCurrency,
-            features: plan.features.filter(f => f.included).map(f => f.name),
-          },
-        }),
-      });
-
-      if (!orderResponse.ok) {
-        const errorData = await orderResponse.json();
-        throw new Error(errorData.error || "Failed to create order");
-      }
-
-      const orderData = await orderResponse.json();
-
-      // Load Razorpay script if not already loaded
-      if (!window.Razorpay) {
-        const script = document.createElement("script");
-        script.src = "https://checkout.razorpay.com/v1/checkout.js";
-        script.async = true;
-        document.body.appendChild(script);
-        
-        await new Promise((resolve, reject) => {
-          script.onload = resolve;
-          script.onerror = () => reject(new Error("Failed to load Razorpay script"));
-        });
-      }
-
-      // Initialize Razorpay payment with enhanced options
-      const options = getRazorpayOptions(
-        orderData.orderId,
-        orderData.amount,
-        orderData.currency,
+      const checkout = await createCheckout(
+        plan.userType,
         {
-          name: user.fullName || user.username || "",
-          email: user.primaryEmailAddress?.emailAddress || "",
+          id: user.id,
+          fullName: user.fullName,
+          email: user.primaryEmailAddress?.emailAddress,
         },
-        plan.name
+        selectedCurrency,
+        billingCycle
       );
 
-      // Add payment success handler
-      options.handler = async function (response: any) {
-        setPaymentStatus('processing');
-        try {
-          toast({
-            title: "Verifying Payment",
-            description: "Please wait while we confirm your payment...",
+      if (checkout.provider === 'razorpay') {
+        if (!window.Razorpay) {
+          const script = document.createElement("script");
+          script.src = "https://checkout.razorpay.com/v1/checkout.js";
+          script.async = true;
+          document.body.appendChild(script);
+          
+          await new Promise((resolve, reject) => {
+            script.onload = resolve;
+            script.onerror = () => reject(new Error("Failed to load Razorpay script"));
           });
-
-          // Verify payment
-          const verifyResponse = await fetch("/api/verify-orders", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              orderId: orderData.orderId,
-              razorpayPaymentId: response.razorpay_payment_id,
-              razorpaySignature: response.razorpay_signature,
-              planDetails: {
-                userType: plan.userType,
-                price: plan.price,
-                features: plan.features.filter(f => f.included).map(f => f.name),
-              },
-            }),
-          });
-
-          const verifyData = await verifyResponse.json();
-
-          if (verifyData.isOk) {
-            setPaymentStatus('success');
-            
-            // Invalidate React Query caches to refresh user data in sidebar
-            queryClient.invalidateQueries({ queryKey: ["userData"] });
-            queryClient.invalidateQueries({ queryKey: ["plans"] });
-            
-            toast({
-              title: "Payment Successful!",
-              description: "Your plan has been upgraded successfully.",
-              variant: "default",
-            });
-            onPaymentSuccess?.();
-          } else {
-            setPaymentStatus('failed');
-            toast({
-              title: "Payment Verification Failed",
-              description: verifyData.message || "Please contact support if payment was deducted.",
-              variant: "destructive",
-            });
-            onPaymentError?.(verifyData.message || "Payment verification failed");
-          }
-        } catch (error) {
-          setPaymentStatus('failed');
-          toast({
-            title: "Verification Error",
-            description: "Payment verification failed. Please contact support if payment was deducted.",
-            variant: "destructive",
-          });
-          onPaymentError?.("Payment verification failed");
         }
-      };
 
-      // Override the modal dismiss handler to provide feedback
-      options.modal.ondismiss = function() {
-        setPaymentStatus('idle');
-        setLoading(false);
-        toast({
-          title: "Payment Cancelled",
-          description: "You cancelled the payment. You can try again anytime.",
-        });
-      };
+        const options = {
+          key: checkout.key,
+          subscription_id: checkout.subscriptionId,
+          name: "Insturix",
+          description: `${plan.name} Subscription`,
+          handler: async function (response: any) {
+            setPaymentStatus('processing');
+            try {
+              toast({
+                title: "Verifying Subscription",
+                description: "Please wait while we confirm your subscription...",
+              });
 
-      const razorpay = new window.Razorpay(options);
-      
-      razorpay.on('payment.failed', function (response: any) {
-        setPaymentStatus('failed');
-        setLoading(false);
-        toast({
-          title: "Payment Failed",
-          description: response.error.description || "Payment could not be processed. Please try again.",
-          variant: "destructive",
-        });
-        onPaymentError?.(response.error.description || "Payment failed");
-      });
+              const verifyResponse = await fetch("/api/verify-subscription", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_subscription_id: response.razorpay_subscription_id,
+                  razorpay_signature: response.razorpay_signature,
+                  planType: plan.userType,
+                  provider: 'razorpay',
+                }),
+              });
 
-      razorpay.open();
+              const verifyData = await verifyResponse.json();
+
+              if (verifyData.isOk) {
+                setPaymentStatus('success');
+                queryClient.invalidateQueries({ queryKey: ["userData"] });
+                queryClient.invalidateQueries({ queryKey: ["plans"] });
+                toast({
+                  title: "Subscription Successful!",
+                  description: "Your plan has been upgraded.",
+                  variant: "default",
+                });
+                onPaymentSuccess?.();
+              } else {
+                setPaymentStatus('failed');
+                toast({
+                  title: "Subscription Verification Failed",
+                  description: verifyData.message || "Please contact support.",
+                  variant: "destructive",
+                });
+                onPaymentError?.(verifyData.message || "Subscription verification failed");
+              }
+            } catch (error) {
+              setPaymentStatus('failed');
+              toast({
+                title: "Verification Error",
+                description: "Subscription verification failed. Please contact support.",
+                variant: "destructive",
+              });
+              onPaymentError?.("Subscription verification failed");
+            }
+          },
+          prefill: {
+            name: user.fullName || user.username || "",
+            email: user.primaryEmailAddress?.emailAddress || "",
+          },
+          theme: {
+            color: "#3399cc",
+          },
+          modal: {
+            ondismiss: function() {
+              setPaymentStatus('idle');
+              setLoading(false);
+              toast({
+                title: "Payment Cancelled",
+                description: "You cancelled the payment. You can try again anytime.",
+              });
+            },
+          },
+        };
+
+        const razorpay = new window.Razorpay(options);
+        razorpay.open();
+      } else if (checkout.provider === 'lemonsqueezy') {
+        window.location.href = checkout.checkoutUrl;
+      }
     } catch (error: any) {
       setPaymentStatus('failed');
       setLoading(false);

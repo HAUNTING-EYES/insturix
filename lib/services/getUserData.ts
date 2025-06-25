@@ -1,5 +1,5 @@
 import { auth, clerkClient } from "@clerk/nextjs/server";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import mongoose from "mongoose";

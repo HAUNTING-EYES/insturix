@@ -2,10 +2,10 @@ import mongoose from 'mongoose';
 import dotenv from 'dotenv';
 import connectToDatabaseModule from '../schemas/ConnectToDatabase.ts';
 import PlanModule from '../schemas/plans.ts';
+import { createPlan } from '../lib/services/paymentService.ts';
 
 dotenv.config();
 
-// Import schemas
 const connectToDatabase = connectToDatabaseModule.default || connectToDatabaseModule;
 const Plan = PlanModule.default || PlanModule;
 
@@ -156,14 +156,14 @@ const PLANS_DATA = [
       ]
     },
     pricing: {
-      USD: { monthly: { amount: 9.99, currency: "USD", symbol: "$" }, yearly: { amount: 101.88, currency: "USD", symbol: "$" } },
-      INR: { monthly: { amount: 799, currency: "INR", symbol: "₹" }, yearly: { amount: 8150, currency: "INR", symbol: "₹" } },
-      EUR: { monthly: { amount: 8.99, currency: "EUR", symbol: "€" }, yearly: { amount: 91.68, currency: "EUR", symbol: "€" } },
-      GBP: { monthly: { amount: 7.99, currency: "GBP", symbol: "£" }, yearly: { amount: 81.48, currency: "GBP", symbol: "£" } },
-      CAD: { monthly: { amount: 12.99, currency: "CAD", symbol: "C$" }, yearly: { amount: 132.48, currency: "CAD", symbol: "C$" } },
-      AUD: { monthly: { amount: 14.99, currency: "AUD", symbol: "A$" }, yearly: { amount: 152.88, currency: "AUD", symbol: "A$" } },
-      SGD: { monthly: { amount: 13.99, currency: "SGD", symbol: "S$" }, yearly: { amount: 142.68, currency: "SGD", symbol: "S$" } },
-      AED: { monthly: { amount: 36.99, currency: "AED", symbol: "د.إ" }, yearly: { amount: 377.28, currency: "AED", symbol: "د.إ" } }
+      USD: { monthly: { amount: 9.99, currency: "USD", symbol: "$" }, yearly: { amount: 99.99, currency: "USD", symbol: "$" } },
+      INR: { monthly: { amount: 799, currency: "INR", symbol: "₹" }, yearly: { amount: 7999, currency: "INR", symbol: "₹" } },
+      EUR: { monthly: { amount: 8.99, currency: "EUR", symbol: "€" }, yearly: { amount: 89.99, currency: "EUR", symbol: "€" } },
+      GBP: { monthly: { amount: 7.99, currency: "GBP", symbol: "£" }, yearly: { amount: 79.99, currency: "GBP", symbol: "£" } },
+      CAD: { monthly: { amount: 12.99, currency: "CAD", symbol: "C$" }, yearly: { amount: 129.99, currency: "CAD", symbol: "C$" } },
+      AUD: { monthly: { amount: 14.99, currency: "AUD", symbol: "A$" }, yearly: { amount: 149.99, currency: "AUD", symbol: "A$" } },
+      SGD: { monthly: { amount: 13.99, currency: "SGD", symbol: "S$" }, yearly: { amount: 139.99, currency: "SGD", symbol: "S$" } },
+      AED: { monthly: { amount: 36.99, currency: "AED", symbol: "د.إ" }, yearly: { amount: 369.99, currency: "AED", symbol: "د.إ" } }
     },
     isActive: true,
     sortOrder: 2
@@ -235,14 +235,14 @@ const PLANS_DATA = [
       ]
     },
     pricing: {
-      USD: { monthly: { amount: 19.99, currency: "USD", symbol: "$" }, yearly: { amount: 203.88, currency: "USD", symbol: "$" } },
-      INR: { monthly: { amount: 1599, currency: "INR", symbol: "₹" }, yearly: { amount: 16310, currency: "INR", symbol: "₹" } },
-      EUR: { monthly: { amount: 17.99, currency: "EUR", symbol: "€" }, yearly: { amount: 183.48, currency: "EUR", symbol: "€" } },
-      GBP: { monthly: { amount: 15.99, currency: "GBP", symbol: "£" }, yearly: { amount: 163.08, currency: "GBP", symbol: "£" } },
-      CAD: { monthly: { amount: 25.99, currency: "CAD", symbol: "C$" }, yearly: { amount: 265.08, currency: "CAD", symbol: "C$" } },
-      AUD: { monthly: { amount: 29.99, currency: "AUD", symbol: "A$" }, yearly: { amount: 305.88, currency: "AUD", symbol: "A$" } },
-      SGD: { monthly: { amount: 26.99, currency: "SGD", symbol: "S$" }, yearly: { amount: 275.28, currency: "SGD", symbol: "S$" } },
-      AED: { monthly: { amount: 73.99, currency: "AED", symbol: "د.إ" }, yearly: { amount: 754.68, currency: "AED", symbol: "د.إ" } }
+      USD: { monthly: { amount: 19.99, currency: "USD", symbol: "$" }, yearly: { amount: 199.99, currency: "USD", symbol: "$" } },
+      INR: { monthly: { amount: 1599, currency: "INR", symbol: "₹" }, yearly: { amount: 15999, currency: "INR", symbol: "₹" } },
+      EUR: { monthly: { amount: 17.99, currency: "EUR", symbol: "€" }, yearly: { amount: 179.99, currency: "EUR", symbol: "€" } },
+      GBP: { monthly: { amount: 15.99, currency: "GBP", symbol: "£" }, yearly: { amount: 159.99, currency: "GBP", symbol: "£" } },
+      CAD: { monthly: { amount: 25.99, currency: "CAD", symbol: "C$" }, yearly: { amount: 259.99, currency: "CAD", symbol: "C$" } },
+      AUD: { monthly: { amount: 29.99, currency: "AUD", symbol: "A$" }, yearly: { amount: 299.99, currency: "AUD", symbol: "A$" } },
+      SGD: { monthly: { amount: 26.99, currency: "SGD", symbol: "S$" }, yearly: { amount: 269.99, currency: "SGD", symbol: "S$" } },
+      AED: { monthly: { amount: 73.99, currency: "AED", symbol: "د.إ" }, yearly: { amount: 739.99, currency: "AED", symbol: "د.إ" } }
     },
     isActive: true,
     sortOrder: 3
@@ -250,7 +250,7 @@ const PLANS_DATA = [
   {
     name: "Premium Plan",
     type: "premium",
-    description: "Unlimited access for power users",
+    description: "All-access for power users and teams",
     serviceLimits: {
       alyzitron: [
         {
@@ -268,7 +268,7 @@ const PLANS_DATA = [
         {
           limitType: "maxConcurrentTasks",
           description: "Maximum concurrent analyses",
-          maxUsage: 10, // Even unlimited plans have some concurrent limit
+          maxUsage: 10,
           resetPeriod: "none"
         }
       ],
@@ -309,19 +309,19 @@ const PLANS_DATA = [
           limitType: "maxMusicGeneration",
           description: "Generate music tracks",
           maxUsage: -1, // Unlimited
-          resetPeriod: "none"
+          resetPeriod: "monthly"
         }
       ]
     },
     pricing: {
-      USD: { monthly: { amount: 29.99, currency: "USD", symbol: "$" }, yearly: { amount: 305.88, currency: "USD", symbol: "$" } },
-      INR: { monthly: { amount: 2399, currency: "INR", symbol: "₹" }, yearly: { amount: 24470, currency: "INR", symbol: "₹" } },
-      EUR: { monthly: { amount: 26.99, currency: "EUR", symbol: "€" }, yearly: { amount: 275.28, currency: "EUR", symbol: "€" } },
-      GBP: { monthly: { amount: 23.99, currency: "GBP", symbol: "£" }, yearly: { amount: 244.68, currency: "GBP", symbol: "£" } },
-      CAD: { monthly: { amount: 38.99, currency: "CAD", symbol: "C$" }, yearly: { amount: 397.68, currency: "CAD", symbol: "C$" } },
-      AUD: { monthly: { amount: 44.99, currency: "AUD", symbol: "A$" }, yearly: { amount: 458.88, currency: "AUD", symbol: "A$" } },
-      SGD: { monthly: { amount: 40.99, currency: "SGD", symbol: "S$" }, yearly: { amount: 418.08, currency: "SGD", symbol: "S$" } },
-      AED: { monthly: { amount: 110.99, currency: "AED", symbol: "د.إ" }, yearly: { amount: 1132.08, currency: "AED", symbol: "د.إ" } }
+      USD: { monthly: { amount: 29.99, currency: "USD", symbol: "$" }, yearly: { amount: 299.99, currency: "USD", symbol: "$" } },
+      INR: { monthly: { amount: 2499, currency: "INR", symbol: "₹" }, yearly: { amount: 24999, currency: "INR", symbol: "₹" } },
+      EUR: { monthly: { amount: 27.99, currency: "EUR", symbol: "€" }, yearly: { amount: 279.99, currency: "EUR", symbol: "€" } },
+      GBP: { monthly: { amount: 24.99, currency: "GBP", symbol: "£" }, yearly: { amount: 249.99, currency: "GBP", symbol: "£" } },
+      CAD: { monthly: { amount: 39.99, currency: "CAD", symbol: "C$" }, yearly: { amount: 399.99, currency: "CAD", symbol: "C$" } },
+      AUD: { monthly: { amount: 44.99, currency: "AUD", symbol: "A$" }, yearly: { amount: 449.99, currency: "AUD", symbol: "A$" } },
+      SGD: { monthly: { amount: 40.99, currency: "SGD", symbol: "S$" }, yearly: { amount: 409.99, currency: "SGD", symbol: "S$" } },
+      AED: { monthly: { amount: 109.99, currency: "AED", symbol: "د.إ" }, yearly: { amount: 1099.99, currency: "AED", symbol: "د.إ" } }
     },
     isActive: true,
     sortOrder: 4
@@ -330,57 +330,67 @@ const PLANS_DATA = [
 
 async function setupPlans() {
   try {
-    console.log('🔗 Connecting to MongoDB...');
     await connectToDatabase();
-    console.log('✅ Connected to MongoDB');
+    console.log("Database connected. Starting to set up plans...");
 
-    console.log('🗑️  Clearing existing plans...');
-    await Plan.deleteMany({});
-    console.log('✅ Cleared existing plans');
+    for (const planData of PLANS_DATA) {
+      console.log(`Processing plan: ${planData.name}`);
 
-    console.log('📝 Creating new plans...');
-    const createdPlans = await Plan.insertMany(PLANS_DATA);
-    console.log(`✅ Created ${createdPlans.length} plans`);
+      const plan = (await Plan.findOne({ type: planData.type })) || new Plan(planData);
 
-    console.log('\n📊 Plans Summary:');
-    for (const plan of createdPlans) {
-      // Convert Mongoose document to plain object to avoid internal properties
-      const planObj = plan.toObject();
-      const serviceLimits = planObj.serviceLimits || {};
-      
-      // Calculate total limits properly
-      const serviceNames = Object.keys(serviceLimits);
-      const totalLimits = serviceNames.reduce((sum, serviceName) => {
-        const limits = serviceLimits[serviceName];
-        return sum + (Array.isArray(limits) ? limits.length : 0);
-      }, 0);
-      
-      console.log(`  - ${plan.name} (${plan.type}): ${totalLimits} service limits`);
-      console.log(`    ID: ${plan._id}`);
-      console.log(`    Services: ${serviceNames.join(', ')}`);
-      
-      // Show limit breakdown for each service
-      serviceNames.forEach(serviceName => {
-        const limits = serviceLimits[serviceName];
-        if (Array.isArray(limits)) {
-          console.log(`      ${serviceName}: ${limits.map(l => l.limitType).join(', ')}`);
+      if (plan.type !== 'free') {
+        for (const currency of Object.keys(plan.pricing)) {
+          console.log(`  Processing currency: ${currency}`);
+          
+          const monthlyPrice = plan.pricing[currency].monthly;
+          if (monthlyPrice.amount > 0) {
+            console.log(`    Creating monthly plan...`);
+            const monthlyPlan = await createPlan({
+              name: `${plan.name} Monthly`,
+              amount: monthlyPrice.amount,
+              currency: currency,
+              period: 'monthly',
+              type: plan.type,
+            });
+
+            if (monthlyPlan) {
+              if (!monthlyPrice.planId) monthlyPrice.planId = {};
+              monthlyPrice.planId[monthlyPlan.provider] = monthlyPlan.id;
+              console.log(`      -> ${monthlyPlan.provider} plan created with ID: ${monthlyPlan.id}`);
+            }
+          }
+
+          const yearlyPrice = plan.pricing[currency].yearly;
+          if (yearlyPrice.amount > 0) {
+            console.log(`    Creating yearly plan...`);
+            const yearlyPlan = await createPlan({
+              name: `${plan.name} Yearly`,
+              amount: yearlyPrice.amount,
+              currency: currency,
+              period: 'yearly',
+              type: plan.type,
+            });
+
+            if (yearlyPlan) {
+              if (!yearlyPrice.planId) yearlyPrice.planId = {};
+              yearlyPrice.planId[yearlyPlan.provider] = yearlyPlan.id;
+              console.log(`      -> ${yearlyPlan.provider} plan created with ID: ${yearlyPlan.id}`);
+            }
+          }
         }
-      });
+      }
+
+      await plan.save();
+      console.log(`Successfully upserted plan: ${plan.name}`);
     }
 
-    console.log('\n🎉 Plans setup completed successfully!');
-    console.log('\nNext steps:');
-    console.log('1. Existing users with old structure will get errors (this is expected)');
-    console.log('2. New users will be created with proper service limits');
-    console.log('3. You can manually delete old users or they will be recreated correctly');
-
+    console.log("All plans have been set up successfully.");
   } catch (error) {
-    console.error('❌ Error setting up plans:', error);
+    console.error("Error setting up plans:", error);
   } finally {
-    mongoose.connection.close();
-    console.log('🔌 Database connection closed');
+    await mongoose.disconnect();
+    console.log("Database connection closed.");
   }
 }
 
-// Run the setup
 setupPlans();

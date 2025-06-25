@@ -26,21 +26,19 @@ export interface IPlan {
   price: number;
   currency: string;
   status: "active" | "expired" | "canceled";
-  razorpaySubscriptionId?: string;
+  subscriptionId?: { [key: string]: string };
   serviceLimits: IServiceLimits;
 }
 
-interface IPayment {
-  paymentId: string;
-  orderId: string;
-  timestamp: Date;
-  amount: number;
-  currency: string;
-  status: "pending" | "completed" | "failed" | "refunded";
-  paymentMethod: "card" | "upi" | "netbanking" | "wallet";
-  planName: string;
-  razorpayPaymentId?: string;
-  razorpayOrderId?: string;
+export interface ISubscription {
+  provider: 'razorpay' | 'lemonsqueezy';
+  subscriptionId: string;
+  planId: string;
+  status: "active" | "pending" | "halted" | "cancelled" | "completed" | "expired";
+  startDate: Date;
+  endDate?: Date;
+  latestInvoice?: string;
+  paymentMethod?: "card" | "upi" | "netbanking" | "wallet";
 }
 
 interface IUser extends Document {
@@ -49,7 +47,7 @@ interface IUser extends Document {
   signUpDate: Date;
   currentPlan: IUserPlan;
   planHistory: IUserPlan[];
-  payments: IPayment[];
+  subscriptions: ISubscription[];
   trialUsed: boolean; // Track if user has used their one-time trial
   preferences: {
     currency: string;
@@ -150,129 +148,31 @@ const planSchema = new Schema<IPlan>({
     enum: ["active", "expired", "canceled"],
     required: true,
   },
+  subscriptionId: {
+    type: Map,
+    of: String,
+  },
   serviceLimits: {
     type: serviceLimitsSchema,
     required: true,
-    default: function() {
-      const now = new Date();
-      return {
-        alyzitron: [
-          {
-            limitType: "maxTotalAnalysis",
-            maxUsage: 10,
-            currentUsage: 0,
-            resetPeriod: "weekly",
-            lastReset: now,
-          },
-          {
-            limitType: "maxOver20MinuteAnalysis",
-            maxUsage: 3,
-            currentUsage: 0,
-            resetPeriod: "weekly",
-            lastReset: now,
-          },
-          {
-            limitType: "maxConcurrentTasks",
-            maxUsage: 2,
-            currentUsage: 0,
-            resetPeriod: "none",
-            lastReset: now,
-          },
-        ],
-        editron: [
-          {
-            limitType: "maxVideoEdits",
-            maxUsage: 1,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-        shield: [
-          {
-            limitType: "maxScans",
-            maxUsage: 3,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-        socialize: [
-          {
-            limitType: "maxSocialLinks",
-            maxUsage: 5,
-            currentUsage: 0,
-            resetPeriod: "none",
-            lastReset: now,
-          },
-        ],
-        thinkforge: [
-          {
-            limitType: "maxAIChats",
-            maxUsage: 10,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-        musitron: [
-          {
-            limitType: "maxMusicGeneration",
-            maxUsage: 3,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-      };
-    },
   },
 }, { _id: false });
 
-const paymentSchema = new Schema<IPayment>({
-  paymentId: {
-    type: String,
-    required: true,
-  },
-  orderId: {
-    type: String,
-    required: true,
-  },
-  timestamp: {
-    type: Date,
-    required: true,
-  },
-  amount: {
-    type: Number,
-    required: true,
-    min: 0,
-  },
-  currency: {
-    type: String,
-    enum: ["USD", "INR", "EUR", "GBP", "CAD", "AUD", "SGD", "AED"],
-    required: true,
-  },
+const subscriptionSchema = new Schema<ISubscription>({
+  provider: { type: String, required: true, enum: ['razorpay', 'lemonsqueezy'] },
+  subscriptionId: { type: String, required: true },
+  planId: { type: String, required: true },
   status: {
     type: String,
-    enum: ["pending", "completed", "failed", "refunded"],
+    enum: ["active", "pending", "halted", "cancelled", "completed", "expired"],
     required: true,
   },
+  startDate: { type: Date, required: true },
+  endDate: { type: Date },
+  latestInvoice: { type: String },
   paymentMethod: {
     type: String,
     enum: ["card", "upi", "netbanking", "wallet"],
-    required: true,
-  },
-  planName: {
-    type: String,
-    required: true,
-  },
-  razorpayPaymentId: {
-    type: String,
-    required: false,
-  },
-  razorpayOrderId: {
-    type: String,
-    required: false,
   },
 }, { _id: false });
 
@@ -301,8 +201,8 @@ const userSchema = new Schema<IUser>({
     type: [planSchema],
     default: [],
   },
-  payments: {
-    type: [paymentSchema],
+  subscriptions: {
+    type: [subscriptionSchema],
     default: [],
   },
   trialUsed: {
@@ -327,25 +227,7 @@ const userSchema = new Schema<IUser>({
 
 // Indexes for performance (clerkUserId and email already indexed via unique: true)
 userSchema.index({ "currentPlan.status": 1 });
-userSchema.index({ "payments.paymentId": 1 });
-
-// Automatically add to plan history when plan changes
-userSchema.pre("save", function (next) {
-  if (this.isNew || this.isModified("currentPlan")) {
-    // Ensure currentPlan is valid before adding to history
-    if (this.currentPlan && this.currentPlan.planId && this.currentPlan.currency && this.currentPlan.name) {
-      const planExists = this.planHistory.some((plan) =>
-        plan.planId === this.currentPlan.planId &&
-        plan.startDate.getTime() === this.currentPlan.startDate.getTime()
-      );
-      
-      if (!planExists) {
-        this.planHistory.push(this.currentPlan);
-      }
-    }
-  }
-  next();
-});
+userSchema.index({ "subscriptions.subscriptionId": 1 });
 
 // Instance method to get current plan service limits from plans collection
 userSchema.methods.getCurrentPlanServiceLimits = async function() {
@@ -358,7 +240,6 @@ userSchema.methods.getCurrentPlanServiceLimits = async function() {
       console.warn(`Using fallback plan ID: ${this.currentPlan.planId}, returning current plan serviceLimits`);
       return this.currentPlan.serviceLimits || {};
     }
-    
     const currentPlan = await Plan.findById(this.currentPlan.planId);
     return currentPlan?.serviceLimits || this.currentPlan.serviceLimits || {};
   } catch (error) {
@@ -439,5 +320,4 @@ userSchema.methods.resetServiceLimitUsage = async function(serviceName?: string,
   await this.save();
 };
 
-const User = mongoose.models.User || mongoose.model<IUser>("User", userSchema);
-export default User;
+export const User = mongoose.models.User || mongoose.model<IUser>("User", userSchema);

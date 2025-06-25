@@ -102,6 +102,7 @@ export function UpgradePageContent({
 
       const basePrice = billingCycle === "monthly" ? monthlyPrice : yearlyPrice;
       
+      const planId = billingCycle === "monthly" 
       // The features should ideally come from the DB plan
       const features : PlanFeature[] = [
         { id: "feature-1", name: "Core functionality", included: true },
@@ -372,6 +373,7 @@ export function UpgradePageContent({
               {currentStep === 3 && selectedPlan && (
                 <PaymentForm
                   plan={selectedPlan}
+                  billingCycle={billingCycle}
                   totalAmount={calculateTotal(selectedPlan.price)}
                   onPaymentSuccess={handlePaymentSuccess}
                   onPaymentError={handlePaymentError}

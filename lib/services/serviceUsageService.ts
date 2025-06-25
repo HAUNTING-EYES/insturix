@@ -1,5 +1,5 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 import { IServiceLimits, IServiceLimit } from "@/schemas/user";
 
 export interface ServiceUsageInfo {
