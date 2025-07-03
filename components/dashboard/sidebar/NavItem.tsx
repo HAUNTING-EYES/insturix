@@ -145,7 +145,7 @@ export function NavItem({ href, icon, label, isExpanded, description, isPro }: N
         className="bg-zinc-800 border-white/10 text-white shadow-lg"
         style={{ display: isExpanded ? 'none' : 'block' }}
       >
-        <motion.div
+        {/* <motion.div
           className="flex flex-col"
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -161,7 +161,7 @@ export function NavItem({ href, icon, label, isExpanded, description, isPro }: N
           </div>
           {description && <span className="text-xs text-zinc-400 mt-1">{description}</span>}
           {isPro && !hasPro && <span className="text-xs text-amber-300 mt-1">Click to upgrade</span>}
-        </motion.div>
+        </motion.div> */}
       </TooltipContent>
     </Tooltip>
   )

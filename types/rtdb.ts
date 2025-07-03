@@ -26,4 +26,4 @@ export interface TaskNotification {
   isRead: boolean;
 }
 
-export type ServiceName = 'alyzitron' | 'editron' | 'musitron' | 'shield' | 'thinkforge' | 'socialize';
+export type ServiceName = 'alyzitron' | 'editron' | 'musitron' | 'shield' | 'thinkforge' | 'socialize' | 'clickatron';

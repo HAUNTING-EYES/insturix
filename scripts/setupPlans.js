@@ -27,12 +27,14 @@ const PLANS_DATA = [
           description: "Analyses for videos over 20 minutes",
           maxUsage: 3,
           resetPeriod: "weekly"
-        },
+        }
+      ],
+      clickatron: [
         {
-          limitType: "maxConcurrentTasks",
-          description: "Maximum concurrent analyses",
-          maxUsage: 2,
-          resetPeriod: "none"
+          limitType: "maxThumbnailGeneration",
+          description: "Thumbnail generations per week",
+          maxUsage: 5,
+          resetPeriod: "weekly"
         }
       ],
       editron: [
@@ -106,12 +108,14 @@ const PLANS_DATA = [
           description: "Analyses for videos over 20 minutes",
           maxUsage: 15,
           resetPeriod: "weekly"
-        },
+        }
+      ],
+      clickatron: [
         {
-          limitType: "maxConcurrentTasks",
-          description: "Maximum concurrent analyses",
-          maxUsage: 3,
-          resetPeriod: "none"
+          limitType: "maxThumbnailGeneration",
+          description: "Thumbnail generations per week",
+          maxUsage: 25,
+          resetPeriod: "weekly"
         }
       ],
       editron: [
@@ -185,12 +189,14 @@ const PLANS_DATA = [
           description: "Analyses for videos over 20 minutes",
           maxUsage: 40,
           resetPeriod: "weekly"
-        },
+        }
+      ],
+      clickatron: [
         {
-          limitType: "maxConcurrentTasks",
-          description: "Maximum concurrent analyses",
-          maxUsage: 5,
-          resetPeriod: "none"
+          limitType: "maxThumbnailGeneration",
+          description: "Thumbnail generations per week",
+          maxUsage: 100,
+          resetPeriod: "weekly"
         }
       ],
       editron: [
@@ -264,12 +270,14 @@ const PLANS_DATA = [
           description: "Analyses for videos over 20 minutes",
           maxUsage: -1, // Unlimited
           resetPeriod: "weekly"
-        },
+        }
+      ],
+      clickatron: [
         {
-          limitType: "maxConcurrentTasks",
-          description: "Maximum concurrent analyses",
-          maxUsage: 10,
-          resetPeriod: "none"
+          limitType: "maxThumbnailGeneration",
+          description: "Thumbnail generations per week",
+          maxUsage: -1, // Unlimited
+          resetPeriod: "weekly"
         }
       ],
       editron: [

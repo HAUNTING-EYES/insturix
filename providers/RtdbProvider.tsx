@@ -27,6 +27,7 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
     shield: [],
     thinkforge: [],
     socialize: [],
+    clickatron: [],
   });
   const previousTasksRef = useRef<Record<string, TaskUpdate>>({});
   const isInitialLoadRef = useRef(true);
@@ -41,6 +42,7 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
         shield: [],
         thinkforge: [],
         socialize: [],
+        clickatron: [],
       });
       previousTasksRef.current = {};
       isInitialLoadRef.current = true;
@@ -59,6 +61,7 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
         shield: [],
         thinkforge: [],
         socialize: [],
+        clickatron: [],
       };
       const currentTasks: Record<string, TaskUpdate> = {};
 
@@ -74,18 +77,16 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
               updatedTasks[serviceName].push(taskUpdate);
               currentTasks[taskUpdate.taskId] = taskUpdate;
 
-              if (!isInitialLoadRef.current) {
-                const previousTask = previousTasksRef.current[taskUpdate.taskId];
-                const hasStatusChanged = !previousTask || previousTask.status !== taskUpdate.status;
-                if (hasStatusChanged) {
-                  newNotifications.push({
-                    id: `${serviceName}-${taskUpdate.taskId}`,
-                    taskUpdate,
-                    serviceName,
-                    timestamp: new Date().toISOString(),
-                    isRead: false,
-                  });
-                }
+              const previousTask = previousTasksRef.current[taskUpdate.taskId];
+              const hasStatusChanged = !previousTask || previousTask.status !== taskUpdate.status;
+              if (!isInitialLoadRef.current || hasStatusChanged) {
+                newNotifications.push({
+                  id: `${serviceName}-${taskUpdate.taskId}`,
+                  taskUpdate,
+                  serviceName,
+                  timestamp: new Date().toISOString(),
+                  isRead: false,
+                });
               }
             });
           }
