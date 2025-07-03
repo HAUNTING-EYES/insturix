@@ -14,6 +14,7 @@ import { useGenerateThumbnail } from "@/lib/frontend/services/clickatron";
 import { IClickatronTask } from "@/schemas/Clickatron";
 import { Sparkles, Wand2, PenTool } from "lucide-react";
 import { useGetStats } from "./hooks/useGetStats";
+import { FormLock } from "./FormLock";
 
 // Schema for guided mode
 const guidedFormSchema = z.object({
@@ -111,68 +112,150 @@ export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProp
   ];
 
   return (
-    <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-      <CardHeader className="pb-4">
-        <CardTitle className="text-base sm:text-lg font-medium text-zinc-100 flex items-center gap-2">
-          <Sparkles className="h-4 w-4 sm:h-5 sm:w-5" color="#8B5CF6" />
-          Generate a New Thumbnail
-        </CardTitle>
-        {usage && (
-          <div className="text-xs text-zinc-400">
-            {usage.hasAccess ? (
-              <>
-                You have {usage.remaining} thumbnail generations remaining this week.
-              </>
-            ) : (
-              <>
-                You have reached your thumbnail generation limit for this week.
-              </>
-            )}
-          </div>
-        )}
-      </CardHeader>
-      <CardContent>
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 bg-black/20 h-10 sm:h-11">
-            <TabsTrigger
-              value="guided"
-              className="data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 text-xs sm:text-sm"
-            >
-              <Wand2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Smart Creator</span>
-              <span className="sm:hidden">Smart</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="freestyle"
-              className="data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 text-xs sm:text-sm"
-            >
-              <PenTool className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-              <span className="hidden sm:inline">Freestyle</span>
-              <span className="sm:hidden">Free</span>
-            </TabsTrigger>
-          </TabsList>
+    <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl relative overflow-hidden">
+      <CardContent className="pt-6">
+        {usage && !usage.hasAccess && <FormLock timeUntilReset={usage.timeUntilReset} />}
+        <div className={usage && !usage.hasAccess ? "blur-sm" : ""}>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 bg-black/20 h-10 sm:h-11">
+              <TabsTrigger
+                value="guided"
+                className="data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 text-xs sm:text-sm"
+              >
+                <Wand2 className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Smart Creator</span>
+                <span className="sm:hidden">Smart</span>
+              </TabsTrigger>
+              <TabsTrigger
+                value="freestyle"
+                className="data-[state=active]:bg-zinc-100 data-[state=active]:text-zinc-900 text-xs sm:text-sm"
+              >
+                <PenTool className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+                <span className="hidden sm:inline">Freestyle</span>
+                <span className="sm:hidden">Free</span>
+              </TabsTrigger>
+            </TabsList>
 
-          <TabsContent value="guided" className="mt-4 sm:mt-6">
-            <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-              <p className="text-xs text-purple-200">
-                Smart Creator mode guides you through creating the perfect thumbnail with structured options.
-                You can type freely in natural language (e.g., "None", "Auto", "Whatever works") or select from suggestions.
-                Only main text and style are required - other fields are optional to help refine your vision.
-              </p>
-            </div>
-            
-            <Form {...guidedForm}>
-              <form onSubmit={guidedForm.handleSubmit(onGuidedSubmit)} className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <TabsContent value="guided" className="mt-4 sm:mt-6">
+              <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                <p className="text-xs text-purple-200">
+                  Smart Creator mode guides you through creating the perfect thumbnail with structured options.
+                  You can type freely in natural language (e.g., "None", "Auto", "Whatever works") or select from suggestions.
+                  Only main text and style are required - other fields are optional to help refine your vision.
+                </p>
+              </div>
+              
+              <Form {...guidedForm}>
+                <form onSubmit={guidedForm.handleSubmit(onGuidedSubmit)} className="space-y-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={guidedForm.control}
+                      name="text"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-zinc-300">Main Text *</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="e.g., NIFTY 50, How to Cook"
+                              className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
+                              {...field}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={guidedForm.control}
+                      name="subject"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-zinc-300">Subject</FormLabel>
+                          <FormControl>
+                            <div>
+                              <Input
+                                placeholder="Type or select subject"
+                                className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
+                                list="subjects"
+                                {...field}
+                              />
+                              <datalist id="subjects">
+                                {subjects.map((subject) => (
+                                  <option key={subject} value={subject} />
+                                ))}
+                              </datalist>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={guidedForm.control}
+                      name="style"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-zinc-300">Style *</FormLabel>
+                          <FormControl>
+                            <div>
+                              <Input
+                                placeholder="Type or select style"
+                                className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
+                                list="styles"
+                                {...field}
+                              />
+                              <datalist id="styles">
+                                {styles.map((style) => (
+                                  <option key={style} value={style} />
+                                ))}
+                              </datalist>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <FormField
+                      control={guidedForm.control}
+                      name="mood"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="text-zinc-300">Mood</FormLabel>
+                          <FormControl>
+                            <div>
+                              <Input
+                                placeholder="Type or select mood"
+                                className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
+                                list="moods"
+                                {...field}
+                              />
+                              <datalist id="moods">
+                                {moods.map((mood) => (
+                                  <option key={mood} value={mood} />
+                                ))}
+                              </datalist>
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
                   <FormField
                     control={guidedForm.control}
-                    name="text"
+                    name="colors"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-zinc-300">Main Text *</FormLabel>
+                        <FormLabel className="text-zinc-300">Color Scheme</FormLabel>
                         <FormControl>
                           <Input
-                            placeholder="e.g., NIFTY 50, How to Cook"
+                            placeholder="e.g., Blue and gold, Red and black, Bright colors"
                             className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
                             {...field}
                           />
@@ -184,172 +267,74 @@ export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProp
 
                   <FormField
                     control={guidedForm.control}
-                    name="subject"
+                    name="additionalDetails"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-zinc-300">Subject</FormLabel>
+                        <FormLabel className="text-zinc-300">Additional Details</FormLabel>
                         <FormControl>
-                          <div>
-                            <Input
-                              placeholder="Type or select subject"
-                              className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
-                              list="subjects"
-                              {...field}
-                            />
-                            <datalist id="subjects">
-                              {subjects.map((subject) => (
-                                <option key={subject} value={subject} />
-                              ))}
-                            </datalist>
-                          </div>
+                          <Textarea
+                            placeholder="Any specific elements, effects, or requirements..."
+                            className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
+                            rows={3}
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Button
+                    type="submit"
+                    disabled={isPending || (usage && !usage.hasAccess)}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white border-0 h-12"
+                  >
+                    {isPending ? "Generating..." : "Generate Thumbnail"}
+                  </Button>
+                </form>
+              </Form>
+            </TabsContent>
+
+            <TabsContent value="freestyle" className="mt-4 sm:mt-6">
+              <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                <p className="text-xs text-blue-200">
+                  Freestyle mode gives you complete creative control. Describe your thumbnail vision in detail
+                  using natural language - the more specific you are, the better the results.
+                </p>
+              </div>
+              
+              <Form {...freestyleForm}>
+                <form onSubmit={freestyleForm.handleSubmit(onFreestyleSubmit)} className="space-y-4">
                   <FormField
-                    control={guidedForm.control}
-                    name="style"
+                    control={freestyleForm.control}
+                    name="details"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="text-zinc-300">Style *</FormLabel>
+                        <FormLabel className="text-zinc-300">Describe your thumbnail</FormLabel>
                         <FormControl>
-                          <div>
-                            <Input
-                              placeholder="Type or select style"
-                              className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
-                              list="styles"
-                              {...field}
-                            />
-                            <datalist id="styles">
-                              {styles.map((style) => (
-                                <option key={style} value={style} />
-                              ))}
-                            </datalist>
-                          </div>
+                          <Textarea
+                            placeholder="e.g., A vibrant thumbnail for a travel vlog about Japan, featuring Mount Fuji and cherry blossoms with bold yellow text saying 'JAPAN ADVENTURE' in a cinematic style with dramatic lighting."
+                            className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
+                            rows={6}
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-
-                  <FormField
-                    control={guidedForm.control}
-                    name="mood"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel className="text-zinc-300">Mood</FormLabel>
-                        <FormControl>
-                          <div>
-                            <Input
-                              placeholder="Type or select mood"
-                              className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
-                              list="moods"
-                              {...field}
-                            />
-                            <datalist id="moods">
-                              {moods.map((mood) => (
-                                <option key={mood} value={mood} />
-                              ))}
-                            </datalist>
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <FormField
-                  control={guidedForm.control}
-                  name="colors"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-zinc-300">Color Scheme</FormLabel>
-                      <FormControl>
-                        <Input
-                          placeholder="e.g., Blue and gold, Red and black, Bright colors"
-                          className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={guidedForm.control}
-                  name="additionalDetails"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-zinc-300">Additional Details</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Any specific elements, effects, or requirements..."
-                          className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
-                          rows={3}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <Button 
-                  type="submit" 
-                  disabled={isPending}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white border-0 h-12"
-                >
-                  {isPending ? "Generating..." : "Generate Thumbnail"}
-                </Button>
-              </form>
-            </Form>
-          </TabsContent>
-
-          <TabsContent value="freestyle" className="mt-4 sm:mt-6">
-            <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
-              <p className="text-xs text-blue-200">
-                Freestyle mode gives you complete creative control. Describe your thumbnail vision in detail 
-                using natural language - the more specific you are, the better the results.
-              </p>
-            </div>
-            
-            <Form {...freestyleForm}>
-              <form onSubmit={freestyleForm.handleSubmit(onFreestyleSubmit)} className="space-y-4">
-                <FormField
-                  control={freestyleForm.control}
-                  name="details"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-zinc-300">Describe your thumbnail</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="e.g., A vibrant thumbnail for a travel vlog about Japan, featuring Mount Fuji and cherry blossoms with bold yellow text saying 'JAPAN ADVENTURE' in a cinematic style with dramatic lighting."
-                          className="bg-black/20 border-zinc-700 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500"
-                          rows={6}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <Button 
-                  type="submit" 
-                  disabled={isPending}
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white border-0 h-12"
-                >
-                  {isPending ? "Generating..." : "Generate Thumbnail"}
-                </Button>
-              </form>
-            </Form>
-          </TabsContent>
-        </Tabs>
+                  <Button
+                    type="submit"
+                    disabled={isPending || (usage && !usage.hasAccess)}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white border-0 h-12"
+                  >
+                    {isPending ? "Generating..." : "Generate Thumbnail"}
+                  </Button>
+                </form>
+              </Form>
+            </TabsContent>
+          </Tabs>
+        </div>
       </CardContent>
     </Card>
   );

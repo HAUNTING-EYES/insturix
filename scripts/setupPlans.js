@@ -337,52 +337,96 @@ const PLANS_DATA = [
 ];
 
 async function setupPlans() {
+  const args = process.argv.slice(2);
+  const modeArg = args.find(arg => arg.startsWith('--mode='));
+  const planArg = args.find(arg => arg.startsWith('--plan='));
+
+  const mode = modeArg ? modeArg.split('=')[1] : null;
+  const targetPlanType = planArg ? planArg.split('=')[1] : null;
+
+  if (!mode || (mode !== 'real' && mode !== 'fake')) {
+    console.log("Usage: node scripts/setupPlans.js --mode=<real|fake> [--plan=<plan_type>]");
+    console.log("  --mode: Specifies whether to use 'real' payment provider plan IDs or 'fake' ones for testing.");
+    console.log("          'real': Creates plans with the payment provider and saves the real IDs.");
+    console.log("          'fake': Uses placeholder IDs without contacting a payment provider.");
+    console.log("  --plan: (Optional) Specifies a single plan type to update (e.g., 'pro', 'plus').");
+    return;
+  }
+
   try {
     await connectToDatabase();
-    console.log("Database connected. Starting to set up plans...");
+    console.log(`Database connected. Starting to set up plans in '${mode}' mode.`);
 
-    for (const planData of PLANS_DATA) {
+    const plansToProcess = targetPlanType
+      ? PLANS_DATA.filter(p => p.type === targetPlanType)
+      : PLANS_DATA;
+
+    if (targetPlanType && plansToProcess.length === 0) {
+      console.error(`Error: Plan type '${targetPlanType}' not found in PLANS_DATA.`);
+      await mongoose.disconnect();
+      return;
+    }
+
+    for (const planData of plansToProcess) {
       console.log(`Processing plan: ${planData.name}`);
 
       const plan = (await Plan.findOne({ type: planData.type })) || new Plan(planData);
 
-      if (plan.type !== 'free') {
-        for (const currency of Object.keys(plan.pricing)) {
-          console.log(`  Processing currency: ${currency}`);
-          
-          const monthlyPrice = plan.pricing[currency].monthly;
-          if (monthlyPrice.amount > 0) {
-            console.log(`    Creating monthly plan...`);
-            const monthlyPlan = await createPlan({
-              name: plan.name,
-              amount: monthlyPrice.amount,
-              currency: currency,
-              period: 'monthly',
-              type: plan.type,
-            });
+      plan.serviceLimits = planData.serviceLimits;
 
-            if (monthlyPlan) {
+      if (plan.type !== 'free') {
+        if (mode === 'fake') {
+          console.log('  Generating fake plan IDs...');
+          for (const currency of Object.keys(plan.pricing)) {
+            const monthlyPrice = plan.pricing[currency].monthly;
+            if (monthlyPrice.amount > 0) {
               if (!monthlyPrice.planId) monthlyPrice.planId = {};
-              monthlyPrice.planId[monthlyPlan.provider] = monthlyPlan.id;
-              console.log(`      -> ${monthlyPlan.provider} plan created with ID: ${monthlyPlan.id}`);
+              monthlyPrice.planId.fakeProvider = `fake_${plan.type}_monthly_${currency.toLowerCase()}`;
+            }
+            const yearlyPrice = plan.pricing[currency].yearly;
+            if (yearlyPrice.amount > 0) {
+              if (!yearlyPrice.planId) yearlyPrice.planId = {};
+              yearlyPrice.planId.fakeProvider = `fake_${plan.type}_yearly_${currency.toLowerCase()}`;
             }
           }
+        } else { // mode === 'real'
+          for (const currency of Object.keys(plan.pricing)) {
+            console.log(`  Processing currency: ${currency}`);
+            
+            const monthlyPrice = plan.pricing[currency].monthly;
+            if (monthlyPrice.amount > 0) {
+              console.log(`    Creating monthly plan...`);
+              const monthlyPlan = await createPlan({
+                name: plan.name,
+                amount: monthlyPrice.amount,
+                currency: currency,
+                period: 'monthly',
+                type: plan.type,
+              });
 
-          const yearlyPrice = plan.pricing[currency].yearly;
-          if (yearlyPrice.amount > 0) {
-            console.log(`    Creating yearly plan...`);
-            const yearlyPlan = await createPlan({
-              name: plan.name,
-              amount: yearlyPrice.amount,
-              currency: currency,
-              period: 'yearly',
-              type: plan.type,
-            });
+              if (monthlyPlan) {
+                if (!monthlyPrice.planId) monthlyPrice.planId = {};
+                monthlyPrice.planId[monthlyPlan.provider] = monthlyPlan.id;
+                console.log(`      -> ${monthlyPlan.provider} plan created with ID: ${monthlyPlan.id}`);
+              }
+            }
 
-            if (yearlyPlan) {
-              if (!yearlyPrice.planId) yearlyPrice.planId = {};
-              yearlyPrice.planId[yearlyPlan.provider] = yearlyPlan.id;
-              console.log(`      -> ${yearlyPlan.provider} plan created with ID: ${yearlyPlan.id}`);
+            const yearlyPrice = plan.pricing[currency].yearly;
+            if (yearlyPrice.amount > 0) {
+              console.log(`    Creating yearly plan...`);
+              const yearlyPlan = await createPlan({
+                name: plan.name,
+                amount: yearlyPrice.amount,
+                currency: currency,
+                period: 'yearly',
+                type: plan.type,
+              });
+
+              if (yearlyPlan) {
+                if (!yearlyPrice.planId) yearlyPrice.planId = {};
+                yearlyPrice.planId[yearlyPlan.provider] = yearlyPlan.id;
+                console.log(`      -> ${yearlyPlan.provider} plan created with ID: ${yearlyPlan.id}`);
+              }
             }
           }
         }

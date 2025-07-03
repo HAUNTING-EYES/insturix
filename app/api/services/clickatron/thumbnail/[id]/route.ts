@@ -45,6 +45,7 @@ export async function GET(
       status: 200,
       headers: {
         'Content-Type': contentType,
+        'Content-Length': metadata.size?.toString() || buffer.length.toString(),
       },
     });
   } catch (error: any) {

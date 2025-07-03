@@ -30,6 +30,21 @@ export async function GET(request: Request) {
       query.status = { $in: statusArray };
     }
 
+    // Timeout logic
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    await ClickatronTask.updateMany(
+        {
+            status: { $nin: ['completed', 'failed'] },
+            updatedAt: { $lt: fifteenMinutesAgo }
+        },
+        {
+            $set: {
+                status: 'failed',
+                error_message: 'TIMEOUT'
+            }
+        }
+    );
+
     // Get total count for pagination
     const totalItems = await ClickatronTask.countDocuments(query);
     const totalPages = Math.ceil(totalItems / validatedLimit);
@@ -42,13 +57,24 @@ export async function GET(request: Request) {
       .lean();
 
     // Format response
-    const formattedHistory = history.map(task => ({
-      ...task,
-      _id: task._id?.toString() || '',
-      createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: task.updatedAt?.toISOString() || new Date().toISOString(),
-      ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
-    }));
+    const formattedHistory = history.map(task => {
+      // Remove prompt from root and nested thumbnail
+      const { prompt, ...taskWithoutPrompt } = task;
+      let results = taskWithoutPrompt.results;
+      if (results && results.thumbnail && typeof results.thumbnail === "object") {
+        // Remove prompt from thumbnail
+        const { prompt, ...thumbnailWithoutPrompt } = results.thumbnail;
+        results = { ...results, thumbnail: thumbnailWithoutPrompt };
+      }
+      return {
+        ...taskWithoutPrompt,
+        results,
+        _id: task._id?.toString() || '',
+        createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
+        updatedAt: task.updatedAt?.toISOString() || new Date().toISOString(),
+        ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
+      };
+    });
 
     return NextResponse.json({
       data: formattedHistory,

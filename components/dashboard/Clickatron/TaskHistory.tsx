@@ -158,9 +158,11 @@ function TaskCard({ task, onClick }: TaskCardProps) {
           {/* Status and Action */}
           <div className="ml-4 flex items-center gap-4">
             <div className="text-right min-h-[40px] flex flex-col items-end justify-center">
-              <Badge className={cn("whitespace-nowrap text-xs border-0 mb-1", getStatusColor(task.status))}>
-                {task.status}
-              </Badge>
+              {(task.status === 'queued' || task.status === 'listed') && (
+                <Badge className={cn("whitespace-nowrap text-xs border-0 mb-1", getStatusColor(task.status))}>
+                  {task.status}
+                </Badge>
+              )}
               
               <AnimatePresence mode="wait" initial={false}>
                 {task.status === 'processing' && (
@@ -170,9 +172,9 @@ function TaskCard({ task, onClick }: TaskCardProps) {
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 0.3 }}
-                    className="flex items-center gap-2 text-xs text-zinc-400"
+                    className="flex items-center gap-3 text-base text-purple-300 font-semibold px-3 py-2 rounded-lg bg-purple-900/20 shadow animate-pulse"
                   >
-                    <CircleDot className="h-3 w-3 animate-pulse" />
+                    <Loader2 className="h-5 w-5 mr-2 animate-spin text-purple-400" />
                     <span>Processing</span>
                   </motion.div>
                 )}
@@ -257,7 +259,6 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
   const totalItems = paginatedData?.pagination?.totalItems || 0;
 
   // Task counts for stats (from initial tasks prop for real-time data)
-  const completedTasks = tasks.filter(task => task.status === 'completed');
   const processingTasks = tasks.filter(task =>
     task.status === 'processing' ||
     task.status === 'queued' ||
@@ -287,11 +288,6 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
             <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs">
               {tasks.length} total
             </span>
-            {completedTasks.length > 0 && (
-              <span className="px-2 py-1 bg-green-500/20 text-green-300 rounded-full text-xs">
-                {completedTasks.length} completed
-              </span>
-            )}
             {processingTasks.length > 0 && (
               <span className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded-full text-xs animate-pulse">
                 {processingTasks.length} processing

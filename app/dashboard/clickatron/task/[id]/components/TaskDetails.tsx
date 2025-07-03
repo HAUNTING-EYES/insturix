@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -90,9 +91,19 @@ export function TaskDetails({ task }: TaskDetailsProps) {
     ? `/api/services/clickatron/thumbnail/${encodeURIComponent(task.results.thumbnail.gcs_url.replace('https://storage.googleapis.com/clickatron/', ''))}`
     : null;
 
+  // Track if component is mounted
+  const isMounted = React.useRef(true);
+
+  React.useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const handleDownload = async () => {
     if (!thumbnailUrl) return;
-    
+
     setDownloadLoading(true);
     try {
       const response = await fetch(thumbnailUrl);
@@ -108,7 +119,7 @@ export function TaskDetails({ task }: TaskDetailsProps) {
     } catch (error) {
       console.error('Download failed:', error);
     } finally {
-      setDownloadLoading(false);
+      if (isMounted.current) setDownloadLoading(false);
     }
   };
 
@@ -132,11 +143,17 @@ export function TaskDetails({ task }: TaskDetailsProps) {
   const [fileSize, setFileSize] = useState<string>('Calculating...');
 
   // Get file size when component mounts
-  useState(() => {
+  React.useEffect(() => {
+    let cancelled = false;
     if (thumbnailUrl) {
-      getFileSize(thumbnailUrl).then(setFileSize);
+      getFileSize(thumbnailUrl).then(size => {
+        if (!cancelled && isMounted.current) setFileSize(size);
+      });
     }
-  });
+    return () => {
+      cancelled = true;
+    };
+  }, [thumbnailUrl]);
 
   return (
     <div className="space-y-6">
@@ -331,16 +348,6 @@ export function TaskDetails({ task }: TaskDetailsProps) {
                     </div>
                   </div>
                   
-                  {task.results?.thumbnail.prompt && (
-                    <div>
-                      <label className="text-sm font-medium text-zinc-300">AI Prompt Used</label>
-                      <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700 mt-1">
-                        <p className="text-sm text-zinc-200 whitespace-pre-wrap">
-                          {task.results.thumbnail.prompt}
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </CardContent>
             </Card>
