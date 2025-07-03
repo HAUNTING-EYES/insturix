@@ -85,23 +85,25 @@ export async function POST(req: Request) {
     userId,
   };
 
-  await pubsub.topic(clickatronConfig.pubsubTopic).publishMessage({ json: message });
-
-  // For local testing: call the microservice directly
-  // const data = Buffer.from(JSON.stringify(message)).toString('base64');
-  // await fetch('http://localhost:8080', {
-  //   method: 'POST',
-  //   headers: {
-  //     'Content-Type': 'application/json',
-  //   },
-  //   body: JSON.stringify({
-  //     message: {
-  //       data: data,
-  //       attributes: {}
-  //     },
-  //     "subscription": "projects/test/subscriptions/test-sub"
-  //   }),
-  // });
+  if (process.env.CLICKATRON_LOCAL_WORKER) {
+    const data = Buffer.from(JSON.stringify(message)).toString('base64');
+    await fetch(process.env.CLICKATRON_LOCAL_WORKER, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          data: data,
+          attributes: {}
+        },
+        // Optionally, you can set a subscription value if needed for local testing
+        subscription: 'projects/test/subscriptions/test-sub'
+      }),
+    });
+  } else {
+    await pubsub.topic(clickatronConfig.pubsubTopic).publishMessage({ json: message });
+  }
 
   return NextResponse.json({ taskId: newTask._id });
 }
