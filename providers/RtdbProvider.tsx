@@ -79,7 +79,7 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
 
               const previousTask = previousTasksRef.current[taskUpdate.taskId];
               const hasStatusChanged = !previousTask || previousTask.status !== taskUpdate.status;
-              if (!isInitialLoadRef.current || hasStatusChanged) {
+              if (!isInitialLoadRef.current && hasStatusChanged) {
                 newNotifications.push({
                   id: `${serviceName}-${taskUpdate.taskId}`,
                   taskUpdate,
