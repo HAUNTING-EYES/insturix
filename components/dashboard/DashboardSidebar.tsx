@@ -19,6 +19,7 @@ import { SidebarNavigation } from "./sidebar/SidebarNavigation"
 import { SidebarFooter } from "./sidebar/SidebarFooter"
 import { sidebarVariants } from "./sidebar/animations"
 import { products, defaultTheme } from "./sidebar/constants"
+import CustomUserProfile from "@/components/CustomUserProfile"
 
 export { useSidebar }
 
@@ -143,19 +144,8 @@ export default function DashboardSidebar() {
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <DialogOverlay className="!z-[150]" />
         <DialogContent className="max-w-5xl w-[90vw] h-[90vh] overflow-hidden !duration-200 !transform-none data-[state=open]:!animate-in data-[state=closed]:!animate-out data-[state=closed]:!fade-out-0 data-[state=open]:!fade-in-0 !z-[200]">
-          <DialogHeader>
-            <DialogTitle>User Settings</DialogTitle>
-          </DialogHeader>
           <div className="flex overflow-hidden justify-center items-center">
-            <UserProfile
-              appearance={{
-                elements: {
-                  rootBox: "w-full h-full",
-                  card: "w-full h-full border-0 shadow-none",
-                },
-              }}
-              routing="hash"
-            />
+            <CustomUserProfile/>
           </div>
         </DialogContent>
       </Dialog>
