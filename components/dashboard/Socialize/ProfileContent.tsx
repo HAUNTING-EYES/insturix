@@ -1,33 +1,26 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Bell, ExternalLink } from "lucide-react";
 import { getPlatformIcon } from "@/components/dashboard/Socialize/SocializeIcons";
-import { ProfileError } from "@/components/dashboard/Socialize/ProfileError";
 import { NotificationPanel } from "@/components/dashboard/Socialize/NotificationPanel";
-import { fetchSocializeUser } from "@/lib/socialize/main";
+import { SocializeUser } from "@/lib/socialize/main";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
-import { ProfileSkeleton } from "@/components/skeletons/ProfileSkeleton";
 
-export function ProfileContent({ uniqueUsername }: { uniqueUsername: string }) {
+interface ProfileContentProps {
+  socializeData: SocializeUser;
+  uniqueUsername: string;
+}
+
+export function ProfileContent({
+  socializeData,
+  uniqueUsername,
+}: ProfileContentProps) {
   const [showNotification, setShowNotification] = useState(false);
-
-  // Use React Query to fetch and cache Socialize user data
-  const {
-    data: socializeData,
-    isLoading,
-    error,
-  } = useQuery({
-    queryKey: ["socializeUser", uniqueUsername],
-    queryFn: () => fetchSocializeUser(uniqueUsername),
-    staleTime: 1000 * 60 * 5, // 5 minutes
-    retry: 1,
-  });
 
   // Auto-close notification after 5 seconds
   useEffect(() => {
@@ -39,9 +32,6 @@ export function ProfileContent({ uniqueUsername }: { uniqueUsername: string }) {
     }
     return () => clearTimeout(timeout);
   }, [showNotification]);
-
-  if (isLoading) return <ProfileSkeleton />;
-  if (error || !socializeData) return <ProfileError />;
 
   // Extract profile data from the Socialize response
   const {

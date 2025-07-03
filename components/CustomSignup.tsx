@@ -1,16 +1,14 @@
 "use client";
-
+import React from "react";
 import { Card } from "@/components/ui/card";
 import { motion } from "framer-motion";
 import { Icons } from "@/components/ui/icons";
-import { ArrowRight, Pencil } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useSignUp } from "@clerk/nextjs";
-import { useState, useEffect } from "react";
-import PhoneInput from "react-phone-number-input";
-import "react-phone-number-input/style.css";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 export default function CustomSignup() {
@@ -21,18 +19,17 @@ export default function CustomSignup() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [username, setUsername] = useState("");
-  const [phone, setPhone] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
 
   // Verification state
-  const [verifying, setVerifying] = useState<"email" | "phone" | null>(null);
+  const [verifying, setVerifying] = useState<"email" | null>(null);
   const [code, setCode] = useState("");
   const [countdown, setCountdown] = useState(30);
   const [isResendDisabled, setIsResendDisabled] = useState(true);
 
   // Handle countdown for resend OTP
-  useEffect(() => {
+  React.useEffect(() => {
     let timer: NodeJS.Timeout;
     if (verifying && countdown > 0) {
       timer = setTimeout(() => {
@@ -57,8 +54,7 @@ export default function CustomSignup() {
       const result = await signUp.create({
         emailAddress: email,
         password,
-        username,
-        phoneNumber: phone,
+        username
       });
 
       // If email verification is required, move to email OTP step
@@ -84,7 +80,7 @@ export default function CustomSignup() {
     }
   };
 
-  // Handle OTP verification (email or phone)
+  // Handle OTP verification (email)
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!isLoaded || !signUp) return;
@@ -96,32 +92,8 @@ export default function CustomSignup() {
       if (verifying === "email") {
         // Verify email OTP
         const result = await signUp.attemptEmailAddressVerification({ code });
-
-        // If phone verification is required, move to phone OTP step
-        if (
-          result.status === "missing_requirements" &&
-          result.requiredFields?.includes("phone_number")
-        ) {
-          await signUp.preparePhoneNumberVerification({
-            strategy: "phone_code",
-          });
-          setVerifying("phone");
-          setCode(""); // Clear the code input
-          setCountdown(30); // Reset countdown
-          setIsResendDisabled(true); // Disable resend button
-        } else if (result.status === "complete") {
-          // If sign-up is complete, set the session and redirect
-          await setActive({ session: result.createdSessionId });
-          router.push("/dashboard");
-        } else {
-          setError("Unexpected response from server.");
-        }
-      } else if (verifying === "phone") {
-        // Verify phone OTP
-        const result = await signUp.attemptPhoneNumberVerification({ code });
-
-        // If sign-up is complete, set the session and redirect
         if (result.status === "complete") {
+          // If sign-up is complete, set the session and redirect
           await setActive({ session: result.createdSessionId });
           router.push("/dashboard");
         } else {
@@ -151,20 +123,34 @@ export default function CustomSignup() {
         await signUp.prepareEmailAddressVerification({
           strategy: "email_code",
         });
-      } else if (verifying === "phone") {
-        await signUp.preparePhoneNumberVerification({ strategy: "phone_code" });
       }
-
-      // Reset countdown and disable resend button
       setCountdown(30);
       setIsResendDisabled(true);
-      setError("New OTP sent! Please check your email or phone.");
+      setError("New OTP sent! Please check your email.");
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message || "Something went wrong.");
       } else {
         setError("Something went wrong.");
       }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // OAuth signup handlers
+  const handleOAuth = async (provider: "google" | "facebook") => {
+    if (!isLoaded || !signUp) return;
+    setIsLoading(true);
+    setError("");
+    try {
+      await signUp.authenticateWithRedirect({
+        strategy: provider === "google" ? "oauth_google" : "oauth_facebook",
+        redirectUrl: "/sso-callback",
+        redirectUrlComplete: "/dashboard",
+      });
+    } catch (err: unknown) {
+      setError("OAuth signup failed.");
     } finally {
       setIsLoading(false);
     }
@@ -178,10 +164,10 @@ export default function CustomSignup() {
           <Card className="p-8">
             <div className="text-center mb-8">
               <h2 className="text-2xl font-semibold mb-2">
-                Verify your {verifying === "email" ? "email" : "phone"}
+                Verify your email
               </h2>
               <div className="flex items-center justify-center gap-2 text-sm text-zinc-600 dark:text-zinc-400">
-                <span>{verifying === "email" ? email : phone}</span>
+                <span>{email}</span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -191,12 +177,11 @@ export default function CustomSignup() {
                     setVerifying(null);
                   }}
                 >
-                  <Pencil className="h-4 w-4" />
+                  <Icons.pencil className="h-4 w-4" />
                 </Button>
               </div>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2">
-                Enter the verification code sent to your{" "}
-                {verifying === "email" ? "email" : "phone"}.
+                Enter the verification code sent to your email.
               </p>
             </div>
 
@@ -230,7 +215,7 @@ export default function CustomSignup() {
                   {isLoading ? (
                     <Icons.spinner className="h-4 w-4 animate-spin" />
                   ) : (
-                    `Verify ${verifying === "email" ? "Email" : "Phone"}`
+                    `Verify Email`
                   )}
                 </Button>
 
@@ -277,6 +262,53 @@ export default function CustomSignup() {
               </p>
             </div>
 
+            {/* OAuth Buttons */}
+            <div className="flex justify-center gap-4 mb-8">
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => handleOAuth("facebook")}
+                disabled={!isLoaded || isLoading}
+                className="w-40"
+              >
+                {isLoading ? (
+                  <Icons.spinner className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Icons.facebook className="h-4 w-4 mr-2" />
+                    Facebook
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => handleOAuth("google")}
+                disabled={!isLoaded || isLoading}
+                className="w-40"
+              >
+                {isLoading ? (
+                  <Icons.spinner className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Icons.google className="h-4 w-4 mr-2" />
+                    Google
+                  </>
+                )}
+              </Button>
+            </div>
+
+            <div className="relative my-8">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white dark:bg-[rgb(var(--surface-0))] px-4 relative text-muted-foreground">
+                  Or
+                </span>
+              </div>
+            </div>
+
             <form
               onSubmit={handleSubmit}
               className="max-w-sm mx-auto space-y-6"
@@ -310,20 +342,6 @@ export default function CustomSignup() {
                     className="mt-2"
                     required
                     autoComplete="email"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="phone" className="text-sm font-medium">
-                    Phone number
-                  </label>
-                  <PhoneInput
-                    id="phone"
-                    international
-                    defaultCountry="IN"
-                    value={phone}
-                    onChange={(value) => setPhone(value || "")}
-                    className="mt-2 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                    required
                   />
                 </div>
                 <div>

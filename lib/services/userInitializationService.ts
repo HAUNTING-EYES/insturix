@@ -16,7 +16,8 @@ export class UserInitializationService {
    */
   static async ensureUserExists(
     clerkUserId: string,
-    email: string
+    email: string,
+    username: string
   ): Promise<UserInitializationResult> {
     try {
       await connectToDatabase();
@@ -52,6 +53,7 @@ export class UserInitializationService {
       user = new User({
         clerkUserId,
         email: email.toLowerCase().trim(),
+        username,
         signUpDate: now,
         currentPlan: {
           planId: freePlan._id.toString(),
@@ -176,6 +178,7 @@ export class UserInitializationService {
     clerkUserId: string,
     clerkUserData: {
       email?: string;
+      username?: string;
       emailAddresses?: Array<{ emailAddress: string; id: string }>;
     }
   ): Promise<boolean> {
@@ -195,6 +198,12 @@ export class UserInitializationService {
       
       if (newEmail && newEmail.toLowerCase().trim() !== user.email) {
         user.email = newEmail.toLowerCase().trim();
+        hasChanges = true;
+      }
+      
+      // Update username if it has changed
+      if (clerkUserData.username && clerkUserData.username !== user.username) {
+        user.username = clerkUserData.username;
         hasChanges = true;
       }
 

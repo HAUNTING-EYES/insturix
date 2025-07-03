@@ -3,24 +3,42 @@ import { ProfileContent } from "@/components/dashboard/Socialize/ProfileContent"
 import { ProfileSkeleton } from "@/components/skeletons/ProfileSkeleton";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { fetchSocializeUser } from "@/lib/socialize/main";
+import { ProfileError } from "@/components/dashboard/Socialize/ProfileError";
 
 export default async function SocializePublicProfilePage({
   params,
 }: {
-  params: Promise<{ uniqueUsername: string }>;
+  params: { uniqueUsername: string };
 }) {
-  // Properly await the params in Next.js 15
-  const resolvedParams = await params;
+  try {
+    // Fetch data on the server
+    const socializeData = await fetchSocializeUser(params.uniqueUsername);
 
-  return (
-    <>
-    <Navbar />
-    <div className="min-h-screen bg-[#0e1117] flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      <Suspense fallback={<ProfileSkeleton />}>
-        <ProfileContent uniqueUsername={resolvedParams.uniqueUsername} />
-      </Suspense>
-    </div>
-    <Footer />
-    </>
-  );
+    return (
+      <>
+        <Navbar />
+        <div className="min-h-screen bg-[#0e1117] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+          <Suspense fallback={<ProfileSkeleton />}>
+            <ProfileContent
+              socializeData={socializeData}
+              uniqueUsername={params.uniqueUsername}
+            />
+          </Suspense>
+        </div>
+        <Footer />
+      </>
+    );
+  } catch (error) {
+    // Render an error component if the user is not found or another error occurs
+    return (
+      <>
+        <Navbar />
+        <div className="min-h-screen bg-[#0e1117] flex flex-col items-center justify-center p-4 relative overflow-hidden">
+          <ProfileError />
+        </div>
+        <Footer />
+      </>
+    );
+  }
 }

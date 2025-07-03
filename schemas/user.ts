@@ -44,6 +44,7 @@ export interface ISubscription {
 
 interface IUser extends Document {
   clerkUserId: string;
+  username: string;
   email: string;
   signUpDate: Date;
   currentPlan: IUserPlan;
@@ -192,6 +193,12 @@ const userSchema = new Schema<IUser>({
     required: true,
     unique: true,
     lowercase: true,
+    trim: true,
+  },
+  username: {
+    type: String,
+    required: true,
+    unique: true,
     trim: true,
   },
   signUpDate: {

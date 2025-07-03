@@ -7,6 +7,7 @@ interface WebhookPayload {
   data: {
     id: string;
     email_addresses?: Array<{ email_address: string }>;
+    username?: string;
   };
 }
 
@@ -46,9 +47,15 @@ export async function POST(req: NextRequest) {
       try {
         const primaryEmail = payload.data.email_addresses?.[0]?.email_address || "";
         const clerkUserId = payload.data.id;
+        const username = payload.data.username;
+
+        if (!username) {
+          console.error("Username is missing in the payload for user.created event");
+          return new Response("Username is required", { status: 400 });
+        }
 
         // Use UserInitializationService to ensure user exists
-        const initResult = await UserInitializationService.ensureUserExists(clerkUserId, primaryEmail);
+        const initResult = await UserInitializationService.ensureUserExists(clerkUserId, primaryEmail, username);
         
         if (initResult.error) {
           console.error("Error creating user:", initResult.error);
@@ -71,6 +78,7 @@ export async function POST(req: NextRequest) {
         const clerkUserId = payload.data.id;
         const clerkUserData = {
           email: payload.data.email_addresses?.[0]?.email_address,
+          username: payload.data.username,
           emailAddresses: payload.data.email_addresses?.map((emailAddr, index) => ({
             emailAddress: emailAddr.email_address,
             id: `email_${index}`

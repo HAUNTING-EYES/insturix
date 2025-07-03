@@ -1,8 +1,8 @@
 "use client";
 
+import CustomSignIn from "@/components/CustomSignIn";
 import Navbar from "@/components/Navbar";
 import CursorEffect from "@/components/ui/CursorEffect";
-import { SignIn } from "@clerk/nextjs";
 
 export default function SignInPage() {
   return (
@@ -17,7 +17,7 @@ export default function SignInPage() {
         <Navbar />
       </div>
       <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
-        <SignIn routing="hash" forceRedirectUrl={"/dashboard"} signUpUrl="/signup"/>
+        <CustomSignIn />
       </div>
     </div>
   );
