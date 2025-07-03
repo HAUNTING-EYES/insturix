@@ -90,20 +90,20 @@ export default function SignUpPage() {
                       or
                     </p>
                     <Clerk.Field name="emailAddress" className="space-y-2">
-                      <Clerk.Label asChild>
+                      <Clerk.Label>
                         <Label>Email address</Label>
                       </Clerk.Label>
                       <Clerk.Input type="email" required asChild>
-                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300" />
+                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300 text-black" />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
                     <Clerk.Field name="password" className="space-y-2">
-                      <Clerk.Label asChild>
+                      <Clerk.Label>
                         <Label>Password</Label>
                       </Clerk.Label>
                       <Clerk.Input type="password" required asChild>
-                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300" />
+                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300 text-black" />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
@@ -153,7 +153,7 @@ export default function SignUpPage() {
                         <Label>Username</Label>
                       </Clerk.Label>
                       <Clerk.Input type="text" required asChild>
-                        <Input />
+                        <Input className="text-black" />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
@@ -206,7 +206,7 @@ export default function SignUpPage() {
                                   <div
                                     data-status={status}
                                     className={cn(
-                                      "relative flex size-10 items-center justify-center border-y border-r border-input text-sm transition-all first:rounded-l-md first:border-l last:rounded-r-md backdrop-blur-sm bg-background/50 hover:bg-background/70",
+                                      "relative flex size-10 items-center justify-center border-y border-r border-input text-sm transition-all first:rounded-l-md first:border-l last:rounded-r-md backdrop-blur-sm bg-background/50 hover:bg-background/70 text-black",
                                       {
                                         "z-10 ring-2 ring-ring ring-offset-background":
                                           status === "cursor" ||

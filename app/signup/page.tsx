@@ -1,4 +1,4 @@
-import { SignUp } from "@clerk/nextjs";
+import CustomSignup from "@/components/CustomSignup";
 import Navbar from "@/components/Navbar";
 import CursorEffect from "@/components/ui/CursorEffect";
 
@@ -15,7 +15,7 @@ export default function SignupPage() {
         <Navbar />
       </div>
       <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
-        <SignUp routing="hash" forceRedirectUrl={"/dashboard"} signInUrl="/signin"/>
+        <CustomSignup />
       </div>
     </div>
   );
