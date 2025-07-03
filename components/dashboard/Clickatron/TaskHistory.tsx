@@ -226,7 +226,8 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
   const [currentPage, setCurrentPage] = useState(1);
 
   // Use paginated API for completed/failed tasks
-  const { data: paginatedData, isLoading } = useQuery<PaginatedTaskResponse>({
+  // Polling for completed/failed tasks
+  const { data: paginatedData, isLoading, refetch } = useQuery<PaginatedTaskResponse>({
     queryKey: ['clickatron-history', currentPage, itemsPerPage],
     queryFn: async () => {
       const response = await fetch(`/api/services/clickatron/history?page=${currentPage}&limit=${itemsPerPage}&status=completed,failed`);
@@ -235,6 +236,19 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
     },
     placeholderData: (previousData) => previousData,
     staleTime: 1000 * 60 * 2, // 2 minutes
+    refetchInterval: 2000, // Poll every 2 seconds
+  });
+
+  // Polling for in-progress tasks
+  const { data: inProgressData } = useQuery<PaginatedTaskResponse>({
+    queryKey: ['clickatron-inprogress', itemsPerPage],
+    queryFn: async () => {
+      const response = await fetch(`/api/services/clickatron/history?page=1&limit=${itemsPerPage}&status=processing,queued,listed`);
+      if (!response.ok) throw new Error('Failed to fetch in-progress tasks');
+      return response.json();
+    },
+    refetchInterval: 2000, // Poll every 2 seconds
+    staleTime: 1000 * 60 * 2,
   });
 
   // Get current page tasks from API
@@ -286,6 +300,18 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
           </div>
         </div>
       </div>
+
+      {/* In Progress Section */}
+      {inProgressData?.data && inProgressData.data.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-md font-semibold text-purple-300 mb-2">In Progress</h3>
+          <div className="space-y-3 sm:space-y-4">
+            {inProgressData.data.map((task) => (
+              <TaskCard key={task._id?.toString()} task={task} onClick={() => handleTaskClick(task._id?.toString() || '')} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Task List */}
       <div className="space-y-3 sm:space-y-4 min-h-[400px] relative">
