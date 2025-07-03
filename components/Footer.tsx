@@ -17,7 +17,7 @@ const companyLinks = [
   { label: "About", link: "/about" },
   { label: "Terms", link: "/legal/terms" },
   { label: "Privacy", link: "/legal/privacy" },
-  { label: "Contact", link: "/contact" },
+  { label: "Contact", link: "/contactus" },
 ];
 
 const supportLinks = [
@@ -25,9 +25,9 @@ const supportLinks = [
     label: "Help Center",
     heading: "Support",
     links: [
-      { label: "Documentation", link: "/resources/documentation" },
-      { label: "FAQs", link: "/resources/faqs" },
-      { label: "Contact Support", link: "/resources/support" },
+      { label: "Tutorials", link: "/resources/tutorials" },
+      { label: "FAQs", link: "/resources/faq" },
+      { label: "Contact Support", link: "/contactus" },
     ],
   },
   {
