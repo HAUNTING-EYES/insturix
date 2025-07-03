@@ -42,7 +42,7 @@ export default async function AlyzitronDashboard() {
   return (
     <AnalyticsProvider>
       <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
-        <div className="flex flex-col lg:grid lg:grid-cols-3 gap-6 lg:gap-8">
+        <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-start gap-6 lg:gap-8">
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-6 lg:space-y-8">
             {/* Hero Section */}
@@ -68,7 +68,7 @@ export default async function AlyzitronDashboard() {
           </div>
 
           {/* Desktop Analytics - Hidden on mobile/tablet */}
-          <div className="hidden lg:block space-y-6 lg:space-y-8">
+          <div className="hidden lg:block space-y-6 lg:space-y-8 sticky top-6">
             <AlyzitronAnalyticsOverview />
           </div>
         </div>

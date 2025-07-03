@@ -139,6 +139,7 @@ export class UserInitializationService {
       socialize: [],
       thinkforge: [],
       musitron: [],
+      clickatron: []
     };
 
     // Validate input - no fallbacks

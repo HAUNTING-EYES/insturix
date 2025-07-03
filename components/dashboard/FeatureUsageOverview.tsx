@@ -17,10 +17,12 @@ import {
   Shield,
   Share2,
   MessageSquare,
-  Music
+  Music,
+  ImageIcon
 } from 'lucide-react';
 import { getAllServiceLimitMappings } from '@/lib/config/serviceLimits';
 import { useConcurrentTasks } from '@/lib/hooks/useConcurrentTasks';
+import { useGetStats as useGetClickatronStats } from '@/components/dashboard/Clickatron/hooks/useGetStats';
 
 interface ServiceUsageInfo {
   hasAccess: boolean;
@@ -76,6 +78,12 @@ const serviceDisplayData: Record<string, {
     color: 'from-yellow-500/10 to-yellow-600/10 border-yellow-200/20', // #eab308
     path: '/dashboard/musitron',
   },
+  clickatron: {
+    name: 'Clickatron',
+    icon: <ImageIcon className="w-4 h-4" />,
+    color: 'from-violet-500/10 to-violet-600/10 border-violet-200/20',
+    path: '/dashboard/clickatron',
+  },
 };
 
 // Get limit display names from centralized configuration
@@ -119,9 +127,22 @@ const formatResetPeriod = (period: string): string => {
 export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> = ({ initialData }) => {
   const router = useRouter();
   const { concurrentCount, isLoading: concurrentLoading } = useConcurrentTasks();
+  const { stats: clickatronStats } = useGetClickatronStats();
   const [serviceUsage, setServiceUsage] = useState<ServiceUsageData>(initialData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (clickatronStats?.usage) {
+      setServiceUsage(prev => ({
+        ...prev,
+        clickatron: {
+          ...prev.clickatron,
+          maxThumbnailGeneration: clickatronStats.usage as ServiceUsageInfo,
+        }
+      }));
+    }
+  }, [clickatronStats]);
 
   const fetchServiceUsage = async () => {
     try {

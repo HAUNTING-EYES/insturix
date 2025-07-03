@@ -4,7 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChevronLeft, ChevronRight, ListChecks, RefreshCw } from 'lucide-react';
 import { AnalysisProgress } from './AnalysisProgress';
 import { useRtdb } from '@/providers/RtdbProvider';
 import type { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
@@ -63,13 +64,6 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
     gcTime: 1000 * 60 * 5,
   });
 
-  // Filter received data client-side to strictly enforce terminal statuses
-  const analyses = (paginatedData?.data ?? []).filter(analysis =>
-    ['completed', 'failed', 'cancelled'].includes(analysis.status)
-  );
-  const { totalItems = 0 } = paginatedData?.pagination ?? {};
-  const actualTotalPages = totalItems > 0 ? Math.ceil(totalItems / itemsPerPage) : 0;
-
   // --- RTDB Integration for real-time updates ---
   useEffect(() => {
     const prevTasks = prevTasksRef.current;
@@ -94,6 +88,31 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
     }
     prevTasksRef.current = alyzitronTasks;
   }, [alyzitronTasks, queryClient]);
+
+  if (isLoading && !paginatedData) {
+    return (
+      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+        <CardHeader>
+          <CardTitle className="text-lg font-medium text-zinc-100 flex items-center gap-2">
+            <ListChecks className="h-5 w-5" color="#8B5CF6" />
+            Completed Analyses
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex items-center justify-center py-8">
+            <RefreshCw className="h-6 w-6 animate-spin text-zinc-400" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Filter received data client-side to strictly enforce terminal statuses
+  const analyses = (paginatedData?.data ?? []).filter(analysis =>
+    ['completed', 'failed', 'cancelled'].includes(analysis.status)
+  );
+  const { totalItems = 0 } = paginatedData?.pagination ?? {};
+  const actualTotalPages = totalItems > 0 ? Math.ceil(totalItems / itemsPerPage) : 0;
   const handlePreviousPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
   };
@@ -103,82 +122,85 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   };
 
   return (
-    <div>
-      {/* Title - Simplified */}
-      <div className="flex items-center justify-between mb-4 sm:mb-6">
-        <h2 className="text-lg sm:text-xl font-medium text-zinc-100">
+    <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+      <CardHeader className="pb-4">
+        <CardTitle className="text-base sm:text-lg font-medium text-zinc-100 flex items-center gap-2">
+          <ListChecks className="h-4 w-4 sm:h-5 sm:w-5" color="#8B5CF6" />
           Completed Analyses
-        </h2>
-      </div>
-      {/* Analysis List Area */}
-      <div className="space-y-3 sm:space-y-4 min-h-[200px] relative">
-        {/* Loading Overlay - Uses isLoading from the paginated query */}
-        {isLoading && (
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 to-black/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-md transition-opacity duration-300">
-            <div className="w-8 h-8 border-4 border-zinc-600 border-t-zinc-100 rounded-full animate-spin" />
-          </div>
-        )}
-        {/* Error Message */}
-        {isError && (
-            <div className="text-center py-8 text-red-500">
-                Error loading analyses: {error?.message || 'Unknown error'}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-3 sm:space-y-4 min-h-[200px] relative">
+          {/* Loading Overlay for refetches */}
+          {isLoading && paginatedData && (
+            <div className="absolute inset-0 bg-gradient-to-b from-black/30 to-black/60 backdrop-blur-sm flex items-center justify-center z-10 rounded-md transition-opacity duration-300">
+              <div className="w-8 h-8 border-4 border-zinc-600 border-t-zinc-100 rounded-full animate-spin" />
             </div>
-        )}
-        {/* Map over the paginated analyses */}
-        {analyses.map((analysis: FetchedAlyzitronAnalysis) => (
-          <AnalysisProgress
-            key={analysis._id}
-            analysisId={analysis._id.toString()}
-            taskId={analysis.taskId}
-            title={analysis.metadata?.originalFilename}
-            status={analysis.status}
-            error={analysis.error}
-            unread={analysis.unread}
-            expectedDurationSeconds={analysis.expectedDurationSeconds}
-            onCancel={undefined}
-            videoUrl={analysis.videoUrl}
-            // Pass down necessary props for cache update
-            queryClient={queryClient}
-            currentPage={currentPage}
-            itemsPerPage={itemsPerPage}
-          />
-        ))}
+          )}
+          {/* Error Message */}
+          {isError && (
+              <div className="text-center py-8 text-red-500">
+                  Error loading analyses: {error?.message || 'Unknown error'}
+              </div>
+          )}
+          {/* Map over the paginated analyses */}
+          {analyses.map((analysis: FetchedAlyzitronAnalysis) => (
+            <AnalysisProgress
+              key={analysis._id}
+              analysisId={analysis._id.toString()}
+              taskId={analysis.taskId}
+              title={analysis.metadata?.originalFilename}
+              status={analysis.status}
+              error={analysis.error}
+              unread={analysis.unread}
+              expectedDurationSeconds={analysis.expectedDurationSeconds}
+              onCancel={undefined}
+              videoUrl={analysis.videoUrl}
+              // Pass down necessary props for cache update
+              queryClient={queryClient}
+              currentPage={currentPage}
+              itemsPerPage={itemsPerPage}
+            />
+          ))}
 
-        {/* Empty State Message */}
-        {analyses.length === 0 && !isLoading && !isError && (
-          <div className="text-center py-8 text-zinc-500">
-            No completed analyses found.
+          {/* Empty State Message */}
+          {analyses.length === 0 && !isLoading && !isError && (
+            <div className="text-center py-8 text-zinc-500">
+              No completed analyses found.
+            </div>
+          )}
+        </div>
+
+        {/* Pagination Controls */}
+        {actualTotalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-4 sm:mt-6">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handlePreviousPage}
+              disabled={currentPage === 1 || isLoading}
+              className="w-full sm:w-auto order-2 sm:order-1"
+            >
+              <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+              <span className="text-xs sm:text-sm">Previous</span>
+            </Button>
+            <span className="text-xs sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
+              Page {currentPage} of {actualTotalPages}
+              <span className="hidden sm:inline"> ({totalItems} total)</span>
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleNextPage}
+              disabled={currentPage >= actualTotalPages || isLoading}
+              className="w-full sm:w-auto order-3"
+            >
+              <span className="text-xs sm:text-sm">Next</span>
+              <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
+            </Button>
           </div>
         )}
-      </div>
-
-      {/* Pagination Controls - Mobile optimized */}
-      <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-4 sm:mt-6">
-         <Button
-           variant="outline"
-           size="sm"
-           onClick={handlePreviousPage}
-           disabled={currentPage === 1 || actualTotalPages === 0 || isLoading}
-           className="w-full sm:w-auto order-2 sm:order-1"
-         >
-           <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
-           <span className="text-xs sm:text-sm">Previous</span>
-         </Button>
-         <span className="text-xs sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
-           Page {actualTotalPages === 0 ? 1 : currentPage} of {actualTotalPages}
-           <span className="hidden sm:inline"> ({totalItems} total)</span>
-         </span>
-         <Button
-           variant="outline"
-           size="sm"
-           onClick={handleNextPage}
-           disabled={currentPage >= actualTotalPages || actualTotalPages === 0 || isLoading}
-           className="w-full sm:w-auto order-3"
-         >
-           <span className="text-xs sm:text-sm">Next</span>
-           <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
-         </Button>
-       </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

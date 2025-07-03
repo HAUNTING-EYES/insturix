@@ -22,12 +22,6 @@ export const SERVICE_LIMIT_DEFINITIONS: Record<string, Record<string, ServiceLim
       description: 'Special weekly limit for analyzing videos longer than 20 minutes, which require more processing resources.',
       icon: 'Video'
     },
-    maxConcurrentTasks: {
-      limitType: 'maxConcurrentTasks',
-      name: 'Concurrent Analyses',
-      description: 'Maximum number of video analyses that can run simultaneously. Higher limits allow faster processing.',
-      icon: 'Activity'
-    }
   },
   editron: {
     maxVideoEdits: {
@@ -68,6 +62,14 @@ export const SERVICE_LIMIT_DEFINITIONS: Record<string, Record<string, ServiceLim
       description: 'AI-generated music tracks per month.',
       icon: 'Music'
     }
+  },
+  clickatron: {
+    maxThumbnailGeneration: {
+      limitType: 'maxThumbnailGeneration',
+      name: 'Thumbnail Generations',
+      description: 'Number of thumbnails you can generate per week.',
+      icon: 'ImageIcon'
+    }
   }
 };
 
@@ -101,8 +103,7 @@ export const getAllServiceLimitMappings = (): Record<string, string> => {
 export const DEFAULT_FREE_PLAN_LIMITS = {
   alyzitron: [
     { limitType: "maxTotalAnalysis", maxUsage: 10, resetPeriod: "weekly", description: "Total video analyses per week" },
-    { limitType: "maxOver20MinuteAnalysis", maxUsage: 3, resetPeriod: "weekly", description: "Analyses for videos over 20 minutes" },
-    { limitType: "maxConcurrentTasks", maxUsage: 2, resetPeriod: "daily", description: "Maximum concurrent analyses" }
+    { limitType: "maxOver20MinuteAnalysis", maxUsage: 3, resetPeriod: "weekly", description: "Analyses for videos over 20 minutes" }
   ],
   editron: [
     { limitType: "maxVideoEdits", maxUsage: 1, resetPeriod: "monthly", description: "Edit videos with Editron" }
@@ -118,5 +119,8 @@ export const DEFAULT_FREE_PLAN_LIMITS = {
   ],
   musitron: [
     { limitType: "maxMusicGeneration", maxUsage: 3, resetPeriod: "monthly", description: "Generate music tracks" }
+  ],
+  clickatron: [
+    { limitType: "maxThumbnailGeneration", maxUsage: 5, resetPeriod: "weekly", description: "Generate thumbnails with Clickatron" }
   ]
 };

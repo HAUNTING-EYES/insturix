@@ -18,6 +18,7 @@ import { getPlanDisplayName } from "@/lib/planUtils";
 import { toast } from "sonner";
 import { usePlansFromDB, DBPlan } from "@/lib/hooks/usePlansFromDB";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
+import { CurrencySelector } from "@/components/CurrencySelector";
 
 type PlanFeature = {
   id: string
@@ -324,6 +325,9 @@ export function UpgradePageContent({
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
             Choose the perfect plan to unlock premium features and take your productivity to the next level
           </p>
+          <div className="flex justify-center">
+            <CurrencySelector />
+          </div>
          </motion.div>
       )}
 

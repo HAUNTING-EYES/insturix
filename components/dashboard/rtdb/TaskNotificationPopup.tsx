@@ -36,7 +36,7 @@ export function TaskNotificationPopup({
   const config = statusConfig[taskUpdate.status];
   const StatusIcon = config.icon;
 
-  const isClickable = serviceName === 'alyzitron' &&
+  const isClickable = (serviceName === 'alyzitron' || serviceName === 'clickatron') &&
     (taskUpdate.status === 'completed' || taskUpdate.status === 'failed');
 
   const handleClick = () => {
@@ -47,8 +47,11 @@ export function TaskNotificationPopup({
     }
     
     // Navigate to the appropriate service page
-    if (serviceName == 'alyzitron') {
+    if (serviceName === 'alyzitron') {
       const url = `/dashboard/${serviceName}/report/${taskUpdate.taskId}`;
+      router.push(url);
+    } else if (serviceName === 'clickatron') {
+      const url = `/dashboard/${serviceName}`;
       router.push(url);
     }
   };

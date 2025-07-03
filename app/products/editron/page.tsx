@@ -1,6 +1,6 @@
-import Header from "@/components/new-product-page/Header";
-import Features from "@/components/new-product-page/Features";
-import UseCases from "@/components/new-product-page/UseCases";
+// import Header from "@/components/new-product-page/Header";
+// import Features from "@/components/new-product-page/Features";
+// import UseCases from "@/components/new-product-page/UseCases";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
@@ -92,9 +92,9 @@ export default function Editron() {
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <Navbar />
       <main className="min-h-screen">
-        <Header {...headerContent} />
+        {/* <Header {...headerContent} />
         <Features features={features} />
-        <UseCases useCases={useCases} />
+        <UseCases useCases={useCases} /> */}
       </main>
       <Footer />
     </>

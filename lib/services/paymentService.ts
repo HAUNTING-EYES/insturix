@@ -1,6 +1,9 @@
 "use server";
 import Razorpay from 'razorpay';
-import { LemonsqueezyClient } from 'lemonsqueezy.ts';
+import {
+  lemonSqueezySetup,
+  createCheckout as createLemonSqueezyCheckout,
+} from '@lemonsqueezy/lemonsqueezy.js';
 import dotenv from 'dotenv';
 import Plan from '../../schemas/plans.ts';
 
@@ -18,8 +21,6 @@ const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_SECRET_KEY_ID,
 });
-
-const lemonsqueezy = new LemonsqueezyClient(process.env.LEMONSQUEEZY_API_KEY);
 
 const lemonSqueezyProducts: Map<string, string> = new Map();
 
@@ -41,7 +42,7 @@ export async function createPlan(planDetails: {
     type: string;
 }) {
     const { name, amount, currency, period, type } = planDetails;
-
+    // console.log('[DEBUG] createPlan called with:', { name, amount, currency, period, type });
     if (currency === 'INR') {
         try {
             const razorpayPlan = await razorpay.plans.create({
@@ -99,7 +100,7 @@ export async function createCheckout(planType: string, user: {
     }
 
     if (currency === 'INR') {
-        const razorpayPlanId = pricingDetails.planId.get('razorpay');
+        const razorpayPlanId = pricingDetails.planId.razorpay;
         console.log(`[Checkout] Attempting to use Razorpay Plan ID: ${razorpayPlanId}`);
         if (!razorpayPlanId) {
             console.error(`[Checkout] Razorpay planId is MISSING from the pricing details!`);
@@ -123,25 +124,40 @@ export async function createCheckout(planType: string, user: {
         };
     } else {
         // Lemon Squeezy checkout logic
-        const lemonSqueezyVariantId = pricingDetails.planId.get('lemonsqueezy');
+        const lemonSqueezyVariantId = pricingDetails.planId.lemonsqueezy;
         if (!lemonSqueezyVariantId) {
             console.error(`[Checkout] Lemon Squeezy variantId is MISSING from the pricing details!`);
             throw new Error(`Lemon Squeezy variantId not found for plan: ${plan.name}, currency: ${currency}, cycle: ${billingCycle}`);
         }
-        const checkout = await lemonsqueezy.createCheckout({
-            store: process.env.LEMONSQUEEZY_STORE_ID!,
-            variant: lemonSqueezyVariantId,
-            checkout_data: {
-                email: user.email,
-                name: user.fullName || "",
-                custom: {
-                    user_id: user.id,
+        
+        lemonSqueezySetup({ apiKey: process.env.LEMONSQUEEZY_API_KEY! });
+
+        const { data: checkoutData, error } = await createLemonSqueezyCheckout(
+            process.env.LEMONSQUEEZY_STORE_ID!,
+            lemonSqueezyVariantId,
+            {
+                checkoutData: {
+                    email: user.email!,
+                    name: user.fullName || "",
+                    custom: {
+                        user_id: user.id,
+                    },
                 },
-            },
-        });
+            }
+        );
+
+        if (error) {
+          console.error('[Lemon Squeezy Checkout Error]', error);
+          throw new Error(error.message);
+        }
+
+        if (!checkoutData || !checkoutData.data) {
+            throw new Error("Failed to create Lemon Squeezy checkout.");
+        }
+
         return {
             provider: 'lemonsqueezy',
-            checkoutUrl: checkout.data.attributes.url,
+            checkoutUrl: checkoutData.data.attributes.url,
         };
     }
 }

@@ -5,10 +5,20 @@ import {
   Brain,
   Share2,
   Video,
+  Sparkles,
 } from "lucide-react"
 import type { Product } from "./types"
 
 export const products: Product[] = [
+  {
+    name: "Clickatron",
+    path: "/dashboard/clickatron",
+    icon: Sparkles,
+    description: "YouTube Thumbnail Generator",
+    color: "#8B5CF6",
+    hoverColor: "#A78BFA",
+    isPro: false,
+  },
   {
     name: "Alyzitron",
     path: "/dashboard/alyzitron",

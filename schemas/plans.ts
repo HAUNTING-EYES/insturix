@@ -26,6 +26,7 @@ export interface IPlanServiceLimits {
   socialize: IPlanServiceLimit[];
   thinkforge: IPlanServiceLimit[];
   musitron: IPlanServiceLimit[];
+  clickatron: IPlanServiceLimit[];
 }
 
 export interface IPlan extends Document {
@@ -120,6 +121,10 @@ const planServiceLimitsSchema = new Schema<IPlanServiceLimits>({
     default: [],
   },
   musitron: {
+    type: [planServiceLimitSchema],
+    default: [],
+  },
+  clickatron: {
     type: [planServiceLimitSchema],
     default: [],
   },

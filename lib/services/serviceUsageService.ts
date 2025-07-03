@@ -50,7 +50,13 @@ export class ServiceUsageService {
 
     const isUnlimited = serviceLimit.maxUsage === -1;
     const remaining = isUnlimited ? -1 : serviceLimit.maxUsage - serviceLimit.currentUsage;
-    const hasAccess = isUnlimited || remaining > 0;
+    let hasAccess = isUnlimited || remaining > 0;
+    
+    // If lastReset is undefined and resetPeriod is not "none", assume user has access
+    if (!serviceLimit.lastReset && serviceLimit.resetPeriod !== "none") {
+      hasAccess = true;
+    }
+    
     const timeUntilReset = this.getTimeUntilReset(serviceLimit.lastReset, serviceLimit.resetPeriod);
 
     return {

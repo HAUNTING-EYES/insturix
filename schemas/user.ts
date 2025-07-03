@@ -16,6 +16,7 @@ export interface IServiceLimits {
   socialize: IServiceLimit[];
   thinkforge: IServiceLimit[];
   musitron: IServiceLimit[];
+  clickatron: IServiceLimit[];
 }
 
 export interface IPlan {
@@ -108,6 +109,10 @@ const serviceLimitsSchema = new Schema<IServiceLimits>({
     default: [],
   },
   musitron: {
+    type: [serviceLimitSchema],
+    default: [],
+  },
+  clickatron: {
     type: [serviceLimitSchema],
     default: [],
   },

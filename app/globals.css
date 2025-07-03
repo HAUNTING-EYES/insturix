@@ -391,7 +391,6 @@
     margin: 0;
     /* Ensure proper stacking context */
     isolation: isolate;
-    overflow: hidden;
   }
 
   /* Ensure mobile menu stays within viewport */
@@ -836,4 +835,16 @@
 }
 .animate-shine-fast {
   animation: shine-fast 0.5s linear;
+}
+
+@keyframes animated-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }

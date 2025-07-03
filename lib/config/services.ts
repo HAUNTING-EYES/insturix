@@ -35,6 +35,12 @@ export const SERVICE_CONFIG = {
     pubsubTopic: process.env.SOCIALIZE_PUBSUB_TOPIC || 'socialize-tasks',
     backendUrl: process.env.SOCIALIZE_BACKEND_URL || 'http://localhost:8084',
   },
+  clickatron: {
+    name: 'Clickatron',
+    mongoCollection: process.env.CLICKATRON_MONGO_COLLECTION || 'thumbnailgen_tasks',
+    pubsubTopic: process.env.CLICKATRON_PUBSUB_TOPIC || 'clickatron-tasks',
+    backendUrl: process.env.CLICKATRON_BACKEND_URL || 'http://localhost:8085',
+  },
 } as const;
 
 export type ServiceName = keyof typeof SERVICE_CONFIG;
