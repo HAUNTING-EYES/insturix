@@ -93,7 +93,7 @@ export default function SocializeDashboard({
       if (!uniqueUsername) return null;
 
       const { data } = await api.get<ISocialize>(
-        `/services/socialize?uniqueUsername=${uniqueUsername}`
+        `/services/socialize?username=${uniqueUsername}`
       );
       return data;
     },

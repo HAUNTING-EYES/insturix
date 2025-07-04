@@ -28,7 +28,7 @@ export async function fetchSocializeUser(uniqueUsername: string): Promise<Social
   try {
     // Use absolute URL for server-side requests
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
-    const { data } = await axios.get(`${baseUrl}/api/services/socialize?uniqueUsername=${uniqueUsername}`);
+    const { data } = await axios.get(`${baseUrl}/api/services/socialize?username=${uniqueUsername}`);
     return data
   } catch (error) {
     console.error("Error fetching Socialize user:", error)

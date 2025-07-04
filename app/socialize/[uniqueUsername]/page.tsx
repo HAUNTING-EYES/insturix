@@ -1,3 +1,4 @@
+import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { ProfileContent } from "@/components/dashboard/Socialize/ProfileContent";
 import { ProfileSkeleton } from "@/components/skeletons/ProfileSkeleton";
@@ -6,12 +7,13 @@ import Footer from "@/components/Footer";
 import { fetchSocializeUser } from "@/lib/socialize/main";
 import { ProfileError } from "@/components/dashboard/Socialize/ProfileError";
 
-export default async function SocializePublicProfilePage({
+export default async function Page({
   params,
 }: {
-  params: { uniqueUsername: string };
+  params: Promise<{ uniqueUsername: string }>;
 }) {
-  const { uniqueUsername } = params;
+  const { uniqueUsername } = await params;
+  if (uniqueUsername === "favicon.ico") return notFound();
   try {
     // Fetch data on the server
     const socializeData = await fetchSocializeUser(uniqueUsername);

@@ -1,11 +1,10 @@
 import { NextRequest } from "next/server";
-import { MongoClient, Db } from "mongodb";
 import Socialize from "@/schemas/Socialize";
 import mongoose from "mongoose";
+import { auth } from "@clerk/nextjs/server"; // Import Clerk authentication
 
 // Interface matching the Socialize schema
 import type { SocializeLink } from "@/schemas/Socialize";
-
 
 interface Notification {
   message: string;
@@ -19,7 +18,8 @@ interface ISocializeData {
   bio?: string;
   links?: SocializeLink[];
   notifications?: Notification[];
-  uniqueUsername?: string; // For compatibility
+  _id?: string; // Add _id for lean results
+  __v?: number; // Add __v for lean results
 }
 
 if (!process.env.MONGODB_URI) {
@@ -33,52 +33,63 @@ if (!process.env.MONGODB_DB_NAME) {
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
-let cachedClient: MongoClient | null = null;
-let cachedDb: Db | null = null;
-
-// Changed from export to regular async function
 async function connectToDatabase() {
-  // If we have cached values, use them
-  if (cachedClient && cachedDb) {
-    return {
-      client: cachedClient,
-      db: cachedDb,
-    };
-  }
-
-  // Connect to MongoDB via mongoose if not already connected
   if (mongoose.connection.readyState !== 1) {
     await mongoose.connect(MONGODB_URI);
   }
+}
 
-  // Connect to cluster via MongoClient for direct operations
-  const client = await MongoClient.connect(MONGODB_URI);
-  const db = client.db(MONGODB_DB_NAME);
+// Helper for input validation
+function isValidSocializeData(data: ISocializeData, isPatch: boolean = false): string | null {
+  if (!isPatch && !data.clerkUserId) return "clerkUserId is required.";
+  if (!isPatch && !data.username) return "Username is required.";
 
-  // Cache the values
-  cachedClient = client;
-  cachedDb = db;
-
-  return {
-    client,
-    db,
-  };
+  if (data.username && (typeof data.username !== 'string' || data.username.length < 3 || data.username.length > 30)) {
+    return "Username must be a string between 3 and 30 characters.";
+  }
+  if (data.bio && (typeof data.bio !== 'string' || data.bio.length > 256)) {
+    return "Bio must be a string up to 256 characters.";
+  }
+  if (data.links !== undefined) {
+    if (!Array.isArray(data.links)) return "Links must be an array.";
+    for (const link of data.links) {
+      if (typeof link.platform !== 'string' || !link.platform.trim()) return "Each link must have a platform.";
+      if (typeof link.url !== 'string' || !link.url.trim() || !/^https?:\/\/.+/.test(link.url)) return "Each link must have a valid URL.";
+    }
+  }
+  if (data.notifications !== undefined) {
+    if (!Array.isArray(data.notifications)) return "Notifications must be an array.";
+    for (const notification of data.notifications) {
+      if (typeof notification.message !== 'string' || !notification.message.trim()) return "Each notification must have a message.";
+      if (typeof notification.duration !== 'number' || notification.duration < 1 || notification.duration > 24) return "Each notification must have a duration between 1 and 24.";
+    }
+  }
+  return null;
 }
 
 // POST route for creating new profiles
 export async function POST(request: NextRequest) {
   try {
-    await connectToDatabase(); // Ensure mongoose is connected
-
-    const body: ISocializeData = await request.json();
-    const { username } = body;
-
-    if (!username) {
-      return Response.json({ error: "username required" }, { status: 400 });
+    const { userId } = await auth();
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check if profile already exists
-    const existingProfile = await Socialize.findOne({ username }).lean();
+    await connectToDatabase();
+
+    const body: ISocializeData = await request.json();
+    const validationError = isValidSocializeData(body);
+    if (validationError) {
+      return Response.json({ error: validationError }, { status: 400 });
+    }
+
+    if (body.clerkUserId !== userId) {
+      return Response.json({ error: "Unauthorized: clerkUserId mismatch" }, { status: 403 });
+    }
+
+    const { username } = body;
+
+    const existingProfile = (await Socialize.findOne({ username }).lean()) as ISocializeData | null;
     if (existingProfile) {
       return Response.json(
         { error: "Profile already exists. Use PATCH to update." },
@@ -86,11 +97,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create new profile
     const newProfile = new Socialize(body);
     const savedProfile = await newProfile.save();
 
-    console.log("Created new Socialize profile:", savedProfile);
+    console.log(`Created new Socialize profile for user: ${userId}`);
 
     return Response.json(
       {
@@ -101,68 +111,67 @@ export async function POST(request: NextRequest) {
     );
   } catch (e: unknown) {
     const error = e as Error;
-    console.log("POST Error:", error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error("POST Error:", error.message);
+    return Response.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
 
 // PATCH route for updating existing profiles
 export async function PATCH(request: NextRequest) {
   try {
-    await connectToDatabase(); // Ensure mongoose is connected
+    const { userId } = await auth();
+    if (!userId) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await connectToDatabase();
 
     const body: ISocializeData = await request.json();
     const { username, ...updateFields } = body;
 
-    if (!username) {
-      return Response.json({ error: "username required" }, { status: 400 });
+    const validationError = isValidSocializeData(body, true);
+    if (validationError) {
+      return Response.json({ error: validationError }, { status: 400 });
     }
 
-    // Prepare update data with explicit handling
+    if (!username) {
+      return Response.json({ error: "Username is required for update" }, { status: 400 });
+    }
+
+    const existingProfile = (await Socialize.findOne({ username }).lean()) as ISocializeData | null;
+    if (!existingProfile) {
+      return Response.json({ error: "Profile not found" }, { status: 404 });
+    }
+    if (existingProfile.clerkUserId !== userId) {
+      return Response.json({ error: "Unauthorized: You can only update your own profile" }, { status: 403 });
+    }
+
     const updateData: Record<string, unknown> = {};
 
-    // Handle bio field explicitly
-    if (updateFields.bio !== undefined) {
-      updateData.bio = updateFields.bio;
-    }
+    if (updateFields.bio !== undefined) updateData.bio = updateFields.bio;
+    if (updateFields.profileImage !== undefined) updateData.profileImage = updateFields.profileImage;
 
-    // Handle links array explicitly
-    if (updateFields.links !== undefined) {
-      updateData.links = updateFields.links;
-    }
+    // TODO: Implement more granular array updates (add, remove, update specific items) for links and notifications.
+    // Current implementation replaces the entire array if provided.
+    if (updateFields.links !== undefined) updateData.links = updateFields.links;
+    if (updateFields.notifications !== undefined) updateData.notifications = updateFields.notifications;
 
-    // Handle notifications array explicitly
-    if (updateFields.notifications !== undefined) {
-      updateData.notifications = updateFields.notifications;
-    }
+    // TODO: Implement rate limiting to prevent abuse and brute-force attacks on these endpoints.
+    // TODO: Consider schema versioning and migration strategies for future database changes.
 
-    // Handle remaining fields
-    Object.entries(updateFields).forEach(([key, value]) => {
-      if (
-        value !== undefined &&
-        !["bio", "links", "notifications"].includes(key)
-      ) {
-        updateData[key] = value;
-      }
-    });
+    console.log(`PATCH: Updating Socialize profile for user: ${userId}, username: ${username}`);
 
-    console.log("PATCH: Updating Socialize profile data:", {
-      username,
-      updateData,
-    });
-
-    // Use findOneAndUpdate with Mongoose model
     const updatedProfile = await Socialize.findOneAndUpdate(
-      { username },
+      { username, clerkUserId: userId },
       { $set: updateData },
       { new: true }
     );
 
     if (!updatedProfile) {
-      return Response.json({ error: "Profile not found" }, { status: 404 });
+      return Response.json({ error: "Profile not found or unauthorized to update" }, { status: 404 });
     }
 
-    console.log("PATCH: Updated profile:", updatedProfile);
+    console.log(`PATCH: Updated profile for user: ${userId}`);
 
     return Response.json(
       {
@@ -173,48 +182,46 @@ export async function PATCH(request: NextRequest) {
     );
   } catch (e: unknown) {
     const error = e as Error;
-    console.log("PATCH Error:", error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error("PATCH Error:", error.message); // Use console.error for errors
+    return Response.json({ error: "Internal Server Error" }, { status: 500 }); // Generic error message
   }
 }
 
 // GET route for retrieving profiles
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase(); // Ensure mongoose is connected
+    await connectToDatabase();
 
     const { searchParams } = new URL(request.url);
-    const username = searchParams.get("uniqueUsername");
+    const username = searchParams.get("username");
 
     if (!username) {
-      return Response.json({ error: "username required" }, { status: 400 });
+      return Response.json({ error: "Username is required" }, { status: 400 });
     }
 
-    // Try to find the user using the Socialize model
     const userData = (await Socialize.findOne({
       username,
-    }).lean()) as ISocializeData & {
-      _id: mongoose.Types.ObjectId;
-      __v: number;
-    };
+    }).lean()) as ISocializeData | null;
 
     if (!userData) {
-      return Response.json({ error: "User not found" }, { status: 404 });
+      return Response.json({ error: "Socialize profile not found" }, { status: 404 });
     }
 
-    // Add uniqueUsername field for compatibility with existing code
+    // For public profiles, we don't need to check clerkUserId against the authenticated user.
+    // The profile is publicly viewable if it exists.
+
     const responseData = {
       ...userData,
       uniqueUsername: userData.username,
-      _id: userData._id.toString(), // Convert ObjectId to string
+      _id: userData._id?.toString(),
     };
 
-    console.log("Socialize data retrieved:", responseData);
+    console.log(`Socialize data retrieved for username: ${username}`);
 
     return Response.json(responseData, { status: 200 });
   } catch (e: unknown) {
     const error = e as Error;
-    console.log("GET Error:", error.message);
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error("GET Error:", error.message);
+    return Response.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }
