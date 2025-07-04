@@ -172,7 +172,7 @@ export default function AlyzitronDemo() {
             <div className="flex justify-center items-center gap-4 mt-6">
               {analysisComplete ? (
                 <>
-                  <Link href="http://localhost:3000/dashboard/alyzitron/report/6858308b4abf451df9c0fd18" passHref>
+                  <Link href="/dashboard/alyzitron/report/68684552970efc9b80ef7b4e" passHref>
                     <Button size="lg" className="bg-green-600 text-white hover:bg-green-700 border-transparent px-8 py-3 text-lg font-semibold transition-colors duration-200">
                       <BarChart3 className="mr-2 w-5 h-5" />
                       View Report

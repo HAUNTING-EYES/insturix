@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { useQueryClient } from '@tanstack/react-query';
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
+import { useAnalytics } from "@/components/dashboard/Alyzitron/AnalyticsProvider";
 
 interface UploadState {
   progress: number;
@@ -34,6 +35,7 @@ interface AnalysisUploadState {
 
 export function useVideoAnalysis() {
   const queryClient = useQueryClient();
+  const { fetchStats } = useAnalytics();
   
   // Track state for multiple analyses
   const [uploadStates, setUploadStates] = useState<
@@ -309,6 +311,9 @@ export function useVideoAnalysis() {
               const updatedData = [newAnalysisData, ...currentData];
               return updatedData;
           });
+
+          // Update analytics overview after task creation
+          fetchStats();
 
           resetState(analysisId);
 
