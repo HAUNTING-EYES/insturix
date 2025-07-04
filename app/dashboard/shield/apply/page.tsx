@@ -1388,7 +1388,7 @@ export default function CreatorApplicationForm() {
 
                     <div>
                       <Label htmlFor="worstOnlineIncident">
-                        What&apos;s the worst online incident you&apos;ve faced
+                        What's the worst online incident you've faced
                         so far?
                       </Label>
                       <Field

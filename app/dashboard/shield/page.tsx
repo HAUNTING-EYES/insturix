@@ -1,5 +1,5 @@
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import ShieldDashhboard from "@/components/dashboard/shield/ShieldDashboard";
+import ShieldLandingPage from "@/components/dashboard/shield/ShieldLandingPage";
 import { Shield } from "lucide-react";
 
 export default function Dashboard() {
@@ -13,12 +13,11 @@ export default function Dashboard() {
             Shield
           </h1>
           <p className="mt-3 text-lg text-zinc-200 font-light">
-            Protect your content with a paywall and earn money from your
-            audience with Shield.
+             Protect your content from lawsuits and copyright claims with our team of lawyers.
           </p>
         </div>
       </div>
-      <ShieldDashhboard />
+      <ShieldLandingPage />
     </DashboardShell>
   );
 }
