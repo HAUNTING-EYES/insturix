@@ -3,12 +3,7 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import Socialize from "@/schemas/Socialize";
 
 // Define more specific types instead of using 'any'
-interface Link {
-  platform: string;
-  url: string;
-  title?: string;
-  icon?: string;
-}
+import type { SocializeLink } from "@/schemas/Socialize";
 
 interface Notification {
   message: string;
@@ -21,7 +16,7 @@ interface SocializeUserData {
   username?: string;
   bio?: string;
   profileImage?: string;
-  links?: Link[];
+  links?: SocializeLink[];
   notifications?: Notification[];
   [key: string]: unknown;
 }

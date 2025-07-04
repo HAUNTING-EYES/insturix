@@ -33,17 +33,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-interface ILink {
-  platform: string;
-  url: string;
-}
+import type { SocializeLink } from "@/schemas/Socialize";
+import { normalizeSocializeLinks } from "@/schemas/Socialize";
 
 interface ISocialize {
   clerkUserId: string;
   username: string;
   profileImage: string;
   bio: string;
-  links: ILink[];
+  links: SocializeLink[];
   uniqueUsername?: string;
   notifications?: { message: string; duration: number }[];
   createdAt: Date;
@@ -76,7 +74,7 @@ export default function SocializeDashboard({
   // State management and other hooks remain unchanged...
   const [showAddModal, setShowAddModal] = useState(false);
   const [showUpdatePopup, setShowUpdatePopup] = useState(false);
-  const [newLink, setNewLink] = useState<ILink>({
+  const [newLink, setNewLink] = useState<SocializeLink>({
     platform: "youtube",
     url: "",
   });
@@ -149,7 +147,7 @@ export default function SocializeDashboard({
       {
         onSuccess: () => {
           setShowAddModal(false);
-          setNewLink({ platform: "youtube", url: "" });
+          setNewLink({ platform: "youtube", url: "", title: "" });
           toast.success("Link added successfully");
         },
       }
@@ -336,6 +334,18 @@ export default function SocializeDashboard({
                 value={newLink.url}
                 onChange={(e) =>
                   setNewLink({ ...newLink, url: e.target.value })
+                }
+                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-gray-400">Title (optional)</label>
+              <Input
+                type="text"
+                placeholder="Link title (defaults to platform)"
+                value={newLink.title || ""}
+                onChange={(e) =>
+                  setNewLink({ ...newLink, title: e.target.value })
                 }
                 className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
               />

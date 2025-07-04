@@ -7,7 +7,7 @@ interface SocializePreviewProps {
   logo: string | null;
   profileTitle: string;
   bio: string;
-  links: { url: string; platform: string }[];
+  links: import("@/schemas/Socialize").SocializeLink[];
 }
 
 export function SocializePreview({

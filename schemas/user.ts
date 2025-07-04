@@ -13,7 +13,7 @@ export interface IServiceLimits {
   alyzitron: IServiceLimit[];
   editron: IServiceLimit[];
   shield: IServiceLimit[];
-  socialize: IServiceLimit[];
+  // socialize: IServiceLimit[]; // Removed socialize limits
   thinkforge: IServiceLimit[];
   musitron: IServiceLimit[];
   clickatron: IServiceLimit[];
@@ -101,10 +101,10 @@ const serviceLimitsSchema = new Schema<IServiceLimits>({
     type: [serviceLimitSchema],
     default: [],
   },
-  socialize: {
-    type: [serviceLimitSchema],
-    default: [],
-  },
+  // socialize: {
+  //   type: [serviceLimitSchema],
+  //   default: [],
+  // },
   thinkforge: {
     type: [serviceLimitSchema],
     default: [],

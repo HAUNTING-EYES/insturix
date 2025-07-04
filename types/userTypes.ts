@@ -17,9 +17,10 @@ export interface IServiceLimits {
   alyzitron: IServiceLimit[];
   editron: IServiceLimit[];
   shield: IServiceLimit[];
-  socialize: IServiceLimit[];
+  // socialize: IServiceLimit[]; // Removed socialize limits
   thinkforge: IServiceLimit[];
   musitron: IServiceLimit[];
+  clickatron: IServiceLimit[];
 }
 
 export interface IPlan {

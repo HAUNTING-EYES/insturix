@@ -1,10 +1,7 @@
 import axios from "axios"
 
 // Import interfaces from Socialize schema
-export interface SocializeLink {
-  platform: string
-  url: string
-}
+import type { SocializeLink } from "@/schemas/Socialize";
 
 export interface SocializeNotification {
   message: string

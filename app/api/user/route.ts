@@ -36,9 +36,9 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
         alyzitron: [],
         editron: [],
         shield: [],
-        socialize: [],
         thinkforge: [],
         musitron: [],
+        clickatron: [],
       },
     };
     
@@ -76,7 +76,12 @@ export async function GET() {
         }
         
         // Create user using the fallback mechanism
-        user = await UserInitializationService.ensureUserExists(userId, email);
+        user = await UserInitializationService.ensureUserExists(
+          userId,
+          email,
+          clerkUser.username || "",
+          clerkUser.imageUrl || undefined
+        );
         console.log(`Successfully created missing user: ${userId}`);
       } catch (createError) {
         console.error("Failed to create missing user:", createError);
@@ -170,7 +175,6 @@ export async function PUT(request: Request) {
         alyzitron: [],
         editron: [],
         shield: [],
-        socialize: [],
         thinkforge: [],
         musitron: [],
       },
@@ -245,7 +249,6 @@ export async function PATCH(request: Request) {
         alyzitron: [],
         editron: [],
         shield: [],
-        socialize: [],
         thinkforge: [],
         musitron: [],
       },

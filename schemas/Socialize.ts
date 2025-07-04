@@ -1,8 +1,10 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-interface ILink {
+export interface SocializeLink {
   platform: string;
   url: string;
+  title?: string;
+  icon?: string;
 }
 
 interface INotification {
@@ -15,13 +17,13 @@ interface ISocialize extends Document {
   username: string;
   profileImage: string;
   bio: string;
-  links: ILink[];
+  links: SocializeLink[];
   notifications: INotification[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-const linkSchema = new Schema<ILink>(
+const linkSchema = new Schema<SocializeLink>(
   {
     platform: {
       type: String,
@@ -30,6 +32,14 @@ const linkSchema = new Schema<ILink>(
     url: {
       type: String,
       required: true,
+    },
+    title: {
+      type: String,
+      required: false,
+    },
+    icon: {
+      type: String,
+      required: false,
     },
   },
   { _id: false }
@@ -93,3 +103,17 @@ const Socialize =
   mongoose.model<ISocialize>("Socialize", socializeSchema);
 
 export default Socialize;
+/**
+ * Normalize an array of SocializeLink objects:
+ * - Ensures each link has a title (defaults to platform)
+ * - Ensures each link has an icon (auto-chosen by platform)
+ */
+import { getPlatformIconName } from "@/components/dashboard/Socialize/SocializeIcons";
+
+export const normalizeSocializeLinks = (links: SocializeLink[]): SocializeLink[] => {
+  return links.map(link => {
+    const title = link.title && link.title.trim() ? link.title : link.platform;
+    const icon = getPlatformIconName ? getPlatformIconName(link.platform) : link.icon;
+    return { ...link, title, icon };
+  });
+};

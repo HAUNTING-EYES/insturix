@@ -15,16 +15,13 @@ interface LinkPreview {
   url: string
 }
 
-interface ILink {
-  platform: string
-  url: string
-}
+import type { SocializeLink } from "@/schemas/Socialize";
 
 interface SocializeLinkPreviewCardProps {
   selectedLinkIndex: number | null
   isPreviewLoading: boolean
   previewData: LinkPreview | null
-  userLinks: ILink[]
+  userLinks: SocializeLink[]
   userBio: string
   userLogo: string | null | undefined
   userName: string | undefined
@@ -58,12 +55,13 @@ export function SocializeLinkPreviewCard({
             <div className="rounded-lg overflow-hidden border border-[#0e6b9c]/30">
               <div className="aspect-video bg-gray-800 relative overflow-hidden">
                 {previewData?.image ? (
-                  <Image
+                  <img
                     src={previewData.image || "/placeholder.svg"}
                     alt={previewData.title || "Link preview"}
                     width={500}
                     height={300}
                     className="w-full h-full object-cover"
+                    style={{ objectFit: "cover", width: "100%", height: "100%" }}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gray-900">

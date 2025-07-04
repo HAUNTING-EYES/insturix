@@ -7,13 +7,10 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import { getPlatformIcon } from "./SocializeIcons";
 
-interface ILink {
-  platform: string;
-  url: string;
-}
+import type { SocializeLink } from "@/schemas/Socialize";
 
 interface SocializeLinksCardProps {
-  links: ILink[];
+  links: SocializeLink[];
   selectedLinkIndex: number | null;
   onSelectLink: (index: number) => void;
   onRemoveLink: (index: number) => void;

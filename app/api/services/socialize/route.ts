@@ -4,10 +4,8 @@ import Socialize from "@/schemas/Socialize";
 import mongoose from "mongoose";
 
 // Interface matching the Socialize schema
-interface ILink {
-  platform: string;
-  url: string;
-}
+import type { SocializeLink } from "@/schemas/Socialize";
+
 
 interface Notification {
   message: string;
@@ -19,7 +17,7 @@ interface ISocializeData {
   username: string;
   profileImage?: string;
   bio?: string;
-  links?: ILink[];
+  links?: SocializeLink[];
   notifications?: Notification[];
   uniqueUsername?: string; // For compatibility
 }

@@ -18,44 +18,83 @@ import {
   DiscIcon as Discord,
 } from "lucide-react";
 
-export function getPlatformIcon(platform: string) {
-  const iconProps = { className: "w-5 h-5 text-white" };
-
+export function getPlatformIconName(platform: string): string {
   const normalizedPlatform = platform.toLowerCase();
-
   switch (normalizedPlatform) {
     case "twitter":
     case "x":
-      return <Twitter {...iconProps} />;
+      return "Twitter";
     case "instagram":
-      return <Instagram {...iconProps} />;
+      return "Instagram";
     case "facebook":
-      return <Facebook {...iconProps} />;
+      return "Facebook";
     case "linkedin":
-      return <Linkedin {...iconProps} />;
+      return "Linkedin";
     case "github":
-      return <Github {...iconProps} />;
+      return "Github";
     case "youtube":
-      return <Youtube {...iconProps} />;
+      return "Youtube";
     case "twitch":
-      return <Twitch {...iconProps} />;
+      return "Twitch";
     case "website":
-      return <Globe {...iconProps} />;
+      return "Globe";
     case "email":
-      return <Mail {...iconProps} />;
+      return "Mail";
     case "spotify":
-      return <Spotify {...iconProps} />;
+      return "Spotify";
     case "music":
-      return <Music {...iconProps} />;
+      return "Music";
     case "dribbble":
-      return <Dribbble {...iconProps} />;
+      return "Dribbble";
     case "figma":
-      return <Figma {...iconProps} />;
+      return "Figma";
     case "codepen":
-      return <Codepen {...iconProps} />;
+      return "Codepen";
     case "slack":
-      return <Slack {...iconProps} />;
+      return "Slack";
     case "discord":
+      return "Discord";
+    default:
+      return "LinkIcon";
+  }
+}
+
+// Existing function for rendering the icon
+export function getPlatformIcon(platform: string) {
+  const iconProps = { className: "w-5 h-5 text-white" };
+  const iconName = getPlatformIconName(platform);
+  switch (iconName) {
+    case "Twitter":
+      return <Twitter {...iconProps} />;
+    case "Instagram":
+      return <Instagram {...iconProps} />;
+    case "Facebook":
+      return <Facebook {...iconProps} />;
+    case "Linkedin":
+      return <Linkedin {...iconProps} />;
+    case "Github":
+      return <Github {...iconProps} />;
+    case "Youtube":
+      return <Youtube {...iconProps} />;
+    case "Twitch":
+      return <Twitch {...iconProps} />;
+    case "Globe":
+      return <Globe {...iconProps} />;
+    case "Mail":
+      return <Mail {...iconProps} />;
+    case "Spotify":
+      return <Spotify {...iconProps} />;
+    case "Music":
+      return <Music {...iconProps} />;
+    case "Dribbble":
+      return <Dribbble {...iconProps} />;
+    case "Figma":
+      return <Figma {...iconProps} />;
+    case "Codepen":
+      return <Codepen {...iconProps} />;
+    case "Slack":
+      return <Slack {...iconProps} />;
+    case "Discord":
       return <Discord {...iconProps} />;
     default:
       return <LinkIcon {...iconProps} />;

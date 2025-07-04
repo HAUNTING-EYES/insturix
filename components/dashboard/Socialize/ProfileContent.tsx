@@ -120,7 +120,9 @@ export function ProfileContent({
                 {getPlatformIcon(link.platform)}
               </div>
               <div className="flex-1 overflow-hidden">
-                <span className="font-medium">{link.platform}</span>
+                <span className="font-medium">{link.title && link.title.trim() !== ""
+                  ? link.title
+                  : link.platform.charAt(0).toUpperCase() + link.platform.slice(1)}</span>
                 <p className="text-xs text-gray-400 truncate">{link.url}</p>
               </div>
               <ExternalLink className="w-5 h-5 text-gray-400 group-hover:text-white transition-colors" />

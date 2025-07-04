@@ -53,14 +53,6 @@ const PLANS_DATA = [
           resetPeriod: "monthly"
         }
       ],
-      socialize: [
-        {
-          limitType: "maxSocialLinks",
-          description: "Social media links",
-          maxUsage: 5,
-          resetPeriod: "none"
-        }
-      ],
       thinkforge: [
         {
           limitType: "maxAIChats",
@@ -132,14 +124,6 @@ const PLANS_DATA = [
           description: "Security scans with Shield",
           maxUsage: 15,
           resetPeriod: "monthly"
-        }
-      ],
-      socialize: [
-        {
-          limitType: "maxSocialLinks",
-          description: "Social media links",
-          maxUsage: 15,
-          resetPeriod: "none"
         }
       ],
       thinkforge: [
@@ -294,14 +278,6 @@ const PLANS_DATA = [
           description: "Security scans with Shield",
           maxUsage: -1, // Unlimited
           resetPeriod: "monthly"
-        }
-      ],
-      socialize: [
-        {
-          limitType: "maxSocialLinks",
-          description: "Social media links",
-          maxUsage: -1, // Unlimited
-          resetPeriod: "none"
         }
       ],
       thinkforge: [
