@@ -2,10 +2,8 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
-import { NextApiRequest } from 'next';
-
 export async function GET(
-  req: NextApiRequest,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
@@ -17,8 +15,8 @@ export async function GET(
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
     }
 
-    if (!id) {
-      return NextResponse.json({ error: 'Task ID is required' }, { status: 400 });
+    if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
+      return NextResponse.json({ error: 'Invalid Task ID' }, { status: 400 });
     }
 
     const task = await ClickatronTask.findOne({ _id: id, userId });

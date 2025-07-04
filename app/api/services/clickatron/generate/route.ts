@@ -20,8 +20,12 @@ export async function POST(req: Request) {
 
   const { details } = body;
 
-  if (!details) {
-    return new NextResponse('Missing details', { status: 400 });
+  if (
+    !details ||
+    (typeof details === 'string' && details.trim().length === 0) ||
+    (typeof details === 'object' && Object.keys(details).length === 0)
+  ) {
+    return new NextResponse('Missing or empty details', { status: 400 });
   }
 
   // Robust string conversion with sanitization
@@ -66,7 +70,7 @@ export async function POST(req: Request) {
     console.log('Task saved successfully:', newTask._id);
   } catch (saveError: any) {
     console.error('Error saving task:', saveError);
-    return new NextResponse(`Database error: ${saveError?.message || 'Unknown error'}`, { status: 500 });
+    return new NextResponse('Internal Server Error', { status: 500 });
   }
 
   await incrementClickatronUsage({ userId });

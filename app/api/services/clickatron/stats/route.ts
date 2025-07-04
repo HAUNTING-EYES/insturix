@@ -18,17 +18,17 @@ export async function GET(request: NextRequest) {
     monthStart.setHours(0, 0, 0, 0);
 
     const monthlyTasks = await ClickatronTask.countDocuments({
-      clerkUserId: userId,
+      userId: userId,
       createdAt: { $gte: monthStart },
     });
 
     const pendingTasks = await ClickatronTask.countDocuments({
-      clerkUserId: userId,
+      userId: userId,
       status: { $in: ["queued", "processing"] },
     });
 
     const totalTasks = await ClickatronTask.countDocuments({
-      clerkUserId: userId,
+      userId: userId,
     });
 
     const usage = await ServiceUsageService.getServiceUsageForAllServices(userId);
