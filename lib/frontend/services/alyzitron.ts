@@ -9,7 +9,6 @@ export const ALYZITRON_FRONTEND_CONFIG: ServiceLimitConfig = {
   limitMappings: {
     'general': 'maxTotalAnalysis',
     'longVideo': 'maxOver20MinuteAnalysis',
-    'concurrent': 'maxConcurrentTasks'
   },
   defaultLimitType: 'maxTotalAnalysis'
 };
@@ -27,7 +26,6 @@ export const getAllAlyzitronUsage = async () => {
   const allUsage = await alyzitronLimitUtils.getAllUsage();
   return {
     total: allUsage['maxTotalAnalysis'],
-    concurrent: allUsage['maxConcurrentTasks'], 
     longVideo: allUsage['maxOver20MinuteAnalysis']
   };
 };
@@ -38,12 +36,6 @@ export const canStartAnalysis = async (requestData: any) => {
     const totalUsage = await alyzitronLimitUtils.getCurrentUsage({ ...requestData, limitType: 'general' });
     if (!totalUsage || !alyzitronLimitUtils.canPerformAction(totalUsage)) {
       return { canStart: false, reason: 'Total weekly analysis limit exceeded', usage: totalUsage };
-    }
-
-    // Check concurrent tasks limit
-    const concurrentUsage = await alyzitronLimitUtils.getCurrentUsage({ ...requestData, limitType: 'concurrent' });
-    if (!concurrentUsage || !alyzitronLimitUtils.canPerformAction(concurrentUsage)) {
-      return { canStart: false, reason: 'Maximum concurrent analyses running', usage: concurrentUsage };
     }
 
     // Check long video limit if applicable

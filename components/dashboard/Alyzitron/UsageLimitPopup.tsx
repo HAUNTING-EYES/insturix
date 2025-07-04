@@ -10,7 +10,7 @@ import { useRouter } from 'next/navigation';
 interface UsageLimitPopupProps {
   isOpen: boolean;
   onClose: () => void;
-  limitType: 'total' | 'concurrent' | 'long_video' | 'general';
+  limitType: 'total' | 'long_video' | 'general';
   currentUsage?: number;
   maxUsage?: number;
 }
@@ -21,12 +21,6 @@ const LIMIT_CONTENT = {
     icon: AlertTriangle,
     description: "You've exhausted your weekly video analysis quota. Your creative potential is being throttled.",
     consequence: "No more insights until next week reset"
-  },
-  concurrent: {
-    title: "Concurrent Processing Limit Hit", 
-    icon: Zap,
-    description: "Too many analyses running simultaneously. The system cannot handle your ambitious workflow.",
-    consequence: "Wait for current analyses to complete"
   },
   long_video: {
     title: "Long Video Limit Reached",

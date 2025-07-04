@@ -21,7 +21,6 @@ import {
   ImageIcon
 } from 'lucide-react';
 import { getAllServiceLimitMappings } from '@/lib/config/serviceLimits';
-import { useConcurrentTasks } from '@/lib/hooks/useConcurrentTasks';
 import { useGetStats as useGetClickatronStats } from '@/components/dashboard/Clickatron/hooks/useGetStats';
 
 interface ServiceUsageInfo {
@@ -120,7 +119,6 @@ const formatResetPeriod = (period: string): string => {
 
 export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> = ({ initialData }) => {
   const router = useRouter();
-  const { concurrentCount, isLoading: concurrentLoading } = useConcurrentTasks();
   const { stats: clickatronStats } = useGetClickatronStats();
   const [serviceUsage, setServiceUsage] = useState<ServiceUsageData>(initialData);
   const [loading, setLoading] = useState(false);
@@ -159,65 +157,6 @@ export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> =
     }
   };
 
-  // Inject real-time concurrent tasks count into service usage
-  const getEnhancedServiceUsage = async () => {
-    if (!serviceUsage.alyzitron || concurrentLoading) {
-      return serviceUsage;
-    }
-
-    try {
-      // Get concurrent tasks limit info
-      const response = await fetch('/api/user/service-usage', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serviceName: 'alyzitron',
-          limitType: 'maxConcurrentTasks'
-        })
-      });
-
-      if (response.ok) {
-        const concurrentLimit = await response.json();
-        
-        // Create enhanced concurrent usage info
-        const enhancedConcurrentUsage = {
-          ...concurrentLimit,
-          currentUsage: concurrentCount, // Real-time from Firebase RTDB
-          remaining: concurrentLimit.isUnlimited ? -1 : Math.max(0, concurrentLimit.maxUsage - concurrentCount)
-        };
-
-        // Inject into service usage
-        const enhancedUsage = {
-          ...serviceUsage,
-          alyzitron: {
-            ...serviceUsage.alyzitron,
-            maxConcurrentTasks: enhancedConcurrentUsage
-          }
-        };
-
-        return enhancedUsage;
-      }
-    } catch (error) {
-      console.error('Failed to enhance concurrent tasks usage:', error);
-    }
-
-    return serviceUsage;
-  };
-
-  // Enhanced service usage with real-time concurrent count
-  const [enhancedServiceUsage, setEnhancedServiceUsage] = useState<ServiceUsageData>({});
-
-  useEffect(() => {
-    // Update enhanced service usage whenever serviceUsage or concurrentCount changes
-    const updateEnhancedUsage = async () => {
-      const enhanced = await getEnhancedServiceUsage();
-      setEnhancedServiceUsage(enhanced);
-    };
-
-    if (Object.keys(serviceUsage).length > 0) {
-      updateEnhancedUsage();
-    }
-  }, [serviceUsage, concurrentCount, concurrentLoading]);
 
   if (loading) {
     return (
@@ -252,7 +191,7 @@ export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> =
     );
   }
 
-  const services = Object.entries(enhancedServiceUsage);
+  const services = Object.entries(serviceUsage);
 
   if (services.length === 0) {
     return (

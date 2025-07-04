@@ -6,43 +6,13 @@ export interface AlyzitronUserData {
   usage: {
     totalAnalyses: number;
     monthlyAnalyses: number;
-    totalStorageUsed: number; // in bytes
     lastAnalysisDate: Date;
-  };
-  preferences: {
-    defaultVideoType: string;
-    defaultLanguage: string;
-    notificationPreferences: {
-      email: boolean;
-      inApp: boolean;
-      queueNotifications: boolean;
-      completionNotifications: boolean;
-    };
-    displayPreferences: {
-      showQueuePosition: boolean;
-      autoPlayResults: boolean;
-      compactView: boolean;
-    };
-  };
-  limits: {
-    maxStoragePerVideo: number;   // in bytes
-    maxConcurrentAnalyses: number;
-    maxMonthlyAnalyses: number;
-  };
-  stats: {
-    averageScore: number;
-    totalAnalysisTime: number;    // in seconds
-    completionRate: number;       // percentage
-    popularVideoTypes: Array<{
-      type: string;
-      count: number;
-    }>;
   };
   createdAt: Date;
   updatedAt: Date;
 }
 
-// Status workflow: listed -> queued -> processing -> completed/failed/cancelled
+// Status workflow: listed -> sometimes (queued) -> processing -> completed/failed/cancelled
 export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
 
 // API specific status (for webhook responses)

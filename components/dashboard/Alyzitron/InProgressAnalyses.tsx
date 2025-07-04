@@ -22,15 +22,17 @@ export function InProgressAnalyses() {
     queryKey: ['analyses'],
     // queryFn is required, but should rarely run due to ClientWrapper init + RTDB updates
     queryFn: async () => {
-        console.warn("InProgressAnalyses: queryFn called (should be rare).");
-        return [] as AlyzitronAnalysis[]; // Return empty array as fallback
+        console.log("InProgressAnalyses: queryFn called (fetching all analyses).");
+        const response = await fetch('/api/services/alyzitron/analyses');
+        if (!response.ok) throw new Error('Failed to fetch analyses');
+        return response.json();
     },
     enabled: true, // Ensure it subscribes to cache changes
-    staleTime: Infinity, // Rely on cache updates from ClientWrapper/RTDB
+    // Remove staleTime: Infinity to allow refetching on invalidation
     gcTime: 1000 * 60 * 10, // Standard garbage collection
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
+    refetchOnWindowFocus: true, // Allow refetching on window focus
+    refetchOnMount: true, // Allow refetching on mount
+    refetchOnReconnect: true, // Allow refetching on reconnect
   });
 
   // Filter for in-progress analyses and check for timeouts

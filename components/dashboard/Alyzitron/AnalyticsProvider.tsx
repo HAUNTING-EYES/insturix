@@ -3,7 +3,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useUserInitialization } from '@/components/dashboard/UserInitializationProvider';
-import { useConcurrentTasks } from '@/lib/hooks/useConcurrentTasks';
 
 // Define shared types
 export interface ServiceUsageInfo {
@@ -47,7 +46,6 @@ export const useAnalytics = () => {
 export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
   const { user, isLoaded } = useUser();
   const { isInitialized, isLoading: userInitLoading, error: userInitError } = useUserInitialization();
-  const { concurrentCount, isLoading: concurrentLoading } = useConcurrentTasks();
   const [stats, setStats] = useState<AlyzitronStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,18 +74,6 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
 
       let alyzitronLimits = serviceResult.data?.alyzitron || {};
 
-      if (!concurrentLoading && alyzitronLimits.maxConcurrentTasks) {
-        alyzitronLimits = {
-          ...alyzitronLimits,
-          maxConcurrentTasks: {
-            ...alyzitronLimits.maxConcurrentTasks,
-            currentUsage: concurrentCount,
-            remaining: alyzitronLimits.maxConcurrentTasks.isUnlimited ? -1 :
-              Math.max(0, alyzitronLimits.maxConcurrentTasks.maxUsage - concurrentCount)
-          }
-        };
-      }
-
       setStats({
         activeAnalyses: statsResult.activeAnalyses || 0,
         monthlyAnalyses: statsResult.monthlyAnalyses || 0,
@@ -103,10 +89,10 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
   };
 
   useEffect(() => {
-    if (isLoaded && isInitialized && !userInitLoading && !concurrentLoading) {
+    if (isLoaded && isInitialized && !userInitLoading) {
       fetchStats();
     }
-  }, [isLoaded, user, isInitialized, userInitLoading, concurrentCount, concurrentLoading]);
+  }, [isLoaded, user, isInitialized, userInitLoading]);
 
   const value = {
     stats,

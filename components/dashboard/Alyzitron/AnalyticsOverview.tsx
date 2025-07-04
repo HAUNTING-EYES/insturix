@@ -25,8 +25,6 @@ import {
   Info
 } from 'lucide-react';
 import { SERVICE_LIMIT_DEFINITIONS } from '@/lib/config/serviceLimits';
-import { useUserInitialization } from '@/components/dashboard/UserInitializationProvider';
-import { useConcurrentTasks } from '@/lib/hooks/useConcurrentTasks';
 import { useAnalytics, ServiceUsageInfo } from './AnalyticsProvider';
 
 // Icon mapping for limit types
@@ -211,25 +209,6 @@ const AlyzitronAnalyticsOverview: React.FC = () => {
               </div>
               <div className="text-xs sm:text-sm text-zinc-500 mt-1">
                 This month
-              </div>
-            </motion.div>
-
-            {/* Active Queue */}
-            <motion.div
-              className="p-3 sm:p-4 bg-black/20 rounded-lg"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, delay: 0.1 }}
-            >
-              <div className="flex items-center gap-2 sm:gap-3 text-xs sm:text-sm font-medium text-zinc-400 mb-1">
-                <Activity className="h-3 w-3 sm:h-4 sm:w-4" color="#3b81f5" />
-                Processing Queue
-              </div>
-              <div className="text-2xl sm:text-3xl font-semibold text-zinc-100">
-                {stats.activeAnalyses}
-              </div>
-              <div className="text-xs sm:text-sm text-zinc-500 mt-1">
-                Currently active
               </div>
             </motion.div>
           </div>

@@ -84,12 +84,17 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   }, [alyzitronTasks, queryClient, initialAnalyses]);
 
 
+
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {
     if (!analysisId) return;
     
     queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], old => {
       const currentData = old || [];
-      const existingIndex = currentData.findIndex(a => a._id === analysisId);
+      // Look for existing analysis by both _id and taskId to handle cases where
+      // the analysis was just added to cache with a different _id
+      const existingIndex = currentData.findIndex(a =>
+        a._id === analysisId || (analysis.taskId && a.taskId === analysis.taskId)
+      );
       
       // Handle new analysis with optimistic update
       if (existingIndex === -1) {
@@ -160,13 +165,33 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     <div className="space-y-8">
       <VideoUpload
         onSubmit={(analysisId: string, analysis) => {
-          // Optimistic update via handleAnalysisUpdate
-          handleAnalysisUpdate(analysisId, {
-            ...analysis,
-            status: 'queued', // Start as queued
-            progress: 0
+          console.log('ONSUBMIT: Called with', { analysisId, analysis });
+          // Analysis is already added to cache by submitAnalysis function
+          // Just update the status to queued if needed
+          queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], old => {
+            console.log('ONSUBMIT: Current cache data:', old);
+            const currentData = old || [];
+            const existingIndex = currentData.findIndex(a =>
+              a._id === analysisId || (analysis.taskId && a.taskId === analysis.taskId)
+            );
+            
+            console.log('ONSUBMIT: Found existing index:', existingIndex);
+            
+            if (existingIndex !== -1) {
+              // Update existing analysis
+              const newData = [...currentData];
+              newData[existingIndex] = {
+                ...newData[existingIndex],
+                status: 'queued' as any
+              };
+              console.log('ONSUBMIT: Updated existing analysis');
+              return newData;
+            }
+            
+            console.log('ONSUBMIT: Analysis not found in cache, not adding');
+            // If not found, it means the cache addition didn't work, so add it
+            return currentData;
           });
-          // No need to manually setActiveAnalyses here, useEffect handles it
         }}
         onComplete={(analysisId: string, analysis) => {
           if (!analysisId) return;
@@ -185,10 +210,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
         }}
         activeAnalyses={activeAnalyses} // Pass the derived active analyses
       />
-      {/* Add the InProgressAnalyses section */}
       <InProgressAnalyses />
-
-      {/* AnalysisList now only shows completed/failed */}
       <AnalysisList
         itemsPerPage={10}
       />

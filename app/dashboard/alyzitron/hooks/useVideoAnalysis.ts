@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useQueryClient } from '@tanstack/react-query';
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
 
 interface UploadState {
@@ -32,6 +33,8 @@ interface AnalysisUploadState {
 
 
 export function useVideoAnalysis() {
+  const queryClient = useQueryClient();
+  
   // Track state for multiple analyses
   const [uploadStates, setUploadStates] = useState<
     Map<string, AnalysisUploadState>
@@ -251,59 +254,69 @@ export function useVideoAnalysis() {
       metadata?: AnalysisMetadata
     ) => {
       try {
-        setUploadStates((prev) => {
-          const newStates = new Map(prev);
-          const currentState = newStates.get(analysisId) || {
-            uploadState: null,
-            analysisState: { status: "idle", progress: 0 },
-            abortController: null,
-          };
-          newStates.set(analysisId, {
-            ...currentState,
-            analysisState: {
-              status: "analyzing",
-              progress: 0,
-            },
+          setUploadStates((prev) => {
+              const newStates = new Map(prev);
+              const currentState = newStates.get(analysisId) || {
+                  uploadState: null,
+                  analysisState: { status: "idle", progress: 0 },
+                  abortController: null,
+              };
+              newStates.set(analysisId, {
+                  ...currentState,
+                  analysisState: {
+                      status: "analyzing",
+                      progress: 0,
+                  },
+              });
+              return newStates;
           });
-          return newStates;
-        });
 
-        const requestData = {
-          video_url: videoUrl,
-          additional_details: metadata?.additional_details || JSON.stringify({}),
-        };
+          const requestData = {
+              video_url: videoUrl,
+              additional_details: metadata?.additional_details || JSON.stringify({}),
+          };
 
-        logger.info("Submitting analysis request", {
-          data: requestData,
-        });
+          logger.info("Submitting analysis request", {
+              data: requestData,
+          });
 
-        const response = await fetch("/api/services/alyzitron/analyze", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(requestData),
-        });
+          const response = await fetch("/api/services/alyzitron/analyze", {
+              method: "POST",
+              headers: {
+                  "Content-Type": "application/json",
+              },
+              body: JSON.stringify(requestData),
+          });
 
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(
-            error.error?.message || "Failed to initiate analysis"
-          );
-        }
+          if (!response.ok) {
+              const error = await response.json();
+              throw new Error(
+                  error.error?.message || "Failed to initiate analysis"
+              );
+          }
 
-        const {
-          analysisId: resultId,
-          taskId,
-          estimatedTime,
-        } = await response.json();
-        logger.info("Analysis request submitted successfully", {
-          data: { analysisId: resultId, taskId, estimatedTime },
-        });
+          const {
+              analysis: newAnalysisData,
+          } = await response.json();
+          logger.info("Analysis request submitted successfully", {
+              data: { analysis: newAnalysisData },
+          });
 
-        resetState(analysisId);
+          // Immediately add the new analysis to the cache
+          queryClient.setQueryData(['analyses'], (old: any) => {
+              const currentData = Array.isArray(old) ? old : [];
+              // Add to the beginning of the array
+              const updatedData = [newAnalysisData, ...currentData];
+              return updatedData;
+          });
 
-        return { analysisId: resultId, taskId, estimatedTime };
+          resetState(analysisId);
+
+          return {
+              analysisId: newAnalysisData._id,
+              taskId: newAnalysisData.taskId,
+              estimatedTime: newAnalysisData.estimatedTime
+          };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Analysis failed";
@@ -333,7 +346,7 @@ export function useVideoAnalysis() {
         throw error;
       }
     },
-    [resetState]
+    [resetState, queryClient]
   );
 
   const analyzeFile = useCallback(

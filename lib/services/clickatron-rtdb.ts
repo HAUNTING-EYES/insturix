@@ -68,37 +68,4 @@ export class ClickatronRTDBManager {
       throw error;
     }
   }
-
-  static async getConcurrentTasksCount(userId: string): Promise<number> {
-    try {
-      const userTasksRef = ref(database, `/${userId}/clickatron`);
-      const snapshot = await get(userTasksRef);
-      
-      if (!snapshot.exists()) {
-        return 0;
-      }
-      
-      const tasks = snapshot.val();
-      let concurrentCount = 0;
-      
-      // Count tasks with status 'queued' or 'processing'
-      for (const taskId in tasks) {
-        const task = tasks[taskId];
-        if (task.status === 'queued' || task.status === 'processing') {
-          concurrentCount++;
-        }
-      }
-      
-      console.log('Concurrent clickatron tasks counted from RTDB', {
-        userId, concurrentCount
-      });
-      
-      return concurrentCount;
-    } catch (error) {
-      console.error('Failed to count concurrent clickatron tasks from RTDB', {
-        userId, error: error instanceof Error ? error.message : String(error)
-      });
-      throw error;
-    }
-  }
 }

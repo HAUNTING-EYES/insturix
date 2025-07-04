@@ -159,13 +159,32 @@ export async function POST(request: Request) {
         undefined
       );
 
-      // Publish to Pub/Sub for worker processing
-      await PubSubManager.publishTask({
+      const message = {
         taskId,
         userId: session.userId,
         videoUrl: finalVideoUrl,
         additionalDetails: additional_details,
-      });
+      };
+
+      if (process.env.ALYZITRON_LOCAL_WORKER) {
+        const data = Buffer.from(JSON.stringify(message)).toString('base64');
+        fetch(process.env.ALYZITRON_LOCAL_WORKER, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            message: {
+              data: data,
+              attributes: {}
+            },
+            subscription: 'projects/test/subscriptions/test-sub' // Placeholder for local testing
+          }),
+        });
+      } else {
+        // Publish to Pub/Sub for worker processing
+        await PubSubManager.publishTask(message);
+      }
 
       // Increment usage count after successful creation
       const usageResult = await incrementAlyzitronUsage(requestData, 1);
@@ -191,8 +210,7 @@ export async function POST(request: Request) {
         }
       });
 
-      // Note: Concurrent tasks are automatically tracked via Firebase RTDB task status
-      // Task starts as 'listed', moves to 'queued', then 'processing', finally 'completed'
+      // Task starts as 'listed', moves to 'queued' SOMETIMES, then 'processing', finally 'completed'
 
       logger.info('Analysis task created successfully', {
         data: {
@@ -204,9 +222,7 @@ export async function POST(request: Request) {
 
       return NextResponse.json({
         success: true,
-        analysisId: analysisRecord._id,
-        taskId: taskId,
-        estimatedTime: 120
+        analysis: analysisRecord,
       });
 
     } catch (error) {

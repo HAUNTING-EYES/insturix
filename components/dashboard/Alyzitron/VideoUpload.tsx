@@ -45,7 +45,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [youtubePreview, setYoutubePreview] = useState<YouTubePreview | null>(null);
   const [limitPopup, setLimitPopup] = useState<{
     isOpen: boolean;
-    limitType: 'total' | 'concurrent' | 'long_video' | 'general';
+    limitType: 'total' | 'long_video' | 'general';
     currentUsage?: number;
     maxUsage?: number;
     savedFormData?: {
@@ -272,18 +272,11 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       if (err instanceof Error) {
         // Check for limit exceeded errors
         if (err.message.includes('limit exceeded') || err.message.includes('LIMIT_EXCEEDED')) {
-          let limitType: 'total' | 'concurrent' | 'long_video' | 'general' = 'general';
+          let limitType: 'total' | 'long_video' | 'general' = 'general';
           let currentUsage: number | undefined;
           let maxUsage: number | undefined;
           
-          if (err.message.includes('Concurrent tasks limit exceeded')) {
-            limitType = 'concurrent';
-            const match = err.message.match(/Currently running: (\d+)\/(\d+)/);
-            if (match) {
-              currentUsage = parseInt(match[1]);
-              maxUsage = parseInt(match[2]);
-            }
-          } else if (err.message.includes('Total analyses limit exceeded')) {
+          if (err.message.includes('Total analyses limit exceeded')) {
             limitType = 'total';
           } else if (err.message.includes('Long video limit exceeded')) {
             limitType = 'long_video';

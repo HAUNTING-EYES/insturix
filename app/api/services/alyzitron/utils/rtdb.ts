@@ -69,37 +69,4 @@ export class RTDBManager {
       throw error;
     }
   }
-
-  static async getConcurrentTasksCount(userId: string): Promise<number> {
-    try {
-      const userTasksRef = ref(database, `/${userId}/alyzitron`);
-      const snapshot = await get(userTasksRef);
-      
-      if (!snapshot.exists()) {
-        return 0;
-      }
-      
-      const tasks = snapshot.val();
-      let concurrentCount = 0;
-      
-      // Count tasks with status 'queued' or 'processing'
-      for (const taskId in tasks) {
-        const task = tasks[taskId];
-        if (task.status === 'queued' || task.status === 'processing') {
-          concurrentCount++;
-        }
-      }
-      
-      logger.info('Concurrent tasks counted from RTDB', {
-        data: { userId, concurrentCount }
-      });
-      
-      return concurrentCount;
-    } catch (error) {
-      logger.error('Failed to count concurrent tasks from RTDB', {
-        data: { userId, error: error instanceof Error ? error.message : String(error) }
-      });
-      throw error;
-    }
-  }
 }
