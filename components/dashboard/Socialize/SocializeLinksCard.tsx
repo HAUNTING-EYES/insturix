@@ -44,9 +44,11 @@ export function SocializeLinksCard({
                 className={`w-full bg-black/40 py-3 rounded-lg flex items-center justify-between gap-2 hover:bg-black/60 transition border ${selectedLinkIndex === index ? "border-[#0e6b9c]" : "border-[#0e6b9c]/30"} px-5 cursor-pointer`}
                 onClick={() => onSelectLink(index)}
               >
-                <div className="flex items-center gap-4 flex-1 truncate">
+                <div className="flex items-center gap-4 flex-1 min-w-0 overflow-hidden">
                   {getPlatformIcon(link.platform)}
-                  <span className="text-white truncate">{link.url}</span>
+                  <span className="text-white truncate overflow-hidden text-ellipsis whitespace-nowrap block w-0 flex-grow">
+                    {link.url}
+                  </span>
                 </div>
                 <div className="flex items-center gap-2">
                   <Button

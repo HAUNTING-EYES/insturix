@@ -32,10 +32,12 @@ const linkSchema = new Schema<SocializeLink>(
     url: {
       type: String,
       required: true,
+      maxlength: 256,
     },
     title: {
       type: String,
       required: false,
+      maxlength: 64,
     },
     icon: {
       type: String,
@@ -84,6 +86,12 @@ const socializeSchema = new Schema<ISocialize>(
     links: {
       type: [linkSchema],
       default: [],
+      validate: [
+        {
+          validator: (links: any[]) => links.length <= 50,
+          message: "Cannot have more than 50 links."
+        }
+      ]
     },
     notifications: {
       type: [notificationSchema],

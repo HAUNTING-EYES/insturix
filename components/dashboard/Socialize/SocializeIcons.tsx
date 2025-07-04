@@ -60,8 +60,10 @@ export function getPlatformIconName(platform: string): string {
 }
 
 // Existing function for rendering the icon
-export function getPlatformIcon(platform: string) {
-  const iconProps = { className: "w-5 h-5 text-white" };
+export function getPlatformIcon(platform: string, isPreview = false) {
+  const iconProps = {
+    className: `text-white ${isPreview ? "w-4 h-4" : "w-5 h-5"}`,
+  };
   const iconName = getPlatformIconName(platform);
   switch (iconName) {
     case "Twitter":
