@@ -1,6 +1,8 @@
+import { clerkClient } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
+import Socialize from "@/schemas/Socialize";
 import { UserType } from "@/types/userTypes";
 import { IServiceLimits } from "@/schemas/user";
 
@@ -17,7 +19,8 @@ export class UserInitializationService {
   static async ensureUserExists(
     clerkUserId: string,
     email: string,
-    username: string
+    username: string,
+    imageUrl?: string
   ): Promise<UserInitializationResult> {
     try {
       await connectToDatabase();
@@ -26,11 +29,29 @@ export class UserInitializationService {
       let user = await User.findOne({ clerkUserId });
       
       if (user) {
+        // If user exists, check if socialize profile needs image update
+        const socializeProfile = await Socialize.findOne({ clerkUserId });
+        if (socializeProfile && !socializeProfile.profileImage && imageUrl) {
+          socializeProfile.profileImage = imageUrl;
+          await socializeProfile.save();
+        }
         return { user, isNewUser: false };
       }
 
       // User doesn't exist, create with default Free plan
       console.log(`Creating new user account for Clerk ID: ${clerkUserId}`);
+
+      let finalImageUrl = imageUrl;
+      if (!finalImageUrl) {
+        try {
+          const client = await clerkClient();
+          const clerkUser = await client.users.getUser(clerkUserId);
+          finalImageUrl = clerkUser.imageUrl;
+        } catch (error) {
+          console.error("Error fetching user from Clerk:", error);
+          // Proceed without image if Clerk fetch fails
+        }
+      }
       
       // Get default free plan service limits
       const freePlanLimits = await this.getDefaultFreePlanLimits();
@@ -80,6 +101,17 @@ export class UserInitializationService {
       await user.save();
       
       console.log(`Successfully created user account for: ${email}`);
+
+      // Create a corresponding document in the Socialize collection
+      const newSocializeProfile = new Socialize({
+        clerkUserId,
+        username,
+        profileImage: finalImageUrl,
+      });
+      await newSocializeProfile.save();
+      console.log(
+        `New Socialize profile created for user: ${clerkUserId}`
+      );
       
       return { user, isNewUser: true };
     } catch (error) {
@@ -179,6 +211,7 @@ export class UserInitializationService {
     clerkUserData: {
       email?: string;
       username?: string;
+      imageUrl?: string;
       emailAddresses?: Array<{ emailAddress: string; id: string }>;
     }
   ): Promise<boolean> {
@@ -210,6 +243,16 @@ export class UserInitializationService {
       if (hasChanges) {
         await user.save();
         console.log(`Updated user data for: ${clerkUserId}`);
+      }
+
+      // Update Socialize profile image if it has changed
+      if (clerkUserData.imageUrl) {
+        const socializeProfile = await Socialize.findOne({ clerkUserId });
+        if (socializeProfile && socializeProfile.profileImage !== clerkUserData.imageUrl) {
+          socializeProfile.profileImage = clerkUserData.imageUrl;
+          await socializeProfile.save();
+          console.log(`Updated Socialize profile image for: ${clerkUserId}`);
+        }
       }
 
       return true;

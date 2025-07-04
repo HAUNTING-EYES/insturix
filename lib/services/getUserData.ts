@@ -66,12 +66,17 @@ export async function getUserData() {
       try {
         const clerkUser = await (await clerkClient()).users.getUser(userId);
         const email = clerkUser.emailAddresses?.[0]?.emailAddress || "";
+        const username = clerkUser.username;
         
         if (!email) {
           throw new Error("User email not found");
         }
+
+        if (!username) {
+          throw new Error("Username not found for user");
+        }
         
-        const result = await UserInitializationService.ensureUserExists(userId, email);
+        const result = await UserInitializationService.ensureUserExists(userId, email, username);
         if (result.error) {
           throw new Error(result.error);
         }

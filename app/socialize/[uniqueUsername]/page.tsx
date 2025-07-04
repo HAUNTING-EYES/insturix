@@ -11,9 +11,10 @@ export default async function SocializePublicProfilePage({
 }: {
   params: { uniqueUsername: string };
 }) {
+  const { uniqueUsername } = params;
   try {
     // Fetch data on the server
-    const socializeData = await fetchSocializeUser(params.uniqueUsername);
+    const socializeData = await fetchSocializeUser(uniqueUsername);
 
     return (
       <>
@@ -22,7 +23,7 @@ export default async function SocializePublicProfilePage({
           <Suspense fallback={<ProfileSkeleton />}>
             <ProfileContent
               socializeData={socializeData}
-              uniqueUsername={params.uniqueUsername}
+              uniqueUsername={uniqueUsername}
             />
           </Suspense>
         </div>
