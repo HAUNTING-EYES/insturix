@@ -104,10 +104,11 @@ export default function CustomSignIn() {
                     variant="outline"
                     type="button"
                     onClick={() =>
-                      signIn?.authenticateWithRedirect({
+                      signIn?.authenticateWithPopup({
                         strategy: "oauth_facebook",
-                        redirectUrl: "/sso-callback",
+                        redirectUrl: "/dashboard",
                         redirectUrlComplete: "/dashboard",
+                        popup: window.open("", "_blank", "width=500,height=600")
                       })
                     }
                     disabled={!isLoaded || isLoading}
@@ -127,10 +128,11 @@ export default function CustomSignIn() {
                     variant="outline"
                     type="button"
                     onClick={() =>
-                      signIn?.authenticateWithRedirect({
+                      signIn?.authenticateWithPopup({
                         strategy: "oauth_google",
-                        redirectUrl: "/sso-callback",
+                        redirectUrl: "/dashboard",
                         redirectUrlComplete: "/dashboard",
+                        popup: window.open("", "_blank", "width=500,height=600")
                       })
                     }
                     disabled={!isLoaded || isLoading}
@@ -256,3 +258,4 @@ export default function CustomSignIn() {
     </div>
   );
 }
+

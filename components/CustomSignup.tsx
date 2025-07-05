@@ -144,10 +144,12 @@ export default function CustomSignup() {
     setIsLoading(true);
     setError("");
     try {
-      await signUp.authenticateWithRedirect({
+      const popup = window.open("", "_blank", "width=500,height=600");
+      await signUp.authenticateWithPopup({
         strategy: provider === "google" ? "oauth_google" : "oauth_facebook",
-        redirectUrl: "/sso-callback",
+        redirectUrl: "/dashboard",
         redirectUrlComplete: "/dashboard",
+        popup
       });
     } catch (err: unknown) {
       setError("OAuth signup failed.");
