@@ -6,7 +6,19 @@ import { getServiceConfig } from '@/lib/config/services';
 import { ClickatronRTDBManager } from '@/lib/services/clickatron-rtdb';
 import { PubSub } from '@google-cloud/pubsub';
 
-const pubsub = new PubSub();
+const gcpCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+  : null;
+
+if (!gcpCredentials) {
+  console.error('GOOGLE_CLOUD_CREDENTIALS environment variable is not configured or invalid.');
+  // This will cause the PubSub initialization to fail, which will be caught by the outer try-catch in POST
+}
+
+const pubsub = new PubSub({
+  projectId: gcpCredentials?.project_id,
+  credentials: gcpCredentials,
+});
 const clickatronConfig = getServiceConfig('clickatron');
 
 export async function POST(req: Request) {
