@@ -23,14 +23,8 @@ export function TaskNotificationManager() {
     });
 
     notifications.forEach((notification: any) => {
-      // For notifications that already have timers, reset them (this handles replaced notifications)
-      if (timersRef.current.has(notification.id)) {
-        clearTimeout(timersRef.current.get(notification.id)!);
-        timersRef.current.delete(notification.id);
-      }
-
-      // Set timer for all unread notifications
-      if (!notification.isRead && !dismissingIds.has(notification.id)) {
+      // Only set timer for new notifications that don't already have one
+      if (!notification.isRead && !dismissingIds.has(notification.id) && !timersRef.current.has(notification.id)) {
         const timer = setTimeout(() => {
           // Start dismissing animation
           setDismissingIds(prev => new Set([...prev, notification.id]));
@@ -68,8 +62,10 @@ export function TaskNotificationManager() {
     clearNotification(notificationId);
   };
 
-  // Show only the 5 most recent notifications
-  const visibleNotifications = notifications.slice(0, 5);
+  // Show only unread notifications that haven't been dismissed
+  const visibleNotifications = notifications
+    .filter((notification: any) => !notification.isRead && !dismissingIds.has(notification.id))
+    .slice(0, 5);
 
   return (
     <div className="fixed top-4 right-4 z-50 flex flex-col space-y-3 pointer-events-none">
