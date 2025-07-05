@@ -21,7 +21,6 @@ import {
   ImageIcon
 } from 'lucide-react';
 import { getAllServiceLimitMappings } from '@/lib/config/serviceLimits';
-import { useGetStats as useGetClickatronStats } from '@/components/dashboard/Clickatron/hooks/useGetStats';
 
 interface ServiceUsageInfo {
   hasAccess: boolean;
@@ -117,31 +116,21 @@ const formatResetPeriod = (period: string): string => {
   }
 };
 
-export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> = ({ initialData }) => {
+export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData; isLoadingInitial?: boolean }> = ({ initialData, isLoadingInitial }) => {
   const router = useRouter();
-  const { stats: clickatronStats } = useGetClickatronStats();
   const [serviceUsage, setServiceUsage] = useState<ServiceUsageData>(initialData);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isLoadingInitial || false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (clickatronStats?.usage) {
-      setServiceUsage(prev => ({
-        ...prev,
-        clickatron: {
-          ...prev.clickatron,
-          maxThumbnailGeneration: clickatronStats.usage as ServiceUsageInfo,
-        }
-      }));
-    }
-  }, [clickatronStats]);
+  // The data fetching is now handled by FeatureUsageOverviewClient
+  // This component should only display the data it receives via props or internal state updates from the client component.
 
   const fetchServiceUsage = async () => {
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/user/feature-usage');
+      const response = await fetch('/api/user/feature-usage'); // This is a fallback/refresh mechanism
       const result = await response.json();
 
       if (!response.ok) {
@@ -157,6 +146,11 @@ export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData }> =
     }
   };
 
+
+  useEffect(() => {
+    setServiceUsage(initialData);
+    setLoading(isLoadingInitial || false);
+  }, [initialData, isLoadingInitial]);
 
   if (loading) {
     return (

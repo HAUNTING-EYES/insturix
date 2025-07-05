@@ -18,11 +18,11 @@ export default function DashboardClientLayout({
   initialUserData: User | null;
 }) {
   const pathname = usePathname();
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, isLoaded } = useAuth();
 
   const isReportRoute = pathname.startsWith('/dashboard/alyzitron/report/');
 
-  if (!isSignedIn && !isReportRoute) {
+  if (!isSignedIn && !isReportRoute && isLoaded) {
     return <NotSignedIn />;
   }
 
@@ -31,7 +31,7 @@ export default function DashboardClientLayout({
       <RtdbProvider>
         <DashboardSidebar />
         <main className="min-h-screen bg-zinc-950/95 lg:pl-[64px] pt-16 lg:pt-0">
-          <AnimatePresence mode="wait">
+          <AnimatePresence mode="sync">
             <motion.div
               key={pathname}
               initial={{ opacity: 0 }}

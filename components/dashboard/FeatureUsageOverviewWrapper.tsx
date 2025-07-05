@@ -8,7 +8,12 @@ export async function FeatureUsageOverviewWrapper() {
     return null;
   }
 
-  const serviceUsage = await ServiceUsageService.getServiceUsageForAllServices(userId);
-
-  return <FeatureUsageOverview initialData={serviceUsage} />;
+  try {
+    const serviceUsage = await ServiceUsageService.getServiceUsageForAllServices(userId);
+    return <FeatureUsageOverview initialData={serviceUsage} />;
+  } catch (error) {
+    console.error("Failed to fetch service usage for user:", userId, error);
+    // Return empty state - the UserInitializationProvider will handle user creation
+    return <FeatureUsageOverview initialData={{}} />;
+  }
 }

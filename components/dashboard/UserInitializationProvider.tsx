@@ -48,7 +48,7 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
       setError(null);
 
       try {
-        const response = await fetch('/api/user');
+        const response = await fetch('/api/user/initialize');
         if (!response.ok) {
           throw new Error('Failed to initialize user');
         }

@@ -28,11 +28,11 @@ export function InProgressAnalyses() {
         return response.json();
     },
     enabled: true, // Ensure it subscribes to cache changes
-    // Remove staleTime: Infinity to allow refetching on invalidation
+    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
     gcTime: 1000 * 60 * 10, // Standard garbage collection
-    refetchOnWindowFocus: true, // Allow refetching on window focus
-    refetchOnMount: true, // Allow refetching on mount
-    refetchOnReconnect: true, // Allow refetching on reconnect
+    refetchOnWindowFocus: false, // Prevent refetching on window focus
+    refetchOnMount: false, // Prevent refetching on mount
+    refetchOnReconnect: false, // Prevent refetching on reconnect
   });
 
   // Filter for in-progress analyses and check for timeouts

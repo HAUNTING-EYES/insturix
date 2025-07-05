@@ -14,8 +14,6 @@ import { Loader2,
   ChevronLeft,
   ChevronRight,
   ChevronRight as ChevronRightIcon,
-  CircleDot,
-  Ban,
   Calendar,
   Type,
   Clock
@@ -237,8 +235,10 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
       return response.json();
     },
     placeholderData: (previousData) => previousData,
-    staleTime: 1000 * 60 * 2, // 2 minutes
-    refetchInterval: 2000, // Poll every 2 seconds
+    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
+    refetchOnWindowFocus: false, // Prevent refetching on window focus
+    refetchOnMount: false, // Prevent refetching on mount
+    refetchOnReconnect: false, // Prevent refetching on reconnect
   });
 
   // Polling for in-progress tasks
@@ -249,8 +249,11 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
       if (!response.ok) throw new Error('Failed to fetch in-progress tasks');
       return response.json();
     },
-    refetchInterval: 2000, // Poll every 2 seconds
-    staleTime: 1000 * 60 * 2,
+    refetchInterval: false, // Disable polling
+    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
+    refetchOnWindowFocus: false, // Prevent refetching on window focus
+    refetchOnMount: false, // Prevent refetching on mount
+    refetchOnReconnect: false, // Prevent refetching on reconnect
   });
 
   // Get current page tasks from API
@@ -259,11 +262,7 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
   const totalItems = paginatedData?.pagination?.totalItems || 0;
 
   // Task counts for stats (from initial tasks prop for real-time data)
-  const processingTasks = tasks.filter(task =>
-    task.status === 'processing' ||
-    task.status === 'queued' ||
-    task.status === 'listed'
-  );
+  const processingTasksCount = inProgressData?.data?.length || 0;
 
   const handlePreviousPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));
@@ -286,11 +285,11 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
           <h2 className="text-lg sm:text-xl font-medium text-zinc-100">Task History</h2>
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs">
-              {tasks.length} total
+              {totalItems} total
             </span>
-            {processingTasks.length > 0 && (
+            {processingTasksCount > 0 && (
               <span className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded-full text-xs animate-pulse">
-                {processingTasks.length} processing
+                {processingTasksCount} processing
               </span>
             )}
           </div>

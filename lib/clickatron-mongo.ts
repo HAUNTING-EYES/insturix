@@ -21,7 +21,7 @@ async function dbConnect() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      dbName: 'clickatron',
+      // Don't override the database name - use the one from MONGODB_URI
     };
 
     cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {

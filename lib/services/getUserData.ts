@@ -53,7 +53,8 @@ export async function getUserData() {
   try {
     const { userId } = await auth();
     if (!userId) {
-      throw new Error("User is not authenticated.");
+      console.log("User is not authenticated, returning null");
+      return null;
     }
 
     await connectToDatabase();
@@ -61,7 +62,7 @@ export async function getUserData() {
     let user = await User.findOne({ clerkUserId: userId });
 
     if (!user) {
-      console.log(`User not found in database for Clerk ID: ${userId}, attempting to create...`);
+      console.log(`User not found in database for Clerk ID: ${userId}, initializing user...`);
       
       try {
         const clerkUser = await (await clerkClient()).users.getUser(userId);
@@ -69,22 +70,26 @@ export async function getUserData() {
         const username = clerkUser.username;
         
         if (!email) {
-          throw new Error("User email not found");
+          console.log("User email not found from Clerk, returning null for graceful initialization");
+          return null;
         }
 
         if (!username) {
-          throw new Error("Username not found for user");
+          console.log("Username not found for user, returning null for graceful initialization");
+          return null;
         }
         
         const result = await UserInitializationService.ensureUserExists(userId, email, username);
         if (result.error) {
-          throw new Error(result.error);
+          console.log(`User initialization failed: ${result.error}, returning null for graceful initialization`);
+          return null;
         }
         user = result.user;
         console.log(`Successfully created missing user: ${userId}`);
       } catch (createError) {
         console.error("Failed to create missing user:", createError);
-        throw new Error("User not found and creation failed");
+        console.log("Returning null to allow graceful initialization flow");
+        return null;
       }
     }
 
