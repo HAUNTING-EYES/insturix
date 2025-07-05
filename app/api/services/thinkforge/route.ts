@@ -1,40 +1,18 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 
-export async function GET(
+export async function POST(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  request: NextRequest
+  req: Request
 ) {
-  try {
-    return NextResponse.json(
-      { message: "ThinkForge service is running" },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error("Error in ThinkForge service:", error);
-    return NextResponse.json(
-      { error: "Failed to process request" },
-      { status: 500 }
-    );
-  }
+  return NextResponse.json(
+    { message: "ThinkForge service is coming soon" },
+    { status: 404 }
+  );
 }
 
-export async function POST(request: NextRequest) {
-  try {
-    // Parse the request body
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const body = await request.json();
-    
-    // TODO: Add your ThinkForge service logic here
-    
-    return NextResponse.json(
-      { success: true, message: "Request processed successfully" },
-      { status: 200 }
-    );
-  } catch (error) {
-    console.error("Error in ThinkForge service:", error);
-    return NextResponse.json(
-      { error: "Failed to process request" },
-      { status: 500 }
-    );
-  }
+export async function GET() {
+  return NextResponse.json(
+    { message: "ThinkForge service is coming soon" },
+    { status: 404 }
+  );
 }

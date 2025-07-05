@@ -1,9 +1,5 @@
-import MusitronDashboard from '@/components/dashboard/Musitron/MusitronDashboard';
+import { ComingSoon } from "@/components/ComingSoon";
 
 export default function MusitronPage() {
-  return (
-    <div className="min-h-screen w-full">
-      <MusitronDashboard />
-    </div>
-  );
+  return <ComingSoon serviceName="Musitron" />;
 }

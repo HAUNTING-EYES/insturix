@@ -1,17 +1,11 @@
 import { NextResponse } from "next/server";
 
-export async function POST(req: Request) {
-  try {
-    const data = await req.json();
-    return NextResponse.json({
-      success: true,
-      data: data,
-    });
-  } catch (error) {
-    console.error("Error in callback:", error);
-    return NextResponse.json(
-      { error: "Failed to process callback" },
-      { status: 500 }
-    );
-  }
+export async function POST(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  req: Request
+) {
+  return NextResponse.json(
+    { message: "Musitron service is coming soon" },
+    { status: 404 }
+  );
 }

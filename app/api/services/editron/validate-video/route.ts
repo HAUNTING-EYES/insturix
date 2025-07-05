@@ -40,69 +40,12 @@ function extractYouTubeVideoId(url: string): string | null {
 
 // --- API Route Handler ---
 
-export async function POST(req: NextRequest) {
-  try {
-    const { url } = await req.json();
-
-    if (!url || typeof url !== "string") {
-      return NextResponse.json({ valid: false, error: "INVALID_URL" }, { status: 400 });
-    }
-
-    // Shorts not supported
-    if (url.includes("/shorts/")) {
-      return NextResponse.json({ valid: false, error: "SHORTS_NOT_SUPPORTED" }, { status: 400 });
-    }
-
-    const videoId = extractYouTubeVideoId(url);
-    if (!videoId) {
-      return NextResponse.json({ valid: false, error: "INVALID_URL" }, { status: 400 });
-    }
-
-    if (!YOUTUBE_API_KEY) {
-      return NextResponse.json({ valid: false, error: "API_ERROR" }, { status: 500 });
-    }
-
-    // Fetch video details
-    const response = await youtube.videos.list({
-      part: ["status", "contentDetails", "snippet"],
-      id: [videoId],
-    });
-
-    if (!response.data.items || response.data.items.length === 0) {
-      return NextResponse.json({ valid: false, error: "INVALID_URL" }, { status: 404 });
-    }
-
-    const video = response.data.items[0];
-    const { status, contentDetails, snippet } = video;
-
-    if (status?.privacyStatus !== "public") {
-      return NextResponse.json({ valid: false, error: "VIDEO_PRIVATE" }, { status: 403 });
-    }
-
-    const durationString = contentDetails?.duration;
-    if (!durationString) {
-      return NextResponse.json({ valid: false, error: "API_ERROR" }, { status: 500 });
-    }
-
-    const durationSeconds = parseISO8601Duration(durationString);
-    if (durationSeconds > MAX_DURATION_SECONDS) {
-      return NextResponse.json({ valid: false, error: "VIDEO_TOO_LONG" }, { status: 400 });
-    }
-
-    if (!snippet || !snippet.title || !snippet.thumbnails?.high?.url) {
-      return NextResponse.json({ valid: false, error: "API_ERROR" }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      valid: true,
-      videoDetails: {
-        title: snippet.title,
-        thumbnailUrl: snippet.thumbnails.high.url,
-        duration: durationSeconds,
-      },
-    });
-  } catch (err) {
-    console.error("YouTube validation error:", err);
-    return NextResponse.json({ valid: false, error: "API_ERROR" }, { status: 500 });
-  }
+export async function POST(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  req: NextRequest
+) {
+  return NextResponse.json(
+    { message: "Editron video validation is coming soon" },
+    { status: 404 }
+  );
 }

@@ -1,13 +1,5 @@
-"use client";
-
-import DashboardShell from "@/components/dashboard/DashboardShell";
-import ThinkForgeDashboard from "@/components/dashboard/ThinkForge/ThinkForgeDashboard";
+import { ComingSoon } from "@/components/ComingSoon";
 
 export default function Dashboard() {
-  return (
-    <DashboardShell>
-      {/* Dashboard Header */}
-      <ThinkForgeDashboard />
-    </DashboardShell>
-  );
+  return <ComingSoon serviceName="ThinkForge" />;
 }
