@@ -3,13 +3,14 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 export async function GET(
-  req: Request,
-  { params }: { params: { id: string } }
+  req: Request
 ) {
+    const url = new URL(req.url);
+  const id = url.pathname.split('/').pop();
   try {
     await getClickatronDb();
     const { userId } = await auth();
-    const { id } = params;
+    // const { id } = params; // replaced by above extraction
 
     if (!userId) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });

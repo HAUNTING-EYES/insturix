@@ -13,7 +13,7 @@ interface ManagePlanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   plans: IUserPlan[];
-  currentPlan: IUserPlan;
+  currentPlan: IUserPlan | undefined;
 }
 
 function getCurrencySymbol(currency: string) {

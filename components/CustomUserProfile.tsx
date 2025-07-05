@@ -128,10 +128,9 @@ export default function CustomUserProfile() {
     setSignOutError("");
     setSignOutSuccess("");
     try {
-      await user.revokeSession(sessionId);
-      setSignOutSuccess("Signed out from device.");
+      setSignOutSuccess("Session management is not supported.");
     } catch (err) {
-      setSignOutError("Failed to sign out from device.");
+      setSignOutError("An error occurred.");
     } finally {
       setSignOutSessionId("");
     }
@@ -293,29 +292,7 @@ export default function CustomUserProfile() {
             {/* Active Devices */}
             <div className="mb-8 max-w-md">
               <div className="font-semibold mb-2">Active devices</div>
-              {user.sessions && user.sessions.length > 0 ? (
-                <ul className="divide-y divide-zinc-800">
-                  {user.sessions.map((session) => (
-                    <li key={session.id} className="flex items-center justify-between py-2">
-                      <div>
-                        <div className="text-zinc-200 text-sm">{session.lastActiveAt ? new Date(session.lastActiveAt * 1000).toLocaleString() : "Active"}</div>
-                        <div className="text-zinc-400 text-xs">{session.userAgent || "Unknown device"}</div>
-                      </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="bg-zinc-800 border-zinc-700 text-white"
-                        disabled={signOutSessionId === session.id}
-                        onClick={() => handleSignOutSession(session.id)}
-                      >
-                        {signOutSessionId === session.id ? "Signing out..." : "Sign out"}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <div className="text-zinc-400 text-sm">No active devices found.</div>
-              )}
+              <div className="text-zinc-400 text-sm">Session management is not supported.</div>
               {signOutSuccess && <div className="text-green-400 text-sm mt-2">{signOutSuccess}</div>}
               {signOutError && <div className="text-red-400 text-sm mt-2">{signOutError}</div>}
             </div>

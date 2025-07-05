@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useRef } from "react";
+import { easeInOut } from "framer-motion";
 import { motion } from "framer-motion";
-import { Shield, TrendingUp, Zap, Eye, Brain, Target, AlertTriangle, BarChart3 } from "lucide-react";
+import { Shield, Zap, Eye, Brain, Target, AlertTriangle, BarChart3 } from "lucide-react";
 import { useScroll, useTransform } from "framer-motion";
 
 const features = [
@@ -68,7 +69,7 @@ const itemVariants = {
     y: 0,
     transition: {
       duration: 0.6,
-      ease: "easeOut",
+      ease: easeInOut,
     },
   },
 };

@@ -177,7 +177,6 @@ export default function CustomSignup() {
                     setVerifying(null);
                   }}
                 >
-                  <Icons.pencil className="h-4 w-4" />
                 </Button>
               </div>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 mt-2">

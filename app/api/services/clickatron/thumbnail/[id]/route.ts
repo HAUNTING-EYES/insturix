@@ -15,12 +15,15 @@ const storage = new Storage({
 });
 
 export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
+  request: NextRequest
 ) {
-  const { id } = await params;
+  const url = new URL(request.url);
+  const id = url.pathname.split('/').pop();
 
   try {
+    if (!id) {
+      return NextResponse.json({ error: 'Missing or invalid ID' }, { status: 400 });
+    }
     const decodedId = decodeURIComponent(id);
     const bucket = storage.bucket('clickatron');
     const file = bucket.file(decodedId);

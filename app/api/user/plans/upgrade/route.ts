@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { UserType } from "@/types/userTypes";
-import User from "@/schemas/user";
+import { User } from "@/schemas/user";
 
 export async function PATCH(request: Request) {
   try {

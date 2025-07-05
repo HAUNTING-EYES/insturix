@@ -25,7 +25,8 @@ export async function POST() {
     // Ensure user exists in MongoDB
     const initResult = await UserInitializationService.ensureUserExists(
       userId,
-      clerkUser.emailAddresses[0]?.emailAddress || ""
+      clerkUser.emailAddresses[0]?.emailAddress || "",
+      clerkUser.username || clerkUser.firstName || clerkUser.lastName || "default-username"
     );
 
     if (initResult.error) {
@@ -89,7 +90,8 @@ export async function GET() {
     // Check if user exists and initialize if needed
     const initResult = await UserInitializationService.ensureUserExists(
       userId,
-      clerkUser.emailAddresses[0]?.emailAddress || ""
+      clerkUser.emailAddresses[0]?.emailAddress || "",
+      clerkUser.username || clerkUser.firstName || clerkUser.lastName || "default-username"
     );
 
     if (initResult.error) {

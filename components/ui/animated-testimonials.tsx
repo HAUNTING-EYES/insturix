@@ -40,7 +40,7 @@ export const Testimonials = ({
       scale: 1,
       transition: {
         duration: 0.6,
-        ease: [0.32, 0.72, 0, 1],
+        ease: [0.32, 0.72, 0, 1] as any,
       },
     },
     exit: (direction: number) => ({
@@ -49,7 +49,7 @@ export const Testimonials = ({
       scale: 0.95,
       transition: {
         duration: 0.6,
-        ease: [0.32, 0.72, 0, 1],
+        ease: [0.32, 0.72, 0, 1] as any,
       },
     }),
   };

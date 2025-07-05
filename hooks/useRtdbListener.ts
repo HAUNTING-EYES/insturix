@@ -10,6 +10,7 @@ export function useRtdbListener() {
   const [notifications, setNotifications] = useState<TaskNotification[]>([]);
   const [allTasks, setAllTasks] = useState<Record<ServiceName, TaskUpdate[]>>({
     alyzitron: [],
+    clickatron: [],
     editron: [],
     musitron: [],
     shield: [],
@@ -24,6 +25,7 @@ export function useRtdbListener() {
       setNotifications([]);
       setAllTasks({
         alyzitron: [],
+        clickatron: [],
         editron: [],
         musitron: [],
         shield: [],
@@ -42,6 +44,7 @@ export function useRtdbListener() {
       const newNotifications: TaskNotification[] = [];
       const updatedTasks: Record<ServiceName, TaskUpdate[]> = {
         alyzitron: [],
+        clickatron: [],
         editron: [],
         musitron: [],
         shield: [],

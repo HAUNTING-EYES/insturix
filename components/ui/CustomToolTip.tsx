@@ -117,8 +117,9 @@ export default function UserDropdown({
   };
 
   if (!clerkUser) return <NotSignedIn />;
+  if (isLoading) return null; // Or a loading spinner component
 
-  const planName = getPlanDisplayName(userData.currentPlan?.name) || "Free";
+  const planName = getPlanDisplayName(userData?.currentPlan?.name) || "Free";
   const isPremium = planName.toLowerCase().includes("premium");
 
   return (
@@ -364,7 +365,7 @@ export default function UserDropdown({
       <PlanCancellationDialog
         open={planCancellationOpen}
         onOpenChange={setPlanCancellationOpen}
-        currentPlan={userData.currentPlan?.name || "free"}
+        currentPlan={userData?.currentPlan?.name || "free"}
         currentPlanPrice={userData?.currentPlan?.price || 0}
       />
 
@@ -372,7 +373,7 @@ export default function UserDropdown({
         open={managePlanOpen}
         onOpenChange={setManagePlanOpen}
         plans={userData?.planHistory || []}
-        currentPlan={userData.currentPlan}
+        currentPlan={userData?.currentPlan || undefined}
       />
     </div>
   );

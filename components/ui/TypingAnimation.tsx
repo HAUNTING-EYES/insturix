@@ -30,7 +30,7 @@ const characterVariants = {
     transition: {
       duration: 0.15,
       delay: i * 0.02,
-      ease: [0.2, 0.65, 0.3, 0.9],
+      ease: [0.2, 0.65, 0.3, 0.9] as any,
     },
   }),
   exit: (i: number) => ({
@@ -41,7 +41,7 @@ const characterVariants = {
     transition: {
       duration: 0.15,
       delay: i * 0.015,
-      ease: [0.2, 0.65, 0.3, 0.9],
+      ease: [0.2, 0.65, 0.3, 0.9] as any,
     },
   }),
 };

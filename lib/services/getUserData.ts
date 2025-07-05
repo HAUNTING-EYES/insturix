@@ -33,9 +33,9 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
       status: "active",
       serviceLimits: {
         alyzitron: [],
+        clickatron: [],
         editron: [],
         shield: [],
-        socialize: [],
         thinkforge: [],
         musitron: [],
       },

@@ -170,7 +170,6 @@ export class UserInitializationService {
       alyzitron: [],
       editron: [],
       shield: [],
-      socialize: [],
       thinkforge: [],
       musitron: [],
       clickatron: []

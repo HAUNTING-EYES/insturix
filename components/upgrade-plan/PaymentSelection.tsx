@@ -80,21 +80,21 @@ export function PlanSelection({
       transition: {
         delay: 0.02 * index, // Reduced delay
         duration: 0.3, // Faster animation
-        ease: "easeOut",
+        ease: "easeOut" as any,
       },
     }),
     hover: {
       y: -10,
       transition: {
         duration: 0.3,
-        ease: "easeOut",
+        ease: "easeOut" as any,
       },
     },
     tap: {
       y: -5,
       transition: {
         duration: 0.1,
-        ease: "easeOut",
+        ease: "easeOut" as any,
       },
     },
   };
