@@ -32,7 +32,7 @@ export const SERVICE_CONFIG = {
   clickatron: {
     name: 'Clickatron',
     mongoCollection: process.env.CLICKATRON_MONGO_COLLECTION || 'thumbnailgen_tasks',
-    pubsubTopic: process.env.CLICKATRON_PUBSUB_TOPIC || 'clickatron-tasks',
+    pubsubTopic: process.env.CLICKATRON_PUBSUB_TOPIC || 'clickatron-thumbnailgen-tasks',
   },
 } as const;
 

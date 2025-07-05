@@ -73,41 +73,66 @@ export async function POST(req: Request) {
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 
-  await incrementClickatronUsage({ userId });
-
-  // Create task in RTDB for real-time updates
+  // New try-catch block for post-save operations
   try {
-    await ClickatronRTDBManager.createTask(userId, newTask._id.toString(), title);
-  } catch (error) {
-    console.error('Failed to create task in RTDB:', error);
-    // Don't fail the whole request if RTDB fails
-  }
+    // Create task in RTDB for real-time updates
+    try {
+      await ClickatronRTDBManager.createTask(userId, newTask._id.toString(), title);
+    } catch (error) {
+      console.error('Failed to create task in RTDB:', error);
+      // Don't fail the whole request if RTDB fails
+    }
 
-  const message = {
-    taskId: newTask._id.toString(),
-    details: detailsString,
-    userId,
-  };
+    const message = {
+      taskId: newTask._id.toString(),
+      details: detailsString,
+      userId,
+    };
 
-  if (process.env.CLICKATRON_LOCAL_WORKER) {
-    const data = Buffer.from(JSON.stringify(message)).toString('base64');
-    await fetch(process.env.CLICKATRON_LOCAL_WORKER, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: {
-          data: data,
-          attributes: {}
+    if (process.env.CLICKATRON_LOCAL_WORKER) {
+      const data = Buffer.from(JSON.stringify(message)).toString('base64');
+      await fetch(process.env.CLICKATRON_LOCAL_WORKER, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        // Optionally, you can set a subscription value if needed for local testing
-        subscription: 'projects/test/subscriptions/test-sub'
-      }),
-    });
-  } else {
-    await pubsub.topic(clickatronConfig.pubsubTopic).publishMessage({ json: message });
-  }
+        body: JSON.stringify({
+          message: {
+            data: data,
+            attributes: {}
+          },
+          subscription: 'projects/test/subscriptions/test-sub'
+        }),
+      });
+    } else {
+      // Existing PubSub try-catch block
+      try {
+        console.log(
+          '[PubSub] Publishing to topic:',
+          clickatronConfig.pubsubTopic,
+          'Message:',
+          JSON.stringify(message)
+        );
+        const result = await pubsub.topic(clickatronConfig.pubsubTopic).publishMessage({ json: message });
+        console.log('[PubSub] Publish result:', result);
+      } catch (pubsubError) {
+        // Re-throw to be caught by the outer try-catch
+        throw pubsubError;
+      }
+    }
 
-  return NextResponse.json({ taskId: newTask._id });
+    // Only increment usage if everything above was successful
+    await incrementClickatronUsage({ userId });
+
+    return NextResponse.json({ taskId: newTask._id });
+
+  } catch (processingError: any) {
+    console.error('Error during task processing (PubSub/Local Worker/Usage Increment):', processingError);
+    // Update task status to failed and store a generic error message
+    await ClickatronTask.findByIdAndUpdate(newTask._id, {
+      status: 'failed',
+      error_message: 'Failed to process task due to an internal error. Please try again later.',
+    });
+    return new NextResponse('Task processing failed', { status: 500 });
+  }
 }

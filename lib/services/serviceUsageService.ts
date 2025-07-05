@@ -29,6 +29,7 @@ export class ServiceUsageService {
     
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
+      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
       throw new Error(`User not found: ${userId}`);
     }
 
@@ -87,6 +88,7 @@ export class ServiceUsageService {
     
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
+      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
       throw new Error(`User not found: ${userId}`);
     }
 
@@ -168,6 +170,7 @@ export class ServiceUsageService {
     // Select only needed fields for better performance
     const user = await User.findOne({ clerkUserId: userId }).select('currentPlan.serviceLimits');
     if (!user) {
+      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
       throw new Error(`User not found: ${userId}`);
     }
 
@@ -239,6 +242,7 @@ export class ServiceUsageService {
     
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
+      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
       throw new Error(`User not found: ${userId}`);
     }
 
@@ -377,6 +381,7 @@ export class ServiceUsageService {
     
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
+      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
       throw new Error(`User not found: ${userId}`);
     }
 
