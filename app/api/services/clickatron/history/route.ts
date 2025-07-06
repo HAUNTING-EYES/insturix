@@ -30,21 +30,6 @@ export async function GET(request: Request) {
       query.status = { $in: statusArray };
     }
 
-    // Timeout logic
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
-    await ClickatronTask.updateMany(
-        {
-            status: { $nin: ['completed', 'failed'] },
-            updatedAt: { $lt: fifteenMinutesAgo }
-        },
-        {
-            $set: {
-                status: 'failed',
-                error_message: 'TIMEOUT'
-            }
-        }
-    );
-
     // Get total count for pagination
     const totalItems = await ClickatronTask.countDocuments(query);
     const totalPages = Math.ceil(totalItems / validatedLimit);

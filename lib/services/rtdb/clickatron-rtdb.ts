@@ -1,17 +1,17 @@
 import { database } from '@/lib/firebase/config';
 import { ref, set, update, remove, get } from 'firebase/database';
 import { TaskUpdate, TaskStatus } from '@/types/rtdb';
-import { logger } from './logger';
+import { logger } from '@/app/api/services/alyzitron/utils/logger';
 
-export class RTDBManager {
+export class ClickatronRTDBManager {
   private static getUserTaskPath(userId: string, taskId: string): string {
-    return `/${userId}/alyzitron/${taskId}`;
+    return `/${userId}/clickatron/${taskId}`;
   }
 
   static async createTask(userId: string, taskId: string, title?: string, description?: string): Promise<void> {
     try {
       const taskUpdate: TaskUpdate = {
-        taskId,
+        _id: taskId,
         status: 'listed',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -28,9 +28,9 @@ export class RTDBManager {
       const taskRef = ref(database, this.getUserTaskPath(userId, taskId));
       await set(taskRef, taskUpdate);
 
-      logger.info('Task created in RTDB', { data: { userId, taskId, status: 'listed' } });
+      logger.info('Clickatron task created in RTDB', { data: { userId, taskId, status: 'listed' } });
     } catch (error) {
-      logger.error('Failed to create task in RTDB', {
+      logger.error('Failed to create clickatron task in RTDB', {
         data: { userId, taskId, error: error instanceof Error ? error.message : String(error) }
       });
       throw error;
@@ -47,10 +47,10 @@ export class RTDBManager {
       const taskRef = ref(database, this.getUserTaskPath(userId, taskId));
       await update(taskRef, updates);
 
-      logger.info('Task status updated in RTDB', { data: { userId, taskId, status } });
+      logger.info('Clickatron task status updated in RTDB', { data: { userId, taskId, status } });
     } catch (error) {
-      logger.error('Failed to update task status in RTDB', { 
-        data: { userId, taskId, status, error: error instanceof Error ? error.message : String(error) } 
+      logger.error('Failed to update clickatron task status in RTDB', { 
+        data: { userId, taskId, status, error: error instanceof Error ? error.message : String(error) }
       });
       throw error;
     }
@@ -61,9 +61,9 @@ export class RTDBManager {
       const taskRef = ref(database, this.getUserTaskPath(userId, taskId));
       await remove(taskRef);
 
-      logger.info('Task removed from RTDB', { data: { userId, taskId } });
+      logger.info('Clickatron task removed from RTDB', { data: { userId, taskId } });
     } catch (error) {
-      logger.error('Failed to remove task from RTDB', {
+      logger.error('Failed to remove clickatron task from RTDB', {
         data: { userId, taskId, error: error instanceof Error ? error.message : String(error) }
       });
       throw error;

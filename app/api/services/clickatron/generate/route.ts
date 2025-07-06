@@ -3,7 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { checkClickatronLimits, incrementClickatronUsage, createClickatronLimitResponse } from '@/lib/middleware/services/clickatron';
 import { getServiceConfig } from '@/lib/config/services';
-import { ClickatronRTDBManager } from '@/lib/services/clickatron-rtdb';
+import { ClickatronRTDBManager } from '@/lib/services/rtdb/clickatron-rtdb';
 import { PubSub } from '@google-cloud/pubsub';
 
 const gcpCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS

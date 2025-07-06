@@ -48,21 +48,19 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], (old) => {
       const currentData = Array.isArray(old) ? old : Array.isArray(initialAnalyses) ? initialAnalyses : [];
       
-      // Create a map of existing analyses by taskId for quick lookup
+      // Create a map of existing analyses by _id for quick lookup
       const analysisMap = new Map<string, AlyzitronAnalysis>();
       currentData.forEach(analysis => {
-        if (analysis.taskId) {
-          analysisMap.set(analysis.taskId, analysis);
-        }
+        analysisMap.set(analysis._id, analysis);
       });
 
       // Update existing analyses with RTDB data
       alyzitronTasks.forEach(task => {
-        const existingAnalysis = analysisMap.get(task.taskId);
+        const existingAnalysis = analysisMap.get(task._id);
         if (existingAnalysis) {
           // Update status from RTDB
           if (existingAnalysis.status !== task.status) {
-            analysisMap.set(task.taskId, {
+            analysisMap.set(task._id, {
               ...existingAnalysis,
               status: task.status as AnalysisStatus,
               updatedAt: new Date(task.updatedAt),
@@ -92,9 +90,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
       const currentData = old || [];
       // Look for existing analysis by both _id and taskId to handle cases where
       // the analysis was just added to cache with a different _id
-      const existingIndex = currentData.findIndex(a =>
-        a._id === analysisId || (analysis.taskId && a.taskId === analysis.taskId)
-      );
+      const existingIndex = currentData.findIndex(a => a._id === analysisId);
       
       // Handle new analysis with optimistic update
       if (existingIndex === -1) {
@@ -102,7 +98,6 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
           _id: analysisId, // Will be replaced by server response
           clerkUserId: 'pending',
           status: analysis.status as AnalysisStatus,
-          taskId: analysis.taskId || '',
           videoUrl: analysis.videoUrl || '',
           estimatedTime: analysis.estimatedTime || 60,
           unread: true,
@@ -171,9 +166,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
           queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], old => {
             console.log('ONSUBMIT: Current cache data:', old);
             const currentData = old || [];
-            const existingIndex = currentData.findIndex(a =>
-              a._id === analysisId || (analysis.taskId && a.taskId === analysis.taskId)
-            );
+            const existingIndex = currentData.findIndex(a => a._id === analysisId);
             
             console.log('ONSUBMIT: Found existing index:', existingIndex);
             

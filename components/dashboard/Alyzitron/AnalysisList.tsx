@@ -47,7 +47,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
     queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }],
     queryFn: async () => {
-      const url = `/api/services/alyzitron/analyses?status=completed,failed,cancelled&page=${currentPage}&limit=${itemsPerPage}`;
+      const url = `/api/services/alyzitron/analyses?status=completed,failed&page=${currentPage}&limit=${itemsPerPage}`;
       const response = await fetch(url);
       if (!response.ok) {
         const errorData = await response.text();
@@ -67,12 +67,12 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   // --- RTDB Integration for real-time updates ---
   useEffect(() => {
     const prevTasks = prevTasksRef.current;
-    const prevTasksMap = new Map(prevTasks.map(task => [task.taskId, task]));
+    const prevTasksMap = new Map(prevTasks.map(task => [task._id, task]));
     let shouldRefetch = false;
 
     alyzitronTasks.forEach(task => {
-      const prevTask = prevTasksMap.get(task.taskId);
-      const wasInProgress = prevTask && !['completed', 'failed', 'cancelled'].includes(prevTask.status);
+      const prevTask = prevTasksMap.get(task._id);
+      const wasInProgress = prevTask && !['completed', 'failed'].includes(prevTask.status);
       const isNowFinished = ['completed', 'failed'].includes(task.status);
 
       if (wasInProgress && isNowFinished) {
@@ -109,7 +109,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
 
   // Filter received data client-side to strictly enforce terminal statuses
   const analyses = (paginatedData?.data ?? []).filter(analysis =>
-    ['completed', 'failed', 'cancelled'].includes(analysis.status)
+    ['completed', 'failed'].includes(analysis.status)
   );
   const { totalItems = 0 } = paginatedData?.pagination ?? {};
   const actualTotalPages = totalItems > 0 ? Math.ceil(totalItems / itemsPerPage) : 0;
@@ -148,13 +148,12 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
             <AnalysisProgress
               key={analysis._id}
               analysisId={analysis._id.toString()}
-              taskId={analysis.taskId}
+              taskId={analysis._id.toString()} // Ensure taskId is a string
               title={analysis.metadata?.originalFilename}
               status={analysis.status}
               error={analysis.error}
               unread={analysis.unread}
               expectedDurationSeconds={analysis.expectedDurationSeconds}
-              onCancel={undefined}
               videoUrl={analysis.videoUrl}
               // Pass down necessary props for cache update
               queryClient={queryClient}

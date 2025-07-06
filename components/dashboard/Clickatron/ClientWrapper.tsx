@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useRtdb } from '@/providers/RtdbProvider';
 import { IClickatronTask } from "@/schemas/Clickatron";
-import { ClickatronRTDBManager } from "@/lib/services/clickatron-rtdb";
+import { ClickatronRTDBManager } from "@/lib/services/rtdb/clickatron-rtdb";
 import { TaskHistory } from "./TaskHistory";
 import { PromptForm } from "./PromptForm";
 
@@ -103,11 +103,11 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
 
       // Update existing tasks with RTDB data
       clickatronTasks.forEach(rtdbTask => {
-        const existingTask = taskMap.get(rtdbTask.taskId);
+        const existingTask = taskMap.get(rtdbTask._id);
         if (existingTask) {
           // Update status from RTDB
           if (existingTask.status !== rtdbTask.status) {
-            taskMap.set(rtdbTask.taskId, {
+            taskMap.set(rtdbTask._id, {
               ...existingTask,
               status: rtdbTask.status as ClickatronTaskData['status'],
               updatedAt: new Date(rtdbTask.updatedAt),

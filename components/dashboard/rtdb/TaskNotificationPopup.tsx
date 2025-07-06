@@ -48,7 +48,7 @@ export function TaskNotificationPopup({
     
     // Navigate to the appropriate service page
     if (serviceName === 'alyzitron') {
-      const url = `/dashboard/${serviceName}/report/${taskUpdate.taskId}`;
+      const url = `/dashboard/${serviceName}/report/${taskUpdate._id}`;
       router.push(url);
     } else if (serviceName === 'clickatron') {
       const url = `/dashboard/${serviceName}`;
@@ -100,7 +100,7 @@ export function TaskNotificationPopup({
                 </Badge>
               </div>
               <p className="text-sm font-medium text-zinc-100 mt-1 overflow-hidden text-ellipsis whitespace-nowrap max-w-[200px]">
-                {taskUpdate.title || `Task ${taskUpdate.taskId.slice(0, 8)}`}
+                {taskUpdate.title || `Task ${taskUpdate._id.slice(0, 8)}`}
               </p>
               <p className="text-xs text-zinc-400">
                 {formatTime(notification.timestamp)}

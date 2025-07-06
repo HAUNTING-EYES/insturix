@@ -34,43 +34,6 @@ export async function GET(request: Request) {
 
     const userAnalyses = await query.toArray();
 
-    // Check for stale analyses and mark them as failed
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const staleAnalyses = userAnalyses.filter(analysis =>
-      analysis.status !== 'completed' &&
-      analysis.status !== 'failed' &&
-      new Date(analysis.updatedAt) < oneHourAgo
-    );
-
-    // Mark stale analyses as failed in MongoDB
-    if (staleAnalyses.length > 0) {
-      const staleIds = staleAnalyses.map(a => a._id);
-      await analyses.updateMany(
-        { _id: { $in: staleIds } },
-        {
-          $set: {
-            status: 'failed',
-            error: {
-              code: 'TIMEOUT_ERROR',
-              message: 'Analysis timed out after 1 hour without completion'
-            },
-            updatedAt: new Date()
-          }
-        }
-      );
-
-      // Update the in-memory analyses to reflect the changes
-      staleAnalyses.forEach(analysis => {
-        analysis.status = 'failed';
-        analysis.error = {
-          code: 'TIMEOUT_ERROR',
-          message: 'Analysis timed out after 1 hour without completion'
-        };
-        analysis.updatedAt = new Date();
-      });
-
-    }
-
     // Serialize processingStartTime to timestamp and convert ObjectId to string
     const serializedAnalyses = userAnalyses.map(a => ({
       ...a,

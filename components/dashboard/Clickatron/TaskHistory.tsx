@@ -43,7 +43,6 @@ interface ClickatronTaskDisplay {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
-  taskId: string; // Realtime Database taskId
 }
 
 interface PaginatedTaskResponse {
@@ -267,7 +266,7 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
   const inProgressTasks: ClickatronTaskDisplay[] = clickatronTasks.filter(task =>
     ['processing', 'queued', 'listed'].includes(task.status)
   ).map(task => ({
-    _id: task.taskId, // Use taskId as _id for frontend representation
+    _id: task._id, // Use _id from TaskUpdate
     userId: '', // userId is not in TaskUpdate, provide default
     title: task.title,
     details: {}, // details is not in TaskUpdate, provide default
@@ -277,7 +276,6 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
     createdAt: new Date(task.createdAt),
     updatedAt: new Date(task.updatedAt),
     completedAt: undefined, // completedAt is not in TaskUpdate, provide default
-    taskId: task.taskId,
   }));
 
   // Sync RTDB data with our react-query data for completed/failed tasks
@@ -292,11 +290,11 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
       let shouldRefetch = false;
 
       clickatronTasks.forEach(rtdbTask => {
-        const existingTask = taskMap.get(rtdbTask.taskId);
+        const existingTask = taskMap.get(rtdbTask._id); // Use _id
         if (existingTask) {
           // Update existing task if status changed
           if (existingTask.status !== rtdbTask.status) {
-            taskMap.set(rtdbTask.taskId, {
+            taskMap.set(rtdbTask._id, { // Use _id
               ...existingTask,
               status: rtdbTask.status as ClickatronTaskDisplay['status'],
               updatedAt: new Date(rtdbTask.updatedAt),
@@ -383,7 +381,7 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
           <h3 className="text-md font-semibold text-purple-300 mb-2">In Progress</h3>
           <div className="space-y-3 sm:space-y-4">
             {inProgressTasks.map((task: ClickatronTaskDisplay) => (
-              <TaskCard key={task.taskId} task={task} onClick={() => handleTaskClick(task.taskId)} />
+              <TaskCard key={task._id} task={task} onClick={() => handleTaskClick(task._id)} />
             ))}
           </div>
         </div>

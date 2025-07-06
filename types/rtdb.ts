@@ -1,7 +1,7 @@
 export type TaskStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
 
 export interface TaskUpdate {
-  taskId: string;
+  _id: string;
   // serviceName is available from the RTDB path /userID/serviceName/taskID
   status: TaskStatus;
   createdAt: string; // ISO string

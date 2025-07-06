@@ -232,40 +232,12 @@ export function useVideoAnalysis() {
     [uploadFile, submitAnalysis]
   );
 
-  const cancelAnalysis = useCallback(async (taskId: string) => {
-    try {
-      logger.info("Canceling analysis", { data: { taskId } });
-
-      const response = await fetch("/api/services/alyzitron/cancel", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ taskId }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Failed to cancel analysis"); // Directly access message property
-      }
-
-      logger.info("Analysis canceled successfully", { data: { taskId } });
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : "Failed to cancel analysis";
-      logger.error("Analysis cancellation failed", {
-        data: { error: errorMessage, taskId },
-      });
-      throw error;
-    }
-  }, []);
 
   return {
     uploadState,
     analysisState,
     analyzeFile,
     submitAnalysis,
-    cancelAnalysis,
     resetState,
   };
 }

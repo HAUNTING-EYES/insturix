@@ -17,6 +17,7 @@ export interface IClickatronTask extends Document {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
+  refunded?: boolean;
 }
 
 const ClickatronTaskSchema = new Schema<IClickatronTask>(
@@ -42,6 +43,7 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
     },
     error_message: { type: String },
     completedAt: { type: Date },
+    refunded: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

@@ -95,7 +95,6 @@ export async function POST(request: Request) {
 
     // Create task with new architecture (MongoDB + RTDB + Pub/Sub)
     try {
-      const taskId = new ObjectId().toString();
       // If it's a GCS file, format the videoUrl as gs://${bucketName}/${gcsPath}
       const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
 
@@ -132,7 +131,6 @@ export async function POST(request: Request) {
         videoUrl: finalVideoUrl,
         status: 'listed',
         unread: true,
-        taskId: taskId,
         estimatedTime: 120, // Default estimate, will be updated by worker
         results: null,
         metadata: {
@@ -154,13 +152,13 @@ export async function POST(request: Request) {
       // Create task in RTDB
       await RTDBManager.createTask(
         session.userId,
-        taskId,
+        analysisRecord._id, // Use _id as the task identifier
         title,
         undefined
       );
 
       const message = {
-        taskId,
+        analysisId: analysisRecord._id, // Use _id as the task identifier
         userId: session.userId,
         videoUrl: finalVideoUrl,
         additionalDetails: additional_details,
@@ -215,7 +213,6 @@ export async function POST(request: Request) {
       logger.info('Analysis task created successfully', {
         data: {
           analysisId: analysisRecord._id,
-          taskId,
           userId: session.userId
         }
       });

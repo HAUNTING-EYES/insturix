@@ -27,7 +27,6 @@ interface AnalysisProgressProps {
   error?: AnalysisError;
   expectedDurationSeconds?: number;
   processingStartTime?: number; // timestamp in ms
-  onCancel?: (taskId: string) => void;
   queryClient?: QueryClient;
   currentPage?: number;
   itemsPerPage?: number;
@@ -44,7 +43,6 @@ export function AnalysisProgress({
   error,
   expectedDurationSeconds = 60,
   processingStartTime,
-  // onCancel,
   queryClient,
   currentPage,
   itemsPerPage,
@@ -125,22 +123,10 @@ export function AnalysisProgress({
   }, [processingStartTime, expectedDurationSeconds, status]);
 
   const isActive = status === 'processing' || status === 'queued';
-  // const canCancel = status === 'queued' && onCancel && taskId;
-  const canCancel = false; // Disable cancel button for now, until future debugging and fixes
   const isCompleted = status === 'completed';
-  const isCancelled = status === 'cancelled';
 
-  const handleCancel = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (canCancel && taskId) {
-      // onCancel(taskId); // Disable cancel button for now, until future debugging and fixes
-    }
-  };
 
   const handleClick = () => {
-    // Disable click action for cancelled items
-    if (isCancelled) return;
-    
     // Allow both completed and failed analyses to be clickable
     if ((isCompleted || status === 'failed') && queryClient && currentPage && itemsPerPage) {
       // Construct the query key for the current page
@@ -180,7 +166,6 @@ export function AnalysisProgress({
           relative bg-black/40 border-zinc-800 backdrop-blur-xl
           ${isActive ? 'ring-1 ring-zinc-700' : ''}
           ${(isCompleted || status === 'failed') ? 'cursor-pointer hover:bg-black/50 transition-colors duration-300' : ''}
-          ${isCancelled ? 'opacity-60' : ''} // Optionally dim cancelled items
         `}
         onClick={handleClick}
       >
@@ -291,32 +276,9 @@ export function AnalysisProgress({
                     <ChevronRight className="h-5 w-5 text-zinc-500" />
                   </motion.div>
                 )}
-                {status === 'cancelled' && (
-                  <motion.div
-                    key="cancelled"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="flex items-center gap-2 text-sm text-zinc-500"
-                  >
-                    <Ban className="h-4 w-4" />
-                    <span>Cancelled</span>
-                  </motion.div>
-                )}
               </AnimatePresence>
             </div>
 
-            {canCancel && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancel}
-                className="text-zinc-400 hover:text-red-400"
-              >
-                <XCircle className="h-5 w-5" />
-              </Button>
-            )}
           </div>
         </CardContent>
 
