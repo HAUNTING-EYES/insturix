@@ -39,7 +39,6 @@ const DEFAULT_ITEMS_PER_PAGE = 10;
 export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AnalysisListProps) {
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
-  const { user } = useUser();
   const { allTasks } = useRtdb();
   const alyzitronTasks = allTasks.alyzitron || [];
   const prevTasksRef = useRef<typeof alyzitronTasks>([]);

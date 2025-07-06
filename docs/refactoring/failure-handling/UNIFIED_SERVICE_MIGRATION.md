@@ -29,6 +29,7 @@ lib/services/
 - `app/api/services/clickatron/generate/route.ts` - Updated import path
 - `lib/middleware/services/alyzitron.ts` - Updated import path
 - `components/dashboard/Clickatron/ClientWrapper.tsx` - Updated import path
+- `app/api/services/alyzitron/analyze/route.ts` - Updated import path and usage
 
 ### Key Benefits
 1. **Consistent API**: All services implement the same interfaces

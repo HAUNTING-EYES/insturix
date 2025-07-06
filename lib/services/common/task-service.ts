@@ -58,7 +58,7 @@ export async function getServiceConfig(serviceName: 'alyzitron' | 'clickatron'):
       taskService: new AlyzitronTaskService(),
       rtdbService: new AlyzitronRTDBService(),
       usageConfig: {
-        array: 'serviceLimits.alyzitron',
+        array: 'currentPlan.serviceLimits.alyzitron',
         limitType: 'maxTotalAnalysis'
       },
       additionalRefundLogic: alyzitronAdditionalRefund
@@ -72,7 +72,7 @@ export async function getServiceConfig(serviceName: 'alyzitron' | 'clickatron'):
       taskService: new ClickatronTaskService(),
       rtdbService: new ClickatronRTDBService(),
       usageConfig: {
-        array: 'serviceLimits.clickatron',
+        array: 'currentPlan.serviceLimits.clickatron',
         limitType: 'maxThumbnailGeneration'
       }
     };

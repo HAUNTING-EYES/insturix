@@ -22,12 +22,11 @@ import { Loader2,
 import { cn } from "@/lib/utils";
 
 interface TaskHistoryProps {
-  tasks: IClickatronTask[];
   itemsPerPage?: number;
 }
 
 interface ClickatronTaskDisplay {
-  _id: string; // Use string for frontend display, can be taskId or actual _id
+  _id: string; // Ensure _id is always a string for frontend display
   userId: string;
   title?: string;
   details: any;
@@ -241,14 +240,31 @@ function TaskCard({ task, onClick }: TaskCardProps) {
   );
 }
 
-export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: TaskHistoryProps) {
+export function TaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: TaskHistoryProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
   const { allTasks } = useRtdb();
   const clickatronTasks = allTasks.clickatron || [];
 
-  // Use paginated API for completed/failed tasks
+  // NEW: Query for ALL Clickatron tasks (for in-progress filtering)
+  const { data: allClickatronTasks } = useQuery<ClickatronTaskDisplay[]>({
+    queryKey: ['clickatron-all-tasks'],
+    queryFn: async () => {
+      const response = await fetch('/api/services/clickatron/history'); // Fetch all tasks
+      if (!response.ok) throw new Error('Failed to fetch all Clickatron tasks');
+      const result: PaginatedTaskResponse = await response.json();
+      return result.data || [];
+    },
+    enabled: true, // Ensure it subscribes to cache changes
+    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
+    gcTime: 1000 * 60 * 10, // Standard garbage collection
+    refetchOnWindowFocus: false, // Prevent refetching on window focus
+    refetchOnMount: false, // Prevent refetching on mount
+    refetchOnReconnect: false, // Prevent refetching on reconnect
+  });
+
+  // Existing: Use paginated API for completed/failed tasks
   const { data: paginatedData, isLoading, refetch } = useQuery<PaginatedTaskResponse>({
     queryKey: ['clickatron-history', currentPage, itemsPerPage],
     queryFn: async () => {
@@ -262,80 +278,61 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
     refetchOnWindowFocus: false,
   });
 
-  // In-progress tasks from RTDB
-  const inProgressTasks: ClickatronTaskDisplay[] = clickatronTasks.filter(task =>
-    ['processing', 'queued', 'listed'].includes(task.status)
-  ).map(task => ({
-    _id: task._id, // Use _id from TaskUpdate
-    userId: '', // userId is not in TaskUpdate, provide default
-    title: task.title,
-    details: {}, // details is not in TaskUpdate, provide default
-    status: task.status as ClickatronTaskDisplay['status'],
-    results: undefined, // results is not in TaskUpdate, provide default
-    error_message: undefined, // error_message is not in TaskUpdate, provide default
-    createdAt: new Date(task.createdAt),
-    updatedAt: new Date(task.updatedAt),
-    completedAt: undefined, // completedAt is not in TaskUpdate, provide default
-  }));
+  // MODIFIED: In-progress tasks from the 'allClickatronTasks' query
+  const inProgressStatuses: IClickatronTask['status'][] = ['listed', 'queued', 'processing'];
+  const inProgressTasks: ClickatronTaskDisplay[] = ((Array.isArray(allClickatronTasks) ? allClickatronTasks : [])
+    .filter(task => inProgressStatuses.includes(task.status)))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(task => ({
+      _id: task._id.toString(), // Convert ObjectId to string
+      userId: task.userId,
+      title: task.title,
+      details: task.details,
+      status: task.status,
+      results: task.results,
+      error_message: task.error_message,
+      createdAt: new Date(task.createdAt),
+      updatedAt: new Date(task.updatedAt),
+      completedAt: task.completedAt,
+    }));
 
-  // Sync RTDB data with our react-query data for completed/failed tasks
+  // MODIFIED: Sync RTDB data with our react-query data for completed/failed tasks
+  // This useEffect will now invalidate both queries
   React.useEffect(() => {
     if (clickatronTasks.length === 0) return;
 
-    queryClient.setQueryData<PaginatedTaskResponse>(['clickatron-history', currentPage, itemsPerPage], (old) => {
-      const currentData = old ? [...old.data] : [];
-      const taskMap = new Map<string, ClickatronTaskDisplay>();
-      currentData.forEach(task => taskMap.set(task._id, task));
+    // Get the current state of all tasks from the cache
+    const currentCachedAllTasks = queryClient.getQueryData<IClickatronTask[]>(['clickatron-all-tasks']) || [];
+    const currentCachedAllTasksMap = new Map(currentCachedAllTasks.map(task => [task._id.toString(), task])); // Convert ObjectId to string for map key
 
-      let shouldRefetch = false;
+    let shouldInvalidateAllTasks = false;
+    let shouldInvalidatePaginatedHistory = false;
 
-      clickatronTasks.forEach(rtdbTask => {
-        const existingTask = taskMap.get(rtdbTask._id); // Use _id
-        if (existingTask) {
-          // Update existing task if status changed
-          if (existingTask.status !== rtdbTask.status) {
-            taskMap.set(rtdbTask._id, { // Use _id
-              ...existingTask,
-              status: rtdbTask.status as ClickatronTaskDisplay['status'],
-              updatedAt: new Date(rtdbTask.updatedAt),
-              completedAt: rtdbTask.status === 'completed' ? new Date(rtdbTask.updatedAt) : existingTask.completedAt,
-            });
-            if (['completed', 'failed'].includes(rtdbTask.status)) {
-              shouldRefetch = true; // A task completed/failed, refetch paginated data
-            }
-          }
-        } else if (['completed', 'failed'].includes(rtdbTask.status)) {
-          // If a new completed/failed task appears in RTDB, trigger refetch
-          shouldRefetch = true;
+    clickatronTasks.forEach(rtdbTask => {
+      if (!rtdbTask._id) return; // Guard against tasks without an _id
+      const existingTaskInCache = currentCachedAllTasksMap.get(rtdbTask._id.toString()); // Convert ObjectId to string for lookup
+
+      // Case 1: New task in RTDB or status change
+      if (!existingTaskInCache || existingTaskInCache.status !== rtdbTask.status) {
+        shouldInvalidateAllTasks = true; // Refetch all tasks to get the latest state
+
+        // Case 2: An in-progress task transitioned to completed/failed
+        const wasInProgress = existingTaskInCache && inProgressStatuses.includes(existingTaskInCache.status);
+        const isNowFinished = ['completed', 'failed'].includes(rtdbTask.status);
+
+        if (wasInProgress && isNowFinished) {
+          shouldInvalidatePaginatedHistory = true; // Refetch paginated history
         }
-      });
-
-      if (shouldRefetch) {
-        refetch(); // Trigger refetch for paginated data
-        return old; // Return old data for now, new data will come from refetch
       }
-
-      // Filter out in-progress tasks from the paginated list if they are there
-      const filteredData = Array.from(taskMap.values()).filter(task =>
-        !['processing', 'queued', 'listed'].includes(task.status)
-      );
-
-      // Sort by updatedAt for consistency
-      filteredData.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-      return old ? { ...old, data: filteredData } : {
-        data: filteredData,
-        pagination: {
-          totalItems: filteredData.length,
-          totalPages: Math.ceil(filteredData.length / itemsPerPage),
-          currentPage: 1,
-          itemsPerPage: itemsPerPage,
-          hasNext: false,
-          hasPrev: false,
-        }
-      };
     });
-  }, [clickatronTasks, queryClient, currentPage, itemsPerPage, refetch]);
+
+    if (shouldInvalidateAllTasks) {
+      queryClient.invalidateQueries({ queryKey: ['clickatron-all-tasks'] });
+    }
+    if (shouldInvalidatePaginatedHistory) {
+      queryClient.invalidateQueries({ queryKey: ['clickatron-history'] });
+    }
+  }, [clickatronTasks, queryClient]); // inProgressStatuses is a constant, no need to add to deps
 
   const currentTasks = paginatedData?.data || [];
   const totalPages = paginatedData?.pagination?.totalPages || 1;
@@ -393,7 +390,7 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
           </div>
-        ) : tasks.length === 0 ? (
+        ) : currentTasks.length === 0 && inProgressTasks.length === 0 ? ( // Modified condition
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
             <FileImage className="h-12 w-12 text-zinc-500 mb-4" />
             <p className="text-zinc-400 text-center mb-2">No thumbnails generated yet</p>

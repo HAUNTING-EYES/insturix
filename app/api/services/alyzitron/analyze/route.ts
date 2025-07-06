@@ -5,7 +5,7 @@ import { AlyzitronAnalysis } from '../types';
 import { logger } from '../utils/logger';
 import { getCollections } from '../utils/mongodb';
 import { validateYouTubeVideo } from '../utils/youtube';
-import { RTDBManager } from '../utils/rtdb';
+import { AlyzitronRTDBManager } from '@/lib/services/rtdb/alyzitron-rtdb';
 import { PubSubManager } from '../utils/pubsub';
 import { getServiceConfig } from '@/lib/config/services';
 import {
@@ -150,7 +150,7 @@ export async function POST(request: Request) {
       await analyses.insertOne(analysisRecord);
 
       // Create task in RTDB
-      await RTDBManager.createTask(
+      await AlyzitronRTDBManager.createTask(
         session.userId,
         analysisRecord._id, // Use _id as the task identifier
         title,

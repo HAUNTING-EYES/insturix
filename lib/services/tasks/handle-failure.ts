@@ -56,7 +56,7 @@ export async function handleTaskFailure({ taskId, serviceName, userId, error }: 
     // Common logic: Refund the main usage credit for the user
     const { usageConfig } = serviceConfig;
     await User.updateOne(
-      { clerkId: userId },
+      { clerkUserId: userId },
       { $inc: { [`${usageConfig.array}.$[elem].currentUsage`]: -1 } },
       {
         arrayFilters: [
