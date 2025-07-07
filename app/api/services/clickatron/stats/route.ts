@@ -17,19 +17,29 @@ export async function GET(request: NextRequest) {
     monthStart.setDate(1);
     monthStart.setHours(0, 0, 0, 0);
 
-    const monthlyTasks = await ClickatronTask.countDocuments({
-      userId: userId,
-      createdAt: { $gte: monthStart },
-    });
+    // Use aggregation to get all counts in a single roundtrip
+    const aggregationPipeline = [
+      { $match: { userId: userId } },
+      {
+        $facet: {
+          totalTasks: [{ $count: "count" }],
+          monthlyTasks: [
+            { $match: { createdAt: { $gte: monthStart } } },
+            { $count: "count" }
+          ],
+          pendingTasks: [
+            { $match: { status: { $in: ["queued", "processing"] } } },
+            { $count: "count" }
+          ]
+        }
+      }
+    ];
 
-    const pendingTasks = await ClickatronTask.countDocuments({
-      userId: userId,
-      status: { $in: ["queued", "processing"] },
-    });
+    const results = await ClickatronTask.aggregate(aggregationPipeline as any[]);
 
-    const totalTasks = await ClickatronTask.countDocuments({
-      userId: userId,
-    });
+    const totalTasks = results[0].totalTasks[0] ? results[0].totalTasks[0].count : 0;
+    const monthlyTasks = results[0].monthlyTasks[0] ? results[0].monthlyTasks[0].count : 0;
+    const pendingTasks = results[0].pendingTasks[0] ? results[0].pendingTasks[0].count : 0;
 
     const usage = await ServiceUsageService.getServiceUsageForAllServices(userId);
 

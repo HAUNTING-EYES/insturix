@@ -12,8 +12,8 @@ export interface AlyzitronUserData {
   updatedAt: Date;
 }
 
-// Status workflow: listed -> sometimes (queued) -> processing -> completed/failed/cancelled
-export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled';
+// Status workflow: listed -> sometimes (queued) -> processing -> completed/failed
+export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
 
 // API specific status (for webhook responses)
 export type APIAnalysisStatus = 'queued' | 'started' | 'processing' | 'completed' | 'failed';
@@ -55,7 +55,6 @@ export interface AlyzitronAnalysis {
   clerkUserId: string;
   videoUrl: string;
   status: AnalysisStatus;
-  taskId: string;
   estimatedTime: number;    // in seconds
   expectedDurationSeconds?: number; // Add expected duration
   queuePosition?: number;   // Only present when status is 'queued'
@@ -77,6 +76,7 @@ export interface AlyzitronAnalysis {
   createdAt: Date;
   updatedAt: Date;
   processingStartTime?: number; // timestamp in ms
+  refunded?: boolean;
 }
 
 export interface ServiceError {

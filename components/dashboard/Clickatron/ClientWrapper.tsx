@@ -3,10 +3,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { useRtdb } from '@/providers/RtdbProvider';
 import { IClickatronTask } from "@/schemas/Clickatron";
-import { ClickatronRTDBManager } from "@/lib/services/clickatron-rtdb";
-import { TaskHistory } from "./TaskHistory";
+import { ClickatronRTDBManager } from "@/lib/services/rtdb/clickatron-rtdb";
+import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
+import { ClickatronTaskHistory } from "./ClickatronTaskHistory";
 import { PromptForm } from "./PromptForm";
 
 // Plain object type for client-side task management
@@ -82,47 +82,10 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
     refetchOnWindowFocus: false, // Avoid refetching on window focus
   });
 
-  // Initialize RTDB listener for real-time updates
-  const { allTasks } = useRtdb();
-  const clickatronTasks = allTasks.clickatron || [];
+  // Initialize RTDB listener for real-time updates via the new hook
+  useTaskUpdater();
 
-  // Sync RTDB data with our tasks query data
-  useEffect(() => {
-    if (clickatronTasks.length === 0) return;
-
-    queryClient.setQueryData<ClickatronTaskData[]>(['clickatron-tasks'], (old) => {
-      const currentData = Array.isArray(old) ? old : Array.isArray(initialTasksData) ? initialTasksData : [];
-      
-      // Create a map of existing tasks by taskId for quick lookup
-      const taskMap = new Map<string, ClickatronTaskData>();
-      currentData.forEach(task => {
-        if (task._id) {
-          taskMap.set(task._id.toString(), task);
-        }
-      });
-
-      // Update existing tasks with RTDB data
-      clickatronTasks.forEach(rtdbTask => {
-        const existingTask = taskMap.get(rtdbTask.taskId);
-        if (existingTask) {
-          // Update status from RTDB
-          if (existingTask.status !== rtdbTask.status) {
-            taskMap.set(rtdbTask.taskId, {
-              ...existingTask,
-              status: rtdbTask.status as ClickatronTaskData['status'],
-              updatedAt: new Date(rtdbTask.updatedAt),
-            });
-          }
-        }
-      });
-
-      // Convert back to array and sort by updatedAt
-      const updatedTasks = Array.from(taskMap.values())
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-      return updatedTasks;
-    });
-  }, [clickatronTasks, queryClient, initialTasksData]);
+  // The manual RTDB sync useEffect has been removed, as useTaskUpdater handles cache invalidation.
 
   const handleTaskUpdate = (taskId: string, task: Partial<ClickatronTaskData>) => {
     if (!taskId) return;
@@ -199,7 +162,7 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
         }}
         activeTasks={activeTasks}
       />
-      <TaskHistory tasks={tasksData as any} />
+      <ClickatronTaskHistory />
     </div>
   );
 }

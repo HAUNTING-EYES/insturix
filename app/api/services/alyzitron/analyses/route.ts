@@ -20,59 +20,37 @@ export async function GET(request: Request) {
     const offset = (page - 1) * limit;
 
     const { analyses } = await getCollections();
-    
-    // Get total count for pagination
-    const totalItems = await analyses
-      .countDocuments({ clerkUserId: session.userId });
 
-    // Get paginated data
-    const query = analyses
-      .find({ clerkUserId: session.userId })
-      .sort({ createdAt: -1 })
-      .skip(offset)
-      .limit(limit);
-
-    const userAnalyses = await query.toArray();
-
-    // Check for stale analyses and mark them as failed
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const staleAnalyses = userAnalyses.filter(analysis =>
-      analysis.status !== 'completed' &&
-      analysis.status !== 'failed' &&
-      new Date(analysis.updatedAt) < oneHourAgo
-    );
-
-    // Mark stale analyses as failed in MongoDB
-    if (staleAnalyses.length > 0) {
-      const staleIds = staleAnalyses.map(a => a._id);
-      await analyses.updateMany(
-        { _id: { $in: staleIds } },
-        {
-          $set: {
-            status: 'failed',
-            error: {
-              code: 'TIMEOUT_ERROR',
-              message: 'Analysis timed out after 1 hour without completion'
-            },
-            updatedAt: new Date()
-          }
-        }
-      );
-
-      // Update the in-memory analyses to reflect the changes
-      staleAnalyses.forEach(analysis => {
-        analysis.status = 'failed';
-        analysis.error = {
-          code: 'TIMEOUT_ERROR',
-          message: 'Analysis timed out after 1 hour without completion'
-        };
-        analysis.updatedAt = new Date();
-      });
-
+    // Build query object
+    const queryObj: any = { clerkUserId: session.userId };
+    const statusParam = url.searchParams.get('status');
+    if (statusParam) {
+      const statusArray = statusParam.split(',').map(s => s.trim());
+      queryObj.status = { $in: statusArray };
     }
 
+    // Use aggregation with $facet for count and paginated data in one roundtrip
+    const aggregationPipeline = [
+      { $match: queryObj },
+      {
+        $facet: {
+          metadata: [{ $count: "totalItems" }],
+          data: [
+            { $sort: { createdAt: -1 } },
+            { $skip: offset },
+            { $limit: limit }
+          ]
+        }
+      }
+    ];
+
+    const results = await analyses.aggregate(aggregationPipeline).toArray();
+
+    const userAnalyses = results[0].data;
+    const totalItems = results[0].metadata[0] ? results[0].metadata[0].totalItems : 0;
+
     // Serialize processingStartTime to timestamp and convert ObjectId to string
-    const serializedAnalyses = userAnalyses.map(a => ({
+    const serializedAnalyses = userAnalyses.map((a: any) => ({
       ...a,
       _id: a._id.toString(),
       processingStartTime: a.processingStartTime ? new Date(a.processingStartTime).getTime() : null

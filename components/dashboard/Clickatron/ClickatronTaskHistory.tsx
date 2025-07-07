@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { IClickatronTask } from "@/schemas/Clickatron";
-import { useRtdb } from '@/providers/RtdbProvider';
+import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
 import { Loader2,
   History,
   FileImage,
@@ -21,13 +21,12 @@ import { Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-interface TaskHistoryProps {
-  tasks: IClickatronTask[];
+interface ClickatronTaskHistoryProps {
   itemsPerPage?: number;
 }
 
 interface ClickatronTaskDisplay {
-  _id: string; // Use string for frontend display, can be taskId or actual _id
+  _id: string; // Ensure _id is always a string for frontend display
   userId: string;
   title?: string;
   details: any;
@@ -43,7 +42,6 @@ interface ClickatronTaskDisplay {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
-  taskId: string; // Realtime Database taskId
 }
 
 interface PaginatedTaskResponse {
@@ -75,12 +73,12 @@ const getStatusColor = (status: IClickatronTask['status']) => {
   }
 };
 
-interface TaskCardProps {
+interface ClickatronTaskCardProps {
   task: ClickatronTaskDisplay;
   onClick: () => void;
 }
 
-function TaskCard({ task, onClick }: TaskCardProps) {
+function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
   const getOriginalDetails = () => {
     try {
       if (task.results?.details) {
@@ -149,7 +147,7 @@ function TaskCard({ task, onClick }: TaskCardProps) {
             />
           </div>
 
-          {/* Task Info */}
+          {/* ClickatronTask Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <h3 className="text-sm font-medium text-zinc-100 truncate" title={displayTitle}>
@@ -242,15 +240,31 @@ function TaskCard({ task, onClick }: TaskCardProps) {
   );
 }
 
-export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: TaskHistoryProps) {
+export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: ClickatronTaskHistoryProps) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
-  const { allTasks } = useRtdb();
-  const clickatronTasks = allTasks.clickatron || [];
+  useTaskUpdater(); // New hook to handle RTDB updates
+
+  // Query for ALL Clickatron tasks (for in-progress filtering)
+  const { data: allClickatronTasks } = useQuery<ClickatronTaskDisplay[]>({
+    queryKey: ['clickatron-all-tasks'],
+    queryFn: async () => {
+      const response = await fetch('/api/services/clickatron/history'); // Fetch all tasks
+      if (!response.ok) throw new Error('Failed to fetch all Clickatron tasks');
+      const result: PaginatedTaskResponse = await response.json();
+      return result.data || [];
+    },
+    enabled: true, // Ensure it subscribes to cache changes
+    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
+    gcTime: 1000 * 60 * 10, // Standard garbage collection
+    refetchOnWindowFocus: false, // Prevent refetching on window focus
+    refetchOnMount: false, // Prevent refetching on mount
+    refetchOnReconnect: false, // Prevent refetching on reconnect
+  });
 
   // Use paginated API for completed/failed tasks
-  const { data: paginatedData, isLoading, refetch } = useQuery<PaginatedTaskResponse>({
+  const { data: paginatedData, isLoading } = useQuery<PaginatedTaskResponse>({
     queryKey: ['clickatron-history', currentPage, itemsPerPage],
     queryFn: async () => {
       const response = await fetch(`/api/services/clickatron/history?page=${currentPage}&limit=${itemsPerPage}&status=completed,failed`);
@@ -263,83 +277,27 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
     refetchOnWindowFocus: false,
   });
 
-  // In-progress tasks from RTDB
-  const inProgressTasks: ClickatronTaskDisplay[] = clickatronTasks.filter(task =>
-    ['processing', 'queued', 'listed'].includes(task.status)
-  ).map(task => ({
-    _id: task.taskId, // Use taskId as _id for frontend representation
-    userId: '', // userId is not in TaskUpdate, provide default
-    title: task.title,
-    details: {}, // details is not in TaskUpdate, provide default
-    status: task.status as ClickatronTaskDisplay['status'],
-    results: undefined, // results is not in TaskUpdate, provide default
-    error_message: undefined, // error_message is not in TaskUpdate, provide default
-    createdAt: new Date(task.createdAt),
-    updatedAt: new Date(task.updatedAt),
-    completedAt: undefined, // completedAt is not in TaskUpdate, provide default
-    taskId: task.taskId,
-  }));
+  // In-progress tasks from the 'allClickatronTasks' query
+  const inProgressStatuses: IClickatronTask['status'][] = ['listed', 'queued', 'processing'];
+  const inProgressTasks: ClickatronTaskDisplay[] = ((Array.isArray(allClickatronTasks) ? allClickatronTasks : [])
+    .filter(task => inProgressStatuses.includes(task.status)))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(task => ({
+      _id: task._id, // _id is already present in ClickatronTaskDisplay
+      userId: task.userId,
+      title: task.title,
+      details: task.details,
+      status: task.status,
+      results: task.results,
+      error_message: task.error_message,
+      createdAt: new Date(task.createdAt),
+      updatedAt: new Date(task.updatedAt),
+      completedAt: task.completedAt,
+    }));
 
-  // Sync RTDB data with our react-query data for completed/failed tasks
-  React.useEffect(() => {
-    if (clickatronTasks.length === 0) return;
-
-    queryClient.setQueryData<PaginatedTaskResponse>(['clickatron-history', currentPage, itemsPerPage], (old) => {
-      const currentData = old ? [...old.data] : [];
-      const taskMap = new Map<string, ClickatronTaskDisplay>();
-      currentData.forEach(task => taskMap.set(task._id, task));
-
-      let shouldRefetch = false;
-
-      clickatronTasks.forEach(rtdbTask => {
-        const existingTask = taskMap.get(rtdbTask.taskId);
-        if (existingTask) {
-          // Update existing task if status changed
-          if (existingTask.status !== rtdbTask.status) {
-            taskMap.set(rtdbTask.taskId, {
-              ...existingTask,
-              status: rtdbTask.status as ClickatronTaskDisplay['status'],
-              updatedAt: new Date(rtdbTask.updatedAt),
-              completedAt: rtdbTask.status === 'completed' ? new Date(rtdbTask.updatedAt) : existingTask.completedAt,
-            });
-            if (['completed', 'failed'].includes(rtdbTask.status)) {
-              shouldRefetch = true; // A task completed/failed, refetch paginated data
-            }
-          }
-        } else if (['completed', 'failed'].includes(rtdbTask.status)) {
-          // If a new completed/failed task appears in RTDB, trigger refetch
-          shouldRefetch = true;
-        }
-      });
-
-      if (shouldRefetch) {
-        refetch(); // Trigger refetch for paginated data
-        return old; // Return old data for now, new data will come from refetch
-      }
-
-      // Filter out in-progress tasks from the paginated list if they are there
-      const filteredData = Array.from(taskMap.values()).filter(task =>
-        !['processing', 'queued', 'listed'].includes(task.status)
-      );
-
-      // Sort by updatedAt for consistency
-      filteredData.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-      return old ? { ...old, data: filteredData } : {
-        data: filteredData,
-        pagination: {
-          totalItems: filteredData.length,
-          totalPages: Math.ceil(filteredData.length / itemsPerPage),
-          currentPage: 1,
-          itemsPerPage: itemsPerPage,
-          hasNext: false,
-          hasPrev: false,
-        }
-      };
-    });
-  }, [clickatronTasks, queryClient, currentPage, itemsPerPage, refetch]);
-
-  const currentTasks = paginatedData?.data || [];
+  const currentTasks = (paginatedData?.data || []).slice().sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+  );
   const totalPages = paginatedData?.pagination?.totalPages || 1;
   const totalItems = paginatedData?.pagination?.totalItems || 0;
 
@@ -383,19 +341,19 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
           <h3 className="text-md font-semibold text-purple-300 mb-2">In Progress</h3>
           <div className="space-y-3 sm:space-y-4">
             {inProgressTasks.map((task: ClickatronTaskDisplay) => (
-              <TaskCard key={task.taskId} task={task} onClick={() => handleTaskClick(task.taskId)} />
+              <ClickatronTaskCard key={task._id} task={task} onClick={() => handleTaskClick(task._id)} />
             ))}
           </div>
         </div>
       )}
 
-      {/* Task List */}
+      {/* Completed Section */}
       <div className="space-y-3 sm:space-y-4 min-h-[400px] relative">
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
           </div>
-        ) : tasks.length === 0 ? (
+        ) : currentTasks.length === 0 && inProgressTasks.length === 0 ? ( // Modified condition
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
             <FileImage className="h-12 w-12 text-zinc-500 mb-4" />
             <p className="text-zinc-400 text-center mb-2">No thumbnails generated yet</p>
@@ -405,8 +363,9 @@ export function TaskHistory({ tasks, itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Ta
           </div>
         ) : (
           <>
+            <h3 className="text-md font-semibold text-purple-300 mb-2">Completed</h3>
             {currentTasks.map((task) => (
-              <TaskCard
+              <ClickatronTaskCard
                 key={task._id}
                 task={task}
                 onClick={() => handleTaskClick(task._id)}

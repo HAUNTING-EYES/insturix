@@ -8,7 +8,6 @@ import { RTDBTaskData, TaskUpdate, TaskNotification, ServiceName } from '@/types
 
 interface RtdbContextType {
   notifications: TaskNotification[];
-  allTasks: Record<ServiceName, TaskUpdate[]>;
   markAsRead: (notificationId: string) => void;
   clearNotification: (notificationId: string) => void;
   clearNotificationsByTaskId: (taskId: string) => void;
@@ -20,30 +19,13 @@ const RtdbContext = createContext<RtdbContextType | undefined>(undefined);
 export function RtdbProvider({ children }: { children: React.ReactNode }) {
   const { userId, isSignedIn } = useAuth();
   const [notifications, setNotifications] = useState<TaskNotification[]>([]);
-  const [allTasks, setAllTasks] = useState<Record<ServiceName, TaskUpdate[]>>({
-    alyzitron: [],
-    editron: [],
-    musitron: [],
-    shield: [],
-    thinkforge: [],
-    socialize: [],
-    clickatron: [],
-  });
+  // The rest of the state and logic for `allTasks` is now handled by `useTaskUpdater` and react-query
   const previousTasksRef = useRef<Record<string, TaskUpdate>>({});
   const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
     if (!isSignedIn || !userId) {
       setNotifications([]);
-      setAllTasks({
-        alyzitron: [],
-        editron: [],
-        musitron: [],
-        shield: [],
-        thinkforge: [],
-        socialize: [],
-        clickatron: [],
-      });
       previousTasksRef.current = {};
       isInitialLoadRef.current = true;
       return;
@@ -54,36 +36,23 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
     const listener = onValue(userTasksRef, (snapshot) => {
       const data = snapshot.val() as RTDBTaskData | null;
       const newNotifications: TaskNotification[] = [];
-      const updatedTasks: Record<ServiceName, TaskUpdate[]> = {
-        alyzitron: [],
-        editron: [],
-        musitron: [],
-        shield: [],
-        thinkforge: [],
-        socialize: [],
-        clickatron: [],
-      };
       const currentTasks: Record<string, TaskUpdate> = {};
 
       if (data) {
-        Object.keys(data).forEach((service) => {
-          const serviceName = service as ServiceName;
-          const serviceTasks = data[serviceName];
+        Object.entries(data).forEach(([serviceName, serviceTasks]) => {
           if (serviceTasks) {
-            Object.values(serviceTasks).forEach((taskUpdate) => {
-              if (!updatedTasks[serviceName]) {
-                updatedTasks[serviceName] = [];
-              }
-              updatedTasks[serviceName].push(taskUpdate);
-              currentTasks[taskUpdate.taskId] = taskUpdate;
+            Object.entries(serviceTasks).forEach(([taskId, taskUpdate]) => {
+              currentTasks[taskId] = taskUpdate;
 
-              const previousTask = previousTasksRef.current[taskUpdate.taskId];
+              const previousTask = previousTasksRef.current[taskId];
               const hasStatusChanged = !previousTask || previousTask.status !== taskUpdate.status;
+
               if (!isInitialLoadRef.current && hasStatusChanged) {
                 newNotifications.push({
-                  id: `${serviceName}-${taskUpdate.taskId}`,
-                  taskUpdate,
-                  serviceName,
+                  id: `${serviceName}-${taskId}`,
+                  taskId: taskId,
+                  taskUpdate: taskUpdate,
+                  serviceName: serviceName as ServiceName,
                   timestamp: new Date().toISOString(),
                   isRead: false,
                 });
@@ -93,20 +62,12 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
         });
       }
 
-      Object.keys(updatedTasks).forEach(key => {
-        const serviceKey = key as ServiceName;
-        updatedTasks[serviceKey].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      });
-
-      setAllTasks(updatedTasks);
       previousTasksRef.current = currentTasks;
 
       if (!isInitialLoadRef.current && newNotifications.length > 0) {
         setNotifications((prevNotifications) => {
-          const newNotificationTaskKeys = new Set(newNotifications.map(n => `${n.serviceName}-${n.taskUpdate.taskId}`));
-          const filteredPrev = prevNotifications.filter(n =>
-            !newNotificationTaskKeys.has(`${n.serviceName}-${n.taskUpdate.taskId}`)
-          );
+          const newNotificationTaskKeys = new Set(newNotifications.map(n => n.id));
+          const filteredPrev = prevNotifications.filter(n => !newNotificationTaskKeys.has(n.id));
           return [...newNotifications, ...filteredPrev].slice(0, 20);
         });
       }
@@ -132,7 +93,7 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
   };
 
   const clearNotificationsByTaskId = (taskId: string) => {
-    setNotifications((prev) => prev.filter((n) => n.taskUpdate.taskId !== taskId));
+    setNotifications((prev) => prev.filter((n) => n.taskId !== taskId));
   };
 
   const clearAllNotifications = () => {
@@ -141,7 +102,6 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
 
   const value: RtdbContextType = {
     notifications,
-    allTasks,
     markAsRead,
     clearNotification,
     clearNotificationsByTaskId,

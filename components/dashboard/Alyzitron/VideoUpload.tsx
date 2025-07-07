@@ -254,7 +254,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         setCurrentAnalysisId(result.analysisId);
         onSubmit(result.analysisId, {
           analysisId: result.analysisId,
-          taskId: result.taskId,
           title: uploadState.file?.name || youtubePreview?.title || uploadState.url,
           videoUrl: uploadState.url || uploadState.file?.name || '',
           status: 'queued',
@@ -399,7 +398,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
     if (currentAnalysisId && currentAnalysisState?.status === 'completed') {
       onComplete(currentAnalysisId, {
         analysisId: currentAnalysisId,
-        taskId: '', // Already stored in ClientWrapper
         title: uploadState.file?.name || youtubePreview?.title || uploadState.url,
         videoUrl: uploadState.url || uploadState.file?.name || '',
         status: 'completed',

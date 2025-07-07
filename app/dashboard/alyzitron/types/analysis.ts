@@ -1,6 +1,5 @@
 export interface Analysis {
   analysisId: string;
-  taskId: string;
   title?: string;
   videoUrl: string;
   status: "queued" | "processing" | "completed" | "failed";

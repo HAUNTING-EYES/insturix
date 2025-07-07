@@ -16,7 +16,7 @@ const pubsub = new PubSub({
 });
 
 export interface TaskMessage {
-  taskId: string;
+  analysisId: string; // Changed from taskId to analysisId
   userId: string;
   videoUrl: string;
   additionalDetails?: string;
@@ -37,51 +37,19 @@ export class PubSubManager {
       });
 
       logger.info('Task published to Pub/Sub', { 
-        data: { 
-          topic: topicName, 
-          taskId: message.taskId, 
-          userId: message.userId 
-        } 
+        data: {
+          topic: topicName,
+          analysisId: message.analysisId, // Changed from taskId to analysisId
+          userId: message.userId
+        }
       });
     } catch (error) {
       logger.error('Failed to publish task to Pub/Sub', { 
-        data: { 
-          taskId: message.taskId, 
+        data: {
+          analysisId: message.analysisId, // Changed from taskId to analysisId
           userId: message.userId,
-          error: error instanceof Error ? error.message : String(error) 
-        } 
-      });
-      throw error;
-    }
-  }
-
-  static async cancelTask(taskId: string, userId: string): Promise<void> {
-    try {
-      const topicName = this.getTopicName();
-      const cancelMessage = {
-        action: 'CANCEL',
-        taskId,
-        userId,
-      };
-      
-      await pubsub.topic(topicName).publishMessage({
-        data: Buffer.from(JSON.stringify(cancelMessage)),
-      });
-
-      logger.info('Task cancellation published to Pub/Sub', { 
-        data: { 
-          topic: topicName, 
-          taskId, 
-          userId 
-        } 
-      });
-    } catch (error) {
-      logger.error('Failed to publish task cancellation to Pub/Sub', { 
-        data: { 
-          taskId, 
-          userId,
-          error: error instanceof Error ? error.message : String(error) 
-        } 
+          error: error instanceof Error ? error.message : String(error)
+        }
       });
       throw error;
     }

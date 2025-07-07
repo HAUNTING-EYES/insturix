@@ -17,6 +17,7 @@ export interface IClickatronTask extends Document {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
+  refunded?: boolean;
 }
 
 const ClickatronTaskSchema = new Schema<IClickatronTask>(
@@ -42,9 +43,13 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
     },
     error_message: { type: String },
     completedAt: { type: Date },
+    refunded: { type: Boolean, default: false },
   },
   { timestamps: true }
 );
+
+// Compound index for efficient querying by userId, status, and createdAt
+ClickatronTaskSchema.index({ userId: 1, status: 1, createdAt: -1 });
 
 export const ClickatronTask =
   mongoose.models.ClickatronTask ||

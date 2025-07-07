@@ -1,7 +1,4 @@
 import { createLimitMiddleware, LimitConfig } from '../limitMiddleware';
-import { ServiceUsageService } from '@/lib/services/serviceUsageService';
-import { RTDBManager } from '@/app/api/services/alyzitron/utils/rtdb';
-import { auth } from '@clerk/nextjs/server';
 
 // Alyzitron service configuration - Weekly limits based on technical factors
 export const ALYZITRON_LIMIT_CONFIG: LimitConfig = {
