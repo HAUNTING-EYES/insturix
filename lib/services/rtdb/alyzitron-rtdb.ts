@@ -11,7 +11,6 @@ export class AlyzitronRTDBManager {
   static async createTask(userId: string, analysisId: string, title?: string, description?: string): Promise<void> {
     try {
       const taskUpdate: TaskUpdate = {
-        _id: analysisId, // Use _id instead of taskId
         status: 'listed',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

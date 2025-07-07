@@ -11,7 +11,6 @@ export class ClickatronRTDBManager {
   static async createTask(userId: string, taskId: string, title?: string, description?: string): Promise<void> {
     try {
       const taskUpdate: TaskUpdate = {
-        _id: taskId,
         status: 'listed',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),

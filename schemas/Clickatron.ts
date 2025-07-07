@@ -48,6 +48,9 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
   { timestamps: true }
 );
 
+// Compound index for efficient querying by userId, status, and createdAt
+ClickatronTaskSchema.index({ userId: 1, status: 1, createdAt: -1 });
+
 export const ClickatronTask =
   mongoose.models.ClickatronTask ||
   mongoose.model<IClickatronTask>('ClickatronTask', ClickatronTaskSchema, 'thumbnailgen_tasks');

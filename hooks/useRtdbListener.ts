@@ -58,22 +58,23 @@ export function useRtdbListener() {
           const serviceName = service as ServiceName;
           const serviceTasks = data[serviceName];
           if (serviceTasks) {
-            Object.values(serviceTasks).forEach((taskUpdate) => {
+            Object.entries(serviceTasks).forEach(([taskId, taskUpdate]) => {
               // Add to all tasks list for the specific service
               if (!updatedTasks[serviceName]) {
                 updatedTasks[serviceName] = [];
               }
               updatedTasks[serviceName].push(taskUpdate);
-              currentTasks[taskUpdate.taskId] = taskUpdate;
+              currentTasks[taskId] = taskUpdate;
 
               // Only create notifications for status changes (not initial load)
               if (!isInitialLoadRef.current) {
-                const previousTask = previousTasksRef.current[taskUpdate.taskId];
+                const previousTask = previousTasksRef.current[taskId];
                 const hasStatusChanged = !previousTask || previousTask.status !== taskUpdate.status;
                 
                 if (hasStatusChanged) {
                   newNotifications.push({
-                    id: `${serviceName}-${taskUpdate.taskId}`, // Use predictable ID to replace duplicates
+                    id: `${serviceName}-${taskId}`, // Use predictable ID to replace duplicates
+                    taskId,
                     taskUpdate,
                     serviceName,
                     timestamp: new Date().toISOString(),
@@ -99,9 +100,9 @@ export function useRtdbListener() {
       if (!isInitialLoadRef.current && newNotifications.length > 0) {
         setNotifications((prevNotifications) => {
           // Remove any existing notifications for the same tasks
-          const newNotificationTaskKeys = new Set(newNotifications.map(n => `${n.serviceName}-${n.taskUpdate.taskId}`));
+          const newNotificationTaskKeys = new Set(newNotifications.map(n => `${n.serviceName}-${n.taskId}`));
           const filteredPrev = prevNotifications.filter(n =>
-            !newNotificationTaskKeys.has(`${n.serviceName}-${n.taskUpdate.taskId}`)
+            !newNotificationTaskKeys.has(`${n.serviceName}-${n.taskId}`)
           );
           // Add new notifications at the top
           return [...newNotifications, ...filteredPrev].slice(0, 20);
@@ -130,7 +131,7 @@ export function useRtdbListener() {
   };
 
   const clearNotificationsByTaskId = (taskId: string) => {
-    setNotifications((prev) => prev.filter((n) => n.taskUpdate.taskId !== taskId));
+    setNotifications((prev) => prev.filter((n) => n.taskId !== taskId));
   };
   
   const clearAllNotifications = () => {

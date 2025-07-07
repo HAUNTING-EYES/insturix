@@ -30,36 +30,35 @@ export async function GET(request: Request) {
       query.status = { $in: statusArray };
     }
 
-    // Get total count for pagination
-    const totalItems = await ClickatronTask.countDocuments(query);
+    // Use aggregation with $facet for count and paginated data in one roundtrip
+    const aggregationPipeline = [
+      { $match: query },
+      {
+        $facet: {
+          metadata: [{ $count: "totalItems" }],
+          data: [
+            { $sort: { createdAt: -1 } },
+            { $skip: skip },
+            { $limit: validatedLimit },
+            { $project: { "results.thumbnail.prompt": 0 } } // Exclude the prompt
+          ]
+        }
+      }
+    ];
+
+    const results = await ClickatronTask.aggregate(aggregationPipeline as any[]);
+
+    const history = results[0].data;
+    const totalItems = results[0].metadata[0] ? results[0].metadata[0].totalItems : 0;
     const totalPages = Math.ceil(totalItems / validatedLimit);
 
-    // Get paginated results
-    const history = await ClickatronTask.find(query)
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(validatedLimit)
-      .lean();
-
-    // Format response
-    const formattedHistory = history.map(task => {
-      // Remove prompt from root and nested thumbnail
-      const { prompt, ...taskWithoutPrompt } = task;
-      let results = taskWithoutPrompt.results;
-      if (results && results.thumbnail && typeof results.thumbnail === "object") {
-        // Remove prompt from thumbnail
-        const { prompt, ...thumbnailWithoutPrompt } = results.thumbnail;
-        results = { ...results, thumbnail: thumbnailWithoutPrompt };
-      }
-      return {
-        ...taskWithoutPrompt,
-        results,
-        _id: task._id?.toString() || '',
-        createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
-        updatedAt: task.updatedAt?.toISOString() || new Date().toISOString(),
-        ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
-      };
-    });
+    const formattedHistory = history.map((task: any) => ({
+      ...task,
+      _id: task._id?.toString() || '',
+      createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
+      updatedAt: task.updatedAt?.toISOString() || new Date().toISOString(),
+      ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
+    }));
 
     return NextResponse.json({
       data: formattedHistory,

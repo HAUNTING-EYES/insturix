@@ -20,12 +20,7 @@ export async function GET(request: Request) {
     const offset = (page - 1) * limit;
 
     const { analyses } = await getCollections();
-    
-    // Get total count for pagination
-    const totalItems = await analyses
-      .countDocuments({ clerkUserId: session.userId });
 
-    // Get paginated data
     // Build query object
     const queryObj: any = { clerkUserId: session.userId };
     const statusParam = url.searchParams.get('status');
@@ -34,16 +29,28 @@ export async function GET(request: Request) {
       queryObj.status = { $in: statusArray };
     }
 
-    const query = analyses
-      .find(queryObj)
-      .sort({ createdAt: -1 })
-      .skip(offset)
-      .limit(limit);
+    // Use aggregation with $facet for count and paginated data in one roundtrip
+    const aggregationPipeline = [
+      { $match: queryObj },
+      {
+        $facet: {
+          metadata: [{ $count: "totalItems" }],
+          data: [
+            { $sort: { createdAt: -1 } },
+            { $skip: offset },
+            { $limit: limit }
+          ]
+        }
+      }
+    ];
 
-    const userAnalyses = await query.toArray();
+    const results = await analyses.aggregate(aggregationPipeline).toArray();
+
+    const userAnalyses = results[0].data;
+    const totalItems = results[0].metadata[0] ? results[0].metadata[0].totalItems : 0;
 
     // Serialize processingStartTime to timestamp and convert ObjectId to string
-    const serializedAnalyses = userAnalyses.map(a => ({
+    const serializedAnalyses = userAnalyses.map((a: any) => ({
       ...a,
       _id: a._id.toString(),
       processingStartTime: a.processingStartTime ? new Date(a.processingStartTime).getTime() : null
