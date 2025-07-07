@@ -2,13 +2,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useUser } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft, ChevronRight, ListChecks, RefreshCw } from 'lucide-react';
 import { AnalysisProgress } from './AnalysisProgress';
-import { useRtdb } from '@/providers/RtdbProvider';
 import type { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
+import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
 
 interface FetchedAlyzitronAnalysis extends AlyzitronAnalysis {
   expectedWaitSeconds?: number;
@@ -28,20 +27,12 @@ interface AnalysisListProps {
   itemsPerPage?: number;
 }
 
-interface AnalysisUpdateEvent extends Partial<Omit<AlyzitronAnalysis, '_id' | 'metadata'>> {
-  _id?: string;
-  analysisId?: string;
-  metadata?: Partial<AlyzitronAnalysis['metadata']>;
-}
-
 const DEFAULT_ITEMS_PER_PAGE = 10;
 
 export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AnalysisListProps) {
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
-  const { allTasks } = useRtdb();
-  const alyzitronTasks = allTasks.alyzitron || [];
-  const prevTasksRef = useRef<typeof alyzitronTasks>([]);
+  useTaskUpdater(); // New hook to handle RTDB updates
 
   const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
     queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }],
@@ -63,30 +54,8 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
     gcTime: 1000 * 60 * 5,
   });
 
-  // --- RTDB Integration for real-time updates ---
-  useEffect(() => {
-    const prevTasks = prevTasksRef.current;
-    const prevTasksMap = new Map(prevTasks.map(task => [task._id, task]));
-    let shouldRefetch = false;
-
-    alyzitronTasks.forEach(task => {
-      const prevTask = prevTasksMap.get(task._id);
-      const wasInProgress = prevTask && !['completed', 'failed'].includes(prevTask.status);
-      const isNowFinished = ['completed', 'failed'].includes(task.status);
-
-      if (wasInProgress && isNowFinished) {
-        shouldRefetch = true;
-      }
-    });
-
-    if (shouldRefetch) {
-      queryClient.invalidateQueries({
-        queryKey: ['analyses', { scope: 'finished' }],
-        exact: false
-      });
-    }
-    prevTasksRef.current = alyzitronTasks;
-  }, [alyzitronTasks, queryClient]);
+  // The useEffect that manually synced RTDB with react-query has been removed.
+  // The `useTaskUpdater` hook now handles this logic globally and more efficiently.
 
   if (isLoading && !paginatedData) {
     return (

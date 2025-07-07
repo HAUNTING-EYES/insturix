@@ -3,12 +3,11 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { useRtdb } from '@/providers/RtdbProvider';
 import { VideoUpload } from './VideoUpload';
-import { InProgressAnalyses } from './InProgressAnalyses';
-import { AnalysisList } from './AnalysisList';
+import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
 import { AnalysisStatus, AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
 import type { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
+import { AlyzitronTaskHistory } from './AlyzitronTaskHistory'; // Import the new combined component
 
 interface ClientWrapperProps {
   initialAnalyses: AlyzitronAnalysis[];
@@ -36,50 +35,10 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
     refetchOnWindowFocus: false, // Avoid refetching on window focus
   });
 
-  // Initialize RTDB listener for real-time updates
-  const { allTasks } = useRtdb();
-  const alyzitronTasks = allTasks.alyzitron || [];
+  // Initialize RTDB listener for real-time updates via the new hook
+  useTaskUpdater();
 
-  // Sync RTDB data with our analyses query data
-  useEffect(() => {
-    if (alyzitronTasks.length === 0) return;
-
-
-    queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], (old) => {
-      const currentData = Array.isArray(old) ? old : Array.isArray(initialAnalyses) ? initialAnalyses : [];
-      
-      // Create a map of existing analyses by _id for quick lookup
-      const analysisMap = new Map<string, AlyzitronAnalysis>();
-      currentData.forEach(analysis => {
-        analysisMap.set(analysis._id, analysis);
-      });
-
-      // Update existing analyses with RTDB data
-      alyzitronTasks.forEach(task => {
-        const existingAnalysis = analysisMap.get(task._id);
-        if (existingAnalysis) {
-          // Update status from RTDB
-          if (existingAnalysis.status !== task.status) {
-            analysisMap.set(task._id, {
-              ...existingAnalysis,
-              status: task.status as AnalysisStatus,
-              updatedAt: new Date(task.updatedAt),
-            });
-          }
-        } else {
-          // If we have a task in RTDB but no analysis in our data,
-          // this might be a new task - fetch the full analysis data
-          // Could potentially trigger a refetch here if needed
-        }
-      });
-
-      // Convert back to array and sort by updatedAt
-      const updatedAnalyses = Array.from(analysisMap.values())
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-
-      return updatedAnalyses;
-    });
-  }, [alyzitronTasks, queryClient, initialAnalyses]);
+  // The manual RTDB sync useEffect has been removed, as useTaskUpdater handles cache invalidation.
 
 
 
@@ -203,10 +162,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
         }}
         activeAnalyses={activeAnalyses} // Pass the derived active analyses
       />
-      <InProgressAnalyses />
-      <AnalysisList
-        itemsPerPage={10}
-      />
+      <AlyzitronTaskHistory />
     </div>
   );
 }

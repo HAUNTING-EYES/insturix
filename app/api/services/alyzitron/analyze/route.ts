@@ -6,7 +6,7 @@ import { logger } from '../utils/logger';
 import { getCollections } from '../utils/mongodb';
 import { validateYouTubeVideo } from '../utils/youtube';
 import { AlyzitronRTDBManager } from '@/lib/services/rtdb/alyzitron-rtdb';
-import { PubSubManager } from '../utils/pubsub';
+import { PubSub } from '@google-cloud/pubsub';
 import { getServiceConfig } from '@/lib/config/services';
 import {
   checkAlyzitronLimits,
@@ -15,6 +15,20 @@ import {
 } from '@/lib/middleware/services/alyzitron';
 
 const serviceConfig = getServiceConfig('alyzitron');
+
+const gcpCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
+  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
+  : null;
+
+if (!gcpCredentials) {
+  console.error('GOOGLE_CLOUD_CREDENTIALS environment variable is not configured or invalid.');
+  // This will cause the PubSub initialization to fail, which will be caught by the outer try-catch in POST
+}
+
+const pubsub = new PubSub({
+  projectId: gcpCredentials?.project_id,
+  credentials: gcpCredentials,
+});
 
 function getGcsUrl(gcsPath: string): string {
   // Ensure GCS_BUCKET_NAME is defined before using it
@@ -94,61 +108,75 @@ export async function POST(request: Request) {
     }
 
     // Create task with new architecture (MongoDB + RTDB + Pub/Sub)
-    try {
-      // If it's a GCS file, format the videoUrl as gs://${bucketName}/${gcsPath}
-      const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
+    // If it's a GCS file, format the videoUrl as gs://${bucketName}/${gcsPath}
+    const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
 
-      // Generate appropriate title based on video source
-      let title: string;
-      if (isGCS) {
-        // For GCS files, extract filename from path
-        const pathParts = video_url.split('/');
-        const filename = pathParts[pathParts.length - 1];
-        title = decodeURIComponent(filename);
-      } else if (isMaybeYouTube) {
-        // For YouTube URLs, try to get title from oEmbed API
-        try {
-          const oEmbedResponse = await fetch(
-            `https://www.youtube.com/oembed?url=${encodeURIComponent(video_url)}&format=json`
-          );
-          if (oEmbedResponse.ok) {
-            const oEmbedData = await oEmbedResponse.json();
-            title = oEmbedData.title || video_url;
-          } else {
-            title = video_url;
-          }
-        } catch {
+    // Generate appropriate title based on video source
+    let title: string;
+    if (isGCS) {
+      // For GCS files, extract filename from path
+      const pathParts = video_url.split('/');
+      const filename = pathParts[pathParts.length - 1];
+      title = decodeURIComponent(filename);
+    } else if (isMaybeYouTube) {
+      // For YouTube URLs, try to get title from oEmbed API
+      try {
+        const oEmbedResponse = await fetch(
+          `https://www.youtube.com/oembed?url=${encodeURIComponent(video_url)}&format=json`
+        );
+        if (oEmbedResponse.ok) {
+          const oEmbedData = await oEmbedResponse.json();
+          title = oEmbedData.title || video_url;
+        } else {
           title = video_url;
         }
-      } else {
+      } catch {
         title = video_url;
       }
+    } else {
+      title = video_url;
+    }
 
-      // Create analysis record in MongoDB
-      const analysisRecord: AlyzitronAnalysis = {
-        _id: new ObjectId().toString(),
-        clerkUserId: session.userId,
-        videoUrl: finalVideoUrl,
-        status: 'listed',
-        unread: true,
-        estimatedTime: 120, // Default estimate, will be updated by worker
-        results: null,
-        metadata: {
-          originalFilename: title,
-          videoSize: 0,
-          videoDuration: videoDuration,
-          mimeType: 'video/mp4',
-          isPublic: false // Default to private
-        },
-        additional_details,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
+    // Create analysis record in MongoDB
+    const analysisRecord: AlyzitronAnalysis = {
+      _id: new ObjectId().toString(),
+      clerkUserId: session.userId,
+      videoUrl: finalVideoUrl,
+      status: 'listed',
+      unread: true,
+      estimatedTime: 120, // Default estimate, will be updated by worker
+      results: null,
+      metadata: {
+        originalFilename: title,
+        videoSize: 0,
+        videoDuration: videoDuration,
+        mimeType: 'video/mp4',
+        isPublic: false // Default to private
+      },
+      additional_details,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
 
-      // Save to MongoDB
-      const { analyses } = await getCollections();
+    // Save to MongoDB
+    const { analyses } = await getCollections();
+    try {
       await analyses.insertOne(analysisRecord);
+      logger.info('Analysis record created in MongoDB', { data: { analysisId: analysisRecord._id } });
+    } catch (dbError) {
+      logger.error('Failed to save analysis record to MongoDB', {
+          data: {
+              error: dbError instanceof Error ? dbError.message : String(dbError)
+          }
+      });
+      return NextResponse.json(
+          { success: false, error: { type: 'DATABASE_ERROR', message: 'Failed to create analysis record' } },
+          { status: 500 }
+      );
+    }
 
+    // Post-save operations: RTDB, Pub/Sub, and usage increment
+    try {
       // Create task in RTDB
       await AlyzitronRTDBManager.createTask(
         session.userId,
@@ -158,7 +186,7 @@ export async function POST(request: Request) {
       );
 
       const message = {
-        analysisId: analysisRecord._id, // Use _id as the task identifier
+        taskId: analysisRecord._id, // Use _id as the task identifier
         userId: session.userId,
         videoUrl: finalVideoUrl,
         additionalDetails: additional_details,
@@ -168,20 +196,23 @@ export async function POST(request: Request) {
         const data = Buffer.from(JSON.stringify(message)).toString('base64');
         fetch(process.env.ALYZITRON_LOCAL_WORKER, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            message: {
-              data: data,
-              attributes: {}
-            },
-            subscription: 'projects/test/subscriptions/test-sub' // Placeholder for local testing
+            message: { data: data, attributes: {} },
+            subscription: 'projects/test/subscriptions/test-sub'
           }),
         });
+        logger.info('Task sent to local worker', { data: { analysisId: analysisRecord._id } });
       } else {
         // Publish to Pub/Sub for worker processing
-        await PubSubManager.publishTask(message);
+        logger.info('[PubSub] Publishing to topic:', {
+            data: {
+                topic: serviceConfig.pubsubTopic,
+                message: message
+            }
+        });
+        const result = await pubsub.topic(serviceConfig.pubsubTopic).publishMessage({ json: message });
+        logger.info('[PubSub] Publish result:', { data: { result } });
       }
 
       // Increment usage count after successful creation
@@ -198,19 +229,17 @@ export async function POST(request: Request) {
         });
         // Note: We don't fail the request here since analysis was already created
         // This is logged for monitoring purposes
+      } else {
+        logger.info('Service usage incremented', {
+          data: {
+            userId: session.userId,
+            analysisId: analysisRecord._id,
+            usageIncrementSuccess: usageResult.success
+          }
+        });
       }
 
-      logger.info('Service usage incremented', {
-        data: {
-          userId: session.userId,
-          analysisId: analysisRecord._id,
-          usageIncrementSuccess: usageResult.success
-        }
-      });
-
-      // Task starts as 'listed', moves to 'queued' SOMETIMES, then 'processing', finally 'completed'
-
-      logger.info('Analysis task created successfully', {
+      logger.info('Analysis task created and queued successfully', {
         data: {
           analysisId: analysisRecord._id,
           userId: session.userId
@@ -222,20 +251,26 @@ export async function POST(request: Request) {
         analysis: analysisRecord,
       });
 
-    } catch (error) {
-      logger.error('Analysis creation failed', {
+    } catch (processingError) {
+      logger.error('Analysis post-save processing failed', {
         data: {
-          error: error instanceof Error ? error.message : String(error)
+          analysisId: analysisRecord._id,
+          error: processingError instanceof Error ? processingError.message : String(processingError)
         }
       });
 
+      // Update task status to failed
+      await analyses.updateOne(
+        { _id: analysisRecord._id },
+        { $set: { status: 'failed', error_message: 'Failed to queue analysis for processing.' } }
+      );
+
       return NextResponse.json(
-        { 
+        {
           success: false,
           error: {
-            type: error instanceof Error && error.message.startsWith('YOUTUBE_') ? error.message : 'ANALYSIS_CREATION_ERROR',
-            message: error instanceof Error ? error.message : 'Failed to create analysis',
-            // action: 'Please try again later' // Action might not be needed if code is specific
+            type: 'ANALYSIS_PROCESSING_ERROR',
+            message: 'Failed to queue analysis for processing',
           }
         },
         { status: 500 }

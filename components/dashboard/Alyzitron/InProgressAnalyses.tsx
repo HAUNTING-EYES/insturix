@@ -1,15 +1,16 @@
 "use client";
 
 import React from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { AnalysisProgress } from './AnalysisProgress';
 import type { AlyzitronAnalysis, AnalysisStatus } from '@/app/api/services/alyzitron/types';
+import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
 
 // Define the statuses considered "in-progress"
 const inProgressStatuses: AnalysisStatus[] = ['listed', 'queued', 'processing'];
 
 export function InProgressAnalyses() {
-  const queryClient = useQueryClient();
+  useTaskUpdater(); // New hook to handle RTDB updates
 
   // Subscribe to the main 'analyses' query cache to get real-time updates
   const { data: allAnalyses } = useQuery<AlyzitronAnalysis[]>({
@@ -22,11 +23,9 @@ export function InProgressAnalyses() {
         return response.json();
     },
     enabled: true, // Ensure it subscribes to cache changes
-    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
+    // Removed staleTime: Infinity and refetchOnMount: false to allow refetching on invalidation
     gcTime: 1000 * 60 * 10, // Standard garbage collection
-    refetchOnWindowFocus: false, // Prevent refetching on window focus
-    refetchOnMount: false, // Prevent refetching on mount
-    refetchOnReconnect: false, // Prevent refetching on reconnect
+    // Removed refetchOnWindowFocus: false and refetchOnReconnect: false to allow default refetching behavior
   });
 
   // Filter for in-progress analyses

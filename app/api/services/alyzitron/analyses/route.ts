@@ -26,8 +26,16 @@ export async function GET(request: Request) {
       .countDocuments({ clerkUserId: session.userId });
 
     // Get paginated data
+    // Build query object
+    const queryObj: any = { clerkUserId: session.userId };
+    const statusParam = url.searchParams.get('status');
+    if (statusParam) {
+      const statusArray = statusParam.split(',').map(s => s.trim());
+      queryObj.status = { $in: statusArray };
+    }
+
     const query = analyses
-      .find({ clerkUserId: session.userId })
+      .find(queryObj)
       .sort({ createdAt: -1 })
       .skip(offset)
       .limit(limit);
