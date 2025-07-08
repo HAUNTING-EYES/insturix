@@ -24,24 +24,6 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
     const oneMonthLater = new Date();
     oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
     
-    user.currentPlan = {
-      planId: "fallback-free-plan",
-      name: UserType.Free,
-      startDate: now,
-      endDate: oneMonthLater,
-      price: 0,
-      currency: user.currentPlan.currency || "USD",
-      status: "active",
-      serviceLimits: {
-        alyzitron: [],
-        editron: [],
-        shield: [],
-        thinkforge: [],
-        musitron: [],
-        clickatron: [],
-      },
-    };
-    
     await user.save();
     return true;
   }
@@ -164,7 +146,7 @@ export async function PUT(request: Request) {
     const endDate = userType === UserType.Free ? new Date(cycleEnd.setMonth(cycleEnd.getMonth() + 1)) : cycleEnd;
     
     user.currentPlan = {
-      planId: `fallback-${userType}-plan`,
+      planId: userType, // Assuming userType directly corresponds to a valid planId
       name: userType as UserType,
       startDate: now,
       endDate: endDate,
@@ -177,6 +159,7 @@ export async function PUT(request: Request) {
         shield: [],
         thinkforge: [],
         musitron: [],
+        clickatron: [],
       },
     };
 
@@ -238,7 +221,7 @@ export async function PATCH(request: Request) {
     const endDate = userType === UserType.Free ? new Date(cycleEnd.setMonth(cycleEnd.getMonth() + 1)) : cycleEnd;
     
     user.currentPlan = {
-      planId: `fallback-${userType}-plan`,
+      planId: userType, // Assuming userType directly corresponds to a valid planId
       name: userType as UserType,
       startDate: now,
       endDate: endDate,
@@ -251,6 +234,7 @@ export async function PATCH(request: Request) {
         shield: [],
         thinkforge: [],
         musitron: [],
+        clickatron: [],
       },
     };
 

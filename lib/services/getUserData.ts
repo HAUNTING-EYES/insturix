@@ -23,24 +23,6 @@ async function checkAndUpdateExpiredPlans(user: UserDocument) {
     const oneMonthLater = new Date();
     oneMonthLater.setMonth(oneMonthLater.getMonth() + 1);
     
-    user.currentPlan = {
-      planId: "fallback-free-plan",
-      name: UserType.Free,
-      startDate: now,
-      endDate: oneMonthLater,
-      price: 0,
-      currency: user.currentPlan.currency || "USD",
-      status: "active",
-      serviceLimits: {
-        alyzitron: [],
-        clickatron: [],
-        editron: [],
-        shield: [],
-        thinkforge: [],
-        musitron: [],
-      },
-    };
-    
     await user.save();
     return true;
   }

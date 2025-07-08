@@ -29,26 +29,6 @@ export async function checkAndHandleExpiredPlans(): Promise<ExpirationCheckResul
       const previousPlanName = user.currentPlan.name;
       
       user.currentPlan.status = "expired";
-      
-      const freePlan = {
-        planId: "fallback-free-plan",
-        name: UserType.Free,
-        startDate: now,
-        endDate: null,
-        price: 0,
-        currency: user.currentPlan.currency || "USD",
-        status: "active" as const,
-        serviceLimits: {
-          alyzitron: [],
-          editron: [],
-          shield: [],
-          socialize: [],
-          thinkforge: [],
-          musitron: [],
-        },
-      };
-
-      user.currentPlan = freePlan;
       user.markModified('currentPlan');
       await user.save();
 

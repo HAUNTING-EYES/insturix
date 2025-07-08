@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from '@tanstack/react-query';
-import { usePricing } from "@/lib/PricingContext";
+import { useCurrency } from "@/lib/CurrencyContext";
 
 export interface DBPlan {
   id: string;
@@ -53,8 +53,8 @@ const fetchPlans = async (currency: string = "USD"): Promise<PlansResponse> => {
 };
 
 export function usePlansFromDB() {
-  const { locationData, isLoading: locationLoading } = usePricing();
-  const userCurrency = locationData?.currency || "USD";
+  const { selectedCurrency, isUserSelected } = useCurrency();
+  const userCurrency = selectedCurrency || "USD";
 
   const {
     data,
@@ -65,14 +65,14 @@ export function usePlansFromDB() {
   } = useQuery<PlansResponse>({
     queryKey: ['plans', userCurrency],
     queryFn: () => fetchPlans(userCurrency),
-    enabled: !locationLoading, // Only fetch plans after location is loaded
+    enabled: !!userCurrency, // Only fetch plans after currency is loaded
     staleTime: 1000 * 60 * 5, // 5 minutes
     gcTime: 1000 * 60 * 30, // 30 minutes
   });
 
   return {
     plans: data?.plans || [],
-    isLoading: locationLoading || plansLoading,
+    isLoading: plansLoading,
     isError,
     error: error as Error | null,
     currency: data?.currency || userCurrency,

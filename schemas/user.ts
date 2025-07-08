@@ -245,17 +245,19 @@ userSchema.index({ "subscriptions.subscriptionId": 1 });
 userSchema.methods.getCurrentPlanServiceLimits = async function() {
   const Plan = mongoose.model('Plan');
   try {
-    // Handle fallback plan IDs that don't exist in the database
-    if (this.currentPlan.planId === "fallback-free-plan" ||
-        this.currentPlan.planId === "TEMP-FREE-PLAN" ||
-        this.currentPlan.planId === "TEMP-PREMIUM-PLAN") {
-      console.warn(`Using fallback plan ID: ${this.currentPlan.planId}, returning current plan serviceLimits`);
+    const currentPlan = await Plan.findById(this.currentPlan.planId);
+    if (!currentPlan) {
+      console.error(`Plan not found for ID: ${this.currentPlan.planId}. This indicates a data inconsistency.`);
+      // In a real application, you might want to log this error more robustly
+      // or trigger an alert. For now, we'll return the current plan's service limits
+      // as a last resort, though this should ideally not happen.
       return this.currentPlan.serviceLimits || {};
     }
-    const currentPlan = await Plan.findById(this.currentPlan.planId);
-    return currentPlan?.serviceLimits || this.currentPlan.serviceLimits || {};
+    return currentPlan.serviceLimits;
   } catch (error) {
-    console.warn(`Invalid plan ID: ${this.currentPlan.planId}, using current plan serviceLimits`);
+    console.error(`Error fetching plan for ID: ${this.currentPlan.planId}. Details: ${error instanceof Error ? error.message : String(error)}`);
+    // If there's an error (e.g., invalid ID format, DB connection issue),
+    // return the current plan's service limits as a fallback.
     return this.currentPlan.serviceLimits || {};
   }
 };

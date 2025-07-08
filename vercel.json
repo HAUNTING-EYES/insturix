@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/check-plan-expiration",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/check-task-timeouts",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

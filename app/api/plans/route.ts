@@ -16,17 +16,22 @@ export async function GET(request: NextRequest) {
       .sort({ sortOrder: 1, createdAt: 1 })
       .lean();
 
-    const formattedPlans = plans.map((plan: any) => ({
-      id: plan._id.toString(),
-      name: plan.name,
-      type: plan.type,
-      description: plan.description,
-      serviceLimits: plan.serviceLimits,
-      pricing: plan.pricing[currency as keyof typeof plan.pricing] || plan.pricing.USD,
-      allPricing: plan.pricing,
-      isActive: plan.isActive,
-      sortOrder: plan.sortOrder,
-    }));
+    const formattedPlans = plans.map((plan: any) => {
+      if (!plan.pricing || typeof plan.pricing !== "object") {
+        console.error("Plan missing pricing field:", plan);
+      }
+      return {
+        id: plan._id.toString(),
+        name: plan.name,
+        type: plan.type,
+        description: plan.description,
+        serviceLimits: plan.serviceLimits,
+        pricing: plan.pricing?.[currency as keyof typeof plan.pricing] || null,
+        allPricing: plan.pricing || {},
+        isActive: plan.isActive,
+        sortOrder: plan.sortOrder,
+      };
+    });
 
     return NextResponse.json({
       success: true,

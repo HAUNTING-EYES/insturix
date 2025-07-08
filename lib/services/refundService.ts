@@ -58,26 +58,6 @@ export async function initiateRefund(
     if (user.currentPlan.status === "active") {
       user.currentPlan.status = "canceled";
       user.currentPlan.endDate = new Date();
-
-      const freePlan = {
-        planId: "fallback-free-plan",
-        name: UserType.Free,
-        startDate: new Date(),
-        endDate: null,
-        price: 0,
-        currency: user.currentPlan?.currency || "USD",
-        status: "active" as const,
-        serviceLimits: {
-          alyzitron: [],
-          editron: [],
-          shield: [],
-          socialize: [],
-          thinkforge: [],
-          musitron: [],
-        },
-      };
-
-      user.currentPlan = freePlan;
       user.markModified('currentPlan');
     }
 
