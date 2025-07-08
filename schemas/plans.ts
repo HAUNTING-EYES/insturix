@@ -4,7 +4,7 @@ export interface IPricing {
   amount: number;
   currency: string;
   symbol: string;
-  planId?: { [key: string]: string };
+  providerPlanIds?: { [key: string]: string };
 }
 
 export interface IBillingCyclePricing {
@@ -29,8 +29,7 @@ export interface IPlanServiceLimits {
   clickatron: IPlanServiceLimit[];
 }
 
-export interface IPlan extends Document {
-  _id: string;
+export interface IPlan {
   name: string;
   type: string;
   description: string;
@@ -47,9 +46,44 @@ export interface IPlan extends Document {
   };
   isActive: boolean;
   sortOrder: number;
-  createdAt: Date;
-  updatedAt: Date;
 }
+
+export interface IPlanDocument extends IPlan, Document {}
+
+// Client-facing types
+export interface ClientPricingInfo {
+  amount: number;
+  currency: string;
+  symbol: string;
+  paymentProvider?: {
+    provider: 'razorpay' | 'lemonsqueezy';
+    planId: string;
+  };
+}
+
+export interface TransformedPricing {
+  monthly: ClientPricingInfo;
+  yearly: ClientPricingInfo;
+}
+
+export interface ClientPlan {
+  id: string;
+  name: string;
+  type: string;
+  description: string;
+  serviceLimits: IPlanServiceLimits;
+  pricing: TransformedPricing;
+  isActive: boolean;
+  sortOrder: number;
+}
+
+export interface PlansResponse {
+  success: boolean;
+  plans: ClientPlan[];
+  currency: string;
+  count: number;
+}
+
 
 const pricingSchema = new Schema<IPricing>({
   amount: {
@@ -66,7 +100,7 @@ const pricingSchema = new Schema<IPricing>({
     type: String,
     required: true,
   },
-  planId: {
+  providerPlanIds: {
     type: Map,
     of: String,
   },

@@ -101,29 +101,34 @@ export default function ManagePlanDialog({ open, onOpenChange, plans, currentPla
                   )}
                 </div>
                 {idx === 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: 0.2 }}
-                    className="mt-4 flex gap-3 justify-end"
-                  >
-                    <Button
-                      variant="default"
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5"
-                      onClick={() => router.push("/upgrade")}
+                  <>
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ delay: 0.2 }}
+                      className="mt-4 flex gap-3 justify-end"
                     >
-                      Upgrade Plan
-                    </Button>
-                    {!isFree && isCancelable && (
                       <Button
-                        variant="outline"
-                        className="border-red-400 text-red-500 hover:bg-red-50 hover:text-red-600 px-5"
-                        onClick={() => setShowCancel(true)}
+                        variant="default"
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-5"
+                        onClick={() => router.push("/upgrade")}
                       >
-                        Cancel Plan
+                        Upgrade Plan
                       </Button>
-                    )}
-                  </motion.div>
+                      {!isFree && isCancelable && (
+                        <Button
+                          variant="outline"
+                          className="border-red-400 text-red-500 hover:bg-red-50 hover:text-red-600 px-5"
+                          onClick={() => setShowCancel(true)}
+                        >
+                          Cancel Plan
+                        </Button>
+                      )}
+                    </motion.div>
+                    <p className="text-xs text-zinc-500 mt-2 text-right">
+                      Note: Plan upgrades may take up to 2 minutes to reflect.
+                    </p>
+                  </>
                 )}
               </motion.div>
             ))}

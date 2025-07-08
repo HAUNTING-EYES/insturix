@@ -354,53 +354,65 @@ async function setupPlans() {
         if (mode === 'fake') {
           console.log('  Generating fake plan IDs...');
           for (const currency of Object.keys(plan.pricing)) {
+            const provider = currency.toUpperCase() === 'INR' ? 'razorpay' : 'lemonsqueezy';
             const monthlyPrice = plan.pricing[currency].monthly;
             if (monthlyPrice.amount > 0) {
-              if (!monthlyPrice.planId) monthlyPrice.planId = {};
-              monthlyPrice.planId.fakeProvider = `fake_${plan.type}_monthly_${currency.toLowerCase()}`;
+              if (!monthlyPrice.providerPlanIds) {
+                monthlyPrice.providerPlanIds = new Map();
+              }
+              monthlyPrice.providerPlanIds.set(provider, `fake_${plan.type}_monthly_${currency.toLowerCase()}`);
             }
             const yearlyPrice = plan.pricing[currency].yearly;
             if (yearlyPrice.amount > 0) {
-              if (!yearlyPrice.planId) yearlyPrice.planId = {};
-              yearlyPrice.planId.fakeProvider = `fake_${plan.type}_yearly_${currency.toLowerCase()}`;
+              if (!yearlyPrice.providerPlanIds) {
+                yearlyPrice.providerPlanIds = new Map();
+              }
+              yearlyPrice.providerPlanIds.set(provider, `fake_${plan.type}_yearly_${currency.toLowerCase()}`);
             }
           }
         } else { // mode === 'real'
           for (const currency of Object.keys(plan.pricing)) {
             console.log(`  Processing currency: ${currency}`);
+            const provider = currency.toUpperCase() === 'INR' ? 'razorpay' : 'lemonsqueezy';
             
             const monthlyPrice = plan.pricing[currency].monthly;
             if (monthlyPrice.amount > 0) {
-              console.log(`    Creating monthly plan...`);
+              console.log(`    Creating monthly plan via ${provider}...`);
               const monthlyPlan = await createPlan({
                 name: plan.name,
                 amount: monthlyPrice.amount,
                 currency: currency,
                 period: 'monthly',
                 type: plan.type,
+                provider,
               });
 
               if (monthlyPlan) {
-                if (!monthlyPrice.planId) monthlyPrice.planId = {};
-                monthlyPrice.planId[monthlyPlan.provider] = monthlyPlan.id;
+                if (!monthlyPrice.providerPlanIds) {
+                  monthlyPrice.providerPlanIds = new Map();
+                }
+                monthlyPrice.providerPlanIds.set(monthlyPlan.provider, monthlyPlan.id);
                 console.log(`      -> ${monthlyPlan.provider} plan created with ID: ${monthlyPlan.id}`);
               }
             }
 
             const yearlyPrice = plan.pricing[currency].yearly;
             if (yearlyPrice.amount > 0) {
-              console.log(`    Creating yearly plan...`);
+              console.log(`    Creating yearly plan via ${provider}...`);
               const yearlyPlan = await createPlan({
                 name: plan.name,
                 amount: yearlyPrice.amount,
                 currency: currency,
                 period: 'yearly',
                 type: plan.type,
+                provider,
               });
 
               if (yearlyPlan) {
-                if (!yearlyPrice.planId) yearlyPrice.planId = {};
-                yearlyPrice.planId[yearlyPlan.provider] = yearlyPlan.id;
+                if (!yearlyPrice.providerPlanIds) {
+                  yearlyPrice.providerPlanIds = new Map();
+                }
+                yearlyPrice.providerPlanIds.set(yearlyPlan.provider, yearlyPlan.id);
                 console.log(`      -> ${yearlyPlan.provider} plan created with ID: ${yearlyPlan.id}`);
               }
             }

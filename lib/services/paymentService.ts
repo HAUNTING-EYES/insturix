@@ -77,12 +77,15 @@ export async function createPlan(planDetails: {
     }
 }
 
-export async function createCheckout(planType: string, user: {
-    id: string;
-    fullName: string | null;
-    email?: string;
-}, currency: string, billingCycle: 'monthly' | 'yearly'): Promise<any> {
-    console.log(`[Checkout] Starting for plan: ${planType}, currency: ${currency}, cycle: ${billingCycle}`);
+export async function createCheckout(
+    planType: string,
+    user: { id: string; fullName: string | null; email?: string; },
+    currency: string,
+    billingCycle: 'monthly' | 'yearly',
+    paymentProvider?: string,
+    paymentPlanId?: string
+): Promise<any> {
+    console.log(`[Checkout] Starting for plan: ${planType}, currency: ${currency}, cycle: ${billingCycle}, provider: ${paymentProvider}, planId: ${paymentPlanId}`);
     const plan = await Plan.findOne({ type: planType });
 
     if (!plan) {
@@ -90,25 +93,20 @@ export async function createCheckout(planType: string, user: {
         throw new Error(`Plan not found for type: ${planType}`);
     }
 
-    const pricingDetails = plan.pricing[currency]?.[billingCycle];
+    // Use the provided paymentProvider and paymentPlanId directly
+    const selectedProvider = paymentProvider;
+    const selectedPlanId = paymentPlanId;
 
-    console.log('[Checkout] Extracted pricing details:', JSON.stringify(pricingDetails, null, 2));
-
-    if (!pricingDetails || !pricingDetails.planId) {
-        console.error(`[Checkout] Pricing details or planId object not found.`);
-        throw new Error(`Pricing details or planId not found for plan: ${plan.name}, currency: ${currency}, cycle: ${billingCycle}`);
+    if (!selectedProvider || !selectedPlanId) {
+        console.error(`[Checkout] Payment provider or planId is missing.`);
+        throw new Error(`Payment provider or planId not found for plan: ${plan.name}, currency: ${currency}, cycle: ${billingCycle}`);
     }
 
-    if (currency === 'INR') {
-        const razorpayPlanId = pricingDetails.planId.razorpay;
-        console.log(`[Checkout] Attempting to use Razorpay Plan ID: ${razorpayPlanId}`);
-        if (!razorpayPlanId) {
-            console.error(`[Checkout] Razorpay planId is MISSING from the pricing details!`);
-            throw new Error(`Razorpay planId not found for plan: ${plan.name}, currency: ${currency}, cycle: ${billingCycle}`);
-        }
+    if (selectedProvider === 'razorpay') {
+        console.log(`[Checkout] Attempting to use Razorpay Plan ID: ${selectedPlanId}`);
         // Razorpay checkout logic
         const subscription = await razorpay.subscriptions.create({
-            plan_id: razorpayPlanId,
+            plan_id: selectedPlanId,
             customer_notify: 1,
             total_count: billingCycle === 'monthly' ? 12 : 1,
             notes: {
@@ -122,19 +120,15 @@ export async function createCheckout(planType: string, user: {
             key: process.env.RAZORPAY_KEY_ID,
             subscriptionId: subscription.id,
         };
-    } else {
+    } else if (selectedProvider === 'lemonsqueezy') {
         // Lemon Squeezy checkout logic
-        const lemonSqueezyVariantId = pricingDetails.planId.lemonsqueezy;
-        if (!lemonSqueezyVariantId) {
-            console.error(`[Checkout] Lemon Squeezy variantId is MISSING from the pricing details!`);
-            throw new Error(`Lemon Squeezy variantId not found for plan: ${plan.name}, currency: ${currency}, cycle: ${billingCycle}`);
-        }
+        console.log(`[Checkout] Attempting to use Lemon Squeezy Variant ID: ${selectedPlanId}`);
         
         lemonSqueezySetup({ apiKey: process.env.LEMONSQUEEZY_API_KEY! });
 
         const { data: checkoutData, error } = await createLemonSqueezyCheckout(
             process.env.LEMONSQUEEZY_STORE_ID!,
-            lemonSqueezyVariantId,
+            selectedPlanId,
             {
                 checkoutData: {
                     email: user.email!,
@@ -159,6 +153,8 @@ export async function createCheckout(planType: string, user: {
             provider: 'lemonsqueezy',
             checkoutUrl: checkoutData.data.attributes.url,
         };
+    } else {
+        throw new Error(`Unsupported payment provider: ${selectedProvider}`);
     }
 }
 

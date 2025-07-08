@@ -2,6 +2,12 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType, IUserPlan } from "@/types/userTypes";
+import Razorpay from "razorpay";
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+});
 
 // Get plan price for specific currency
 export async function getPlanPrice(planType: UserType, currency: string = "USD", billingCycle: 'monthly' | 'yearly' = 'monthly'): Promise<number> {
@@ -43,81 +49,143 @@ export async function getPlansForCurrency(currency: string = "USD") {
   }));
 }
 
-// Cancel user plan with trial refund logic
+// Initiates the cancellation process.
 export async function cancelUserPlan(clerkUserId: string) {
   await connectToDatabase();
-  
+
   const user = await User.findOne({ clerkUserId });
   if (!user) {
     throw new Error("User not found");
   }
 
   if (!user.currentPlan || user.currentPlan.name === UserType.Free) {
-    throw new Error("User is already on free plan");
+    return { success: true, message: "User is already on the free plan." };
   }
 
-  // Check if within trial period (7 days)
+  const activeSubscription = user.subscriptions.find(
+    (s: any) => s.provider === 'razorpay' && s.status === 'active'
+  );
+
+  if (!activeSubscription) {
+    throw new Error("No active Razorpay subscription found to cancel.");
+  }
+
   const planStartDate = new Date(user.currentPlan.startDate);
   const now = new Date();
   const daysSinceStart = Math.floor((now.getTime() - planStartDate.getTime()) / (1000 * 60 * 60 * 24));
   const isWithinTrialPeriod = daysSinceStart <= 7;
 
-  if (isWithinTrialPeriod && !user.trialUsed) {
-    // Mark trial as used
-    user.trialUsed = true;
+  let refundEligible = false;
+  let refundAmount = 0;
+  let refundId: string | undefined;
 
-    // Move current plan to history
-    const expiredPlan = {
-      ...user.currentPlan,
-      status: "canceled" as const,
-      endDate: now,
-    };
-    const planExists = user.planHistory.some((plan: IUserPlan) =>
-      plan.planId === user.currentPlan.planId &&
-      plan.startDate.getTime() === user.currentPlan.startDate.getTime()
-    );
-    if (!planExists) {
-      user.planHistory.push(expiredPlan);
+  try {
+    // Fetch the subscription from Razorpay to check its current status
+    const razorpaySubscription = await razorpay.subscriptions.fetch(activeSubscription.subscriptionId);
+
+    if (razorpaySubscription.status !== 'cancelled') {
+      // Cancel subscription on Razorpay only if it's not already cancelled
+      await razorpay.subscriptions.cancel(activeSubscription.subscriptionId);
+
+      if (isWithinTrialPeriod && !user.trialUsed) {
+        refundEligible = true;
+        refundAmount = user.currentPlan.price;
+        
+        // Find the payment associated with the subscription to refund it
+        if (activeSubscription.latestInvoice) {
+          const invoice = await razorpay.invoices.fetch(activeSubscription.latestInvoice);
+          if (invoice && invoice.payment_id) {
+              const refund = await razorpay.payments.refund(invoice.payment_id, {
+              amount: refundAmount * 100, // Amount in paise
+              speed: "normal",
+              });
+              refundId = refund.id;
+          }
+        }
+      }
+    } else {
+        console.log(`Subscription ${activeSubscription.subscriptionId} is already cancelled on Razorpay.`);
     }
 
-    // Create free plan with service limits
-    const freePlan = await Plan.findOne({ type: UserType.Free, isActive: true });
-    if (!freePlan) {
-      throw new Error("Free plan not found");
-    }
-    const { UserInitializationService } = await import("./userInitializationService");
-    const cleanServiceLimits = freePlan.serviceLimits.toObject ? freePlan.serviceLimits.toObject() : freePlan.serviceLimits;
-    const serviceLimits = UserInitializationService.convertPlanLimitsToUserLimits(cleanServiceLimits);
-    user.currentPlan = {
-      planId: freePlan._id.toString(),
-      name: UserType.Free,
-      startDate: now,
-      endDate: null, // Free plan never expires
-      price: 0,
-      currency: user.preferences.currency,
-      status: "active",
-      serviceLimits,
-    };
-    await user.save();
+    // Instead of marking for cancellation, immediately downgrade to free plan
+    await downgradeUserToFreePlan(clerkUserId);
+
     return {
       success: true,
-      refundEligible: true,
+      message: "Subscription successfully cancelled. Your plan has been downgraded to free.",
+      refundEligible,
+      refundAmount,
+      refundId,
       daysUsed: daysSinceStart,
-      refundAmount: expiredPlan.price,
     };
-  } else {
-    // Not in trial: schedule cancellation at period end
-    user.currentPlan.cancelAtPeriodEnd = true;
-    user.currentPlan.status = "canceled";
-    // Do NOT move to free plan yet; let cron/expiration handle it
-    await user.save();
-    return {
-      success: true,
-      refundEligible: false,
-      daysUsed: daysSinceStart,
-      refundAmount: 0,
-    };
+  } catch (error) {
+    console.error("Error canceling Razorpay subscription:", error);
+    throw new Error("Failed to cancel subscription with payment provider.");
   }
+}
+
+// Downgrades a user to the free plan, typically after a webhook confirmation.
+export async function downgradeUserToFreePlan(clerkUserId: string) {
+  await connectToDatabase();
+
+  const user = await User.findOne({ clerkUserId });
+  if (!user) {
+    throw new Error(`User not found for clerkUserId: ${clerkUserId}`);
+  }
+
+  if (!user.currentPlan || user.currentPlan.name === UserType.Free) {
+    console.log(`User ${clerkUserId} is already on the free plan. No downgrade needed.`);
+    return user;
+  }
+
+  // Move current plan to history
+  const now = new Date();
+  const expiredPlan = {
+    ...user.currentPlan.toObject(),
+    status: "canceled" as const,
+    endDate: now,
+  };
+
+  const planExists = user.planHistory.some((plan: IUserPlan) =>
+    plan.planId === user.currentPlan.planId &&
+    plan.startDate.getTime() === user.currentPlan.startDate.getTime()
+  );
+  if (!planExists) {
+    user.planHistory.push(expiredPlan);
+  }
+
+  // Create and set the new free plan
+  const freePlan = await Plan.findOne({ type: UserType.Free, isActive: true });
+  if (!freePlan) {
+    throw new Error("Free plan not found in database.");
+  }
+
+  const { UserInitializationService } = await import("./userInitializationService");
+  const cleanServiceLimits = freePlan.serviceLimits.toObject ? freePlan.serviceLimits.toObject() : freePlan.serviceLimits;
+  const serviceLimits = UserInitializationService.convertPlanLimitsToUserLimits(cleanServiceLimits);
+
+  user.currentPlan = {
+    planId: freePlan._id.toString(),
+    name: UserType.Free,
+    startDate: now,
+    endDate: null,
+    price: 0,
+    currency: user.preferences.currency,
+    status: "active",
+    serviceLimits,
+  };
+
+  // Mark trial as used if the canceled plan was a trial
+  if (expiredPlan.price > 0 && !user.trialUsed) {
+      const planStartDate = new Date(expiredPlan.startDate);
+      const daysSinceStart = Math.floor((now.getTime() - planStartDate.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceStart <= 7) {
+        user.trialUsed = true;
+      }
+  }
+
+  await user.save();
+  return user;
 }
 
 // Check if user is eligible for trial refund
@@ -233,6 +301,43 @@ export async function updateUserPlan(
   }
 
   await user.save();
+  return user;
+}
+
+// Extends the user's current plan upon renewal
+export async function extendUserPlan(
+  clerkUserId: string,
+  subscriptionDetails: {
+    subscriptionId: string;
+    latestInvoice?: string;
+  }
+) {
+  await connectToDatabase();
+
+  const user = await User.findOne({ clerkUserId });
+  if (!user) {
+    throw new Error(`User not found for clerkUserId: ${clerkUserId}`);
+  }
+
+  if (!user.currentPlan || user.currentPlan.status !== "active") {
+    console.warn(`Cannot extend plan for user ${clerkUserId}: No active plan found.`);
+    return user;
+  }
+
+  // Extend the end date by one month
+  const currentEndDate = user.currentPlan.endDate ? new Date(user.currentPlan.endDate) : new Date();
+  currentEndDate.setMonth(currentEndDate.getMonth() + 1);
+  user.currentPlan.endDate = currentEndDate;
+
+  // Update the subscription record in history
+  const subscription = user.subscriptions.find((s: any) => s.subscriptionId === subscriptionDetails.subscriptionId);
+  if (subscription) {
+    subscription.latestInvoice = subscriptionDetails.latestInvoice;
+    subscription.status = "active"; // Ensure it's marked active on renewal
+  }
+
+  await user.save();
+  console.log(`Extended plan for user ${clerkUserId} until ${user.currentPlan.endDate}`);
   return user;
 }
 

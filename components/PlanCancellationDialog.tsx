@@ -42,12 +42,14 @@ export function PlanCancellationDialog({
   const [loading, setLoading] = useState(false);
   const [eligibility, setEligibility] = useState<TrialEligibility | null>(null);
   const [step, setStep] = useState<"check" | "confirm">("check");
+  const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
 
   const checkEligibility = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
       const response = await fetch("/api/user/plans/cancel");
       const data = await response.json();
       
@@ -55,10 +57,14 @@ export function PlanCancellationDialog({
         setEligibility(data);
         setStep("confirm");
       } else {
-        toast.error(data.error || "Failed to check eligibility");
+        const errorMessage = data.error || "Failed to check eligibility";
+        setError(errorMessage);
+        toast.error(errorMessage);
       }
     } catch (error) {
-      toast.error("Failed to check trial eligibility");
+      const errorMessage = "Failed to check trial eligibility";
+      setError(errorMessage);
+      toast.error(errorMessage);
       console.error("Check eligibility error:", error);
     } finally {
       setLoading(false);
@@ -66,8 +72,9 @@ export function PlanCancellationDialog({
   };
 
   const cancelPlan = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
       const response = await fetch("/api/user/plans/cancel", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,18 +86,13 @@ export function PlanCancellationDialog({
       if (response.ok && data.success !== false) {
         toast.success(data.message || "Plan cancelled successfully");
         
-        // Invalidate queries to refresh UI
-        queryClient.invalidateQueries({ queryKey: ["userData"] });
-        queryClient.invalidateQueries({ queryKey: ["plans"] });
-        
-        // Close the dialog
+        // Close the dialog and reload the page to reflect changes
         onOpenChange(false);
-        
-        // Navigate to dashboard
-        router.push('/dashboard');
+        window.location.reload();
       } else {
         // Handle API errors (including 500 errors)
         const errorMessage = data.error || "Failed to cancel plan";
+        setError(errorMessage);
         toast.error(errorMessage);
         
         // For specific errors like "already on free plan", close dialog and redirect
@@ -100,7 +102,9 @@ export function PlanCancellationDialog({
         }
       }
     } catch (error) {
-      toast.error("Network error: Failed to cancel plan");
+      const errorMessage = "Network error: Failed to cancel plan";
+      setError(errorMessage);
+      toast.error(errorMessage);
       console.error("Cancel plan error:", error);
     } finally {
       setLoading(false);
@@ -110,6 +114,7 @@ export function PlanCancellationDialog({
   const handleClose = () => {
     setStep("check");
     setEligibility(null);
+    setError(null);
     onOpenChange(false);
     router.refresh();
   };
@@ -178,6 +183,9 @@ export function PlanCancellationDialog({
               </CardContent>
             </Card>
 
+            {error && (
+              <p className="text-sm text-red-500 text-center mt-2">{error}</p>
+            )}
             <div className="flex gap-2 pt-4">
               <Button
                 variant="outline"
@@ -246,6 +254,9 @@ export function PlanCancellationDialog({
               </Card>
             )}
 
+            {error && (
+              <p className="text-sm text-red-500 text-center mt-2">{error}</p>
+            )}
             <div className="flex gap-2 pt-4">
               <Button
                 variant="outline"

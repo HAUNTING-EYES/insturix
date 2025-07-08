@@ -25,69 +25,10 @@ export async function POST(request: NextRequest) {
       const eligibility = await checkTrialRefundEligibility(userId);
       return NextResponse.json(eligibility);
     } else if (action === "cancel") {
-      // Cancel the plan in DB
+      // The entire cancellation logic, including provider interaction and downgrade,
+      // is now handled within the cancelUserPlan service function.
       const result = await cancelUserPlan(userId);
-
-      // Fetch user to get subscription/payment info
-      await connectToDatabase();
-      const user = await User.findOne({ clerkUserId: userId });
-      let providerCancelResult = null;
-      let refundResult = null;
-
-      // Cancel subscription with the payment provider
-      if (user && user.planHistory && user.planHistory.length > 0) {
-        // Find the most recent non-free plan in history (the one just canceled in our DB)
-        const lastPlan = user.planHistory[user.planHistory.length - 1];
-        const subscriptionId = lastPlan.subscriptionId; // Using the new schema
-
-        if (subscriptionId?.razorpay) {
-          try {
-            const razorpay = new Razorpay({
-              key_id: process.env.RAZORPAY_KEY_ID!,
-              key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-            });
-            await razorpay.subscriptions.cancel(subscriptionId.razorpay);
-            providerCancelResult = { success: true, provider: 'razorpay', message: "Razorpay subscription cancelled." };
-          } catch (e) {
-            providerCancelResult = { success: false, provider: 'razorpay', error: (e as Error).message };
-          }
-        } else if (subscriptionId?.lemonsqueezy) {
-          try {
-            lemonSqueezySetup({ apiKey: process.env.LEMONSQUEEZY_API_KEY! });
-            await cancelSubscription(subscriptionId.lemonsqueezy);
-            providerCancelResult = { success: true, provider: 'lemonsqueezy', message: "Lemon Squeezy subscription cancelled." };
-          } catch (e) {
-            providerCancelResult = { success: false, provider: 'lemonsqueezy', error: (e as Error).message };
-          }
-        }
-      }
-
-      // If refund eligible, find latest completed payment and refund
-      if (result.refundEligible && user && user.payments && user.payments.length > 0) {
-        // Find the latest completed payment for the canceled plan
-        const lastPlan = user.planHistory[user.planHistory.length - 1];
-        const payment = user.payments
-          .filter((p: any) => p.status === "completed" && p.planName === lastPlan.name)
-          .sort((a: any, b: any) => b.timestamp.getTime() - a.timestamp.getTime())[0];
-        if (payment) {
-          refundResult = await initiateRefund(userId, {
-            paymentId: payment.paymentId,
-            amount: Math.round(payment.amount * 100), // Razorpay expects paise
-            reason: "Trial period cancellation refund"
-          });
-        } else {
-          refundResult = { success: false, error: "No payment found for refund." };
-        }
-      }
-
-      return NextResponse.json({
-        ...result,
-        providerCancelResult,
-        refundResult,
-        message: result.refundEligible
-          ? `Plan cancelled with refund of $${result.refundAmount}. Refund will be processed within 5-7 business days.`
-          : "Plan cancelled. You will continue to have access until the current billing period ends."
-      });
+      return NextResponse.json(result);
     } else {
       return NextResponse.json(
         { error: "Invalid action. Use 'check' or 'cancel'" },

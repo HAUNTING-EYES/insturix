@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the specific Razorpay Plan ID for the selected currency and cycle
-    const razorpayPlanId = dbPlan.pricing[currency]?.[billingCycle]?.razorpayPlanId;
+    const razorpayPlanId = dbPlan.pricing[currency]?.[billingCycle]?.paymentProvider?.provider === 'razorpay' ? dbPlan.pricing[currency]?.[billingCycle]?.paymentProvider?.planId : undefined;
     if (!razorpayPlanId) {
       return NextResponse.json({ error: `Razorpay plan ID not found for ${planType} ${currency} ${billingCycle}` }, { status: 400 });
     }
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
         userId: userId,
         planType: planType,
         billingCycle: billingCycle,
+        dbPlanId: dbPlan._id.toString(),
       },
     });
 

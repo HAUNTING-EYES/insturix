@@ -19,7 +19,7 @@ interface PlanSelectionProps {
   onSelectPlan: (plan: Plan) => void;
   billingCycle: "monthly" | "yearly";
   onBillingCycleChange: (cycle: "monthly" | "yearly") => void;
-  currentUserPlan?: import("@/types/userTypes").UserType;
+  currentUserPlan?: import("@/types/userTypes").UserType | null;
   currentPlanData?: {
     endDate: Date | null;
     startDate: Date;
@@ -233,14 +233,18 @@ export function PlanSelection({
                         ? "ring-2 ring-green-500 border-green-500/30 cursor-default"
                         : currentUserPlan && isDowngrade(currentUserPlan, plan.userType)
                           ? "border-red-500/30 bg-red-900/20 cursor-not-allowed opacity-60"
+                        : plan.userType === UserType.Free
+                          ? "opacity-60 cursor-not-allowed"
                           : currentUserPlan && isUpgrade(currentUserPlan, plan.userType)
                             ? "border-blue-500/30 cursor-pointer"
                             : "border-white/10 cursor-pointer",
                   plan.popularPlan ? "relative" : ""
                 )}
                 onClick={() => {
+                  const isCurrentPlan = plan.userType === currentUserPlan;
+                  const isFreePlan = plan.userType === UserType.Free;
                   const isDisabledDowngrade = currentUserPlan && isDowngrade(currentUserPlan, plan.userType);
-                  if (!isDisabledDowngrade) {
+                  if (!isCurrentPlan && !isFreePlan && !isDisabledDowngrade) {
                     onSelectPlan(plan);
                   }
                 }}
@@ -391,6 +395,7 @@ export function PlanSelection({
                     const isCurrentPlan = plan.userType === currentUserPlan;
                     const isDowngradeAttempt = currentUserPlan && isDowngrade(currentUserPlan, plan.userType);
                     const isUpgradeAttempt = currentUserPlan && isUpgrade(currentUserPlan, plan.userType);
+                    const isFreePlan = plan.userType === UserType.Free;
 
                     if (isCurrentPlan) {
                       return (
@@ -411,6 +416,16 @@ export function PlanSelection({
                           Cannot Downgrade
                         </Button>
                       );
+                    }
+                    if (isFreePlan) {
+                        return (
+                          <Button
+                            className="w-full bg-gray-600 text-gray-400 border-gray-600 cursor-not-allowed"
+                            disabled
+                          >
+                            Not Selectable
+                          </Button>
+                        );
                     }
                     if (isUpgradeAttempt) {
                       return (

@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import Razorpay from "razorpay";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
 import { DEFAULT_FREE_PLAN_LIMITS } from "@/lib/config/serviceLimits";
-import { updateUserPlan } from "@/lib/services/planService";
+import { updateUserPlan, downgradeUserToFreePlan, extendUserPlan, cancelUserPlan } from "@/lib/services/planService";
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+});
 
 interface RazorpayWebhookPayload {
   entity: string;
@@ -25,6 +31,7 @@ interface RazorpayWebhookPayload {
           userId?: string;
           planName?: string;
           userType?: string;
+          dbPlanId?: string;
         };
       };
     };
@@ -33,11 +40,19 @@ interface RazorpayWebhookPayload {
         id: string;
         amount: number;
         currency: string;
+        status: "captured" | "authorized" | "failed";
         method: "card" | "upi" | "netbanking" | "wallet";
+        description?: string;
+        order_id?: string;
+        invoice_id?: string;
+        email?: string;
+        contact?: string;
         notes: {
           userId?: string;
           planName?: string;
           userType?: string;
+          dbPlanId?: string;
+          subscriptionId?: string;
         };
         error_reason?: string;
       };
@@ -109,6 +124,32 @@ const handleFailedSubscription = async (
   console.log(`Failed subscription recorded for user ${userId}: ${errorReason}`);
 };
 
+const handleSubscriptionCancelled = async (
+  userId: string,
+  subscriptionId: string
+) => {
+  await connectToDatabase();
+  
+  const user = await User.findOne({ clerkUserId: userId });
+  if (!user) {
+    console.error(`User not found for cancelled subscription: ${subscriptionId}, userId: ${userId}`);
+    return;
+  }
+
+  // Mark the plan to be canceled at the end of the period
+  await cancelUserPlan(userId);
+
+  // Update subscription record in user's history
+  const subscription = user.subscriptions.find((s: any) => s.subscriptionId === subscriptionId);
+  if (subscription) {
+    subscription.status = "cancelled";
+    user.markModified('subscriptions');
+    await user.save();
+  }
+
+  console.log(`Subscription ${subscriptionId} cancellation initiated for user ${userId}.`);
+};
+
 export async function POST(request: NextRequest) {
   try {
     const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -144,27 +185,153 @@ export async function POST(request: NextRequest) {
     console.log(`Received Razorpay webhook: ${event}`);
 
     switch (event) {
-      case "payment.captured":
-      case "subscription.charged":
-      case "subscription.activated":
-      case "subscription.updated": {
-        const subscription = webhookPayload.subscription?.entity;
-        const payment = webhookPayload.payment?.entity;
+      case "subscription.activated": {
+        const subscription = webhookPayload.subscription.entity;
+        const payment = webhookPayload.payment.entity;
 
-        if (subscription && payment && subscription.status === "active" && subscription.notes?.userId) {
+        await connectToDatabase();
+
+        let user: any;
+        if (subscription.notes?.userId) {
+          user = await User.findOne({ clerkUserId: subscription.notes.userId });
+        }
+        if (!user && payment?.email) {
+          user = await User.findOne({ email: payment.email });
+        }
+
+        if (!user) {
+          console.error(`User not found for subscription ${subscription.id}`);
+          break;
+        }
+
+        let planDetails: any;
+        if (subscription.notes?.dbPlanId) {
+          planDetails = await Plan.findById(subscription.notes.dbPlanId);
+        }
+        if (!planDetails) {
+          const currency = webhookPayload.payment.entity.currency;
+          if (currency) {
+            planDetails = await Plan.findOne({
+              $or: [
+                { [`pricing.${currency}.monthly.providerPlanIds.razorpay`]: subscription.plan_id },
+                { [`pricing.${currency}.yearly.providerPlanIds.razorpay`]: subscription.plan_id },
+              ]
+            });
+          }
+        }
+
+        if (!planDetails) {
+          console.error(`Plan not found in DB for Razorpay plan ${subscription.plan_id}`);
+          break;
+        }
+
+        const userType = planDetails.type;
+        const dbPlanId = planDetails._id.toString();
+
+        try {
+          const plan = await razorpay.plans.fetch(subscription.plan_id);
+          if (!plan) {
+            console.error(`Could not fetch plan details from Razorpay for ${subscription.plan_id}`);
+            break;
+          }
+
           await updateUserPlan(
-            subscription.notes.userId,
-            (subscription.notes.userType as UserType) || UserType.Plus,
+            user.clerkUserId,
+            userType as UserType,
             {
               provider: "razorpay",
               subscriptionId: subscription.id,
-              planId: subscription.plan_id,
-              amount: payment.amount / 100,
-              currency: payment.currency,
-              paymentMethod: payment.method,
+              planId: dbPlanId,
+              amount: Number(plan.item.amount) / 100,
+              currency: "INR",
+              paymentMethod: "card", // Placeholder
               latestInvoice: subscription.latest_invoice,
             }
           );
+        } catch (error) {
+          console.error(`Error processing subscription activation: ${subscription.id}`, error);
+        }
+        break;
+      }
+      case "subscription.charged": {
+        const subscription = webhookPayload.subscription.entity;
+        const payment = webhookPayload.payment.entity;
+        await connectToDatabase();
+
+        let user: any;
+        if (subscription.notes?.userId) {
+          user = await User.findOne({ clerkUserId: subscription.notes.userId });
+        }
+        if (!user) {
+          user = await User.findOne({ "currentPlan.subscriptionId.razorpay": subscription.id });
+        }
+        if (!user) {
+            user = await User.findOne({ "subscriptions.subscriptionId": subscription.id });
+        }
+
+        if (!user) {
+          console.error(`User not found for subscription ${subscription.id}`);
+          break;
+        }
+
+        // If user was downgraded to free, re-upgrade them. Otherwise, extend the plan.
+        if (user.currentPlan.name === UserType.Free) {
+          console.log(`User ${user.clerkUserId} is on a Free plan. Re-upgrading after successful charge.`);
+
+          let planDetails: any;
+          if (subscription.notes?.dbPlanId) {
+            planDetails = await Plan.findById(subscription.notes.dbPlanId);
+          }
+          if (!planDetails) {
+            const currency = payment.currency;
+            if (currency) {
+              planDetails = await Plan.findOne({
+                $or: [
+                  { [`pricing.${currency}.monthly.providerPlanIds.razorpay`]: subscription.plan_id },
+                  { [`pricing.${currency}.yearly.providerPlanIds.razorpay`]: subscription.plan_id },
+                ]
+              });
+            }
+          }
+
+          if (!planDetails) {
+            console.error(`Plan not found in DB for Razorpay plan ${subscription.plan_id} during re-upgrade.`);
+            break;
+          }
+
+          const userType = planDetails.type;
+          const dbPlanId = planDetails._id.toString();
+          
+          try {
+            const plan = await razorpay.plans.fetch(subscription.plan_id);
+            if (!plan) {
+              console.error(`Could not fetch plan details from Razorpay for ${subscription.plan_id}`);
+              break;
+            }
+
+            await updateUserPlan(
+              user.clerkUserId,
+              userType as UserType,
+              {
+                provider: "razorpay",
+                subscriptionId: subscription.id,
+                planId: dbPlanId,
+                amount: Number(plan.item.amount) / 100,
+                currency: payment.currency,
+                paymentMethod: payment.method,
+                latestInvoice: subscription.latest_invoice,
+              }
+            );
+            console.log(`User ${user.clerkUserId} re-upgraded to ${userType} plan.`);
+          } catch (error) {
+            console.error(`Error processing re-upgrade for subscription ${subscription.id}`, error);
+          }
+        } else {
+          console.log(`User ${user.clerkUserId} is on a paid plan. Extending plan.`);
+          await extendUserPlan(user.clerkUserId, {
+            subscriptionId: subscription.id,
+            latestInvoice: subscription.latest_invoice,
+          });
         }
         break;
       }
@@ -172,13 +339,22 @@ export async function POST(request: NextRequest) {
         const subscription = webhookPayload.subscription?.entity;
         const payment = webhookPayload.payment?.entity;
 
-        if (subscription && payment && subscription.notes?.userId) {
-          await handleFailedSubscription(
-            subscription.notes.userId,
-            subscription.id,
-            subscription.plan_id,
-            payment.error_reason || "Subscription halted"
-          );
+        if (subscription && payment) {
+            await connectToDatabase();
+            let user: any;
+            if (subscription.notes?.userId) {
+                user = await User.findOne({ clerkUserId: subscription.notes.userId });
+            }
+            if (!user) {
+                user = await User.findOne({ "subscriptions.subscriptionId": subscription.id });
+            }
+
+            if(user) {
+                await downgradeUserToFreePlan(user.clerkUserId);
+                console.log(`User ${user.clerkUserId} downgraded to free plan due to subscription halt.`);
+            } else {
+                console.error(`Could not find user for halted subscription ${subscription.id}`);
+            }
         }
         break;
       }
@@ -186,6 +362,43 @@ export async function POST(request: NextRequest) {
         const payment = webhookPayload.payment?.entity;
         if (payment) {
           console.log(`Payment event '${event}' received for payment ${payment.id}`);
+        }
+        break;
+      }
+      case "payment.captured": {
+        const payment = webhookPayload.payment?.entity;
+        if (payment) {
+          console.log(`Payment event '${event}' received for payment ${payment.id}`);
+        }
+        break;
+      }
+      case "subscription.authenticated": {
+        const subscription = webhookPayload.subscription?.entity;
+        if (subscription) {
+            console.log(`Subscription ${subscription.id} has been authenticated.`);
+        }
+        break;
+      }
+      case "subscription.cancelled": {
+        const subscription = webhookPayload.subscription?.entity;
+        if (subscription) {
+            await connectToDatabase();
+            let user: any;
+            if (subscription.notes?.userId) {
+                user = await User.findOne({ clerkUserId: subscription.notes.userId });
+            }
+            if (!user) {
+                user = await User.findOne({ "subscriptions.subscriptionId": subscription.id });
+            }
+
+            if(user) {
+                await handleSubscriptionCancelled(
+                    user.clerkUserId,
+                    subscription.id
+                );
+            } else {
+                console.error(`Could not find user for cancelled subscription ${subscription.id}`);
+            }
         }
         break;
       }

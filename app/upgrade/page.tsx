@@ -1,33 +1,27 @@
-"use client";
-
-import React, { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import React from "react";
+import { cookies } from "next/headers";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
-import CursorEffect from "@/components/ui/CursorEffect";
 import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent";
-import { PLAN_THEME } from "@/lib/themeConfig";
+import { fetchPlans } from "@/lib/data/plans";
+export default async function UpgradePage({
+  searchParams,
+}: {
+  searchParams: { [key: string]: string | string[] | undefined };
+}) {
+  const awaitedSearchParams = await searchParams;
+  const initialPlan =
+    typeof awaitedSearchParams.plan === "string"
+      ? awaitedSearchParams.plan
+      : undefined;
+  const cookieStore = await cookies();
+  const currencyCookie = cookieStore.get("currency");
+  const currency = currencyCookie?.value || "USD";
 
-export default function UpgradePage() {
-  const searchParams = useSearchParams();
-  const [cursorColor, setCursorColor] = useState<string>(PLAN_THEME.glow.color);
-
-  const handleCardHover = (color: string) => {
-    setCursorColor(color);
-  };
-
-  const handleCardLeave = () => {
-    setCursorColor(PLAN_THEME.glow.color);
-  };
-
-  const initialPlan = searchParams.get('plan') || undefined;
+  const { plans, success } = await fetchPlans(currency);
 
   return (
     <div className="min-h-screen bg-background relative">
-      <div className="fixed inset-0 pointer-events-none z-0">
-        <CursorEffect variant="glow" color={cursorColor} size={500} blur={80} />
-      </div>
-      
       {/* Background pattern */}
       <div className="fixed inset-0 -z-20">
         <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.05]">
@@ -53,16 +47,12 @@ export default function UpgradePage() {
       <Navbar />
 
       <div className="container mx-auto px-4 pt-24 pb-20">
-        <div
-          onMouseEnter={() => handleCardHover(PLAN_THEME.glow.hoverColor)}
-          onMouseLeave={handleCardLeave}
-        >
-          <UpgradePageContent
-            mode="page"
-            initialPlan={initialPlan}
-            showNavigation={true}
-          />
-        </div>
+        <UpgradePageContent
+          mode="page"
+          initialPlan={initialPlan}
+          showNavigation={true}
+          isDevelopment={process.env.APP_ENV === "development"}
+        />
       </div>
 
       <Footer />

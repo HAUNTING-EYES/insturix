@@ -2,55 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { useCurrency } from "@/lib/CurrencyContext";
-
-export interface DBPlan {
-  id: string;
-  name: string;
-  type: string;
-  description: string;
-  serviceLimits: {
-    alyzitron: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
-    editron: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
-    shield: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
-    socialize: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
-    thinkforge: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
-    musitron: Array<{ limitType: string; description: string; maxUsage: number; resetPeriod: string }>;
-  };
-  pricing: {
-    monthly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
-    yearly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
-  };
-  allPricing: {
-    [key: string]: {
-      monthly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
-      yearly: { amount: number; currency: string; symbol: string; razorpayPlanId?: string };
-    }
-  };
-  isActive: boolean;
-  sortOrder: number;
-}
-
-interface PlansResponse {
-  success: boolean;
-  plans: DBPlan[];
-  currency: string;
-  count: number;
-}
-
-const fetchPlans = async (currency: string = "USD"): Promise<PlansResponse> => {
-  const response = await fetch(`/api/plans?currency=${currency}`, {
-    method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error('Failed to fetch plans');
-  }
-
-  return response.json();
-};
+import { fetchPlans, PlansResponse } from '@/lib/data/plans';
 
 export function usePlansFromDB() {
   const { selectedCurrency, isUserSelected } = useCurrency();

@@ -37,9 +37,8 @@ export async function POST(request: NextRequest) {
       notes: {
         userId,
         planName: planDetails?.name || "",
-        userType: planDetails?.userType || "",
-        planPrice: planDetails?.price?.toString() || "0",
-        features: JSON.stringify(planDetails?.features || []),
+        userType: planDetails?.type || "",
+        dbPlanId: planDetails?.id || "",
       },
     };
 

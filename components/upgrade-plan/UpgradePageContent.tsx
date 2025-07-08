@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StepIndicator } from "@/components/upgrade-plan/StepIndicator";
 import { PlanSelection } from "@/components/upgrade-plan/PaymentSelection";
-import { PlanSummary } from "@/components/upgrade-plan/PlanSummary";
 import { PaymentForm } from "@/components/upgrade-plan/PaymentForm";
 import { useCurrency } from "@/lib/CurrencyContext";
 import { cn } from "@/lib/utils";
 import { UserType } from "@/types/userTypes";
 import { toast } from "sonner";
-import { usePlansFromDB, DBPlan } from "@/lib/hooks/usePlansFromDB";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
+import { CurrencySelector } from "../CurrencySelector";
+import { usePlansFromDB } from "@/lib/hooks/usePlansFromDB";
 
 type PlanFeature = {
   id: string
@@ -37,21 +37,11 @@ export type Plan = {
   gradient?: string;
   userType: UserType;
   billingPeriod: "monthly" | "yearly";
+  paymentProvider?: { provider: string; planId: string; };
 };
 
-function getTaxRate(currency: string): number {
-  const TAX_RATES: Record<string, number> = {
-    USD: 0.0875,
-    EUR: 0.20,
-    GBP: 0.20,
-    INR: 0.18,
-    CAD: 0.13,
-    AUD: 0.10,
-    SGD: 0.07,
-    AED: 0.05,
-  };
-  return TAX_RATES[currency] || 0.18;
-}
+
+import { Plan as ClientPlan } from "@/lib/data/plans";
 
 export interface UpgradePageContentProps {
   mode?: "popup" | "page";
@@ -59,6 +49,7 @@ export interface UpgradePageContentProps {
   onCancel?: () => void;
   initialPlan?: string;
   showNavigation?: boolean;
+  isDevelopment: boolean;
 }
 
 export function UpgradePageContent({
@@ -67,65 +58,67 @@ export function UpgradePageContent({
   onCancel,
   initialPlan,
   showNavigation = true,
+  isDevelopment,
 }: UpgradePageContentProps) {
   const router = useRouter();
   const { user } = useUser();
   const { selectedCurrency, selectedSymbol, version } = useCurrency();
-  const { plans: dbPlans, isLoading: plansLoading, isError } = usePlansFromDB();
+  const { plans: serverPlans, isLoading: plansLoading, isError: plansError } = usePlansFromDB();
   
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [animationDirection, setAnimationDirection] = useState<"forward" | "backward">("forward");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [currentUserPlan, setCurrentUserPlan] = useState<UserType>(UserType.Free);
+  const [currentUserPlan, setCurrentUserPlan] = useState<UserType | null>(null);
   const [currentPlanData, setCurrentPlanData] = useState<{
     endDate: Date | null;
     startDate: Date;
     status: string;
   } | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // This will now track user plan loading
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
 
-  const effectiveTaxRate = getTaxRate(selectedCurrency);
 
   const convertedPlans: Plan[] = useMemo(() => {
-    if (plansLoading || !dbPlans) return [];
+    if (!serverPlans) return [];
 
-    return dbPlans.map((dbPlan: DBPlan): Plan => {
-      const pricing = dbPlan.pricing; // Backend now sends the specific currency's pricing here
+    return serverPlans.map((clientPlan: ClientPlan): Plan => {
+      const cyclePricing = billingCycle === "monthly" ? clientPlan.pricing.monthly : clientPlan.pricing.yearly;
+      const monthlyPrice = clientPlan.pricing.monthly.amount;
+      const yearlyPrice = clientPlan.pricing.yearly.amount;
 
-      const monthlyPrice = pricing?.monthly?.amount ?? 0;
-      const yearlyPrice = pricing?.yearly?.amount ?? 0;
-
-      const basePrice = billingCycle === "monthly" ? monthlyPrice : yearlyPrice;
+      const basePrice = cyclePricing.amount;
       
-      const planId = billingCycle === "monthly" 
-      // The features should ideally come from the DB plan
+      const planId = cyclePricing.paymentProvider?.planId || '';
+      const provider = cyclePricing.paymentProvider?.provider || '';
+      
       const features : PlanFeature[] = [
         { id: "feature-1", name: "Core functionality", included: true },
-        { id: "feature-2", name: "Priority support", included: true, highlight: dbPlan.type === "plus" || dbPlan.type === "pro" },
-        { id: "feature-3", name: "Advanced features", included: dbPlan.type === "pro" || dbPlan.type === "premium" },
+        { id: "feature-2", name: "Priority support", included: true, highlight: clientPlan.type === "plus" || clientPlan.type === "pro" },
+        { id: "feature-3", name: "Advanced features", included: clientPlan.type === "pro" || clientPlan.type === "premium" },
       ];
 
       return {
-        id: dbPlan.type,
-        name: dbPlan.name,
-        description: dbPlan.description,
+        id: clientPlan.type,
+        name: clientPlan.name,
+        description: clientPlan.description,
         price: basePrice,
         billingPeriod: billingCycle,
-        features: features, 
-        popularPlan: dbPlan.type === "plus",
-        color: PLAN_THEME.planColors[dbPlan.type as keyof typeof PLAN_THEME.planColors],
-        gradient: `from-${PLAN_THEME.planColors[dbPlan.type as keyof typeof PLAN_THEME.planColors]}-500 to-${PLAN_THEME.planColors[dbPlan.type as keyof typeof PLAN_THEME.planColors]}-600`,
-        userType: dbPlan.type as UserType,
-        savings: billingCycle === "yearly" ? monthlyPrice * 12 - yearlyPrice : undefined,
+        features: features,
+        popularPlan: clientPlan.type === "plus",
+        color: PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors],
+        gradient: `from-${PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors]}-500 to-${PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors]}-600`,
+        userType: clientPlan.type as UserType,
+        savings: billingCycle === "yearly" ? (monthlyPrice * 12) - yearlyPrice : undefined,
+        paymentProvider: provider ? { provider, planId } : undefined,
       };
     });
-  }, [dbPlans, plansLoading, billingCycle, selectedCurrency]);
+  }, [serverPlans, billingCycle]);
 
   useEffect(() => {
     const fetchUserPlan = async () => {
       if (!user) {
+        setCurrentUserPlan(null); // Set to null if no user is logged in
         setIsLoading(false);
         return;
       }
@@ -152,7 +145,7 @@ export function UpgradePageContent({
     };
 
     fetchUserPlan();
-  }, [user]);
+  }, [user, selectedCurrency]); // Added selectedCurrency to re-fetch user plan if currency changes
 
   useEffect(() => {
     if (initialPlan && convertedPlans.length > 0) {
@@ -181,12 +174,11 @@ export function UpgradePageContent({
   };
 
   const handleNextStep = () => {
-    if (currentStep < 3) {
+    if (currentStep < 2) { // Only 2 steps now: Plan Selection and Payment
       if (selectedPlan?.price === 0 && currentStep === 1) {
         handlePaymentSuccess();
         return;
       }
-      
       setAnimationDirection("forward");
       setCurrentStep(currentStep + 1);
     }
@@ -199,12 +191,8 @@ export function UpgradePageContent({
     }
   };
 
-  const calculateTax = (price: number) => {
-    return price * effectiveTaxRate;
-  };
-
   const calculateTotal = (price: number) => {
-    return price + calculateTax(price);
+    return price; // No taxes
   };
 
   const handlePaymentSuccess = () => {
@@ -232,10 +220,18 @@ export function UpgradePageContent({
     }
   };
 
-  if (isLoading) {
+  if (isLoading || plansLoading) { // Check both user plan and server plans loading
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (plansError) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px] text-red-500">
+        Error loading plans. Please try again later.
       </div>
     );
   }
@@ -321,6 +317,14 @@ export function UpgradePageContent({
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
             Choose the perfect plan to unlock premium features and take your productivity to the next level
           </p>
+
+          {isDevelopment && (
+            
+          <div className="flex justify-center mb-6">
+            <CurrencySelector />
+          </div>
+          )}
+
          </motion.div>
       )}
 
@@ -331,7 +335,7 @@ export function UpgradePageContent({
           transition={{ delay: 0.4, duration: 0.5 }}
           className="mb-8"
         >
-          <StepIndicator currentStep={currentStep} totalSteps={3} />
+          <StepIndicator currentStep={currentStep} totalSteps={2} />
         </motion.div>
       )}
 
@@ -359,15 +363,6 @@ export function UpgradePageContent({
               )}
 
               {currentStep === 2 && selectedPlan && (
-                <PlanSummary
-                  plan={selectedPlan}
-                  taxRate={effectiveTaxRate}
-                  taxAmount={calculateTax(selectedPlan.price)}
-                  totalAmount={calculateTotal(selectedPlan.price)}
-                />
-              )}
-
-              {currentStep === 3 && selectedPlan && (
                 <PaymentForm
                   plan={selectedPlan}
                   billingCycle={billingCycle}
@@ -379,33 +374,22 @@ export function UpgradePageContent({
             </motion.div>
           </AnimatePresence>
 
-          {showNavigation && currentStep < 3 && (
+          {showNavigation && currentStep < 2 && ( // Navigation only for step 1
             <div className="flex justify-between mt-8 pt-6 border-t border-white/10">
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                {currentStep > 1 ? (
-                  <Button
-                    variant="outline"
-                    onClick={handlePreviousStep}
-                    className="flex items-center gap-2 bg-transparent border-white/20 hover:bg-white/10"
-                  >
-                    <ArrowLeft className="h-4 w-4" />
-                    Back
-                  </Button>
-                ) : (
-                  <Button
-                    variant="outline"
-                    onClick={handleCancel}
-                    className="bg-transparent border-white/20 hover:bg-white/10"
-                  >
-                    Cancel
-                  </Button>
-                )}
+                <Button
+                  variant="outline"
+                  onClick={handleCancel}
+                  className="bg-transparent border-white/20 hover:bg-white/10"
+                >
+                  Cancel
+                </Button>
               </motion.div>
 
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button
                   onClick={handleNextStep}
-                  disabled={currentStep === 1 && !selectedPlan}
+                  disabled={!selectedPlan}
                   className={cn(
                     "flex items-center gap-2 transition-all duration-300 shadow-lg",
                     selectedPlan?.color
@@ -413,7 +397,7 @@ export function UpgradePageContent({
                       : `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
                   )}
                 >
-                  Continue
+                  Continue to Payment
                   <ArrowRight className="h-4 w-4" />
                 </Button>
               </motion.div>
