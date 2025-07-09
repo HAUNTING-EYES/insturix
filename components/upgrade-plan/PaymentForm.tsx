@@ -107,6 +107,8 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
                   razorpay_signature: response.razorpay_signature,
                   planType: plan.userType,
                   provider: 'razorpay',
+                  billingCycle: billingCycle,
+                  currency: selectedCurrency,
                 }),
               });
 

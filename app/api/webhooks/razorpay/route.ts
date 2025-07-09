@@ -204,6 +204,23 @@ export async function POST(request: NextRequest) {
           break;
         }
 
+        // 1. Remove the "pending activation" message
+        user.uiMessages = user.uiMessages.filter(
+          (msg: any) => msg.id !== "plan-activation-pending"
+        );
+        user.markModified("uiMessages");
+        await user.save();
+
+        // 2. Update the plan status in planHistory
+        const pendingPlan = user.planHistory.find(
+          (plan: any) => plan.subscriptionId?.razorpay === subscription.id && plan.status === 'pending'
+        );
+
+        if (pendingPlan) {
+          // The `updateUserPlan` service should handle moving the plan from planHistory to currentPlan
+          // and setting the status to 'active'. If not, we need to adjust it here.
+        }
+
         let planDetails: any;
         if (subscription.notes?.dbPlanId) {
           planDetails = await Plan.findById(subscription.notes.dbPlanId);

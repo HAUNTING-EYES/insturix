@@ -26,7 +26,7 @@ export interface IPlan {
   endDate: Date | null;
   price: number;
   currency: string;
-  status: "active" | "expired" | "canceled";
+  status: "active" | "expired" | "canceled" | "pending";
   subscriptionId?: { [key: string]: string };
   serviceLimits: IServiceLimits;
 }
@@ -42,6 +42,19 @@ export interface ISubscription {
   paymentMethod?: "card" | "upi" | "netbanking" | "wallet";
 }
 
+export interface IUiMessage {
+  id: string; // Unique identifier for the message (e.g., a UUID)
+  type: 'modal' | 'banner' | 'disclaimer'; // Type of UI element to display
+  title: string;
+  message: string;
+  location: 'dashboard-overview' | 'manage-plan' | 'global'; // Where to display the message
+  style?: { // Optional field for unique styling
+    backgroundColor?: string;
+    textColor?: string;
+    icon?: string;
+  };
+}
+
 interface IUser extends Document {
   clerkUserId: string;
   username: string;
@@ -50,6 +63,7 @@ interface IUser extends Document {
   currentPlan: IUserPlan;
   planHistory: IUserPlan[];
   subscriptions: ISubscription[];
+  uiMessages: IUiMessage[];
   trialUsed: boolean; // Track if user has used their one-time trial
   preferences: {
     currency: string;
@@ -151,7 +165,7 @@ const planSchema = new Schema<IPlan>({
   },
   status: {
     type: String,
-    enum: ["active", "expired", "canceled"],
+    enum: ["active", "expired", "canceled", "pending"],
     required: true,
   },
   subscriptionId: {
@@ -215,6 +229,21 @@ const userSchema = new Schema<IUser>({
   },
   subscriptions: {
     type: [subscriptionSchema],
+    default: [],
+  },
+  uiMessages: {
+    type: [new Schema<IUiMessage>({
+      id: { type: String, required: true },
+      type: { type: String, required: true, enum: ['modal', 'banner', 'disclaimer'] },
+      title: { type: String, required: true },
+      message: { type: String, required: true },
+      location: { type: String, required: true, enum: ['dashboard-overview', 'manage-plan', 'global'] },
+      style: {
+        backgroundColor: { type: String },
+        textColor: { type: String },
+        icon: { type: String },
+      },
+    }, { _id: false })],
     default: [],
   },
   trialUsed: {

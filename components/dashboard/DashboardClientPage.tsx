@@ -87,10 +87,8 @@ export default function DashboardClientPage() {
       <Dashboard />
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <DashboardShell>
-        {/* Feature Usage Overview */}
-        <div className="mb-8">
-          <FeatureUsageOverviewClient />
-        </div>
+      {/* Feature Usage Overview */}
+      <FeatureUsageOverviewClient />
       </DashboardShell>
     </>
   );

@@ -84,6 +84,7 @@ export async function getUserData() {
       signUpDate: user.signUpDate || new Date(),
       currentPlan: user.currentPlan,
       planHistory: user.planHistory || [],
+      uiMessages: user.uiMessages || [],
       payments: user.payments || [],
       trialUsed: user.trialUsed || false,
       preferences: user.preferences || {

@@ -30,7 +30,7 @@ export interface IPlan {
   endDate: Date | null;
   price: number;
   currency: string;
-  status: "active" | "expired" | "canceled";
+  status: "active" | "expired" | "canceled" | "pending";
   serviceLimits: IServiceLimits;
 }
 
@@ -47,6 +47,19 @@ export interface IPayment {
   razorpayOrderId?: string;
 }
 
+export interface IUiMessage {
+  id: string;
+  type: 'modal' | 'banner' | 'disclaimer';
+  title: string;
+  message: string;
+  location: 'dashboard-overview' | 'manage-plan' | 'global';
+  style?: {
+    backgroundColor?: string;
+    textColor?: string;
+    icon?: string;
+  };
+}
+
 export interface User {
   _id?: string;
   clerkUserId: string;
@@ -56,6 +69,7 @@ export interface User {
   planHistory: IUserPlan[];
   payments: IPayment[];
   trialUsed: boolean;
+  uiMessages: IUiMessage[];
   preferences: {
     currency: string;
     notifications: {
