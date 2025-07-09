@@ -354,7 +354,7 @@ async function setupPlans() {
         if (mode === 'fake') {
           console.log('  Generating fake plan IDs...');
           for (const currency of Object.keys(plan.pricing)) {
-            const provider = currency.toUpperCase() === 'INR' ? 'razorpay' : 'lemonsqueezy';
+            const provider = 'razorpay';
             const monthlyPrice = plan.pricing[currency].monthly;
             if (monthlyPrice.amount > 0) {
               if (!monthlyPrice.providerPlanIds) {
@@ -373,7 +373,7 @@ async function setupPlans() {
         } else { // mode === 'real'
           for (const currency of Object.keys(plan.pricing)) {
             console.log(`  Processing currency: ${currency}`);
-            const provider = currency.toUpperCase() === 'INR' ? 'razorpay' : 'lemonsqueezy';
+            const provider = 'razorpay';
             
             const monthlyPrice = plan.pricing[currency].monthly;
             if (monthlyPrice.amount > 0) {
@@ -384,7 +384,6 @@ async function setupPlans() {
                 currency: currency,
                 period: 'monthly',
                 type: plan.type,
-                provider,
               });
 
               if (monthlyPlan) {
@@ -405,7 +404,6 @@ async function setupPlans() {
                 currency: currency,
                 period: 'yearly',
                 type: plan.type,
-                provider,
               });
 
               if (yearlyPlan) {

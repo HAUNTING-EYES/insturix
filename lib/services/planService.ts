@@ -86,6 +86,7 @@ export async function cancelUserPlan(clerkUserId: string) {
     if (razorpaySubscription.status !== 'cancelled') {
       // Cancel subscription on Razorpay only if it's not already cancelled
       await razorpay.subscriptions.cancel(activeSubscription.subscriptionId);
+      activeSubscription.status = "cancelled";
 
       if (isWithinTrialPeriod && !user.trialUsed) {
         refundEligible = true;
@@ -105,23 +106,43 @@ export async function cancelUserPlan(clerkUserId: string) {
       }
     } else {
         console.log(`Subscription ${activeSubscription.subscriptionId} is already cancelled on Razorpay.`);
+        if (activeSubscription.status !== "cancelled") {
+          activeSubscription.status = "cancelled";
+        }
     }
-
-    // Instead of marking for cancellation, immediately downgrade to free plan
-    await downgradeUserToFreePlan(clerkUserId);
-
-    return {
-      success: true,
-      message: "Subscription successfully cancelled. Your plan has been downgraded to free.",
-      refundEligible,
-      refundAmount,
-      refundId,
-      daysUsed: daysSinceStart,
-    };
-  } catch (error) {
-    console.error("Error canceling Razorpay subscription:", error);
-    throw new Error("Failed to cancel subscription with payment provider.");
+  } catch (error: any) {
+    // Gracefully handle the case where the subscription is already completed
+    if (
+      error.statusCode === 400 &&
+      error.error?.description?.includes(
+        "Subscription is not cancellable in completed status"
+      )
+    ) {
+      console.log(
+        `Subscription ${activeSubscription.subscriptionId} was already completed and is being handled gracefully.`
+      );
+      activeSubscription.status = "completed";
+    } else {
+      // For all other errors, they should be re-thrown as they are now.
+      console.error("Full Razorpay Error Object:", JSON.stringify(error, null, 2));
+      console.error("Error canceling Razorpay subscription:", error);
+      throw error;
+    }
   }
+
+  await user.save();
+
+  // Instead of marking for cancellation, immediately downgrade to free plan
+  await downgradeUserToFreePlan(clerkUserId);
+
+  return {
+    success: true,
+    message: "Subscription successfully cancelled. Your plan has been downgraded to free.",
+    refundEligible,
+    refundAmount,
+    refundId,
+    daysUsed: daysSinceStart,
+  };
 }
 
 // Downgrades a user to the free plan, typically after a webhook confirmation.
@@ -275,6 +296,12 @@ export async function updateUserPlan(
   };
 
   user.currentPlan = newPlan;
+
+  // Deactivate any existing active subscription
+  const activeSubscription = user.subscriptions.find((s: any) => s.status === 'active');
+  if (activeSubscription) {
+    activeSubscription.status = 'expired';
+  }
 
   // Add subscription record, preventing duplicates
   const subscriptionExists = user.subscriptions.some((s: any) => s.subscriptionId === subscriptionDetails.subscriptionId);

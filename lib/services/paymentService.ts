@@ -1,9 +1,5 @@
 "use server";
 import Razorpay from 'razorpay';
-import {
-  lemonSqueezySetup,
-  createCheckout as createLemonSqueezyCheckout,
-} from '@lemonsqueezy/lemonsqueezy.js';
 import dotenv from 'dotenv';
 import Plan from '../../schemas/plans.ts';
 
@@ -13,26 +9,12 @@ if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
   throw new Error("Razorpay credentials are not configured.");
 }
 
-if (!process.env.LEMONSQUEEZY_API_KEY || !process.env.LEMONSQUEEZY_STORE_ID) {
-    throw new Error("Lemon Squeezy credentials are not configured.");
-}
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_SECRET_KEY_ID,
 });
 
-const lemonSqueezyProducts: Map<string, string> = new Map();
-
-async function getLemonSqueezyProduct(name: string) {
-    if (lemonSqueezyProducts.has(name)) {
-        return lemonSqueezyProducts.get(name);
-    }
-    console.log(`Creating Lemon Squeezy product for ${name}`);
-    const product = { id: `ls_prod_${name.replace(/ /g, '_').toLowerCase()}` };
-    lemonSqueezyProducts.set(name, product.id);
-    return product.id;
-}
 
 export async function createPlan(planDetails: {
     name: string;
@@ -43,37 +25,31 @@ export async function createPlan(planDetails: {
 }) {
     const { name, amount, currency, period, type } = planDetails;
     // console.log('[DEBUG] createPlan called with:', { name, amount, currency, period, type });
-    if (currency === 'INR') {
-        try {
-            const razorpayPlan = await razorpay.plans.create({
-                period: period,
-                interval: 1,
-                item: {
-                    name: `${name} - ${currency} (${period})`,
-                    amount: Math.round(amount * 100),
-                    currency: currency,
-                    description: `${period.charAt(0).toUpperCase() + period.slice(1)} subscription for ${name}`,
-                },
-                notes: {
-                    planType: type,
-                    billingCycle: period,
-                },
-            });
-            return { provider: 'razorpay', id: razorpayPlan.id };
-        } catch (error: any) {
-            console.error(`Failed to create Razorpay plan for ${name} in ${currency} (${period}):`, error.error?.description || error);
-            return null;
+    try {
+        const razorpayPlan = await razorpay.plans.create({
+            period: period,
+            interval: 1,
+            item: {
+                name: `${name} - ${currency} (${period})`,
+                amount: Math.round(amount * 100),
+                currency: currency,
+                description: `${period.charAt(0).toUpperCase() + period.slice(1)} subscription for ${name}`,
+            },
+            notes: {
+                planType: type,
+                billingCycle: period,
+            },
+        });
+        return { provider: 'razorpay', id: razorpayPlan.id };
+    } catch (error: any) {
+        const description = error.error?.description;
+        if (typeof description === 'string' && description.trim().toLowerCase() === 'currency provided is not supported') {
+            console.error(`Failed to create Razorpay plan for ${name} in ${currency} (${period}): ${description}`);
+            console.error(`Suggestion: Please ensure that international payments and the currency '${currency}' are enabled for subscriptions in your Razorpay account settings.`);
+        } else {
+            console.error(`Failed to create Razorpay plan for ${name} in ${currency} (${period}):`, description || error.message || error);
         }
-    } else {
-        try {
-            const productId = await getLemonSqueezyProduct(name);
-            console.log(`Creating Lemon Squeezy variant for ${name} - ${currency} (${period})`);
-            const variantId = `ls_variant_${name.replace(/ /g, '_').toLowerCase()}_${currency.toLowerCase()}_${period}`;
-            return { provider: 'lemonsqueezy', id: variantId };
-        } catch (error) {
-            console.error(`Failed to create Lemon Squeezy variant for ${name} in ${currency} (${period}):`, error);
-            return null;
-        }
+        return null;
     }
 }
 
@@ -120,39 +96,6 @@ export async function createCheckout(
             key: process.env.RAZORPAY_KEY_ID,
             subscriptionId: subscription.id,
         };
-    } else if (selectedProvider === 'lemonsqueezy') {
-        // Lemon Squeezy checkout logic
-        console.log(`[Checkout] Attempting to use Lemon Squeezy Variant ID: ${selectedPlanId}`);
-        
-        lemonSqueezySetup({ apiKey: process.env.LEMONSQUEEZY_API_KEY! });
-
-        const { data: checkoutData, error } = await createLemonSqueezyCheckout(
-            process.env.LEMONSQUEEZY_STORE_ID!,
-            selectedPlanId,
-            {
-                checkoutData: {
-                    email: user.email!,
-                    name: user.fullName || "",
-                    custom: {
-                        user_id: user.id,
-                    },
-                },
-            }
-        );
-
-        if (error) {
-          console.error('[Lemon Squeezy Checkout Error]', error);
-          throw new Error(error.message);
-        }
-
-        if (!checkoutData || !checkoutData.data) {
-            throw new Error("Failed to create Lemon Squeezy checkout.");
-        }
-
-        return {
-            provider: 'lemonsqueezy',
-            checkoutUrl: checkoutData.data.attributes.url,
-        };
     } else {
         throw new Error(`Unsupported payment provider: ${selectedProvider}`);
     }
@@ -165,16 +108,11 @@ export async function createRefund(refundDetails: {
     notes?: Record<string, string>;
     currency: string;
 }): Promise<any> {
-    if (refundDetails.currency === 'INR') {
-        const refund = await razorpay.payments.refund(refundDetails.paymentId, {
-            amount: refundDetails.amount,
-            notes: refundDetails.notes,
-        });
-        return { success: true, ...refund };
-    } else {
-        // Lemon Squeezy refund logic
-        return { success: false, error: 'Lemon Squeezy refunds are not yet implemented.' };
-    }
+    const refund = await razorpay.payments.refund(refundDetails.paymentId, {
+        amount: refundDetails.amount,
+        notes: refundDetails.notes,
+    });
+    return { success: true, ...refund };
 }
 
 export async function getRefundStatus(paymentId: string): Promise<any> {
@@ -183,7 +121,5 @@ export async function getRefundStatus(paymentId: string): Promise<any> {
 }
 
 export async function verifyPayment(paymentData: any, currency: string) {
-    if (currency === 'INR') {
-    } else {
-    }
+    // Razorpay handles verification via webhooks, so no specific action is needed here.
 }
