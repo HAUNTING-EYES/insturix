@@ -4,12 +4,8 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent";
 import { fetchPlans } from "@/lib/data/plans";
-export default async function UpgradePage({
-  searchParams,
-}: {
-  searchParams: { [key: string]: string | string[] | undefined };
-}) {
-  const awaitedSearchParams = await searchParams;
+export default async function UpgradePage({ searchParams }: any) {
+  const awaitedSearchParams = searchParams;
   const initialPlan =
     typeof awaitedSearchParams.plan === "string"
       ? awaitedSearchParams.plan

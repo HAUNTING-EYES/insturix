@@ -77,7 +77,6 @@ export async function POST(request: NextRequest) {
           subscriptionId: { razorpay: razorpay_subscription_id },
           serviceLimits: plan.serviceLimits,
       };
-      // @ts-ignore
       user.planHistory.push(newPlan);
 
       await user.save();
