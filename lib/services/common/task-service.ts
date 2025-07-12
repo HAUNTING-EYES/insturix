@@ -34,7 +34,7 @@ export interface RTDBService {
  * Service configuration for unified handling
  */
 export interface ServiceConfig {
-  name: 'alyzitron' | 'clickatron';
+  name: 'alyzitron' | 'clickatron' | 'musitron';
   taskService: TaskService;
   rtdbService: RTDBService;
   usageConfig: {
@@ -47,7 +47,7 @@ export interface ServiceConfig {
 /**
  * Factory function to get service configuration
  */
-export async function getServiceConfig(serviceName: 'alyzitron' | 'clickatron'): Promise<ServiceConfig> {
+export async function getServiceConfig(serviceName: 'alyzitron' | 'clickatron' | 'musitron'): Promise<ServiceConfig> {
   if (serviceName === 'alyzitron') {
     const { AlyzitronTaskService } = await import('./services/alyzitron-task-service');
     const { AlyzitronRTDBService } = await import('./services/alyzitron-rtdb-service');
@@ -63,7 +63,7 @@ export async function getServiceConfig(serviceName: 'alyzitron' | 'clickatron'):
       },
       additionalRefundLogic: alyzitronAdditionalRefund
     };
-  } else {
+  } else if (serviceName === 'clickatron') {
     const { ClickatronTaskService } = await import('./services/clickatron-task-service');
     const { ClickatronRTDBService } = await import('./services/clickatron-rtdb-service');
 
@@ -74,6 +74,19 @@ export async function getServiceConfig(serviceName: 'alyzitron' | 'clickatron'):
       usageConfig: {
         array: 'currentPlan.serviceLimits.clickatron',
         limitType: 'maxThumbnailGeneration'
+      }
+    };
+  } else {
+    const { MusitronTaskService } = await import('./services/musitron-task-service');
+    const { MusitronRTDBService } = await import('./services/musitron-rtdb-service');
+
+    return {
+      name: 'musitron',
+      taskService: new MusitronTaskService(),
+      rtdbService: new MusitronRTDBService(),
+      usageConfig: {
+        array: 'currentPlan.serviceLimits.musitron',
+        limitType: 'maxMusicGeneration'
       }
     };
   }

@@ -3,18 +3,12 @@ import { cookies } from "next/headers";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent";
-import { fetchPlans } from "@/lib/data/plans";
 export default async function UpgradePage({ searchParams }: any) {
   const awaitedSearchParams = searchParams;
   const initialPlan =
     typeof awaitedSearchParams.plan === "string"
       ? awaitedSearchParams.plan
       : undefined;
-  const cookieStore = await cookies();
-  const currencyCookie = cookieStore.get("currency");
-  const currency = currencyCookie?.value || "USD";
-
-  const { plans, success } = await fetchPlans(currency);
 
   return (
     <div className="min-h-screen bg-background relative">

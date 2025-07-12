@@ -56,7 +56,7 @@ export const generateMusic = async (
 ): Promise<MusicGenerationResponse> => {
   try {
     const { data } = await axios.post<MusicGenerationResponse>(
-      "/api/services/musitron",
+      "/api/services/musitron/generate",
       payload
     );
     return data;
@@ -73,7 +73,7 @@ export const checkMusicStatus = async (
 ): Promise<MusicStatusResponse> => {
   try {
     const { data } = await axios.get<MusicStatusResponse>(
-      `/api/services/musitron/status?taskId=${taskId}`
+      `/api/services/musitron/status/${taskId}`
     );
     return data;
   } catch (error) {
