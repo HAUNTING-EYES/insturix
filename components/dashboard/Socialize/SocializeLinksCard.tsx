@@ -2,7 +2,7 @@
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ExternalLink, Trash2 } from "lucide-react";
+import { ExternalLink, Pencil, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import { getPlatformIcon } from "./SocializeIcons";
@@ -14,6 +14,7 @@ interface SocializeLinksCardProps {
   selectedLinkIndex: number | null;
   onSelectLink: (index: number) => void;
   onRemoveLink: (index: number) => void;
+  onEditLink: (index: number) => void;
 }
 
 export function SocializeLinksCard({
@@ -21,6 +22,7 @@ export function SocializeLinksCard({
   selectedLinkIndex,
   onSelectLink,
   onRemoveLink,
+  onEditLink,
 }: SocializeLinksCardProps) {
   return (
     <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
@@ -65,6 +67,17 @@ export function SocializeLinksCard({
                     >
                       <ExternalLink className="w-4 h-4" />
                     </Link>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="text-gray-400 hover:text-white"
+                    onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                      e.stopPropagation();
+                      onEditLink(index);
+                    }}
+                  >
+                    <Pencil className="w-4 h-4" />
                   </Button>
                   <Button
                     variant="ghost"

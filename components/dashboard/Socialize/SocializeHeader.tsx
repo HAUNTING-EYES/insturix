@@ -15,14 +15,18 @@ export function SocializeHeader({ user, bio, onEditBio }: SocializeHeaderProps) 
     <Card className="bg-black/30 border-[#0e6b9c]/20 backdrop-blur-sm">
       <CardHeader>
         <div className="flex items-center gap-4">
-          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#0e6b9c]">
-            <Image
-              src={user?.imageUrl as string}
-              width={32}
-              height={64}
-              alt={`${user?.username}'s profile picture`}
-              className="w-full h-full object-cover"
-            />
+          <div className="w-16 h-16 rounded-full overflow-hidden border-2 border-[#0e6b9c] bg-gray-800 flex items-center justify-center">
+            {user?.imageUrl ? (
+              <Image
+                src={user.imageUrl}
+                width={64}
+                height={64}
+                alt={`${user?.username}'s profile picture`}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <span className="text-xs text-gray-400">No Pic</span>
+            )}
           </div>
           <div>
             <CardTitle className="text-xl text-white">

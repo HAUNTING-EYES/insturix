@@ -5,7 +5,7 @@ import Footer from "@/components/Footer";
 import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent";
 import { fetchPlans } from "@/lib/data/plans";
 export default async function UpgradePage({ searchParams }: any) {
-  const awaitedSearchParams = searchParams;
+  const awaitedSearchParams = await searchParams;
   const initialPlan =
     typeof awaitedSearchParams.plan === "string"
       ? awaitedSearchParams.plan

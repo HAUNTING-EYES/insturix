@@ -83,6 +83,9 @@ export default function SocializeDashboard({
   const [selectedLinkIndex, setSelectedLinkIndex] = useState<number | null>(
     null
   );
+  const [editingLink, setEditingLink] = useState<SocializeLink | null>(null);
+  const [editingLinkIndex, setEditingLinkIndex] = useState<number | null>(null);
+  const [showEditLinkModal, setShowEditLinkModal] = useState(false);
   const [bio, setBio] = useState("");
   const [showEditBioModal, setShowEditBioModal] = useState(false);
 
@@ -167,6 +170,32 @@ export default function SocializeDashboard({
             setSelectedLinkIndex(null);
           }
           toast.success("Link removed");
+        },
+      }
+    );
+  };
+
+  const handleEditLink = (index: number) => {
+    if (!userData?.links) return;
+    setEditingLink(userData.links[index]);
+    setEditingLinkIndex(index);
+    setShowEditLinkModal(true);
+  };
+
+  const handleUpdateLink = async () => {
+    if (!editingLink || editingLinkIndex === null) return;
+
+    const updatedLinks = [...(userData?.links || [])];
+    updatedLinks[editingLinkIndex] = editingLink;
+
+    updateUserDataMutation.mutate(
+      { links: updatedLinks },
+      {
+        onSuccess: () => {
+          setShowEditLinkModal(false);
+          setEditingLink(null);
+          setEditingLinkIndex(null);
+          toast.success("Link updated successfully");
         },
       }
     );
@@ -265,6 +294,7 @@ export default function SocializeDashboard({
               selectedLinkIndex={selectedLinkIndex}
               onSelectLink={handleSelectLink}
               onRemoveLink={handleRemoveLink}
+              onEditLink={handleEditLink}
             />
           </div>
 
@@ -470,6 +500,90 @@ export default function SocializeDashboard({
               }`}
             >
               Save Notification
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Link Modal */}
+      <Dialog open={showEditLinkModal} onOpenChange={setShowEditLinkModal}>
+        <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-xl">
+              <Plus className="w-5 h-5 text-[#0e6b9c]" />
+              Edit Link
+            </DialogTitle>
+            <DialogDescription>
+              Edit the social media or website link on your profile
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingLink && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Platform</label>
+                <Select
+                  value={editingLink.platform}
+                  onValueChange={(value) =>
+                    setEditingLink({ ...editingLink, platform: value })
+                  }
+                >
+                  <SelectTrigger className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30">
+                    <SelectValue placeholder="Select platform" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#121212] border-[#0e6b9c]/30">
+                    <SelectItem value="youtube">YouTube</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                    <SelectItem value="tiktok">TikTok</SelectItem>
+                    <SelectItem value="twitter">
+                      X (formerly known as Twitter)
+                    </SelectItem>
+                    <SelectItem value="github">Github</SelectItem>
+                    <SelectItem value="website">Website</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">URL</label>
+                <Input
+                  type="url"
+                  placeholder="https://"
+                  value={editingLink.url}
+                  onChange={(e) =>
+                    setEditingLink({ ...editingLink, url: e.target.value })
+                  }
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Title (optional)</label>
+                <Input
+                  type="text"
+                  placeholder="Link title (defaults to platform)"
+                  value={editingLink.title || ""}
+                  onChange={(e) =>
+                    setEditingLink({ ...editingLink, title: e.target.value })
+                  }
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditLinkModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleUpdateLink}
+              disabled={!editingLink?.url.trim()}
+              className={`${
+                editingLink?.url.trim()
+                  ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+                  : "bg-gray-800 text-gray-400 cursor-not-allowed"
+              }`}
+            >
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>
