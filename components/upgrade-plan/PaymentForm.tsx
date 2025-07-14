@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { toast } from "@/hooks/use-toast";
 import { useCurrency } from "@/lib/CurrencyContext";
-import { createCheckout } from "@/lib/services/paymentService";
+import { createSubscription } from "@/lib/services/paymentService";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGradientClass } from "@/lib/themeConfig";
 import { Plan } from "./UpgradePageContent";
@@ -59,7 +59,7 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
         description: "Please wait while we prepare your payment...",
       });
 
-      const checkout = await createCheckout(
+      const checkout = await createSubscription(
         plan.userType,
         {
           id: user.id,

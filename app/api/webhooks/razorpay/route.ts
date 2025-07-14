@@ -260,7 +260,7 @@ export async function POST(request: NextRequest) {
               subscriptionId: subscription.id,
               planId: dbPlanId,
               amount: Number(plan.item.amount) / 100,
-              currency: "INR",
+              currency: plan.item.currency,
               paymentMethod: "card", // Placeholder
               latestInvoice: subscription.latest_invoice,
             }

@@ -56,7 +56,7 @@ export interface ClientPricingInfo {
   currency: string;
   symbol: string;
   paymentProvider?: {
-    provider: 'razorpay' | 'lemonsqueezy';
+    provider: 'razorpay';
     planId: string;
   };
 }

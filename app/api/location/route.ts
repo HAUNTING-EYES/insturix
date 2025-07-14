@@ -10,10 +10,6 @@ export async function GET(request: NextRequest) {
   let symbol: string;
 
   switch (country) {
-    case "IN":
-      currency = "INR";
-      symbol = "₹";
-      break;
     case "GB":
       currency = "GBP";
       symbol = "£";

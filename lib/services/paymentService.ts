@@ -53,7 +53,7 @@ export async function createPlan(planDetails: {
     }
 }
 
-export async function createCheckout(
+export async function createSubscription(
     planType: string,
     user: { id: string; fullName: string | null; email?: string; },
     currency: string,

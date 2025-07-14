@@ -5,7 +5,6 @@ import Razorpay from "razorpay";
 import { User } from "@/schemas/user";
 import { initiateRefund } from "@/lib/services/refundService";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import { cancelSubscription, lemonSqueezySetup } from "@lemonsqueezy/lemonsqueezy.js";
 
 export async function POST(request: NextRequest) {
   try {

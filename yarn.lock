@@ -909,11 +909,6 @@
   resolved "https://registry.yarnpkg.com/@js-sdsl/ordered-map/-/ordered-map-4.4.2.tgz#9299f82874bab9e4c7f9c48d865becbfe8d6907c"
   integrity sha512-iUKgm52T8HOE/makSxjqoWhe95ZJA1/G1sYsGev2JDKUSS14KAgg1LHb+Ba+IPow0xflbnSkOsZcO08C7w1gYw==
 
-"@lemonsqueezy/lemonsqueezy.js@^4.0.0":
-  version "4.0.0"
-  resolved "https://registry.yarnpkg.com/@lemonsqueezy/lemonsqueezy.js/-/lemonsqueezy.js-4.0.0.tgz#69b01731e4fed70a2a838e683e35f79655cadded"
-  integrity sha512-xcY1/lDrY7CpIF98WKiL1ElsfoVhddP7FT0fw7ssOzrFqQsr44HgolKrQZxd9SywsCPn12OTOUieqDIokI3mFg==
-
 "@mongodb-js/saslprep@^1.1.9":
   version "1.3.0"
   resolved "https://registry.yarnpkg.com/@mongodb-js/saslprep/-/saslprep-1.3.0.tgz#75bb770b4b0908047b6c6ac2ec841047660e1c82"
@@ -4722,11 +4717,6 @@ language-tags@^1.0.9:
   integrity sha512-MbjN408fEndfiQXbFQ1vnd+1NoLDsnQW41410oQBXiyXDMYH5z505juWa4KUE1LqxRC7DgOgZDbKLxHIwm27hA==
   dependencies:
     language-subtag-registry "^0.3.20"
-
-lemonsqueezy@^0.0.1-claimed:
-  version "0.0.1-claimed"
-  resolved "https://registry.npmjs.org/lemonsqueezy/-/lemonsqueezy-0.0.1-claimed.tgz"
-  integrity sha512-3JxoShysy2+7qKONbEJNZ5NpsO29HMLcHWnj8MwYLdV7IVUoHhPd4hUzyRSKtNRir3IGmGrlpB+OR1S0Bb6BSg==
 
 levn@^0.4.1:
   version "0.4.1"
