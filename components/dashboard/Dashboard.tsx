@@ -17,12 +17,12 @@ export default function Dashboard() {
   const { user } = useUserInitialization();
 
   return (
-    <>
+    <div className="p-8">
       <CursorEffect variant="glow" color={THEME.color} size={500} blur={100} />
       <DashboardShell>
         {/* Dashboard Header */}
         <div
-          className="mt-8 p-4 rounded-2xl bg-white/[0.02] backdrop-blur-xl border border-white/[0.08]
+          className="p-4 rounded-2xl bg-white/[0.02] backdrop-blur-xl border border-white/[0.08]
                         shadow-[0_0_0_1px_rgba(255,255,255,0.02)]
                         hover:shadow-[0_0_0_1px_rgba(255,255,255,0.04)]"
         >
@@ -42,6 +42,6 @@ export default function Dashboard() {
           })}
         </div>
       </DashboardShell>
-    </>
+    </div>
   );
 }
