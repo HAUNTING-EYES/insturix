@@ -1,9 +1,35 @@
 import React from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent";
 import { fetchPlans } from "@/lib/data/plans";
+import { getCurrencyInfoFromCountry } from "@/lib/location";
+
+async function getCountry() {
+  const rawHeaders = await headers();
+  const headersObj: Record<string, string> = {};
+  for (const [key, value] of rawHeaders.entries()) {
+    headersObj[key] = value;
+  }
+  try {
+    const response = await fetch(
+      `${process.env.NEXT_PUBLIC_APP_URL}/api/location`,
+      {
+        headers: headersObj,
+      },
+    );
+    if (!response.ok) {
+      throw new Error("Failed to fetch location");
+    }
+    const data = await response.json();
+    return data.country;
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
 export default async function UpgradePage({ searchParams }: any) {
   const awaitedSearchParams = await searchParams;
   const initialPlan =
@@ -12,7 +38,13 @@ export default async function UpgradePage({ searchParams }: any) {
       : undefined;
   const cookieStore = await cookies();
   const currencyCookie = cookieStore.get("currency");
-  const currency = currencyCookie?.value || "USD";
+  let currency = "USD";
+  if (currencyCookie?.value) {
+    currency = currencyCookie.value;
+  } else {
+    const country = await getCountry();
+    currency = country ? getCurrencyInfoFromCountry(country).currency : "USD";
+  }
 
   const { plans, success } = await fetchPlans(currency);
 
