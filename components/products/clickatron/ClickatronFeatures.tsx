@@ -2,7 +2,7 @@
 
 import React, { useRef } from "react";
 import { easeInOut, motion, useScroll, useTransform } from "framer-motion";
-import { Sparkles, Image, Edit, Palette, Layers, MagicWand } from "lucide-react";
+import { Sparkles, Image, Edit, Palette, Layers } from "lucide-react";
 
 const features = [
   {
@@ -34,7 +34,7 @@ const features = [
     delay: 0.4,
   },
   {
-    icon: MagicWand,
+    icon: Sparkles,
     title: "AI Suggestions & Enhancements",
     description: "Get smart suggestions and automatic enhancements to make your images pop.",
     gradient: "from-purple-400 to-fuchsia-400",
