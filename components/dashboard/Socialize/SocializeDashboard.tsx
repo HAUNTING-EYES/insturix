@@ -78,7 +78,7 @@ export default function SocializeDashboard({
     platform: "youtube",
     url: "",
   });
-  const [duration, setDuration] = useState(1);
+  const [duration, setDuration] = useState<number | "">(1);
   const [message, setMessage] = useState("");
   const [selectedLinkIndex, setSelectedLinkIndex] = useState<number | null>(
     null
@@ -236,10 +236,16 @@ export default function SocializeDashboard({
   };
 
   const handleAddUpdate = async () => {
-    if (duration < 1 || duration > 24 || !message.trim()) return;
+    if (
+      duration === "" ||
+      Number(duration) < 1 ||
+      Number(duration) > 24 ||
+      !message.trim()
+    )
+      return;
     updateUserDataMutation.mutate(
       {
-        notifications: [{ message, duration }],
+        notifications: [{ message, duration: Number(duration) }],
       },
       {
         onSuccess: () => {
@@ -257,7 +263,7 @@ export default function SocializeDashboard({
     if (userData) {
       setBio(userData.bio || "");
       setMessage(userData.notifications?.[0]?.message || "");
-      setDuration(userData.notifications?.[0]?.duration || 1);
+      setDuration(userData.notifications?.[0]?.duration ?? 1);
     }
   }, [userData]);
 
@@ -490,10 +496,19 @@ export default function SocializeDashboard({
                 type="number"
                 min={1}
                 max={24}
-                value={duration}
-                onChange={(e) =>
-                  setDuration(Math.max(1, Math.min(24, +e.target.value)))
-                }
+                value={duration === "" ? "" : duration}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val === "") {
+                    setDuration("");
+                  } else {
+                    const num = Math.max(1, Math.min(24, +val));
+                    setDuration(num);
+                  }
+                }}
+                onBlur={() => {
+                  if (duration === "" || isNaN(Number(duration))) setDuration(1);
+                }}
                 className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
               />
               <p className="text-xs text-gray-400">Between 1 and 24 hours</p>
@@ -521,9 +536,17 @@ export default function SocializeDashboard({
             </Button>
             <Button
               onClick={handleAddUpdate}
-              disabled={!message || duration < 1 || duration > 24}
+              disabled={
+                !message ||
+                duration === "" ||
+                Number(duration) < 1 ||
+                Number(duration) > 24
+              }
               className={`${
-                message && duration >= 1 && duration <= 24
+                message &&
+                duration !== "" &&
+                Number(duration) >= 1 &&
+                Number(duration) <= 24
                   ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
                   : "bg-gray-800 text-gray-400 cursor-not-allowed"
               }`}
