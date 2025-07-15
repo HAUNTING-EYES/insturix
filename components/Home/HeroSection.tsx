@@ -13,18 +13,18 @@ export default function HeroSection() {
   const [isHovering, setIsHovering] = useState(false);
 
   // Fetch user count using TanStack React Query
-  const { data: userCountData, isLoading } = useQuery({
-    queryKey: ["userCount"],
-    queryFn: async () => {
-      const response = await axios.get('/api/waitlist');
-      return response.data;
-    },
-    refetchInterval: 600000, // Refetch every 10 minutes
-    placeholderData: { total_count: 30 }, // Default data while loading
-    refetchOnWindowFocus: false, // Don't refetch when tab becomes focused
-    staleTime: 600000, // Consider data fresh for 10 minutes
-  });
-  const displayCount = userCountData?.total_count || 20;
+  // const { data: userCountData, isLoading } = useQuery({
+  //   queryKey: ["userCount"],
+  //   queryFn: async () => {
+  //     const response = await axios.get('/api/waitlist');
+  //     return response.data;
+  //   },
+  //   refetchInterval: 600000, // Refetch every 10 minutes
+  //   placeholderData: { total_count: 30 }, // Default data while loading
+  //   refetchOnWindowFocus: false, // Don't refetch when tab becomes focused
+  //   staleTime: 600000, // Consider data fresh for 10 minutes
+  // });
+  // const displayCount = userCountData?.total_count || 20;
 
   const heroMessages = [
     "Level Up Your Content",
@@ -54,7 +54,7 @@ export default function HeroSection() {
             transition={{ duration: 0.8, delay: 0.2 }}
           >
             {/* Eyebrow badge */}
-            <motion.div
+            {/* <motion.div
               className="mb-6 inline-flex"
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -66,7 +66,7 @@ export default function HeroSection() {
                   {isLoading ? "Loading..." : `Join ${displayCount.toLocaleString()}+ creators on our waitlist`}
                 </span>
               </span>
-            </motion.div>
+            </motion.div> */}
 
             <div className="relative mb-8 sm:mb-12 w-full">
               <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl md:blur-none">
@@ -96,7 +96,7 @@ export default function HeroSection() {
             </motion.p>
 
             {/* Waitlist button - the highlight of our changes */}
-            <motion.div
+            {/* <motion.div
               className="mb-12"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -121,7 +121,6 @@ export default function HeroSection() {
                     </motion.div>
                   </span>
 
-                  {/* Animated background effect */}
                   <motion.div
                     className="absolute inset-0 z-0 bg-gradient-to-r from-purple-600 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
                     animate={{
@@ -131,7 +130,6 @@ export default function HeroSection() {
                     style={{ backgroundSize: "200% 100%" }}
                   />
 
-                  {/* Shine effect */}
                   <motion.div
                     className="absolute inset-0 -z-10 opacity-0 group-hover:opacity-30"
                     animate={{
@@ -147,8 +145,8 @@ export default function HeroSection() {
                   />
                 </motion.button>
               </Link>
-            </motion.div>
-          </motion.div>
+            </motion.div>*/}
+          </motion.div> 
         </div>
       </div>
     </div>
