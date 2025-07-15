@@ -90,6 +90,28 @@ export default function SocializeDashboard({
   const [showEditBioModal, setShowEditBioModal] = useState(false);
 
   // Queries and mutations remain unchanged...
+
+  // Auto-detect platform from URL
+  function detectPlatformFromUrl(url: string): string {
+    if (!url) return "website";
+    const patterns: { [key: string]: RegExp } = {
+      youtube: /(?:youtube\.com|youtu\.be)/i,
+      instagram: /instagram\.com/i,
+      tiktok: /tiktok\.com/i,
+      twitter: /(?:twitter\.com|x\.com)/i,
+      linkedin: /linkedin\.com/i,
+      facebook: /facebook\.com/i,
+      snapchat: /snapchat\.com/i,
+      reddit: /reddit\.com/i,
+      discord: /discord\.com/i,
+      github: /github\.com/i,
+      website: /^https?:\/\//i,
+    };
+    for (const [platform, regex] of Object.entries(patterns)) {
+      if (regex.test(url)) return platform;
+    }
+    return "website";
+  }
   const { data: userData } = useQuery({
     queryKey: ["userData", uniqueUsername],
     queryFn: async () => {
@@ -334,6 +356,32 @@ export default function SocializeDashboard({
 
           <div className="space-y-4 py-4">
             <div className="space-y-2">
+              <label className="text-sm text-gray-400">URL</label>
+              <Input
+                type="url"
+                placeholder="https://"
+                value={newLink.url}
+                onChange={(e) => {
+                  const url = e.target.value;
+                  const platform = detectPlatformFromUrl(url);
+                  setNewLink({ ...newLink, url, platform });
+                }}
+                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-gray-400">Title (optional)</label>
+              <Input
+                type="text"
+                placeholder="Link title (defaults to platform)"
+                value={newLink.title || ""}
+                onChange={(e) =>
+                  setNewLink({ ...newLink, title: e.target.value })
+                }
+                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+              />
+            </div>
+            <div className="space-y-2">
               <label className="text-sm text-gray-400">Platform</label>
               <Select
                 value={newLink.platform}
@@ -351,34 +399,15 @@ export default function SocializeDashboard({
                   <SelectItem value="twitter">
                     X (formerly known as Twitter)
                   </SelectItem>
+                  <SelectItem value="linkedin">LinkedIn</SelectItem>
+                  <SelectItem value="facebook">Facebook</SelectItem>
+                  <SelectItem value="snapchat">Snapchat</SelectItem>
+                  <SelectItem value="reddit">Reddit</SelectItem>
+                  <SelectItem value="discord">Discord</SelectItem>
                   <SelectItem value="github">Github</SelectItem>
                   <SelectItem value="website">Website</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-gray-400">URL</label>
-              <Input
-                type="url"
-                placeholder="https://"
-                value={newLink.url}
-                onChange={(e) =>
-                  setNewLink({ ...newLink, url: e.target.value })
-                }
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm text-gray-400">Title (optional)</label>
-              <Input
-                type="text"
-                placeholder="Link title (defaults to platform)"
-                value={newLink.title || ""}
-                onChange={(e) =>
-                  setNewLink({ ...newLink, title: e.target.value })
-                }
-                className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
-              />
             </div>
           </div>
 
@@ -521,6 +550,32 @@ export default function SocializeDashboard({
           {editingLink && (
             <div className="space-y-4 py-4">
               <div className="space-y-2">
+                <label className="text-sm text-gray-400">URL</label>
+                <Input
+                  type="url"
+                  placeholder="https://"
+                  value={editingLink.url}
+                  onChange={(e) => {
+                    const url = e.target.value;
+                    const platform = detectPlatformFromUrl(url);
+                    setEditingLink({ ...editingLink, url, platform });
+                  }}
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-gray-400">Title (optional)</label>
+                <Input
+                  type="text"
+                  placeholder="Link title (defaults to platform)"
+                  value={editingLink.title || ""}
+                  onChange={(e) =>
+                    setEditingLink({ ...editingLink, title: e.target.value })
+                  }
+                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
+                />
+              </div>
+              <div className="space-y-2">
                 <label className="text-sm text-gray-400">Platform</label>
                 <Select
                   value={editingLink.platform}
@@ -538,34 +593,15 @@ export default function SocializeDashboard({
                     <SelectItem value="twitter">
                       X (formerly known as Twitter)
                     </SelectItem>
+                    <SelectItem value="linkedin">LinkedIn</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                    <SelectItem value="snapchat">Snapchat</SelectItem>
+                    <SelectItem value="reddit">Reddit</SelectItem>
+                    <SelectItem value="discord">Discord</SelectItem>
                     <SelectItem value="github">Github</SelectItem>
                     <SelectItem value="website">Website</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">URL</label>
-                <Input
-                  type="url"
-                  placeholder="https://"
-                  value={editingLink.url}
-                  onChange={(e) =>
-                    setEditingLink({ ...editingLink, url: e.target.value })
-                  }
-                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-sm text-gray-400">Title (optional)</label>
-                <Input
-                  type="text"
-                  placeholder="Link title (defaults to platform)"
-                  value={editingLink.title || ""}
-                  onChange={(e) =>
-                    setEditingLink({ ...editingLink, title: e.target.value })
-                  }
-                  className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
-                />
               </div>
             </div>
           )}

@@ -1,5 +1,4 @@
 import {
-  Twitter,
   Instagram,
   Facebook,
   Linkedin,
@@ -15,15 +14,15 @@ import {
   Figma,
   Codepen,
   Slack,
-  DiscIcon as Discord,
 } from "lucide-react";
+import { FaReddit, FaSnapchatGhost, FaTiktok, FaDiscord, FaTwitter } from "react-icons/fa";
 
 export function getPlatformIconName(platform: string): string {
   const normalizedPlatform = platform.toLowerCase();
   switch (normalizedPlatform) {
     case "twitter":
     case "x":
-      return "Twitter";
+      return "XTwitter";
     case "instagram":
       return "Instagram";
     case "facebook":
@@ -54,6 +53,12 @@ export function getPlatformIconName(platform: string): string {
       return "Slack";
     case "discord":
       return "Discord";
+    case "reddit":
+      return "Reddit";
+    case "snapchat":
+      return "Snapchat";
+    case "tiktok":
+      return "Tiktok";
     default:
       return "LinkIcon";
   }
@@ -66,8 +71,8 @@ export function getPlatformIcon(platform: string, isPreview = false) {
   };
   const iconName = getPlatformIconName(platform);
   switch (iconName) {
-    case "Twitter":
-      return <Twitter {...iconProps} />;
+    case "XTwitter":
+      return <FaTwitter {...iconProps} />;
     case "Instagram":
       return <Instagram {...iconProps} />;
     case "Facebook":
@@ -97,7 +102,13 @@ export function getPlatformIcon(platform: string, isPreview = false) {
     case "Slack":
       return <Slack {...iconProps} />;
     case "Discord":
-      return <Discord {...iconProps} />;
+      return <FaDiscord {...iconProps} />;
+    case "Reddit":
+      return <FaReddit {...iconProps} />;
+    case "Snapchat":
+      return <FaSnapchatGhost {...iconProps} />;
+    case "Tiktok":
+      return <FaTiktok {...iconProps} />;
     default:
       return <LinkIcon {...iconProps} />;
   }
