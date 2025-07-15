@@ -96,15 +96,15 @@ export default function HeroSection() {
             </motion.p>
 
             {/* Waitlist button - the highlight of our changes */}
-            {/* <motion.div
+            <motion.div
               className="mb-12"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, delay: 1.2 }}
             >
-              <Link href="/waitlist">
+              <Link href="/signup">
                 <motion.button
-                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 px-8 py-4 text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_50px_5px_rgba(var(--primary),0.6)] active:scale-[0.98]"
+                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-red-700 to-orange-600 px-8 py-4 text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_50px_5px_rgba(var(--primary),0.6)] active:scale-[0.98]"
                   onMouseEnter={() => setIsHovering(true)}
                   onMouseLeave={() => setIsHovering(false)}
                   whileHover={{ scale: 1.03 }}
@@ -112,7 +112,7 @@ export default function HeroSection() {
                 >
                   <span className="relative z-10 flex items-center gap-2">
                     <Users className="h-5 w-5" />
-                    <span>Join Our Waitlist</span>
+                    <span>Join Now!</span>
                     <motion.div
                       animate={{ x: isHovering ? 5 : 0 }}
                       transition={{ duration: 0.3 }}
@@ -122,7 +122,7 @@ export default function HeroSection() {
                   </span>
 
                   <motion.div
-                    className="absolute inset-0 z-0 bg-gradient-to-r from-purple-600 to-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
+                    className="absolute inset-0 z-0 bg-gradient-to-r from-red-700 to-orange-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
                     animate={{
                       backgroundPosition: isHovering ? "100% 0%" : "0% 0%",
                     }}
@@ -145,7 +145,7 @@ export default function HeroSection() {
                   />
                 </motion.button>
               </Link>
-            </motion.div>*/}
+            </motion.div>
           </motion.div> 
         </div>
       </div>
