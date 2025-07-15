@@ -23,6 +23,16 @@ const teamMembers = [
       linkedin: "https://www.linkedin.com/in/nimit-jain-106657279/",
     },
   },
+  {
+        name: "Akshit Kumar Singh",
+        role: "CTO",
+        image: AKS,
+        bio: "Tech Lead, Gen AI, System Architect.",
+        social: {
+          github: "https://github.com/akshit2434",
+          linkedin: "https://www.linkedin.com/in/akshit2434/",
+        },
+      },
 ];
 
 const departments = [
@@ -38,16 +48,6 @@ const departments = [
           linkedin: "https://www.linkedin.com/in/srijan-baniyal/",
           github: "https://github.com/Srijan-Baniyal",
           website: "https://srijanbaniyal.com",
-        },
-      },
-      {
-        name: "Akshit Kumar Singh",
-        role: "Tech Executive",
-        image: AKS,
-        bio: "Gen AI, frontend expert and system architect.",
-        social: {
-          github: "https://github.com/akshit2434",
-          linkedin: "https://www.linkedin.com/in/akshit-singh-a137641a7/",
         },
       },
       {
