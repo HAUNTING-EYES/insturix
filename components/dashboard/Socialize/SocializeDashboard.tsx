@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import axios from "axios";
-import { toast } from "sonner";
+import { useToast } from "@/hooks/use-toast";
 import { motion } from "framer-motion";
 import {
   Dialog,
@@ -73,6 +73,7 @@ export default function SocializeDashboard({
 
   // State management and other hooks remain unchanged...
   const [showAddModal, setShowAddModal] = useState(false);
+  const { toast } = useToast();
   const [showUpdatePopup, setShowUpdatePopup] = useState(false);
   const [newLink, setNewLink] = useState<SocializeLink>({
     platform: "youtube",
@@ -158,7 +159,12 @@ export default function SocializeDashboard({
       queryClient.invalidateQueries({ queryKey: ["userData", uniqueUsername] });
     },
     onError: (error) => {
-      toast.error("Failed to update profile");
+      toast({
+        title: "Error",
+        description: "Failed to update profile",
+        variant: "destructive",
+        duration: 4000,
+      });
       console.error("Update error:", error);
     },
   });
@@ -166,14 +172,34 @@ export default function SocializeDashboard({
   // Event handlers remain unchanged...
   const handleAddLink = async () => {
     if (!newLink.url.trim()) return;
-    const updatedLinks = [...(userData?.links || []), newLink];
+    let url = newLink.url.trim();
+    if (url && !/^https?:\/\//i.test(url)) {
+      url = "https://" + url;
+    }
+    const updatedLinks = [...(userData?.links || []), { ...newLink, url }];
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
         onSuccess: () => {
           setShowAddModal(false);
           setNewLink({ platform: "youtube", url: "", title: "" });
-          toast.success("Link added successfully");
+          toast({
+            title: "Success",
+            description: "Link added successfully",
+            variant: "default",
+            duration: 4000,
+          });
+        },
+        onError: (error: any) => {
+          const errorMsg =
+            error?.response?.data?.error ||
+            "Failed to add link. Please check your input.";
+          toast({
+            title: "Error",
+            description: errorMsg,
+            variant: "destructive",
+            duration: 4000,
+          });
         },
       }
     );
@@ -191,7 +217,12 @@ export default function SocializeDashboard({
           if (selectedLinkIndex === indexToRemove) {
             setSelectedLinkIndex(null);
           }
-          toast.success("Link removed");
+          toast({
+            title: "Success",
+            description: "Link removed",
+            variant: "default",
+            duration: 4000,
+          });
         },
       }
     );
@@ -217,7 +248,12 @@ export default function SocializeDashboard({
           setShowEditLinkModal(false);
           setEditingLink(null);
           setEditingLinkIndex(null);
-          toast.success("Link updated successfully");
+          toast({
+            title: "Success",
+            description: "Link updated successfully",
+            variant: "default",
+            duration: 4000,
+          });
         },
       }
     );
@@ -229,7 +265,12 @@ export default function SocializeDashboard({
       {
         onSuccess: () => {
           setShowEditBioModal(false);
-          toast.success("Bio updated successfully");
+          toast({
+            title: "Success",
+            description: "Bio updated successfully",
+            variant: "default",
+            duration: 4000,
+          });
         },
       }
     );
@@ -250,7 +291,12 @@ export default function SocializeDashboard({
       {
         onSuccess: () => {
           setShowUpdatePopup(false);
-          toast.success("Notification updated");
+          toast({
+            title: "Success",
+            description: "Notification updated",
+            variant: "default",
+            duration: 4000,
+          });
         },
       }
     );
@@ -294,7 +340,12 @@ export default function SocializeDashboard({
               uniqueUsername={uniqueUsername}
               onShare={(platform) => {
                 if (platform === "copy") {
-                  toast.success("URL copied to clipboard");
+                  toast({
+                    title: "Success",
+                    description: "URL copied to clipboard",
+                    variant: "default",
+                    duration: 4000,
+                  });
                 }
               }}
             />
