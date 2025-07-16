@@ -1,37 +1,17 @@
 export function getCurrencyInfoFromCountry(country: string | null): { currency: string; symbol: string } {
   switch (country) {
-    case "GB":
-      return { currency: "GBP", symbol: "£" };
-    case "US":
-      return { currency: "USD", symbol: "$" };
-    case "CA":
-      return { currency: "CAD", symbol: "C$" };
-    case "AU":
-      return { currency: "AUD", symbol: "A$" };
-    case "SG":
-      return { currency: "SGD", symbol: "S$" };
-    case "AE": // UAE
-      return { currency: "AED", symbol: "د.إ" };
-    case "DE": // Germany
-    case "FR": // France
-    case "ES": // Spain
-    case "IT": // Italy
-    case "NL": // Netherlands
-    case "BE": // Belgium
-    case "LU": // Luxembourg
-    case "IE": // Ireland
-    case "PT": // Portugal
-    case "GR": // Greece
-    case "FI": // Finland
-    case "AT": // Austria
-    case "CY": // Cyprus
-    case "EE": // Estonia
-    case "LV": // Latvia
-    case "LT": // Lithuania
-    case "MT": // Malta
-    case "SK": // Slovakia
-    case "SI": // Slovenia
+    case "US": return { currency: "USD", symbol: "$" };
+    case "IN": return { currency: "INR", symbol: "₹" };
+    case "EUR":
+    case "DE": case "FR": case "ES": case "IT": case "NL": case "BE": case "LU":
+    case "IE": case "PT": case "GR": case "FI": case "AT": case "CY": case "EE":
+    case "LV": case "LT": case "MT": case "SK": case "SI":
       return { currency: "EUR", symbol: "€" };
+    case "GBP": case "GB": return { currency: "GBP", symbol: "£" };
+    case "CAD": case "CA": return { currency: "CAD", symbol: "C$" };
+    case "AUD": case "AU": return { currency: "AUD", symbol: "A$" };
+    case "SGD": case "SG": return { currency: "SGD", symbol: "S$" };
+    case "AED": case "AE": return { currency: "AED", symbol: "د.إ" };
     default:
       return { currency: "USD", symbol: "$" };
   }

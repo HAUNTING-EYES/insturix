@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowRight, ArrowLeft, CheckCircle, Crown } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useUser } from "@clerk/nextjs";
+// import { useUser } from "@clerk/nextjs"; // Removed useUser
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { StepIndicator } from "@/components/upgrade-plan/StepIndicator";
@@ -16,7 +16,7 @@ import { UserType } from "@/types/userTypes";
 import { toast } from "sonner";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
 import { CurrencySelector } from "../CurrencySelector";
-import { usePlansFromDB } from "@/lib/hooks/usePlansFromDB";
+// import { usePlansFromDB } from "@/lib/hooks/usePlansFromDB"; // Removed usePlansFromDB
 
 type PlanFeature = {
   id: string
@@ -43,6 +43,8 @@ export type Plan = {
 
 import { Plan as ClientPlan } from "@/lib/data/plans";
 
+import { PlansResponse } from "@/schemas/plans"; // Import PlansResponse
+
 export interface UpgradePageContentProps {
   mode?: "popup" | "page";
   onComplete?: (selectedPlan: Plan) => void;
@@ -50,6 +52,10 @@ export interface UpgradePageContentProps {
   initialPlan?: string;
   showNavigation?: boolean;
   isDevelopment: boolean;
+  currentUserPlan: UserType | null; // Add currentUserPlan prop
+  currentPlanData: { endDate: Date | null; startDate: Date; status: string; } | null; // Add currentPlanData prop
+  plans: PlansResponse["plans"]; // Add plans prop
+  success: PlansResponse["success"]; // Add success prop
 }
 
 export function UpgradePageContent({
@@ -59,30 +65,54 @@ export function UpgradePageContent({
   initialPlan,
   showNavigation = true,
   isDevelopment,
+  currentUserPlan: initialUserPlan, // Destructure new props
+  currentPlanData: initialPlanData, // Destructure new props
+  plans: serverPlans, // Rename plans to serverPlans to match existing logic
+  success: plansSuccess, // Rename success to plansSuccess
 }: UpgradePageContentProps) {
   const router = useRouter();
-  const { user } = useUser();
+  // const { user } = useUser(); // Removed useUser
   const { selectedCurrency, selectedSymbol, version } = useCurrency();
-  const { plans: serverPlans, isLoading: plansLoading, isError: plansError } = usePlansFromDB();
+  // const { plans: serverPlans, isLoading: plansLoading, isError: plansError } = usePlansFromDB(); // Removed usePlansFromDB
   
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [animationDirection, setAnimationDirection] = useState<"forward" | "backward">("forward");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [currentUserPlan, setCurrentUserPlan] = useState<UserType | null>(null);
-  const [currentPlanData, setCurrentPlanData] = useState<{
+  const [currentUserPlan, setCurrentUserPlan] = useState<UserType | null>(initialUserPlan); // Initialize with prop
+  const [currentPlanData, setCurrentPlanData] = useState<{ // Initialize with prop
     endDate: Date | null;
     startDate: Date;
     status: string;
-  } | null>(null);
-  const [isLoading, setIsLoading] = useState(true); // This will now track user plan loading
+  } | null>(initialPlanData);
+  const [isLoading, setIsLoading] = useState(false); // Set to false as data is preloaded
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
+  const [dynamicPlans, setDynamicPlans] = useState(serverPlans);
+  const [plansLoading, setPlansLoading] = useState(false);
+
+  useEffect(() => {
+    async function fetchPlansForCurrency() {
+      setPlansLoading(true);
+      try {
+        const response = await fetch(`/api/plans?currency=${selectedCurrency}`, { cache: "no-store" });
+        if (response.ok) {
+          const data = await response.json();
+          setDynamicPlans(data.plans);
+        }
+      } catch (error) {
+        // Optionally handle error
+      } finally {
+        setPlansLoading(false);
+      }
+    }
+    fetchPlansForCurrency();
+  }, [selectedCurrency]);
 
 
   const convertedPlans: Plan[] = useMemo(() => {
-    if (!serverPlans) return [];
+    if (!dynamicPlans) return [];
 
-    return serverPlans.map((clientPlan: ClientPlan): Plan => {
+    return dynamicPlans.map((clientPlan: ClientPlan): Plan => {
       const cyclePricing = billingCycle === "monthly" ? clientPlan.pricing.monthly : clientPlan.pricing.yearly;
       const monthlyPrice = clientPlan.pricing.monthly.amount;
       const yearlyPrice = clientPlan.pricing.yearly.amount;
@@ -113,40 +143,43 @@ export function UpgradePageContent({
         paymentProvider: provider ? { provider, planId } : undefined,
       };
     });
-  }, [serverPlans, billingCycle]);
+  }, [dynamicPlans, billingCycle]);
 
-  useEffect(() => {
-    const fetchUserPlan = async () => {
-      if (!user) {
-        setCurrentUserPlan(null); // Set to null if no user is logged in
-        setIsLoading(false);
-        return;
-      }
+  // Removed useEffect for fetching user plan
+  // useEffect(() => {
+  //   const fetchUserPlan = async () => {
+  //     if (!user) {
+  //       setCurrentUserPlan(null); // Set to null if no user is logged in
+  //       setIsLoading(false);
+  //       return;
+  //     }
 
-      try {
-        const response = await fetch('/api/user/plans');
-        if (response.ok) {
-          const data = await response.json();
-          setCurrentUserPlan(data.userType || UserType.Free);
+  //     try {
+  //       const response = await fetch('/api/user/plans');
+  //       if (response.ok) {
+  //         const data = await response.json();
+  //         setCurrentUserPlan(data.userType || UserType.Free);
           
-          if (data.currentPlan) {
-            setCurrentPlanData({
-              endDate: data.currentPlan.endDate ? new Date(data.currentPlan.endDate) : null,
-              startDate: new Date(data.currentPlan.startDate),
-              status: data.currentPlan.status
-            });
-          }
-        }
-      } catch (error) {
-        console.error('Error fetching user plan:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  //         if (data.currentPlan) {
+  //           setCurrentPlanData({
+  //             endDate: data.currentPlan.endDate ? new Date(data.currentPlan.endDate) : null,
+  //             startDate: new Date(data.currentPlan.startDate),
+  //             status: data.currentPlan.status
+  //           });
+  //         }
+  //       }
+  //     } catch (error) {
+  //       console.error('Error fetching user plan:', error);
+  //     } finally {
+  //       setIsLoading(false);
+  //     }
+  //   };
 
-    fetchUserPlan();
-  }, [user, selectedCurrency]); // Added selectedCurrency to re-fetch user plan if currency changes
+  //   fetchUserPlan();
+  // }, [user, selectedCurrency]); // Added selectedCurrency to re-fetch user plan if currency changes
 
+  // Keep this useEffect for initialPlan and convertedPlans
+  // This useEffect should still run on the client to set the initial selected plan based on searchParams
   useEffect(() => {
     if (initialPlan && convertedPlans.length > 0) {
       const plan = convertedPlans.find(p => p.id === initialPlan || p.name.toLowerCase() === initialPlan.toLowerCase());
@@ -156,6 +189,7 @@ export function UpgradePageContent({
     }
   }, [initialPlan, convertedPlans]);
 
+  // Keep this useEffect for selectedPlan
   useEffect(() => {
     if (selectedPlan) {
       const updatedPlan = convertedPlans.find(p => p.id === selectedPlan.id);
@@ -220,7 +254,7 @@ export function UpgradePageContent({
     }
   };
 
-  if (isLoading || plansLoading) { // Check both user plan and server plans loading
+  if (isLoading || plansLoading || !plansSuccess) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -228,7 +262,7 @@ export function UpgradePageContent({
     );
   }
 
-  if (plansError) {
+  if (!plansSuccess) {
     return (
       <div className="flex items-center justify-center min-h-[400px] text-red-500">
         Error loading plans. Please try again later.
