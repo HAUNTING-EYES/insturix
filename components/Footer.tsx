@@ -18,6 +18,7 @@ const companyLinks = [
   { label: "Terms", link: "/legal/terms" },
   { label: "Privacy", link: "/legal/privacy" },
   { label: "Contact", link: "/contactus" },
+  { label: "Cancellation Policy", link: "/legal/cancellation-policy" },
 ];
 
 const supportLinks = [
