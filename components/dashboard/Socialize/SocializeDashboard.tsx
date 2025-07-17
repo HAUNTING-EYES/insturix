@@ -89,6 +89,7 @@ export default function SocializeDashboard({
   const [showEditLinkModal, setShowEditLinkModal] = useState(false);
   const [bio, setBio] = useState("");
   const [showEditBioModal, setShowEditBioModal] = useState(false);
+  const [links, setLinks] = useState<SocializeLink[]>(initialData?.links || []);
 
   // Queries and mutations remain unchanged...
 
@@ -176,7 +177,7 @@ export default function SocializeDashboard({
     if (url && !/^https?:\/\//i.test(url)) {
       url = "https://" + url;
     }
-    const updatedLinks = [...(userData?.links || []), { ...newLink, url }];
+    const updatedLinks = [...(links || []), { ...newLink, url }];
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
@@ -206,8 +207,8 @@ export default function SocializeDashboard({
   };
 
   const handleRemoveLink = async (indexToRemove: number) => {
-    if (!userData?.links) return;
-    const updatedLinks = userData.links.filter(
+    if (!links) return;
+    const updatedLinks = links.filter(
       (_, index) => index !== indexToRemove
     );
     updateUserDataMutation.mutate(
@@ -229,8 +230,8 @@ export default function SocializeDashboard({
   };
 
   const handleEditLink = (index: number) => {
-    if (!userData?.links) return;
-    setEditingLink(userData.links[index]);
+    if (!links) return;
+    setEditingLink(links[index]);
     setEditingLinkIndex(index);
     setShowEditLinkModal(true);
   };
@@ -238,7 +239,7 @@ export default function SocializeDashboard({
   const handleUpdateLink = async () => {
     if (!editingLink || editingLinkIndex === null) return;
 
-    const updatedLinks = [...(userData?.links || [])];
+    const updatedLinks = [...(links || [])];
     updatedLinks[editingLinkIndex] = editingLink;
 
     updateUserDataMutation.mutate(
@@ -305,8 +306,14 @@ export default function SocializeDashboard({
     setSelectedLinkIndex(index);
   };
 
+  const handleReorderLinks = (reorderedLinks: SocializeLink[]) => {
+    setLinks(reorderedLinks);
+    updateUserDataMutation.mutate({ links: reorderedLinks });
+  };
+
   useEffect(() => {
     if (userData) {
+      setLinks(userData.links || []);
       setBio(userData.bio || "");
       setMessage(userData.notifications?.[0]?.message || "");
       setDuration(userData.notifications?.[0]?.duration ?? 1);
@@ -369,11 +376,12 @@ export default function SocializeDashboard({
               </div>
             )}
             <SocializeLinksCard
-              links={userData?.links || []}
+              links={links}
               selectedLinkIndex={selectedLinkIndex}
               onSelectLink={handleSelectLink}
               onRemoveLink={handleRemoveLink}
               onEditLink={handleEditLink}
+              onReorder={handleReorderLinks}
             />
           </div>
 
@@ -383,7 +391,7 @@ export default function SocializeDashboard({
               selectedLinkIndex={selectedLinkIndex}
               isPreviewLoading={isPreviewLoading}
               previewData={previewData ?? null}
-              userLinks={userData?.links || []}
+              userLinks={links || []}
               userBio={userData?.bio || ""}
               userLogo={
                 user && "imageUrl" in user ? (user.imageUrl ?? null) : null
