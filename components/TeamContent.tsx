@@ -9,7 +9,7 @@ import Link from "next/link";
 import NJ from "@/public/team/NimitJain.jpeg";
 import SB from "@/public/team/Srijan Baniyal.jpeg";
 import AKS from "@/public/team/Akshit Singh.jpeg";
-import LG from "@/public/team/Lakshay Goel.jpeg";
+import LG from "@/public/team/Lakshay Goel.png";
 import { Link1Icon } from "@radix-ui/react-icons";
 
 const teamMembers = [
