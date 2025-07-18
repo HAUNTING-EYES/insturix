@@ -32,7 +32,7 @@ export interface IPlan {
 }
 
 export interface ISubscription {
-  provider: 'razorpay' | 'lemonsqueezy';
+  provider: 'razorpay';
   subscriptionId: string;
   planId: string;
   status: "active" | "pending" | "halted" | "cancelled" | "completed" | "expired";
@@ -179,7 +179,7 @@ const planSchema = new Schema<IPlan>({
 }, { _id: false });
 
 const subscriptionSchema = new Schema<ISubscription>({
-  provider: { type: String, required: true, enum: ['razorpay', 'lemonsqueezy'] },
+  provider: { type: String, required: true, enum: ['razorpay'] },
   subscriptionId: { type: String, required: true },
   planId: { type: String, required: true },
   status: {

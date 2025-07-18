@@ -85,6 +85,13 @@ export async function POST(req: Request) {
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 
+  // Increment usage immediately after task creation (like alyzitron)
+  const usageResult = await incrementClickatronUsage({ userId });
+  if (!usageResult.success) {
+    console.error('Failed to increment clickatron usage:', usageResult.error);
+    // Don't fail the request, just log for monitoring
+  }
+
   // New try-catch block for post-save operations
   try {
     // Create task in RTDB for real-time updates
@@ -133,8 +140,7 @@ export async function POST(req: Request) {
       }
     }
 
-    // Only increment usage if everything above was successful
-    await incrementClickatronUsage({ userId });
+    // Usage is already incremented after task creation above
 
     return NextResponse.json({ taskId: newTask._id });
 

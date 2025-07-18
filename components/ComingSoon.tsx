@@ -6,9 +6,10 @@ import { RocketIcon, SparklesIcon, ClockIcon } from "lucide-react";
 
 interface ComingSoonProps {
   serviceName: string;
+  progressPercentage?: number; // Optional, default to 75% if not provided
 }
 
-export function ComingSoon({ serviceName }: ComingSoonProps) {
+export function ComingSoon({ serviceName, progressPercentage }: ComingSoonProps) {
   return (
     <div className="relative min-h-screen bg-zinc-950 overflow-hidden">
       {/* Gradient Background */}
@@ -70,10 +71,13 @@ export function ComingSoon({ serviceName }: ComingSoonProps) {
               <div className="space-y-2">
                 <div className="flex justify-between text-sm text-zinc-400">
                   <span>Development Progress</span>
-                  <span>75%</span>
+                  <span>{progressPercentage?progressPercentage:75}%</span>
                 </div>
                 <div className="w-full bg-zinc-800 rounded-full h-2">
-                  <div className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full progress-bar" />
+                  <div
+                    className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full progress-bar"
+                    style={{ width: `${progressPercentage ? progressPercentage : 75}%` }}
+                  />
                 </div>
               </div>
             </CardContent>
@@ -146,7 +150,6 @@ export function ComingSoon({ serviceName }: ComingSoonProps) {
         }
         
         .progress-bar {
-          width: 75%;
           animation: progressLoad 2s ease-out;
         }
         

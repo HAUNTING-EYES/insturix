@@ -22,7 +22,7 @@ import { useMediaQuery } from "@/hooks/useMediaQuery";
 import DarkLogo from "@/public/brand/insturix_black.png";
 import LightLogo from "@/public/brand/insturix_white.png";
 import { useAuth } from "@clerk/nextjs";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 
 const LogoAnimation = () => {
   const [showLogo, setShowLogo] = useState(true);
@@ -345,22 +345,22 @@ export default function Navbar() {
 
 function UserMenu() {
   const { isSignedIn } = useAuth();
-  const router = useRouter();
 
   return (
     <>
       {isSignedIn ? (
         <div className="flex items-center space-x-2">
-          <Button
-            variant="ghost"
-            className="touch-feedback bg-transparent focus:bg-transparent focus-visible:ring-0"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              router.push("/dashboard");
-            }}
-          >
-            Dashboard
-          </Button>
+          <Link href="/dashboard">
+            <Button
+              variant="ghost"
+              className="touch-feedback bg-transparent focus:bg-transparent focus-visible:ring-0"
+              onClick={(e) => {
+                e.currentTarget.blur();
+              }}
+            >
+              Dashboard
+            </Button>
+          </Link>
         </div>
       ) : (
         <div className="flex items-center gap-2">

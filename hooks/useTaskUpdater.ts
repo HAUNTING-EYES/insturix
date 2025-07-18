@@ -56,6 +56,10 @@ export function useTaskUpdater() {
               queryClient.invalidateQueries({ queryKey: ['clickatron-all-tasks'] });
               queryClient.invalidateQueries({ queryKey: ['alyzitron-all-analyses'] });
               queryClient.invalidateQueries({ queryKey: ['alyzitron-history'], exact: false });
+              
+              // Invalidate stats queries to refresh analytics
+              queryClient.invalidateQueries({ queryKey: ['clickatronStats'] });
+              queryClient.invalidateQueries({ queryKey: ['alyzitronStats'] });
             }
           });
         }

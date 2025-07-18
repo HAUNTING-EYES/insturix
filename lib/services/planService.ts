@@ -242,7 +242,7 @@ export async function updateUserPlan(
   clerkUserId: string,
   newPlanType: UserType,
   subscriptionDetails: {
-    provider: 'razorpay' | 'lemonsqueezy';
+    provider: 'razorpay';
     subscriptionId: string;
     planId: string;
     amount: number;

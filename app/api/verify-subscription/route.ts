@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       razorpay_signature: string;
       planType: UserType;
       billingCycle: 'monthly' | 'yearly';
-      currency: 'INR' | 'USD';
+      currency: string;
     } = await request.json();
 
     const keySecret = process.env.RAZORPAY_SECRET_KEY_ID!;

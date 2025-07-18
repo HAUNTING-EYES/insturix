@@ -58,13 +58,21 @@ export function TaskNotificationManager() {
       clearTimeout(timer);
       timersRef.current.delete(notificationId);
     }
-    // Clear notification immediately (manual close has immediate effect)
-    clearNotification(notificationId);
+    // Start dismissing animation for manual close
+    setDismissingIds(prev => new Set([...prev, notificationId]));
+    setTimeout(() => {
+      clearNotification(notificationId);
+      setDismissingIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(notificationId);
+        return newSet;
+      });
+    }, 300); // Match the animation duration
   };
 
   // Show only unread notifications that haven't been dismissed
   const visibleNotifications = notifications
-    .filter((notification: any) => !notification.isRead && !dismissingIds.has(notification.id))
+    .filter((notification: any) => !notification.isRead)
     .slice(0, 5);
 
   return (

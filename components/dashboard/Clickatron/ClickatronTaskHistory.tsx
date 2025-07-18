@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { IClickatronTask } from "@/schemas/Clickatron";
-import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
+import { useTaskUpdater } from '@/hooks/useTaskUpdater';
 import { Loader2,
   History,
   FileImage,
@@ -175,13 +175,19 @@ function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
           {/* Status and Action */}
           <div className="ml-4 flex items-center gap-4">
             <div className="text-right min-h-[40px] flex flex-col items-end justify-center">
-              {(task.status === 'queued' || task.status === 'listed') && (
-                <Badge className={cn("whitespace-nowrap text-xs border-0 mb-1", getStatusColor(task.status))}>
-                  {task.status}
-                </Badge>
-              )}
-              
               <AnimatePresence mode="wait" initial={false}>
+                {task.status === 'listed' && (
+                  <motion.div
+                    key="listed"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="text-xs text-zinc-400"
+                  >
+                    Listed
+                  </motion.div>
+                )}
                 {task.status === 'processing' && (
                   <motion.div
                     key="processing"

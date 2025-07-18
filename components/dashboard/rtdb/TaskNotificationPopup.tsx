@@ -79,8 +79,8 @@ export function TaskNotificationPopup({
           ${notification.isRead ? 'opacity-70' : 'opacity-100'}
           ${isClickable ? 'cursor-pointer hover:scale-105 hover:bg-black/95' : 'cursor-default'}
         `}
-        onMouseEnter={() => setIsExpanded(true)}
-        onMouseLeave={() => setIsExpanded(false)}
+        // onMouseEnter={() => setIsExpanded(true)}
+        // onMouseLeave={() => setIsExpanded(false)}
         onClick={handleClick}
       >
         <div className="flex items-start justify-between">
@@ -130,15 +130,15 @@ export function TaskNotificationPopup({
               transition={{ duration: 0.2 }}
               className="mt-3 pt-3 border-t border-zinc-800"
             >
-              {taskUpdate.description && (
+              {/* {taskUpdate.description && (
                 <p className="text-xs text-zinc-300 mb-2">
                   {taskUpdate.description}
                 </p>
-              )}
+              )} */}
               <div className="flex items-center justify-between">
-                <span className="text-xs text-zinc-500">
+                {/* <span className="text-xs text-zinc-500">
                   {isClickable ? 'Click to view details' : 'Details unavailable'}
-                </span>
+                </span> */}
                 {isClickable && <Eye className="h-3 w-3 text-zinc-500" />}
               </div>
             </motion.div>

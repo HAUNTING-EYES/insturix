@@ -17,6 +17,8 @@ const companyLinks = [
   { label: "About", link: "/about" },
   { label: "Terms", link: "/legal/terms" },
   { label: "Privacy", link: "/legal/privacy" },
+  { label: "Cancellation", link: "/legal/cancellation-policy" },
+  { label: "Refund", link: "/legal/refund-policy" },
   { label: "Contact", link: "/contactus" },
 ];
 

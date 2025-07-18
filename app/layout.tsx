@@ -118,7 +118,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider waitlistUrl="/waitlist">
+    <ClerkProvider>
       <html lang="en" className={inter.className}>
         <head>
           <meta

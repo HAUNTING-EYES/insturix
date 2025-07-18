@@ -30,6 +30,17 @@ export async function GET(request: Request) {
     }).lean();
 
     for (const task of stuckClickatronTasks) {
+      // Update status in MongoDB
+      await ClickatronTask.updateOne(
+        { _id: task._id },
+        {
+          $set: {
+            status: 'failed',
+            error_message: 'Task timed out and was marked as failed by the system.',
+            updatedAt: new Date()
+          }
+        }
+      );
       await handleTaskFailure({
         taskId: (task._id as Types.ObjectId).toString(),
         serviceName: 'clickatron',
@@ -38,6 +49,8 @@ export async function GET(request: Request) {
           code: 'TIMEOUT',
           message: 'Task timed out and was marked as failed by the system.',
         },
+        taskType: task.type,
+        task: task,
       });
       results.processed++;
       results.details.push(`Processed Clickatron task ${(task._id as Types.ObjectId).toString()}`);
@@ -59,14 +72,31 @@ export async function GET(request: Request) {
     }).toArray();
 
     for (const task of stuckAlyzitronTasks) {
+      // Update status in MongoDB
+      await analyses.updateOne(
+        { _id: task._id },
+        {
+          $set: {
+            status: 'failed',
+            error: {
+              code: 'TIMEOUT',
+              message: 'Analysis timed out and was marked as failed by the system.',
+              action: 'Please try again or contact support if the issue persists.'
+            },
+            updatedAt: new Date()
+          }
+        }
+      );
       await handleTaskFailure({
-        taskId: task._id.toString(), // Use _id as taskId
+        taskId: task._id.toString(),
         serviceName: 'alyzitron',
         userId: task.clerkUserId,
         error: {
           code: 'TIMEOUT',
           message: 'Analysis timed out and was marked as failed by the system.',
         },
+        taskType: 'analysis',
+        task: task,
       });
       results.processed++;
       results.details.push(`Processed Alyzitron task ${task._id}`);

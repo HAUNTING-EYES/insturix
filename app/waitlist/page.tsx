@@ -1,4 +1,4 @@
-import { Waitlist } from "@clerk/nextjs";
+// import { Waitlist } from "@clerk/nextjs";
 import Navbar from "@/components/Navbar";
 import CursorEffect from "@/components/ui/CursorEffect";
 
@@ -15,7 +15,8 @@ export default function Page() {
            <Navbar />
          </div>
          <div className="flex items-center justify-center min-h-[calc(100vh-70px)] md:min-h-[calc(100vh-90px)] w-full px-4 pt-[70px] md:pt-[90px]">
-          <Waitlist signInUrl="/signin"/>
+          {/* <Waitlist signInUrl="/signin"/> */}
+          <h2>Waitlist is now over, Site is Live!</h2>
          </div>
        </div>
   );

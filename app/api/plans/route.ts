@@ -7,15 +7,10 @@ const transformPricing = (pricing: IPricing, currency: string): ClientPricingInf
   const result: ClientPricingInfo = { amount, currency, symbol };
 
   if (providerPlanIds) {
-    if (currency === 'INR' && providerPlanIds.razorpay) {
+    if (providerPlanIds.razorpay) {
       result.paymentProvider = {
         provider: 'razorpay',
         planId: providerPlanIds.razorpay,
-      };
-    } else if (providerPlanIds.lemonsqueezy) {
-      result.paymentProvider = {
-        provider: 'lemonsqueezy',
-        planId: providerPlanIds.lemonsqueezy,
       };
     }
   }
