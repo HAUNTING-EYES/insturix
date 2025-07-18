@@ -4,12 +4,19 @@ import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { motion } from 'framer-motion';
 import { BarChart2, Wallpaper, RefreshCw } from 'lucide-react';
-import { useGetStats } from "./hooks/useGetStats";
+import { useEnhancedStats } from "./hooks/useEnhancedStats";
+import { useTaskUpdater } from '@/hooks/useTaskUpdater';
 
 export function AnalyticsOverview() {
-  const { stats, isLoading } = useGetStats();
+  const { stats, loading, error, refetch } = useEnhancedStats();
+  
+  // Initialize RTDB listener for real-time updates
+  // The useTaskUpdater hook will handle cache invalidation when tasks complete
+  useTaskUpdater();
 
-  if (isLoading) {
+  // No polling - rely solely on RTDB-triggered updates via useTaskUpdater
+
+  if (loading) {
     return (
       <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
         <CardHeader>
@@ -21,6 +28,24 @@ export function AnalyticsOverview() {
         <CardContent>
           <div className="flex items-center justify-center py-8">
             <RefreshCw className="h-6 w-6 animate-spin text-zinc-400" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
+        <CardHeader>
+          <CardTitle className="text-lg font-medium text-zinc-100 flex items-center gap-2">
+            <BarChart2 className="h-5 w-5" color="#8B5CF6" />
+            Analytics Overview
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-red-400 text-sm">
+            Failed to load analytics. <button onClick={refetch} className="underline">Retry</button>
           </div>
         </CardContent>
       </Card>
@@ -46,12 +71,12 @@ export function AnalyticsOverview() {
             <div className="flex items-center gap-3 mb-3">
               <Wallpaper className="h-6 w-6 text-violet-500" />
               <div>
-              <div className="text-base sm:text-lg font-semibold text-zinc-100">
-                Thumbnails Generated
-              </div>
-              <div className="text-xs text-zinc-400 mt-0.5">
-                Number of thumbnails generated
-              </div>
+                <div className="text-base sm:text-lg font-semibold text-zinc-100">
+                  Thumbnails Generated
+                </div>
+                <div className="text-xs text-zinc-400 mt-0.5">
+                  Number of thumbnails generated
+                </div>
               </div>
             </div>
 
