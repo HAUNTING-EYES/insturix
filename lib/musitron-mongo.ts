@@ -1,31 +1,19 @@
 import mongoose from 'mongoose';
+import { MusitronTask } from '../schemas/Musitron';
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB = process.env.MONGODB_DB;
 
 if (!MONGODB_URI) {
-  throw new Error('Define the MONGODB_URI environment variable');
+  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
 }
 
-if (!MONGODB_DB) {
-  throw new Error('Define the MONGODB_DB environment variable');
-}
-
-declare global {
-  var mongoose: {
-    conn: typeof import('mongoose') | null;
-    promise: Promise<typeof import('mongoose')> | null;
-  };
-}
-
-let cached = global.mongoose;
+let cached = (global as any).mongoose;
 
 if (!cached) {
-  cached = global.mongoose = { conn: null, promise: null };
+  cached = (global as any).mongoose = { conn: null, promise: null };
 }
 
-
-export async function getMusitronDb() {
+async function dbConnect() {
   if (cached.conn) {
     return cached.conn;
   }
@@ -33,13 +21,18 @@ export async function getMusitronDb() {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
+      // Don't override the database name - use the one from MONGODB_URI
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((m) => {
-      cached.conn = m;
-      return m;
-    }) as Promise<typeof mongoose>;
+    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {
+      return mongoose;
+    });
   }
   cached.conn = await cached.promise;
   return cached.conn;
+}
+
+export async function getMusitronDb() {
+  await dbConnect();
+  return { MusitronTask };
 }
