@@ -133,26 +133,7 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
 
   return (
     <div className="space-y-8">
-      <MusicGenerator
-        onMusicGenerated={(musicData) => {
-          // Assuming musicData contains the taskId and other relevant info
-          // This part needs to be aligned with the actual response from generateMusic
-          // For now, let's assume musicData is an array of GeneratedMusic, and we take the first one
-          if (musicData && musicData.length > 0) {
-            const generatedMusic = musicData[0];
-            handleTaskUpdate(generatedMusic.id, {
-              status: 'complete',
-              gcsAudioLink: generatedMusic.audio_url,
-              options: {
-                customMode: false, // This needs to be passed from the form submission
-                title: generatedMusic.title,
-                instrumental: false, // This needs to be passed from the form submission
-                songDescription: generatedMusic.prompt,
-              },
-            });
-          }
-        }}
-      />
+      <MusicGenerator />
       <MusitronTaskHistory />
     </div>
   );

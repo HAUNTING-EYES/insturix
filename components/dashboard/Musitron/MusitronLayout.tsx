@@ -3,6 +3,8 @@
 import { AudioWaveform } from "lucide-react";
 import { ClientWrapper } from "@/components/dashboard/Musitron/ClientWrapper";
 import { IMusitronTask } from "@/schemas/Musitron";
+import { AnalyticsOverview } from "@/components/dashboard/Musitron/AnalyticsOverview";
+import { CompactAnalytics } from "@/components/dashboard/Musitron/CompactAnalytics";
 
 interface MusitronLayoutProps {
   initialTasks: IMusitronTask[];
@@ -26,14 +28,17 @@ export function MusitronLayout({ initialTasks }: MusitronLayoutProps) {
               </p>
             </div>
           </div>
-
+          {/* Mobile Analytics */}
+          <div className="block lg:hidden">
+            <CompactAnalytics />
+          </div>
           {/* Client Components */}
           <ClientWrapper initialTasks={initialTasks} />
         </div>
 
         {/* Desktop Analytics - Placeholder for future use */}
         <div className="hidden lg:block space-y-6 lg:space-y-8 sticky top-6">
-          {/* <AnalyticsOverview /> */}
+          <AnalyticsOverview />
         </div>
       </div>
     </div>
