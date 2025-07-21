@@ -6,8 +6,8 @@ import { motion } from "framer-motion";
 import { BarChart2, Wallpaper, RefreshCw, AlertCircle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
-// Musitron color (example: #F59E42, adjust if needed)
-const MUSITRON_COLOR = "#F59E42";
+// Musitron color
+const MUSITRON_COLOR = "#EFB100";
 
 export function AnalyticsOverview() {
   const { data, isLoading, isError, error } = useQuery({
@@ -18,15 +18,6 @@ export function AnalyticsOverview() {
       return res.json();
     },
   });
-
-  // Placeholder shape, adjust as per actual endpoint
-  // {
-  //   monthlySongs: number,
-  //   maxSongs: number,
-  //   remaining: number,
-  //   resetPeriod: string,
-  //   timeUntilReset: string
-  // }
 
   return (
     <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
@@ -92,12 +83,14 @@ export function AnalyticsOverview() {
                 <span>{data?.remaining ?? 0} remaining</span>
                 <span className="mx-2 text-zinc-700">·</span>
                 <span>
-                  Reset: <span className="font-medium">{data?.resetPeriod ?? "Monthly"}</span>
+                  Reset: <span className="font-medium">{(data?.resetPeriod ?? "Monthly").charAt(0).toUpperCase() + (data?.resetPeriod ?? "Monthly").slice(1)}</span>
                 </span>
               </div>
-              <div className="text-xs text-zinc-400">
-                Resets in {data?.timeUntilReset ?? "0d 0h 0m"}
-              </div>
+              {data?.timeUntilReset ? (
+                <div className="text-xs text-zinc-400">
+                  Resets in {data.timeUntilReset}
+                </div>
+              ) : null}
             </div>
           </motion.div>
         )}
