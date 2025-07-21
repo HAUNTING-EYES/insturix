@@ -27,17 +27,17 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { customMode, title, instrumental, songDescription, style, lyrics } = body;
+  const { title, instrumental, songDescription, style, lyrics } = body;
 
   // Validate required fields
-  if (!title || typeof instrumental !== 'boolean' || typeof customMode !== 'boolean') {
+  if (!title || typeof instrumental !== 'boolean') {
     return new NextResponse('Missing required fields', { status: 400 });
   }
-  if (customMode && (!style || !lyrics)) {
-    return new NextResponse('Missing required fields for custom mode', { status: 400 });
+  if (!instrumental && !lyrics) {
+    return new NextResponse('Missing required fields: lyrics required if not instrumental', { status: 400 });
   }
-  if (!customMode && !songDescription) {
-    return new NextResponse('Missing required fields for simple mode', { status: 400 });
+  if (!style) {
+    return new NextResponse('Missing required fields: style', { status: 400 });
   }
 
   // Usage check (replace with Musitron-specific limit check if available)
@@ -57,7 +57,6 @@ export async function POST(req: Request) {
       status: 'queued',
       createdAt: new Date(),
       options: {
-        customMode,
         title: generatedTitle,
         instrumental,
         ...(songDescription && { songDescription }),

@@ -28,13 +28,13 @@ interface TaskDetailsProps {
 
 const getStatusColor = (status: IMusitronTask['status']) => {
   switch (status) {
-    case 'complete':
+    case 'completed':
       return 'bg-green-500/80 text-green-100';
     case 'failed':
       return 'bg-red-500/80 text-red-100';
     case 'processing':
       return 'bg-yellow-500/80 text-yellow-100';
-    case 'queued':
+    case 'listed':
       return 'bg-blue-500/80 text-blue-100';
     default:
       return 'bg-zinc-500/80 text-zinc-100';
@@ -47,8 +47,8 @@ export function TaskDetails({ task }: TaskDetailsProps) {
   const [audioError, setAudioError] = useState(false);
   const [downloadLoading, setDownloadLoading] = useState(false);
 
-  const displayTitle = task.options.title || `Music Task #${(task._id as Types.ObjectId).toString().slice(-6)}`;
-  const audioUrl = task.gcsAudioLink;
+  const displayTitle = task.title || `Music Task #${(task._id as Types.ObjectId).toString().slice(-6)}`;
+  const audioUrl = task.gcs_url;
 
   // Track if component is mounted
   const isMounted = React.useRef(true);
@@ -158,7 +158,7 @@ export function TaskDetails({ task }: TaskDetailsProps) {
                   </label>
                   <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700">
                     <p className="text-sm text-zinc-100 whitespace-pre-wrap">
-                      {task.options.title}
+                      {task.title}
                     </p>
                   </div>
                 </div>
@@ -166,11 +166,6 @@ export function TaskDetails({ task }: TaskDetailsProps) {
                   <label className="text-sm font-medium text-zinc-300 capitalize">
                     Mode
                   </label>
-                  <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700">
-                    <p className="text-sm text-zinc-100 whitespace-pre-wrap">
-                      {task.options.customMode ? "Custom Mode" : "Simple Mode"}
-                    </p>
-                  </div>
                 </div>
                 <div className="space-y-1">
                   <label className="text-sm font-medium text-zinc-300 capitalize">
@@ -178,42 +173,31 @@ export function TaskDetails({ task }: TaskDetailsProps) {
                   </label>
                   <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700">
                     <p className="text-sm text-zinc-100 whitespace-pre-wrap">
-                      {task.options.instrumental ? "Yes" : "No"}
+                      {task.instrumental_only ? "Yes" : "No"}
                     </p>
                   </div>
                 </div>
-                {task.options.songDescription && (
-                  <div className="space-y-1">
-                    <label className="text-sm font-medium text-zinc-300 capitalize">
-                      Song Description
-                    </label>
-                    <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700">
-                      <p className="text-sm text-zinc-100 whitespace-pre-wrap">
-                        {task.options.songDescription}
-                      </p>
-                    </div>
-                  </div>
-                )}
-                {task.options.style && (
+                {/* Song Description not present in new schema */}
+                {task.style && (
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-zinc-300 capitalize">
                       Style
                     </label>
                     <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700">
                       <p className="text-sm text-zinc-100 whitespace-pre-wrap">
-                        {task.options.style}
+                        {task.style}
                       </p>
                     </div>
                   </div>
                 )}
-                {task.options.lyrics && (
+                {task.lyrics && (
                   <div className="space-y-1">
                     <label className="text-sm font-medium text-zinc-300 capitalize">
                       Lyrics
                     </label>
                     <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-700">
                       <p className="text-sm text-zinc-100 whitespace-pre-wrap">
-                        {task.options.lyrics}
+                        {task.lyrics}
                       </p>
                     </div>
                   </div>
@@ -247,7 +231,7 @@ export function TaskDetails({ task }: TaskDetailsProps) {
                     </span>
                   </div>
                 </div>
-                {task.status === 'complete' && (
+                {task.status === 'completed' && (
                   <div>
                     <label className="text-sm font-medium text-zinc-300">Completed</label>
                     <div className="flex items-center gap-2 mt-1">
@@ -292,7 +276,7 @@ export function TaskDetails({ task }: TaskDetailsProps) {
 
         {/* Right Column - Generated Music */}
         <div className="space-y-6">
-          {task.status === 'complete' && audioUrl ? (
+          {task.status === 'completed' && audioUrl ? (
             <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
               <CardHeader>
                 <div className="flex items-center justify-between">

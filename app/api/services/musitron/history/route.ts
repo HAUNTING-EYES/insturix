@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     const totalItems = results[0].metadata[0] ? results[0].metadata[0].totalItems : 0;
     const totalPages = Math.ceil(totalItems / validatedLimit);
 
-    const formattedHistory = history.map((task: any) => ({
+    let formattedHistory = history.map((task: any) => ({
       ...task,
       _id: task._id?.toString() || '',
       createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
@@ -55,15 +55,69 @@ export async function GET(request: Request) {
       ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
     }));
 
+    // If no tasks, inject demo tasks
+    if (formattedHistory.length === 0 && validatedPage === 1) {
+      formattedHistory = [
+        {
+          _id: "demo-listed",
+          clerkUserId: "demo",
+          title: "Listed Demo Track",
+          style: "Demo",
+          instrumental_only: false,
+          lyrics: "",
+          status: "listed",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          unread: true,
+        },
+        {
+          _id: "demo-processing",
+          clerkUserId: "demo",
+          title: "Processing Demo Track",
+          style: "Demo",
+          instrumental_only: false,
+          lyrics: "",
+          status: "processing",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          unread: true,
+        },
+        {
+          _id: "demo-completed",
+          clerkUserId: "demo",
+          title: "Completed Demo Track",
+          style: "Demo",
+          instrumental_only: false,
+          lyrics: "",
+          status: "completed",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          unread: false,
+        },
+        {
+          _id: "demo-failed",
+          clerkUserId: "demo",
+          title: "Failed Demo Track",
+          style: "Demo",
+          instrumental_only: false,
+          lyrics: "",
+          status: "failed",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          unread: false,
+        },
+      ];
+    }
+
     return NextResponse.json({
       data: formattedHistory,
       pagination: {
-        totalItems,
-        totalPages,
+        totalItems: formattedHistory.length,
+        totalPages: 1,
         currentPage: validatedPage,
         itemsPerPage: validatedLimit,
-        hasNext: validatedPage < totalPages,
-        hasPrev: validatedPage > 1,
+        hasNext: false,
+        hasPrev: false,
       }
     });
   } catch (error) {

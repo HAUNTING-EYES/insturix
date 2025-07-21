@@ -17,7 +17,7 @@ export default function MusicGenerator() {
   const [instrumental, setInstrumental] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!title) {
@@ -34,11 +34,36 @@ export default function MusicGenerator() {
     }
 
     setLoading(true);
-    // Placeholder for actual submission logic
-    setTimeout(() => {
-      setLoading(false);
+
+    try {
+      const payload: any = {
+        title,
+        instrumental,
+        style,
+      };
+      if (!instrumental) {
+        payload.lyrics = lyrics;
+      }
+      // Optionally add songDescription if you want to support simple mode
+
+      const res = await fetch("/api/services/musitron/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const msg = await res.text();
+        throw new Error(msg || "Failed to start music generation");
+      }
+
       toast.success("Music generation started!");
-    }, 1000);
+      // Optionally: reset form or trigger analytics/task refresh here
+    } catch (err: any) {
+      toast.error(err.message || "Failed to start music generation");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

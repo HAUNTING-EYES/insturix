@@ -4,55 +4,30 @@ import React, { useState } from 'react';
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
-import { History, Music2, ChevronRight as ChevronRightIcon, Calendar, Type, Clock, Loader2, AlertCircle } from "lucide-react";
+import { Button } from '@/components/ui/button';
+import { History, Music2, ChevronRight as ChevronRightIcon, Calendar, Clock, Loader2, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
+import { useQuery } from "@tanstack/react-query";
 
-interface MusitronTaskDisplay {
-  _id: string;
-  status: 'listed' | 'processing' | 'complete' | 'failed';
-  createdAt: Date;
-  updatedAt: Date;
-  options: {
-    customMode: boolean;
-    title: string;
+interface PaginatedTaskResponse {
+  data: MusitronTask[];
+  pagination: {
+    totalItems: number;
+    totalPages: number;
+    currentPage: number;
+    itemsPerPage: number;
+    hasNext: boolean;
+    hasPrev: boolean;
   };
 }
 
-const demoTasks: MusitronTaskDisplay[] = [
-  {
-    _id: "demo-listed",
-    status: "listed",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    options: { customMode: false, title: "Listed Demo Track" },
-  },
-  {
-    _id: "demo-processing",
-    status: "processing",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    options: { customMode: true, title: "Processing Demo Track" },
-  },
-  {
-    _id: "demo-complete",
-    status: "complete",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    options: { customMode: false, title: "Completed Demo Track" },
-  },
-  {
-    _id: "demo-failed",
-    status: "failed",
-    createdAt: new Date(),
-    updatedAt: new Date(),
-    options: { customMode: true, title: "Failed Demo Track" },
-  },
-];
+const ITEMS_PER_PAGE = 8;
 
-function MusitronTaskCard({ task }: { task: MusitronTaskDisplay }) {
+function MusitronTaskCard({ task }: { task: MusitronTask }) {
   const router = useRouter();
-  const displayTitle = task.options.title || `Music Task #${task._id?.toString().slice(-6)}`;
-  const isClickable = task.status === "complete" || task.status === "failed";
+  const displayTitle = task.title || `Music Task #${task._id?.toString().slice(-6)}`;
+  const isClickable = task.status === "completed" || task.status === "failed";
   const handleClick = () => {
     if (isClickable) {
       router.push(`/dashboard/musitron/task/${task._id}`);
@@ -83,11 +58,7 @@ function MusitronTaskCard({ task }: { task: MusitronTaskDisplay }) {
                 <Calendar className="h-3 w-3" />
                 {new Date(task.createdAt).toLocaleDateString()}
               </div>
-              <div className="flex items-center gap-1">
-                <Type className="h-3 w-3" />
-                {task.options.customMode ? "Custom Mode" : "Simple Mode"}
-              </div>
-              {task.status === 'complete' && (
+              {task.status === 'completed' && (
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   {new Date(task.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -139,9 +110,9 @@ function MusitronTaskCard({ task }: { task: MusitronTaskDisplay }) {
                     <ChevronRightIcon className="h-4 w-4 text-zinc-400 opacity-60" />
                   </motion.div>
                 )}
-                {task.status === 'complete' && (
+                {task.status === 'completed' && (
                   <motion.div
-                    key="complete"
+                    key="completed"
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
@@ -161,7 +132,71 @@ function MusitronTaskCard({ task }: { task: MusitronTaskDisplay }) {
 }
 
 export function MusitronTaskHistory() {
-  const [tasks] = useState<MusitronTaskDisplay[]>(demoTasks);
+  // Pagination state for completed/failed tasks
+  const [currentPage, setCurrentPage] = useState(1);
+  const router = useRouter();
+
+  const IN_PROGRESS_STATUSES: MusitronTask["status"][] = ["listed", "processing"];
+
+  function useAllMusitronTasks(): MusitronTask[] {
+    const { data } = useQuery<MusitronTask[]>({
+      queryKey: ["musitron-all-tasks"],
+      queryFn: async () => {
+        const response = await fetch("/api/services/musitron/history?limit=1000");
+        if (!response.ok) throw new Error("Failed to fetch all Musitron tasks");
+        const { data } = await response.json();
+        return data.map((task: any) => ({
+          ...task,
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+        }));
+      },
+      staleTime: 1000 * 60 * 5,
+      gcTime: 1000 * 60 * 10,
+      refetchOnWindowFocus: false,
+    });
+    return data || [];
+  }
+
+  // Fetch paginated completed/failed tasks from API
+  const { data: paginatedData, isLoading } = useQuery<PaginatedTaskResponse>({
+    queryKey: ["musitron-history", currentPage, ITEMS_PER_PAGE],
+    queryFn: async () => {
+      const response = await fetch(
+        `/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}&status=completed,failed`
+      );
+      if (!response.ok) throw new Error("Failed to fetch task history");
+      return response.json();
+    },
+    placeholderData: (previousData) => previousData,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    refetchOnWindowFocus: false,
+  });
+
+  // Only show completed/failed tasks in completed section, even if backend sends others
+  const completedTasks: MusitronTask[] =
+    paginatedData && paginatedData.data && paginatedData.data.length > 0
+      ? paginatedData.data
+          .filter((t: any) => t.status === "completed" || t.status === "failed")
+          .map((t: any) => ({
+            ...t,
+            createdAt: new Date(t.createdAt),
+            updatedAt: new Date(t.updatedAt),
+          }))
+      : [];
+
+  // Use only React Query for in-progress tasks
+  const allMusitronTasks = useAllMusitronTasks();
+  const inProgressTasks = allMusitronTasks.filter((t) =>
+    IN_PROGRESS_STATUSES.includes(t.status as any)
+  );
+
+  const totalPages = paginatedData?.pagination?.totalPages || 1;
+  const totalItems = paginatedData?.pagination?.totalItems || 0;
+
+  const handlePreviousPage = () => setCurrentPage((prev) => Math.max(prev - 1, 1));
+  const handleNextPage = () => setCurrentPage((prev) => Math.min(prev + 1, totalPages));
 
   return (
     <div className="space-y-6">
@@ -169,11 +204,25 @@ export function MusitronTaskHistory() {
         <History className="h-5 w-5 text-yellow-400" />
         <h2 className="text-lg sm:text-xl font-medium text-zinc-100">Task History</h2>
         <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs text-zinc-400">
-          {tasks.length} total
+          {useAllMusitronTasks().length} total
         </span>
       </div>
+
+      {/* In Progress Section */}
+      {inProgressTasks.length > 0 && (
+        <div className="mb-6">
+          <h3 className="text-md font-semibold text-yellow-300 mb-2">In Progress</h3>
+          <div className="space-y-3 sm:space-y-4">
+            {inProgressTasks.map((task) => (
+              <MusitronTaskCard key={task._id} task={task} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Completed Section */}
       <div className="space-y-3 sm:space-y-4 min-h-[400px] relative">
-        {tasks.length === 0 ? (
+        {completedTasks.length === 0 && inProgressTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
             <Music2 className="h-12 w-12 text-zinc-500 mb-4" />
             <p className="text-zinc-400 text-center mb-2">No music generated yet</p>
@@ -183,12 +232,42 @@ export function MusitronTaskHistory() {
           </div>
         ) : (
           <>
-            {tasks.map((task) => (
+            <h3 className="text-md font-semibold text-yellow-300 mb-2">Completed</h3>
+            {completedTasks.map((task) => (
               <MusitronTaskCard key={task._id} task={task} />
             ))}
           </>
         )}
       </div>
+      {/* Pagination */}
+      {totalPages > ITEMS_PER_PAGE && (
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-6">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handlePreviousPage}
+            disabled={currentPage === 1 || isLoading}
+            className="w-full sm:w-auto order-2 sm:order-1"
+          >
+            <ChevronLeft className="mr-1 sm:mr-2 h-3 w-3 sm:h-4 sm:w-4" />
+            <span className="text-xs sm:text-sm">Previous</span>
+          </Button>
+          <span className="text-xs sm:text-sm text-zinc-400 order-1 sm:order-2 text-center">
+            Page {currentPage} of {totalPages}
+            <span className="hidden sm:inline"> ({totalItems} total)</span>
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages || isLoading}
+            className="w-full sm:w-auto order-3"
+          >
+            <span className="text-xs sm:text-sm">Next</span>
+            <ChevronRight className="ml-1 sm:ml-2 h-3 w-3 sm:h-4 sm:w-4" />
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

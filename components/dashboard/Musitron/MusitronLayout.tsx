@@ -2,15 +2,13 @@
 
 import { AudioWaveform } from "lucide-react";
 import { ClientWrapper } from "@/components/dashboard/Musitron/ClientWrapper";
-import { IMusitronTask } from "@/schemas/Musitron";
+import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { AnalyticsOverview } from "@/components/dashboard/Musitron/AnalyticsOverview";
 import { CompactAnalytics } from "@/components/dashboard/Musitron/CompactAnalytics";
 
-interface MusitronLayoutProps {
-  initialTasks: IMusitronTask[];
-}
+interface MusitronLayoutProps {}
 
-export function MusitronLayout({ initialTasks }: MusitronLayoutProps) {
+export function MusitronLayout({}: MusitronLayoutProps) {
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
       <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-start gap-6 lg:gap-8">
@@ -33,7 +31,7 @@ export function MusitronLayout({ initialTasks }: MusitronLayoutProps) {
             <CompactAnalytics />
           </div>
           {/* Client Components */}
-          <ClientWrapper initialTasks={initialTasks} />
+          <ClientWrapper />
         </div>
 
         {/* Desktop Analytics - Placeholder for future use */}

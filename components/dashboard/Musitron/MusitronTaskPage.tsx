@@ -13,7 +13,6 @@ const demoTasks = {
     title: "Completed Demo Track",
     createdAt: new Date(),
     updatedAt: new Date(),
-    customMode: false,
     description: "This is a completed demo music track.",
     audioUrl: "/demo-audio.mp3",
     imageUrl: "/placeholder.svg",
@@ -24,7 +23,6 @@ const demoTasks = {
     title: "Failed Demo Track",
     createdAt: new Date(),
     updatedAt: new Date(),
-    customMode: true,
     description: "This task failed due to an error.",
     error: "Demo error: Something went wrong.",
     imageUrl: "/placeholder.svg",
@@ -224,7 +222,6 @@ export default function MusitronTaskPage() {
               <div className="flex items-center gap-2 text-xs text-zinc-500 mt-1">
                 <Clock className="h-3 w-3" />
                 {new Date(task.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                <span className="ml-2">{task.customMode ? "Custom Mode" : "Simple Mode"}</span>
               </div>
             </div>
           </div>
