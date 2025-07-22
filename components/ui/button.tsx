@@ -20,13 +20,17 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-neutral-100 hover:text-neutral-900 dark:hover:bg-neutral-800 dark:hover:text-neutral-50",
         link: "text-neutral-900 underline-offset-4 hover:underline dark:text-neutral-50",
-        custom: ""
+        custom: "",
+        premium: "bg-zinc-50 text-zinc-950 hover:bg-zinc-100 shadow-premium font-medium",
+        elevated: "bg-zinc-800 text-zinc-50 hover:bg-zinc-700 shadow-elevated border border-zinc-700",
+        player: "bg-zinc-900 border border-zinc-800 text-zinc-50 hover:bg-zinc-800 hover:border-zinc-700 transition-all duration-200",
       },
       size: {
         default: "h-9 px-4 py-2",
         sm: "h-8 rounded-md px-3 text-xs",
         lg: "h-10 rounded-md px-8",
         icon: "h-9 w-9",
+        player: "h-12 w-12 rounded-full",
       },
     },
     defaultVariants: {

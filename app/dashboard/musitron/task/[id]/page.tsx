@@ -1,10 +1,10 @@
-// app/dashboard/musitron/task/[id]/page.tsx
-
 import { auth } from "@clerk/nextjs/server";
 import { getMusitronDb } from "@/lib/musitron-mongo";
 import { MusitronTask, IMusitronTask } from "@/schemas/Musitron";
 import { notFound } from "next/navigation";
-import { TaskDetails } from "./components/TaskDetails";
+import MusicPlayerWrapper from "@/components/dashboard/Musitron/MusicPlayerWrapper";
+import { Button } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
 import { Types } from "mongoose";
 
 export const dynamic = "force-dynamic";
@@ -71,10 +71,18 @@ export default async function TaskDetailsPage({ params }: PageProps) {
   }
 
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="max-w-4xl mx-auto">
-        <TaskDetails task={result.task} />
+    <div className="p-4 sm:p-6 lg:p-8">
+      {/* Back to History Button */}
+      <div className="mb-6 max-w-4xl mx-auto">
+        <form action="/dashboard/musitron/history" method="get">
+          <Button variant="outline" type="submit" className="flex items-center gap-2">
+            <ArrowLeft className="w-4 h-4" />
+            Back to History
+          </Button>
+        </form>
       </div>
+      {/* Music Player */}
+      <MusicPlayerWrapper task={result.task} />
     </div>
   );
 }
