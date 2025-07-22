@@ -3,6 +3,7 @@ import { getMusitronDb } from "@/lib/musitron-mongo";
 import { MusitronTask, IMusitronTask } from "@/schemas/Musitron";
 import { notFound } from "next/navigation";
 import MusicPlayerWrapper from "@/components/dashboard/Musitron/MusicPlayerWrapper";
+import { TaskDetails } from "./components/TaskDetails";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
 import { Types } from "mongoose";
@@ -74,15 +75,21 @@ export default async function TaskDetailsPage({ params }: PageProps) {
     <div className="p-4 sm:p-6 lg:p-8">
       {/* Back to History Button */}
       <div className="mb-6 max-w-4xl mx-auto">
-        <form action="/dashboard/musitron/history" method="get">
+        <form action="/dashboard/musitron/" method="get">
           <Button variant="outline" type="submit" className="flex items-center gap-2">
             <ArrowLeft className="w-4 h-4" />
-            Back to History
+            Back to Musitron
           </Button>
         </form>
       </div>
-      {/* Music Player */}
-      <MusicPlayerWrapper task={result.task} />
+      <div className="max-w-4xl mx-auto">
+        <TaskDetails task={result.task} />
+        {result.task.status === "completed" && (
+          <div className="mt-8">
+            <MusicPlayerWrapper task={result.task} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

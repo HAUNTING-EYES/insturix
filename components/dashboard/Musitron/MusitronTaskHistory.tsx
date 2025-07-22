@@ -22,7 +22,7 @@ interface PaginatedTaskResponse {
   };
 }
 
-const ITEMS_PER_PAGE = 8;
+const ITEMS_PER_PAGE = 5;
 
 function MusitronTaskCard({ task }: { task: MusitronTask }) {
   const router = useRouter();
@@ -239,7 +239,7 @@ export function MusitronTaskHistory() {
         )}
       </div>
       {/* Pagination */}
-      {totalPages > ITEMS_PER_PAGE && (
+      {totalPages > 1 && (
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 mt-6">
           <Button
             variant="outline"
