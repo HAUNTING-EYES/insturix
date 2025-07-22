@@ -11,7 +11,7 @@ export const SERVICE_CONFIG = {
   },
   musitron: {
     name: 'Musitron',
-    mongoCollection: process.env.MUSITRON_MONGO_COLLECTION || 'musitron_tracks',
+    mongoCollection: process.env.MUSITRON_MONGO_COLLECTION || 'musitron_tasks',
     pubsubTopic: process.env.MUSITRON_PUBSUB_TOPIC || 'musitron-tasks',
   },
   shield: {

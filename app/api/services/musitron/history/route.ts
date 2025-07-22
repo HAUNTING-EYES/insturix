@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     const validatedLimit = Math.min(Math.max(1, limit), 50);
     const skip = (validatedPage - 1) * validatedLimit;
 
-    const query: any = { userId };
+    const query: any = { clerkUserId: userId };
     if (status) {
       const statusArray = status.split(',').map(s => s.trim());
       query.status = { $in: statusArray };
@@ -35,8 +35,7 @@ export async function GET(request: Request) {
           data: [
             { $sort: { createdAt: -1 } },
             { $skip: skip },
-            { $limit: validatedLimit },
-            { $project: { "results.thumbnail.prompt": 0 } }
+            { $limit: validatedLimit }
           ]
         }
       }
@@ -55,69 +54,15 @@ export async function GET(request: Request) {
       ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
     }));
 
-    // If no tasks, inject demo tasks
-    if (formattedHistory.length === 0 && validatedPage === 1) {
-      formattedHistory = [
-        {
-          _id: "demo-listed",
-          clerkUserId: "demo",
-          title: "Listed Demo Track",
-          style: "Demo",
-          instrumental_only: false,
-          lyrics: "",
-          status: "listed",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          unread: true,
-        },
-        {
-          _id: "demo-processing",
-          clerkUserId: "demo",
-          title: "Processing Demo Track",
-          style: "Demo",
-          instrumental_only: false,
-          lyrics: "",
-          status: "processing",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          unread: true,
-        },
-        {
-          _id: "demo-completed",
-          clerkUserId: "demo",
-          title: "Completed Demo Track",
-          style: "Demo",
-          instrumental_only: false,
-          lyrics: "",
-          status: "completed",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          unread: false,
-        },
-        {
-          _id: "demo-failed",
-          clerkUserId: "demo",
-          title: "Failed Demo Track",
-          style: "Demo",
-          instrumental_only: false,
-          lyrics: "",
-          status: "failed",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          unread: false,
-        },
-      ];
-    }
-
     return NextResponse.json({
       data: formattedHistory,
       pagination: {
-        totalItems: formattedHistory.length,
-        totalPages: 1,
+        totalItems,
+        totalPages,
         currentPage: validatedPage,
         itemsPerPage: validatedLimit,
-        hasNext: false,
-        hasPrev: false,
+        hasNext: validatedPage < totalPages,
+        hasPrev: validatedPage > 1,
       }
     });
   } catch (error) {

@@ -9,11 +9,15 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
 
 export default function MusicGenerator() {
   const [title, setTitle] = useState("");
   const [style, setStyle] = useState("");
   const [lyrics, setLyrics] = useState("");
+  const [duration, setDuration] = useState(30); // default 30 seconds
+  const MIN_DURATION = 5;
+  const MAX_DURATION = 240;
   const [instrumental, setInstrumental] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -28,6 +32,10 @@ export default function MusicGenerator() {
       toast.error("Please enter a style of music");
       return;
     }
+    if (!duration || isNaN(Number(duration)) || Number(duration) < 5 || Number(duration) > 240) {
+      toast.error("Please enter a valid duration between 5 and 240 seconds");
+      return;
+    }
     if (!instrumental && !lyrics) {
       toast.error("Please enter lyrics or enable instrumental mode");
       return;
@@ -40,11 +48,11 @@ export default function MusicGenerator() {
         title,
         instrumental,
         style,
+        duration: Number(duration),
       };
       if (!instrumental) {
         payload.lyrics = lyrics;
       }
-      // Optionally add songDescription if you want to support simple mode
 
       const res = await fetch("/api/services/musitron/generate", {
         method: "POST",
@@ -111,6 +119,46 @@ export default function MusicGenerator() {
                   {style.length}/120
                 </div>
               </div>
+            </div>
+            {/* Duration row: full width, single line */}
+            <div className="flex flex-col md:flex-row items-center gap-4 w-full">
+              <Label
+                htmlFor="duration"
+                className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2 min-w-[120px]"
+              >
+                <Music4 className="h-4 w-4 text-yellow-500" />
+                Duration (seconds)
+              </Label>
+              <Input
+                id="duration"
+                type="number"
+                min={MIN_DURATION}
+                max={MAX_DURATION}
+                value={duration}
+                onChange={(e) => {
+                  let val = Number(e.target.value);
+                  if (isNaN(val)) val = MIN_DURATION;
+                  if (val < MIN_DURATION) val = MIN_DURATION;
+                  if (val > MAX_DURATION) val = MAX_DURATION;
+                  setDuration(val);
+                }}
+                placeholder="Enter duration in seconds (e.g., 120)"
+                className="w-24 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
+                required
+              />
+              <Slider
+                min={MIN_DURATION}
+                max={MAX_DURATION}
+                step={1}
+                value={[Number(duration)]}
+                onValueChange={([val]) => {
+                  if (val < MIN_DURATION) setDuration(MIN_DURATION);
+                  else if (val > MAX_DURATION) setDuration(MAX_DURATION);
+                  else setDuration(val);
+                }}
+                className="flex-1"
+              />
+              <span className="text-xs text-zinc-400 flex items-center">{duration} sec</span>
             </div>
 
             <div className="flex items-center justify-between p-3 rounded-lg bg-black/20">

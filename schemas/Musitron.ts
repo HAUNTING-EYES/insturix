@@ -40,4 +40,4 @@ const MusitronTaskSchema: Schema = new Schema({
   refunded: { type: Boolean, default: false },
 });
 
-export const MusitronTask = mongoose.models.MusitronTask || mongoose.model<IMusitronTask>('MusitronTask', MusitronTaskSchema, 'musitron-tasks');
+export const MusitronTask = mongoose.models.MusitronTask || mongoose.model<IMusitronTask>('MusitronTask', MusitronTaskSchema, 'musitron_tasks');

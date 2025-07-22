@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getMusitronDb } from '@/lib/musitron-mongo';
-import { MusitronTask, IMusitronTask } from '@/schemas/Musitron';
+import { MusitronTask } from '@/schemas/Musitron';
 import { PubSub } from '@google-cloud/pubsub';
 import { getServiceConfig } from '@/lib/config/services';
 
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { title, instrumental, songDescription, style, lyrics } = body;
+  const { title, instrumental, songDescription, style, lyrics, duration } = body;
 
   // Validate required fields
   if (!title || typeof instrumental !== 'boolean') {
@@ -40,8 +40,12 @@ export async function POST(req: Request) {
     return new NextResponse('Missing required fields: style', { status: 400 });
   }
 
-  // Usage check (replace with Musitron-specific limit check if available)
-  // If you have a Musitron-specific limit check, use it here. Otherwise, skip for now.
+  // Usage check (Musitron-specific)
+  const { checkMusitronLimits, incrementMusitronUsage } = await import('@/lib/middleware/services/musitron');
+  const limitResult = await checkMusitronLimits({ userId });
+  if (!limitResult.hasAccess) {
+    return new NextResponse('Usage limit exceeded', { status: 403 });
+  }
 
   await getMusitronDb();
 
@@ -52,17 +56,15 @@ export async function POST(req: Request) {
   let newTask;
   try {
     newTask = new MusitronTask({
-      userId,
+      clerkUserId: userId,
       title: generatedTitle,
-      status: 'queued',
+      status: 'listed',
       createdAt: new Date(),
-      options: {
-        title: generatedTitle,
-        instrumental,
-        ...(songDescription && { songDescription }),
-        ...(style && { style }),
-        ...(lyrics && { lyrics }),
-      },
+      instrumental_only: instrumental,
+      style,
+      lyrics: lyrics || "",
+      // Optionally include songDescription if your schema supports it
+      ...(songDescription && { songDescription }),
     });
     await newTask.save();
   } catch (saveError: any) {
@@ -70,11 +72,24 @@ export async function POST(req: Request) {
     return new NextResponse('Internal Server Error', { status: 500 });
   }
 
+  // Increment usage after task creation
+  const usageResult = await incrementMusitronUsage({ userId });
+  if (!usageResult.success) {
+    console.error('Failed to increment musitron usage:', usageResult.error);
+    // Don't fail the request, just log for monitoring
+  }
+
   // Prepare PubSub message
   const pubsubMessage = {
     taskId: newTask._id.toString(),
     userId,
-    options: newTask.options,
+    options: {
+      title: newTask.title,
+      instrumental: newTask.instrumental_only,
+      style: newTask.style,
+      lyrics: newTask.lyrics,
+      ...(duration && { duration })
+    }
   };
 
   // Publish to local worker or PubSub

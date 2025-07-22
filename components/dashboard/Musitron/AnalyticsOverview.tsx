@@ -19,6 +19,19 @@ export function AnalyticsOverview() {
     },
   });
 
+  // Format timeUntilReset if it's an object
+  function formatTimeUntilReset(
+    time: { days: number; hours: number; minutes: number; totalMs: number } | null
+  ): string {
+    if (!time) return "";
+    const { days = 0, hours = 0, minutes = 0 } = time || {};
+    const parts = [];
+    if (days) parts.push(`${days}d`);
+    if (hours) parts.push(`${hours}h`);
+    if (minutes) parts.push(`${minutes}m`);
+    return parts.length > 0 ? parts.join(" ") : "0m";
+  }
+
   return (
     <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
       <CardHeader className="pb-4">
@@ -59,10 +72,10 @@ export function AnalyticsOverview() {
             <div className="mb-3">
               <div className="flex items-end gap-2">
                 <span className="text-3xl font-bold text-zinc-100 leading-tight">
-                  {data?.monthlySongs ?? 0}
+                  {data?.usage?.currentUsage ?? 0}
                 </span>
                 <span className="text-xs text-zinc-500 ml-2">
-                  / {data?.maxSongs ?? 0}
+                  / {data?.usage?.maxUsage ?? 0}
                 </span>
               </div>
               <div className="w-full h-2 bg-zinc-800 rounded mt-2">
@@ -70,8 +83,8 @@ export function AnalyticsOverview() {
                   className="h-2 rounded"
                   style={{
                     background: MUSITRON_COLOR,
-                    width: data?.maxSongs
-                      ? `${Math.min((data.monthlySongs / data.maxSongs) * 100, 100)}%`
+                    width: data?.usage?.maxUsage
+                      ? `${Math.min((data.usage.currentUsage / data.usage.maxUsage) * 100, 100)}%`
                       : "0%",
                     transition: "width 0.3s",
                   }}
@@ -80,15 +93,15 @@ export function AnalyticsOverview() {
             </div>
             <div className="mt-2 space-y-1">
               <div className="flex items-center text-xs text-zinc-400">
-                <span>{data?.remaining ?? 0} remaining</span>
+                <span>{data?.usage?.remaining ?? 0} remaining</span>
                 <span className="mx-2 text-zinc-700">·</span>
                 <span>
-                  Reset: <span className="font-medium">{(data?.resetPeriod ?? "Monthly").charAt(0).toUpperCase() + (data?.resetPeriod ?? "Monthly").slice(1)}</span>
+                  Reset: <span className="font-medium">{(data?.usage?.resetPeriod ?? "Monthly").charAt(0).toUpperCase() + (data?.usage?.resetPeriod ?? "Monthly").slice(1)}</span>
                 </span>
               </div>
-              {data?.timeUntilReset ? (
+              {data?.usage?.timeUntilReset ? (
                 <div className="text-xs text-zinc-400">
-                  Resets in {data.timeUntilReset}
+                  Resets in {formatTimeUntilReset(data.usage.timeUntilReset)}
                 </div>
               ) : null}
             </div>

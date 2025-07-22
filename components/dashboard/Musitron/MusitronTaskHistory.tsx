@@ -134,7 +134,6 @@ function MusitronTaskCard({ task }: { task: MusitronTask }) {
 export function MusitronTaskHistory() {
   // Pagination state for completed/failed tasks
   const [currentPage, setCurrentPage] = useState(1);
-  const router = useRouter();
 
   const IN_PROGRESS_STATUSES: MusitronTask["status"][] = ["listed", "processing"];
 

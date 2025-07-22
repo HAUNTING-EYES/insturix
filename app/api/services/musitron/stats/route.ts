@@ -15,73 +15,15 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get collections (assume similar to alyzitron)
-    const { tasks } = await getCollections();
+    // Fetch all usage objects for the user
+    const usage = await ServiceUsageService.getServiceUsageForAllServices(userId);
 
-    // Get monthly songs generated
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
-
-    const monthlySongs = await tasks.countDocuments({
-      clerkUserId: userId,
-      createdAt: { $gte: monthStart },
-    });
-
-    // Use real Musitron limits
-    const musitronLimits = getAllLimitTypesForService('musitron');
-    // Find the main music generation limit
-    const mainLimit = musitronLimits.find(l => l.limitType === "maxMusicGeneration");
-    let maxSongs = 0;
-    let resetPeriod = "monthly";
-    let isUnlimited = false;
-
-    let usageCheck: any = null;
-    if (mainLimit) {
-      usageCheck = await ServiceUsageService.canUseService(userId, 'musitron', mainLimit.limitType);
-      maxSongs = usageCheck.maxUsage ?? 0;
-      resetPeriod = usageCheck.resetPeriod ?? "monthly";
-      isUnlimited = usageCheck.isUnlimited || usageCheck.maxUsage === -1;
-    }
-
-    const remaining = isUnlimited ? -1 : Math.max(0, maxSongs - monthlySongs);
-
-    // Calculate time until reset (rolling window)
-    let timeUntilReset = null;
-    if (usageCheck && usageCheck.lastReset && !isUnlimited && remaining !== maxSongs) {
-      const now = new Date();
-      let resetDate: Date | null = null;
-      if (resetPeriod === "monthly") {
-        resetDate = new Date(usageCheck.lastReset);
-        resetDate.setMonth(resetDate.getMonth() + 1);
-      } else if (resetPeriod === "weekly") {
-        resetDate = new Date(usageCheck.lastReset);
-        resetDate.setDate(resetDate.getDate() + 7);
-      } else if (resetPeriod === "daily") {
-        resetDate = new Date(usageCheck.lastReset);
-        resetDate.setDate(resetDate.getDate() + 1);
-      }
-      if (resetDate) {
-        const msUntilReset = resetDate.getTime() - now.getTime();
-        if (msUntilReset > 0) {
-          const days = Math.floor(msUntilReset / (1000 * 60 * 60 * 24));
-          const hours = Math.floor((msUntilReset / (1000 * 60 * 60)) % 24);
-          const minutes = Math.floor((msUntilReset / (1000 * 60)) % 60);
-          timeUntilReset = `${days}d ${hours}h ${minutes}m`;
-        } else {
-          timeUntilReset = "Resets soon";
-        }
-      }
-    }
+    // Extract Musitron's main usage object
+    const musitronUsage = usage.musitron?.maxMusicGeneration;
 
     return NextResponse.json({
       success: true,
-      monthlySongs,
-      maxSongs: isUnlimited ? -1 : maxSongs,
-      remaining,
-      resetPeriod,
-      timeUntilReset,
-      isUnlimited,
+      usage: musitronUsage,
     });
   } catch (error) {
     console.error("Error fetching Musitron stats:", error);
