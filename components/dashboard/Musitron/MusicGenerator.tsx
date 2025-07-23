@@ -10,6 +10,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
+import { useQuery } from "@tanstack/react-query";
+import { FormLock } from "./FormLock";
 
 export default function MusicGenerator() {
   const [title, setTitle] = useState("");
@@ -20,6 +22,17 @@ export default function MusicGenerator() {
   const MAX_DURATION = 240;
   const [instrumental, setInstrumental] = useState(false);
   const [loading, setLoading] = useState(false);
+
+    // Musitron usage stats via musitron-analytics cache
+    const { data: usage, isLoading: usageLoading } = useQuery({
+      queryKey: ["musitron-analytics"],
+      queryFn: async () => {
+        const res = await fetch("/api/services/musitron/stats");
+        if (!res.ok) throw new Error("Failed to fetch analytics");
+        return res.json();
+      },
+    });
+    const isLocked = usage && !usage.hasAccess;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,8 +89,9 @@ export default function MusicGenerator() {
 
   return (
     <div className="space-y-6">
-      <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
-        <CardContent className="p-6 space-y-6">
+      <Card className={`bg-black/40 border-zinc-800 relative overflow-hidden${isLocked ? "" : " backdrop-blur-xl"}`}>
+        <CardContent className="min-h-[400px] p-6 space-y-6">
+          <div className={isLocked ? "blur-sm" : ""}>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid gap-6 md:grid-cols-2">
               <div className="space-y-2">
@@ -208,12 +222,14 @@ export default function MusicGenerator() {
                 }
                 transition-all duration-300
               `}
-              disabled={loading}
-            >
+              disabled={loading || isLocked}
+              >
               {loading ? "Generating Music..." : "Generate Music"}
             </Button>
           </form>
+          </div>
         </CardContent>
+        {usage && !usage.hasAccess && <FormLock timeUntilReset={usage.timeUntilReset} />}
       </Card>
     </div>
   );

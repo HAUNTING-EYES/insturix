@@ -49,6 +49,8 @@ export function useTaskUpdater() {
                   queryKey: ['musitron-tasks', taskId],
                   exact: true,
                 });
+                // Refetch musitron analytics as well
+                queryClient.refetchQueries({ queryKey: ['musitron-analytics'] });
               }
             }
           });
