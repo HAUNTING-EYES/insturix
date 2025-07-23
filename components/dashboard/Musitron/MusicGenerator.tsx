@@ -24,7 +24,7 @@ export default function MusicGenerator() {
   const [loading, setLoading] = useState(false);
 
     // Musitron usage stats via musitron-analytics cache
-    const { data: usage, isLoading: usageLoading } = useQuery({
+    const { data: apiData, isLoading: usageLoading } = useQuery({
       queryKey: ["musitron-analytics"],
       queryFn: async () => {
         const res = await fetch("/api/services/musitron/stats");
@@ -32,7 +32,8 @@ export default function MusicGenerator() {
         return res.json();
       },
     });
-    const isLocked = usage && !usage.hasAccess;
+    const usage = apiData?.usage;
+    const isLocked = usage && usage.hasAccess === false;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,7 +230,9 @@ export default function MusicGenerator() {
           </form>
           </div>
         </CardContent>
-        {usage && !usage.hasAccess && <FormLock timeUntilReset={usage.timeUntilReset} />}
+        {usage && usage.hasAccess === false && (
+          <FormLock timeUntilReset={usage.timeUntilReset} />
+        )}
       </Card>
     </div>
   );
