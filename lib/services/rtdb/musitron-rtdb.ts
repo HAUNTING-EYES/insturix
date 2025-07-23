@@ -1,6 +1,6 @@
 import { database } from '@/lib/firebase/config';
 import { ref, set } from 'firebase/database';
-import { serviceLogger } from '../common/task-service';
+import { logger } from '@/app/api/services/alyzitron/utils/logger';
 
 type MusitronTaskStatus = 'queued' | 'processing' | 'complete' | 'failed';
 
@@ -12,9 +12,9 @@ export class MusitronRTDBManager {
   static async updateTaskStatus(userId: string, taskId: string, status: MusitronTaskStatus): Promise<void> {
     try {
       await set(this.getTaskRef(userId, taskId), status);
-      serviceLogger.info('Musitron RTDB task status updated', { userId, taskId, status });
+      logger.info('Musitron RTDB task status updated', { userId, taskId, status });
     } catch (error) {
-      serviceLogger.error('Failed to update Musitron RTDB task status', { 
+      logger.error('Failed to update Musitron RTDB task status', { 
         userId, 
         taskId, 
         status, 

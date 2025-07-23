@@ -41,25 +41,15 @@ export function useTaskUpdater() {
               return;
             }
 
-            // If task is new or status has changed, update the cache
+            // If task is new or status has changed, update only that task's cache
             if (!previousTask || previousTask.status !== taskUpdate.status) {
-              console.log(`Task ${taskId} status changed to ${taskUpdate.status}. Updating cache.`);
-
-              // Invalidate the specific query for this task to trigger a refetch
-              queryClient.invalidateQueries({ queryKey: ['clickatron-task', taskId] });
-              queryClient.invalidateQueries({ queryKey: ['alyzitron-analysis', taskId] });
-
-              // Also, invalidate the list queries to ensure lists are updated
-              queryClient.invalidateQueries({ queryKey: ['clickatron-history'] });
-              queryClient.invalidateQueries({ queryKey: ['analyses'] }); // For InProgressAnalyses
-              queryClient.invalidateQueries({ queryKey: ['analyses', { scope: 'finished' }] }); // For AnalysisList pagination
-              queryClient.invalidateQueries({ queryKey: ['clickatron-all-tasks'] });
-              queryClient.invalidateQueries({ queryKey: ['alyzitron-all-analyses'] });
-              queryClient.invalidateQueries({ queryKey: ['alyzitron-history'], exact: false });
-              
-              // Invalidate stats queries to refresh analytics
-              queryClient.invalidateQueries({ queryKey: ['clickatronStats'] });
-              queryClient.invalidateQueries({ queryKey: ['alyzitronStats'] });
+              if (serviceName === "musitron") {
+                // Refetch only the updated musitron task if you have a per-task query
+                queryClient.refetchQueries({
+                  queryKey: ['musitron-tasks', taskId],
+                  exact: true,
+                });
+              }
             }
           });
         }

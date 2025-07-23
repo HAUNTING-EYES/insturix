@@ -9,6 +9,7 @@ import { History, Music2, ChevronRight as ChevronRightIcon, Calendar, Clock, Loa
 import { cn } from "@/lib/utils";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { useQuery } from "@tanstack/react-query";
+import { useTaskUpdater } from "@/hooks/useTaskUpdater";
 
 interface PaginatedTaskResponse {
   data: MusitronTask[];
@@ -132,67 +133,52 @@ function MusitronTaskCard({ task }: { task: MusitronTask }) {
 }
 
 export function MusitronTaskHistory() {
-  // Pagination state for completed/failed tasks
+  useTaskUpdater();
+  // Unified query for all tasks, with pagination for completed section
   const [currentPage, setCurrentPage] = useState(1);
-
+  const ITEMS_PER_PAGE = 5;
   const IN_PROGRESS_STATUSES: MusitronTask["status"][] = ["listed", "processing"];
 
-  function useAllMusitronTasks(): MusitronTask[] {
-    const { data } = useQuery<MusitronTask[]>({
-      queryKey: ["musitron-all-tasks"],
-      queryFn: async () => {
-        const response = await fetch("/api/services/musitron/history?limit=1000");
-        if (!response.ok) throw new Error("Failed to fetch all Musitron tasks");
-        const { data } = await response.json();
-        return data.map((task: any) => ({
-          ...task,
-          createdAt: new Date(task.createdAt),
-          updatedAt: new Date(task.updatedAt),
-        }));
-      },
-      staleTime: 1000 * 60 * 5,
-      gcTime: 1000 * 60 * 10,
-      refetchOnWindowFocus: false,
-    });
-    return data || [];
-  }
-
-  // Fetch paginated completed/failed tasks from API
-  const { data: paginatedData, isLoading } = useQuery<PaginatedTaskResponse>({
-    queryKey: ["musitron-history", currentPage, ITEMS_PER_PAGE],
+  const { data: tasksDataRaw, isLoading } = useQuery<MusitronTask[]>({
+    queryKey: ["musitron-tasks", currentPage, ITEMS_PER_PAGE],
     queryFn: async () => {
       const response = await fetch(
-        `/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}&status=completed,failed`
+        `/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}`
       );
-      if (!response.ok) throw new Error("Failed to fetch task history");
-      return response.json();
+      if (!response.ok) throw new Error("Failed to fetch Musitron tasks");
+      const { data } = await response.json();
+      return Array.isArray(data)
+        ? data.map((task: any) => ({
+            ...task,
+            createdAt: new Date(task.createdAt),
+            updatedAt: new Date(task.updatedAt),
+          }))
+        : [];
     },
-    placeholderData: (previousData) => previousData,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: false,
   });
+  
+  const tasksData: MusitronTask[] = Array.isArray(tasksDataRaw) ? tasksDataRaw : [];
 
-  // Only show completed/failed tasks in completed section, even if backend sends others
-  const completedTasks: MusitronTask[] =
-    paginatedData && paginatedData.data && paginatedData.data.length > 0
-      ? paginatedData.data
-          .filter((t: any) => t.status === "completed" || t.status === "failed")
-          .map((t: any) => ({
-            ...t,
-            createdAt: new Date(t.createdAt),
-            updatedAt: new Date(t.updatedAt),
-          }))
-      : [];
-
-  // Use only React Query for in-progress tasks
-  const allMusitronTasks = useAllMusitronTasks();
-  const inProgressTasks = allMusitronTasks.filter((t) =>
-    IN_PROGRESS_STATUSES.includes(t.status as any)
+  // In-progress tasks: listed/processing (always show all, not paginated)
+  const inProgressTasks = tasksData.filter(
+    (t) => IN_PROGRESS_STATUSES.includes(t.status as any)
   );
 
-  const totalPages = paginatedData?.pagination?.totalPages || 1;
-  const totalItems = paginatedData?.pagination?.totalItems || 0;
+  // Completed/failed tasks: paginated
+  const completedTasks = tasksData.filter(
+    (t) => t.status === "completed" || t.status === "failed"
+  );
+
+  // Pagination logic (simulate backend pagination for completed section)
+  const paginatedCompletedTasks = completedTasks.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+  const totalPages = Math.ceil(completedTasks.length / ITEMS_PER_PAGE) || 1;
+  const totalItems = completedTasks.length;
 
   const handlePreviousPage = () => setCurrentPage((prev) => Math.max(prev - 1, 1));
   const handleNextPage = () => setCurrentPage((prev) => Math.min(prev + 1, totalPages));
@@ -203,7 +189,7 @@ export function MusitronTaskHistory() {
         <History className="h-5 w-5 text-yellow-400" />
         <h2 className="text-lg sm:text-xl font-medium text-zinc-100">Task History</h2>
         <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs text-zinc-400">
-          {useAllMusitronTasks().length} total
+          {tasksData.length} total
         </span>
       </div>
 
@@ -212,7 +198,7 @@ export function MusitronTaskHistory() {
         <div className="mb-6">
           <h3 className="text-md font-semibold text-yellow-300 mb-2">In Progress</h3>
           <div className="space-y-3 sm:space-y-4">
-            {inProgressTasks.map((task) => (
+            {inProgressTasks.map((task: MusitronTask) => (
               <MusitronTaskCard key={task._id} task={task} />
             ))}
           </div>
@@ -232,7 +218,7 @@ export function MusitronTaskHistory() {
         ) : (
           <>
             <h3 className="text-md font-semibold text-yellow-300 mb-2">Completed</h3>
-            {completedTasks.map((task) => (
+            {paginatedCompletedTasks.map((task: MusitronTask) => (
               <MusitronTaskCard key={task._id} task={task} />
             ))}
           </>
