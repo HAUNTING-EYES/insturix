@@ -18,8 +18,6 @@ const pubsub = new PubSub({
   credentials: gcpCredentials,
 });
 
-const musitronConfig = getServiceConfig('musitron');
-
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) {
@@ -79,46 +77,41 @@ export async function POST(req: Request) {
     // Don't fail the request, just log for monitoring
   }
 
-  // Prepare PubSub message
-  const pubsubMessage = {
-    taskId: newTask._id.toString(),
-    userId,
-    options: {
-      title: newTask.title,
-      instrumental: newTask.instrumental_only,
-      style: newTask.style,
-      lyrics: newTask.lyrics,
-      ...(duration && { duration })
-    }
-  };
-
-  // Publish to local worker or PubSub
+  // Call monolithic backend directly
   try {
-    if (process.env.MUSITRON_LOCAL_WORKER) {
-      const data = Buffer.from(JSON.stringify(pubsubMessage)).toString('base64');
-      await fetch(process.env.MUSITRON_LOCAL_WORKER, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          message: {
-            data: data,
-            attributes: {}
-          },
-          subscription: 'projects/test/subscriptions/test-sub'
-        }),
-      });
-    } else {
-      if (!musitronConfig.pubsubTopic) {
-        console.error('Missing Musitron Pub/Sub topic ID in service configuration');
-        return new NextResponse('Server configuration error', { status: 500 });
-      }
-      await pubsub.topic(musitronConfig.pubsubTopic).publishMessage({ json: pubsubMessage });
+    const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
+    if (!monolithicUrl) {
+      console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
+      return new NextResponse('Server configuration error', { status: 500 });
     }
-  } catch (pubsubError: any) {
-    console.error('Error publishing Musitron task:', pubsubError);
-    // Optionally update task status to failed
+    const response = await fetch(`${monolithicUrl}/musitron/generate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        taskId: newTask._id.toString(),
+        userId,
+        options: {
+          title: newTask.title,
+          instrumental: newTask.instrumental_only,
+          style: newTask.style,
+          lyrics: newTask.lyrics,
+          ...(duration && { duration })
+        }
+      }),
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Error from monolithic backend:', errorText);
+      await MusitronTask.findByIdAndUpdate(newTask._id, {
+        status: 'failed',
+        error_message: 'Failed to process task in monolithic backend. Please try again later.',
+      });
+      return new NextResponse('Task processing failed', { status: 500 });
+    }
+  } catch (monolithError: any) {
+    console.error('Error calling monolithic backend:', monolithError);
     await MusitronTask.findByIdAndUpdate(newTask._id, {
       status: 'failed',
       error_message: 'Failed to process task due to an internal error. Please try again later.',

@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { checkClickatronLimits, incrementClickatronUsage, createClickatronLimitResponse } from '@/lib/middleware/services/clickatron';
-import { getServiceConfig } from '@/lib/config/services';
 import { ClickatronRTDBManager } from '@/lib/services/rtdb/clickatron-rtdb';
 import { PubSub } from '@google-cloud/pubsub';
 
@@ -19,7 +18,6 @@ const pubsub = new PubSub({
   projectId: gcpCredentials?.project_id,
   credentials: gcpCredentials,
 });
-const clickatronConfig = getServiceConfig('clickatron');
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -102,42 +100,40 @@ export async function POST(req: Request) {
       // Don't fail the whole request if RTDB fails
     }
 
-    const message = {
-      taskId: newTask._id.toString(),
-      details: detailsString,
-      userId,
-    };
-
-    if (process.env.CLICKATRON_LOCAL_WORKER) {
-      const data = Buffer.from(JSON.stringify(message)).toString('base64');
-      await fetch(process.env.CLICKATRON_LOCAL_WORKER, {
+    // Call monolithic backend directly
+    try {
+      const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
+      if (!monolithicUrl) {
+        console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
+        return new NextResponse('Server configuration error', { status: 500 });
+      }
+      const response = await fetch(`${monolithicUrl}/clickatron/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          message: {
-            data: data,
-            attributes: {}
-          },
-          subscription: 'projects/test/subscriptions/test-sub'
+          taskId: newTask._id.toString(),
+          userId,
+          details: detailsString,
         }),
       });
-    } else {
-      // Existing PubSub try-catch block
-      try {
-        console.log(
-          '[PubSub] Publishing to topic:',
-          clickatronConfig.pubsubTopic,
-          'Message:',
-          JSON.stringify(message)
-        );
-        const result = await pubsub.topic(clickatronConfig.pubsubTopic).publishMessage({ json: message });
-        console.log('[PubSub] Publish result:', result);
-      } catch (pubsubError) {
-        // Re-throw to be caught by the outer try-catch
-        throw pubsubError;
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error from monolithic backend:', errorText);
+        await ClickatronTask.findByIdAndUpdate(newTask._id, {
+          status: 'failed',
+          error_message: 'Failed to process task in monolithic backend. Please try again later.',
+        });
+        return new NextResponse('Task processing failed', { status: 500 });
       }
+    } catch (monolithError: any) {
+      console.error('Error calling monolithic backend:', monolithError);
+      await ClickatronTask.findByIdAndUpdate(newTask._id, {
+        status: 'failed',
+        error_message: 'Failed to process task due to an internal error. Please try again later.',
+      });
+      return new NextResponse('Task processing failed', { status: 500 });
     }
 
     // Usage is already incremented after task creation above
@@ -145,7 +141,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ taskId: newTask._id });
 
   } catch (processingError: any) {
-    console.error('Error during task processing (PubSub/Local Worker/Usage Increment):', processingError);
+    console.error('Error during task processing (Monolithic Backend/Usage Increment):', processingError);
     // Update task status to failed and store a generic error message
     await ClickatronTask.findByIdAndUpdate(newTask._id, {
       status: 'failed',
