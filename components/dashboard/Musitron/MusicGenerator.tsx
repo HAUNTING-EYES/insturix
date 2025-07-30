@@ -12,6 +12,7 @@ import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useQuery } from "@tanstack/react-query";
 import { FormLock } from "./FormLock";
+import { Toaster } from "sonner";
 
 export default function MusicGenerator() {
   const [title, setTitle] = useState("");
@@ -76,13 +77,30 @@ export default function MusicGenerator() {
 
       if (!res.ok) {
         const msg = await res.text();
-        throw new Error(msg || "Failed to start music generation");
+        console.log("API Response status:", res.status);
+        console.log("API Response text:", msg);
+        throw new Error(`${res.status}: ${msg || "Failed to start music generation"}`);
       }
 
       toast.success("Music generation started!");
       // Optionally: reset form or trigger analytics/task refresh here
     } catch (err: any) {
-      toast.error(err.message || "Failed to start music generation");
+      console.error("Music generation error:", err);
+      console.log("Error message for debugging:", err.message);
+      
+      // Show specific error toast for API failures
+      if (err.message.includes("Failed to fetch") || err.message.includes("Network Error")) {
+        toast.error("Unable to connect to the music generation service. Please check your internet connection and try again.");
+      } else if (err.message.includes("403")) {
+        toast.error("Access denied. You may not have permission to generate music or have reached your usage limit.");
+      } else if (err.message.includes("500") || err.message.includes("Internal Server Error")) {
+        toast.error("The music generation service is currently experiencing technical difficulties. Please try again later.");
+      } else if (err.message.includes("429") || err.message.includes("Too Many Requests")) {
+        toast.error("Too many music generation requests. Please wait a moment and try again.");
+      } else {
+        // Generic fallback for other errors
+        toast.error(err.message || "Failed to start music generation. Please try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -90,6 +108,7 @@ export default function MusicGenerator() {
 
   return (
     <div className="space-y-6">
+      <Toaster />
       <Card className={`bg-black/40 border-zinc-800 relative overflow-hidden${isLocked ? "" : " backdrop-blur-xl"}`}>
         <CardContent className="min-h-[400px] p-6 space-y-6">
           <div className={isLocked ? "blur-sm" : ""}>
