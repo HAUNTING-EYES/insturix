@@ -6,7 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ChevronDown, Sun, Moon } from "lucide-react";
+import { Menu, X, ChevronDown, Sun, Moon, LogOut } from "lucide-react";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -344,7 +344,15 @@ export default function Navbar() {
 }
 
 function UserMenu() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut({ redirectUrl: '/' });
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
 
   return (
     <>
@@ -361,6 +369,15 @@ function UserMenu() {
               Dashboard
             </Button>
           </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="touch-feedback bg-transparent focus:bg-transparent focus-visible:ring-0 h-9 w-9"
+            onClick={handleSignOut}
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </Button>
         </div>
       ) : (
         <div className="flex items-center gap-2">
