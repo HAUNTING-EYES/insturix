@@ -37,6 +37,8 @@ export async function POST(req: Request) {
   }
 
   // Call monolithic backend directly
+  let backendData: any;
+  
   try {
     const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
     if (!monolithicUrl) {
@@ -59,10 +61,26 @@ export async function POST(req: Request) {
         ...(songDescription && { songDescription })
       }),
     });
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Error from monolithic backend:', errorText);
-      return new NextResponse('Task processing failed', { status: 500 });
+    backendData = await response.json();
+    
+    if (!response.ok || !backendData.success) {
+      const errorType = backendData.error?.type || 'UNKNOWN_ERROR';
+      const errorMessage = backendData.error?.message || 'Task processing failed';
+      console.error('Error from monolithic backend:', backendData);
+      
+      // Refund usage if task processing failed
+      const refundResult = await incrementMusitronUsage({ userId });
+      if (!refundResult.success) {
+        console.error('Failed to refund musitron usage:', refundResult.error);
+      }
+      
+      return NextResponse.json({
+        success: false,
+        error: {
+          type: errorType,
+          message: errorMessage
+        }
+      }, { status: 500 });
     }
   } catch (monolithError: any) {
     console.error('Error calling monolithic backend:', monolithError);
@@ -73,10 +91,17 @@ export async function POST(req: Request) {
       console.error('Failed to refund musitron usage:', refundResult.error);
     }
     
-    return new NextResponse('Task processing failed', { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: {
+        type: 'MONOLITHIC_BACKEND_ERROR',
+        message: 'Task processing failed'
+      }
+    }, { status: 500 });
   }
 
-  return NextResponse.json({ 
-    taskId: new Date().getTime().toString() 
+  return NextResponse.json({
+    success: true,
+    taskId: backendData.taskId
   });
 }

@@ -91,11 +91,14 @@ export default function MusicGenerator() {
         body: JSON.stringify(payload),
       });
 
-      if (!res.ok) {
-        const msg = await res.text();
+      const responseData = await res.json();
+      
+      if (!res.ok || !responseData.success) {
+        const errorType = responseData.error?.type || 'UNKNOWN_ERROR';
+        const errorMessage = responseData.error?.message || "Failed to start music generation";
         console.log("API Response status:", res.status);
-        console.log("API Response text:", msg);
-        throw new Error(`${res.status}: ${msg || "Failed to start music generation"}`);
+        console.log("API Response data:", responseData);
+        throw new Error(errorMessage);
       }
 
       toast({
@@ -107,39 +110,41 @@ export default function MusicGenerator() {
       console.error("Music generation error:", err);
       console.log("Error message for debugging:", err.message);
       
-      // Show specific error toast for API failures
+      // Show generic error toast for all failures
+      let title = "Error";
+      let description = "Failed to start music generation. Please try again.";
+      
+      // Network errors
       if (err.message.includes("Failed to fetch") || err.message.includes("Network Error")) {
-        toast({
-          title: "Connection Error",
-          description: "Unable to connect to the music generation service. Please check your internet connection and try again.",
-          variant: "destructive",
-        });
-      } else if (err.message.includes("403")) {
-        toast({
-          title: "Access Denied",
-          description: "You may not have permission to generate music or have reached your usage limit.",
-          variant: "destructive",
-        });
-      } else if (err.message.includes("500") || err.message.includes("Internal Server Error")) {
-        toast({
-          title: "Service Error",
-          description: "The music generation service is currently experiencing technical difficulties. Please try again later.",
-          variant: "destructive",
-        });
-      } else if (err.message.includes("429") || err.message.includes("Too Many Requests")) {
-        toast({
-          title: "Too Many Requests",
-          description: "Too many music generation requests. Please wait a moment and try again.",
-          variant: "destructive",
-        });
-      } else {
-        // Generic fallback for other errors
-        toast({
-          title: "Error",
-          description: err.message || "Failed to start music generation. Please try again.",
-          variant: "destructive",
-        });
+        title = "Connection Error";
+        description = "Unable to connect to the music generation service. Please check your internet connection and try again.";
       }
+      // Permission/limit errors
+      else if (err.message.includes("403") || err.message.includes("Access Denied") || err.message.includes("limit exceeded")) {
+        title = "Access Denied";
+        description = "You may not have permission to generate music or have reached your usage limit.";
+      }
+      // Server errors
+      else if (err.message.includes("500") || err.message.includes("Internal Server Error") || err.message.includes("Service Error")) {
+        title = "Service Error";
+        description = "The music generation service is currently experiencing technical difficulties. Please try again later.";
+      }
+      // Rate limiting
+      else if (err.message.includes("429") || err.message.includes("Too Many Requests")) {
+        title = "Too Many Requests";
+        description = "Too many music generation requests. Please wait a moment and try again.";
+      }
+      // Database errors (from backend)
+      else if (err.message.includes("DATABASE_ERROR") || err.message.includes("Database Error")) {
+        title = "Service Error";
+        description = "The music generation service is currently experiencing technical difficulties. Please try again later.";
+      }
+      
+      toast({
+        title: title,
+        description: description,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }

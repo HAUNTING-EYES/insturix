@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -39,7 +39,7 @@ interface PromptFormProps {
 
 export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProps) {
   const [activeTab, setActiveTab] = useState("guided");
-  const { stats, isLoading, error, usage } = useGetStats();
+  const { stats, isLoading, error: statsError, usage } = useGetStats();
   
   const guidedForm = useForm<z.infer<typeof guidedFormSchema>>({
     resolver: zodResolver(guidedFormSchema),
@@ -58,7 +58,7 @@ export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProp
     defaultValues: { details: "" },
   });
 
-  const { mutate: generateThumbnail, isPending } = useGenerateThumbnail();
+  const { mutate: generateThumbnail, isPending, error: generateError } = useGenerateThumbnail();
 
   const onGuidedSubmit = (values: z.infer<typeof guidedFormSchema>) => {
     // Create JSON string for guided mode
@@ -95,6 +95,7 @@ export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProp
       },
     });
   };
+
 
   const styles = [
     "Luxurious", "Minimalist", "Bold & Dramatic", "Vintage", "Modern", 

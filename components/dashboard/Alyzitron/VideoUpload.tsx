@@ -312,6 +312,9 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
           // Ignore cancellation errors for toast
           setIsSubmitting(false);
           return;
+        } else if (err.message.includes('DATABASE_ERROR') || err.message.includes('Database Error')) {
+          description = "Alyzitron Server is currently experiencing technical difficulties. Please try again later.";
+          shouldRestoreForm = true;
         } else {
           // Generic error
           console.error('Submission failed:', err);

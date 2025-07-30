@@ -32,6 +32,11 @@ export async function POST(request: Request) {
 
     const { video_url, additional_details } = await request.json();
     
+    // Ensure additional_details is always an object, not a string
+    const parsedAdditionalDetails = typeof additional_details === 'string'
+      ? JSON.parse(additional_details || '{}')
+      : (additional_details || {});
+    
     if (!video_url) {
       return NextResponse.json(
         { error: 'Missing required field: video_url' },
@@ -68,7 +73,7 @@ export async function POST(request: Request) {
     // Check service limits using enhanced middleware
     const requestData = {
       video_url,
-      additional_details,
+      additional_details: parsedAdditionalDetails,
       videoDuration
     };
     
@@ -162,26 +167,36 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           userId: session.userId,
           videoUrl: finalVideoUrl,
-          additionalDetails: additional_details,
+          additionalDetails: parsedAdditionalDetails,
           metadata: metadata,
         }),
       });
 
-      if (!backendResponse.ok) {
-        const errorText = await backendResponse.text();
-        console.error('Error from monolithic backend:', errorText);
-        return NextResponse.json({ success: false, error: 'Task processing failed' }, { status: 500 });
+      const backendData = await backendResponse.json();
+      
+      if (!backendResponse.ok || !backendData.success) {
+        const errorType = backendData.error?.type || 'UNKNOWN_ERROR';
+        const errorMessage = backendData.error?.message || 'Task processing failed';
+        console.error('Error from monolithic backend:', backendData);
+        return NextResponse.json({
+          success: false,
+          error: {
+            type: errorType,
+            message: errorMessage
+          }
+        }, { status: 500 });
       }
 
       logger.info('Analysis task created and queued successfully', {
         data: {
-          userId: session.userId
+          userId: session.userId,
+          taskId: backendData.taskId
         }
       });
 
       return NextResponse.json({
         success: true,
-        taskId: new ObjectId().toString(),
+        taskId: backendData.taskId,
       });
 
     } catch (processingError) {

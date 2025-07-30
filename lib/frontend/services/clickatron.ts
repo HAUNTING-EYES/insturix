@@ -10,7 +10,13 @@ export const useGenerateThumbnail = () => {
 
   return useMutation({
     mutationFn: async (params: ThumbnailGenerationParams) => {
-      const { data } = await axios.post('/api/services/clickatron/generate', params);
+      const response = await axios.post('/api/services/clickatron/generate', params);
+      const data = response.data;
+      
+      if (!data.success) {
+        throw new Error(data.error?.message || 'Failed to generate thumbnail');
+      }
+      
       return data;
     },
     onSuccess: () => {

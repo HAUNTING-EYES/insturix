@@ -56,6 +56,8 @@ export async function POST(req: Request) {
   }
 
   // New try-catch block for post-save operations
+  let backendData: any;
+  
   try {
     // Call monolithic backend directly
     try {
@@ -76,17 +78,32 @@ export async function POST(req: Request) {
           details: detailsString,
         }),
       });
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error from monolithic backend:', errorText);
-        return new NextResponse('Task processing failed', { status: 500 });
+      backendData = await response.json();
+      
+      if (!response.ok || !backendData.success) {
+        const errorType = backendData.error?.type || 'UNKNOWN_ERROR';
+        const errorMessage = backendData.error?.message || 'Task processing failed';
+        console.error('Error from monolithic backend:', backendData);
+        return NextResponse.json({
+          success: false,
+          error: {
+            type: errorType,
+            message: errorMessage
+          }
+        }, { status: 500 });
       }
     } catch (monolithError: any) {
       console.error('Error calling monolithic backend:', monolithError);
-      return new NextResponse('Task processing failed', { status: 500 });
+      return NextResponse.json({
+        success: false,
+        error: {
+          type: 'MONOLITHIC_BACKEND_ERROR',
+          message: 'Task processing failed'
+        }
+      }, { status: 500 });
     }
 
-    return NextResponse.json({ taskId: new Date().getTime().toString() });
+    return NextResponse.json({ success: true, taskId: backendData.taskId });
 
   } catch (processingError: any) {
     console.error('Error during task processing (Monolithic Backend/Usage Increment):', processingError);

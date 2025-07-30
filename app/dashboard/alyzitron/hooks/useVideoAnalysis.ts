@@ -290,16 +290,17 @@ export function useVideoAnalysis() {
               body: JSON.stringify(requestData),
           });
 
-          if (!response.ok) {
-              const error = await response.json();
-              throw new Error(
-                  error.error?.message || "Failed to initiate analysis"
-              );
+          const responseData = await response.json();
+          
+          if (!response.ok || !responseData.success) {
+              const errorType = responseData.error?.type || 'UNKNOWN_ERROR';
+              const errorMessage = responseData.error?.message || "Failed to initiate analysis";
+              throw new Error(errorMessage);
           }
 
           const {
               analysis: newAnalysisData,
-          } = await response.json();
+          } = responseData;
           logger.info("Analysis request submitted successfully", {
               data: { analysis: newAnalysisData },
           });
