@@ -12,5 +12,9 @@
       "path": "/api/cron/reconcile-subscriptions",
       "schedule": "0 0 * * *"
     }
-  ]
+  ],
+  "github": {
+    "silent": false,
+    "autoDeployBranches": ["main"]
+  }
 }
