@@ -27,10 +27,16 @@ function getAudioContentType(url: string | undefined) {
 
 export default function MusicPlayerWrapper({ task, signedUrlApi }: MusicPlayerWrapperProps) {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchSignedUrl = async () => {
       if (!task.gcs_url || task.status !== "completed") return;
+      
+      setIsLoading(true);
+      setError(null);
+      
       try {
         const contentType = getAudioContentType(task.gcs_url);
         const endpoint = signedUrlApi || "/api/services/musitron/gcs/sign";
@@ -43,12 +49,26 @@ export default function MusicPlayerWrapper({ task, signedUrlApi }: MusicPlayerWr
             gcsUrl: task.gcs_url,
           }),
         });
+        
+        if (!res.ok) {
+          throw new Error(`Failed to fetch signed URL: ${res.status} ${res.statusText}`);
+        }
+        
         const data = await res.json();
-        if (data.url) setSignedUrl(data.url);
-      } catch {
+        if (data.url) {
+          setSignedUrl(data.url);
+        } else {
+          throw new Error("No URL returned from server");
+        }
+      } catch (err) {
+        console.error("Error fetching signed URL:", err);
+        setError(err instanceof Error ? err.message : "Failed to load audio");
         setSignedUrl(null);
+      } finally {
+        setIsLoading(false);
       }
     };
+    
     fetchSignedUrl();
   }, [task.gcs_url, task.status, signedUrlApi]);
 
@@ -61,6 +81,8 @@ export default function MusicPlayerWrapper({ task, signedUrlApi }: MusicPlayerWr
       createdDate={task.createdAt}
       taskId={task._id}
       audioUrl={signedUrl || undefined}
+      isLoading={isLoading}
+      error={error}
     />
   );
 }

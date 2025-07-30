@@ -27,6 +27,8 @@ interface MusicPlayerProps {
   createdDate: string;
   taskId: string;
   audioUrl?: string;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
 const MusicPlayer: React.FC<MusicPlayerProps> = ({
@@ -36,7 +38,9 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
   lyrics,
   createdDate,
   taskId,
-  audioUrl
+  audioUrl,
+  isLoading = false,
+  error = null
 }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -47,6 +51,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
   const [audioContext, setAudioContext] = useState<AudioContext | null>(null);
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const sourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   useEffect(() => {
     const audio = audioRef.current;
@@ -68,7 +73,13 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
       }
     };
 
+    const handleError = (e: ErrorEvent) => {
+      console.error('Audio loading error:', e);
+      setLocalError('Failed to load audio file. Please try again.');
+    };
+
     audio.addEventListener('canplay', handleCanPlay);
+    audio.addEventListener('error', handleError);
 
     const updateTime = () => setCurrentTime(audio.currentTime);
     const updateDuration = () => setDuration(audio.duration);
@@ -80,11 +91,12 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
 
     return () => {
       audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('error', handleError);
       audio.removeEventListener('timeupdate', updateTime);
       audio.removeEventListener('loadedmetadata', updateDuration);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, []);
+  }, [audioUrl]);
 
   const togglePlay = () => {
     const audio = audioRef.current;
@@ -152,6 +164,9 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
     document.body.removeChild(link);
   };
 
+  // Disable controls when loading or in error state
+  const isControlsDisabled = isLoading || !!error;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -160,7 +175,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
     >
       <div className="max-w-4xl mx-auto space-y-8">
         {/* Header */}
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.1 }}
@@ -174,7 +189,7 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
             <span className="text-yellow-300 font-medium">Generated Music</span>
           </motion.div>
           
-          <motion.h1 
+          <motion.h1
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.2 }}
@@ -184,116 +199,175 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
           </motion.h1>
         </motion.div>
 
-        {/* Main Player Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-        >
-          <Card className="bg-black backdrop-blur-sm border-zinc-800 shadow-elevated overflow-hidden">
-            <div className="p-8 space-y-8">
-              {/* Audio Visualizer */}
-              <motion.div 
-                className="h-40 bg-zinc-800/50 rounded-xl border border-zinc-700 flex items-center justify-center relative overflow-hidden"
-                animate={{
-                  backgroundColor: "hsl(0 0% 15% / 0.5)"
-                }}
-              >
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Music className="w-16 h-16 text-zinc-500" />
-                </div>
-                
-                {/* Minimal animated bars when playing */}
-                <AnimatePresence>
-                  {isPlaying && analyser && (
-                    <motion.div
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute inset-0 flex items-center justify-center gap-1"
-                    >
-                      <AudioVisualizer analyser={analyser} />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-
-              {/* Progress Bar */}
-              <div className="space-y-3">
-                <div className="relative">
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={duration ? (currentTime / duration) * 100 : 0}
-                    onChange={handleSeek}
-                    className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer premium-slider"
-                  />
-                </div>
-                <div className="flex justify-between text-sm text-zinc-300 font-mono">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-              </div>
-
-              {/* Player Controls */}
-              <div className="flex items-center justify-center gap-6">
-                <motion.div
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Button
-                    variant="premium"
-                    size="player"
-                    onClick={togglePlay}
-                    className="shadow-elevated bg-yellow-400 text-zinc-950 hover:bg-yellow-300"
-                  >
-                    {isPlaying ? (
-                      <Pause className="w-6 h-6" />
-                    ) : (
-                      <Play className="w-6 h-6 ml-1" />
-                    )}
-                  </Button>
-                </motion.div>
-
-                {/* Volume Control */}
-                <div className="flex items-center gap-3">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={toggleMute}
-                    className="text-zinc-300 hover:text-white"
-                  >
-                    {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                  </Button>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    value={isMuted ? 0 : volume * 100}
-                    onChange={handleVolumeChange}
-                    className="w-24 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer premium-slider"
-                  />
-                </div>
-
-                {/* Download Button */}
-                <motion.div
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <Button
-                    variant="elevated"
-                    onClick={handleDownload}
-                    className="gap-2"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download
-                  </Button>
-                </motion.div>
-              </div>
+        {/* Loading State */}
+        {isLoading && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="flex items-center justify-center py-12"
+          >
+            <div className="text-center space-y-4">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-yellow-400 mx-auto"></div>
+              <p className="text-zinc-300">Loading audio...</p>
             </div>
-          </Card>
-        </motion.div>
+          </motion.div>
+        )}
+
+        {/* Error State */}
+        {error || localError ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+          >
+            <Card className="bg-red-900/20 border-red-800/50 shadow-elevated overflow-hidden">
+              <div className="p-8 text-center space-y-4">
+                <div className="flex items-center justify-center gap-2 text-red-400">
+                  <Music className="w-8 h-8" />
+                  <span className="text-lg font-semibold">Audio Loading Error</span>
+                </div>
+                <p className="text-red-300">{error || localError}</p>
+                <p className="text-sm text-red-400/70">Please try refreshing the page or contact support if the issue persists.</p>
+              </div>
+            </Card>
+          </motion.div>
+        ) : !audioUrl && !isLoading ? (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+          >
+            <Card className="bg-yellow-900/20 border-yellow-800/50 shadow-elevated overflow-hidden">
+              <div className="p-8 text-center space-y-4">
+                <div className="flex items-center justify-center gap-2 text-yellow-400">
+                  <Music className="w-8 h-8" />
+                  <span className="text-lg font-semibold">Audio Not Available</span>
+                </div>
+                <p className="text-yellow-300">Audio file is not ready or could not be loaded.</p>
+                <p className="text-sm text-yellow-400/70">Please check back later or try refreshing the page.</p>
+              </div>
+            </Card>
+          </motion.div>
+        ) : null}
+
+        {/* Main Player Card */}
+        {!isLoading && !error && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.3 }}
+          >
+            <Card className="bg-black backdrop-blur-sm border-zinc-800 shadow-elevated overflow-hidden">
+              <div className="p-8 space-y-8">
+                {/* Audio Visualizer */}
+                <motion.div
+                  className="h-40 bg-zinc-800/50 rounded-xl border border-zinc-700 flex items-center justify-center relative overflow-hidden"
+                  animate={{
+                    backgroundColor: "hsl(0 0% 15% / 0.5)"
+                  }}
+                >
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Music className="w-16 h-16 text-zinc-500" />
+                  </div>
+                  
+                  {/* Minimal animated bars when playing */}
+                  <AnimatePresence>
+                    {isPlaying && analyser && (
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="absolute inset-0 flex items-center justify-center gap-1"
+                      >
+                        <AudioVisualizer analyser={analyser} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+
+                {/* Progress Bar */}
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={duration ? (currentTime / duration) * 100 : 0}
+                      onChange={handleSeek}
+                      className="w-full h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer premium-slider"
+                      disabled={isControlsDisabled}
+                    />
+                  </div>
+                  <div className="flex justify-between text-sm text-zinc-300 font-mono">
+                    <span>{formatTime(currentTime)}</span>
+                    <span>{formatTime(duration)}</span>
+                  </div>
+                </div>
+
+                {/* Player Controls */}
+                <div className="flex items-center justify-center gap-6">
+                  <motion.div
+                    whileHover={!isControlsDisabled ? { scale: 1.05 } : {}}
+                    whileTap={!isControlsDisabled ? { scale: 0.95 } : {}}
+                  >
+                    <Button
+                      variant="premium"
+                      size="player"
+                      onClick={togglePlay}
+                      disabled={isControlsDisabled}
+                      className={`shadow-elevated bg-yellow-400 text-zinc-950 hover:bg-yellow-300 ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {isPlaying ? (
+                        <Pause className="w-6 h-6" />
+                      ) : (
+                        <Play className="w-6 h-6 ml-1" />
+                      )}
+                    </Button>
+                  </motion.div>
+
+                  {/* Volume Control */}
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={toggleMute}
+                      disabled={isControlsDisabled}
+                      className={`text-zinc-300 hover:text-white ${isControlsDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+                    </Button>
+                    <input
+                      type="range"
+                      min="0"
+                      max="100"
+                      value={isMuted ? 0 : volume * 100}
+                      onChange={handleVolumeChange}
+                      className="w-24 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer premium-slider"
+                      disabled={isControlsDisabled}
+                    />
+                  </div>
+
+                  {/* Download Button */}
+                  <motion.div
+                    whileHover={!isControlsDisabled ? { scale: 1.02 } : {}}
+                    whileTap={!isControlsDisabled ? { scale: 0.98 } : {}}
+                  >
+                    <Button
+                      variant="elevated"
+                      onClick={handleDownload}
+                      disabled={isControlsDisabled || !audioUrl}
+                      className={`gap-2 ${isControlsDisabled || !audioUrl ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    >
+                      <Download className="w-4 h-4" />
+                      Download
+                    </Button>
+                  </motion.div>
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Information Grid */}
         <motion.div 
