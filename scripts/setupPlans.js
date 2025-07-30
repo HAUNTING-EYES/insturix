@@ -320,11 +320,12 @@ async function setupPlans() {
   const mode = modeArg ? modeArg.split('=')[1] : null;
   const targetPlanType = planArg ? planArg.split('=')[1] : null;
 
-  if (!mode || (mode !== 'real' && mode !== 'fake')) {
-    console.log("Usage: node scripts/setupPlans.js --mode=<real|fake> [--plan=<plan_type>]");
-    console.log("  --mode: Specifies whether to use 'real' payment provider plan IDs or 'fake' ones for testing.");
+  if (!mode || (mode !== 'real' && mode !== 'fake' && mode !== 'updateLimits')) {
+    console.log("Usage: node scripts/setupPlans.js --mode=<real|fake|updateLimits> [--plan=<plan_type>]");
+    console.log("  --mode: Specifies the operation mode:");
     console.log("          'real': Creates plans with the payment provider and saves the real IDs.");
     console.log("          'fake': Uses placeholder IDs without contacting a payment provider.");
+    console.log("          'updateLimits': Updates only the service limits without touching pricing.");
     console.log("  --plan: (Optional) Specifies a single plan type to update (e.g., 'pro', 'plus').");
     return;
   }
@@ -348,43 +349,25 @@ async function setupPlans() {
 
       const plan = (await Plan.findOne({ type: planData.type })) || new Plan(planData);
 
-      // If plan exists, merge the complete pricing data from planData
-      if (plan.pricing) {
-        for (const currency of Object.keys(planData.pricing)) {
-          if (!plan.pricing[currency]) {
-            plan.pricing[currency] = planData.pricing[currency];
-          } else {
-            // Merge monthly and yearly pricing
-            if (planData.pricing[currency].monthly) {
-              plan.pricing[currency].monthly = { ...planData.pricing[currency].monthly };
-            }
-            if (planData.pricing[currency].yearly) {
-              plan.pricing[currency].yearly = { ...planData.pricing[currency].yearly };
-            }
-          }
-        }
+      if (mode === 'updateLimits') {
+        // Only update service limits, preserve existing pricing and other fields
+        console.log('  Updating only service limits...');
+        plan.serviceLimits = planData.serviceLimits;
+      } else {
+        // Completely overwrite the plan with new data (fake or real mode)
+        console.log('  Completely overwriting plan data...');
+        plan.name = planData.name;
+        plan.type = planData.type;
+        plan.description = planData.description;
+        plan.serviceLimits = planData.serviceLimits;
+        plan.pricing = planData.pricing;
+        plan.isActive = planData.isActive;
+        plan.sortOrder = planData.sortOrder;
       }
 
-      // Log the plan data structure for debugging
-      console.log('  Plan data structure:');
-      console.log('    - Has pricing:', !!plan.pricing);
-      if (plan.pricing) {
-        console.log('    - Pricing currencies:', Object.keys(plan.pricing));
-        for (const currency of Object.keys(plan.pricing)) {
-          const pricing = plan.pricing[currency];
-          console.log(`    - ${currency}: monthly=${!!pricing.monthly}, yearly=${!!pricing.yearly}`);
-          if (pricing.monthly) {
-            console.log(`      - Monthly: amount=${pricing.monthly.amount}, currency=${pricing.monthly.currency}, symbol=${pricing.monthly.symbol}`);
-          }
-          if (pricing.yearly) {
-            console.log(`      - Yearly: amount=${pricing.yearly.amount}, currency=${pricing.yearly.currency}, symbol=${pricing.yearly.symbol}`);
-          }
-        }
-      }
 
-      plan.serviceLimits = planData.serviceLimits;
-
-      if (plan.type !== 'free') {
+      // Only process payment provider logic for 'real' and 'fake' modes
+      if (mode !== 'updateLimits' && plan.type !== 'free') {
         if (mode === 'fake') {
           console.log('  Generating fake plan IDs...');
           for (const currency of Object.keys(plan.pricing)) {
@@ -404,7 +387,7 @@ async function setupPlans() {
               yearlyPrice.providerPlanIds.set(provider, `fake_${plan.type}_yearly_${currency.toLowerCase()}`);
             }
           }
-        } else { // mode === 'real'
+        } else if (mode === 'real') { // mode === 'real'
           for (const currency of Object.keys(plan.pricing)) {
             console.log(`  Processing currency: ${currency}`);
             const provider = 'razorpay';
