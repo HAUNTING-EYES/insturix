@@ -7,7 +7,7 @@ import { Storage, GetSignedUrlConfig } from "@google-cloud/storage";
 const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
   ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, "base64").toString())
   : null;
-const hasGCSConfig = !!(gcsCredentials && process.env.MUSITRON_GCS_BUCKET_NAME);
+const hasGCSConfig = !!(gcsCredentials && process.env.GCS_BUCKET_NAME);
 
 const storage = hasGCSConfig
   ? new Storage({
@@ -16,7 +16,7 @@ const storage = hasGCSConfig
     })
   : null;
 
-const bucket = hasGCSConfig ? storage?.bucket(process.env.MUSITRON_GCS_BUCKET_NAME!) : null;
+const bucket = hasGCSConfig ? storage?.bucket(process.env.GCS_BUCKET_NAME!) : null;
 
 export async function POST(request: Request) {
   try {
@@ -37,14 +37,30 @@ export async function POST(request: Request) {
 
     // Derive GCS path from gcsUrl or filename
     let gcsPath = "";
-    if (gcsUrl && gcsUrl.startsWith("https://storage.googleapis.com/")) {
-      gcsPath = gcsUrl.replace(`https://storage.googleapis.com/${process.env.MUSITRON_GCS_BUCKET_NAME}/`, "");
+    if (gcsUrl) {
+      // The gcsUrl might be double-encoded (contains URL-encoded URL)
+      // Decode it first to get the actual URL
+      let decodedUrl = gcsUrl;
+      try {
+        decodedUrl = decodeURIComponent(gcsUrl);
+      } catch (e) {
+        // If decoding fails, use the original URL
+        console.warn("Failed to decode URL, using original:", gcsUrl);
+      }
+      
+      // Extract the path from the decoded URL
+      const url = new URL(decodedUrl);
+      // Remove the first segment (bucket name) from the path
+      const pathParts = url.pathname.split('/').filter(Boolean);
+      if (pathParts.length > 0) {
+        pathParts.shift(); // Remove bucket name
+        gcsPath = pathParts.join('/');
+      }
     } else if (filename) {
       gcsPath = filename;
     } else {
       return NextResponse.json({ error: "Invalid GCS path" }, { status: 400 });
     }
-
     const file = bucket.file(gcsPath);
 
     // Remove contentType from signed URL config for read action
