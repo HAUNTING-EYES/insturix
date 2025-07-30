@@ -68,6 +68,7 @@ export async function POST(req: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
         },
         body: JSON.stringify({
           taskId: new Date().getTime().toString(),

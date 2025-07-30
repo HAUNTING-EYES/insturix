@@ -157,6 +157,7 @@ export async function POST(request: Request) {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
         },
         body: JSON.stringify({
           userId: session.userId,

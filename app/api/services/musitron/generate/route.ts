@@ -47,17 +47,16 @@ export async function POST(req: Request) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
       },
       body: JSON.stringify({
-        userId,
-        options: {
-          title,
-          instrumental,
-          style,
-          lyrics: lyrics || "",
-          ...(duration && { duration }),
-          ...(songDescription && { songDescription })
-        }
+        clerkUserId: userId,
+        title,
+        style,
+        instrumental_only: instrumental,
+        lyrics: lyrics || "",
+        ...(duration && { duration }),
+        ...(songDescription && { songDescription })
       }),
     });
     if (!response.ok) {
