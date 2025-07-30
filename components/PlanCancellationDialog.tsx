@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertTriangle, Clock, DollarSign, Shield, X } from "lucide-react";
-import { toast } from "sonner";
+import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
@@ -45,6 +45,7 @@ export function PlanCancellationDialog({
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const router = useRouter();
+  const { toast } = useToast();
 
   const checkEligibility = async () => {
     setLoading(true);
@@ -59,12 +60,20 @@ export function PlanCancellationDialog({
       } else {
         const errorMessage = data.error || "Failed to check eligibility";
         setError(errorMessage);
-        toast.error(errorMessage);
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
       }
     } catch (error) {
       const errorMessage = "Failed to check trial eligibility";
       setError(errorMessage);
-      toast.error(errorMessage);
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
       console.error("Check eligibility error:", error);
     } finally {
       setLoading(false);
@@ -84,7 +93,10 @@ export function PlanCancellationDialog({
       const data = await response.json();
       
       if (response.ok && data.success !== false) {
-        toast.success(data.message || "Plan cancelled successfully");
+        toast({
+          title: "Success",
+          description: data.message || "Plan cancelled successfully",
+        });
         
         // Close the dialog and reload the page to reflect changes
         onOpenChange(false);
@@ -93,7 +105,11 @@ export function PlanCancellationDialog({
         // Handle API errors (including 500 errors)
         const errorMessage = data.error || "Failed to cancel plan";
         setError(errorMessage);
-        toast.error(errorMessage);
+        toast({
+          title: "Error",
+          description: errorMessage,
+          variant: "destructive",
+        });
         
         // For specific errors like "already on free plan", close dialog and redirect
         if (data.error?.includes("already on free plan")) {
@@ -104,7 +120,11 @@ export function PlanCancellationDialog({
     } catch (error) {
       const errorMessage = "Network error: Failed to cancel plan";
       setError(errorMessage);
-      toast.error(errorMessage);
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
       console.error("Cancel plan error:", error);
     } finally {
       setLoading(false);

@@ -14,6 +14,7 @@ import { PricingClientProvider } from "@/lib/PricingContext";
 import { CurrencyProvider } from "@/lib/CurrencyContext";
 import { LocationProvider } from "@/lib/LocationProvider";
 
+
 const inter = Inter({ subsets: ["latin"] });
 
 export const viewport: Viewport = {
@@ -160,6 +161,7 @@ export default function RootLayout({
                 <CurrencyProvider>
                   <ThemeProvider>
                     <TransitionProvider>
+                      {/* <Toaster /> */}
                       {children}
                       <Analytics />
                       <SpeedInsights />

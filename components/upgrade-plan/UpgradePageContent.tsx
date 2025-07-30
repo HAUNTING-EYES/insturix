@@ -13,7 +13,7 @@ import { PaymentForm } from "@/components/upgrade-plan/PaymentForm";
 import { useCurrency } from "@/lib/CurrencyContext";
 import { cn } from "@/lib/utils";
 import { UserType } from "@/types/userTypes";
-import { toast } from "sonner";
+import { useToast } from "@/hooks/use-toast";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
 import { CurrencySelector } from "../CurrencySelector";
 // import { usePlansFromDB } from "@/lib/hooks/usePlansFromDB"; // Removed usePlansFromDB
@@ -74,6 +74,7 @@ export function UpgradePageContent({
   // const { user } = useUser(); // Removed useUser
   const { selectedCurrency, selectedSymbol, version } = useCurrency();
   // const { plans: serverPlans, isLoading: plansLoading, isError: plansError } = usePlansFromDB(); // Removed usePlansFromDB
+  const { toast } = useToast();
   
   const [currentStep, setCurrentStep] = useState(1);
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
@@ -231,7 +232,10 @@ export function UpgradePageContent({
 
   const handlePaymentSuccess = () => {
     setPaymentSuccess(true);
-    toast.success("Payment successful! Your plan has been upgraded.");
+    toast({
+      title: "Success",
+      description: "Payment successful! Your plan has been upgraded.",
+    });
     
     setTimeout(() => {
       if (onComplete && selectedPlan) {
@@ -243,7 +247,11 @@ export function UpgradePageContent({
   };
 
   const handlePaymentError = (error: string) => {
-    toast.error(`Payment failed: ${error}`);
+    toast({
+      title: "Error",
+      description: `Payment failed: ${error}`,
+      variant: "destructive",
+    });
   };
 
   const handleCancel = () => {

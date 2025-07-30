@@ -7,12 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "sonner";
+import { useToast } from "@/hooks/use-toast";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useQuery } from "@tanstack/react-query";
 import { FormLock } from "./FormLock";
-import { Toaster } from "sonner";
 
 export default function MusicGenerator() {
   const [title, setTitle] = useState("");
@@ -23,6 +22,7 @@ export default function MusicGenerator() {
   const MAX_DURATION = 240;
   const [instrumental, setInstrumental] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
     // Musitron usage stats via musitron-analytics cache
     const { data: apiData, isLoading: usageLoading } = useQuery({
@@ -40,19 +40,35 @@ export default function MusicGenerator() {
     e.preventDefault();
 
     if (!title) {
-      toast.error("Please enter a title");
+      toast({
+        title: "Validation Error",
+        description: "Please enter a title",
+        variant: "destructive",
+      });
       return;
     }
     if (!style) {
-      toast.error("Please enter a style of music");
+      toast({
+        title: "Validation Error",
+        description: "Please enter a style of music",
+        variant: "destructive",
+      });
       return;
     }
     if (!duration || isNaN(Number(duration)) || Number(duration) < 5 || Number(duration) > 240) {
-      toast.error("Please enter a valid duration between 5 and 240 seconds");
+      toast({
+        title: "Validation Error",
+        description: "Please enter a valid duration between 5 and 240 seconds",
+        variant: "destructive",
+      });
       return;
     }
     if (!instrumental && !lyrics) {
-      toast.error("Please enter lyrics or enable instrumental mode");
+      toast({
+        title: "Validation Error",
+        description: "Please enter lyrics or enable instrumental mode",
+        variant: "destructive",
+      });
       return;
     }
 
@@ -82,7 +98,10 @@ export default function MusicGenerator() {
         throw new Error(`${res.status}: ${msg || "Failed to start music generation"}`);
       }
 
-      toast.success("Music generation started!");
+      toast({
+        title: "Success",
+        description: "Music generation started!",
+      });
       // Optionally: reset form or trigger analytics/task refresh here
     } catch (err: any) {
       console.error("Music generation error:", err);
@@ -90,16 +109,36 @@ export default function MusicGenerator() {
       
       // Show specific error toast for API failures
       if (err.message.includes("Failed to fetch") || err.message.includes("Network Error")) {
-        toast.error("Unable to connect to the music generation service. Please check your internet connection and try again.");
+        toast({
+          title: "Connection Error",
+          description: "Unable to connect to the music generation service. Please check your internet connection and try again.",
+          variant: "destructive",
+        });
       } else if (err.message.includes("403")) {
-        toast.error("Access denied. You may not have permission to generate music or have reached your usage limit.");
+        toast({
+          title: "Access Denied",
+          description: "You may not have permission to generate music or have reached your usage limit.",
+          variant: "destructive",
+        });
       } else if (err.message.includes("500") || err.message.includes("Internal Server Error")) {
-        toast.error("The music generation service is currently experiencing technical difficulties. Please try again later.");
+        toast({
+          title: "Service Error",
+          description: "The music generation service is currently experiencing technical difficulties. Please try again later.",
+          variant: "destructive",
+        });
       } else if (err.message.includes("429") || err.message.includes("Too Many Requests")) {
-        toast.error("Too many music generation requests. Please wait a moment and try again.");
+        toast({
+          title: "Too Many Requests",
+          description: "Too many music generation requests. Please wait a moment and try again.",
+          variant: "destructive",
+        });
       } else {
         // Generic fallback for other errors
-        toast.error(err.message || "Failed to start music generation. Please try again.");
+        toast({
+          title: "Error",
+          description: err.message || "Failed to start music generation. Please try again.",
+          variant: "destructive",
+        });
       }
     } finally {
       setLoading(false);
@@ -108,7 +147,6 @@ export default function MusicGenerator() {
 
   return (
     <div className="space-y-6">
-      <Toaster />
       <Card className={`bg-black/40 border-zinc-800 relative overflow-hidden${isLocked ? "" : " backdrop-blur-xl"}`}>
         <CardContent className="min-h-[400px] p-6 space-y-6">
           <div className={isLocked ? "blur-sm" : ""}>

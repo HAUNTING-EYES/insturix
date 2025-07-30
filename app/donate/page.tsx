@@ -2,7 +2,6 @@ import DonationPage from "@/components/DonationPage";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import CursorEffect from "@/components/ui/CursorEffect";
-import { Toaster } from "@/components/ui/toaster";
 
 export default function Donate() {
     return (
@@ -18,7 +17,6 @@ export default function Donate() {
                 <DonationPage />
             </div>
             <Footer />
-            <Toaster />
         </>
     );
 }
