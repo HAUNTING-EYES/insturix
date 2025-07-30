@@ -66,7 +66,7 @@ const PLANS_DATA = [
           limitType: "maxMusicGeneration",
           description: "Generate music tracks",
           maxUsage: 3,
-          resetPeriod: "monthly"
+          resetPeriod: "weekly"
         }
       ]
     },
@@ -139,7 +139,7 @@ const PLANS_DATA = [
           limitType: "maxMusicGeneration",
           description: "Generate music tracks",
           maxUsage: 15,
-          resetPeriod: "monthly"
+          resetPeriod: "weekly"
         }
       ]
     },
@@ -220,7 +220,7 @@ const PLANS_DATA = [
           limitType: "maxMusicGeneration",
           description: "Generate music tracks",
           maxUsage: 50,
-          resetPeriod: "monthly"
+          resetPeriod: "weekly"
         }
       ]
     },
@@ -347,6 +347,40 @@ async function setupPlans() {
       console.log(`Processing plan: ${planData.name}`);
 
       const plan = (await Plan.findOne({ type: planData.type })) || new Plan(planData);
+
+      // If plan exists, merge the complete pricing data from planData
+      if (plan.pricing) {
+        for (const currency of Object.keys(planData.pricing)) {
+          if (!plan.pricing[currency]) {
+            plan.pricing[currency] = planData.pricing[currency];
+          } else {
+            // Merge monthly and yearly pricing
+            if (planData.pricing[currency].monthly) {
+              plan.pricing[currency].monthly = { ...planData.pricing[currency].monthly };
+            }
+            if (planData.pricing[currency].yearly) {
+              plan.pricing[currency].yearly = { ...planData.pricing[currency].yearly };
+            }
+          }
+        }
+      }
+
+      // Log the plan data structure for debugging
+      console.log('  Plan data structure:');
+      console.log('    - Has pricing:', !!plan.pricing);
+      if (plan.pricing) {
+        console.log('    - Pricing currencies:', Object.keys(plan.pricing));
+        for (const currency of Object.keys(plan.pricing)) {
+          const pricing = plan.pricing[currency];
+          console.log(`    - ${currency}: monthly=${!!pricing.monthly}, yearly=${!!pricing.yearly}`);
+          if (pricing.monthly) {
+            console.log(`      - Monthly: amount=${pricing.monthly.amount}, currency=${pricing.monthly.currency}, symbol=${pricing.monthly.symbol}`);
+          }
+          if (pricing.yearly) {
+            console.log(`      - Yearly: amount=${pricing.yearly.amount}, currency=${pricing.yearly.currency}, symbol=${pricing.yearly.symbol}`);
+          }
+        }
+      }
 
       plan.serviceLimits = planData.serviceLimits;
 
