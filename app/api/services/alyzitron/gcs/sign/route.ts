@@ -7,7 +7,7 @@ import { logger } from "../../utils/logger";
 const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
   ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
   : null;
-const hasGCSConfig = !!(gcsCredentials && process.env.ALYZITRON_GCS_BUCKET_NAME);
+const hasGCSConfig = !!(gcsCredentials && process.env.GCS_BUCKET_NAME);
 
 // Initialize storage with credentials if available
 const storage = hasGCSConfig ? new Storage({
@@ -15,7 +15,7 @@ const storage = hasGCSConfig ? new Storage({
   credentials: gcsCredentials,
 }) : null;
 
-const bucket = hasGCSConfig ? storage?.bucket(process.env.ALYZITRON_GCS_BUCKET_NAME!) : null;
+const bucket = hasGCSConfig ? storage?.bucket(process.env.GCS_BUCKET_NAME!) : null;
 
 async function configureBucketCors() {
   if (!bucket) return;
@@ -92,7 +92,7 @@ export async function POST(request: Request) {
       const timestamp = Date.now();
       const cleanFilename = timestamp + '_' + filename.replace(/[^a-zA-Z0-9-_.]/g, '_');
       const userId = session.userId.replace('user_', '');
-      const gcsPath = `services/alyzitron/user_${userId}/${cleanFilename}`;
+      const gcsPath = `alyzitron/user_${userId}/uploads/${cleanFilename}`;
       
       // Get signed URL
       const file = bucket.file(gcsPath);
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       };
 
       const [signedUrl] = await file.getSignedUrl(signUrlConfig);
-      const publicUrl = `https://storage.googleapis.com/${process.env.ALYZITRON_GCS_BUCKET_NAME}/${gcsPath}`;
+      const publicUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
 
       logger.info('Generated GCS signed URL', {
         userId: session.userId,

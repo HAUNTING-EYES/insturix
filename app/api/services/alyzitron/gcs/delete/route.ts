@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
         ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
         : null;
-    const bucketName = process.env.ALYZITRON_GCS_BUCKET_NAME;
+    const bucketName = process.env.GCS_BUCKET_NAME;
 
     if (!gcsCredentials || !bucketName) {
         logger.error("GCS environment variables are not configured.");

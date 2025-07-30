@@ -11,7 +11,7 @@ import {
 
 function getGcsUrl(gcsPath: string): string {
   // Ensure GCS_BUCKET_NAME is defined before using it
-  const bucketName = process.env.ALYZITRON_GCS_BUCKET_NAME;
+  const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) {
     logger.error("GCS_BUCKET_NAME environment variable is not set.");
     throw new Error("Server configuration error: GCS bucket name missing.");

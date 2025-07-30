@@ -5,8 +5,8 @@ const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
   ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
   : null;
 
-if (!gcsCredentials || !process.env.ALYZITRON_GCS_BUCKET_NAME) {
-  throw new Error('Missing required GCS environment variables: GOOGLE_CLOUD_CREDENTIALS and ALYZITRON_GCS_BUCKET_NAME');
+if (!gcsCredentials || !process.env.GCS_BUCKET_NAME) {
+  throw new Error('Missing required GCS environment variables: GOOGLE_CLOUD_CREDENTIALS and GCS_BUCKET_NAME');
 }
 
 // Initialize GCS
@@ -15,7 +15,7 @@ const storage = new Storage({
   credentials: gcsCredentials,
 });
 
-const bucket = storage.bucket(process.env.ALYZITRON_GCS_BUCKET_NAME);
+const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
 export class GCSManager {
   /**
@@ -28,7 +28,7 @@ export class GCSManager {
   ): Promise<{ url: string; gcsPath: string }> {
     try {
       // Create GCS path following service convention
-      const gcsPath = `services/alyzitron/user_${userId}/${Date.now()}_${filename}`;
+      const gcsPath = `alyzitron/user_${userId}/uploads/${Date.now()}_${filename}`;
       const file = bucket.file(gcsPath);
 
       // Generate signed URL with 15-minute expiry
