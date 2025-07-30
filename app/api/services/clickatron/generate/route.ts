@@ -1,23 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { checkClickatronLimits, incrementClickatronUsage, createClickatronLimitResponse } from '@/lib/middleware/services/clickatron';
-import { ClickatronRTDBManager } from '@/lib/services/rtdb/clickatron-rtdb';
-import { PubSub } from '@google-cloud/pubsub';
-
-const gcpCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
-  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
-  : null;
-
-if (!gcpCredentials) {
-  console.error('GOOGLE_CLOUD_CREDENTIALS environment variable is not configured or invalid.');
-  // This will cause the PubSub initialization to fail, which will be caught by the outer try-catch in POST
-}
-
-const pubsub = new PubSub({
-  projectId: gcpCredentials?.project_id,
-  credentials: gcpCredentials,
-});
 
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -64,42 +47,16 @@ export async function POST(req: Request) {
     return createClickatronLimitResponse(limitResult);
   }
 
-  const { ClickatronTask } = await getClickatronDb();
-  const taskCount = await ClickatronTask.countDocuments({ userId });
-  const title = `Thumbnail #${taskCount + 1}`;
-  
-  let newTask;
-  try {
-    newTask = new ClickatronTask({
-      userId,
-      title,
-      details: detailsString, // Store the JSON string directly in details
-      status: 'listed',
-    });
-    await newTask.save();
-    console.log('Task saved successfully:', newTask._id);
-  } catch (saveError: any) {
-    console.error('Error saving task:', saveError);
-    return new NextResponse('Internal Server Error', { status: 500 });
-  }
-
-  // Increment usage immediately after task creation (like alyzitron)
+  // Increment usage BEFORE calling monolithic backend to ensure proper limit enforcement
   const usageResult = await incrementClickatronUsage({ userId });
   if (!usageResult.success) {
     console.error('Failed to increment clickatron usage:', usageResult.error);
-    // Don't fail the request, just log for monitoring
+    // Don't start the task if usage increment fails
+    return new NextResponse('Unable to process request. Please try again later.', { status: 403 });
   }
 
   // New try-catch block for post-save operations
   try {
-    // Create task in RTDB for real-time updates
-    try {
-      await ClickatronRTDBManager.createTask(userId, newTask._id.toString(), title);
-    } catch (error) {
-      console.error('Failed to create task in RTDB:', error);
-      // Don't fail the whole request if RTDB fails
-    }
-
     // Call monolithic backend directly
     try {
       const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
@@ -113,7 +70,7 @@ export async function POST(req: Request) {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          taskId: newTask._id.toString(),
+          taskId: new Date().getTime().toString(),
           userId,
           details: detailsString,
         }),
@@ -121,32 +78,17 @@ export async function POST(req: Request) {
       if (!response.ok) {
         const errorText = await response.text();
         console.error('Error from monolithic backend:', errorText);
-        await ClickatronTask.findByIdAndUpdate(newTask._id, {
-          status: 'failed',
-          error_message: 'Failed to process task in monolithic backend. Please try again later.',
-        });
         return new NextResponse('Task processing failed', { status: 500 });
       }
     } catch (monolithError: any) {
       console.error('Error calling monolithic backend:', monolithError);
-      await ClickatronTask.findByIdAndUpdate(newTask._id, {
-        status: 'failed',
-        error_message: 'Failed to process task due to an internal error. Please try again later.',
-      });
       return new NextResponse('Task processing failed', { status: 500 });
     }
 
-    // Usage is already incremented after task creation above
-
-    return NextResponse.json({ taskId: newTask._id });
+    return NextResponse.json({ taskId: new Date().getTime().toString() });
 
   } catch (processingError: any) {
     console.error('Error during task processing (Monolithic Backend/Usage Increment):', processingError);
-    // Update task status to failed and store a generic error message
-    await ClickatronTask.findByIdAndUpdate(newTask._id, {
-      status: 'failed',
-      error_message: 'Failed to process task due to an internal error. Please try again later.',
-    });
     return new NextResponse('Task processing failed', { status: 500 });
   }
 }
