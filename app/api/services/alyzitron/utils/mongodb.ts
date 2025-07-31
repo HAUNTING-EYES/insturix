@@ -15,7 +15,7 @@ const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 // Collection names following service naming convention
 const COLLECTIONS = {
   USER_DATA: 'alyzitron_user_data',
-  ANALYSES: 'alyzitron_analyses',
+  ANALYSES: 'alyzitron_tasks',
 } as const;
 
 let cachedClient: MongoClient | null = null;

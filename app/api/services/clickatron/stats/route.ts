@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     // Use aggregation to get all counts in a single roundtrip
     const aggregationPipeline = [
-      { $match: { userId: userId } },
+      { $match: { clerkUserId: userId } },
       {
         $facet: {
           totalTasks: [{ $count: "count" }],

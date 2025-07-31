@@ -8,7 +8,8 @@ import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AlyzitronAnalysis, AnalysisStatus } from '@/app/api/services/alyzitron/types';
 import { useTaskUpdater } from '@/hooks/useTaskUpdater';
-import { Loader2,
+import {
+  Loader2,
   History,
   FileVideo,
   ChevronLeft,
@@ -238,28 +239,11 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
   const [currentPage, setCurrentPage] = useState(1);
   useTaskUpdater(); // New hook to handle RTDB updates
 
-  // Query for ALL Alyzitron analyses (for in-progress filtering)
-  const { data: allAlyzitronAnalyses, isLoading: isLoadingAllAnalyses } = useQuery<AnalysisDisplay[]>({
-    queryKey: ['alyzitron-all-analyses'],
+  // Use single API call for all analyses
+  const { data: allAnalyses, isLoading } = useQuery<PaginatedAnalysisResponse>({
+    queryKey: ['alyzitron-analyses', currentPage, itemsPerPage],
     queryFn: async () => {
-      const response = await fetch('/api/services/alyzitron/analyses'); // Fetch all analyses
-      if (!response.ok) throw new Error('Failed to fetch all Alyzitron analyses');
-      const result: PaginatedAnalysisResponse = await response.json();
-      return result.data || [];
-    },
-    enabled: true,
-    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
-    gcTime: 1000 * 60 * 10, // Standard garbage collection
-    refetchOnWindowFocus: false, // Prevent refetching on window focus
-    refetchOnMount: false, // Prevent refetching on mount
-    refetchOnReconnect: false, // Prevent refetching on reconnect
-  });
-
-  // Use paginated API for completed/failed analyses
-  const { data: paginatedData, isLoading: isLoadingPaginatedData } = useQuery<PaginatedAnalysisResponse>({
-    queryKey: ['alyzitron-history', currentPage, itemsPerPage],
-    queryFn: async () => {
-      const url = `/api/services/alyzitron/analyses?status=completed,failed&page=${currentPage}&limit=${itemsPerPage}`;
+      const url = `/api/services/alyzitron/analyses?page=${currentPage}&limit=${itemsPerPage}`;
       const response = await fetch(url);
       if (!response.ok) {
         const errorData = await response.text();
@@ -275,30 +259,19 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
     refetchOnWindowFocus: false,
   });
 
-  // In-progress analyses from the 'allAlyzitronAnalyses' query
+  // Separate in-progress and completed analyses
   const inProgressStatuses: AnalysisStatus[] = ['listed', 'queued', 'processing'];
-  const inProgressAnalyses: AnalysisDisplay[] = ((Array.isArray(allAlyzitronAnalyses) ? allAlyzitronAnalyses : [])
-    .filter(analysis => inProgressStatuses.includes(analysis.status)))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .map(analysis => ({
-      ...analysis, // Spread existing properties
-      _id: analysis._id, // Ensure _id is explicitly set as string
-      createdAt: new Date(analysis.createdAt),
-      updatedAt: new Date(analysis.updatedAt),
-      completedAt: analysis.completedAt ? new Date(analysis.completedAt) : undefined,
-      videoUrl: analysis.videoUrl, // Ensure videoUrl is passed
-      unread: analysis.unread, // Ensure unread is passed
-      error: analysis.error, // Ensure error is passed
-      queuePosition: analysis.queuePosition, // Ensure queuePosition is passed
-    }));
-
-  const currentAnalyses = (paginatedData?.data || []).slice()
+  const inProgressAnalyses: AnalysisDisplay[] = (allAnalyses?.data || [])
+    .filter(analysis => inProgressStatuses.includes(analysis.status))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    
+  const currentAnalyses = (allAnalyses?.data || [])
+    .filter(analysis => !inProgressStatuses.includes(analysis.status))
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  const totalPages = paginatedData?.pagination?.totalPages || 1;
-  const totalItems = paginatedData?.pagination?.totalItems || 0;
-
+    
+  const totalPages = allAnalyses?.pagination?.totalPages || 1;
+  const totalItems = allAnalyses?.pagination?.totalItems || 0;
   const processingAnalysesCount = inProgressAnalyses.length;
-  const isLoading = isLoadingAllAnalyses || isLoadingPaginatedData;
 
   const handlePreviousPage = () => {
     setCurrentPage((prev) => Math.max(prev - 1, 1));

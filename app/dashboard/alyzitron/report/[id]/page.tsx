@@ -17,6 +17,11 @@ async function getAnalysis(id: string) {
   const session = await auth();
 
   try {
+    // Skip favicon.ico requests and other static file requests
+    if (id === 'favicon.ico' || id === 'robots.txt' || id === 'manifest.json') {
+      return { error: 'invalid_id' };
+    }
+    
     // Validate if it's a valid ObjectId format
     if (!ObjectId.isValid(id)) {
       return { error: 'invalid_id' };
@@ -26,11 +31,13 @@ async function getAnalysis(id: string) {
 
     // First, find the analysis regardless of user
     const analysis = await analyses.findOne({
-      _id: id,
+      _id: new ObjectId(id),
       $or: [{ status: "completed" }, { status: "failed" }],
-    });
+    } as any);
 
-    if (!analysis) return { error: 'not_found' };
+    if (!analysis) {
+      return { error: 'not_found' };
+    }
 
     // Check if the analysis is public or belongs to the current user
     const isOwner = session?.userId && analysis.clerkUserId === session.userId;
@@ -44,7 +51,7 @@ async function getAnalysis(id: string) {
     // If user is authenticated and is the owner, mark as read
     if (isOwner && session?.userId) {
       await analyses.updateOne(
-        { _id: id },
+        { _id: new ObjectId(id) } as any,
         { $set: { unread: false } }
       );
     }

@@ -20,7 +20,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
 
   // Initialize and manage the 'analyses' query state
   const { data: analysesData = initialAnalyses } = useQuery<AlyzitronAnalysis[]>({
-    queryKey: ['analyses'],
+    queryKey: ['alyzitron-analyses'],
     queryFn: async () => {
       // This function ideally shouldn't be called often if initialData is provided
       // and updates happen via setQueryData/RTDB. Fetch only if necessary.
@@ -45,7 +45,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const handleAnalysisUpdate = (analysisId: string, analysis: Analysis) => {
     if (!analysisId) return;
     
-    queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], old => {
+    queryClient.setQueryData<AlyzitronAnalysis[]>(['alyzitron-analyses'], old => {
       const currentData = old || [];
       // Look for existing analysis by both _id and taskId to handle cases where
       // the analysis was just added to cache with a different _id
@@ -122,7 +122,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
           console.log('ONSUBMIT: Called with', { analysisId, analysis });
           // Analysis is already added to cache by submitAnalysis function
           // Just update the status to queued if needed
-          queryClient.setQueryData<AlyzitronAnalysis[]>(['analyses'], old => {
+          queryClient.setQueryData<AlyzitronAnalysis[]>(['alyzitron-analyses'], old => {
             console.log('ONSUBMIT: Current cache data:', old);
             const currentData = old || [];
             const existingIndex = currentData.findIndex(a => a._id === analysisId);
@@ -158,7 +158,7 @@ export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
 
           // Invalidate to ensure consistency, though RTDB might handle this
           // Consider if this invalidation is still needed with RTDB updates
-          queryClient.invalidateQueries({ queryKey: ['analyses'] });
+          queryClient.invalidateQueries({ queryKey: ['alyzitron-analyses'] });
         }}
         activeAnalyses={activeAnalyses} // Pass the derived active analyses
       />

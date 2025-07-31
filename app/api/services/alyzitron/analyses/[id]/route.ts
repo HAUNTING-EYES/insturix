@@ -22,6 +22,14 @@ export async function GET(request: Request, context: Context) {
       );
     }
 
+    // Skip favicon.ico requests and other static file requests
+    if (id === 'favicon.ico' || id === 'robots.txt' || id === 'manifest.json') {
+      return NextResponse.json(
+        { error: 'Invalid analysis ID' },
+        { status: 400 }
+      );
+    }
+
     if (!id || !ObjectId.isValid(id)) {
       return NextResponse.json(
         { error: 'Invalid analysis ID' },
@@ -33,8 +41,8 @@ export async function GET(request: Request, context: Context) {
 
     // First, try to find the analysis regardless of user
     const analysis = await analyses.findOne({
-      _id: id
-    });
+      _id: new ObjectId(id)
+    } as any);
 
     if (!analysis) {
       logger.warn('Analysis not found', {

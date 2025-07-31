@@ -20,7 +20,7 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid Task ID' }, { status: 400 });
     }
 
-    const task = await ClickatronTask.findOne({ _id: id, userId });
+    const task = await ClickatronTask.findOne({ _id: id, clerkUserId: userId });
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });

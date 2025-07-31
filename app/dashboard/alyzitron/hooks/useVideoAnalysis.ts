@@ -298,15 +298,17 @@ export function useVideoAnalysis() {
               throw new Error(errorMessage);
           }
 
-          const {
-              analysis: newAnalysisData,
-          } = responseData;
+          // The API returns taskId, not analysis object
+          const newAnalysisData = {
+              _id: responseData.taskId,
+              estimatedTime: responseData.estimatedTime || 60, // Default estimated time
+          };
           logger.info("Analysis request submitted successfully", {
               data: { analysis: newAnalysisData },
           });
 
           // Immediately add the new analysis to the cache
-          queryClient.setQueryData(['analyses'], (old: any) => {
+          queryClient.setQueryData(['alyzitron-analyses'], (old: any) => {
               const currentData = Array.isArray(old) ? old : [];
               // Add to the beginning of the array
               const updatedData = [newAnalysisData, ...currentData];

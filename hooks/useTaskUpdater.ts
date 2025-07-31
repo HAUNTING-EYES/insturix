@@ -51,6 +51,10 @@ export function useTaskUpdater() {
                 });
                 // Refetch musitron analytics as well
                 queryClient.refetchQueries({ queryKey: ['musitron-analytics'] });
+              } else if (serviceName === "alyzitron") {
+                // Refetch alyzitron analyses to update the cache
+                queryClient.refetchQueries({ queryKey: ['analyses'] });
+                queryClient.refetchQueries({ queryKey: ['alyzitron-all-analyses'] });
               }
             }
           });

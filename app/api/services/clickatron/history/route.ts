@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     const skip = (validatedPage - 1) * validatedLimit;
 
     // Build query
-    const query: any = { userId };
+    const query: any = { clerkUserId: userId };
     
     if (status) {
       const statusArray = status.split(',').map(s => s.trim());

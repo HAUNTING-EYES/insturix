@@ -1,7 +1,7 @@
 export const SERVICE_CONFIG = {
   alyzitron: {
     name: 'Alyzitron',
-    mongoCollection: process.env.ALYZITRON_MONGO_COLLECTION || 'alyzitron_analyses',
+    mongoCollection: process.env.ALYZITRON_MONGO_COLLECTION || 'alyzitron_tasks',
     pubsubTopic: process.env.ALYZITRON_PUBSUB_TOPIC || 'alyzitron-tasks',
   },
   editron: {
