@@ -59,8 +59,9 @@ export async function POST(request: Request) {
       );
     }
 
-    // Determine if it's a GCS URL or a potential YouTube URL
-    const isGCS = video_url.startsWith('gs://');
+    // Determine if it's a GCS path or a potential YouTube URL
+    // GCS paths typically start with 'user_' followed by user ID
+    const isGCS = video_url.startsWith('user_') && video_url.includes('/alyzitron-uploads/');
     const isMaybeYouTube = !isGCS && (video_url.includes('youtube.com') || video_url.includes('youtu.be'));
     let videoDuration = 0; // Default duration
 
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
     // Generate appropriate title based on video source
     let title: string;
     if (isGCS) {
-      // For GCS files, extract filename from path
+      // For GCS files, extract filename from path (works with both full URL and path only)
       const pathParts = video_url.split('/');
       const filename = pathParts[pathParts.length - 1];
       title = decodeURIComponent(filename);
