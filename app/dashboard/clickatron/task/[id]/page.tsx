@@ -28,9 +28,11 @@ async function getTask(id: string) {
 
     await getClickatronDb();
     
+    const objectId = new Types.ObjectId(id);
+    
     const task = await ClickatronTask.findOne({
-      _id: new Types.ObjectId(id),
-      userId: session.userId,
+      _id: objectId,
+      clerkUserId: session.userId,
     }).lean() as IClickatronTask | null;
 
     if (!task) {

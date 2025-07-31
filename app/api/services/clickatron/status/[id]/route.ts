@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
+import { Types } from 'mongoose';
 export async function GET(
   req: Request
 ) {
@@ -10,7 +11,6 @@ export async function GET(
   try {
     await getClickatronDb();
     const { userId } = await auth();
-    // const { id } = params; // replaced by above extraction
 
     if (!userId) {
       return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
@@ -20,7 +20,11 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid Task ID' }, { status: 400 });
     }
 
-    const task = await ClickatronTask.findOne({ _id: id, clerkUserId: userId });
+    const objectId = new Types.ObjectId(id);
+    console.log("🔍 [API DEBUG] Created ObjectId:", objectId);
+    
+    const task = await ClickatronTask.findOne({ _id: objectId, userId: userId });
+    console.log("🔍 [API DEBUG] Task query result:", task ? "Found" : "Not found");
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });

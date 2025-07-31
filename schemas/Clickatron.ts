@@ -2,7 +2,7 @@ import mongoose, { Document, Schema, Types } from 'mongoose';
 
 export interface IClickatronTask extends Document {
   _id: Types.ObjectId;
-  userId: string;
+  clerkUserId: string;
   title?: string;
   details: any; // Mixed type to handle both old and new data structures
   status: 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
@@ -22,7 +22,7 @@ export interface IClickatronTask extends Document {
 
 const ClickatronTaskSchema = new Schema<IClickatronTask>(
   {
-    userId: { type: String, required: true, index: true },
+    clerkUserId: { type: String, required: true, index: true },
     title: { type: String },
     details: {
       type: Schema.Types.Mixed,
@@ -48,8 +48,8 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
   { timestamps: true }
 );
 
-// Compound index for efficient querying by userId, status, and createdAt
-ClickatronTaskSchema.index({ userId: 1, status: 1, createdAt: -1 });
+// Compound index for efficient querying by clerkUserId, status, and createdAt
+ClickatronTaskSchema.index({ clerkUserId: 1, status: 1, createdAt: -1 });
 
 export const ClickatronTask =
   mongoose.models.ClickatronTask ||

@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 interface TaskDetailsProps {
   task: {
     _id: string;
-    userId: string;
+    clerkUserId: string;
     title?: string;
     details: any;
     status: 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
