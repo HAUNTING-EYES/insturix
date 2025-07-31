@@ -1,6 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { ObjectId } from 'mongodb';
 import { logger } from '../utils/logger';
 import { validateYouTubeVideo } from '../utils/youtube';
 import { GCSManager } from '../utils/gcs';

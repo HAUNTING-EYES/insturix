@@ -2,6 +2,14 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { checkMusitronLimits, incrementMusitronUsage } from '@/lib/middleware/services/musitron';
 
+interface MusitronGenerateRequest {
+  clerkUserId: string;
+  title: string;
+  style: string;
+  instrumental_only: boolean;
+  lyrics: string;
+}
+
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) {
@@ -12,20 +20,38 @@ export async function POST(req: Request) {
   const { title, instrumental, songDescription, style, lyrics, duration } = body;
 
   // Validate required fields
-  if (!title || typeof instrumental !== 'boolean') {
-    return new NextResponse('Missing required fields', { status: 400 });
+  if (!title) {
+    return NextResponse.json(
+      { error: 'Missing required field: title' },
+      { status: 400 }
+    );
   }
-  if (!instrumental && !lyrics) {
-    return new NextResponse('Missing required fields: lyrics required if not instrumental', { status: 400 });
+  if (typeof instrumental !== 'boolean') {
+    return NextResponse.json(
+      { error: 'Missing required field: instrumental must be a boolean' },
+      { status: 400 }
+    );
   }
   if (!style) {
-    return new NextResponse('Missing required fields: style', { status: 400 });
+    return NextResponse.json(
+      { error: 'Missing required field: style' },
+      { status: 400 }
+    );
+  }
+  if (!instrumental && !lyrics) {
+    return NextResponse.json(
+      { error: 'Missing required field: lyrics required if not instrumental' },
+      { status: 400 }
+    );
   }
 
   // Usage check (Musitron-specific)
   const limitResult = await checkMusitronLimits({ userId });
   if (!limitResult.hasAccess) {
-    return new NextResponse('Usage limit exceeded', { status: 403 });
+    return NextResponse.json(
+      { error: 'Usage limit exceeded' },
+      { status: 403 }
+    );
   }
 
   // Increment usage BEFORE calling monolithic backend to ensure proper limit enforcement
@@ -33,7 +59,13 @@ export async function POST(req: Request) {
   if (!usageResult.success) {
     console.error('Failed to increment musitron usage:', usageResult.error);
     // Don't start the task if usage increment fails
-    return new NextResponse('Unable to process request. Please try again later.', { status: 403 });
+    return NextResponse.json(
+      {
+        error: 'Unable to process request. Please try again later.',
+        success: false
+      },
+      { status: 403 }
+    );
   }
 
   // Call monolithic backend directly
@@ -43,23 +75,25 @@ export async function POST(req: Request) {
     const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
     if (!monolithicUrl) {
       console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
-      return new NextResponse('Server configuration error', { status: 500 });
+      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
     }
+    
+    // Create properly typed request body using the interface
+    const generateRequest: MusitronGenerateRequest = {
+      clerkUserId: userId,
+      title,
+      style,
+      instrumental_only: instrumental,
+      lyrics: lyrics || "",
+    };
+    
     const response = await fetch(`${monolithicUrl}/musitron/generate`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
       },
-      body: JSON.stringify({
-        clerkUserId: userId,
-        title,
-        style,
-        instrumental_only: instrumental,
-        lyrics: lyrics || "",
-        ...(duration && { duration }),
-        ...(songDescription && { songDescription })
-      }),
+      body: JSON.stringify(generateRequest),
     });
     backendData = await response.json();
     

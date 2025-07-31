@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { checkClickatronLimits, incrementClickatronUsage, createClickatronLimitResponse } from '@/lib/middleware/services/clickatron';
 
+interface ClickatronGenerateRequest {
+  clerkUserId: string;
+  details: string;
+}
+
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) {
@@ -13,12 +18,11 @@ export async function POST(req: Request) {
 
   const { details } = body;
 
-  if (
-    !details ||
-    (typeof details === 'string' && details.trim().length === 0) ||
-    (typeof details === 'object' && Object.keys(details).length === 0)
-  ) {
-    return new NextResponse('Missing or empty details', { status: 400 });
+  if (!details) {
+    return NextResponse.json(
+      { error: 'Missing required field: details' },
+      { status: 400 }
+    );
   }
 
   // Robust string conversion with sanitization
@@ -36,10 +40,20 @@ export async function POST(req: Request) {
     // Additional sanitization to ensure it's a valid string
     detailsString = detailsString.replace(/[\x00-\x1F\x7F]/g, ''); // Remove control characters
     
+    if (detailsString.trim().length === 0) {
+      return NextResponse.json(
+        { error: 'Details cannot be empty' },
+        { status: 400 }
+      );
+    }
+    
     console.log('Final detailsString:', detailsString);
   } catch (error) {
     console.error('Error processing details:', error);
-    return new NextResponse('Invalid details format', { status: 400 });
+    return NextResponse.json(
+      { error: 'Invalid details format' },
+      { status: 400 }
+    );
   }
 
   const limitResult = await checkClickatronLimits({ userId });
@@ -64,19 +78,22 @@ export async function POST(req: Request) {
       const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
       if (!monolithicUrl) {
         console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
-        return new NextResponse('Server configuration error', { status: 500 });
+        return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
       }
+      
+      // Create properly typed request body using the interface
+      const generateRequest: ClickatronGenerateRequest = {
+        clerkUserId: userId,
+        details: detailsString,
+      };
+      
       const response = await fetch(`${monolithicUrl}/clickatron/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
         },
-        body: JSON.stringify({
-          taskId: new Date().getTime().toString(),
-          userId,
-          details: detailsString,
-        }),
+        body: JSON.stringify(generateRequest),
       });
       backendData = await response.json();
       
@@ -107,6 +124,12 @@ export async function POST(req: Request) {
 
   } catch (processingError: any) {
     console.error('Error during task processing (Monolithic Backend/Usage Increment):', processingError);
-    return new NextResponse('Task processing failed', { status: 500 });
+    return NextResponse.json({
+      success: false,
+      error: {
+        type: 'TASK_PROCESSING_ERROR',
+        message: 'Task processing failed'
+      }
+    }, { status: 500 });
   }
 }
