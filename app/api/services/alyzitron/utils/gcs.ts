@@ -28,7 +28,7 @@ export class GCSManager {
   ): Promise<{ url: string; gcsPath: string }> {
     try {
       // Create GCS path following service convention
-      const gcsPath = `alyzitron/user_${userId}/uploads/${Date.now()}_${filename}`;
+      const gcsPath = `user_${userId}/alyzitron-uploads/${Date.now()}_${filename}`;
       const file = bucket.file(gcsPath);
 
       // Generate signed URL with 15-minute expiry

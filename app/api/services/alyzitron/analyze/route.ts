@@ -3,11 +3,27 @@ import { NextResponse } from "next/server";
 import { ObjectId } from 'mongodb';
 import { logger } from '../utils/logger';
 import { validateYouTubeVideo } from '../utils/youtube';
+import { GCSManager } from '../utils/gcs';
 import {
   checkAlyzitronLimits,
   incrementAlyzitronUsage,
   createAlyzitronLimitResponse
 } from '@/lib/middleware/services/alyzitron';
+
+interface AlyzitronGenerateRequest {
+  clerkUserId: string;
+  videoUrl: string;
+  additionalDetails?: Record<string, any> | null;
+  metadata: MetadataModel;
+}
+
+interface MetadataModel {
+  originalFilename: string;
+  videoSize: number;
+  videoDuration: number;
+  mimeType: string;
+  isPublic: boolean;
+}
 
 function getGcsUrl(gcsPath: string): string {
   // Ensure GCS_BUCKET_NAME is defined before using it
@@ -44,14 +60,13 @@ export async function POST(request: Request) {
       );
     }
 
-    // Determine if it's a GCS path or a potential YouTube URL
-    const isGCS = video_url.startsWith('services/alyzitron/');
+    // Determine if it's a GCS URL or a potential YouTube URL
+    const isGCS = video_url.startsWith('gs://');
     const isMaybeYouTube = !isGCS && (video_url.includes('youtube.com') || video_url.includes('youtu.be'));
     let videoDuration = 0; // Default duration
 
     // Validate YouTube URL if applicable and get duration
     if (isMaybeYouTube) {
-      logger.info('Potential YouTube URL detected, starting validation.', { data: { url: video_url } });
       const validationResult = await validateYouTubeVideo(video_url);
       if (!validationResult.valid) {
         logger.warn('YouTube URL validation failed.', { data: { url: video_url, error: validationResult.error } });
@@ -67,7 +82,6 @@ export async function POST(request: Request) {
         );
       }
       videoDuration = validationResult.duration || 0;
-      logger.info('YouTube URL validation successful.', { data: { url: video_url, duration: videoDuration } });
     }
 
     // Check service limits using enhanced middleware
@@ -157,6 +171,14 @@ export async function POST(request: Request) {
         console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
         return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
       }
+
+      // Create properly typed request body using the interface
+      const generateRequest: AlyzitronGenerateRequest = {
+        clerkUserId: session.userId,
+        videoUrl: finalVideoUrl,
+        additionalDetails: parsedAdditionalDetails,
+        metadata: metadata,
+      };
       
       const backendResponse = await fetch(`${monolithicUrl}/alyzitron/generate`, {
         method: 'POST',
@@ -164,12 +186,7 @@ export async function POST(request: Request) {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
         },
-        body: JSON.stringify({
-          userId: session.userId,
-          videoUrl: finalVideoUrl,
-          additionalDetails: parsedAdditionalDetails,
-          metadata: metadata,
-        }),
+        body: JSON.stringify(generateRequest),
       });
 
       const backendData = await backendResponse.json();
@@ -205,6 +222,32 @@ export async function POST(request: Request) {
           error: processingError instanceof Error ? processingError.message : String(processingError)
         }
       });
+
+      // Check if this is a GCS video URL and clean it up if the analysis failed
+      if (isGCS && finalVideoUrl) {
+        try {
+          // Extract GCS path from the URL
+          const gcsPath = finalVideoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, '');
+          
+          // Delete the GCS file locally
+          await GCSManager.deleteFile(gcsPath);
+          
+          logger.info('Successfully cleaned up GCS file after analysis failure', {
+            data: {
+              userId: session.userId,
+              gcsPath,
+              videoUrl: finalVideoUrl,
+            }
+          });
+        } catch (deleteError) {
+          logger.error('Failed to clean up GCS file after analysis failure', {
+            data: {
+              error: deleteError instanceof Error ? deleteError.message : String(deleteError),
+              videoUrl: finalVideoUrl,
+            }
+          });
+        }
+      }
 
       // Refund usage if task processing failed
       const refundResult = await incrementAlyzitronUsage(requestData, -1);

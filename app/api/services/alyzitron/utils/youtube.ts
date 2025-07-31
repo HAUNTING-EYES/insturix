@@ -54,7 +54,6 @@ export async function validateYouTubeVideo(url: string): Promise<{ valid: boolea
   }
 
   try {
-    logger.info('Validating YouTube video', { data: { videoId } });
     const response = await youtube.videos.list({
       part: ['status', 'contentDetails'],
       id: [videoId],
@@ -94,7 +93,6 @@ export async function validateYouTubeVideo(url: string): Promise<{ valid: boolea
       return { valid: false, error: 'YOUTUBE_VIDEO_TOO_LONG' };
     }
 
-    logger.info('YouTube video validation successful', { data: { videoId, durationSeconds } });
     return { valid: true, duration: durationSeconds };
 
   } catch (error: unknown) {

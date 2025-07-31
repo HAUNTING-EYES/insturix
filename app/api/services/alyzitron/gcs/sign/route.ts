@@ -92,7 +92,7 @@ export async function POST(request: Request) {
       const timestamp = Date.now();
       const cleanFilename = timestamp + '_' + filename.replace(/[^a-zA-Z0-9-_.]/g, '_');
       const userId = session.userId.replace('user_', '');
-      const gcsPath = `alyzitron/user_${userId}/uploads/${cleanFilename}`;
+      const gcsPath = `user_${userId}/alyzitron-uploads/${cleanFilename}`;
       
       // Get signed URL
       const file = bucket.file(gcsPath);
