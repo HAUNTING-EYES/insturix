@@ -228,24 +228,23 @@ function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
 
 export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: ClickatronTaskHistoryProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
-  useTaskUpdater(); // New hook to handle RTDB updates
 
-  // Single source of truth for Clickatron history (both in-progress and completed)
-  // Read directly from the QueryClient cache populated by ClientWrapper.
-  // We avoid a second network request and keep a single source of truth.
-  const { data: allClickatronTasks = [] } = useQuery<ClickatronTaskDisplay[]>({
-    queryKey: ['clickatron-tasks'],
+  // Align with Musitron: listen for RTDB and let it drive invalidations
+  useTaskUpdater();
+
+  // Fetch history using SERVER pagination (trust API metadata)
+  const { data: pageData, isLoading } = useQuery({
+    queryKey: ['clickatron-tasks', currentPage, itemsPerPage],
     queryFn: async () => {
-      // fall back to network if cache is empty (first mount without SSR initialTasks)
-      const response = await fetch('/api/services/clickatron/history');
+      const response = await fetch(`/api/services/clickatron/history?page=${currentPage}&limit=${itemsPerPage}`);
       if (!response.ok) throw new Error('Failed to fetch clickatron tasks');
-      const result: PaginatedTaskResponse | ClickatronTaskDisplay[] = await response.json();
-      const list = Array.isArray(result) ? result : result.data || [];
-      return list.map((task: any) => ({
+      const result = await response.json();
+      // result shape: { data: [...], pagination: { totalItems, totalPages, currentPage, itemsPerPage, ... } }
+      const list = Array.isArray(result?.data) ? result.data : [];
+      const mapped = (list as any[]).map((task: any) => ({
         _id: task._id?.toString() || '',
-        userId: task.userId ?? task.clerkUserId,
+        userId: task.userId ?? task.clerkUserId ?? '',
         title: task.title,
         details: task.details,
         status: task.status,
@@ -255,67 +254,39 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
         updatedAt: new Date(task.updatedAt),
         completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
       }));
+      return {
+        items: mapped,
+        pagination: {
+          totalItems: Number(result?.pagination?.totalItems) || mapped.length,
+          totalPages: Number(result?.pagination?.totalPages) || 1,
+          currentPage: Number(result?.pagination?.currentPage) || currentPage,
+          itemsPerPage: Number(result?.pagination?.itemsPerPage) || itemsPerPage,
+          hasNext: Boolean(result?.pagination?.hasNext),
+          hasPrev: Boolean(result?.pagination?.hasPrev),
+        }
+      };
     },
-    initialData: () => {
-      const cached = queryClient.getQueryData<ClickatronTaskDisplay[]>(['clickatron-tasks']);
-      return Array.isArray(cached) ? cached : [];
-    },
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 30,
     gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
 
-  // Derive the "completed/failed" list purely from the unified allClickatronTasks in-memory.
-  // Ensure 'completed' tasks are included. Some records may have 'results' missing — still treat as completed by status.
-  const completedFailedTasks = ((Array.isArray(allClickatronTasks) ? allClickatronTasks : [])
-    .filter(task => task.status === 'completed' || task.status === 'failed'))
-    .sort((a, b) => {
-      const aTime = new Date(a.updatedAt || a.createdAt).getTime();
-      const bTime = new Date(b.updatedAt || b.createdAt).getTime();
-      return bTime - aTime;
-    });
+  const tasksData: ClickatronTaskDisplay[] = Array.isArray(pageData?.items) ? pageData!.items : [];
+  const pagination = pageData?.pagination || { totalItems: tasksData.length, totalPages: 1, currentPage, itemsPerPage };
 
-  // Manual pagination over completedFailedTasks (frontend pagination only)
-  const start = (currentPage - 1) * itemsPerPage;
-  const end = currentPage * itemsPerPage;
-  const currentTasks = completedFailedTasks.slice(start, end);
-  const totalItems = completedFailedTasks.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
-  const isLoading = false;
-
-  // In-progress tasks from the 'allClickatronTasks' query
+  // Split lists from CURRENT PAGE items for display
   const inProgressStatuses: IClickatronTask['status'][] = ['listed', 'queued', 'processing'];
-  const inProgressTasks: ClickatronTaskDisplay[] = ((Array.isArray(allClickatronTasks) ? allClickatronTasks : [])
-    .filter(task => inProgressStatuses.includes(task.status)))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .map(task => ({
-      _id: task._id, // _id is already present in ClickatronTaskDisplay
-      userId: task.userId,
-      title: task.title,
-      details: task.details,
-      status: task.status,
-      results: task.results,
-      error_message: task.error_message,
-      createdAt: new Date(task.createdAt),
-      updatedAt: new Date(task.updatedAt),
-      completedAt: task.completedAt,
-    }));
+  const inProgressTasks = tasksData.filter(t => inProgressStatuses.includes(t.status));
+  const completedFailedTasks = tasksData.filter(t => t.status === 'completed' || t.status === 'failed');
 
+  // Use SERVER pagination numbers for controls and header
+  const totalPages = Math.max(1, Number(pagination.totalPages) || 1);
+  const totalItems = Number(pagination.totalItems) || tasksData.length;
 
-  const processingTasksCount = inProgressTasks.length;
-
-  const handlePreviousPage = () => {
-    setCurrentPage((prev) => Math.max(prev - 1, 1));
-  };
-
-  const handleNextPage = () => {
-    setCurrentPage((prev) => Math.min(prev + 1, totalPages));
-  };
-
-  const handleTaskClick = (taskId: string) => {
-    router.push(`/dashboard/clickatron/task/${taskId}`);
-  };
+  const handlePreviousPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
+  const handleNextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
+  const handleTaskClick = (taskId: string) => router.push(`/dashboard/clickatron/task/${taskId}`);
 
   return (
     <div className="space-y-6">
@@ -328,9 +299,9 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
             <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs">
               {totalItems} total
             </span>
-            {processingTasksCount > 0 && (
+            {inProgressTasks.length > 0 && (
               <span className="px-2 py-1 bg-purple-500/20 text-purple-300 rounded-full text-xs animate-pulse">
-                {processingTasksCount} processing
+                {inProgressTasks.length} processing
               </span>
             )}
           </div>
@@ -338,11 +309,11 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
       </div>
 
       {/* In Progress Section */}
-      {inProgressTasks && inProgressTasks.length > 0 && (
+      {inProgressTasks.length > 0 && (
         <div className="mb-6">
           <h3 className="text-md font-semibold text-purple-300 mb-2">In Progress</h3>
           <div className="space-y-3 sm:space-y-4">
-            {inProgressTasks.map((task: ClickatronTaskDisplay) => (
+            {inProgressTasks.map((task) => (
               <ClickatronTaskCard key={task._id} task={task} onClick={() => handleTaskClick(task._id)} />
             ))}
           </div>
@@ -366,27 +337,13 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
         ) : (
           <>
             <h3 className="text-md font-semibold text-purple-300 mb-2">Completed</h3>
-            {/* Show completed first, then failed (like Musitron UX expectation) */}
-            {currentTasks
-              .sort((a, b) => {
-                // Completed before failed; within group, keep recent first (already sorted above by updatedAt)
-                const order = (t: ClickatronTaskDisplay) => (t.status === 'completed' ? 0 : 1);
-                return order(a) - order(b);
-              })
-              .map((task) => (
-                <ClickatronTaskCard
-                  key={task._id}
-                  task={task}
-                  onClick={() => handleTaskClick(task._id)}
-                />
-              ))}
-
-            {/* Empty state for current page when there are some completed/failed overall */}
-            {currentTasks.length === 0 && !isLoading && completedFailedTasks.length > 0 && (
-              <div className="text-center py-8 text-zinc-500">
-                No tasks on this page.
-              </div>
-            )}
+            {completedFailedTasks.map((task) => (
+              <ClickatronTaskCard
+                key={task._id}
+                task={task}
+                onClick={() => handleTaskClick(task._id)}
+              />
+            ))}
           </>
         )}
       </div>
