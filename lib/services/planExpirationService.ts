@@ -48,28 +48,36 @@ export async function checkAndHandleExpiredPlans(): Promise<ExpirationCheckResul
   return results;
 }
 
-export async function checkPlanExpiringSoon(daysAhead: number = 7): Promise<any[]> {
+type ExpiringSoonInfo = {
+  userId: string;
+  email: string;
+  planName: string;
+  expiresAt: Date | null;
+  daysUntilExpiry: number;
+};
+
+export async function checkPlanExpiringSoon(daysAhead: number = 7): Promise<ExpiringSoonInfo[]> {
   await connectToDatabase();
   
   const futureDate = new Date();
   futureDate.setDate(futureDate.getDate() + daysAhead);
 
   const usersWithExpiringSoon = await User.find({
-    "currentPlan.endDate": { 
+    "currentPlan.endDate": {
       $gte: new Date(),
-      $lte: futureDate 
+      $lte: futureDate
     },
     "currentPlan.status": "active",
     "currentPlan.name": { $ne: UserType.Free }
   }).select('clerkUserId email currentPlan');
 
-  return usersWithExpiringSoon.map(user => ({
+  return usersWithExpiringSoon.map((user): ExpiringSoonInfo => ({
     userId: user.clerkUserId,
     email: user.email,
     planName: user.currentPlan.name,
-    expiresAt: user.currentPlan.endDate,
+    expiresAt: user.currentPlan.endDate ?? null,
     daysUntilExpiry: Math.ceil(
-      ((user.currentPlan.endDate?.getTime() || 0) - Date.now()) / (1000 * 60 * 60 * 24)
+      (((user.currentPlan.endDate instanceof Date ? user.currentPlan.endDate.getTime() : new Date(user.currentPlan.endDate).getTime()) || 0) - Date.now()) / (1000 * 60 * 60 * 24)
     )
   }));
 }

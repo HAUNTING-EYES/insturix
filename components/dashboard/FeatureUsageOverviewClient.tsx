@@ -20,7 +20,6 @@ export function FeatureUsageOverviewClient() {
   const { isInitialized, isLoading, user } = useUserInitialization();
   const [serviceUsage, setServiceUsage] = useState<ServiceUsageData>({});
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchServiceUsage = async () => {
@@ -30,7 +29,6 @@ export function FeatureUsageOverviewClient() {
 
       try {
         setLoading(true);
-        setError(null);
         
         const response = await fetch('/api/user/feature-usage');
         if (!response.ok) {
@@ -41,7 +39,6 @@ export function FeatureUsageOverviewClient() {
         setServiceUsage(result.data || {});
       } catch (err) {
         console.error('Error fetching service usage:', err);
-        setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
         setLoading(false);
       }

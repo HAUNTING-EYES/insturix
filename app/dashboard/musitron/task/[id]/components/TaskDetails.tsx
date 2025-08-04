@@ -1,23 +1,15 @@
 // app/dashboard/musitron/task/[id]/components/TaskDetails.tsx
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import React, { useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
-  ArrowLeft,
-  Download,
   Calendar,
-  Clock,
   FileText,
   Hash,
   AlertCircle,
   Music,
-  Loader2
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 
 interface MusitronTask {
   _id: string;
@@ -45,44 +37,18 @@ interface TaskDetailsProps {
   signedUrlApi?: string; // Optional override for signed url endpoint
 }
 
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case "completed":
-      return "bg-green-500/80 text-green-100";
-    case "failed":
-      return "bg-red-500/80 text-red-100";
-    case "processing":
-      return "bg-purple-500/80 text-purple-100";
-    default:
-      return "bg-zinc-500/80 text-zinc-100";
-  }
-};
-
 import { Separator } from "@/components/ui/separator";
 
 
-function getAudioContentType(url: string | undefined) {
-  if (!url) return "audio/mpeg";
-  if (url.endsWith(".wav")) return "audio/wav";
-  if (url.endsWith(".ogg")) return "audio/ogg";
-  if (url.endsWith(".mp3")) return "audio/mpeg";
-  return "audio/mpeg";
-}
-
-function getAudioFileExtension(url: string | undefined) {
-  if (!url) return "mp3";
-  if (url.endsWith(".wav")) return "wav";
-  if (url.endsWith(".ogg")) return "ogg";
-  if (url.endsWith(".mp3")) return "mp3";
-  return "mp3";
-}
 
 export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
-  const router = useRouter();
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-  const [loadingUrl, setLoadingUrl] = useState(false);
-  const [downloadLoading, setDownloadLoading] = useState(false);
-  const [audioError, setAudioError] = useState(false);
+  // Fetch signed URL for audio file
+  useEffect(() => {
+    const fetchSignedUrl = async () => {
+      if (!task.gcs_url || task.status !== "completed") return;
+    };
+    fetchSignedUrl();
+  }, [task.gcs_url, task.status, signedUrlApi]);
 
   // Failed task UI (music player style, only error.action)
   if (task.status === "failed") {
@@ -135,58 +101,5 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
     );
   }
 
-  // Fetch signed URL for audio file
-  useEffect(() => {
-    const fetchSignedUrl = async () => {
-      if (!task.gcs_url || task.status !== "completed") return;
-      setLoadingUrl(true);
-      setAudioError(false);
-      try {
-        const contentType = getAudioContentType(task.gcs_url);
-        const endpoint =
-          signedUrlApi ||
-          "/api/services/musitron/gcs/sign";
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: task.gcs_url.split("/").pop(),
-            contentType,
-            gcsUrl: task.gcs_url
-          })
-        });
-        const data = await res.json();
-        if (data.url) setSignedUrl(data.url);
-        else setAudioError(true);
-      } catch {
-        setAudioError(true);
-      } finally {
-        setLoadingUrl(false);
-      }
-    };
-    fetchSignedUrl();
-  }, [task.gcs_url, task.status, signedUrlApi]);
-
-  const handleDownload = async () => {
-    if (!signedUrl) return;
-    setDownloadLoading(true);
-    try {
-      const response = await fetch(signedUrl);
-      const blob = await response.blob();
-      const ext = getAudioFileExtension(task.gcs_url);
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${task.title || "music"}-${task._id}.${ext}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (error) {
-      // Optionally show error
-    } finally {
-      setDownloadLoading(false);
-    }
-  };
-  return;
+  return null;
 }

@@ -4,6 +4,16 @@ import Plan from "@/schemas/plans";
 import { UserType, IUserPlan } from "@/types/userTypes";
 import Razorpay from "razorpay";
 
+type SubscriptionRecord = {
+  provider: string;
+  status: string;
+  subscriptionId?: string;
+  latestInvoice?: string;
+  planId?: string;
+  paymentMethod?: string;
+  startDate?: Date;
+};
+
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
   key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
@@ -62,8 +72,18 @@ export async function cancelUserPlan(clerkUserId: string) {
     return { success: true, message: "User is already on the free plan." };
   }
 
+  type SubscriptionRecord = {
+    provider: string;
+    status: string;
+    subscriptionId?: string;
+    latestInvoice?: string;
+    planId?: string;
+    paymentMethod?: string;
+    startDate?: Date;
+  };
+
   const activeSubscription = user.subscriptions.find(
-    (s: any) => s.provider === 'razorpay' && s.status === 'active'
+    (s: SubscriptionRecord) => s.provider === 'razorpay' && s.status === 'active'
   );
 
   if (!activeSubscription) {
@@ -110,11 +130,12 @@ export async function cancelUserPlan(clerkUserId: string) {
           activeSubscription.status = "cancelled";
         }
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Gracefully handle the case where the subscription is already completed
     if (
-      error.statusCode === 400 &&
-      error.error?.description?.includes(
+      (error as { statusCode?: number; error?: { description?: unknown } })?.statusCode === 400 &&
+      typeof (error as { statusCode?: number; error?: { description?: unknown } })?.error?.description === "string" &&
+      ((error as { error?: { description?: string } }).error!.description!).includes(
         "Subscription is not cancellable in completed status"
       )
     ) {
@@ -298,13 +319,13 @@ export async function updateUserPlan(
   user.currentPlan = newPlan;
 
   // Deactivate any existing active subscription
-  const activeSubscription = user.subscriptions.find((s: any) => s.status === 'active');
+  const activeSubscription = user.subscriptions.find((s: SubscriptionRecord) => s.status === 'active');
   if (activeSubscription) {
     activeSubscription.status = 'expired';
   }
 
   // Add subscription record, preventing duplicates
-  const subscriptionExists = user.subscriptions.some((s: any) => s.subscriptionId === subscriptionDetails.subscriptionId);
+  const subscriptionExists = user.subscriptions.some((s: SubscriptionRecord) => s.subscriptionId === subscriptionDetails.subscriptionId);
   if (!subscriptionExists) {
     user.subscriptions.push({
       provider: subscriptionDetails.provider,
@@ -357,7 +378,7 @@ export async function extendUserPlan(
   user.currentPlan.endDate = currentEndDate;
 
   // Update the subscription record in history
-  const subscription = user.subscriptions.find((s: any) => s.subscriptionId === subscriptionDetails.subscriptionId);
+  const subscription = user.subscriptions.find((s: SubscriptionRecord) => s.subscriptionId === subscriptionDetails.subscriptionId);
   if (subscription) {
     subscription.latestInvoice = subscriptionDetails.latestInvoice;
     subscription.status = "active"; // Ensure it's marked active on renewal

@@ -1,4 +1,3 @@
-import { ObjectId } from 'mongodb';
 
 export interface AlyzitronUserData {
   _id: string;

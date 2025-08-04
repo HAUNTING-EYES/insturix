@@ -293,7 +293,6 @@ export function useVideoAnalysis() {
           const responseData = await response.json();
           
           if (!response.ok || !responseData.success) {
-              const errorType = responseData.error?.type || 'UNKNOWN_ERROR';
               const errorMessage = responseData.error?.message || "Failed to initiate analysis";
               throw new Error(errorMessage);
           }
@@ -353,7 +352,7 @@ export function useVideoAnalysis() {
         throw error;
       }
     },
-    [resetState, queryClient]
+    [resetState, queryClient, fetchStats]
   );
 
   const analyzeFile = useCallback(
@@ -366,12 +365,6 @@ export function useVideoAnalysis() {
         const gcsPath = await uploadFile(file, analysisId);
 
         if (gcsPath) {
-          const fileMetadata = {
-            size: file.size,
-            duration: metadata?.additional_details
-              ? JSON.parse(metadata.additional_details).videoDuration
-              : undefined,
-          };
           return await submitAnalysis(
             gcsPath,
             analysisId,

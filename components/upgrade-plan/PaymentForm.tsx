@@ -133,7 +133,7 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
                 });
                 onPaymentError?.(verifyData.message || "Subscription verification failed");
               }
-            } catch (error) {
+            } catch {
               setPaymentStatus('failed');
               toast({
                 title: "Verification Error",
@@ -165,8 +165,6 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
 
         const razorpay = new window.Razorpay(options);
         razorpay.open();
-      } else if (checkout.provider === 'lemonsqueezy') {
-        window.location.href = checkout.checkoutUrl;
       }
     } catch (error: any) {
       setPaymentStatus('failed');

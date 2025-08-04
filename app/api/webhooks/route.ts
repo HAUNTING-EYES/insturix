@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { POST as razorpayWebhook } from "./razorpay/route";
 
 export async function POST(request: NextRequest) {

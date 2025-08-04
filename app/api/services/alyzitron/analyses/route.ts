@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { getCollections } from "../utils/mongodb";
 import { auth } from "@clerk/nextjs/server";
 import { logger } from "../utils/logger";
-import { ObjectId } from "mongodb";
 
 export async function GET(request: Request) {
   try {

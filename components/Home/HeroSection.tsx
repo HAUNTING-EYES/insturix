@@ -3,11 +3,9 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useState } from "react";
-import { ArrowRight, Sparkles, Users } from "lucide-react";
+import { ArrowRight, Users } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
-import { useQuery } from "@tanstack/react-query";
-import axios from "axios";
 
 export default function HeroSection() {
   const [isHovering, setIsHovering] = useState(false);

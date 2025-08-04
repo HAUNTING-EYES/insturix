@@ -10,7 +10,7 @@ const icons = {
   success: <CheckCircle className="h-5 w-5" />,
 };
 
-export function UiMessage({ id, type, title, message, location, style }: IUiMessage) {
+export function UiMessage({ id, title, message, style }: IUiMessage) {
   const Icon = style?.icon ? icons[style.icon as keyof typeof icons] : <Lightbulb className="h-5 w-5" />;
 
   return (

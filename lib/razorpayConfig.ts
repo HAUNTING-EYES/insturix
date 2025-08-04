@@ -62,13 +62,55 @@ export const CURRENCY_PAYMENT_METHODS = {
   }
 };
 
+type RazorpayCheckoutOptions = {
+  key?: string;
+  amount: number;
+  currency: string;
+  name?: string;
+  description?: string;
+  order_id?: string;
+  prefill?: {
+    name?: string;
+    email?: string;
+  };
+  theme?: {
+    color?: string;
+  };
+  method?: {
+    card?: boolean;
+    netbanking?: boolean;
+    wallet?: string[];
+    upi?: boolean;
+  };
+  allow_rotation?: boolean;
+  remember_customer?: boolean;
+  readonly?: {
+    email?: boolean;
+    name?: boolean;
+  };
+  modal?: {
+    confirm_close?: boolean;
+    ondismiss?: () => void;
+  };
+  retry?: {
+    enabled?: boolean;
+    max_count?: number;
+  };
+  timeout?: number;
+  notes?: {
+    plan?: string;
+    currency?: string;
+    originalCurrency?: string;
+  };
+};
+
 export function getRazorpayOptions(
   orderId: string,
   amount: number,
   currency: string,
   userDetails: { name?: string; email?: string },
   planName: string
-): any {
+): RazorpayCheckoutOptions {
   // Only use supported currencies, fallback to USD if not supported
   const effectiveCurrency = RAZORPAY_SUPPORTED_CURRENCIES.includes(currency) ? currency : "USD";
   const paymentMethods = CURRENCY_PAYMENT_METHODS[effectiveCurrency as keyof typeof CURRENCY_PAYMENT_METHODS];
@@ -119,7 +161,10 @@ export function getRazorpayOptions(
   };
 }
 
-export function convertCurrencyForRazorpay(amount: number, fromCurrency: string): { amount: number; currency: string } {
+export function convertCurrencyForRazorpay(
+  amount: number,
+  fromCurrency: string
+): { amount: number; currency: (typeof RAZORPAY_SUPPORTED_CURRENCIES)[number] | "USD" } {
   // Since we only support Razorpay currencies, no conversion needed
   // Note: The API route already converts to smallest currency unit (paise/cents)
   if (RAZORPAY_SUPPORTED_CURRENCIES.includes(fromCurrency)) {

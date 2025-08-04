@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth, clerkClient } from "@clerk/nextjs/server";
 import { User } from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
-import { UserType, User as IUser, IPlan } from "@/types/userTypes";
+import { UserType, User as IUser } from "@/types/userTypes";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import mongoose from "mongoose";
 

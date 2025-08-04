@@ -40,7 +40,7 @@ const getStats = async (): Promise<ClickatronStats> => {
 };
 
 export function useEnhancedStats(): EnhancedStatsReturn {
-  const { user, isLoaded } = useUser();
+  const { isLoaded } = useUser();
   const { isInitialized, isLoading: userInitLoading, error: userInitError } = useUserInitialization();
 
   const { data: stats, isLoading: loading, error, refetch } = useQuery<ClickatronStats>({

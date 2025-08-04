@@ -34,7 +34,6 @@ import {
 } from "@/components/ui/select";
 
 import type { SocializeLink } from "@/schemas/Socialize";
-import { normalizeSocializeLinks } from "@/schemas/Socialize";
 
 interface ISocialize {
   clerkUserId: string;

@@ -5,7 +5,7 @@ import { useCurrency } from "@/lib/CurrencyContext";
 import { fetchPlans, PlansResponse } from '@/lib/data/plans';
 
 export function usePlansFromDB() {
-  const { selectedCurrency, isUserSelected } = useCurrency();
+  const { selectedCurrency } = useCurrency();
   const userCurrency = selectedCurrency || "USD";
 
   const {

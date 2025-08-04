@@ -1,10 +1,10 @@
 "use client"
 
+import Image from "next/image";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { ExternalLink, Share2 } from "lucide-react"
-import Image from "next/image"
 import { Button } from "@/components/ui/button"
 import { SocializePreview } from "./PreviewSocialize"
 
@@ -55,13 +55,12 @@ export function SocializeLinkPreviewCard({
             <div className="rounded-lg overflow-hidden border border-[#0e6b9c]/30">
               <div className="aspect-video bg-gray-800 relative overflow-hidden">
                 {previewData?.image ? (
-                  <img
+                  <Image
                     src={previewData.image || "/placeholder.svg"}
                     alt={previewData.title || "Link preview"}
                     width={500}
                     height={300}
                     className="w-full h-full object-cover"
-                    style={{ objectFit: "cover", width: "100%", height: "100%" }}
                   />
                 ) : (
                   <div className="w-full h-full flex items-center justify-center bg-gray-900">

@@ -2,7 +2,7 @@
 
 import React, { useRef } from "react";
 import { easeInOut, motion, useScroll, useTransform } from "framer-motion";
-import { Sparkles, Lightbulb, Users, LineChart, Calendar, BrainCircuit, BotMessageSquare, ScrollText } from "lucide-react";
+import { Sparkles, Lightbulb, BrainCircuit, BotMessageSquare, ScrollText } from "lucide-react";
 
 const features = [
   {
@@ -116,7 +116,7 @@ export default function ThinkForgeFeatures() {
           variants={containerVariants}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
         >
-          {features.map((feature, index) => (
+          {features.map((feature) => (
             <motion.div
               key={feature.title}
               variants={itemVariants}

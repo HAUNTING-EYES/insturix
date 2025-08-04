@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { AlertTriangle, Clock, DollarSign, Shield, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 
 interface TrialEligibility {
@@ -43,7 +42,6 @@ export function PlanCancellationDialog({
   const [eligibility, setEligibility] = useState<TrialEligibility | null>(null);
   const [step, setStep] = useState<"check" | "confirm">("check");
   const [error, setError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
   const router = useRouter();
   const { toast } = useToast();
 
@@ -151,7 +149,7 @@ export function PlanCancellationDialog({
           </DialogHeader>
           <div className="py-4 text-center">
             <p className="text-muted-foreground">
-              You're currently on the Free plan. There's nothing to cancel!
+              You&apos;re currently on the Free plan. There&apos;s nothing to cancel!
             </p>
             <Button onClick={() => onOpenChange(false)} className="mt-4">
               Close
@@ -196,7 +194,7 @@ export function PlanCancellationDialog({
                       • Trial refunds are only available once per account
                     </p>
                     <p className="text-sm text-orange-300/80">
-                      • You'll lose access to premium features immediately
+                      • You&apos;ll lose access to premium features immediately
                     </p>
                   </div>
                 </div>
@@ -241,7 +239,7 @@ export function PlanCancellationDialog({
                         Refund Eligible!
                       </h4>
                       <p className="text-sm text-green-300/80">
-                        You're within the 7-day trial period ({eligibility.daysUsed} days used)
+                        You&apos;re within the 7-day trial period ({eligibility.daysUsed} days used)
                       </p>
                       <p className="text-sm text-green-300/80">
                         Full refund of ${currentPlanPrice} will be processed

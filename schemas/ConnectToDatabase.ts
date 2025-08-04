@@ -14,7 +14,7 @@ if (!cached) {
 const connectToDatabase = async (uri?: string) => {
   // If we have a cached connection, reuse it
   if (cached.conn) {
-    console.log("Using cached MongoDB connection.");
+    // console.log("Using cached MongoDB connection.");
     return cached.conn;
   }
 

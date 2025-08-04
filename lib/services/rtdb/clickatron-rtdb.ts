@@ -1,5 +1,5 @@
 import { database } from '@/lib/firebase/config';
-import { ref, set, update, remove, get } from 'firebase/database';
+import { ref, set, update, remove } from 'firebase/database';
 import { TaskUpdate, TaskStatus } from '@/types/rtdb';
 import { logger } from '@/app/api/services/alyzitron/utils/logger';
 

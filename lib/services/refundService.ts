@@ -1,7 +1,18 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
-import { UserType } from "@/types/userTypes";
 import { createRefund, getRefundStatus as getPaymentRefundStatus } from "./paymentService";
+
+type RazorpayRefundLike = {
+  id?: string;
+  amount?: number;
+  status?: string;
+  items?: unknown;
+  error?: string;
+} | Record<string, unknown>;
+
+function asRefund(obj: unknown): RazorpayRefundLike {
+  return (obj ?? {}) as RazorpayRefundLike;
+}
 
 interface RefundOptions {
   paymentId: string;
@@ -31,7 +42,12 @@ export async function initiateRefund(
       return { success: false, error: "User not found" };
     }
 
-    const payment = user.payments.find((p: any) => p.paymentId === options.paymentId);
+    type PaymentRecord = {
+      paymentId?: string;
+      currency?: string;
+      status?: string;
+    };
+    const payment = user.payments.find((p: PaymentRecord) => p.paymentId === options.paymentId);
     if (!payment) {
       return { success: false, error: "Payment not found" };
     }
@@ -49,7 +65,8 @@ export async function initiateRefund(
     });
 
     if (!refund.success) {
-      return { success: false, error: refund.error };
+      const r = asRefund(refund);
+      return { success: false, error: typeof r.error === "string" ? r.error : "Refund failed" };
     }
 
     payment.status = "refunded";
@@ -65,12 +82,19 @@ export async function initiateRefund(
 
     console.log(`Refund processed for user ${clerkUserId}, payment ${options.paymentId}`);
 
-    return {
-      success: true,
-      refundId: refund.id,
-      amount: (refund.amount || 0) / 100,
-      status: refund.status,
-    };
+    {
+      const r = asRefund(refund);
+      const refundId = typeof r.id === "string" ? r.id : undefined;
+      const amountNum = typeof r.amount === "number" ? r.amount : 0;
+      const status = typeof r.status === "string" ? r.status : undefined;
+
+      return {
+        success: true,
+        refundId,
+        amount: amountNum / 100,
+        status,
+      };
+    }
   } catch (error) {
     console.error("Refund failed:", error);
     return {
@@ -84,15 +108,17 @@ export async function getRefundStatus(
   paymentId: string
 ): Promise<{
   success: boolean;
-  refunds?: any[];
+  refunds?: Array<Record<string, unknown>>;
   error?: string;
 }> {
   try {
     const refunds = await getPaymentRefundStatus(paymentId);
+    const r = asRefund(refunds);
+    const items = Array.isArray((r as { items?: unknown }).items) ? (r.items as Array<Record<string, unknown>>) : [];
 
     return {
       success: true,
-      refunds: refunds.items,
+      refunds: items,
     };
   } catch (error) {
     console.error("Failed to fetch refund status:", error);
@@ -117,7 +143,7 @@ export async function handlePartialRefund(
       return { success: false, error: "User not found" };
     }
 
-    const payment = user.payments.find((p: any) => p.paymentId === paymentId);
+    const payment = user.payments.find((p: { paymentId?: string; currency?: string }) => p.paymentId === paymentId);
     if (!payment) {
       return { success: false, error: "Payment not found" };
     }
@@ -131,7 +157,8 @@ export async function handlePartialRefund(
     });
 
     if (!refund.success) {
-      return { success: false, error: refund.error };
+      const r = asRefund(refund);
+      return { success: false, error: typeof r.error === "string" ? r.error : "Refund failed" };
     }
 
     user.payments.push({
@@ -146,12 +173,18 @@ export async function handlePartialRefund(
 
     console.log(`Partial refund processed for user ${clerkUserId}: ₹${refundAmount}`);
 
-    return {
-      success: true,
-      refundId: refund.id,
-      amount: refundAmount,
-      status: refund.status,
-    };
+    {
+      const r = asRefund(refund);
+      const refundId = typeof r.id === "string" ? r.id : undefined;
+      const status = typeof r.status === "string" ? r.status : undefined;
+
+      return {
+        success: true,
+        refundId,
+        amount: refundAmount,
+        status,
+      };
+    }
   } catch (error) {
     console.error("Partial refund failed:", error);
     return {

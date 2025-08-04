@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,6 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { useUser } from '@clerk/nextjs';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart2,
@@ -25,7 +24,7 @@ import {
   Info
 } from 'lucide-react';
 import { SERVICE_LIMIT_DEFINITIONS } from '@/lib/config/serviceLimits';
-import { useAnalytics, ServiceUsageInfo } from './AnalyticsProvider';
+import { useAnalytics } from './AnalyticsProvider';
 
 // Icon mapping for limit types
 const iconMap: Record<string, React.ReactNode> = {

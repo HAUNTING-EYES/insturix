@@ -12,6 +12,8 @@ export function TaskNotificationManager() {
 
   // Auto-dismiss notifications after 5 seconds with smooth animation
   useEffect(() => {
+    // Copy timersRef.current to avoid stale closure in cleanup
+    const timers = timersRef.current;
     const currentNotificationIds = new Set(notifications.map((n: any) => n.id));
     
     // Clean up timers for notifications that no longer exist first
@@ -46,8 +48,9 @@ export function TaskNotificationManager() {
 
     return () => {
       // Cleanup all timers when component unmounts
-      timersRef.current.forEach(timer => clearTimeout(timer));
-      timersRef.current.clear();
+      // Use the timers variable captured at the beginning of the effect
+      timers.forEach(timer => clearTimeout(timer));
+      timers.clear();
     };
   }, [notifications, clearNotification, dismissingIds]);
 

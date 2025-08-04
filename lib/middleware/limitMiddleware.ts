@@ -148,7 +148,9 @@ export class LimitMiddleware {
 
       const limitType = this.determineLimitType(requestData);
       
-      // Actually increment the usage using useService instead of just checking
+      // Server-side service usage increment (no React hooks involved)
+      // This is a static method call, not a React Hook
+      // eslint-disable-next-line react-hooks/rules-of-hooks
       await ServiceUsageService.useService(
         session.userId,
         this.config.serviceName,

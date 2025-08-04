@@ -1,11 +1,11 @@
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogClose } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { IUserPlan } from "@/types/userTypes";
 import { AnimatePresence, motion } from "framer-motion";
 import { format } from "date-fns";
 import { useState } from "react";
-import { UserCog, X, Calendar } from "lucide-react";
+import { UserCog, Calendar } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { PlanCancellationDialog } from "@/components/PlanCancellationDialog";
 

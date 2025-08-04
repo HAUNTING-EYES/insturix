@@ -16,7 +16,13 @@ export const ALYZITRON_LIMIT_CONFIG: LimitConfig = {
 export const alyzitronLimitMiddleware = createLimitMiddleware(ALYZITRON_LIMIT_CONFIG);
 
 // Enhanced limit checking for Alyzitron (checks multiple limits)
-export const checkAlyzitronLimits = async (requestData: any) => {
+type AlyzitronRequest = {
+  type?: string;
+  videoDuration?: number;
+  [key: string]: unknown;
+};
+
+export const checkAlyzitronLimits = async (requestData: AlyzitronRequest) => {
   const middleware = alyzitronLimitMiddleware;
   
   // Always check total analysis limit
@@ -27,7 +33,7 @@ export const checkAlyzitronLimits = async (requestData: any) => {
 
 
   // Check long video limit if video duration > 20 minutes
-  if (requestData.videoDuration && requestData.videoDuration > 1200) { // 20 minutes = 1200 seconds
+  if (typeof requestData.videoDuration === 'number' && requestData.videoDuration > 1200) { // 20 minutes = 1200 seconds
     const longVideoCheck = await middleware.checkLimits({ ...requestData, limitType: 'longVideo' });
     if (!longVideoCheck.success || !longVideoCheck.hasAccess) {
       return longVideoCheck;
@@ -38,7 +44,7 @@ export const checkAlyzitronLimits = async (requestData: any) => {
 };
 
 // Enhanced usage increment for Alyzitron (only tracks persistent counts)
-export const incrementAlyzitronUsage = async (requestData: any, amount?: number) => {
+export const incrementAlyzitronUsage = async (requestData: AlyzitronRequest, amount?: number) => {
   const middleware = alyzitronLimitMiddleware;
   
   // Always increment total analysis count
@@ -48,7 +54,7 @@ export const incrementAlyzitronUsage = async (requestData: any, amount?: number)
   }
 
   // Increment long video count if applicable
-  if (requestData.videoDuration && requestData.videoDuration > 1200) {
+  if (typeof requestData.videoDuration === 'number' && requestData.videoDuration > 1200) {
     const longVideoResult = await middleware.incrementUsage({ ...requestData, limitType: 'longVideo' }, amount);
     if (!longVideoResult.success) {
       return longVideoResult;
@@ -58,7 +64,9 @@ export const incrementAlyzitronUsage = async (requestData: any, amount?: number)
   return totalResult;
 };
 
-export const createAlyzitronLimitResponse = (result: any) => 
-  result.error?.type === 'LIMIT_EXCEEDED' 
+import type { LimitCheckResult } from '../limitMiddleware';
+
+export const createAlyzitronLimitResponse = (result: LimitCheckResult) =>
+  result.error?.type === 'LIMIT_EXCEEDED'
     ? alyzitronLimitMiddleware.createLimitExceededResponse(result)
     : alyzitronLimitMiddleware.createErrorResponse(result);

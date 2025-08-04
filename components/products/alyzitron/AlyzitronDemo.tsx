@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Play, Pause, RotateCcw, CheckCircle, AlertCircle, TrendingUp, Users, Clock, BarChart3 } from "lucide-react";
+import { Play, Pause, RotateCcw, CheckCircle, AlertCircle, BarChart3 } from "lucide-react";
 import { useScroll, useTransform } from "framer-motion";
 import { Button } from "@/components/ui/button";
 
@@ -29,13 +29,6 @@ const demoSteps = [
     status: "pending",
     duration: "2s",
   },
-];
-
-const mockMetrics = [
-  { label: "Risk Score", value: "2.3/10", color: "text-green-500", icon: CheckCircle },
-  { label: "Engagement Potential", value: "8.7/10", color: "text-orange-500", icon: TrendingUp },
-  { label: "Target Audience", value: "18-34", color: "text-blue-500", icon: Users },
-  { label: "Optimal Length", value: "8-12 min", color: "text-purple-500", icon: Clock },
 ];
 
 export default function AlyzitronDemo() {
@@ -220,7 +213,7 @@ export default function AlyzitronDemo() {
                 Analysis Process
               </h3>
               
-              {demoSteps.map((step, index) => (
+              {demoSteps.map((step) => (
                 <motion.div
                   key={step.id}
                   className={`flex items-center gap-4 p-4 rounded-xl border transition-all duration-300 ${

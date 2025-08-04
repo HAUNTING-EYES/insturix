@@ -31,7 +31,7 @@ export function FormLock({ timeUntilReset }: FormLockProps) {
           Usage Limit Reached
         </h3>
         <p className="text-zinc-200 max-w-md mx-auto">
-          You've used all your available thumbnail generations for this period.
+          You&apos;ve used all your available thumbnail generations for this period.
           {timeUntilReset && (
             <span className="block mt-2 text-sm text-zinc-400">
               Your limits will reset in <strong>{formatTime(timeUntilReset)}</strong>.

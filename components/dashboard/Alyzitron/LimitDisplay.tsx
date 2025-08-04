@@ -12,7 +12,7 @@ interface LimitDisplayProps {
 }
 
 export function LimitDisplay({ videoType = 'long', showAll = false }: LimitDisplayProps) {
-  const { getUsage, getAllUsage, canStart, getTypeName } = useAlyzitronLimits();
+  const { getUsage, getAllUsage, getTypeName } = useAlyzitronLimits();
   const [usage, setUsage] = useState<FrontendLimitInfo | null>(null);
   const [allUsage, setAllUsage] = useState<{ total?: FrontendLimitInfo, longVideo?: FrontendLimitInfo }>({});
   const [loading, setLoading] = useState(true);

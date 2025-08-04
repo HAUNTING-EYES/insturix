@@ -5,7 +5,6 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
-import { DEFAULT_FREE_PLAN_LIMITS } from "@/lib/config/serviceLimits";
 import { updateUserPlan, downgradeUserToFreePlan, extendUserPlan, cancelUserPlan } from "@/lib/services/planService";
 
 const razorpay = new Razorpay({
@@ -74,54 +73,6 @@ const verifyWebhookSignature = (
     Buffer.from(signature),
     Buffer.from(expectedSignature)
   );
-};
-
-const getServiceLimitsFromPlan = async (planType: string) => {
-  try {
-    const plan = await Plan.findOne({ type: planType.toLowerCase(), isActive: true });
-    if (!plan) {
-      console.warn(`Plan not found for type: ${planType}, using fallback limits`);
-      return getFallbackServiceLimits(planType);
-    }
-
-    return plan.serviceLimits;
-  } catch (error) {
-    console.error(`Error fetching plan service limits for ${planType}:`, error);
-    return getFallbackServiceLimits(planType);
-  }
-};
-
-const getFallbackServiceLimits = (planType: string) => {
-  console.warn(`Using fallback limits for plan type: ${planType}`);
-  return DEFAULT_FREE_PLAN_LIMITS;
-};
-
-const handleFailedSubscription = async (
-  userId: string,
-  subscriptionId: string,
-  planId: string,
-  errorReason: string
-) => {
-  await connectToDatabase();
-  
-  const user = await User.findOne({ clerkUserId: userId });
-  if (!user) {
-    console.error(`User not found for failed subscription: ${subscriptionId}, userId: ${userId}`);
-    return;
-  }
-
-  user.subscriptions.push({
-    provider: "razorpay",
-    subscriptionId,
-    planId,
-    status: "halted", // Or another appropriate status
-    startDate: new Date(),
-  });
-
-  user.markModified('subscriptions');
-  await user.save();
-
-  console.log(`Failed subscription recorded for user ${userId}: ${errorReason}`);
 };
 
 const handleSubscriptionCancelled = async (

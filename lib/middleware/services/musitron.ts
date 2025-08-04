@@ -10,12 +10,17 @@ export const MUSITRON_LIMIT_CONFIG: LimitConfig = {
 
 export const musitronLimitMiddleware = createLimitMiddleware(MUSITRON_LIMIT_CONFIG);
 
-export const checkMusitronLimits = async (requestData: any) => {
+type MusitronRequest = {
+  type?: string;
+  [key: string]: unknown;
+};
+
+export const checkMusitronLimits = async (requestData: MusitronRequest) => {
   const middleware = musitronLimitMiddleware;
   return await middleware.checkLimits({ ...requestData, limitType: 'general' });
 };
 
-export const incrementMusitronUsage = async (requestData: any, amount?: number) => {
+export const incrementMusitronUsage = async (requestData: MusitronRequest, amount?: number) => {
   const middleware = musitronLimitMiddleware;
   return await middleware.incrementUsage({ ...requestData, limitType: 'general' }, amount);
 };

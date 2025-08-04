@@ -25,7 +25,7 @@ export default function MusicGenerator() {
   const { toast } = useToast();
 
     // Musitron usage stats via musitron-analytics cache
-    const { data: apiData, isLoading: usageLoading } = useQuery({
+    const { data: apiData } = useQuery({
       queryKey: ["musitron-analytics"],
       queryFn: async () => {
         const res = await fetch("/api/services/musitron/stats");
@@ -94,7 +94,6 @@ export default function MusicGenerator() {
       const responseData = await res.json();
       
       if (!res.ok || !responseData.success) {
-        const errorType = responseData.error?.type || 'UNKNOWN_ERROR';
         const errorMessage = responseData.error?.message || "Failed to start music generation";
         console.log("API Response status:", res.status);
         console.log("API Response data:", responseData);

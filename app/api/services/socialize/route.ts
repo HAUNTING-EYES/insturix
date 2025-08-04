@@ -31,7 +31,6 @@ if (!process.env.MONGODB_DB_NAME) {
 }
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
 async function connectToDatabase() {
   if (mongoose.connection.readyState !== 1) {

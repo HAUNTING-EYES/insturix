@@ -72,7 +72,7 @@ export function UpgradePageContent({
 }: UpgradePageContentProps) {
   const router = useRouter();
   // const { user } = useUser(); // Removed useUser
-  const { selectedCurrency, selectedSymbol, version } = useCurrency();
+  const { selectedCurrency } = useCurrency();
   // const { plans: serverPlans, isLoading: plansLoading, isError: plansError } = usePlansFromDB(); // Removed usePlansFromDB
   const { toast } = useToast();
   
@@ -80,13 +80,12 @@ export function UpgradePageContent({
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
   const [animationDirection, setAnimationDirection] = useState<"forward" | "backward">("forward");
   const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [currentUserPlan, setCurrentUserPlan] = useState<UserType | null>(initialUserPlan); // Initialize with prop
-  const [currentPlanData, setCurrentPlanData] = useState<{ // Initialize with prop
+  const [currentUserPlan] = useState<UserType | null>(initialUserPlan); // Initialize with prop
+  const [currentPlanData] = useState<{ // Initialize with prop
     endDate: Date | null;
     startDate: Date;
     status: string;
   } | null>(initialPlanData);
-  const [isLoading, setIsLoading] = useState(false); // Set to false as data is preloaded
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
   const [dynamicPlans, setDynamicPlans] = useState(serverPlans);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -100,7 +99,7 @@ export function UpgradePageContent({
           const data = await response.json();
           setDynamicPlans(data.plans);
         }
-      } catch (error) {
+      } catch {
         // Optionally handle error
       } finally {
         setPlansLoading(false);
@@ -219,12 +218,6 @@ export function UpgradePageContent({
     }
   };
 
-  const handlePreviousStep = () => {
-    if (currentStep > 1) {
-      setAnimationDirection("backward");
-      setCurrentStep(currentStep - 1);
-    }
-  };
 
   const calculateTotal = (price: number) => {
     return price; // No taxes
@@ -262,18 +255,10 @@ export function UpgradePageContent({
     }
   };
 
-  if (isLoading || plansLoading || !plansSuccess) {
+  if (plansLoading || !plansSuccess) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (!plansSuccess) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px] text-red-500">
-        Error loading plans. Please try again later.
       </div>
     );
   }

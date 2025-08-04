@@ -63,7 +63,7 @@ export default function RefundPolicy() {
                   <li>Buyer’s remorse or change of mind.</li>
                 </ul>
                 <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-lg pl-16 mt-4">
-                  Insturix's systems begin service execution instantly upon receiving commands, making reversals or rollbacks technically and operationally infeasible.
+                  Insturix&apos;s systems begin service execution instantly upon receiving commands, making reversals or rollbacks technically and operationally infeasible.
                 </p>
               </div>
             </section>

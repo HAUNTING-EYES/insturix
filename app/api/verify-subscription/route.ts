@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { auth } from "@clerk/nextjs/server";
-import { updateUserPlan } from "@/lib/services/planService";
 import { UserType } from "@/types/userTypes";
 import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
-import { v4 as uuidv4 } from "uuid";
 
 export async function POST(request: NextRequest) {
   const { userId } = await auth();

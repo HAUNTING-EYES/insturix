@@ -133,7 +133,7 @@ export function PlanSelection({
                 <div>
                   <h4 className="text-blue-200 font-medium mb-1">Upgrade Only Policy</h4>
                   <p className="text-blue-300/80 text-sm">
-                    You can only upgrade to higher plans. Downgrades aren't available through purchase since you've already paid for your current tier.
+                    You can only upgrade to higher plans. Downgrades aren&apos;t available through purchase since you&apos;ve already paid for your current tier.
                     Contact support for plan changes or cancellations.
                   </p>
                 </div>

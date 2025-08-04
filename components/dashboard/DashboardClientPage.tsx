@@ -69,7 +69,7 @@ function ErrorState({ error }: { error: string }) {
 }
 
 export default function DashboardClientPage() {
-  const { isInitialized, isLoading, error } = useUserInitialization();
+  const { isLoading, error } = useUserInitialization();
 
   // Show loading state while initializing user
   if (isLoading) {

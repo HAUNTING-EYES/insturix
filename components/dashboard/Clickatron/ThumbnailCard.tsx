@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState } from "react";
+import Image from "next/image";
 import { IClickatronTask } from "@/schemas/Clickatron";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,7 @@ import {
   ZoomIn,
   ZoomOut
 } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogTitle } from "@/components/ui/dialog";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 
 interface ThumbnailCardProps {
@@ -45,7 +46,6 @@ export function ThumbnailCard({ task }: ThumbnailCardProps) {
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
-  const imageRef = useRef<HTMLImageElement>(null);
 
   if (!task) return null;
 
@@ -80,7 +80,7 @@ export function ThumbnailCard({ task }: ThumbnailCardProps) {
       }
       
       return null;
-    } catch (error) {
+    } catch {
       // If parsing fails, create a fallback object
       const fallbackText = task.details?.prompt || task.details || 'No details available';
       return { prompt: typeof fallbackText === 'string' ? fallbackText : 'No details available' };
@@ -253,18 +253,29 @@ export function ThumbnailCard({ task }: ThumbnailCardProps) {
                       <p className="text-zinc-400 text-sm">Failed to load image</p>
                     </div>
                   )}
-                  <img
-                    src={thumbnailUrl}
-                    alt="Generated Thumbnail"
-                    className={cn(
-                      "w-full h-auto cursor-pointer transition-opacity duration-300 hover:opacity-80",
-                      imageLoaded ? "opacity-100" : "opacity-0"
-                    )}
-                    onLoad={() => setImageLoaded(true)}
-                    onError={() => setImageError(true)}
-                    onClick={openImageViewer}
-                    loading="lazy"
-                  />
+                  {/* Next.js image with fill requires positioned container */}
+                  <div className={cn("relative w-full", imageLoaded ? "" : "")} style={{ aspectRatio: "16 / 9", position: "relative" }}>
+                    <Image
+                      src={thumbnailUrl || ""}
+                      alt="Generated Thumbnail"
+                      fill
+                      sizes="(max-width: 768px) 100vw, 768px"
+                      className={cn(
+                        "object-cover cursor-pointer transition-opacity duration-300 hover:opacity-80 rounded-lg",
+                        imageLoaded ? "opacity-100" : "opacity-0"
+                      )}
+                      onLoad={() => setImageLoaded(true)}
+                      onError={() => setImageError(true)}
+                      priority={false}
+                      placeholder="empty"
+                      unoptimized
+                      onClick={openImageViewer}
+                      // Force bytes to avoid any redirect issues
+                      // Next/Image will fetch directly since unoptimized is set
+                      // but our API can still tailor behavior using this header
+                      referrerPolicy="no-referrer"
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -327,16 +338,20 @@ export function ThumbnailCard({ task }: ThumbnailCardProps) {
               <div className="flex-1 overflow-auto p-4">
                 <div className="flex items-center justify-center min-h-full">
                   {thumbnailUrl && (
-                    <img
-                      ref={imageRef}
-                      src={thumbnailUrl}
-                      alt="Generated Thumbnail"
-                      className={cn(
-                        "max-w-full max-h-full object-contain transition-transform duration-300 cursor-pointer",
-                        isZoomed ? "scale-150" : "scale-100"
-                      )}
-                      onClick={toggleZoom}
-                    />
+                    <div className="relative w-full" style={{ maxHeight: "80vh" }}>
+                      <Image
+                        src={thumbnailUrl}
+                        alt="Generated Thumbnail"
+                        width={1920}
+                        height={1080}
+                        className={cn(
+                          "max-w-full h-auto object-contain transition-transform duration-300 cursor-pointer",
+                          isZoomed ? "scale-150" : "scale-100"
+                        )}
+                        onClick={toggleZoom}
+                        priority={false}
+                      />
+                    </div>
                   )}
                 </div>
               </div>

@@ -5,11 +5,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart2, ChevronDown } from 'lucide-react';
 import { AlyzitronAnalyticsOverview } from './AnalyticsOverview';
 import { useAnalytics } from './AnalyticsProvider';
-import { Skeleton } from '@/components/ui/skeleton';
 
 export function CompactAnalytics() {
   const [isExpanded, setIsExpanded] = useState(false);
-  const { stats, loading, error } = useAnalytics();
+  const { stats } = useAnalytics();
 
   const quickStats = {
     monthlyAnalyses: stats?.monthlyAnalyses ?? 0,

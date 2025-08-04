@@ -4,9 +4,9 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import Image from 'next/image';
 import { IClickatronTask } from "@/schemas/Clickatron";
 import { useTaskUpdater } from '@/hooks/useTaskUpdater';
 import { Loader2,
@@ -58,21 +58,6 @@ interface PaginatedTaskResponse {
 
 const DEFAULT_ITEMS_PER_PAGE = 8;
 
-const getStatusColor = (status: IClickatronTask['status']) => {
-  switch (status) {
-    case 'completed':
-      return 'bg-green-500/80 text-green-100';
-    case 'failed':
-      return 'bg-red-500/80 text-red-100';
-    case 'processing':
-      return 'bg-purple-500/80 text-purple-100';
-    case 'queued':
-      return 'bg-yellow-500/80 text-yellow-100';
-    default:
-      return 'bg-zinc-500/80 text-zinc-100';
-  }
-};
-
 interface ClickatronTaskCardProps {
   task: ClickatronTaskDisplay;
   onClick: () => void;
@@ -97,7 +82,7 @@ function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
         return task.details;
       }
       return null;
-    } catch (error) {
+    } catch {
       const fallbackText = task.details?.prompt || task.details || 'No details available';
       return { prompt: typeof fallbackText === 'string' ? fallbackText : 'No details available' };
     }
@@ -124,27 +109,22 @@ function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
       >
         <CardContent className="flex items-center p-4">
           {/* Thumbnail Preview */}
-          <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4 overflow-hidden">
+          <div className="relative h-12 w-12 rounded-lg bg-black/40 mr-4 overflow-hidden">
             {hasResults ? (
-              <img
+              <Image
                 src={`/api/services/clickatron/thumbnail/${encodeURIComponent(task.results!.thumbnail.gcs_url.replace('https://storage.googleapis.com/clickatron/', ''))}`}
                 alt="Thumbnail"
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const fallback = target.nextElementSibling as HTMLElement;
-                  if (fallback) fallback.style.display = 'flex';
-                }}
+                fill
+                sizes="48px"
+                className="object-cover"
+                priority={false}
+                unoptimized
               />
-            ) : null}
-            <FileImage
-              className={cn(
-                "h-6 w-6 text-zinc-400",
-                hasResults ? "hidden" : ""
-              )}
-              style={{ display: hasResults ? 'none' : 'block' }}
-            />
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <FileImage className="h-6 w-6 text-zinc-400" />
+              </div>
+            )}
           </div>
 
           {/* ClickatronTask Info */}
@@ -248,7 +228,8 @@ function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
 
 export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: ClickatronTaskHistoryProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  // Removed unused queryClient to satisfy @typescript-eslint/no-unused-vars
+  // const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
   useTaskUpdater(); // New hook to handle RTDB updates
 

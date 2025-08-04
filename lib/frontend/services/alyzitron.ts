@@ -17,7 +17,13 @@ export const ALYZITRON_FRONTEND_CONFIG: ServiceLimitConfig = {
 export const alyzitronLimitUtils = createFrontendLimitUtils(ALYZITRON_FRONTEND_CONFIG);
 
 // Enhanced frontend functions for Alyzitron
-export const getAlyzitronUsage = async (requestData: any) => {
+type AlyzitronRequest = {
+  type?: string;
+  videoDuration?: number;
+  [key: string]: unknown;
+};
+
+export const getAlyzitronUsage = async (requestData: AlyzitronRequest) => {
   // Get total analysis usage (always checked)
   return await alyzitronLimitUtils.getCurrentUsage({ ...requestData, limitType: 'general' });
 };
@@ -30,7 +36,7 @@ export const getAllAlyzitronUsage = async () => {
   };
 };
 
-export const canStartAnalysis = async (requestData: any) => {
+export const canStartAnalysis = async (requestData: AlyzitronRequest) => {
   try {
     // Check total analysis limit
     const totalUsage = await alyzitronLimitUtils.getCurrentUsage({ ...requestData, limitType: 'general' });
@@ -52,8 +58,8 @@ export const canStartAnalysis = async (requestData: any) => {
   }
 };
 
-export const getAnalysisTypeName = (requestData: any) => {
-  if (requestData.videoDuration && requestData.videoDuration > 1200) {
+export const getAnalysisTypeName = (requestData: AlyzitronRequest) => {
+  if (typeof requestData.videoDuration === 'number' && requestData.videoDuration > 1200) {
     return 'Long Video Analysis (>20min)';
   }
   return 'Video Analysis';

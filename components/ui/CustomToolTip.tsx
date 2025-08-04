@@ -7,10 +7,8 @@ import {
   LogOut,
   Settings,
   UserCog,
-  CreditCard,
 } from "lucide-react";
 import { useUser, useClerk } from "@clerk/nextjs";
-import { useQuery } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -23,7 +21,6 @@ import NotSignedIn from "../NotSignedup";
 import { PlanCancellationDialog } from "@/components/PlanCancellationDialog";
 import { cn } from "@/lib/utils";
 import { getPlanDisplayName } from "@/lib/planUtils";
-import { User, IPayment, IPlan } from "@/types/userTypes";
 
 import { useUserInitialization } from "../dashboard/UserInitializationProvider";
 import ManagePlanDialog from "@/components/upgrade-plan/ManagePlanDialog";
@@ -44,7 +41,6 @@ export default function UserDropdown({
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [planCancellationOpen, setPlanCancellationOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"account" | "preferences">("account");
   const [managePlanOpen, setManagePlanOpen] = useState(false);
 
   const { user: userData, isLoading } = useUserInitialization();
@@ -103,11 +99,6 @@ export default function UserDropdown({
 
   const handleUpgradeClick = () => {
     onUpgradeClick();
-    setIsOpen(false);
-  };
-
-  const handleCancelPlanClick = () => {
-    setPlanCancellationOpen(true);
     setIsOpen(false);
   };
 

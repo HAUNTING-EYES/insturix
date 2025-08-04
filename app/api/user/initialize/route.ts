@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
+import type { Document } from "mongoose";
 
 export async function POST() {
   try {
@@ -45,16 +46,16 @@ export async function POST() {
     return NextResponse.json({
       success: true,
       isNewUser: initResult.isNewUser,
-      user: {
-        id: initResult.user._id,
-        clerkUserId: initResult.user.clerkUserId,
-        email: initResult.user.email,
-        currentPlan: initResult.user.currentPlan,
-        signUpDate: initResult.user.signUpDate,
-        trialUsed: initResult.user.trialUsed,
-      },
-      message: initResult.isNewUser 
-        ? "User account created successfully" 
+      user: initResult.user ? {
+        id: (initResult.user as Document & { _id?: any; clerkUserId: string; email: string; currentPlan: any; signUpDate: Date; trialUsed: boolean })._id || (initResult.user as any).id,
+        clerkUserId: (initResult.user as Document & { clerkUserId: string }).clerkUserId,
+        email: (initResult.user as Document & { email: string }).email,
+        currentPlan: (initResult.user as Document & { currentPlan: any }).currentPlan,
+        signUpDate: (initResult.user as Document & { signUpDate: Date }).signUpDate,
+        trialUsed: (initResult.user as Document & { trialUsed: boolean }).trialUsed,
+      } : null,
+      message: initResult.isNewUser
+        ? "User account created successfully"
         : "User account verified"
     });
   } catch (error) {
@@ -105,19 +106,19 @@ export async function GET() {
       success: true,
       userExists: !initResult.isNewUser,
       isNewUser: initResult.isNewUser,
-      user: {
-        id: initResult.user._id,
-        clerkUserId: initResult.user.clerkUserId,
-        email: initResult.user.email,
+      user: initResult.user ? {
+        id: (initResult.user as any)._id || (initResult.user as any).id,
+        clerkUserId: (initResult.user as Document & { clerkUserId: string }).clerkUserId,
+        email: (initResult.user as Document & { email: string }).email,
         currentPlan: {
-          name: initResult.user.currentPlan.name,
-          status: initResult.user.currentPlan.status,
-          startDate: initResult.user.currentPlan.startDate,
-          endDate: initResult.user.currentPlan.endDate,
+          name: (initResult.user as Document & { currentPlan: { name: string; status: string; startDate: Date; endDate: Date | null } }).currentPlan.name,
+          status: (initResult.user as Document & { currentPlan: { name: string; status: string; startDate: Date; endDate: Date | null } }).currentPlan.status,
+          startDate: (initResult.user as Document & { currentPlan: { name: string; status: string; startDate: Date; endDate: Date | null } }).currentPlan.startDate,
+          endDate: (initResult.user as Document & { currentPlan: { name: string; status: string; startDate: Date; endDate: Date | null } }).currentPlan.endDate,
         },
-        signUpDate: initResult.user.signUpDate,
-        trialUsed: initResult.user.trialUsed,
-      }
+        signUpDate: (initResult.user as Document & { signUpDate: Date }).signUpDate,
+        trialUsed: (initResult.user as Document & { trialUsed: boolean }).trialUsed,
+      } : null
     });
   } catch (error) {
     console.error("Error checking user initialization:", error);

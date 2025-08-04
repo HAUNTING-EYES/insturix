@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -96,7 +96,8 @@ const MusicPlayer: React.FC<MusicPlayerProps> = ({
       audio.removeEventListener('loadedmetadata', updateDuration);
       audio.removeEventListener('ended', handleEnded);
     };
-  }, [audioUrl]);
+  // Include audioContext in deps to satisfy react-hooks/exhaustive-deps
+  }, [audioUrl, audioContext]);
 
   const togglePlay = () => {
     const audio = audioRef.current;

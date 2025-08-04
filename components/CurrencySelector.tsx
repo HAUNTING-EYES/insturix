@@ -26,7 +26,7 @@ export function CurrencySelector({
   className = "",
   compact = false 
 }: CurrencySelectorProps) {
-  const { selectedCurrency, selectedSymbol, setSelectedCurrency } = useCurrency();
+  const { selectedCurrency, setSelectedCurrency } = useCurrency();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 

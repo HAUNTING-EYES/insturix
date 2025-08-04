@@ -1,10 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import { getCollections } from "@/app/api/services/musitron/utils/mongodb";
 import { ServiceUsageService } from "@/lib/services/serviceUsageService";
-import { getAllLimitTypesForService } from "@/lib/config/serviceLimits";
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const { userId } = await auth();
 

@@ -2,6 +2,7 @@
 
 import React from "react";
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,7 +80,7 @@ export function TaskDetails({ task }: TaskDetailsProps) {
         return task.details;
       }
       return null;
-    } catch (error) {
+    } catch {
       const fallbackText = task.details?.prompt || task.details || 'No details available';
       return { prompt: typeof fallbackText === 'string' ? fallbackText : 'No details available' };
     }
@@ -312,26 +313,30 @@ export function TaskDetails({ task }: TaskDetailsProps) {
               </CardHeader>
               <CardContent className="space-y-4">
                 {/* Thumbnail Image */}
-                <div className="relative overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
+                <div className="relative aspect-video overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900/50">
                   {!imageLoaded && !imageError && (
-                    <div className="aspect-video flex items-center justify-center">
+                    <div className="absolute inset-0 flex items-center justify-center">
                       <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
                     </div>
                   )}
                   {imageError && (
-                    <div className="aspect-video flex items-center justify-center">
+                    <div className="absolute inset-0 flex items-center justify-center">
                       <p className="text-zinc-400 text-sm">Failed to load image</p>
                     </div>
                   )}
-                  <img
+                  <Image
                     src={thumbnailUrl}
                     alt="Generated Thumbnail"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
                     className={cn(
-                      "w-full h-auto transition-opacity duration-300",
+                      "object-cover transition-opacity duration-300",
                       imageLoaded ? "opacity-100" : "opacity-0"
                     )}
                     onLoad={() => setImageLoaded(true)}
                     onError={() => setImageError(true)}
+                    priority
+                    unoptimized
                   />
                 </div>
 

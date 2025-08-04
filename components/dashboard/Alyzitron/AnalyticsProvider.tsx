@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useUserInitialization } from '@/components/dashboard/UserInitializationProvider';
 
@@ -50,7 +50,7 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchStats = async () => {
+  const fetchStats = useCallback(async () => {
     if (!user || !isLoaded || !isInitialized) return;
 
     try {
@@ -72,7 +72,7 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
         throw new Error(statsResult.error || 'Failed to fetch analysis stats');
       }
 
-      let alyzitronLimits = serviceResult.data?.alyzitron || {};
+      const alyzitronLimits = serviceResult.data?.alyzitron || {};
 
       setStats({
         activeAnalyses: statsResult.activeAnalyses || 0,
@@ -86,13 +86,13 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, isLoaded, isInitialized]);
 
   useEffect(() => {
     if (isLoaded && isInitialized && !userInitLoading) {
       fetchStats();
     }
-  }, [isLoaded, user, isInitialized, userInitLoading]);
+  }, [isLoaded, user, isInitialized, userInitLoading, fetchStats]);
 
   const value = {
     stats,

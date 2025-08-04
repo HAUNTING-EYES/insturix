@@ -221,13 +221,13 @@ export default function Privacy() {
               </div>
             </section>
 
-            {/* Section 8: Children's Privacy */}
+            {/* Section 8: Children&apos;s Privacy */}
             <section className="relative group">
               <div className="absolute inset-0 bg-gradient-to-r from-blue-600/5 to-purple-600/5 dark:from-blue-400/3 dark:to-purple-400/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
               <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
                 <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
                   <span className="bg-gradient-to-br from-blue-600 to-purple-700 dark:from-blue-500 dark:to-purple-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">8</span>
-                  Children's Privacy
+                  Children&apos;s Privacy
                 </h3>
                 <p className="text-gray-700 dark:text-gray-300">
                   Our services are not intended for individuals under 13 years of age. We do not knowingly collect personal data from children.

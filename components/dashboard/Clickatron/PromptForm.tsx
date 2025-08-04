@@ -5,14 +5,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useGenerateThumbnail } from "@/lib/frontend/services/clickatron";
 import { IClickatronTask } from "@/schemas/Clickatron";
-import { Sparkles, Wand2, PenTool } from "lucide-react";
+import { Wand2, PenTool } from "lucide-react";
 import { useGetStats } from "./hooks/useGetStats";
 import { FormLock } from "./FormLock";
 
@@ -37,10 +37,10 @@ interface PromptFormProps {
   activeTasks?: Set<string>;
 }
 
-export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProps) {
+export function PromptForm({ onSubmit }: PromptFormProps) {
   const [activeTab, setActiveTab] = useState("guided");
-  const { stats, isLoading, error: statsError, usage } = useGetStats();
-  
+  const { usage } = useGetStats();
+
   const guidedForm = useForm<z.infer<typeof guidedFormSchema>>({
     resolver: zodResolver(guidedFormSchema),
     defaultValues: {
@@ -58,13 +58,20 @@ export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProp
     defaultValues: { details: "" },
   });
 
-  const { mutate: generateThumbnail, isPending, error: generateError } = useGenerateThumbnail();
+  const { mutate: generateThumbnail, isPending } = useGenerateThumbnail();
 
   const onGuidedSubmit = (values: z.infer<typeof guidedFormSchema>) => {
     // Create JSON string for guided mode
     const guidedData = Object.entries(values)
-      .filter(([_, value]) => value && value.trim() !== "")
-      .reduce((acc, [key, value]) => ({ ...acc, [key]: value }), {});
+      .filter((entry) => {
+        const value = entry[1];
+        return value && value.trim() !== "";
+      })
+      .reduce((acc, entry) => {
+        const key = entry[0] as keyof typeof values;
+        const value = entry[1];
+        return { ...acc, [key]: value };
+      }, {} as Record<string, string>);
     
     const details = JSON.stringify(guidedData);
     
@@ -141,7 +148,7 @@ export function PromptForm({ onSubmit, onComplete, activeTasks }: PromptFormProp
               <div className="mb-4 p-3 bg-purple-500/10 border border-purple-500/20 rounded-lg">
                 <p className="text-xs text-purple-200">
                   Smart Creator mode guides you through creating the perfect thumbnail with structured options.
-                  You can type freely in natural language (e.g., "None", "Auto", "Whatever works") or select from suggestions.
+                  You can type freely in natural language (e.g., &quot;None&quot;, &quot;Auto&quot;, &quot;Whatever works&quot;) or select from suggestions.
                   Only main text and style are required - other fields are optional to help refine your vision.
                 </p>
               </div>

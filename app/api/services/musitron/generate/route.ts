@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { title, instrumental, songDescription, style, lyrics, duration } = body;
+  const { title, instrumental, style, lyrics } = body;
 
   // Validate required fields
   if (!title) {

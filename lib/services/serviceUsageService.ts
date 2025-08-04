@@ -418,7 +418,7 @@ export class ServiceUsageService {
       console.log(`[autoResetServices] Saving changes for reset services:`, resetServices);
       
       // Use direct MongoDB update instead of Mongoose save for nested arrays
-      const updateOperations: any = {};
+      const updateOperations: Record<string, unknown> & { $unset?: Record<string, unknown> } = {};
       
       // Process each reset service to build the update operations
       resetServices.forEach(resetService => {

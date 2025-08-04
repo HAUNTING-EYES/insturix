@@ -29,7 +29,7 @@ const demoTasks = {
   },
 };
 
-const CustomAudioPlayer: React.FC<{ src: string; imageUrl: string; title: string }> = ({ src, imageUrl, title }) => {
+const CustomAudioPlayer: React.FC<{ src: string; imageUrl: string; title: string }> = ({ src }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);

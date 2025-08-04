@@ -3,10 +3,10 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { CircleDot, PlayCircle, XCircle, ChevronRight, Ban } from 'lucide-react';
+import { CircleDot, PlayCircle, ChevronRight } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { QueryClient } from '@tanstack/react-query';
+import Image from 'next/image';
 
 import type { AnalysisStatus } from '@/app/api/services/alyzitron/types'
 import type { PaginatedResponse } from './AnalysisList';
@@ -19,7 +19,6 @@ interface AnalysisError {
 
 interface AnalysisProgressProps {
   analysisId: string;
-  taskId?: string;
   title?: string;
   status?: AnalysisStatus;
   queuePosition?: number;
@@ -35,7 +34,6 @@ interface AnalysisProgressProps {
 
 export function AnalysisProgress({
   analysisId,
-  taskId,
   title,
   status,
   queuePosition,
@@ -172,18 +170,16 @@ export function AnalysisProgress({
         <CardContent className="flex items-center p-4">
           <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4 overflow-hidden">
             {youtubeVideoId ? (
-              <img
-                src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
-                alt={title || 'YouTube Video'}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  // Fallback to play icon if thumbnail fails to load
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const playIcon = target.nextElementSibling as HTMLElement;
-                  if (playIcon) playIcon.style.display = 'flex';
-                }}
-              />
+              <div className="relative h-12 w-12">
+                <Image
+                  src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
+                  alt={title || 'YouTube Video'}
+                  fill
+                  sizes="48px"
+                  className="object-cover rounded-lg"
+                  priority={false}
+                />
+              </div>
             ) : null}
             <PlayCircle
               className={`h-6 w-6 text-zinc-400 ${youtubeVideoId ? 'hidden' : ''}`}

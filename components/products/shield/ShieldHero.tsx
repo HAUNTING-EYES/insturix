@@ -3,7 +3,7 @@
 import React, { useRef } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Shield, Gavel, FileText, AlertTriangle, Megaphone, Sparkles } from "lucide-react";
+import { ArrowRight, Shield, Gavel, FileText, AlertTriangle, Megaphone } from "lucide-react";
 import LinkNext from "next/link";
 
 const containerVariants = {

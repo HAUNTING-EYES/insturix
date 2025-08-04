@@ -78,7 +78,7 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const { name, price, features, durationInMonths } = body;
+    const { name, price, durationInMonths } = body;
 
     if (!name || price === undefined || !durationInMonths) {
       return NextResponse.json(

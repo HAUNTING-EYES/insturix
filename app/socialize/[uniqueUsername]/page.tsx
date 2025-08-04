@@ -32,7 +32,7 @@ export default async function Page({
         <Footer />
       </>
     );
-  } catch (error) {
+  } catch {
     // Render an error component if the user is not found or another error occurs
     return (
       <>

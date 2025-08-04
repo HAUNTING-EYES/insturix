@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { cancelUserPlan, checkTrialRefundEligibility } from "@/lib/services/planService";
-import Razorpay from "razorpay";
-import { User } from "@/schemas/user";
-import { initiateRefund } from "@/lib/services/refundService";
-import connectToDatabase from "@/schemas/ConnectToDatabase";
 
 export async function POST(request: NextRequest) {
   try {
@@ -47,7 +43,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const { userId } = await auth();
     

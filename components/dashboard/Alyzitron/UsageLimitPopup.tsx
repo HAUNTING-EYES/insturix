@@ -1,10 +1,10 @@
 "use client";
 
 import React from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle, Crown, Zap, Shield, RefreshCw } from 'lucide-react';
+import { AlertTriangle, Crown, Shield, RefreshCw } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface UsageLimitPopupProps {

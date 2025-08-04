@@ -16,7 +16,8 @@ export default function CustomUserProfile() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [newEmail, setNewEmail] = useState("");
-  const [emailList, setEmailList] = useState(user?.emailAddresses || []);
+  // Removed unused emailList state to satisfy @typescript-eslint/no-unused-vars
+  // const [emailList, setEmailList] = useState(user?.emailAddresses || []);
 
   // Security tab state
   const [currentPassword, setCurrentPassword] = useState("");
@@ -28,9 +29,6 @@ export default function CustomUserProfile() {
   const [deleteError, setDeleteError] = useState("");
   const [deleteSuccess, setDeleteSuccess] = useState("");
   const [deleting, setDeleting] = useState(false);
-  const [signOutSessionId, setSignOutSessionId] = useState("");
-  const [signOutError, setSignOutError] = useState("");
-  const [signOutSuccess, setSignOutSuccess] = useState("");
 
   if (!isLoaded || !user) return <div className="p-8 text-white">Loading...</div>;
 
@@ -45,7 +43,7 @@ export default function CustomUserProfile() {
       await user.setProfileImage({ file });
       setProfileImage(URL.createObjectURL(file));
       setSuccess("Profile image updated!");
-    } catch (err) {
+    } catch {
       setError("Failed to update profile image.");
     } finally {
       setIsSaving(false);
@@ -59,7 +57,7 @@ export default function CustomUserProfile() {
     try {
       await user.update({ username });
       setSuccess("Username updated!");
-    } catch (err) {
+    } catch {
       setError("Failed to update username.");
     } finally {
       setIsSaving(false);
@@ -75,8 +73,8 @@ export default function CustomUserProfile() {
       await user.createEmailAddress({ email: newEmail });
       setSuccess("Email added! Please verify your new email.");
       setNewEmail("");
-      setEmailList(user.emailAddresses);
-    } catch (err) {
+      // setEmailList(user.emailAddresses);
+    } catch {
       setError("Failed to add email.");
     } finally {
       setIsSaving(false);
@@ -98,7 +96,7 @@ export default function CustomUserProfile() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-    } catch (err) {
+    } catch {
       setPasswordError("Failed to update password.");
     }
   };
@@ -116,25 +114,26 @@ export default function CustomUserProfile() {
     try {
       await user.delete();
       setDeleteSuccess("Account deleted. You will be signed out.");
-    } catch (err) {
+    } catch {
       setDeleteError("Failed to delete account.");
     } finally {
       setDeleting(false);
     }
   };
 
-  const handleSignOutSession = async (sessionId: string) => {
-    setSignOutSessionId(sessionId);
-    setSignOutError("");
-    setSignOutSuccess("");
-    try {
-      setSignOutSuccess("Session management is not supported.");
-    } catch (err) {
-      setSignOutError("An error occurred.");
-    } finally {
-      setSignOutSessionId("");
-    }
-  };
+  // Removed unused handleSignOutSession to satisfy @typescript-eslint/no-unused-vars
+  // const handleSignOutSession = async (sessionId: string) => {
+  //   setSignOutSessionId(sessionId);
+  //   setSignOutError("");
+  //   setSignOutSuccess("");
+  //   try {
+  //     setSignOutSuccess("Session management is not supported.");
+  //   } catch {
+  //     setSignOutError("An error occurred.");
+  //   } finally {
+  //     setSignOutSessionId("");
+  //   }
+  // };
 
   // UI
   return (
@@ -293,8 +292,8 @@ export default function CustomUserProfile() {
             <div className="mb-8 max-w-md">
               <div className="font-semibold mb-2">Active devices</div>
               <div className="text-zinc-400 text-sm">Session management is not supported.</div>
-              {signOutSuccess && <div className="text-green-400 text-sm mt-2">{signOutSuccess}</div>}
-              {signOutError && <div className="text-red-400 text-sm mt-2">{signOutError}</div>}
+              {/* {signOutSuccess && <div className="text-green-400 text-sm mt-2">{signOutSuccess}</div>}
+              {signOutError && <div className="text-red-400 text-sm mt-2">{signOutError}</div>} */}
             </div>
             {/* Delete Account */}
             <form onSubmit={handleDeleteAccount} className="max-w-md">

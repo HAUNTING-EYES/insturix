@@ -1,9 +1,7 @@
 import MusicGenerator from "./MusicGenerator";
 import { MusitronTaskHistory } from "./MusitronTaskHistory";
 
-interface ClientWrapperProps {}
-
-export function ClientWrapper({}: ClientWrapperProps) {
+export function ClientWrapper() {
   return (
     <div className="space-y-8">
       <MusicGenerator />

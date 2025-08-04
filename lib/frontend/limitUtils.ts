@@ -1,4 +1,4 @@
-import { ServiceUsageService, ServiceUsageInfo } from "@/lib/services/serviceUsageService";
+import { ServiceUsageInfo } from "@/lib/services/serviceUsageService";
 import { IServiceLimits } from "@/schemas/user";
 import { getLimitDisplayName } from "@/lib/config/serviceLimits";
 
@@ -29,8 +29,8 @@ export class FrontendLimitUtils {
   /**
    * Get limit type from request data (same logic as backend)
    */
-  private determineLimitType(requestData: any): string {
-    const { type } = requestData;
+  private determineLimitType(requestData: { type?: string } | Record<string, unknown>): string {
+    const type = typeof (requestData as any)?.type === "string" ? String((requestData as any).type) : undefined;
     
     if (!type) {
       return this.config.defaultLimitType || Object.values(this.config.limitMappings)[0];
@@ -48,7 +48,7 @@ export class FrontendLimitUtils {
   /**
    * Fetch current usage for a specific request type
    */
-  async getCurrentUsage(requestData: any): Promise<FrontendLimitInfo | null> {
+  async getCurrentUsage(requestData: Record<string, unknown> | { type?: string }): Promise<FrontendLimitInfo | null> {
     try {
       const response = await fetch('/api/user/service-usage', {
         method: 'POST',
@@ -133,7 +133,7 @@ export class FrontendLimitUtils {
   /**
    * Get human-readable action name
    */
-  getActionName(requestData: any): string {
+  getActionName(requestData: Record<string, unknown> | { type?: string }): string {
     const limitType = this.determineLimitType(requestData);
     return getLimitDisplayName(this.config.serviceName, limitType) || limitType;
   }

@@ -3,7 +3,7 @@ import { User } from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import mongoose from "mongoose";
-import { UserType, User as IUser, IUserPlan } from "@/types/userTypes";
+import { UserType, User as IUser } from "@/types/userTypes";
 
 type UserDocument = mongoose.Document & IUser & {
   save: () => Promise<UserDocument>;
@@ -75,7 +75,7 @@ export async function getUserData() {
       }
     }
 
-    const wasUpdated = await checkAndUpdateExpiredPlans(user);
+    await checkAndUpdateExpiredPlans(user);
 
     return {
       _id: user._id.toString(),

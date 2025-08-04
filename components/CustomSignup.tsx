@@ -151,7 +151,7 @@ export default function CustomSignup() {
         redirectUrlComplete: "/dashboard",
         popup
       });
-    } catch (err: unknown) {
+    } catch {
       setError("OAuth signup failed.");
     } finally {
       setIsLoading(false);

@@ -89,38 +89,12 @@ export const getAllLimitTypesForService = (serviceName: string): ServiceLimitTyp
 export const getAllServiceLimitMappings = (): Record<string, string> => {
   const mappings: Record<string, string> = {};
   
-  Object.entries(SERVICE_LIMIT_DEFINITIONS).forEach(([serviceName, limits]) => {
-    Object.keys(limits).forEach(limitType => {
-      const displayName = limits[limitType].name;
+  Object.entries(SERVICE_LIMIT_DEFINITIONS).forEach(([, serviceLimits]) => {
+    Object.keys(serviceLimits).forEach(limitType => {
+      const displayName = serviceLimits[limitType].name;
       mappings[limitType] = displayName;
     });
   });
   
   return mappings;
-};
-
-// Default fallback limits for new users (used when plans collection is unavailable)
-export const DEFAULT_FREE_PLAN_LIMITS = {
-  alyzitron: [
-    { limitType: "maxTotalAnalysis", maxUsage: 10, resetPeriod: "weekly", description: "Total video analyses per week" },
-    { limitType: "maxOver20MinuteAnalysis", maxUsage: 3, resetPeriod: "weekly", description: "Analyses for videos over 20 minutes" }
-  ],
-  editron: [
-    { limitType: "maxVideoEdits", maxUsage: 1, resetPeriod: "monthly", description: "Edit videos with Editron" }
-  ],
-  shield: [
-    { limitType: "maxScans", maxUsage: 3, resetPeriod: "monthly", description: "Security scans with Shield" }
-  ],
-  socialize: [
-    { limitType: "maxSocialLinks", maxUsage: 5, resetPeriod: "none", description: "Social media links" }
-  ],
-  thinkforge: [
-    { limitType: "maxAIChats", maxUsage: 10, resetPeriod: "monthly", description: "AI conversations with ThinkForge" }
-  ],
-  musitron: [
-    { limitType: "maxMusicGeneration", maxUsage: 3, resetPeriod: "monthly", description: "Generate music tracks" }
-  ],
-  clickatron: [
-    { limitType: "maxThumbnailGeneration", maxUsage: 5, resetPeriod: "weekly", description: "Generate thumbnails with Clickatron" }
-  ]
 };

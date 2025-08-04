@@ -10,17 +10,24 @@ export const CLICKATRON_LIMIT_CONFIG: LimitConfig = {
 
 export const clickatronLimitMiddleware = createLimitMiddleware(CLICKATRON_LIMIT_CONFIG);
 
-export const checkClickatronLimits = async (requestData: any) => {
+type ClickatronRequest = {
+  type?: string;
+  [key: string]: unknown;
+};
+
+export const checkClickatronLimits = async (requestData: ClickatronRequest) => {
   const middleware = clickatronLimitMiddleware;
   return await middleware.checkLimits({ ...requestData, limitType: 'general' });
 };
 
-export const incrementClickatronUsage = async (requestData: any, amount?: number) => {
+export const incrementClickatronUsage = async (requestData: ClickatronRequest, amount?: number) => {
   const middleware = clickatronLimitMiddleware;
   return await middleware.incrementUsage({ ...requestData, limitType: 'general' }, amount);
 };
 
-export const createClickatronLimitResponse = (result: any) =>
+import type { LimitCheckResult } from '../limitMiddleware';
+
+export const createClickatronLimitResponse = (result: LimitCheckResult) =>
   result.error?.type === 'LIMIT_EXCEEDED'
     ? clickatronLimitMiddleware.createLimitExceededResponse(result)
     : clickatronLimitMiddleware.createErrorResponse(result);

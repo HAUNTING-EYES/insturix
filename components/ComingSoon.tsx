@@ -53,7 +53,7 @@ export function ComingSoon({ serviceName, progressPercentage }: ComingSoonProps)
                 <RocketIcon className="w-10 h-10 text-blue-400" />
               </div>
               <CardTitle className="text-xl text-zinc-100 font-semibold">
-                We're Building Something Amazing
+                We&#39;re Building Something Amazing
               </CardTitle>
             </CardHeader>
             <CardContent className="text-center space-y-6">

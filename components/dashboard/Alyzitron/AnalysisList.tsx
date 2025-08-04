@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -116,7 +116,6 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
             <AnalysisProgress
               key={analysis._id}
               analysisId={analysis._id.toString()}
-              taskId={analysis._id.toString()} // Ensure taskId is a string
               title={analysis.metadata?.originalFilename}
               status={analysis.status}
               error={analysis.error}

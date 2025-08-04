@@ -4,7 +4,6 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Button } from "@/components/ui/button";
 import { ExternalLink, Pencil, Trash2, GripVertical } from "lucide-react";
 import Link from "next/link";
-import { motion } from "framer-motion";
 import { getPlatformIcon } from "./SocializeIcons";
 import {
   DndContext,

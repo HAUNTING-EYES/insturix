@@ -2,7 +2,6 @@
 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect } from 'react';
-import { useUser } from '@clerk/nextjs';
 import { VideoUpload } from './VideoUpload';
 import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
 import { AnalysisStatus, AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
@@ -15,7 +14,6 @@ interface ClientWrapperProps {
 
 export function ClientWrapper({ initialAnalyses }: ClientWrapperProps) {
   const queryClient = useQueryClient();
-  const { user } = useUser();
   const [activeAnalyses, setActiveAnalyses] = useState<Set<string>>(new Set());
 
   // Initialize and manage the 'analyses' query state

@@ -25,7 +25,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { filename, contentType, gcsUrl } = await request.json();
+    const { filename, gcsUrl } = await request.json();
 
     if (!filename && !gcsUrl) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       let decodedUrl = gcsUrl;
       try {
         decodedUrl = decodeURIComponent(gcsUrl);
-      } catch (e) {
+      } catch {
         // If decoding fails, use the original URL
         console.warn("Failed to decode URL, using original:", gcsUrl);
       }
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
       gcsPath,
       storage: "gcs"
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: "Failed to generate signed URL" }, { status: 500 });
   }
 }

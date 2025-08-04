@@ -1,12 +1,11 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Eye, EyeOff, Check, Globe, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Check, Globe, X, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
-import type { AnalysisResults } from "@/app/api/services/alyzitron/types";
 
 // Helper function to copy text to clipboard
 const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -32,11 +31,6 @@ const formatDescription = (description: string) => {
     }
     return part;
   });
-};
-
-// Helper function to format description text (no line breaks, just styling)
-const formatDescriptionText = (description: string) => {
-  return description;
 };
 
 const ScoreIndicator = ({

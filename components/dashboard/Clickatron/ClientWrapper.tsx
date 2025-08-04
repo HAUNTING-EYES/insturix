@@ -41,7 +41,7 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
   // Convert mongoose documents to plain objects
   const initialTasksData: ClickatronTaskData[] = initialTasks.map(task => ({
     _id: task._id?.toString() || '',
-    userId: task.userId,
+    userId: task.clerkUserId,
     title: task.title,
     details: task.details,
     status: task.status,
@@ -147,7 +147,7 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
             status: 'processing', // Start as processing
           });
         }}
-        onComplete={async (taskId: string, task) => {
+        onComplete={async (taskId: string) => {
           if (!taskId || !user) return;
 
           // Update RTDB with completed status

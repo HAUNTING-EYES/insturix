@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useState, useEffect, useRef } from 'react';
+import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
 import { Card, CardContent } from '@/components/ui/card';
@@ -106,7 +107,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       return;
     }
 
-    setYoutubePreview(prev => ({
+    setYoutubePreview(() => ({
       title: '',
       thumbnail: '',
       videoId,
@@ -265,7 +266,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         });
       }
     } catch (err) {
-      let title = "Submission Failed";
+      const title = "Submission Failed";
       let description = "An unexpected error occurred. Please try again.";
       let shouldResetForm = false; // Control whether to reset form on error
       let shouldRestoreForm = false; // Control whether to restore form data
@@ -410,7 +411,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       });
       resetUploadState();
     }
-  }, [currentAnalysisId, currentAnalysisState?.status, onComplete, resetUploadState, uploadState]);
+  }, [currentAnalysisId, currentAnalysisState?.status, onComplete, resetUploadState, uploadState, youtubePreview?.title]);
 
   return (
     <Card className="relative bg-black/40 border-zinc-800 backdrop-blur-xl">
@@ -535,10 +536,11 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                     {!youtubePreview.loading && !youtubePreview.error && youtubePreview.title && (
                       <div className="flex gap-4">
                         <div className="relative w-32 h-18 bg-zinc-800 rounded-lg overflow-hidden flex-shrink-0">
-                          <img
+                          <Image
                             src={youtubePreview.thumbnail}
                             alt={youtubePreview.title}
-                            className="w-full h-full object-cover"
+                            fill
+                            className="object-cover"
                             onError={(e) => {
                               // Fallback to lower quality thumbnail
                               const target = e.target as HTMLImageElement;

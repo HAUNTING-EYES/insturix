@@ -11,20 +11,6 @@ import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { useQuery } from "@tanstack/react-query";
 import { useTaskUpdater } from "@/hooks/useTaskUpdater";
 
-interface PaginatedTaskResponse {
-  data: MusitronTask[];
-  pagination: {
-    totalItems: number;
-    totalPages: number;
-    currentPage: number;
-    itemsPerPage: number;
-    hasNext: boolean;
-    hasPrev: boolean;
-  };
-}
-
-const ITEMS_PER_PAGE = 5;
-
 function MusitronTaskCard({ task }: { task: MusitronTask }) {
   const router = useRouter();
   const displayTitle = task.title || `Music Task #${task._id?.toString().slice(-6)}`;

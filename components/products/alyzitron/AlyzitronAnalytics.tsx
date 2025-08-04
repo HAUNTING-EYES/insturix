@@ -2,7 +2,7 @@
 
 import React, { useRef } from "react";
 import { motion } from "framer-motion";
-import { BarChart3, CheckCircle, Star, Zap } from "lucide-react";
+import { BarChart3, Star } from "lucide-react";
 import { useScroll, useTransform } from "framer-motion";
 
 const scoreCategories = [
@@ -83,12 +83,12 @@ export default function AlyzitronAnalytics() {
             </span>
             <br />
             <span className="bg-gradient-to-r from-blue-500 via-cyan-400 to-indigo-500 bg-clip-text text-transparent">
-              Video's Potential
+              Video&apos;s Potential
             </span>
           </h2>
           
           <p className="text-lg text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto leading-relaxed">
-            Our AI provides detailed scores across multiple categories, giving you a clear understanding of your video's strengths and weaknesses.
+            Our AI provides detailed scores across multiple categories, giving you a clear understanding of your video&apos;s strengths and weaknesses.
           </p>
         </motion.div>
 

@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const totalItems = results[0].metadata[0] ? results[0].metadata[0].totalItems : 0;
     const totalPages = Math.ceil(totalItems / validatedLimit);
 
-    let formattedHistory = history.map((task: any) => ({
+    const formattedHistory = history.map((task: any) => ({
       ...task,
       _id: task._id?.toString() || '',
       createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
@@ -65,7 +65,7 @@ export async function GET(request: Request) {
         hasPrev: validatedPage > 1,
       }
     });
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

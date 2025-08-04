@@ -5,7 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
+import Image from 'next/image';
 import type { AlyzitronAnalysis, AnalysisStatus } from '@/app/api/services/alyzitron/types';
 import { useTaskUpdater } from '@/hooks/useTaskUpdater';
 import {
@@ -93,16 +94,16 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
           {/* Thumbnail Preview */}
           <div className="h-12 w-12 rounded-lg bg-black/40 flex items-center justify-center mr-4 overflow-hidden">
             {youtubeVideoId ? (
-              <img
+              <Image
                 src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
-                alt={displayTitle}
-                className="w-full h-full object-cover"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement;
-                  target.style.display = 'none';
-                  const fallback = target.nextElementSibling as HTMLElement;
-                  if (fallback) fallback.style.display = 'flex';
+                alt={displayTitle || 'Video thumbnail'}
+                fill
+                sizes="48px"
+                className="object-cover"
+                onError={() => {
+                  /* Fallback icon is rendered just after this component */
                 }}
+                priority={false}
               />
             ) : null}
             <FileVideo
@@ -235,7 +236,8 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
 
 export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AlyzitronTaskHistoryProps) {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  // Removed unused queryClient to satisfy @typescript-eslint/no-unused-vars
+  // const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
   useTaskUpdater(); // New hook to handle RTDB updates
 

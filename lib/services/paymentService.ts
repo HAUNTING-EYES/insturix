@@ -41,13 +41,14 @@ export async function createPlan(planDetails: {
             },
         });
         return { provider: 'razorpay', id: razorpayPlan.id };
-    } catch (error: any) {
-        const description = error.error?.description;
+    } catch (error: unknown) {
+        const err = error as { error?: { description?: unknown }, message?: unknown };
+        const description = typeof err?.error?.description === 'string' ? err.error.description : undefined;
         if (typeof description === 'string' && description.trim().toLowerCase() === 'currency provided is not supported') {
             console.error(`Failed to create Razorpay plan for ${name} in ${currency} (${period}): ${description}`);
             console.error(`Suggestion: Please ensure that international payments and the currency '${currency}' are enabled for subscriptions in your Razorpay account settings.`);
         } else {
-            console.error(`Failed to create Razorpay plan for ${name} in ${currency} (${period}):`, description || error.message || error);
+            console.error(`Failed to create Razorpay plan for ${name} in ${currency} (${period}):`, description ?? err.message ?? err);
         }
         return null;
     }
@@ -60,7 +61,7 @@ export async function createSubscription(
     billingCycle: 'monthly' | 'yearly',
     paymentProvider?: string,
     paymentPlanId?: string
-): Promise<any> {
+): Promise<{ provider: 'razorpay'; key: string | undefined; subscriptionId: string; }> {
     console.log(`[Checkout] Starting for plan: ${planType}, currency: ${currency}, cycle: ${billingCycle}, provider: ${paymentProvider}, planId: ${paymentPlanId}`);
     const plan = await Plan.findOne({ type: planType });
 
@@ -107,19 +108,16 @@ export async function createRefund(refundDetails: {
     reason?: string;
     notes?: Record<string, string>;
     currency: string;
-}): Promise<any> {
+}): Promise<{ success: true } & Record<string, unknown>> {
     const refund = await razorpay.payments.refund(refundDetails.paymentId, {
         amount: refundDetails.amount,
         notes: refundDetails.notes,
     });
-    return { success: true, ...refund };
+    // Cast to unknown first to avoid structural mismatch with RazorpayRefund type
+    return { success: true, ...(refund as unknown as Record<string, unknown>) };
 }
 
-export async function getRefundStatus(paymentId: string): Promise<any> {
+export async function getRefundStatus(paymentId: string): Promise<Record<string, unknown>> {
     // Assuming this is for Razorpay, as Lemon Squeezy refund status might be handled differently.
-    return await razorpay.payments.fetch(paymentId);
-}
-
-export async function verifyPayment(paymentData: any, currency: string) {
-    // Razorpay handles verification via webhooks, so no specific action is needed here.
+    return await razorpay.payments.fetch(paymentId) as unknown as Record<string, unknown>;
 }

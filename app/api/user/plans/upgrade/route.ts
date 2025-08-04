@@ -15,7 +15,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    const { userType, planDetails } = await request.json();
+    const { userType } = await request.json();
 
     if (!userType || !Object.values(UserType).includes(userType as UserType)) {
       return NextResponse.json(

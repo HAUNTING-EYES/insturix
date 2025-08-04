@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import crypto from "crypto";
-import { updateUserPlan } from "@/lib/services/planService";
-import { UserInitializationService } from "@/lib/services/userInitializationService";
-import { UserType } from "@/types/userTypes";
 
 const generatedSignature = (
   razorpayOrderId: string,
@@ -35,7 +32,6 @@ export async function POST(request: NextRequest) {
       orderId,
       razorpayPaymentId,
       razorpaySignature,
-      planDetails
     } = await request.json();
 
     // Verify payment signature

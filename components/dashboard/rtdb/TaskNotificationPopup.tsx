@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { X, Clock, CheckCircle, AlertCircle, Loader, Eye } from 'lucide-react';
+import { motion } from 'framer-motion';
+import { X, Clock, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { TaskNotification } from '@/types/rtdb';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -30,7 +29,6 @@ export function TaskNotificationPopup({
   onMarkAsRead,
   isDismissing = false,
 }: TaskNotificationPopupProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const router = useRouter();
   const { taskUpdate, serviceName } = notification;
   const config = statusConfig[taskUpdate.status];
@@ -120,30 +118,6 @@ export function TaskNotificationPopup({
             <X className="h-3 w-3" />
           </Button>
         </div>
-
-        <AnimatePresence>
-          {isExpanded && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 0.2 }}
-              className="mt-3 pt-3 border-t border-zinc-800"
-            >
-              {/* {taskUpdate.description && (
-                <p className="text-xs text-zinc-300 mb-2">
-                  {taskUpdate.description}
-                </p>
-              )} */}
-              <div className="flex items-center justify-between">
-                {/* <span className="text-xs text-zinc-500">
-                  {isClickable ? 'Click to view details' : 'Details unavailable'}
-                </span> */}
-                {isClickable && <Eye className="h-3 w-3 text-zinc-500" />}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </Card>
     </motion.div>
   );

@@ -10,17 +10,20 @@ interface FailureParams {
     message: string;
   };
   taskType?: string;
-  task?: any;
+  task?: Record<string, unknown>;
 }
 
 /**
  * Simplified function to handle task failures and refunds
  * Webhooks should already have updated the task status, so we only handle refunds
  */
-export async function handleTaskFailure({ taskId, serviceName, userId, error, taskType, task }: FailureParams) {
+export async function handleTaskFailure({ taskId, serviceName, userId, taskType, task }: FailureParams): Promise<void> {
   if (!taskType) {
     // Try to determine taskType from task if available
-    taskType = task?.type;
+    const inferredType = (task && typeof (task as Record<string, unknown>).type === 'string')
+      ? String((task as Record<string, unknown>).type)
+      : undefined;
+    taskType = inferredType;
   }
 
   if (!taskType) {

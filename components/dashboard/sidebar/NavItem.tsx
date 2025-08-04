@@ -9,7 +9,7 @@ import { products } from "./constants"
 import { linkVariants, containerVariants, textContainerVariants } from "./animations"
 import type { NavItemProps } from "./types"
 
-export function NavItem({ href, icon, label, isExpanded, description, isPro }: NavItemProps) {
+export function NavItem({ href, icon, label, isExpanded, isPro }: NavItemProps) {
   const { activeRoute, hoveredItem, setHoveredItem, userPlan, openUpgradeDialog } = useSidebar()
   const router = useRouter()
   const isActive = activeRoute === href

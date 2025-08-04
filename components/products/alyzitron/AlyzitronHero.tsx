@@ -3,7 +3,7 @@
 import React, { useRef } from "react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Play, Zap, Shield, TrendingUp, CheckCircle, BarChart3, Brain } from "lucide-react";
+import { ArrowRight, Play, Zap, CheckCircle, BarChart3, Brain } from "lucide-react";
 import Link from "next/link";
 
 const containerVariants = {
@@ -98,7 +98,7 @@ export default function AlyzitronHero() {
           variants={itemVariants}
           className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
-          Get AI-powered feedback to fix flaws, improve your script, and enhance content quality. Maximize your video's potential before it ever goes live.
+          Get AI-powered feedback to fix flaws, improve your script, and enhance content quality. Maximize your video&#39;s potential before it ever goes live.
         </motion.p>
 
         {/* Stats */}

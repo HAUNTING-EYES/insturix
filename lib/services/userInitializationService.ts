@@ -6,8 +6,12 @@ import Socialize from "@/schemas/Socialize";
 import { UserType } from "@/types/userTypes";
 import { IServiceLimits } from "@/schemas/user";
 
+type DbUser = typeof User extends { schema: unknown }
+  ? Awaited<ReturnType<(typeof User)["findOne"]>>
+  : unknown;
+
 export interface UserInitializationResult {
-  user: any;
+  user: DbUser | null;
   isNewUser: boolean;
   error?: string;
 }
@@ -132,31 +136,28 @@ export class UserInitializationService {
     const freePlan = await Plan.findOne({
       type: "free",
       isActive: true
-    });
-    
+    }).lean();
+
     if (!freePlan) {
       throw new Error("Free plan not found in plans collection. Database setup is incomplete.");
     }
-    
-    if (!freePlan.serviceLimits) {
+
+    if (!("serviceLimits" in freePlan) || !freePlan.serviceLimits) {
       throw new Error("Free plan has no serviceLimits defined. Database setup is incomplete.");
     }
-    
-    // Convert Mongoose document to plain object to avoid internal properties
-    const plainServiceLimits = freePlan.serviceLimits.toObject ? freePlan.serviceLimits.toObject() : freePlan.serviceLimits;
-    
+
     // Convert plan serviceLimits to user serviceLimits structure
-    const convertedLimits = this.convertPlanLimitsToUserLimits(plainServiceLimits);
-    
+    const convertedLimits = this.convertPlanLimitsToUserLimits(freePlan.serviceLimits as unknown);
+
     // Check if conversion resulted in valid limits
     const hasValidLimits = Object.values(convertedLimits).some(
-      limits => Array.isArray(limits) && limits.length > 0
+      (limits) => Array.isArray(limits) && limits.length > 0
     );
-    
+
     if (!hasValidLimits) {
       throw new Error("Free plan serviceLimits conversion resulted in empty limits. Database setup is incomplete.");
     }
-    
+
     console.log("Using Free plan limits from database");
     return convertedLimits;
   }
@@ -164,8 +165,9 @@ export class UserInitializationService {
   /**
    * Convert plan service limits to user service limits structure
    */
-  static convertPlanLimitsToUserLimits(planServiceLimits: any): IServiceLimits {
-    const now = new Date();
+  static convertPlanLimitsToUserLimits(
+    planServiceLimits: unknown
+  ): IServiceLimits {
     const userServiceLimits: IServiceLimits = {
       alyzitron: [],
       editron: [],
@@ -176,24 +178,40 @@ export class UserInitializationService {
     };
 
     // Validate input - no fallbacks
-    if (!planServiceLimits || typeof planServiceLimits !== 'object') {
-      throw new Error('planServiceLimits is null or invalid. Database setup is incomplete.');
+    if (!planServiceLimits || typeof planServiceLimits !== "object") {
+      throw new Error("planServiceLimits is null or invalid. Database setup is incomplete.");
     }
 
-    // Convert each service's limits
-    Object.keys(planServiceLimits).forEach(serviceName => {
-      if (userServiceLimits[serviceName as keyof IServiceLimits] && Array.isArray(planServiceLimits[serviceName])) {
-        planServiceLimits[serviceName].forEach((planLimit: any) => {
-          if (!planLimit || !planLimit.limitType || planLimit.maxUsage === undefined) {
-            throw new Error(`Invalid plan limit found for service ${serviceName}. Database setup is incomplete.`);
+    // Narrow the shape we expect for each plan limit item
+    type RawPlanLimit = {
+      limitType: string;
+      maxUsage: number;
+      resetPeriod?: string;
+    };
+
+    // Iterate known service keys only
+    (Object.keys(userServiceLimits) as Array<keyof IServiceLimits>).forEach((serviceName) => {
+      const raw = (planServiceLimits as Record<string, unknown>)[serviceName as string];
+
+      if (Array.isArray(raw)) {
+        (raw as unknown[]).forEach((planLimit) => {
+          const item = planLimit as Partial<RawPlanLimit>;
+          if (!item || typeof item.limitType !== "string" || typeof item.maxUsage !== "number") {
+            throw new Error(`Invalid plan limit found for service ${String(serviceName)}. Database setup is incomplete.`);
           }
-          
-          userServiceLimits[serviceName as keyof IServiceLimits].push({
-            limitType: planLimit.limitType,
-            maxUsage: planLimit.maxUsage,
-            currentUsage: 0, // Always start with 0 usage
-            resetPeriod: planLimit.resetPeriod || "weekly",
-            // Don't set lastReset initially - it gets set when usage goes from 0 to 1
+
+          userServiceLimits[serviceName].push({
+            limitType: item.limitType,
+            maxUsage: item.maxUsage,
+            currentUsage: 0,
+            // Coerce resetPeriod to allowed literals
+            resetPeriod:
+              item.resetPeriod === "daily" ||
+              item.resetPeriod === "weekly" ||
+              item.resetPeriod === "monthly" ||
+              item.resetPeriod === "none"
+                ? item.resetPeriod
+                : "weekly",
           });
         });
       }
@@ -225,7 +243,7 @@ export class UserInitializationService {
       let hasChanges = false;
       
       // Update email if it has changed
-      const newEmail = clerkUserData.email || 
+      const newEmail = clerkUserData.email ||
         clerkUserData.emailAddresses?.[0]?.emailAddress;
       
       if (newEmail && newEmail.toLowerCase().trim() !== user.email) {

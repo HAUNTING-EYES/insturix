@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from "react";
 import { motion, AnimatePresence, useScroll, useTransform } from "framer-motion";
-import { Sparkles, Play, MessageSquare, BookOpen, Users, Lightbulb } from "lucide-react";
+import { Sparkles, Play, MessageSquare, BookOpen, Lightbulb } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 const demoSteps = [
@@ -180,7 +180,7 @@ export default function ThinkForgeDemo() {
               <h3 className="text-2xl font-bold text-neutral-900 dark:text-white mb-6">
                 Workflow Steps
               </h3>
-              {demoSteps.map((step, index) => (
+              {demoSteps.map((step) => (
                 <motion.div
                   key={step.id}
                   className={`flex items-center gap-4 p-4 rounded-xl border transition-all duration-300 ${

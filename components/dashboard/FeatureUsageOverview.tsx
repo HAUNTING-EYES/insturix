@@ -15,7 +15,6 @@ import {
   Video,
   Scissors,
   Shield,
-  Share2,
   MessageSquare,
   Music,
   ImageIcon
