@@ -56,7 +56,7 @@ interface PaginatedTaskResponse {
   };
 }
 
-const DEFAULT_ITEMS_PER_PAGE = 8;
+const DEFAULT_ITEMS_PER_PAGE = 6;
 
 interface ClickatronTaskCardProps {
   task: ClickatronTaskDisplay;

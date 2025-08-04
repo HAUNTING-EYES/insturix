@@ -120,54 +120,54 @@ function MusitronTaskCard({ task }: { task: MusitronTask }) {
 
 export function MusitronTaskHistory() {
   useTaskUpdater();
-  // Unified query for all tasks, with pagination for completed section
+  // Use SERVER pagination metadata to avoid capped totals
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 5;
+  const ITEMS_PER_PAGE = 6;
   const IN_PROGRESS_STATUSES: MusitronTask["status"][] = ["listed", "processing"];
 
-  const { data: tasksDataRaw, isLoading } = useQuery<MusitronTask[]>({
-    // History state key for Musitron
+  const { data: pageData, isLoading } = useQuery({
     queryKey: ["musitron-tasks", currentPage, ITEMS_PER_PAGE],
     queryFn: async () => {
-      const response = await fetch(
-        `/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}`
-      );
+      const response = await fetch(`/api/services/musitron/history?page=${currentPage}&limit=${ITEMS_PER_PAGE}`);
       if (!response.ok) throw new Error("Failed to fetch Musitron tasks");
-      const { data } = await response.json();
-      return Array.isArray(data)
-        ? data.map((task: any) => ({
-            ...task,
-            createdAt: new Date(task.createdAt),
-            updatedAt: new Date(task.updatedAt),
-          }))
-        : [];
+      const result = await response.json();
+      const list = Array.isArray(result?.data) ? result.data : [];
+      const mapped: MusitronTask[] = (list as any[]).map((task: any) => ({
+        ...task,
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+        ...(task.completedAt ? { completedAt: new Date(task.completedAt) } : {}),
+      }));
+      return {
+        items: mapped,
+        pagination: {
+          totalItems: Number(result?.pagination?.totalItems) || mapped.length,
+          totalPages: Number(result?.pagination?.totalPages) || 1,
+          currentPage: Number(result?.pagination?.currentPage) || currentPage,
+          itemsPerPage: Number(result?.pagination?.itemsPerPage) || ITEMS_PER_PAGE,
+          hasNext: Boolean(result?.pagination?.hasNext),
+          hasPrev: Boolean(result?.pagination?.hasPrev),
+        },
+      };
     },
-    // Keep reasonably fresh but do not poll; RTDB invalidation will refresh this
-    staleTime: 1000 * 60 * 5,
+    staleTime: 1000 * 30,
     gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
   });
-  
-  const tasksData: MusitronTask[] = Array.isArray(tasksDataRaw) ? tasksDataRaw : [];
 
-  // In-progress tasks: listed/processing (always show all, not paginated)
-  const inProgressTasks = tasksData.filter(
-    (t) => IN_PROGRESS_STATUSES.includes(t.status as any)
-  );
+  const tasksData: MusitronTask[] = Array.isArray(pageData?.items) ? pageData!.items : [];
+  const pagination = pageData?.pagination || { totalItems: tasksData.length, totalPages: 1, currentPage, itemsPerPage: ITEMS_PER_PAGE };
 
-  // Completed/failed tasks: paginated
-  const completedTasks = tasksData.filter(
-    (t) => t.status === "completed" || t.status === "failed"
-  );
+  // In-progress tasks (from current page items)
+  const inProgressTasks = tasksData.filter((t) => IN_PROGRESS_STATUSES.includes(t.status as any));
 
-  // Pagination logic (simulate backend pagination for completed section)
-  const paginatedCompletedTasks = completedTasks.slice(
-    (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
-  );
-  const totalPages = Math.ceil(completedTasks.length / ITEMS_PER_PAGE) || 1;
-  const totalItems = completedTasks.length;
+  // Completed/failed tasks (from current page items)
+  const completedTasks = tasksData.filter((t) => t.status === "completed" || t.status === "failed");
+
+  // Use server-provided totals for UI
+  const totalPages = Math.max(1, Number(pagination.totalPages) || 1);
+  const totalItems = Number(pagination.totalItems) || tasksData.length;
 
   const handlePreviousPage = () => setCurrentPage((prev) => Math.max(prev - 1, 1));
   const handleNextPage = () => setCurrentPage((prev) => Math.min(prev + 1, totalPages));
@@ -178,7 +178,7 @@ export function MusitronTaskHistory() {
         <History className="h-5 w-5 text-yellow-400" />
         <h2 className="text-lg sm:text-xl font-medium text-zinc-100">Task History</h2>
         <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs text-zinc-400">
-          {tasksData.length} total
+          {totalItems} total
         </span>
       </div>
 
@@ -207,7 +207,7 @@ export function MusitronTaskHistory() {
         ) : (
           <>
             <h3 className="text-md font-semibold text-yellow-300 mb-2">Completed</h3>
-            {paginatedCompletedTasks.map((task: MusitronTask) => (
+            {completedTasks.map((task: MusitronTask) => (
               <MusitronTaskCard key={task._id} task={task} />
             ))}
           </>
