@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormLock } from "./FormLock";
 
 export default function MusicGenerator() {
@@ -23,18 +23,19 @@ export default function MusicGenerator() {
   const [instrumental, setInstrumental] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
-
-    // Musitron usage stats via musitron-analytics cache
-    const { data: apiData } = useQuery({
-      queryKey: ["musitron-analytics"],
-      queryFn: async () => {
-        const res = await fetch("/api/services/musitron/stats");
-        if (!res.ok) throw new Error("Failed to fetch analytics");
-        return res.json();
-      },
-    });
-    const usage = apiData?.usage;
-    const isLocked = usage && usage.hasAccess === false;
+  const queryClient = useQueryClient();
+ 
+  // Musitron usage stats via musitron-analytics cache
+  const { data: apiData } = useQuery({
+    queryKey: ["musitron-analytics"],
+    queryFn: async () => {
+      const res = await fetch("/api/services/musitron/stats");
+      if (!res.ok) throw new Error("Failed to fetch analytics");
+      return res.json();
+    },
+  });
+  const usage = apiData?.usage;
+  const isLocked = usage && usage.hasAccess === false;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,7 +105,9 @@ export default function MusicGenerator() {
         title: "Success",
         description: "Music generation started!",
       });
-      // Optionally: reset form or trigger analytics/task refresh here
+ 
+      // On task generation, refresh analytics immediately so locks/limits reflect
+      queryClient.invalidateQueries({ queryKey: ["musitron-analytics"], exact: false });
     } catch (err: any) {
       console.error("Music generation error:", err);
       console.log("Error message for debugging:", err.message);

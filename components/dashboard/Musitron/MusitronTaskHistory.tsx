@@ -126,6 +126,7 @@ export function MusitronTaskHistory() {
   const IN_PROGRESS_STATUSES: MusitronTask["status"][] = ["listed", "processing"];
 
   const { data: tasksDataRaw, isLoading } = useQuery<MusitronTask[]>({
+    // History state key for Musitron
     queryKey: ["musitron-tasks", currentPage, ITEMS_PER_PAGE],
     queryFn: async () => {
       const response = await fetch(
@@ -141,9 +142,11 @@ export function MusitronTaskHistory() {
           }))
         : [];
     },
+    // Keep reasonably fresh but do not poll; RTDB invalidation will refresh this
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 10,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
   
   const tasksData: MusitronTask[] = Array.isArray(tasksDataRaw) ? tasksDataRaw : [];

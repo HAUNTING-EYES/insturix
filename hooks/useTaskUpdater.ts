@@ -7,6 +7,18 @@ import { useAuth } from '@clerk/nextjs';
 import { database } from '@/lib/firebase/config';
 import { RTDBTaskData, TaskUpdate, ServiceName } from '@/types/rtdb';
 
+/**
+ * useTaskUpdater
+ * Listens to RTDB changes for the signed-in user and invalidates react-query caches.
+ *
+ * Rules (uniform across services):
+ * - Exactly two react-query caches per service:
+ *   1) history:   ['<service>-tasks', ...optionalParams]
+ *   2) analytics: ['<service>-analytics']
+ * - On task generation (handled by the form's success): refetch analytics for that service
+ * - On RTDB task status change: refetch BOTH history and analytics for that service
+ * - No frequent polling; we rely on RTDB signal + on-demand refetch
+ */
 export function useTaskUpdater() {
   const { userId, isSignedIn } = useAuth();
   const queryClient = useQueryClient();
@@ -31,34 +43,44 @@ export function useTaskUpdater() {
       Object.keys(data).forEach((service) => {
         const serviceName = service as ServiceName;
         const serviceTasks = data[serviceName];
-        if (serviceTasks) {
-          Object.entries(serviceTasks).forEach(([taskId, taskUpdate]) => {
-            currentTasks[taskId] = taskUpdate;
-            const previousTask = previousTasksRef.current[taskId];
+        if (!serviceTasks) return;
 
-            // On initial load, we don't want to trigger updates
-            if (isInitialLoadRef.current) {
-              return;
-            }
+        Object.entries(serviceTasks).forEach(([taskId, taskUpdate]) => {
+          currentTasks[taskId] = taskUpdate;
+          const previousTask = previousTasksRef.current[taskId];
 
-            // If task is new or status has changed, update only that task's cache
-            if (!previousTask || previousTask.status !== taskUpdate.status) {
-              if (serviceName === "musitron") {
-                // Refetch only the updated musitron task if you have a per-task query
-                queryClient.refetchQueries({
-                  queryKey: ['musitron-tasks', taskId],
-                  exact: true,
-                });
-                // Refetch musitron analytics as well
-                queryClient.refetchQueries({ queryKey: ['musitron-analytics'] });
-              } else if (serviceName === "alyzitron") {
-                // Refetch alyzitron analyses to update the cache
-                queryClient.refetchQueries({ queryKey: ['analyses'] });
-                queryClient.refetchQueries({ queryKey: ['alyzitron-all-analyses'] });
-              }
-            }
-          });
-        }
+          // Skip initial hydration
+          if (isInitialLoadRef.current) return;
+
+          const statusChanged = !previousTask || previousTask.status !== taskUpdate.status;
+          if (!statusChanged) return;
+
+          // Normalize: two caches per service
+          // musitron
+          if (serviceName === 'musitron') {
+            // Invalidate history: our MusitronTaskHistory uses key ["musitron-tasks", page, limit]
+            // We cannot know page/limit here, so invalidate all queries starting with this key root.
+            queryClient.invalidateQueries({ queryKey: ['musitron-tasks'], exact: false });
+            queryClient.invalidateQueries({ queryKey: ['musitron-analytics'], exact: false });
+          }
+
+          // clickatron
+          if (serviceName === 'clickatron') {
+            queryClient.invalidateQueries({ queryKey: ['clickatron-tasks'], exact: false });
+            queryClient.invalidateQueries({ queryKey: ['clickatron-analytics'], exact: false });
+            // Backward-compat: some existing code uses ['clickatronStats']
+            queryClient.invalidateQueries({ queryKey: ['clickatronStats'], exact: false });
+          }
+
+          // alyzitron
+          if (serviceName === 'alyzitron') {
+            queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
+            queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
+            // Backward-compat: existing keys
+            queryClient.invalidateQueries({ queryKey: ['analyses'], exact: false });
+            queryClient.invalidateQueries({ queryKey: ['alyzitron-all-analyses'], exact: false });
+          }
+        });
       });
 
       previousTasksRef.current = currentTasks;
