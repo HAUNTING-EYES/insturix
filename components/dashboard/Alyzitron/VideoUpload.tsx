@@ -227,6 +227,8 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
     }
 
     const submissionId = crypto.randomUUID();
+    // Set current analysis id immediately so progress overlay can show as soon as upload starts
+    setCurrentAnalysisId(submissionId);
     
     try {
       let result;
@@ -249,8 +251,8 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       }
 
       if (result?.analysisId) {
-        // Success - reset form and proceed
-        resetUploadState();
+        // Keep form state until completion so overlay continues to have context;
+        // only swap to the definitive analysis id returned by backend.
         setCurrentAnalysisId(result.analysisId);
         onSubmit(result.analysisId, {
           analysisId: result.analysisId,
