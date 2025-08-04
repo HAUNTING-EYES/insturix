@@ -1,7 +1,13 @@
 import { ComingSoon } from "@/components/ComingSoon";
+import React, { Suspense } from "react";
+import { UniversalLoader } from "@/components/Loader/UniversalLoader";
+
+export const revalidate = 60;
 
 export default function Dashboard() {
   return (
-    <ComingSoon serviceName="Shield" progressPercentage={80}/>
+    <Suspense fallback={<UniversalLoader />}>
+      <ComingSoon serviceName="Shield" progressPercentage={80}/>
+    </Suspense>
   );
 }

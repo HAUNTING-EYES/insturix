@@ -7,7 +7,7 @@ node_modules
 .env.production
 
 .excalidraw
-
+tsconfig.tsbuildinfo
 .DS_Store
 # clerk configuration (can include secrets)
 /.clerk/

@@ -6,7 +6,7 @@ import { CompactAnalytics } from "@/components/dashboard/Alyzitron/CompactAnalyt
 import { Sparkles } from "lucide-react";
 import { AnalyticsProvider } from "@/components/dashboard/Alyzitron/AnalyticsProvider";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 async function getRecentAnalyses() {
   const session = await auth();

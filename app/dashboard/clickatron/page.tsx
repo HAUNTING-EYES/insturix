@@ -3,7 +3,7 @@ import { getClickatronDb } from "@/lib/clickatron-mongo";
 import { ClickatronTask } from "@/schemas/Clickatron";
 import { ClickatronLayout } from "@/components/dashboard/Clickatron/ClickatronLayout";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 async function getRecentTasks(): Promise<any[]> {
   const session: any = await auth();

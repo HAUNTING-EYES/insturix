@@ -60,6 +60,8 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
+  // Prevent long hangs on slow endpoints and avoid blocking initial paint
+  timeout: 4000,
 });
 
 export default function SocializeDashboard({
@@ -119,13 +121,22 @@ export default function SocializeDashboard({
     queryFn: async () => {
       if (!uniqueUsername) return null;
 
-      const { data } = await api.get<ISocialize>(
-        `/services/socialize?username=${uniqueUsername}`
-      );
-      return data;
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 3900); // align with axios timeout
+      try {
+        const { data } = await api.get<ISocialize>(
+          `/services/socialize?username=${uniqueUsername}`,
+          { signal: controller.signal }
+        );
+        return data;
+      } finally {
+        clearTimeout(id);
+      }
     },
     initialData: initialData,
     enabled: !!uniqueUsername,
+    // Keep initial server data fresh for a short window to avoid jitter on quick switches
+    staleTime: 30_000,
   });
 
   const { data: previewData, isLoading: isPreviewLoading } = useQuery({
@@ -140,13 +151,29 @@ export default function SocializeDashboard({
         return null;
       }
       const url = userData.links[selectedLinkIndex].url;
-      const { data } = await api.get(
-        `/link-preview?url=${encodeURIComponent(url)}`
-      );
-      return data as LinkPreview;
+
+      // Skip fetching previews for obviously invalid/empty URLs
+      if (!url || !/^https?:\/\/.+/i.test(url)) {
+        return null;
+      }
+
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), 3000);
+      try {
+        const { data } = await api.get(
+          `/link-preview?url=${encodeURIComponent(url)}`,
+          { signal: controller.signal }
+        );
+        return data as LinkPreview;
+      } finally {
+        clearTimeout(id);
+      }
     },
     enabled:
       selectedLinkIndex !== null && !!userData?.links?.[selectedLinkIndex],
+    // Prevent rapid re-fetch loops when quickly switching links
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
   });
 
   const updateUserDataMutation = useMutation({
@@ -307,6 +334,7 @@ export default function SocializeDashboard({
   };
 
   const handleReorderLinks = (reorderedLinks: SocializeLink[]) => {
+    // Optimistic UI to keep the interface snappy
     setLinks(reorderedLinks);
     updateUserDataMutation.mutate({ links: reorderedLinks });
   };
