@@ -101,9 +101,12 @@ export async function GET(
     };
 
     const [signedUrl] = await file.getSignedUrl(signUrlConfig);
-
-    // Redirect to the signed URL
-    return NextResponse.redirect(signedUrl, 302);
+ 
+    // Redirect to the signed URL with short-lived cache headers to reduce repeat API hits
+    const res = NextResponse.redirect(signedUrl, 302);
+    // Cache at the browser for 60s, at the CDN for 5m, allow brief SWR
+    res.headers.set('Cache-Control', 'public, max-age=60, s-maxage=300, stale-while-revalidate=60');
+    return res;
   } catch (error: any) {
     console.error('Error fetching thumbnail:', error);
     return new NextResponse(JSON.stringify({ error: error.message }), {
