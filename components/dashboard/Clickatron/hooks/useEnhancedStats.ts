@@ -44,10 +44,10 @@ export function useEnhancedStats(): EnhancedStatsReturn {
   const { isInitialized, isLoading: userInitLoading, error: userInitError } = useUserInitialization();
 
   const { data: stats, isLoading: loading, error, refetch } = useQuery<ClickatronStats>({
-    queryKey: ['clickatronStats'],
+    queryKey: ['clickatron-analytics'],
     queryFn: getStats,
     enabled: isLoaded && isInitialized && !userInitLoading,
-    staleTime: Infinity, // Don't automatically refetch based on time
+    staleTime: Infinity,
     refetchOnWindowFocus: false,
     refetchOnMount: false,
     refetchOnReconnect: false,

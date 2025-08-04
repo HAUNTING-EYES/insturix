@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { IClickatronTask } from "@/schemas/Clickatron";
 import { ClickatronRTDBManager } from "@/lib/services/rtdb/clickatron-rtdb";
-import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
+import { useTaskUpdater } from '@/hooks/useTaskUpdater';
 import { ClickatronTaskHistory } from "./ClickatronTaskHistory";
 import { PromptForm } from "./PromptForm";
 
@@ -33,6 +33,14 @@ interface ClientWrapperProps {
   initialTasks: IClickatronTask[];
 }
 
+/**
+ * ClientWrapper (Clickatron)
+ * - Two react-query caches only:
+ *   1) History:   ['clickatron-tasks'] (array of tasks)
+ *   2) Analytics: ['clickatron-analytics']
+ * - On generation success: invalidate analytics (usage/locks)
+ * - On RTDB updates: handled by useTaskUpdater() which invalidates ['clickatron-tasks'] and analytics keys
+ */
 export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
   const queryClient = useQueryClient();
   const { user } = useUser();
@@ -52,22 +60,27 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
     completedAt: task.completedAt,
   }));
 
-  // Initialize and manage the 'clickatron-tasks' query state
-  const { data: tasksData = initialTasksData } = useQuery<ClickatronTaskData[]>({
+  // Unified History cache for Clickatron
+  // IMPORTANT: Do not render stale SSR initialTasks that might be partial/old.
+  // Show a loading skeleton until the first client fetch completes (to avoid flashing a single flawed failed task).
+  const { data: tasksData = [] , isFetching, isLoading, isFetched } = useQuery<ClickatronTaskData[]>({
     queryKey: ['clickatron-tasks'],
     queryFn: async () => {
-      // This function ideally shouldn't be called often if initialData is provided
-      // and updates happen via setQueryData/RTDB. Fetch only if necessary.
-      console.warn("Fetching clickatron tasks directly in ClientWrapper, should be rare.");
-      const response = await fetch('/api/services/clickatron/history');
-      if (!response.ok) throw new Error('Failed to fetch tasks');
-      const data = await response.json();
-      // Convert to plain objects
-      return data.map((task: any) => ({
+      const url = '/api/services/clickatron/history?page=1&limit=50&status=completed,failed,listed,queued,processing';
+      const response = await fetch(url, { cache: 'no-store' as RequestCache });
+      if (!response.ok) {
+        const text = await response.text().catch(() => '');
+        throw new Error('Failed to fetch tasks, ' + text);
+      }
+      const result = await response.json().catch((e) => {
+        throw e;
+      });
+      const list = Array.isArray(result?.data) ? result.data : result;
+      const mapped = (list as any[]).map((task: any) => ({
         _id: task._id?.toString() || '',
-        userId: task.userId,
-        title: task.title,
-        details: task.details,
+        userId: task.clerkUserId ?? task.userId ?? '',
+        title: (task.title ?? `Thumbnail #${(task._id?.toString() || '').slice(-6)}`),
+        details: task.details ?? {},
         status: task.status,
         results: task.results,
         error_message: task.error_message,
@@ -75,57 +88,46 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
         updatedAt: new Date(task.updatedAt),
         completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
       }));
+      return mapped;
     },
-    initialData: initialTasksData,
-    staleTime: 1000 * 60 * 5, // Keep data fresh for 5 mins
-    gcTime: 1000 * 60 * 10,  // Garbage collect after 10 mins
-    refetchOnWindowFocus: false, // Avoid refetching on window focus
+    // Avoid using SSR initialTasks which might be stale and cause the flash of a single failed item.
+    initialData: undefined,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
   // Initialize RTDB listener for real-time updates via the new hook
   useTaskUpdater();
 
-  // The manual RTDB sync useEffect has been removed, as useTaskUpdater handles cache invalidation.
-
+  // Optimistic update helper for new/updated tasks
   const handleTaskUpdate = (taskId: string, task: Partial<ClickatronTaskData>) => {
     if (!taskId) return;
-    
     queryClient.setQueryData<ClickatronTaskData[]>(['clickatron-tasks'], old => {
-      const currentData = old || [];
-      const existingIndex = currentData.findIndex(t => t._id?.toString() === taskId);
-      
-      // Handle new task with optimistic update
-      if (existingIndex === -1) {
+      const currentData = Array.isArray(old) ? old : [];
+      const index = currentData.findIndex(t => t._id?.toString() === taskId);
+      if (index === -1) {
         const optimisticTask: ClickatronTaskData = {
           _id: taskId,
           userId: user?.id || '',
-          title: task.title || '',
-          details: task.details || '',
+          title: (task.title as string) ?? `Thumbnail #${taskId.slice(-6)}`,
+          details: task.details ?? {},
           status: task.status || 'listed',
           createdAt: new Date(),
           updatedAt: new Date(),
         };
         return [optimisticTask, ...currentData];
       }
-      
-      const existing = currentData[existingIndex];
-      
-      // Safe update of existing task
-      const newData = [...currentData];
-      newData[existingIndex] = {
-        ...existing,
-        ...task,
-        updatedAt: new Date(),
-      };
-      
-      return newData;
+      const updated = [...currentData];
+      updated[index] = { ...updated[index], ...task, updatedAt: new Date() };
+      return updated;
     });
   };
 
-  // Effect to update activeTasks based on the query data
+  // Track active tasks for UI hints
   useEffect(() => {
     const currentActive = new Set<string>();
-    // Ensure tasksData is an array before iterating
     if (Array.isArray(tasksData)) {
       tasksData.forEach(t => {
         if (['listed', 'queued', 'processing'].includes(t.status)) {
@@ -136,24 +138,91 @@ export function ClientWrapper({ initialTasks }: ClientWrapperProps) {
     setActiveTasks(currentActive);
   }, [tasksData]);
 
+  // Normalize after first fetch completes
+  useEffect(() => {
+    if (!isFetched) return;
+    queryClient.setQueryData<ClickatronTaskData[]>(['clickatron-tasks'], (old) => {
+      const arr = Array.isArray(old) ? old : [];
+      const normalized = arr.map(t => ({
+        ...t,
+        userId: t.userId ?? '',
+        title: t.title ?? `Thumbnail #${(t._id || '').toString().slice(-6)}`,
+        details: t.details ?? {},
+      }));
+      return normalized;
+    });
+    const snapshot = queryClient.getQueryData<ClickatronTaskData[]>(['clickatron-tasks']) || [];
+  }, [queryClient, isFetched]);
+
+  // On mount, aggressively invalidate and refetch history once to avoid stale single-item caches
+  useEffect(() => {
+    queryClient.invalidateQueries({ queryKey: ['clickatron-tasks'], exact: false });
+    // Fire a manual prefetch to make sure first paint has a hydrated cache
+    queryClient.prefetchQuery({
+      queryKey: ['clickatron-tasks'],
+      queryFn: async () => {
+        const url = '/api/services/clickatron/history?page=1&limit=50&status=completed,failed,listed,queued,processing';
+        const response = await fetch(url, { cache: 'no-store' as RequestCache });
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          throw new Error('Failed to prefetch tasks');
+        }
+        const result = await response.json();
+        const list = Array.isArray(result?.data) ? result.data : result;
+        const mapped = (list as any[]).map((task: any) => ({
+          _id: task._id?.toString() || '',
+          userId: task.clerkUserId ?? task.userId ?? '',
+          title: (task.title ?? `Thumbnail #${(task._id?.toString() || '').slice(-6)}`),
+          details: task.details ?? {},
+          status: task.status,
+          results: task.results,
+          error_message: task.error_message,
+          createdAt: new Date(task.createdAt),
+          updatedAt: new Date(task.updatedAt),
+          completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
+        }));
+        return mapped;
+      },
+    }).then(() => {
+      const snap = queryClient.getQueryData<ClickatronTaskData[]>(['clickatron-tasks']) || [];
+    })
+  }, [queryClient]);
+
+  // Skeleton during first load to avoid stale flash
+  if (!isFetched || isLoading || isFetching) {
+    return (
+      <div className="space-y-8">
+        <div className="rounded-lg border border-zinc-800 bg-black/30 p-6">
+          <div className="h-6 w-40 bg-zinc-800/70 rounded mb-4" />
+          <div className="space-y-3">
+            <div className="h-14 w-full bg-zinc-900/60 rounded" />
+            <div className="h-14 w-full bg-zinc-900/60 rounded" />
+            <div className="h-14 w-full bg-zinc-900/60 rounded" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8">
       <PromptForm
         onSubmit={(taskId: string, task) => {
-          // Optimistic update via handleTaskUpdate
+          // Optimistic update in history
           handleTaskUpdate(taskId, {
             title: task.title,
             details: task.details,
-            status: 'processing', // Start as processing
+            status: 'processing',
           });
+          // On generation: refresh analytics immediately
+          console.debug('[Clickatron] Generation submitted, invalidating analytics');
+          queryClient.invalidateQueries({ queryKey: ['clickatron-analytics'], exact: false });
         }}
         onComplete={async (taskId: string) => {
           if (!taskId || !user) return;
-
-          // Update RTDB with completed status
           try {
+            console.debug('[Clickatron] Mark complete via RTDB', { taskId, userId: user.id });
             await ClickatronRTDBManager.updateTaskStatus(user.id, taskId, 'completed');
-            console.log('Clickatron task status updated to completed in RTDB', { taskId });
           } catch (error) {
             console.error('Failed to update clickatron task status to completed in RTDB', {
               taskId, error: error instanceof Error ? error.message : String(error)

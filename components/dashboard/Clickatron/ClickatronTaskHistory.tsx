@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Image from 'next/image';
 import { IClickatronTask } from "@/schemas/Clickatron";
 import { useTaskUpdater } from '@/hooks/useTaskUpdater';
@@ -228,41 +228,61 @@ function ClickatronTaskCard({ task, onClick }: ClickatronTaskCardProps) {
 
 export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: ClickatronTaskHistoryProps) {
   const router = useRouter();
-  // Removed unused queryClient to satisfy @typescript-eslint/no-unused-vars
-  // const queryClient = useQueryClient();
+  const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
   useTaskUpdater(); // New hook to handle RTDB updates
 
-  // Query for ALL Clickatron tasks (for in-progress filtering)
-  const { data: allClickatronTasks } = useQuery<ClickatronTaskDisplay[]>({
-    queryKey: ['clickatron-all-tasks'],
+  // Single source of truth for Clickatron history (both in-progress and completed)
+  // Read directly from the QueryClient cache populated by ClientWrapper.
+  // We avoid a second network request and keep a single source of truth.
+  const { data: allClickatronTasks = [] } = useQuery<ClickatronTaskDisplay[]>({
+    queryKey: ['clickatron-tasks'],
     queryFn: async () => {
-      const response = await fetch('/api/services/clickatron/history'); // Fetch all tasks
-      if (!response.ok) throw new Error('Failed to fetch all Clickatron tasks');
-      const result: PaginatedTaskResponse = await response.json();
-      return result.data || [];
+      // fall back to network if cache is empty (first mount without SSR initialTasks)
+      const response = await fetch('/api/services/clickatron/history');
+      if (!response.ok) throw new Error('Failed to fetch clickatron tasks');
+      const result: PaginatedTaskResponse | ClickatronTaskDisplay[] = await response.json();
+      const list = Array.isArray(result) ? result : result.data || [];
+      return list.map((task: any) => ({
+        _id: task._id?.toString() || '',
+        userId: task.userId ?? task.clerkUserId,
+        title: task.title,
+        details: task.details,
+        status: task.status,
+        results: task.results,
+        error_message: task.error_message,
+        createdAt: new Date(task.createdAt),
+        updatedAt: new Date(task.updatedAt),
+        completedAt: task.completedAt ? new Date(task.completedAt) : undefined,
+      }));
     },
-    enabled: true, // Ensure it subscribes to cache changes
-    staleTime: Infinity, // Prevent automatic refetches, rely on RTDB updates
-    gcTime: 1000 * 60 * 10, // Standard garbage collection
-    refetchOnWindowFocus: false, // Prevent refetching on window focus
-    refetchOnMount: false, // Prevent refetching on mount
-    refetchOnReconnect: false, // Prevent refetching on reconnect
+    initialData: () => {
+      const cached = queryClient.getQueryData<ClickatronTaskDisplay[]>(['clickatron-tasks']);
+      return Array.isArray(cached) ? cached : [];
+    },
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
   });
 
-  // Use paginated API for completed/failed tasks
-  const { data: paginatedData, isLoading } = useQuery<PaginatedTaskResponse>({
-    queryKey: ['clickatron-history', currentPage, itemsPerPage],
-    queryFn: async () => {
-      const response = await fetch(`/api/services/clickatron/history?page=${currentPage}&limit=${itemsPerPage}&status=completed,failed`);
-      if (!response.ok) throw new Error('Failed to fetch task history');
-      return response.json();
-    },
-    placeholderData: (previousData) => previousData,
-    staleTime: 1000 * 60 * 5, // Keep data fresh for 5 mins
-    gcTime: 1000 * 60 * 10,  // Garbage collect after 10 mins
-    refetchOnWindowFocus: false,
-  });
+  // Derive the "completed/failed" list purely from the unified allClickatronTasks in-memory.
+  // Ensure 'completed' tasks are included. Some records may have 'results' missing — still treat as completed by status.
+  const completedFailedTasks = ((Array.isArray(allClickatronTasks) ? allClickatronTasks : [])
+    .filter(task => task.status === 'completed' || task.status === 'failed'))
+    .sort((a, b) => {
+      const aTime = new Date(a.updatedAt || a.createdAt).getTime();
+      const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+      return bTime - aTime;
+    });
+
+  // Manual pagination over completedFailedTasks (frontend pagination only)
+  const start = (currentPage - 1) * itemsPerPage;
+  const end = currentPage * itemsPerPage;
+  const currentTasks = completedFailedTasks.slice(start, end);
+  const totalItems = completedFailedTasks.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  const isLoading = false;
 
   // In-progress tasks from the 'allClickatronTasks' query
   const inProgressStatuses: IClickatronTask['status'][] = ['listed', 'queued', 'processing'];
@@ -282,11 +302,6 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
       completedAt: task.completedAt,
     }));
 
-  const currentTasks = (paginatedData?.data || []).slice().sort(
-    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-  );
-  const totalPages = paginatedData?.pagination?.totalPages || 1;
-  const totalItems = paginatedData?.pagination?.totalItems || 0;
 
   const processingTasksCount = inProgressTasks.length;
 
@@ -340,7 +355,7 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
           </div>
-        ) : currentTasks.length === 0 && inProgressTasks.length === 0 ? ( // Modified condition
+        ) : completedFailedTasks.length === 0 && inProgressTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
             <FileImage className="h-12 w-12 text-zinc-500 mb-4" />
             <p className="text-zinc-400 text-center mb-2">No thumbnails generated yet</p>
@@ -351,16 +366,23 @@ export function ClickatronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }:
         ) : (
           <>
             <h3 className="text-md font-semibold text-purple-300 mb-2">Completed</h3>
-            {currentTasks.map((task) => (
-              <ClickatronTaskCard
-                key={task._id}
-                task={task}
-                onClick={() => handleTaskClick(task._id)}
-              />
-            ))}
+            {/* Show completed first, then failed (like Musitron UX expectation) */}
+            {currentTasks
+              .sort((a, b) => {
+                // Completed before failed; within group, keep recent first (already sorted above by updatedAt)
+                const order = (t: ClickatronTaskDisplay) => (t.status === 'completed' ? 0 : 1);
+                return order(a) - order(b);
+              })
+              .map((task) => (
+                <ClickatronTaskCard
+                  key={task._id}
+                  task={task}
+                  onClick={() => handleTaskClick(task._id)}
+                />
+              ))}
 
-            {/* Empty state for current page */}
-            {currentTasks.length === 0 && !isLoading && (
+            {/* Empty state for current page when there are some completed/failed overall */}
+            {currentTasks.length === 0 && !isLoading && completedFailedTasks.length > 0 && (
               <div className="text-center py-8 text-zinc-500">
                 No tasks on this page.
               </div>

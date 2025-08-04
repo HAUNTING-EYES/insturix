@@ -68,8 +68,6 @@ export function useTaskUpdater() {
           if (serviceName === 'clickatron') {
             queryClient.invalidateQueries({ queryKey: ['clickatron-tasks'], exact: false });
             queryClient.invalidateQueries({ queryKey: ['clickatron-analytics'], exact: false });
-            // Backward-compat: some existing code uses ['clickatronStats']
-            queryClient.invalidateQueries({ queryKey: ['clickatronStats'], exact: false });
           }
 
           // alyzitron
