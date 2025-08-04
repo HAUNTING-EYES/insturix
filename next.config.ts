@@ -20,11 +20,12 @@ const nextConfig: NextConfig = {
         hostname: "cdn2.suno.ai",
         port: "",
         pathname: "/**",
-      },{
-        protocol:"https",
-        hostname:"tempfile.aiquickdraw.com",
-        port:"",
-        pathname:"/**"
+      },
+      {
+        protocol: "https",
+        hostname: "tempfile.aiquickdraw.com",
+        port: "",
+        pathname: "/**",
       },
       {
         protocol: "https",
@@ -33,55 +34,67 @@ const nextConfig: NextConfig = {
         pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"apiboxfiles.erweima.ai",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "apiboxfiles.erweima.ai",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"mfile.erweima.ai",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "mfile.erweima.ai",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"img.clerk.com",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "img.clerk.com",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"www.youtube.com",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "www.youtube.com",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"static.cdninstagram.com",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "static.cdninstagram.com",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"github.githubassets.com",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "github.githubassets.com",
+        port: "",
+        pathname: "/**",
       },
       {
-        protocol:"https",
-        hostname:"avatars.githubusercontent.com",
-        port:"",
-        pathname:"/**"
+        protocol: "https",
+        hostname: "avatars.githubusercontent.com",
+        port: "",
+        pathname: "/**",
       },
       {
         protocol: "https",
         hostname: "yt3.googleusercontent.com",
         port: "",
-        pathname: "/**"
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "img.youtube.com",
+        port: "",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "i.ytimg.com",
+        port: "",
+        pathname: "/**",
       }
-    ]
-}
+    ],
+  },
 };
 
 export default nextConfig;
