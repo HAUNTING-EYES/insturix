@@ -3,13 +3,9 @@
 import { Sparkles } from "lucide-react";
 import { ClientWrapper } from "@/components/dashboard/Clickatron/ClientWrapper";
 import { AnalyticsOverview } from "@/components/dashboard/Clickatron/AnalyticsOverview";
-import { IClickatronTask } from "@/schemas/Clickatron";
 
-interface ClickatronLayoutProps {
-  initialTasks: IClickatronTask[];
-}
 
-export function ClickatronLayout({ initialTasks }: ClickatronLayoutProps) {
+export function ClickatronLayout() {
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">
       <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-start gap-6 lg:gap-8">
@@ -29,7 +25,7 @@ export function ClickatronLayout({ initialTasks }: ClickatronLayoutProps) {
           </div>
 
           {/* Client Components */}
-          <ClientWrapper initialTasks={initialTasks} />
+          <ClientWrapper />
         </div>
 
         {/* Desktop Analytics - Hidden on mobile/tablet */}

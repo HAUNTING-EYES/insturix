@@ -34,7 +34,5 @@ export default async function ClickatronDashboard() {
   const session: any = await auth();
   if (!session?.userId) return null;
 
-  const recentTasks = await getRecentTasks();
-
-  return <ClickatronLayout initialTasks={recentTasks} />;
+  return <ClickatronLayout/>;
 }

@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import Image from 'next/image';
 import { IClickatronTask } from "@/schemas/Clickatron";
 import { useTaskUpdater } from '@/hooks/useTaskUpdater';
@@ -42,18 +42,6 @@ interface ClickatronTaskDisplay {
   createdAt: Date;
   updatedAt: Date;
   completedAt?: Date;
-}
-
-interface PaginatedTaskResponse {
-  data: ClickatronTaskDisplay[];
-  pagination: {
-    totalItems: number;
-    totalPages: number;
-    currentPage: number;
-    itemsPerPage: number;
-    hasNext: boolean;
-    hasPrev: boolean;
-  };
 }
 
 const DEFAULT_ITEMS_PER_PAGE = 6;

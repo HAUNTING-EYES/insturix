@@ -103,15 +103,17 @@ export default function ClickatronHero() {
           className="flex flex-wrap justify-center gap-x-8 gap-y-4 mb-12 text-sm text-neutral-700 dark:text-neutral-300"
         >
           <div className="flex items-center gap-2">
-            <Image className="w-4 h-4 text-purple-500" />
+            {/* Lucide icons are SVG components, not <img>, so jsx-a11y/alt-text doesn't apply.
+               However, to satisfy strict configs that treat them as images, add aria-labels. */}
+            <Image className="w-4 h-4 text-purple-500" aria-label="AI Image Generation icon" />
             <span>AI Image Generation</span>
           </div>
           <div className="flex items-center gap-2">
-            <Edit className="w-4 h-4 text-fuchsia-500" />
+            <Edit className="w-4 h-4 text-fuchsia-500" aria-label="Smart Editing Tools icon" />
             <span>Smart Editing Tools</span>
           </div>
           <div className="flex items-center gap-2">
-            <Palette className="w-4 h-4 text-purple-400" />
+            <Palette className="w-4 h-4 text-purple-400" aria-label="Custom Styles and Colors icon" />
             <span>Custom Styles & Colors</span>
           </div>
         </motion.div>

@@ -1,42 +1,16 @@
 import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 import { auth } from "@clerk/nextjs/server";
-import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
 import { AlyzitronAnalyticsOverview } from "@/components/dashboard/Alyzitron/AnalyticsOverview";
 import { CompactAnalytics } from "@/components/dashboard/Alyzitron/CompactAnalytics";
 import { Sparkles } from "lucide-react";
 
 export const revalidate = 60;
 
-async function getRecentAnalyses() {
-  const session = await auth();
-  if (!session?.userId) return [];
-
-  try {
-    const { analyses } = await getCollections();
-    const recentAnalyses = await analyses
-      .find({ clerkUserId: session.userId })
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .toArray();
-
-    // Convert ObjectId to string for frontend compatibility
-    return recentAnalyses.map(analysis => ({
-      ...analysis,
-      _id: analysis._id.toString()
-    }));
-  } catch (error) {
-    console.error("Error fetching recent analyses:", error);
-    return [];
-  }
-}
-
 // Removed old getUserStats function - now handled by new component
 
 export default async function AlyzitronDashboard() {
   const session = await auth();
   if (!session?.userId) return null;
-
-  const recentAnalyses = await getRecentAnalyses();
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative">

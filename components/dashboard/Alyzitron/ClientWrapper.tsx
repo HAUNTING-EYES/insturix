@@ -22,10 +22,10 @@ export function ClientWrapper() {
   return (
     <div className="space-y-8">
       <VideoUpload
-        onSubmit={(_analysisId: string, _analysis: any) => {
+        onSubmit={() => {
           // No local cache mutation; RTDB will drive updates.
         }}
-        onComplete={(_analysisId: string, _analysis: any) => {
+        onComplete={() => {
           // Invalidate analytics on successful generation to refresh limits/counters
           queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
           // History invalidation is handled by RTDB via useTaskUpdater.
