@@ -1,7 +1,6 @@
 import { useState, useCallback } from "react";
 import { useQueryClient } from '@tanstack/react-query';
 import { logger } from "@/app/api/services/alyzitron/utils/logger";
-import { useAnalytics } from "@/components/dashboard/Alyzitron/AnalyticsProvider";
 
 interface UploadState {
   progress: number;
@@ -35,7 +34,6 @@ interface AnalysisUploadState {
 
 export function useVideoAnalysis() {
   const queryClient = useQueryClient();
-  const { fetchStats } = useAnalytics();
   
   // Track state for multiple analyses
   const [uploadStates, setUploadStates] = useState<
@@ -306,16 +304,9 @@ export function useVideoAnalysis() {
               data: { analysis: newAnalysisData },
           });
 
-          // Immediately add the new analysis to the cache
-          queryClient.setQueryData(['alyzitron-analyses'], (old: any) => {
-              const currentData = Array.isArray(old) ? old : [];
-              // Add to the beginning of the array
-              const updatedData = [newAnalysisData, ...currentData];
-              return updatedData;
-          });
-
-          // Update analytics overview after task creation
-          fetchStats();
+          // Unified pattern: invalidate canonical caches; RTDB will update history pages
+          queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
+          queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
 
           resetState(analysisId);
 
@@ -352,7 +343,7 @@ export function useVideoAnalysis() {
         throw error;
       }
     },
-    [resetState, queryClient, fetchStats]
+    [resetState, queryClient]
   );
 
   const analyzeFile = useCallback(

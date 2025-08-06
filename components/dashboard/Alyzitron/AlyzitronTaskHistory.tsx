@@ -42,7 +42,7 @@ interface PaginatedAnalysisResponse {
   };
 }
 
-const DEFAULT_ITEMS_PER_PAGE = 10;
+const DEFAULT_ITEMS_PER_PAGE = 6;
 
 
 interface AnalysisCardProps {
@@ -236,24 +236,19 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
 
 export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AlyzitronTaskHistoryProps) {
   const router = useRouter();
-  // Removed unused queryClient to satisfy @typescript-eslint/no-unused-vars
-  // const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
-  useTaskUpdater(); // New hook to handle RTDB updates
 
-  // Use single API call for all analyses
-  const { data: allAnalyses, isLoading } = useQuery<PaginatedAnalysisResponse>({
-    queryKey: ['alyzitron-analyses', currentPage, itemsPerPage],
+  // Align with Musitron/Clickatron: RTDB-driven invalidation only
+  useTaskUpdater();
+
+  // SERVER pagination: trust API metadata, no client slicing for history
+  const { data: pageData, isLoading } = useQuery<PaginatedAnalysisResponse>({
+    // Standardized per-service key: ['alyzitron-tasks', page, limit]
+    queryKey: ['alyzitron-tasks', currentPage, itemsPerPage],
     queryFn: async () => {
-      const url = `/api/services/alyzitron/analyses?page=${currentPage}&limit=${itemsPerPage}`;
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorData = await response.text();
-        console.error("Failed to fetch analyses:", errorData);
-        throw new Error(`Failed to fetch analyses (status: ${response.status})`);
-      }
-      const data: PaginatedAnalysisResponse = await response.json();
-      return data;
+      const response = await fetch(`/api/services/alyzitron/analyses?page=${currentPage}&limit=${itemsPerPage}`);
+      if (!response.ok) throw new Error('Failed to fetch analyses');
+      return response.json();
     },
     placeholderData: (previousData) => previousData,
     staleTime: 1000 * 60 * 5,
@@ -261,18 +256,13 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
     refetchOnWindowFocus: false,
   });
 
-  // Separate in-progress and completed analyses
+  const pageItems = Array.isArray(pageData?.data) ? pageData!.data : [];
   const inProgressStatuses: AnalysisStatus[] = ['listed', 'queued', 'processing'];
-  const inProgressAnalyses: AnalysisDisplay[] = (allAnalyses?.data || [])
-    .filter(analysis => inProgressStatuses.includes(analysis.status))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    
-  const currentAnalyses = (allAnalyses?.data || [])
-    .filter(analysis => !inProgressStatuses.includes(analysis.status))
-    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-    
-  const totalPages = allAnalyses?.pagination?.totalPages || 1;
-  const totalItems = allAnalyses?.pagination?.totalItems || 0;
+  const inProgressAnalyses: AnalysisDisplay[] = pageItems.filter(a => inProgressStatuses.includes(a.status));
+  const completedFailedAnalyses: AnalysisDisplay[] = pageItems.filter(a => !inProgressStatuses.includes(a.status));
+
+  const totalPages = Math.max(1, Number(pageData?.pagination?.totalPages) || 1);
+  const totalItems = Number(pageData?.pagination?.totalItems) || pageItems.length;
   const processingAnalysesCount = inProgressAnalyses.length;
 
   const handlePreviousPage = () => {
@@ -325,7 +315,7 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
           </div>
-        ) : currentAnalyses.length === 0 && inProgressAnalyses.length === 0 ? (
+        ) : completedFailedAnalyses.length === 0 && inProgressAnalyses.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
             <FileVideo className="h-12 w-12 text-zinc-500 mb-4" />
             <p className="text-zinc-400 text-center mb-2">No analyses found yet</p>
@@ -336,7 +326,7 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
         ) : (
           <>
             <h3 className="text-md font-semibold text-blue-300 mb-2">Completed</h3>
-            {currentAnalyses.map((analysis) => (
+            {completedFailedAnalyses.map((analysis) => (
               <AnalysisCard
                 key={analysis._id}
                 analysis={analysis}
@@ -345,7 +335,7 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
             ))}
 
             {/* Empty state for current page */}
-            {currentAnalyses.length === 0 && !isLoading && (
+            {completedFailedAnalyses.length === 0 && !isLoading && (
               <div className="text-center py-8 text-zinc-500">
                 No analyses on this page.
               </div>

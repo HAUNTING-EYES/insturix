@@ -64,11 +64,53 @@ export async function GET() {
       status: "completed",
     });
 
+    // Also return per-limit usage for Alyzitron so the client can render "Service Limits"
+    // Use the existing public API that returns usage for all services, then pick 'alyzitron'
+    const usageAll = await ServiceUsageService.getServiceUsageForAllServices(userId);
+    const usageAly = (usageAll && (usageAll as any).alyzitron) || {};
+    const alyzitronLimits = getAllLimitTypesForService('alyzitron');
+
+    const serviceLimits: Record<string, {
+      currentUsage: number;
+      maxUsage: number; // -1 for unlimited
+      remaining: number;
+      resetPeriod: "daily" | "weekly" | "monthly" | "none" | string;
+      isUnlimited?: boolean;
+      timeUntilReset?: { days: number; hours: number; minutes: number; totalMs: number } | null;
+    }> = {};
+
+    try {
+      for (const limit of alyzitronLimits) {
+        const u = (usageAly as any)[limit.limitType] || {};
+        const currentUsage = typeof u.currentUsage === 'number' ? u.currentUsage : 0;
+        const maxUsage = typeof u.maxUsage === 'number' ? u.maxUsage : -1;
+        const remaining = typeof u.remaining === 'number'
+          ? u.remaining
+          : (maxUsage === -1 ? Number.POSITIVE_INFINITY : Math.max(maxUsage - currentUsage, 0));
+        const resetPeriod = (u.resetPeriod as any) ?? 'none';
+        const isUnlimited = typeof u.isUnlimited === 'boolean' ? u.isUnlimited : (maxUsage === -1);
+        const timeUntilReset = u.timeUntilReset ?? null;
+
+        serviceLimits[limit.limitType] = {
+          currentUsage,
+          maxUsage,
+          remaining,
+          resetPeriod,
+          isUnlimited,
+          timeUntilReset,
+        };
+      }
+    } catch (e) {
+      // If fetching per-limit usage fails, keep serviceLimits empty but still return counters
+      console.warn("Failed to assemble Alyzitron per-limit usage:", e);
+    }
+
     return NextResponse.json({
       success: true,
       activeAnalyses,
       monthlyAnalyses,
       completedAnalyses,
+      serviceLimits,
     });
   } catch (error) {
     console.error("Error fetching Alyzitron stats:", error);
