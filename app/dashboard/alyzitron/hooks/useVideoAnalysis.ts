@@ -34,7 +34,7 @@ interface AnalysisUploadState {
 
 export function useVideoAnalysis() {
   const queryClient = useQueryClient();
-  
+
   // Track state for multiple analyses
   const [uploadStates, setUploadStates] = useState<
     Map<string, AnalysisUploadState>
@@ -112,12 +112,12 @@ export function useVideoAnalysis() {
       const video = document.createElement('video');
       video.preload = 'metadata';
       const url = URL.createObjectURL(file);
-      
+
       return new Promise<string>((resolve, reject) => {
         video.onloadedmetadata = () => {
           const duration = Math.round(video.duration);
           URL.revokeObjectURL(url);
-          
+
           if (duration > MAX_DURATION_SECONDS) {
             setUploadStates((prev) => {
               const newStates = new Map(prev);
@@ -264,7 +264,7 @@ export function useVideoAnalysis() {
               logger.info("File upload completed successfully", {
                 data: { gcsPath },
               });
-              
+
               // Update state to show upload is completed
               setUploadStates((prev) => {
                 const newStates = new Map(prev);
@@ -280,7 +280,7 @@ export function useVideoAnalysis() {
                 }
                 return newStates;
               });
-              
+
               resolve(gcsPath);
             } else {
               const errorMessage = `Upload failed with status ${xhr.status}`;
@@ -313,6 +313,25 @@ export function useVideoAnalysis() {
           xhr.setRequestHeader("Content-Type", contentType);
           xhr.send(file);
         });
+
+        // Track successful upload
+        try {
+          await fetch('/api/services/alyzitron/gcs/track-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              uploadId: analysisId,
+              gcsPath,
+              filename: file.name,
+              fileSize: file.size,
+              contentType: file.type,
+            }),
+          });
+        } catch (trackingError) {
+          logger.warn('Failed to track upload', {
+            data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError) },
+          });
+        }
 
         return gcsPath;
       } catch (error) {
@@ -389,17 +408,17 @@ export function useVideoAnalysis() {
           });
           return newStates;
         });
-  
+
         const requestData = {
           video_url: videoUrl,
           // Always send additional_details as a JSON string to the backend
           additional_details: JSON.stringify(additional_details || {}),
         };
-  
+
         logger.info("Submitting analysis request", {
           data: requestData,
         });
-  
+
         const response = await fetch("/api/services/alyzitron/analyze", {
           method: "POST",
           headers: {
@@ -407,14 +426,14 @@ export function useVideoAnalysis() {
           },
           body: JSON.stringify(requestData),
         });
-  
+
         const responseData = await response.json();
-  
+
         if (!response.ok || !responseData.success) {
           const errorMessage = responseData.error?.message || "Failed to initiate analysis";
           throw new Error(errorMessage);
         }
-  
+
         // The API returns taskId, not analysis object
         const newAnalysisData = {
           _id: responseData.taskId,
@@ -424,14 +443,29 @@ export function useVideoAnalysis() {
           data: { analysis: newAnalysisData },
         });
 
+        // Mark upload as used for analysis
+        try {
+          await fetch('/api/services/alyzitron/gcs/track-upload', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              uploadId: analysisId,
+              analysisId: newAnalysisData._id,
+              status: 'analysis_started',
+            }),
+          });
+        } catch (trackingError) {
+          logger.warn('Failed to update upload tracking', {
+            data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError) },
+          });
+        }
 
-  
         // Unified pattern: invalidate canonical caches; RTDB will update history pages
         queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
         queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
-  
+
         resetState(analysisId);
-  
+
         return {
           analysisId: newAnalysisData._id,
           estimatedTime: newAnalysisData.estimatedTime
@@ -442,7 +476,7 @@ export function useVideoAnalysis() {
         logger.error("Analysis submission failed", {
           data: { error: errorMessage },
         });
-  
+
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -461,13 +495,13 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-  
+
         throw error;
       }
     },
     [resetState, queryClient]
   );
-  
+
   const uploadVideo = useCallback(
     async (file: File, analysisId: string, metadata?: AnalysisMetadata) => {
       try {
@@ -476,18 +510,18 @@ export function useVideoAnalysis() {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Upload failed";
-  
+
         if (errorMessage === "Upload cancelled") {
           return;
         }
-  
+
         logger.error("File upload process failed", {
           data: {
             error: errorMessage,
             filename: file.name,
           },
         });
-  
+
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -506,7 +540,7 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-  
+
         throw error;
       }
     },
@@ -517,7 +551,7 @@ export function useVideoAnalysis() {
   const deleteUploadedFile = useCallback(
     async (gcsPath: string) => {
       console.log('🗑️ deleteUploadedFile called with:', gcsPath);
-      
+
       try {
         console.log('📡 Making delete API request...');
         // Call API to delete the uploaded file
@@ -542,6 +576,40 @@ export function useVideoAnalysis() {
 
         const result = await response.json();
         console.log('✅ Delete API success:', result);
+
+        // Delete tracking record since file was cancelled
+        console.log('📡 Making delete tracking record API request...');
+        console.log('🔍 About to call tracking deletion for gcsPath:', gcsPath);
+        try {
+          const trackingResponse = await fetch('/api/services/alyzitron/gcs/track-upload', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              gcsPath,
+            }),
+          });
+          
+          console.log('📡 Delete tracking API response:', {
+            status: trackingResponse.status,
+            ok: trackingResponse.ok,
+          });
+
+          if (!trackingResponse.ok) {
+            const trackingError = await trackingResponse.json();
+            console.error('❌ Delete tracking API error:', trackingError);
+            throw new Error(trackingError.error?.message || 'Failed to delete tracking record');
+          }
+
+          const trackingResult = await trackingResponse.json();
+          console.log('✅ Tracking record deleted:', trackingResult);
+        } catch (trackingError) {
+          console.error('❌ Failed to delete tracking record:', trackingError);
+          logger.error('Failed to delete tracking record', {
+            data: { error: trackingError instanceof Error ? trackingError.message : String(trackingError), gcsPath },
+          });
+          // Re-throw the error so the caller knows deletion failed
+          throw trackingError;
+        }
 
         logger.info('File deleted successfully', {
           data: { gcsPath },

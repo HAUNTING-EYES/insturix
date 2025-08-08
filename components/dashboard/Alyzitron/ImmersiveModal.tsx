@@ -67,6 +67,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     resetState,
   } = useVideoAnalysis();
   const prevOpenRef = useRef<boolean>(false);
+  const isCleaningUpRef = useRef<boolean>(false);
 
   // YouTube URL validation and video ID extraction (moved from VideoUpload)
   const isYouTubeUrl = (url: string): boolean =>
@@ -471,22 +472,34 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       analysisStarted,
     });
 
-    if (!open) {
+    if (!open && gcsPath && !isCleaningUpRef.current) {
       console.log('📝 Modal is closing, checking cleanup conditions...');
+      isCleaningUpRef.current = true;
       
       // If we have an uploaded file that hasn't started analysis, delete it
       if (
-        gcsPath &&
         source.type === "file" &&
         uploadCompleted &&
         !analysisStarted
       ) {
         console.log('🗑️ Attempting to delete uploaded file:', gcsPath);
-        deleteUploadedFile(gcsPath).catch((error) => {
+        deleteUploadedFile(gcsPath).then(() => {
+          console.log('✅ File and tracking record deleted successfully');
+        }).catch((error) => {
           console.warn(
             "Failed to cleanup uploaded file on modal close:",
             error
           );
+        }).finally(() => {
+          // Always reset state after cleanup attempt
+          console.log('🧹 Resetting modal state...');
+          setGcsPath(null);
+          setAnalysisId(null);
+          setAnalysisStarted(false);
+          setUploadCompleted(false);
+          setError(null);
+          setUploadProgress(null);
+          isCleaningUpRef.current = false;
         });
       } else {
         console.log('⏭️ Skipping file deletion:', {
@@ -494,14 +507,24 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           isFileType: source.type === "file",
           uploadCompleted,
           analysisStarted,
-          reason: !gcsPath ? 'No GCS path' : 
-                  source.type !== "file" ? 'Not a file upload' :
+          reason: source.type !== "file" ? 'Not a file upload' :
                   !uploadCompleted ? 'Upload not completed' :
                   analysisStarted ? 'Analysis already started' : 'Unknown'
         });
-      }
 
-      console.log('🧹 Resetting modal state...');
+        // Reset state only when no deletion is needed
+        console.log('🧹 Resetting modal state...');
+        setGcsPath(null);
+        setAnalysisId(null);
+        setAnalysisStarted(false);
+        setUploadCompleted(false);
+        setError(null);
+        setUploadProgress(null);
+        isCleaningUpRef.current = false;
+      }
+    } else if (!open && !gcsPath && !isCleaningUpRef.current) {
+      // Reset state if modal is closed but no gcsPath to delete
+      console.log('🧹 Resetting modal state (no cleanup needed)...');
       setGcsPath(null);
       setAnalysisId(null);
       setAnalysisStarted(false);
@@ -509,7 +532,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       setError(null);
       setUploadProgress(null);
     }
-  }, [open, gcsPath, source.type, uploadCompleted, analysisStarted, deleteUploadedFile]);
+  }, [open, gcsPath, source.type, uploadCompleted, analysisStarted]);
 
   // Auto-hide success overlay after upload completion
   useEffect(() => {
