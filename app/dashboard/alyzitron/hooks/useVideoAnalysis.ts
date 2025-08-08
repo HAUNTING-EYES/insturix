@@ -423,6 +423,8 @@ export function useVideoAnalysis() {
         logger.info("Analysis request submitted successfully", {
           data: { analysis: newAnalysisData },
         });
+
+
   
         // Unified pattern: invalidate canonical caches; RTDB will update history pages
         queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
@@ -513,37 +515,50 @@ export function useVideoAnalysis() {
 
 
   const deleteUploadedFile = useCallback(
-    async (analysisId: string) => {
+    async (gcsPath: string) => {
+      console.log('🗑️ deleteUploadedFile called with:', gcsPath);
+      
       try {
+        console.log('📡 Making delete API request...');
         // Call API to delete the uploaded file
-        const response = await fetch(`/api/services/alyzitron/delete-file`, {
+        const response = await fetch(`/api/services/alyzitron/gcs/delete`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ analysisId }),
+          body: JSON.stringify({ gcsPath }),
+        });
+
+        console.log('📡 Delete API response:', {
+          status: response.status,
+          ok: response.ok,
         });
 
         if (!response.ok) {
           const error = await response.json();
+          console.error('❌ Delete API error:', error);
           throw new Error(error.error?.message || 'Failed to delete file');
         }
 
+        const result = await response.json();
+        console.log('✅ Delete API success:', result);
+
         logger.info('File deleted successfully', {
-          data: { analysisId },
+          data: { gcsPath },
         });
 
-        // Reset the state for this analysis
-        resetState(analysisId);
+        // Note: We don't have analysisId here, so we can't reset specific state
+        // This is fine for cleanup operations
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Failed to delete file';
+        console.error('❌ File deletion failed:', errorMessage);
         logger.error('File deletion failed', {
-          data: { error: errorMessage, analysisId },
+          data: { error: errorMessage, gcsPath },
         });
         throw error;
       }
     },
-    [resetState]
+    []
   );
 
   return {

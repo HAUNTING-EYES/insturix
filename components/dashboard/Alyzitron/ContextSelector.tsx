@@ -24,8 +24,16 @@ interface ContextSelectorProps {
 
 const fade = {
   initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.25, ease: "easeOut" as const } },
-  exit: { opacity: 0, y: 8, transition: { duration: 0.18, ease: "easeIn" as const } },
+  animate: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.25, ease: "easeOut" as const },
+  },
+  exit: {
+    opacity: 0,
+    y: 8,
+    transition: { duration: 0.18, ease: "easeIn" as const },
+  },
 };
 
 const defaultNiche: Pill[] = [
@@ -66,10 +74,11 @@ function Section({
   onSelect: (id: string) => void;
 }) {
   const [customValue, setCustomValue] = useState("");
-  
+
   // Check if selected value is a custom one (not in predefined items)
-  const isCustomSelected = selected && !items.some(item => item.id === selected);
-  
+  const isCustomSelected =
+    selected && !items.some((item) => item.id === selected);
+
   // Validate input: only alphanumeric, spaces, and basic punctuation
   const validateInput = (value: string): boolean => {
     const regex = /^[a-zA-Z0-9\s\-_.,'!?()&]+$/;
@@ -78,18 +87,18 @@ function Section({
 
   const handleCustomInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    
+
     // If the input is completely cleared, deselect everything
     if (value === "") {
       setCustomValue("");
       onSelect(""); // Clear the selection
       return;
     }
-    
+
     // Allow typing but validate on change
     if (validateInput(value)) {
       setCustomValue(value);
-      
+
       // If user is typing a custom value, update state
       if (value.trim()) {
         onSelect(value.trim());
@@ -100,7 +109,7 @@ function Section({
   const handleCustomKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     const input = e.target as HTMLInputElement;
     const currentValue = input.value;
-    
+
     if (e.key === "Enter") {
       const val = customValue.trim();
       if (val && validateInput(val)) {
@@ -123,7 +132,9 @@ function Section({
         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-800/40 ring-1 ring-inset ring-white/5">
           {icon}
         </span>
-        <h4 className="text-[13px] font-medium text-zinc-100 tracking-tight">{title}</h4>
+        <h4 className="text-[13px] font-medium text-zinc-100 tracking-tight">
+          {title}
+        </h4>
       </div>
       <div className="flex flex-wrap gap-2.5">
         {items.map((p) => {
@@ -148,16 +159,14 @@ function Section({
                 // focus for accessibility
                 "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50",
                 // active state
-                isActive
-                  ? "bg-zinc-100 text-zinc-900 border-zinc-200"
-                  : ""
+                isActive ? "bg-zinc-100 text-zinc-900 border-zinc-200" : ""
               )}
             >
               {p.label}
             </button>
           );
         })}
-        
+
         {/* Custom input */}
         <input
           type="text"
@@ -194,18 +203,23 @@ function Section({
           }}
         />
       </div>
-      
+
       {/* Validation message */}
       {customValue && !validateInput(customValue) && (
         <p className="text-xs text-red-400 mt-1 ml-1">
-          Only letters, numbers, spaces and basic punctuation allowed (max 100 characters)
+          Only letters, numbers, spaces and basic punctuation allowed (max 100
+          characters)
         </p>
       )}
     </div>
   );
 }
 
-export function ContextSelector({ value, onChange, show }: ContextSelectorProps) {
+export function ContextSelector({
+  value,
+  onChange,
+  show,
+}: ContextSelectorProps) {
   return (
     <AnimatePresence>
       {show && (

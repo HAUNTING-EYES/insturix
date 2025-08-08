@@ -88,11 +88,13 @@ export async function POST(request: Request) {
     }
 
     try {
-      // Generate GCS path
+      // Generate GCS path with timestamp for easy cleanup
       const timestamp = Date.now();
-      const cleanFilename = timestamp + '_' + filename.replace(/[^a-zA-Z0-9-_.]/g, '_');
+      const cleanFilename = filename.replace(/[^a-zA-Z0-9-_.]/g, '_');
       const userId = session.userId.replace('user_', '');
-      const gcsPath = `user_${userId}/alyzitron-uploads/${cleanFilename}`;
+      
+      // Include timestamp in path for easy age-based cleanup
+      const gcsPath = `user_${userId}/alyzitron-uploads/${timestamp}_${cleanFilename}`;
       
       // Get signed URL
       const file = bucket.file(gcsPath);

@@ -46,12 +46,12 @@ export async function POST(request: Request) {
     }
 
     const { video_url, additional_details } = await request.json();
-    
+
     // Ensure additional_details is always an object, not a string
     const parsedAdditionalDetails = typeof additional_details === 'string'
       ? JSON.parse(additional_details || '{}')
       : (additional_details || {});
-    
+
     if (!video_url) {
       return NextResponse.json(
         { error: 'Missing required field: video_url' },
@@ -90,9 +90,9 @@ export async function POST(request: Request) {
       additional_details: parsedAdditionalDetails,
       videoDuration
     };
-    
+
     const limitCheck = await checkAlyzitronLimits(requestData);
-    
+
     if (!limitCheck.success || !limitCheck.hasAccess) {
       logger.warn('Service limit check failed', {
         data: {
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
 
     // Increment usage count BEFORE creating task to ensure proper limit enforcement
     const usageResult = await incrementAlyzitronUsage(requestData, 1);
-    
+
     if (!usageResult.success) {
       logger.error('Failed to increment Alyzitron usage', {
         data: {
@@ -115,7 +115,7 @@ export async function POST(request: Request) {
           error: usageResult.error
         }
       });
-      
+
       // If usage increment fails, don't start the task
       return NextResponse.json(
         {
@@ -161,7 +161,8 @@ export async function POST(request: Request) {
       videoSize: 0,
       videoDuration: videoDuration,
       mimeType: 'video/mp4',
-      isPublic: false // Default to private
+      isPublic: false, // Default to private
+      ...(isGCS && { gcsPath: video_url }) // Store original GCS path for cleanup reference
     };
 
     try {
@@ -179,7 +180,7 @@ export async function POST(request: Request) {
         additionalDetails: parsedAdditionalDetails,
         metadata: metadata,
       };
-      
+
       const backendResponse = await fetch(`${monolithicUrl}/alyzitron/generate`, {
         method: 'POST',
         headers: {
@@ -190,7 +191,7 @@ export async function POST(request: Request) {
       });
 
       const backendData = await backendResponse.json();
-      
+
       if (!backendResponse.ok || !backendData.success) {
         const errorType = backendData.error?.type || 'UNKNOWN_ERROR';
         const errorMessage = backendData.error?.message || 'Task processing failed';
@@ -228,10 +229,10 @@ export async function POST(request: Request) {
         try {
           // Extract GCS path from the URL
           const gcsPath = finalVideoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, '');
-          
+
           // Delete the GCS file locally
           await GCSManager.deleteFile(gcsPath);
-          
+
           logger.info('Successfully cleaned up GCS file after analysis failure', {
             data: {
               userId: session.userId,
@@ -279,7 +280,7 @@ export async function POST(request: Request) {
     });
 
     return NextResponse.json(
-      { 
+      {
         success: false,
         error: {
           type: 'REQUEST_PROCESSING_ERROR',

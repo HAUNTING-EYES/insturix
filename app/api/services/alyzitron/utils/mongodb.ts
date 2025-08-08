@@ -1,5 +1,4 @@
 import { MongoClient, Db } from 'mongodb';
-import { AlyzitronUserData, AlyzitronAnalysis } from '../types';
 
 if (!process.env.MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable');
@@ -14,8 +13,8 @@ const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
 // Collection names following service naming convention
 const COLLECTIONS = {
-  USER_DATA: 'alyzitron_user_data',
   ANALYSES: 'alyzitron_tasks',
+  UPLOAD_TRACKING: 'alyzitron_upload_tracking',
 } as const;
 
 let cachedClient: MongoClient | null = null;
@@ -49,41 +48,48 @@ export async function getCollections() {
   const { db } = await connectToDatabase();
 
   return {
-    userData: db.collection<AlyzitronUserData>(COLLECTIONS.USER_DATA),
-    analyses: db.collection<AlyzitronAnalysis>(COLLECTIONS.ANALYSES),
+    analyses: db.collection(COLLECTIONS.ANALYSES),
+    uploadTracking: db.collection(COLLECTIONS.UPLOAD_TRACKING),
   };
 }
 
 // Initialize collections and indexes
 export async function initializeCollections() {
   const { db } = await connectToDatabase();
-  
-  // Create collections if they don't exist
-  await db.createCollection(COLLECTIONS.USER_DATA);
-  await db.createCollection(COLLECTIONS.ANALYSES);
 
-  // Create indexes for user_data collection
-  await db.collection(COLLECTIONS.USER_DATA).createIndexes([
-    { 
-      key: { clerkUserId: 1 }, 
-      unique: true 
-    },
-    { 
-      key: { "usage.lastAnalysisDate": -1 } 
-    }
-  ]);
+  // Create collections if they don't exist
+  await db.createCollection(COLLECTIONS.ANALYSES);
+  await db.createCollection(COLLECTIONS.UPLOAD_TRACKING);
 
   // Create indexes for analyses collection
   await db.collection(COLLECTIONS.ANALYSES).createIndexes([
-    { 
-      key: { clerkUserId: 1, createdAt: -1 } 
+    {
+      key: { clerkUserId: 1, createdAt: -1 }
     },
-    { 
-      key: { taskId: 1 }, 
-      unique: true 
+    {
+      key: { taskId: 1 },
+      unique: true
     },
-    { 
-      key: { status: 1, queueStartTime: 1 } 
+    {
+      key: { status: 1, queueStartTime: 1 }
+    }
+  ]);
+
+  // Create indexes for upload tracking collection
+  await db.collection(COLLECTIONS.UPLOAD_TRACKING).createIndexes([
+    {
+      key: { uploadId: 1 },
+      unique: true
+    },
+    {
+      key: { userId: 1, uploadedAt: -1 }
+    },
+    {
+      key: { status: 1, expiresAt: 1 }
+    },
+    {
+      key: { expiresAt: 1 },
+      expireAfterSeconds: 0 // TTL index for automatic cleanup
     }
   ]);
 }
