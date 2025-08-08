@@ -78,24 +78,126 @@ export function useVideoAnalysis() {
     [uploadStates]
   );
 
+  const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1 GB
+  const MAX_DURATION_SECONDS = 55 * 60; // 55 minutes
+
   const uploadFile = useCallback(
     async (file: File, analysisId: string): Promise<string> => {
-      const controller = new AbortController();
-
-      setUploadStates((prev) => {
-        const newStates = new Map(prev);
-        const currentState = newStates.get(analysisId) || {
-          uploadState: null,
-          analysisState: { status: "idle", progress: 0 },
-          abortController: null,
-        };
-        newStates.set(analysisId, {
-          ...currentState,
-          abortController: controller,
-          analysisState: { status: "uploading", progress: 0 },
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setUploadStates((prev) => {
+          const newStates = new Map(prev);
+          const currentState = newStates.get(analysisId) || {
+            uploadState: null,
+            analysisState: { status: "idle", progress: 0 },
+            abortController: null,
+          };
+          newStates.set(analysisId, {
+            ...currentState,
+            analysisState: {
+              status: "failed",
+              progress: 0,
+              error: {
+                message: "File size exceeds 1GB limit",
+                action: "Please select a smaller video file",
+              },
+            },
+          });
+          return newStates;
         });
-        return newStates;
+        throw new Error("File size exceeds 1GB limit");
+      }
+
+      // Validate video duration
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      const url = URL.createObjectURL(file);
+      
+      return new Promise<string>((resolve, reject) => {
+        video.onloadedmetadata = () => {
+          const duration = Math.round(video.duration);
+          URL.revokeObjectURL(url);
+          
+          if (duration > MAX_DURATION_SECONDS) {
+            setUploadStates((prev) => {
+              const newStates = new Map(prev);
+              const currentState = newStates.get(analysisId) || {
+                uploadState: null,
+                analysisState: { status: "idle", progress: 0 },
+                abortController: null,
+              };
+              newStates.set(analysisId, {
+                ...currentState,
+                analysisState: {
+                  status: "failed",
+                  progress: 0,
+                  error: {
+                    message: "Video duration exceeds 55 minutes limit",
+                    action: "Please select a shorter video",
+                  },
+                },
+              });
+              return newStates;
+            });
+            reject(new Error("Video duration exceeds 55 minutes limit"));
+            return;
+          }
+
+          // Duration is valid, proceed with upload
+          const controller = new AbortController();
+
+          setUploadStates((prev) => {
+            const newStates = new Map(prev);
+            const currentState = newStates.get(analysisId) || {
+              uploadState: null,
+              analysisState: { status: "idle", progress: 0 },
+              abortController: null,
+            };
+            newStates.set(analysisId, {
+              ...currentState,
+              abortController: controller,
+              analysisState: { status: "uploading", progress: 0 },
+            });
+            return newStates;
+          });
+
+          // Continue with upload logic
+          void performUpload(file, analysisId, controller).then(resolve).catch(reject);
+        };
+
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          setUploadStates((prev) => {
+            const newStates = new Map(prev);
+            const currentState = newStates.get(analysisId) || {
+              uploadState: null,
+              analysisState: { status: "idle", progress: 0 },
+              abortController: null,
+            };
+            newStates.set(analysisId, {
+              ...currentState,
+              analysisState: {
+                status: "failed",
+                progress: 0,
+                error: {
+                  message: "Invalid video file",
+                  action: "Please select a valid video file",
+                },
+              },
+            });
+            return newStates;
+          });
+          reject(new Error("Invalid video file"));
+        };
+
+        video.src = url;
       });
+    },
+    []
+  );
+
+  const performUpload = useCallback(
+    async (file: File, analysisId: string, controller: AbortController): Promise<string> => {
 
       try {
         const signResponse = await fetch("/api/services/alyzitron/gcs/sign", {
@@ -162,6 +264,23 @@ export function useVideoAnalysis() {
               logger.info("File upload completed successfully", {
                 data: { gcsPath },
               });
+              
+              // Update state to show upload is completed
+              setUploadStates((prev) => {
+                const newStates = new Map(prev);
+                const currentState = newStates.get(analysisId);
+                if (currentState) {
+                  newStates.set(analysisId, {
+                    ...currentState,
+                    analysisState: {
+                      status: "completed",
+                      progress: 100,
+                    },
+                  });
+                }
+                return newStates;
+              });
+              
               resolve(gcsPath);
             } else {
               const errorMessage = `Upload failed with status ${xhr.status}`;
@@ -247,80 +366,81 @@ export function useVideoAnalysis() {
     []
   );
 
-  const submitAnalysis = useCallback(
+  const startAnalysis = useCallback(
     async (
       videoUrl: string,
       analysisId: string,
-      metadata?: AnalysisMetadata
+      additional_details?: Record<string, any>
     ) => {
       try {
-          setUploadStates((prev) => {
-              const newStates = new Map(prev);
-              const currentState = newStates.get(analysisId) || {
-                  uploadState: null,
-                  analysisState: { status: "idle", progress: 0 },
-                  abortController: null,
-              };
-              newStates.set(analysisId, {
-                  ...currentState,
-                  analysisState: {
-                      status: "analyzing",
-                      progress: 0,
-                  },
-              });
-              return newStates;
-          });
-
-          const requestData = {
-              video_url: videoUrl,
-              additional_details: metadata?.additional_details || JSON.stringify({}),
+        setUploadStates((prev) => {
+          const newStates = new Map(prev);
+          const currentState = newStates.get(analysisId) || {
+            uploadState: null,
+            analysisState: { status: "idle", progress: 0 },
+            abortController: null,
           };
-
-          logger.info("Submitting analysis request", {
-              data: requestData,
+          newStates.set(analysisId, {
+            ...currentState,
+            analysisState: {
+              status: "analyzing",
+              progress: 0,
+            },
           });
-
-          const response = await fetch("/api/services/alyzitron/analyze", {
-              method: "POST",
-              headers: {
-                  "Content-Type": "application/json",
-              },
-              body: JSON.stringify(requestData),
-          });
-
-          const responseData = await response.json();
-          
-          if (!response.ok || !responseData.success) {
-              const errorMessage = responseData.error?.message || "Failed to initiate analysis";
-              throw new Error(errorMessage);
-          }
-
-          // The API returns taskId, not analysis object
-          const newAnalysisData = {
-              _id: responseData.taskId,
-              estimatedTime: responseData.estimatedTime || 60, // Default estimated time
-          };
-          logger.info("Analysis request submitted successfully", {
-              data: { analysis: newAnalysisData },
-          });
-
-          // Unified pattern: invalidate canonical caches; RTDB will update history pages
-          queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
-          queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
-
-          resetState(analysisId);
-
-          return {
-              analysisId: newAnalysisData._id,
-              estimatedTime: newAnalysisData.estimatedTime
-          };
+          return newStates;
+        });
+  
+        const requestData = {
+          video_url: videoUrl,
+          // Always send additional_details as a JSON string to the backend
+          additional_details: JSON.stringify(additional_details || {}),
+        };
+  
+        logger.info("Submitting analysis request", {
+          data: requestData,
+        });
+  
+        const response = await fetch("/api/services/alyzitron/analyze", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestData),
+        });
+  
+        const responseData = await response.json();
+  
+        if (!response.ok || !responseData.success) {
+          const errorMessage = responseData.error?.message || "Failed to initiate analysis";
+          throw new Error(errorMessage);
+        }
+  
+        // The API returns taskId, not analysis object
+        const newAnalysisData = {
+          _id: responseData.taskId,
+          estimatedTime: responseData.estimatedTime || 60, // Default estimated time
+        };
+        logger.info("Analysis request submitted successfully", {
+          data: { analysis: newAnalysisData },
+        });
+  
+        // Unified pattern: invalidate canonical caches; RTDB will update history pages
+        queryClient.invalidateQueries({ queryKey: ['alyzitron-tasks'], exact: false });
+        queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
+  
+        resetState(analysisId);
+  
+        return {
+          analysisId: newAnalysisData._id,
+          estimatedTime: newAnalysisData.estimatedTime
+        };
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Analysis failed";
         logger.error("Analysis submission failed", {
           data: { error: errorMessage },
         });
-
+  
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -339,46 +459,33 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-
+  
         throw error;
       }
     },
     [resetState, queryClient]
   );
-
-  const analyzeFile = useCallback(
-    async (
-      file: File,
-      analysisId: string,
-      metadata?: AnalysisMetadata
-    ) => {
+  
+  const uploadVideo = useCallback(
+    async (file: File, analysisId: string, metadata?: AnalysisMetadata) => {
       try {
         const gcsPath = await uploadFile(file, analysisId);
-
-        if (gcsPath) {
-          return await submitAnalysis(
-            gcsPath,
-            analysisId,
-            metadata
-          );
-        }
-
-        return;
+        return gcsPath ? { gcsPath, analysisId } : undefined;
       } catch (error) {
         const errorMessage =
-          error instanceof Error ? error.message : "Analysis failed";
-
+          error instanceof Error ? error.message : "Upload failed";
+  
         if (errorMessage === "Upload cancelled") {
           return;
         }
-
-        logger.error("File analysis process failed", {
+  
+        logger.error("File upload process failed", {
           data: {
             error: errorMessage,
             filename: file.name,
           },
         });
-
+  
         setUploadStates((prev) => {
           const newStates = new Map(prev);
           const currentState = newStates.get(analysisId);
@@ -397,18 +504,53 @@ export function useVideoAnalysis() {
           }
           return newStates;
         });
-
+  
         throw error;
       }
     },
-    [uploadFile, submitAnalysis]
+    [uploadFile]
   );
 
 
+  const deleteUploadedFile = useCallback(
+    async (analysisId: string) => {
+      try {
+        // Call API to delete the uploaded file
+        const response = await fetch(`/api/services/alyzitron/delete-file`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ analysisId }),
+        });
+
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error?.message || 'Failed to delete file');
+        }
+
+        logger.info('File deleted successfully', {
+          data: { analysisId },
+        });
+
+        // Reset the state for this analysis
+        resetState(analysisId);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to delete file';
+        logger.error('File deletion failed', {
+          data: { error: errorMessage, analysisId },
+        });
+        throw error;
+      }
+    },
+    [resetState]
+  );
+
   return {
     uploadStates,
-    analyzeFile,
-    submitAnalysis,
+    uploadVideo,
+    deleteUploadedFile,
+    startAnalysis,
     cancelUpload,
     resetState,
   };
