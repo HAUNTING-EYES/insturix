@@ -36,8 +36,6 @@ export async function POST(request: Request) {
             return NextResponse.json({ message: 'Invalid request: gcsPath is required and must be a string.' }, { status: 400 });
         }
 
-        logger.info('Attempting to delete GCS file', { data: { userId, gcsPath } });
-
         // Extract the object name from the full gcsPath (e.g., remove gs://bucket-name/)
         const objectName = gcsPath.startsWith(`gs://${bucketName}/`)
             ? gcsPath.substring(`gs://${bucketName}/`.length)

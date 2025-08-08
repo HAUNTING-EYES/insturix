@@ -111,11 +111,6 @@ export async function POST(request: Request) {
       const [signedUrl] = await file.getSignedUrl(signUrlConfig);
       const publicUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
 
-      logger.info('Generated GCS signed URL', {
-        userId: session.userId,
-        data: { filename: cleanFilename, gcsPath, publicUrl }
-      });
-
       return NextResponse.json({
         url: signedUrl,
         gcsPath,

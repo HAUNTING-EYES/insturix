@@ -119,7 +119,6 @@ export async function DELETE(request: Request) {
     }
 
     const { gcsPath } = await request.json();
-    console.log('🗑️ DELETE request data:', { userId, gcsPath });
 
     if (!gcsPath) {
       console.log('❌ Missing gcsPath in DELETE request');
@@ -133,8 +132,6 @@ export async function DELETE(request: Request) {
       userId,
       gcsPath,
     });
-
-    console.log('🗑️ Delete operation result:', result);
 
     if (result.deletedCount === 0) {
       console.log('❌ Upload tracking record not found for deletion');

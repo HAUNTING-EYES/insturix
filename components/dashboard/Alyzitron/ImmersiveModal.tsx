@@ -630,20 +630,21 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       <Dialog
         open={open}
         onOpenChange={(newOpen) => {
-          if (!newOpen && source.type === "file" && isProcessing) {
-            return; // Prevent closing while processing
-          }
-
-          // Show confirmation modal when trying to close with a file that has been uploaded
+          // If trying to close and it's a file that has been completely uploaded, show confirmation
           if (
             !newOpen &&
-            source.type === "file" &&
-            uploadProgress?.status === "completed"
+            source.type === "file"
           ) {
             setShowCloseConfirmation(true);
             return;
           }
 
+          // If trying to close but it's still processing (uploading/analyzing), prevent closing
+          if (!newOpen && source.type === "file") {
+            return; // Prevent closing while processing
+          }
+
+          // Allow closing in all other cases (link, file not completed, or not processing)
           onOpenChange(newOpen);
         }}
       >
