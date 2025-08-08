@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { BadgeCheck, Target, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -65,6 +65,58 @@ function Section({
   selected: string;
   onSelect: (id: string) => void;
 }) {
+  const [customValue, setCustomValue] = useState("");
+  
+  // Check if selected value is a custom one (not in predefined items)
+  const isCustomSelected = selected && !items.some(item => item.id === selected);
+  
+  // Validate input: only alphanumeric, spaces, and basic punctuation
+  const validateInput = (value: string): boolean => {
+    const regex = /^[a-zA-Z0-9\s\-_.,'!?()&]+$/;
+    return regex.test(value) && value.length <= 100;
+  };
+
+  const handleCustomInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    
+    // If the input is completely cleared, deselect everything
+    if (value === "") {
+      setCustomValue("");
+      onSelect(""); // Clear the selection
+      return;
+    }
+    
+    // Allow typing but validate on change
+    if (validateInput(value)) {
+      setCustomValue(value);
+      
+      // If user is typing a custom value, update state
+      if (value.trim()) {
+        onSelect(value.trim());
+      }
+    }
+  };
+
+  const handleCustomKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const input = e.target as HTMLInputElement;
+    const currentValue = input.value;
+    
+    if (e.key === "Enter") {
+      const val = customValue.trim();
+      if (val && validateInput(val)) {
+        onSelect(val);
+        setCustomValue("");
+      }
+    } else if (e.key === "Backspace") {
+      // If we're at the last character and user presses backspace, clear the selection
+      if (currentValue.length === 1) {
+        setCustomValue("");
+        onSelect(""); // Clear the selection
+        e.preventDefault(); // Prevent the default backspace behavior
+      }
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-2.5">
@@ -77,52 +129,78 @@ function Section({
         {items.map((p) => {
           const isActive = selected === p.id;
           return (
-            <motion.button
+            <button
               key={p.id}
               type="button"
-              onClick={() => onSelect(p.id)}
+              onClick={() => {
+                onSelect(p.id);
+                setCustomValue(""); // Clear custom input when predefined option is selected
+              }}
               aria-pressed={isActive}
-              whileTap={{ scale: 0.98 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
               className={cn(
                 "h-8 rounded-full px-3.5 text-xs",
-                // minimal smooth transitions
-                "transition-[background-color,color,border-color,box-shadow] duration-150 ease-out",
-                // base
-                "bg-zinc-900/60 text-zinc-200",
-                "border border-zinc-800/70 ring-1 ring-white/5",
-                "shadow-[inset_0_1px_0_rgba(255,255,255,0.02)]",
-                "hover:bg-zinc-800/60",
-                // focus-visible for accessibility
-                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/30 focus-visible:ring-offset-0",
+                // simplified hover effect
+                "transition-colors duration-200 ease-out",
+                // base state
+                "bg-zinc-900/60 text-zinc-200 border border-zinc-800/70",
+                // simple hover
+                "hover:bg-zinc-800/80 hover:text-zinc-100",
+                // focus for accessibility
+                "focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400/50",
                 // active state
                 isActive
-                  ? "bg-zinc-100 text-zinc-900 border-zinc-200 ring-zinc-200 shadow-[0_1px_6px_rgba(255,255,255,0.15)]"
+                  ? "bg-zinc-100 text-zinc-900 border-zinc-200"
                   : ""
               )}
             >
               {p.label}
-            </motion.button>
+            </button>
           );
         })}
-        {/* custom free-text pill */}
+        
+        {/* Custom input */}
         <input
           type="text"
           placeholder="Custom..."
+          value={isCustomSelected ? selected : customValue}
+          maxLength={100}
           className={cn(
-            "h-8 px-3.5 rounded-full text-xs text-zinc-200 placeholder:text-zinc-500 outline-none",
-            "bg-zinc-900/40 border border-zinc-800/70 ring-1 ring-white/5",
-            "focus:border-zinc-700 focus:bg-zinc-900/60 focus:ring-blue-400/20"
+            "h-8 px-3.5 rounded-full text-xs outline-none min-w-[80px]",
+            "transition-colors duration-200 ease-out",
+            // Base state - dark input
+            "bg-zinc-900/40 border border-zinc-800/70",
+            "text-zinc-200 placeholder:text-zinc-500",
+            // Focus state - slightly lighter but still dark for readability
+            "focus:border-blue-400/50 focus:bg-zinc-800/60 focus:ring-1 focus:ring-blue-400/20",
+            // Selected state - use a blue accent instead of light background
+            isCustomSelected
+              ? "bg-blue-500/10 border-blue-400/50 text-blue-100 ring-1 ring-blue-400/20"
+              : ""
           )}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              const val = (e.target as HTMLInputElement).value.trim();
-              if (val) onSelect(val);
-              (e.target as HTMLInputElement).value = "";
+          onChange={handleCustomInput}
+          onKeyDown={handleCustomKeyDown}
+          onFocus={() => {
+            // If there's a custom selected value, put it in the input for editing
+            if (isCustomSelected) {
+              setCustomValue(selected);
+            }
+          }}
+          onBlur={() => {
+            // If input is empty after blur, ensure selection is cleared
+            if (!customValue.trim()) {
+              onSelect("");
+              setCustomValue("");
             }
           }}
         />
       </div>
+      
+      {/* Validation message */}
+      {customValue && !validateInput(customValue) && (
+        <p className="text-xs text-red-400 mt-1 ml-1">
+          Only letters, numbers, spaces and basic punctuation allowed (max 100 characters)
+        </p>
+      )}
     </div>
   );
 }
