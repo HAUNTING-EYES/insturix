@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { Sparkles, Upload, ArrowRight, X, CheckCircle } from "lucide-react";
+import { Sparkles, Upload, ArrowRight, Trash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextSelector } from "./ContextSelector";
 import type { ContextValues } from "./ContextSelector";
@@ -161,20 +161,20 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           additional_details: JSON.stringify(context),
         });
 
-        console.log('📤 Upload result:', uploadResult);
+        console.log("📤 Upload result:", uploadResult);
 
         // Store the gcsPath for potential deletion
         if (uploadResult?.gcsPath) {
-          console.log('💾 Setting gcsPath:', uploadResult.gcsPath);
+          console.log("💾 Setting gcsPath:", uploadResult.gcsPath);
           setGcsPath(uploadResult.gcsPath);
         } else {
-          console.warn('⚠️ No gcsPath in upload result');
+          console.warn("⚠️ No gcsPath in upload result");
         }
 
         // Mark as completed
         setUploadProgress({ progress: 100, status: "completed" });
         setUploadCompleted(true);
-        console.log('✅ Upload marked as completed');
+        console.log("✅ Upload marked as completed");
       } catch (err) {
         let description = "Upload failed. Please try again.";
 
@@ -277,7 +277,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
             queuePosition: 1,
           };
 
-          console.log('🚀 Analysis started successfully, marking as started');
+          console.log("🚀 Analysis started successfully, marking as started");
           setAnalysisStarted(true);
           onSubmit(result.analysisId, analysisData);
         }
@@ -462,7 +462,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
   // Reset state when modal closes and cleanup uploaded files
   useEffect(() => {
-    console.log('🔍 Modal close effect triggered:', {
+    console.log("🔍 Modal close effect triggered:", {
       open,
       gcsPath,
       sourceType: source.type,
@@ -473,47 +473,51 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     });
 
     if (!open && gcsPath && !isCleaningUpRef.current) {
-      console.log('📝 Modal is closing, checking cleanup conditions...');
+      console.log("📝 Modal is closing, checking cleanup conditions...");
       isCleaningUpRef.current = true;
-      
+
       // If we have an uploaded file that hasn't started analysis, delete it
-      if (
-        source.type === "file" &&
-        uploadCompleted &&
-        !analysisStarted
-      ) {
-        console.log('🗑️ Attempting to delete uploaded file:', gcsPath);
-        deleteUploadedFile(gcsPath).then(() => {
-          console.log('✅ File and tracking record deleted successfully');
-        }).catch((error) => {
-          console.warn(
-            "Failed to cleanup uploaded file on modal close:",
-            error
-          );
-        }).finally(() => {
-          // Always reset state after cleanup attempt
-          console.log('🧹 Resetting modal state...');
-          setGcsPath(null);
-          setAnalysisId(null);
-          setAnalysisStarted(false);
-          setUploadCompleted(false);
-          setError(null);
-          setUploadProgress(null);
-          isCleaningUpRef.current = false;
-        });
+      if (source.type === "file" && uploadCompleted && !analysisStarted) {
+        console.log("🗑️ Attempting to delete uploaded file:", gcsPath);
+        deleteUploadedFile(gcsPath)
+          .then(() => {
+            console.log("✅ File and tracking record deleted successfully");
+          })
+          .catch((error) => {
+            console.warn(
+              "Failed to cleanup uploaded file on modal close:",
+              error
+            );
+          })
+          .finally(() => {
+            // Always reset state after cleanup attempt
+            console.log("🧹 Resetting modal state...");
+            setGcsPath(null);
+            setAnalysisId(null);
+            setAnalysisStarted(false);
+            setUploadCompleted(false);
+            setError(null);
+            setUploadProgress(null);
+            isCleaningUpRef.current = false;
+          });
       } else {
-        console.log('⏭️ Skipping file deletion:', {
+        console.log("⏭️ Skipping file deletion:", {
           hasGcsPath: !!gcsPath,
           isFileType: source.type === "file",
           uploadCompleted,
           analysisStarted,
-          reason: source.type !== "file" ? 'Not a file upload' :
-                  !uploadCompleted ? 'Upload not completed' :
-                  analysisStarted ? 'Analysis already started' : 'Unknown'
+          reason:
+            source.type !== "file"
+              ? "Not a file upload"
+              : !uploadCompleted
+                ? "Upload not completed"
+                : analysisStarted
+                  ? "Analysis already started"
+                  : "Unknown",
         });
 
         // Reset state only when no deletion is needed
-        console.log('🧹 Resetting modal state...');
+        console.log("🧹 Resetting modal state...");
         setGcsPath(null);
         setAnalysisId(null);
         setAnalysisStarted(false);
@@ -524,7 +528,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       }
     } else if (!open && !gcsPath && !isCleaningUpRef.current) {
       // Reset state if modal is closed but no gcsPath to delete
-      console.log('🧹 Resetting modal state (no cleanup needed)...');
+      console.log("🧹 Resetting modal state (no cleanup needed)...");
       setGcsPath(null);
       setAnalysisId(null);
       setAnalysisStarted(false);
@@ -631,10 +635,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         open={open}
         onOpenChange={(newOpen) => {
           // If trying to close and it's a file that has been completely uploaded, show confirmation
-          if (
-            !newOpen &&
-            source.type === "file"
-          ) {
+          if (!newOpen && source.type === "file") {
             setShowCloseConfirmation(true);
             return;
           }
@@ -1011,40 +1012,67 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         open={showCloseConfirmation}
         onOpenChange={setShowCloseConfirmation}
       >
-        <DialogContent className="sm:max-w-md">
-          <div className="flex flex-col items-center text-center py-6">
-            <div className="mb-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10 ring-1 ring-inset ring-amber-400/20">
-                <X className="h-6 w-6 text-amber-400" />
+        <DialogContent className="max-w-md p-0 rounded-xl bg-zinc-900/70 backdrop-blur-xl border border-zinc-800/70 shadow-[0_14px_60px_-20px_rgba(0,0,0,0.7)] ring-1 ring-white/5">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 4 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="p-6"
+          >
+            {/* Header with icon */}
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.05, duration: 0.3 }}
+              className="flex items-center gap-3 mb-4"
+            >
+              <div className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800/50 ring-1 ring-inset ring-zinc-700/50">
+                <Trash className="h-4 w-4 text-zinc-400" />
               </div>
-            </div>
-            <h3 className="text-lg font-semibold text-zinc-100 mb-2">
-              Leave without saving?
-            </h3>
-            <p className="text-sm text-zinc-400 mb-6">
-              If you close this modal now, you'll need to re-upload your file.
-              Are you sure you want to continue?
-            </p>
-            <div className="flex gap-3 w-full">
+              <h3 className="text-lg font-semibold text-zinc-100 tracking-tight">
+                Discard upload?
+              </h3>
+            </motion.div>
+
+            {/* Content */}
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.3 }}
+              className="mb-6"
+            >
+              <p className="text-sm text-zinc-400 leading-relaxed">
+                Your file upload will be lost and you'll need to start over. Are
+                you sure you want to continue?
+              </p>
+            </motion.div>
+
+            {/* Buttons */}
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15, duration: 0.3 }}
+              className="flex gap-3"
+            >
               <Button
-                variant="outline"
+                variant="ghost"
                 onClick={() => setShowCloseConfirmation(false)}
-                className="flex-1"
+                className="flex-1 h-10 rounded-lg text-zinc-300 hover:text-zinc-100 hover:bg-zinc-800/40 transition-colors duration-200"
               >
                 Cancel
               </Button>
               <Button
-                variant="destructive"
                 onClick={() => {
                   setShowCloseConfirmation(false);
                   onOpenChange(false);
                 }}
-                className="flex-1"
+                className="flex-1 h-10 rounded-lg bg-zinc-100 text-zinc-900 hover:bg-zinc-200 font-medium transition-colors duration-200"
               >
-                Yes, leave
+                Discard
               </Button>
-            </div>
-          </div>
+            </motion.div>
+          </motion.div>
         </DialogContent>
       </Dialog>
     </>
