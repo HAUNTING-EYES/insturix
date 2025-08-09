@@ -212,7 +212,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setIsProcessing(false);
       }
     },
-    [analysisId, uploadVideo, context, resetState, toast]
+    [analysisId, uploadVideo, resetState, toast]
   );
 
   // Handle analysis start (for when user clicks "Begin Analysis")
@@ -464,20 +464,10 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
       handleAnalysisComplete(analysisId, uploadStates, onComplete);
     }
-  }, [analysisId, uploadStates, onComplete, fetchPreview]);
+  }, [analysisId, uploadStates, onComplete, fetchPreview, handleAnalysisComplete]);
 
   // Reset state when modal closes and cleanup uploaded files
   useEffect(() => {
-    console.log("🔍 Modal close effect triggered:", {
-      open,
-      gcsPath,
-      sourceType: source.type,
-      uploadStatus: uploadProgress?.status,
-      uploadCompleted,
-      analysisId,
-      analysisStarted,
-    });
-
     if (!open && gcsPath && !isCleaningUpRef.current) {
       console.log("📝 Modal is closing, checking cleanup conditions...");
       isCleaningUpRef.current = true;
@@ -497,7 +487,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           })
           .finally(() => {
             // Always reset state after cleanup attempt
-            console.log("🧹 Resetting modal state...");
             setGcsPath(null);
             setAnalysisId(null);
             setAnalysisStarted(false);
@@ -523,7 +512,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         });
 
         // Reset state only when no deletion is needed
-        console.log("🧹 Resetting modal state...");
         setGcsPath(null);
         setAnalysisId(null);
         setAnalysisStarted(false);
@@ -534,7 +522,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       }
     } else if (!open && !gcsPath && !isCleaningUpRef.current) {
       // Reset state if modal is closed but no gcsPath to delete
-      console.log("🧹 Resetting modal state (no cleanup needed)...");
       setGcsPath(null);
       setAnalysisId(null);
       setAnalysisStarted(false);
@@ -542,7 +529,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       setError(null);
       setUploadProgress(null);
     }
-  }, [open, gcsPath, source.type, uploadCompleted, analysisStarted, handleAnalysisComplete]);
+  }, [open, gcsPath, source.type, uploadCompleted, analysisStarted, handleAnalysisComplete, deleteUploadedFile]);
 
   // Auto-hide success overlay after upload completion
   useEffect(() => {
@@ -650,7 +637,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   <Sparkles className="h-4 w-4 text-blue-400" />
                 </div>
                 <h3 className="text-zinc-100 font-semibold tracking-tight">
-                  Add more details
+                  Review & Start Analysis
                 </h3>
               </div>
             </motion.div>

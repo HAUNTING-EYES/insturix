@@ -24,7 +24,7 @@ export default async function AlyzitronDashboard() {
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-100">
             Upload with confidence.
             <br className="hidden sm:block" />
-            Get your video's check-up.
+            Get your video&apos;s check-up.
           </h1>
           <p className="mt-3 sm:mt-4 text-zinc-400 text-sm sm:text-base max-w-2xl">
             A premium, fluid, and actionable analysis experience. Drag-and-drop

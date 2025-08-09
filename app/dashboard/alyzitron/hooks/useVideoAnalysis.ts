@@ -73,121 +73,6 @@ export function useVideoAnalysis() {
   const MAX_FILE_SIZE_BYTES = 1 * 1024 * 1024 * 1024; // 1 GB
   const MAX_DURATION_SECONDS = 55 * 60; // 55 minutes
 
-  const uploadFile = useCallback(
-    async (file: File, analysisId: string): Promise<string> => {
-      // Validate file size
-      if (file.size > MAX_FILE_SIZE_BYTES) {
-        setUploadStates((prev) => {
-          const newStates = new Map(prev);
-          const currentState = newStates.get(analysisId) || {
-            uploadState: null,
-            analysisState: { status: "idle", progress: 0 },
-            abortController: null,
-          };
-          newStates.set(analysisId, {
-            ...currentState,
-            analysisState: {
-              status: "failed",
-              progress: 0,
-              error: {
-                message: "File size exceeds 1GB limit",
-                action: "Please select a smaller video file",
-              },
-            },
-          });
-          return newStates;
-        });
-        throw new Error("File size exceeds 1GB limit");
-      }
-
-      // Validate video duration
-      const video = document.createElement('video');
-      video.preload = 'metadata';
-      const url = URL.createObjectURL(file);
-
-      return new Promise<string>((resolve, reject) => {
-        video.onloadedmetadata = () => {
-          const duration = Math.round(video.duration);
-          URL.revokeObjectURL(url);
-
-          if (duration > MAX_DURATION_SECONDS) {
-            setUploadStates((prev) => {
-              const newStates = new Map(prev);
-              const currentState = newStates.get(analysisId) || {
-                uploadState: null,
-                analysisState: { status: "idle", progress: 0 },
-                abortController: null,
-              };
-              newStates.set(analysisId, {
-                ...currentState,
-                analysisState: {
-                  status: "failed",
-                  progress: 0,
-                  error: {
-                    message: "Video duration exceeds 55 minutes limit",
-                    action: "Please select a shorter video",
-                  },
-                },
-              });
-              return newStates;
-            });
-            reject(new Error("Video duration exceeds 55 minutes limit"));
-            return;
-          }
-
-          // Duration is valid, proceed with upload
-          const controller = new AbortController();
-
-          setUploadStates((prev) => {
-            const newStates = new Map(prev);
-            const currentState = newStates.get(analysisId) || {
-              uploadState: null,
-              analysisState: { status: "idle", progress: 0 },
-              abortController: null,
-            };
-            newStates.set(analysisId, {
-              ...currentState,
-              abortController: controller,
-              analysisState: { status: "uploading", progress: 0 },
-            });
-            return newStates;
-          });
-
-          // Continue with upload logic
-          void performUpload(file, analysisId, controller).then(resolve).catch(reject);
-        };
-
-        video.onerror = () => {
-          URL.revokeObjectURL(url);
-          setUploadStates((prev) => {
-            const newStates = new Map(prev);
-            const currentState = newStates.get(analysisId) || {
-              uploadState: null,
-              analysisState: { status: "idle", progress: 0 },
-              abortController: null,
-            };
-            newStates.set(analysisId, {
-              ...currentState,
-              analysisState: {
-                status: "failed",
-                progress: 0,
-                error: {
-                  message: "Invalid video file",
-                  action: "Please select a valid video file",
-                },
-              },
-            });
-            return newStates;
-          });
-          reject(new Error("Invalid video file"));
-        };
-
-        video.src = url;
-      });
-    },
-    [MAX_DURATION_SECONDS, MAX_FILE_SIZE_BYTES]
-  );
-
   const performUpload = useCallback(
     async (file: File, analysisId: string, controller: AbortController): Promise<string> => {
 
@@ -375,6 +260,121 @@ export function useVideoAnalysis() {
       }
     },
     []
+  );
+
+  const uploadFile = useCallback(
+    async (file: File, analysisId: string): Promise<string> => {
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE_BYTES) {
+        setUploadStates((prev) => {
+          const newStates = new Map(prev);
+          const currentState = newStates.get(analysisId) || {
+            uploadState: null,
+            analysisState: { status: "idle", progress: 0 },
+            abortController: null,
+          };
+          newStates.set(analysisId, {
+            ...currentState,
+            analysisState: {
+              status: "failed",
+              progress: 0,
+              error: {
+                message: "File size exceeds 1GB limit",
+                action: "Please select a smaller video file",
+              },
+            },
+          });
+          return newStates;
+        });
+        throw new Error("File size exceeds 1GB limit");
+      }
+
+      // Validate video duration
+      const video = document.createElement('video');
+      video.preload = 'metadata';
+      const url = URL.createObjectURL(file);
+
+      return new Promise<string>((resolve, reject) => {
+        video.onloadedmetadata = () => {
+          const duration = Math.round(video.duration);
+          URL.revokeObjectURL(url);
+
+          if (duration > MAX_DURATION_SECONDS) {
+            setUploadStates((prev) => {
+              const newStates = new Map(prev);
+              const currentState = newStates.get(analysisId) || {
+                uploadState: null,
+                analysisState: { status: "idle", progress: 0 },
+                abortController: null,
+              };
+              newStates.set(analysisId, {
+                ...currentState,
+                analysisState: {
+                  status: "failed",
+                  progress: 0,
+                  error: {
+                    message: "Video duration exceeds 55 minutes limit",
+                    action: "Please select a shorter video",
+                  },
+                },
+              });
+              return newStates;
+            });
+            reject(new Error("Video duration exceeds 55 minutes limit"));
+            return;
+          }
+
+          // Duration is valid, proceed with upload
+          const controller = new AbortController();
+
+          setUploadStates((prev) => {
+            const newStates = new Map(prev);
+            const currentState = newStates.get(analysisId) || {
+              uploadState: null,
+              analysisState: { status: "idle", progress: 0 },
+              abortController: null,
+            };
+            newStates.set(analysisId, {
+              ...currentState,
+              abortController: controller,
+              analysisState: { status: "uploading", progress: 0 },
+            });
+            return newStates;
+          });
+
+          // Continue with upload logic
+          void performUpload(file, analysisId, controller).then(resolve).catch(reject);
+        };
+
+        video.onerror = () => {
+          URL.revokeObjectURL(url);
+          setUploadStates((prev) => {
+            const newStates = new Map(prev);
+            const currentState = newStates.get(analysisId) || {
+              uploadState: null,
+              analysisState: { status: "idle", progress: 0 },
+              abortController: null,
+            };
+            newStates.set(analysisId, {
+              ...currentState,
+              analysisState: {
+                status: "failed",
+                progress: 0,
+                error: {
+                  message: "Invalid video file",
+                  action: "Please select a valid video file",
+                },
+              },
+            });
+            return newStates;
+          });
+          reject(new Error("Invalid video file"));
+        };
+
+        video.src = url;
+      });
+    },
+    [MAX_DURATION_SECONDS, MAX_FILE_SIZE_BYTES, performUpload]
   );
 
   const startAnalysis = useCallback(

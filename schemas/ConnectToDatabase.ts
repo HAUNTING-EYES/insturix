@@ -12,38 +12,26 @@ if (!cached) {
 }
 
 const connectToDatabase = async (uri?: string) => {
-  // If we have a cached connection, reuse it
-  if (cached.conn) {
-    // console.log("Using cached MongoDB connection.");
-    return cached.conn;
+  const mongoUri = uri || process.env.MONGODB_URI;
+
+  if (!mongoUri) {
+    throw new Error("MONGODB_URI is not defined in environment variables");
   }
 
-  // If a connection promise doesn't exist, create one
-  if (!cached.promise) {
-    const mongoUri = uri || process.env.MONGODB_URI;
-
-    if (!mongoUri) {
-      throw new Error("MONGODB_URI is not defined in environment variables");
-    }
-
-    console.log("Creating new MongoDB connection.");
-    cached.promise = mongoose.connect(mongoUri).then((mongooseInstance) => {
-      console.log("MongoDB connected successfully.");
-      return mongooseInstance;
-    });
+  if (mongoose.connection.readyState === 1) {
+    // console.log("Using existing MongoDB connection.");
+    return mongoose;
   }
 
-  // Wait for the connection promise to resolve
+  console.log("Creating new MongoDB connection.");
   try {
-    cached.conn = await cached.promise;
+    await mongoose.connect(mongoUri);
+    console.log("MongoDB connected successfully.");
+    return mongoose;
   } catch (e) {
-    // If the connection fails, reset the promise so the next request can try again
-    cached.promise = null;
     console.error("Error connecting to database:", e);
     throw e;
   }
-  
-  return cached.conn;
 };
 
 export default connectToDatabase;

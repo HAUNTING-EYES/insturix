@@ -226,7 +226,7 @@ export class PDFExportService {
   ): Promise<void> {
     try {
       // Check if html2pdf is available in the global scope or as a module
-      // @ts-ignore - Optional dependency, may not be available
+      // @ts-expect-error - Optional dependency, may not be available
       const html2pdf = await import('html2pdf.js').catch(() => null);
       
       if (!html2pdf) {

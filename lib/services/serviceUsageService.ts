@@ -1,6 +1,7 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import { IServiceLimits, IServiceLimit } from "@/schemas/user";
+import { getPlanLimits } from "@/lib/config/serviceLimits";
 
 export interface ServiceUsageInfo {
   hasAccess: boolean;
@@ -33,9 +34,39 @@ export class ServiceUsageService {
       throw new Error(`User not found: ${userId}`);
     }
 
-    const serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
+    // First try to get from user's current plan
+    let serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
       (limit: IServiceLimit) => limit.limitType === limitType
     );
+
+    // If not found, get from unified configuration and add to user's plan
+    if (!serviceLimit) {
+      try {
+        const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+        const configLimit = planLimits.find(limit => limit.limitType === limitType);
+        
+        if (configLimit) {
+          // Add the missing limit to user's plan
+          if (!user.currentPlan.serviceLimits[serviceName]) {
+            user.currentPlan.serviceLimits[serviceName] = [];
+          }
+          
+          serviceLimit = {
+            ...configLimit,
+            currentUsage: 0,
+            lastReset: new Date()
+          };
+          
+          user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
+          user.markModified('currentPlan.serviceLimits');
+          await user.save();
+          
+          console.log(`[ServiceUsageService] Added missing limit ${limitType} for service ${serviceName} to user ${userId}`);
+        }
+      } catch (error) {
+        console.error(`[ServiceUsageService] Failed to get plan limits for ${user.currentPlan.name}:`, error);
+      }
+    }
 
     if (!serviceLimit) {
       return {
@@ -92,9 +123,39 @@ export class ServiceUsageService {
       throw new Error(`User not found: ${userId}`);
     }
 
-    const serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
+    // First try to get from user's current plan
+    let serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
       (limit: IServiceLimit) => limit.limitType === limitType
     );
+
+    // If not found, get from unified configuration and add to user's plan
+    if (!serviceLimit) {
+      try {
+        const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+        const configLimit = planLimits.find(limit => limit.limitType === limitType);
+        
+        if (configLimit) {
+          // Add the missing limit to user's plan
+          if (!user.currentPlan.serviceLimits[serviceName]) {
+            user.currentPlan.serviceLimits[serviceName] = [];
+          }
+          
+          serviceLimit = {
+            ...configLimit,
+            currentUsage: 0,
+            lastReset: new Date()
+          };
+          
+          user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
+          user.markModified('currentPlan.serviceLimits');
+          await user.save();
+          
+          console.log(`[ServiceUsageService] Added missing limit ${limitType} for service ${serviceName} to user ${userId}`);
+        }
+      } catch (error) {
+        console.error(`[ServiceUsageService] Failed to get plan limits for ${user.currentPlan.name}:`, error);
+      }
+    }
 
     if (!serviceLimit) {
       throw new Error(`Service limit '${limitType}' not found in '${serviceName}' service`);
@@ -250,9 +311,39 @@ export class ServiceUsageService {
 
     if (serviceName && limitType) {
       // Reset specific limit
-      const serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
+      // First try to get from user's current plan
+      let serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
         (limit: IServiceLimit) => limit.limitType === limitType
       );
+
+      // If not found, get from unified configuration and add to user's plan
+      if (!serviceLimit) {
+        try {
+          const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+          const configLimit = planLimits.find(limit => limit.limitType === limitType);
+          
+          if (configLimit) {
+            // Add the missing limit to user's plan
+            if (!user.currentPlan.serviceLimits[serviceName]) {
+              user.currentPlan.serviceLimits[serviceName] = [];
+            }
+            
+            serviceLimit = {
+              ...configLimit,
+              currentUsage: 0,
+              lastReset: new Date()
+            };
+            
+            user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
+            user.markModified('currentPlan.serviceLimits');
+            await user.save();
+            
+            console.log(`[ServiceUsageService] Added missing limit ${limitType} for service ${serviceName} to user ${userId} during reset`);
+          }
+        } catch (error) {
+          console.error(`[ServiceUsageService] Failed to get plan limits for ${user.currentPlan.name}:`, error);
+        }
+      }
       if (serviceLimit) {
         serviceLimit.currentUsage = 0;
         serviceLimit.lastReset = now;

@@ -1,13 +1,9 @@
 import mongoose, { Document, Schema } from "mongoose";
 import { UserType, IUserPlan } from "@/types/userTypes";
+import type { IServiceLimit } from "@/lib/config/serviceLimits";
 
-export interface IServiceLimit {
-  limitType: string;
-  maxUsage: number;
-  currentUsage: number;
-  resetPeriod: "weekly" | "monthly" | "daily" | "none";
-  lastReset?: Date;
-}
+// Re-export from unified configuration
+export type { IServiceLimit } from "@/lib/config/serviceLimits";
 
 export interface IServiceLimits {
   alyzitron: IServiceLimit[];
@@ -175,93 +171,7 @@ const planSchema = new Schema<IPlan>({
   serviceLimits: {
     type: serviceLimitsSchema,
     required: true,
-    default: function() {
-      const now = new Date();
-      // For weekly services, set lastReset to start of current week (Monday)
-      const startOfWeek = new Date(now);
-      const dayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
-      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // Sunday is 6 days after Monday
-      startOfWeek.setDate(now.getDate() - daysToMonday);
-      startOfWeek.setHours(0, 0, 0, 0);
-      
-      return {
-        alyzitron: [
-          {
-            limitType: "maxTotalAnalysis",
-            maxUsage: 10,
-            currentUsage: 0,
-            resetPeriod: "weekly",
-            lastReset: now, // Use start of week for weekly services
-          },
-          {
-            limitType: "maxOver20MinuteAnalysis",
-            maxUsage: 3,
-            currentUsage: 0,
-            resetPeriod: "weekly",
-            lastReset: now, // Use start of week for weekly services
-          },
-          {
-            limitType: "maxConcurrentTasks",
-            maxUsage: 2,
-            currentUsage: 0,
-            resetPeriod: "none",
-            lastReset: now,
-          },
-        ],
-        editron: [
-          {
-            limitType: "maxVideoEdits",
-            maxUsage: 1,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-        shield: [
-          {
-            limitType: "maxScans",
-            maxUsage: 3,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-        socialize: [
-          {
-            limitType: "maxSocialLinks",
-            maxUsage: 5,
-            currentUsage: 0,
-            resetPeriod: "none",
-            lastReset: now,
-          },
-        ],
-        thinkforge: [
-          {
-            limitType: "maxSessions",
-            maxUsage: 5,
-            currentUsage: 0,
-            resetPeriod: "weekly",
-            lastReset: startOfWeek, // Use start of week for weekly services
-          },
-          {
-            limitType: "maxConcurrentTasks",
-            maxUsage: 2,
-            currentUsage: 0,
-            resetPeriod: "none",
-            lastReset: now,
-          },
-        ],
-        musitron: [
-          {
-            limitType: "maxMusicGeneration",
-            maxUsage: 3,
-            currentUsage: 0,
-            resetPeriod: "monthly",
-            lastReset: now,
-          },
-        ],
-      };
-    },
+    default: undefined, // Will be populated using unified configuration
   },
 }, { _id: false });
 

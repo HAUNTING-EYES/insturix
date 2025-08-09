@@ -61,7 +61,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
 
   const pasteCatcherRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const { uploadStates } = useVideoAnalysis();
 
   // YouTube URL validation and video ID extraction
