@@ -6,11 +6,12 @@ import { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Upload, ArrowRight } from 'lucide-react';
+import { Upload, ArrowRight, Loader2 } from 'lucide-react';
 import { useVideoAnalysis } from '@/app/dashboard/alyzitron/hooks/useVideoAnalysis';
 import { UsageLimitPopup } from './UsageLimitPopup';
 import { ContextSelector, type ContextValues } from './ContextSelector';
 import { ImmersiveModal } from './ImmersiveModal';
+import { useToast } from '@/hooks/use-toast';
 
 interface VideoUploadProps {
   onSubmit: (analysisId: string, analysis: Analysis) => void;
@@ -51,6 +52,11 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
 
   // Immersive flow modal state
   const [immersiveOpen, setImmersiveOpen] = useState(false);
+  
+  // Loading state for preview fetching
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  
+  const { toast } = useToast();
 
   // Local input state to ensure a visible, controlled URL input when source.type === 'none'
   const [inputUrl, setInputUrl] = useState<string>('');
@@ -106,6 +112,8 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const openImmersive = (val?: string) => {
     const trimmed = (val ?? inputUrl).trim();
     if (trimmed) {
+      setIsPreviewLoading(true);
+      
       // Check if it's a YouTube URL
       if (isYouTubeUrl(trimmed)) {
         // Fetch preview for YouTube URLs
@@ -116,28 +124,46 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
               // Use our link-preview endpoint for robustness (title/image fallback)
               const res = await fetch(`/api/link-preview?url=${encodeURIComponent(trimmed)}`);
               const meta = await res.json();
+              
+              // Check if the response indicates an error (e.g., video not accessible)
+              if (res.status !== 200 || !meta.title) {
+                throw new Error('Video not accessible or invalid');
+              }
+              
               const title = meta.title || 'YouTube Video';
               const thumbnail = meta.image || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
               setSource({ type: 'link', url: trimmed, preview: { title, thumbnail, videoId: id } });
+              // Only open modal after successful preview fetch
+              setImmersiveOpen(true);
             } else {
-              setSource({ type: 'link', url: trimmed });
+              // If no video ID found, don't open modal
+              throw new Error('Invalid YouTube URL');
             }
-          } catch {
-            // Fallback to basic YouTube thumbnail
-            const id = extractYouTubeVideoId(trimmed);
-            if (id) {
-              setSource({ type: 'link', url: trimmed, preview: { title: 'YouTube Video', thumbnail: `https://img.youtube.com/vi/${id}/hqdefault.jpg`, videoId: id } });
-            } else {
-              setSource({ type: 'link', url: trimmed });
-            }
+          } catch (error) {
+            console.error('Failed to fetch preview:', error);
+            // Don't open the modal if preview fetch fails
+            setSource({ type: 'none' });
+            setInputUrl(''); // Clear the input on error
+            // Show error message to user
+            toast({
+              title: "Invalid YouTube Link",
+              description: "Please make sure the video is publicly accessible and try again.",
+              variant: "destructive",
+            });
+          } finally {
+            setIsPreviewLoading(false);
           }
         };
         fetchYouTubePreview();
       } else {
+        // For non-YouTube URLs, we can open the modal directly
         setSource({ type: 'link', url: trimmed });
+        setImmersiveOpen(true);
+        setIsPreviewLoading(false);
       }
+    } else {
+      setIsPreviewLoading(false);
     }
-    setImmersiveOpen(true);
   };
 
   const reset = () => {
@@ -194,11 +220,12 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                           placeholder="Type or paste a YouTube URL, then press Enter"
                           className="bg-zinc-900/50 border-zinc-800 w-full"
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !isPreviewLoading) {
                               openImmersive((e.target as HTMLInputElement).value);
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
+                          disabled={isPreviewLoading}
                         />
                         <Button
                           type="button"
@@ -208,8 +235,13 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                           onClick={e => { e.stopPropagation(); openImmersive(); }}
                           aria-label="Proceed"
                           title="Proceed"
+                          disabled={isPreviewLoading}
                         >
-                          <ArrowRight className="h-4 w-4" />
+                          {isPreviewLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4" />
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -220,6 +252,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                       accept="video/*"
                       className="hidden"
                       onChange={onPickFile}
+                      disabled={isPreviewLoading}
                     />
                   </motion.div>
                 )}
@@ -247,11 +280,12 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                           placeholder="Type or paste a YouTube URL, then press Enter"
                           className="bg-zinc-900/50 border-zinc-800 w-full"
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !isPreviewLoading) {
                               openImmersive((e.target as HTMLInputElement).value);
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
+                          disabled={isPreviewLoading}
                         />
                         <Button
                           type="button"
@@ -261,8 +295,13 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                           onClick={e => { e.stopPropagation(); openImmersive(); }}
                           aria-label="Proceed"
                           title="Proceed"
+                          disabled={isPreviewLoading}
                         >
-                          <ArrowRight className="h-4 w-4" />
+                          {isPreviewLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4" />
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -273,6 +312,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                       accept="video/*"
                       className="hidden"
                       onChange={onPickFile}
+                      disabled={isPreviewLoading}
                     />
                   </motion.div>
                 )}
@@ -300,11 +340,12 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                           placeholder="Type or paste a YouTube URL, then press Enter"
                           className="bg-zinc-900/50 border-zinc-800 w-full"
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
+                            if (e.key === 'Enter' && !isPreviewLoading) {
                               openImmersive((e.target as HTMLInputElement).value);
                             }
                           }}
                           onClick={(e) => e.stopPropagation()}
+                          disabled={isPreviewLoading}
                         />
                         <Button
                           type="button"
@@ -314,8 +355,13 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                           onClick={e => { e.stopPropagation(); openImmersive(); }}
                           aria-label="Proceed"
                           title="Proceed"
+                          disabled={isPreviewLoading}
                         >
-                          <ArrowRight className="h-4 w-4" />
+                          {isPreviewLoading ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <ArrowRight className="h-4 w-4" />
+                          )}
                         </Button>
                       </div>
                     </div>
@@ -326,6 +372,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                       accept="video/*"
                       className="hidden"
                       onChange={onPickFile}
+                      disabled={isPreviewLoading}
                     />
                   </motion.div>
                 )}

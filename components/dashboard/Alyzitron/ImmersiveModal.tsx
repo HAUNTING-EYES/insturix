@@ -858,7 +858,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] text-zinc-200 leading-snug truncate">
                         {source.type === "link"
-                          ? source.preview?.title || "Loading preview..."
+                          ? source.preview?.title || "Loading..."
                           : source.type === "file"
                             ? source.file.name
                             : "—"}
