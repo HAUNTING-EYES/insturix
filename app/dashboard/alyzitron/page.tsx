@@ -1,29 +1,10 @@
 import { auth } from "@clerk/nextjs/server";
-import { Sparkles, Users2, Gauge, Wand2 } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
 
 // This is a Server Component. Do not use framer-motion primitives directly here.
 
 export const revalidate = 30;
-
-function StatPill({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  // Render static markup; animations can be added inside client components later if needed.
-  return (
-    <div className="flex items-center gap-2 rounded-full border border-zinc-800/80 bg-zinc-900/40 px-3 py-1.5 text-xs text-zinc-300">
-      {icon}
-      <span className="text-zinc-400">{label}:</span>
-      <span className="font-medium text-zinc-200">{value}</span>
-    </div>
-  );
-}
 
 export default async function AlyzitronDashboard() {
   const session = await auth();

@@ -70,14 +70,16 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
       }
     };
 
-    if (!initialData) {
+    // Only trigger initialization if initialData is missing and not already loading/initialized
+    if (!initialData && !isInitialized && !isLoading) {
+      // Run initialization in background, do not block UI
       initializeUser();
     }
 
     return () => {
       isMounted = false;
     };
-  }, [isLoaded, user, isInitialized, initialData]);
+  }, [isLoaded, user, isInitialized, initialData, isLoading]);
 
   const contextValue: UserInitializationContextType = {
     isInitialized,

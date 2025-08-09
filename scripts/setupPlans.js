@@ -18,23 +18,23 @@ const PLANS_DATA = [
       alyzitron: [
         {
           limitType: "maxTotalAnalysis",
-          description: "Total video analyses per week",
-          maxUsage: 10,
-          resetPeriod: "weekly"
+          description: "Total video analyses per month",
+          maxUsage: 12,
+          resetPeriod: "monthly"
         },
         {
           limitType: "maxOver20MinuteAnalysis",
           description: "Analyses for videos over 20 minutes",
-          maxUsage: 3,
-          resetPeriod: "weekly"
+          maxUsage: 4,
+          resetPeriod: "monthly"
         }
       ],
       clickatron: [
         {
           limitType: "maxThumbnailGeneration",
-          description: "Thumbnail generations per week",
-          maxUsage: 5,
-          resetPeriod: "weekly"
+          description: "Thumbnail generations per month",
+          maxUsage: 12,
+          resetPeriod: "monthly"
         }
       ],
       editron: [
@@ -45,20 +45,12 @@ const PLANS_DATA = [
           resetPeriod: "monthly"
         }
       ],
-      shield: [
+      socialize: [
         {
-          limitType: "maxScans",
-          description: "Security scans with Shield",
-          maxUsage: 3,
-          resetPeriod: "monthly"
-        }
-      ],
-      thinkforge: [
-        {
-          limitType: "maxAIChats",
-          description: "AI conversations with ThinkForge",
-          maxUsage: 10,
-          resetPeriod: "monthly"
+          limitType: "maxSocialLinks",
+          description: "Social media links (one-time setup)",
+          maxUsage: 5,
+          resetPeriod: "none"
         }
       ],
       musitron: [
@@ -67,6 +59,22 @@ const PLANS_DATA = [
           description: "Generate music tracks",
           maxUsage: 3,
           resetPeriod: "weekly"
+        }
+      ],
+      thinkforge: [
+        {
+          limitType: "maxSessions",
+          description: "ThinkForge sessions per month",
+          maxUsage: 10,
+          resetPeriod: "monthly"
+        }
+      ],
+      shield: [
+        {
+          limitType: "maxScans",
+          description: "Security scans with Shield",
+          maxUsage: 1,
+          resetPeriod: "monthly"
         }
       ]
     },
@@ -91,30 +99,54 @@ const PLANS_DATA = [
       alyzitron: [
         {
           limitType: "maxTotalAnalysis",
-          description: "Total video analyses per week",
-          maxUsage: 40,
-          resetPeriod: "weekly"
+          description: "Total video analyses per month",
+          maxUsage: 45,
+          resetPeriod: "monthly"
         },
         {
           limitType: "maxOver20MinuteAnalysis",
           description: "Analyses for videos over 20 minutes",
           maxUsage: 15,
-          resetPeriod: "weekly"
+          resetPeriod: "monthly"
         }
       ],
       clickatron: [
         {
           limitType: "maxThumbnailGeneration",
-          description: "Thumbnail generations per week",
-          maxUsage: 25,
-          resetPeriod: "weekly"
+          description: "Thumbnail generations per month",
+          maxUsage: 45,
+          resetPeriod: "monthly"
         }
       ],
       editron: [
         {
           limitType: "maxVideoEdits",
           description: "Edit videos with Editron",
-          maxUsage: 5,
+          maxUsage: 8,
+          resetPeriod: "monthly"
+        }
+      ],
+      socialize: [
+        {
+          limitType: "maxSocialLinks",
+          description: "Social media links (one-time setup)",
+          maxUsage: -1, // Unlimited
+          resetPeriod: "none"
+        }
+      ],
+      musitron: [
+        {
+          limitType: "maxMusicGeneration",
+          description: "Generate music tracks",
+          maxUsage: 30,
+          resetPeriod: "monthly"
+        }
+      ],
+      thinkforge: [
+        {
+          limitType: "maxSessions",
+          description: "ThinkForge sessions per month",
+          maxUsage: 40,
           resetPeriod: "monthly"
         }
       ],
@@ -164,23 +196,23 @@ const PLANS_DATA = [
       alyzitron: [
         {
           limitType: "maxTotalAnalysis",
-          description: "Total video analyses per week",
+          description: "Total video analyses per month",
           maxUsage: 120,
-          resetPeriod: "weekly"
+          resetPeriod: "monthly"
         },
         {
           limitType: "maxOver20MinuteAnalysis",
           description: "Analyses for videos over 20 minutes",
           maxUsage: 40,
-          resetPeriod: "weekly"
+          resetPeriod: "monthly"
         }
       ],
       clickatron: [
         {
           limitType: "maxThumbnailGeneration",
-          description: "Thumbnail generations per week",
-          maxUsage: 100,
-          resetPeriod: "weekly"
+          description: "Thumbnail generations per month",
+          maxUsage: 120,
+          resetPeriod: "monthly"
         }
       ],
       editron: [
@@ -191,28 +223,12 @@ const PLANS_DATA = [
           resetPeriod: "monthly"
         }
       ],
-      shield: [
-        {
-          limitType: "maxScans",
-          description: "Security scans with Shield",
-          maxUsage: 50,
-          resetPeriod: "monthly"
-        }
-      ],
       socialize: [
         {
           limitType: "maxSocialLinks",
-          description: "Social media links",
-          maxUsage: 50,
+          description: "Social media links (one-time setup)",
+          maxUsage: -1, // Unlimited
           resetPeriod: "none"
-        }
-      ],
-      thinkforge: [
-        {
-          limitType: "maxAIChats",
-          description: "AI conversations with ThinkForge",
-          maxUsage: 200,
-          resetPeriod: "monthly"
         }
       ],
       musitron: [
@@ -221,6 +237,22 @@ const PLANS_DATA = [
           description: "Generate music tracks",
           maxUsage: 50,
           resetPeriod: "weekly"
+        }
+      ],
+      thinkforge: [
+        {
+          limitType: "maxSessions",
+          description: "ThinkForge sessions per month",
+          maxUsage: 100,
+          resetPeriod: "monthly"
+        }
+      ],
+      shield: [
+        {
+          limitType: "maxScans",
+          description: "Security scans with Shield",
+          maxUsage: -1, // Unlimited
+          resetPeriod: "monthly"
         }
       ]
     },
@@ -245,23 +277,23 @@ const PLANS_DATA = [
       alyzitron: [
         {
           limitType: "maxTotalAnalysis",
-          description: "Total video analyses per week",
+          description: "Total video analyses per month",
           maxUsage: -1, // Unlimited
-          resetPeriod: "weekly"
+          resetPeriod: "monthly"
         },
         {
           limitType: "maxOver20MinuteAnalysis",
           description: "Analyses for videos over 20 minutes",
           maxUsage: -1, // Unlimited
-          resetPeriod: "weekly"
+          resetPeriod: "monthly"
         }
       ],
       clickatron: [
         {
           limitType: "maxThumbnailGeneration",
-          description: "Thumbnail generations per week",
+          description: "Thumbnail generations per month",
           maxUsage: -1, // Unlimited
-          resetPeriod: "weekly"
+          resetPeriod: "monthly"
         }
       ],
       editron: [
@@ -272,26 +304,34 @@ const PLANS_DATA = [
           resetPeriod: "monthly"
         }
       ],
-      shield: [
+      socialize: [
         {
-          limitType: "maxScans",
-          description: "Security scans with Shield",
+          limitType: "maxSocialLinks",
+          description: "Social media links (one-time setup)",
           maxUsage: -1, // Unlimited
-          resetPeriod: "monthly"
-        }
-      ],
-      thinkforge: [
-        {
-          limitType: "maxAIChats",
-          description: "AI conversations with ThinkForge",
-          maxUsage: -1, // Unlimited
-          resetPeriod: "monthly"
+          resetPeriod: "none"
         }
       ],
       musitron: [
         {
           limitType: "maxMusicGeneration",
           description: "Generate music tracks",
+          maxUsage: -1, // Unlimited
+          resetPeriod: "monthly"
+        }
+      ],
+      thinkforge: [
+        {
+          limitType: "maxSessions",
+          description: "ThinkForge sessions per month",
+          maxUsage: -1, // Unlimited
+          resetPeriod: "monthly"
+        }
+      ],
+      shield: [
+        {
+          limitType: "maxScans",
+          description: "Security scans with Shield",
           maxUsage: -1, // Unlimited
           resetPeriod: "monthly"
         }

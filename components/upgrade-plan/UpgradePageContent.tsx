@@ -122,11 +122,49 @@ export function UpgradePageContent({
       const planId = cyclePricing.paymentProvider?.planId || '';
       const provider = cyclePricing.paymentProvider?.provider || '';
       
-      const features : PlanFeature[] = [
-        { id: "feature-1", name: "Core functionality", included: true },
-        { id: "feature-2", name: "Priority support", included: true, highlight: clientPlan.type === "plus" || clientPlan.type === "pro" },
-        { id: "feature-3", name: "Advanced features", included: clientPlan.type === "pro" || clientPlan.type === "premium" },
-      ];
+      const features : PlanFeature[] = (() => {
+        switch (clientPlan.type) {
+          case "free":
+            return [
+              { id: "feature-1", name: "Basic AI tools access", included: true },
+              { id: "feature-2", name: "Community support", included: true },
+              { id: "feature-3", name: "Monthly usage limits", included: true },
+              { id: "feature-4", name: "Standard processing speed", included: true },
+            ];
+          case "plus":
+            return [
+              { id: "feature-1", name: "Enhanced AI capabilities", included: true, highlight: true },
+              { id: "feature-2", name: "Increased usage quotas", included: true, highlight: true },
+              { id: "feature-3", name: "Email support", included: true },
+              { id: "feature-4", name: "Standard processing speed", included: true },
+              { id: "feature-5", name: "Export & sharing options", included: true },
+            ];
+          case "pro":
+            return [
+              { id: "feature-1", name: "Advanced AI features", included: true, highlight: true },
+              { id: "feature-2", name: "High usage limits", included: true, highlight: true },
+              { id: "feature-3", name: "Priority support", included: true, highlight: true },
+              { id: "feature-4", name: "Faster processing", included: true },
+              { id: "feature-5", name: "Early access to beta tools", included: true, highlight: true },
+              { id: "feature-6", name: "Creator community access", included: true, highlight: true },
+            ];
+          case "premium":
+            return [
+              { id: "feature-1", name: "Unlimited AI access", included: true, highlight: true },
+              { id: "feature-2", name: "Premium processing speed", included: true, highlight: true },
+              { id: "feature-3", name: "24/7 priority support", included: true, highlight: true },
+              { id: "feature-4", name: "Dedicated success manager", included: true, highlight: true },
+              { id: "feature-5", name: "Exclusive creator events", included: true, highlight: true },
+              { id: "feature-6", name: "All beta features included", included: true },
+            ];
+          default:
+            return [
+              { id: "feature-1", name: "Core functionality", included: true },
+              { id: "feature-2", name: "Priority support", included: true, highlight: clientPlan.type === "plus" || clientPlan.type === "pro" },
+              { id: "feature-3", name: "Advanced features", included: clientPlan.type === "pro" || clientPlan.type === "premium" },
+            ];
+        }
+      })();
 
       return {
         id: clientPlan.type,

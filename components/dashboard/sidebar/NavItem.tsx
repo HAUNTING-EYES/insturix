@@ -3,7 +3,7 @@
 import { motion } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { useMemo } from "react"
 import { useSidebar } from "./context"
 import { products } from "./constants"
 import { linkVariants, containerVariants, textContainerVariants } from "./animations"
@@ -16,39 +16,39 @@ export function NavItem({ href, icon, label, isExpanded, isPro }: NavItemProps) 
   const isHovered = hoveredItem === href
   const hasPro = userPlan === "Pro" || userPlan === "Enterprise"
 
-  const product = products.find((p) => p.path === href)
+  const product = useMemo(() => products.find((p) => p.path === href), [href])
   const itemColor = product?.color
   const itemHoverColor = product?.hoverColor
 
   const shouldApplyColor = isActive && itemColor
   const shouldApplyHoverColor = isHovered && itemHoverColor && !isActive
 
-  const getBackgroundColor = () => {
+  const backgroundColor = useMemo(() => {
     if (shouldApplyColor) return `${itemColor}20`
     if (shouldApplyHoverColor) return `${itemHoverColor}15`
     if (isHovered) return "rgba(255, 255, 255, 0.15)"
     if (isActive) return "rgba(255, 255, 255, 0.1)"
     return "transparent"
-  }
+  }, [shouldApplyColor, shouldApplyHoverColor, isHovered, isActive, itemColor, itemHoverColor])
 
-  const getBorderColor = () => {
+  const borderColor = useMemo(() => {
     if (shouldApplyColor) return itemColor
     if (shouldApplyHoverColor) return itemHoverColor
     return "transparent"
-  }
+  }, [shouldApplyColor, shouldApplyHoverColor, itemColor, itemHoverColor])
 
-  const getIconColor = () => {
+  const iconColor = useMemo(() => {
     if (shouldApplyColor) return itemColor
     if (shouldApplyHoverColor) return itemHoverColor
     if (isActive) return "#ffffff"
     return isHovered ? "#ffffff" : "rgba(255, 255, 255, 0.8)"
-  }
+  }, [shouldApplyColor, shouldApplyHoverColor, isActive, isHovered, itemColor, itemHoverColor])
 
-  const getTextColor = () => {
+  const textColor = useMemo(() => {
     if (shouldApplyColor) return itemColor
     if (shouldApplyHoverColor) return itemHoverColor
     return isHovered || isActive ? "#ffffff" : "rgba(255, 255, 255, 0.8)"
-  }
+  }, [shouldApplyColor, shouldApplyHoverColor, isHovered, isActive, itemColor, itemHoverColor])
 
   const content = (
     <motion.div
@@ -62,8 +62,8 @@ export function NavItem({ href, icon, label, isExpanded, isPro }: NavItemProps) 
           isPro && !hasPro ? "opacity-80" : "",
         )}
         style={{
-          backgroundColor: getBackgroundColor(),
-          borderLeft: `3px solid ${getBorderColor()}`,
+          backgroundColor: backgroundColor,
+          borderLeft: `3px solid ${borderColor}`,
         }}
         variants={linkVariants}
         animate={isExpanded ? "expanded" : "collapsed"}
@@ -91,7 +91,7 @@ export function NavItem({ href, icon, label, isExpanded, isPro }: NavItemProps) 
             style={{
               width: 32,
               height: 32,
-              color: getIconColor(),
+              color: iconColor,
             }}
             whileHover={{ scale: 1.1 }}
             transition={{ duration: 0.2 }}
@@ -111,7 +111,7 @@ export function NavItem({ href, icon, label, isExpanded, isPro }: NavItemProps) 
             <motion.span
               className="text-sm font-medium tracking-wide flex-shrink-0"
               style={{
-                color: getTextColor(),
+                color: textColor,
                 whiteSpace: "nowrap"
               }}
               whileHover={{ x: 2 }}
@@ -135,34 +135,8 @@ export function NavItem({ href, icon, label, isExpanded, isPro }: NavItemProps) 
         </motion.div>
       </motion.div>
     </motion.div>
-  )
-
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>{content}</TooltipTrigger>
-      <TooltipContent
-        side="right"
-        className="bg-zinc-800 border-white/10 text-white shadow-lg"
-        style={{ display: isExpanded ? 'none' : 'block' }}
-      >
-        {/* <motion.div
-          className="flex flex-col"
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.15 }}
-        >
-          <div className="flex items-center justify-between">
-            <span className="font-medium">{label}</span>
-            {isPro && !hasPro && (
-              <span className="ml-2 bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded">
-                PRO
-              </span>
-            )}
-          </div>
-          {description && <span className="text-xs text-zinc-400 mt-1">{description}</span>}
-          {isPro && !hasPro && <span className="text-xs text-amber-300 mt-1">Click to upgrade</span>}
-        </motion.div> */}
-      </TooltipContent>
-    </Tooltip>
-  )
+  );
+  return content;
 }
+
+

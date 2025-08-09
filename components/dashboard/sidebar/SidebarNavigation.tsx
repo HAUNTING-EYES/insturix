@@ -20,6 +20,8 @@ export function SidebarNavigation({ isExpanded }: SidebarNavigationProps) {
             icon={<Home className="h-5 w-5" />}
             label="Overview"
             isExpanded={isExpanded}
+            description=""
+            isPro={false}
           />
         </motion.div>
         
@@ -49,28 +51,50 @@ export function SidebarNavigation({ isExpanded }: SidebarNavigationProps) {
 
         {/* Products List */}
         <motion.div layout className="space-y-3 mt-4">
-          {products.map((product, index) => (
-            <motion.div 
-              key={product.name}
-              layout
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ 
-                duration: 0.3, 
-                delay: index * 0.05,
-                ease: [0.4, 0, 0.2, 1]
-              }}
-            >
-              <NavItem
-                href={product.path}
-                icon={<product.icon className="h-5 w-5" />}
-                label={product.name}
-                isExpanded={isExpanded}
-                description={product.description}
-                isPro={product.isPro}
-              />
-            </motion.div>
-          ))}
+          {products.map((product, index) => {
+            // Disable framer-motion animation on mobile for performance
+            const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
+            if (isMobile) {
+              return (
+                <div
+                  key={product.name}
+                  className="transition-transform transform-gpu"
+                  style={{ transitionDuration: "150ms" }}
+                >
+                  <NavItem
+                    href={product.path}
+                    icon={<product.icon className="h-5 w-5" />}
+                    label={product.name}
+                    isExpanded={isExpanded}
+                    description={product.description}
+                    isPro={product.isPro}
+                  />
+                </div>
+              );
+            }
+            return (
+              <motion.div
+                key={product.name}
+                layout
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{
+                  duration: 0.3,
+                  delay: index * 0.05,
+                  ease: [0.4, 0, 0.2, 1]
+                }}
+              >
+                <NavItem
+                  href={product.path}
+                  icon={<product.icon className="h-5 w-5" />}
+                  label={product.name}
+                  isExpanded={isExpanded}
+                  description={product.description}
+                  isPro={product.isPro}
+                />
+              </motion.div>
+            );
+          })}
         </motion.div>
       </motion.div>
     </div>

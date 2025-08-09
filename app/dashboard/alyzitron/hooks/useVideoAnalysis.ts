@@ -17,14 +17,6 @@ interface AnalysisState {
   };
 }
 
-interface AnalysisMetadata {
-  title?: string;
-  description?: string;
-  niche?: string;
-  target_audience?: string;
-  additional_details?: string;
-}
-
 interface AnalysisUploadState {
   uploadState: UploadState | null;
   analysisState: AnalysisState;
@@ -193,7 +185,7 @@ export function useVideoAnalysis() {
         video.src = url;
       });
     },
-    []
+    [MAX_DURATION_SECONDS, MAX_FILE_SIZE_BYTES]
   );
 
   const performUpload = useCallback(
@@ -503,7 +495,7 @@ export function useVideoAnalysis() {
   );
 
   const uploadVideo = useCallback(
-    async (file: File, analysisId: string, metadata?: AnalysisMetadata) => {
+    async (file: File, analysisId: string) => {
       try {
         const gcsPath = await uploadFile(file, analysisId);
         return gcsPath ? { gcsPath, analysisId } : undefined;

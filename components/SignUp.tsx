@@ -15,8 +15,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Icons } from "@/components/ui/icons";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
+
+import React from "react";
+import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 
 export default function SignUpPage() {
+  const { isSignedIn } = useAuth();
+  const router = useRouter();
+
+  React.useEffect(() => {
+    if (isSignedIn) {
+      router.replace("/dashboard");
+    }
+  }, [isSignedIn, router]);
+
   return (
     <div className="grid w-full grow items-center px-4 sm:justify-center">
       <SignUp.Root>
@@ -94,7 +108,7 @@ export default function SignUpPage() {
                         <Label>Email address</Label>
                       </Clerk.Label>
                       <Clerk.Input type="email" required asChild>
-                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300 text-black" />
+                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300 text-black border-2 border-input focus:border-blue-200 hover:border-blue-100 rounded-md shadow-sm" />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
@@ -103,7 +117,7 @@ export default function SignUpPage() {
                         <Label>Password</Label>
                       </Clerk.Label>
                       <Clerk.Input type="password" required asChild>
-                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300 text-black" />
+                        <Input className="bg-background/50 backdrop-blur-sm hover:bg-background/70 focus:bg-background/90 transition-all duration-300 text-black border-2 border-input focus:border-blue-200 hover:border-blue-100 rounded-md shadow-sm" />
                       </Clerk.Input>
                       <Clerk.FieldError className="block text-sm text-destructive" />
                     </Clerk.Field>
@@ -133,9 +147,9 @@ export default function SignUpPage() {
                         asChild
                         className="hover:text-blue-500 dark:hover:text-blue-400"
                       >
-                        <Clerk.Link navigate="sign-in">
+                        <Link href="/signin">
                           Already have an account? Sign in
-                        </Clerk.Link>
+                        </Link>
                       </Button>
                     </div>
                   </CardFooter>

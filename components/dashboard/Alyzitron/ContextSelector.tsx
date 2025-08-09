@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { BadgeCheck, Target, MessageSquare } from "lucide-react";
+import { Target, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 type Pill = {

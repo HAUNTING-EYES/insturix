@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Sparkles, Info } from "lucide-react";
+import { Check, Sparkles, Info, Gift, AlignEndHorizontal } from "lucide-react";
 import type { Plan } from "./UpgradePageContent";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
@@ -26,6 +26,153 @@ interface PlanSelectionProps {
     status: string;
   } | null;
 }
+
+// Service limits data structure
+const serviceLimits = {
+  [UserType.Free]: {
+    alyzitron: { analyses: 12, overTwentyMins: 4 },
+    clickatron: { thumbnails: 12 },
+    editron: { edits: 1 },
+    socialize: { links: 5, oneTime: true },
+    musitron: { tracks: 8 },
+    thinkforge: { sessions: 10 },
+    shield: { applications: 1 }
+  },
+  [UserType.Plus]: {
+    alyzitron: { analyses: 60, overTwentyMins: 20 },
+    clickatron: { thumbnails: 60 },
+    editron: { edits: 10 },
+    socialize: { links: "Unlimited" },
+    musitron: { tracks: 40 },
+    thinkforge: { sessions: 25 },
+    shield: { applications: 3 }
+  },
+  [UserType.Pro]: {
+    alyzitron: { analyses: 200, overTwentyMins: 80 },
+    clickatron: { thumbnails: 120 },
+    editron: { edits: 25 },
+    socialize: { links: "Unlimited" },
+    musitron: { tracks: 100 },
+    thinkforge: { sessions: 100 },
+    shield: { applications: 3 }
+  },
+  [UserType.Premium]: {
+    alyzitron: { analyses: "Unlimited", fairUsage: true },
+    clickatron: { thumbnails: "Unlimited", fairUsage: true },
+    editron: { edits: 40 },
+    socialize: { links: "Unlimited" },
+    musitron: { tracks: 160 },
+    thinkforge: { sessions: "Unlimited", fairUsage: true },
+    shield: { applications: 3 }
+  }
+};
+
+// Creator perks data structure
+const creatorPerks = {
+  [UserType.Free]: {
+    prioritySupport: false,
+    earlyAccess: false,
+    creatorCommunities: false,
+    creatorEvents: false,
+    weeklyMixers: false,
+    successManager: false,
+    creatorCohorts: false
+  },
+  [UserType.Plus]: {
+    prioritySupport: false,
+    earlyAccess: false,
+    creatorCommunities: false,
+    creatorEvents: false,
+    weeklyMixers: false,
+    successManager: false,
+    creatorCohorts: false
+  },
+  [UserType.Pro]: {
+    prioritySupport: true,
+    earlyAccess: true,
+    creatorCommunities: true,
+    creatorEvents: true,
+    weeklyMixers: false,
+    successManager: false,
+    creatorCohorts: true
+  },
+  [UserType.Premium]: {
+    prioritySupport: true,
+    earlyAccess: true,
+    creatorCommunities: true,
+    creatorEvents: true,
+    weeklyMixers: true,
+    successManager: true,
+    creatorCohorts: true
+  }
+};
+
+const serviceRows = [
+  {
+    name: "Alyzitron",
+    description: "(Video Analysis)",
+    key: "alyzitron",
+    formatter: (limits: any) => 
+      limits?.analyses === "Unlimited" 
+        ? "✅ Unlimited (Fair usage)"
+        : `${limits?.analyses || 0} analyses${limits?.overTwentyMins ? `, ${limits.overTwentyMins} over 20 mins` : ""}`
+  },
+  {
+    name: "Clickatron",
+    description: "(Thumbnail Gen)",
+    key: "clickatron", 
+    formatter: (limits: any) =>
+      limits?.thumbnails === "Unlimited"
+        ? "✅ Unlimited (Fair usage)"
+        : `${limits?.thumbnails || 0} thumbnails`
+  },
+  {
+    name: "Editron",
+    description: "(AI Video Edits)",
+    key: "editron",
+    formatter: (limits: any) => `${limits?.edits || 0} edits`
+  },
+  {
+    name: "Socialize",
+    description: "(Smart Links Page)", 
+    key: "socialize",
+    formatter: (limits: any) =>
+      limits?.links === "Unlimited"
+        ? "✅ Unlimited links"
+        : `${limits?.links || 0} links${limits?.oneTime ? " (one-time)" : ""}`
+  },
+  {
+    name: "Musitron",
+    description: "(AI Music Tracks)",
+    key: "musitron",
+    formatter: (limits: any) => `${limits?.tracks || 0} tracks`
+  },
+  {
+    name: "ThinkForge", 
+    description: "(Content Ideation)",
+    key: "thinkforge",
+    formatter: (limits: any) =>
+      limits?.sessions === "Unlimited"
+        ? "✅ Unlimited (Fair usage)"
+        : `${limits?.sessions || 0} sessions`
+  },
+  {
+    name: "Shield",
+    description: "(Protection Applications)",
+    key: "shield", 
+    formatter: (limits: any) => `${limits?.applications || 0}/month`
+  }
+];
+
+const perkRows = [
+  { name: "Priority Customer Support", key: "prioritySupport" },
+  { name: "Early Access to New Tools", key: "earlyAccess" },
+  { name: "Invite-Only Creator Communities", key: "creatorCommunities" },
+  { name: "Access to Creator Events", key: "creatorEvents" },
+  { name: "Weekly Mixers & Leisure Sessions", key: "weeklyMixers", note: "(Subject to approval)" },
+  { name: "Dedicated Success Manager", key: "successManager" },
+  { name: "Creator Cohorts (Growth Circles)", key: "creatorCohorts" }
+];
 
 // Define plan hierarchy for upgrade/downgrade logic
 const getPlanTier = (planType: UserType): number => {
@@ -387,6 +534,27 @@ export function PlanSelection({
                         </li>
                       ))}
                     </ul>
+
+                    {/* Service Limits Section */}
+                    <div className="mt-6 pt-4 border-t border-white/10">
+                      <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <AlignEndHorizontal className="w-4 h-4" />
+                        Service Limits
+                      </h4>
+                      <div className="space-y-2">
+                        {serviceRows.map((service) => {
+                          const limits = serviceLimits[plan.userType]?.[service.key as keyof typeof serviceLimits[UserType.Free]];
+                          return (
+                            <div key={service.key} className="flex justify-between items-center text-xs">
+                              <span className="text-gray-400">{service.name}</span>
+                              <span className="text-gray-300 font-medium">
+                                {service.formatter(limits)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </motion.div>
                 </CardContent>
 
@@ -420,10 +588,10 @@ export function PlanSelection({
                     if (isFreePlan) {
                         return (
                           <Button
-                            className="w-full bg-gray-600 text-gray-400 border-gray-600 cursor-not-allowed"
+                            className="w-full bg-gradient-to-r from-green-600 to-emerald-600 text-white border-0 cursor-not-allowed"
                             disabled
                           >
-                            Not Selectable
+                            Current Plan
                           </Button>
                         );
                     }
@@ -449,6 +617,67 @@ export function PlanSelection({
           ))}
         </AnimatePresence>
       </div>
+
+      {/* Perks Table */}
+      <motion.div
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.4 }}
+        className="mt-16"
+      >
+        <Card className="overflow-hidden backdrop-blur-sm bg-black/40 border border-white/10">
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-white/10 bg-white/5">
+                    <th className="text-left p-4 font-semibold text-white flex items-center gap-2">
+                      <Gift className="w-5 h-5" />
+                      Exclusive Creator Perks & Add-Ons
+                    </th>
+                    {plans.map((plan) => (
+                      <th key={plan.id} className="text-center p-4 font-semibold text-white">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className={`w-3 h-3 rounded-full`} style={{ background: plan.color || "#8b5cf6" }} />
+                          {plan.name}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {perkRows.map((perk) => (
+                    <tr key={perk.key} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                      <td className="p-4">
+                        <div>
+                          <span className="font-medium text-white">{perk.name}</span>
+                          {perk.note && (
+                            <span className="text-gray-400 ml-1 italic">
+                              {perk.note}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      {plans.map((plan) => (
+                        <td key={`${perk.key}-${plan.id}`} className="p-4 text-center">
+                          {creatorPerks[plan.userType]?.[perk.key as keyof typeof creatorPerks[UserType.Free]] ? (
+                            <div className="flex items-center justify-center">
+                              <Check className="w-5 h-5 text-green-500" />
+                              <span className="ml-1 text-green-400 text-sm">Yes</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-500">—</span>
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
     </div>
   );
 }

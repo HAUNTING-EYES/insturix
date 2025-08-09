@@ -40,8 +40,6 @@ const fadeIn = {
 export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [source, setSource] = useState<Source>({ type: 'none' });
   const [context, setContext] = useState<ContextValues>(defaultContext);
-  const [currentAnalysisId, setCurrentAnalysisId] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [limitPopup, setLimitPopup] = useState<{
     isOpen: boolean;
     limitType: 'total' | 'long_video' | 'general';
@@ -163,16 +161,6 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       }
     } else {
       setIsPreviewLoading(false);
-    }
-  };
-
-  const reset = () => {
-    setSource({ type: 'none' });
-    setContext(defaultContext);
-    setCurrentAnalysisId(null);
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-      debounceRef.current = null;
     }
   };
 

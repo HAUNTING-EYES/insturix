@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
+import Image from "next/image";
 import { useState } from "react";
 import { ArrowRight, Users } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
@@ -84,7 +85,7 @@ export default function HeroSection() {
             </div>
 
             <motion.p
-              className="mx-auto max-w-xl text-base sm:text-lg md:text-xl text-muted-foreground/80 px-4 mb-10 sm:mb-14"
+              className="mx-auto max-w-xl text-base sm:text-lg md:text-xl text-muted-foreground/80 px-4 mb-8"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8, delay: 1 }}
@@ -95,7 +96,7 @@ export default function HeroSection() {
 
             {/* Waitlist button - the highlight of our changes */}
             <motion.div
-              className="mb-12"
+              className="mb-8"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, delay: 1.2 }}
@@ -144,7 +145,66 @@ export default function HeroSection() {
                 </motion.button>
               </Link>
             </motion.div>
-          </motion.div> 
+
+            {/* Startup Program Logos - Centered below CTA */}
+            <motion.div
+              className="flex flex-col items-center gap-4 mt-20"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 1.4 }}
+            >
+              {/* "Backed by" label */}
+              <motion.p
+                className="text-xs text-white/70 font-semibold tracking-widest uppercase"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ duration: 0.6, delay: 1.5 }}
+              >
+                Backed by
+              </motion.p>
+
+              {/* Logos in horizontal line */}
+              <div className="flex items-center gap-4">
+                {/* Google for Startups */}
+                <motion.div
+                  initial={{ opacity: 0, x: -20, scale: 0.95 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  transition={{ duration: 0.6, delay: 1.6, ease: "easeOut" }}
+                  whileHover={{ scale: 1.03, y: -2 }}
+                  className="group cursor-pointer"
+                >
+                  <div className="bg-white/30 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-white/15 hover:shadow-xl transition-all duration-300 hover:border-white/30 hover:backdrop-blur-md hover:bg-white/15">
+                    <Image
+                      src="/icons/Google_for_Startups_logo.svg"
+                      alt="Google for Startups"
+                      width={160}
+                      height={36}
+                      className="w-auto h-auto max-h-7 transition-all duration-300 group-hover:scale-105 block"
+                    />
+                  </div>
+                </motion.div>
+
+                {/* Microsoft for Startups */}
+                <motion.div
+                  initial={{ opacity: 0, x: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, x: 0, scale: 1 }}
+                  transition={{ duration: 0.6, delay: 1.8, ease: "easeOut" }}
+                  whileHover={{ scale: 1.03, y: -2 }}
+                  className="group cursor-pointer"
+                >
+                  <div className="bg-white/30 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-white/15 hover:shadow-xl transition-all duration-300 hover:border-white/30 hover:backdrop-blur-md hover:bg-white/15">
+                    <Image
+                      src="/icons/Microsoft-for-Startups-alpha.png"
+                      alt="Microsoft for Startups"
+                      width={180}
+                      height={50}
+                      className="w-auto h-auto max-h-8 transition-all duration-300 group-hover:scale-105 block"
+                    />
+                  </div>
+                </motion.div>
+              </div>
+            </motion.div>
+          </motion.div>
         </div>
       </div>
     </div>

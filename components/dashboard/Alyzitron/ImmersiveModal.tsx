@@ -70,8 +70,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const isCleaningUpRef = useRef<boolean>(false);
 
   // YouTube URL validation and video ID extraction (moved from VideoUpload)
-  const isYouTubeUrl = (url: string): boolean =>
-    /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/.test(url);
+  const isYouTubeUrl = useCallback((url: string): boolean =>
+    /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/.test(url), []);
 
   const extractYouTubeVideoId = useCallback((url: string): string | null => {
     const regexes = [
@@ -157,9 +157,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           3000
         );
 
-        const uploadResult = await uploadVideo(file, submissionId, {
-          additional_details: JSON.stringify(context),
-        });
+        const uploadResult = await uploadVideo(file, submissionId);
 
         console.log("📤 Upload result:", uploadResult);
 
@@ -389,7 +387,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         // Fetch preview for YouTube URLs when modal opens
         const fetchYouTubePreview = async () => {
           try {
-            const previewData = await fetchPreview(source.url);
             // Update the source with preview data
             // Note: We can't directly modify the source prop, so this would need to be handled differently
             // For now, we'll just set the preview in state if needed
@@ -458,7 +455,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
       handleAnalysisComplete(analysisId, uploadStates, onComplete);
     }
-  }, [analysisId, uploadStates, onComplete]);
+  }, [analysisId, uploadStates, onComplete, fetchPreview]);
 
   // Reset state when modal closes and cleanup uploaded files
   useEffect(() => {
@@ -536,7 +533,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       setError(null);
       setUploadProgress(null);
     }
-  }, [open, gcsPath, source.type, uploadCompleted, analysisStarted]);
+  }, [open, gcsPath, source.type, uploadCompleted, analysisStarted, handleAnalysisComplete]);
 
   // Auto-hide success overlay after upload completion
   useEffect(() => {
@@ -548,7 +545,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       }, 1500);
       return () => clearTimeout(timer);
     }
-  }, [uploadProgress?.status]);
+  }, [uploadProgress?.status, analysisId, deleteUploadedFile]);
 
   const formatBytes = (bytes: number) => {
     if (!bytes) return "0 B";
@@ -567,25 +564,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     if (h > 0)
       return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
     return `${m}:${String(sec).padStart(2, "0")}`;
-  };
-
-  const statusLabel = () => {
-    if (uploadProgress) {
-      switch (uploadProgress.status) {
-        case "uploading":
-          return "Uploading…";
-        case "analyzing":
-          return "Analyzing…";
-        case "completed":
-          return "Upload Complete";
-        case "error":
-          return "Failed";
-        default:
-          return "Ready";
-      }
-    }
-    if (isProcessing) return "Processing…";
-    return "Ready for analysis";
   };
 
   const handleStartAnalysis = async () => {
@@ -926,7 +904,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
                         <div className="mt-4 border-t border-zinc-800/60 pt-4 flex items-center justify-between">
                           <p className="text-[11px] text-zinc-500">
-                            This helps the AI better understand your content's
+                            This helps the AI better understand your content&apos;s
                             context.
                             {(!context.niche ||
                               !context.audience ||
@@ -1043,7 +1021,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
               className="mb-6"
             >
               <p className="text-sm text-zinc-400 leading-relaxed">
-                Your file upload will be lost and you'll need to start over. Are
+                Your file upload will be lost and you&apos;ll need to start over. Are
                 you sure you want to continue?
               </p>
             </motion.div>

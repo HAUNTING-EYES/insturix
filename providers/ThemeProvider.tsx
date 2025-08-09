@@ -22,12 +22,19 @@ export default function ThemeProvider({
     <>
       <NextThemesProvider
         attribute="class"
-        defaultTheme="system"
-        enableSystem
+        defaultTheme="dark"
+        // enableSystem
         disableTransitionOnChange
       >
         {children}
       </NextThemesProvider>
     </>
   );
+
+  // For simplicity, we are returning a div with dark class for now
+  // return (
+  //   <div>
+  //     {children}
+  //   </div>
+  // );
 }

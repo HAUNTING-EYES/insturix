@@ -102,6 +102,7 @@ export default function Privacy() {
                   <li>Personalize your experience based on your preferences and history.</li>
                   <li>Facilitate connections between creators and businesses for sponsorship campaigns (MEDITRON).</li>
                   <li>Communicate with you about updates, subscriptions, support, and sponsorship opportunities.</li>
+                  <li>Send company updates, product announcements, newsletters, and other informational communications via email to keep you informed about our services and website developments.</li>
                   <li>Process payments, manage billing, and issue refunds when applicable.</li>
                   <li>Comply with legal obligations and prevent fraud or misuse.</li>
                 </ul>

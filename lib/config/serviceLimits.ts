@@ -48,11 +48,17 @@ export const SERVICE_LIMIT_DEFINITIONS: Record<string, Record<string, ServiceLim
     }
   },
   thinkforge: {
-    maxAIChats: {
-      limitType: 'maxAIChats',
-      name: 'AI Conversations',
-      description: 'AI-powered conversations per month.',
+    maxSessions: {
+      limitType: 'maxSessions',
+      name: 'Weekly Sessions',
+      description: 'Number of ThinkForge sessions you can start per week. Each session allows multiple AI interactions.',
       icon: 'MessageSquare'
+    },
+    maxConcurrentTasks: {
+      limitType: 'maxConcurrentTasks',
+      name: 'Concurrent Tasks',
+      description: 'Maximum number of AI tasks that can run simultaneously.',
+      icon: 'Activity'
     }
   },
   musitron: {

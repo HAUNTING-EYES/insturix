@@ -3,7 +3,7 @@
 import { Sparkles } from "lucide-react";
 import { ClientWrapper } from "@/components/dashboard/Clickatron/ClientWrapper";
 import { AnalyticsOverview } from "@/components/dashboard/Clickatron/AnalyticsOverview";
-
+import { CompactAnalytics } from "@/components/dashboard/Clickatron/CompactAnalytics";
 
 export function ClickatronLayout() {
   return (
@@ -24,6 +24,11 @@ export function ClickatronLayout() {
             </div>
           </div>
 
+          {/* Mobile/Tablet Compact Analytics */}
+          <div className="lg:hidden">
+            <CompactAnalytics />
+          </div>
+
           {/* Client Components */}
           <ClientWrapper />
         </div>
@@ -31,6 +36,10 @@ export function ClickatronLayout() {
         {/* Desktop Analytics - Hidden on mobile/tablet */}
         <div className="hidden lg:block space-y-6 lg:space-y-8 sticky top-6">
           <AnalyticsOverview />
+        </div>
+        {/* Mobile/Tablet Compact Analytics */}
+        <div className="lg:hidden">
+          <CompactAnalytics />
         </div>
       </div>
     </div>

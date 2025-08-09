@@ -570,10 +570,42 @@
       scrollbar-width: thin;
       scrollbar-color: rgb(39, 39, 42) rgb(9, 9, 11);
     }
+
+    /* Custom thin scrollbar for library components */
+    .library-scrollbar {
+      /* Firefox scrollbar styling */
+      scrollbar-width: thin;
+      scrollbar-color: rgb(113, 113, 122) rgb(39, 39, 42);
+    }
+    
+    .library-scrollbar::-webkit-scrollbar {
+      width: 6px;
+      background-color: rgb(39, 39, 42); /* bg-zinc-800 */
+    }
+
+    .library-scrollbar::-webkit-scrollbar-thumb {
+      background-color: rgb(113, 113, 122); /* bg-zinc-500 */
+      border-radius: 3px;
+      min-height: 30px;
+    }
+
+    .library-scrollbar::-webkit-scrollbar-thumb:hover {
+      background-color: rgb(161, 161, 170); /* bg-zinc-400 */
+    }
+
+    .library-scrollbar::-webkit-scrollbar-track {
+      background-color: rgb(39, 39, 42); /* bg-zinc-800 */
+      border-radius: 3px;
+    }
+
+    .library-scrollbar::-webkit-scrollbar-corner {
+      background-color: rgb(39, 39, 42);
+    }
   }
 
   :root {
     --radius: 0.5rem;
+    --scrollbar-width: 6px;
 
     /* Base colors */
     --background: 255 255 255; /* Pure white */
