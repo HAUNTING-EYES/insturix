@@ -22,7 +22,7 @@ interface VideoUploadProps {
 type Source =
   | { type: 'none' }
   | { type: 'file'; file: File; duration: number }
-  | { type: 'link'; url: string; preview?: { title: string; thumbnail: string; videoId: string } };
+  | { type: 'link'; url: string; preview?: { title: string; thumbnail: string; videoId: string; duration: number } };
 
 
 const defaultContext: ContextValues = {
@@ -102,9 +102,38 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const onPickFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setSource({ type: 'file', file, duration: 0 });
-    // Automatically open the immersive modal after file selection
+    
+    // Extract duration from local video file
+    const getVideoDuration = (file: File): Promise<number> => {
+      return new Promise((resolve, reject) => {
+        const video = document.createElement('video');
+        video.preload = 'metadata';
+        
+        video.onloadedmetadata = () => {
+          window.URL.revokeObjectURL(video.src);
+          resolve(video.duration);
+        };
+        
+        video.onerror = () => {
+          window.URL.revokeObjectURL(video.src);
+          reject(new Error('Failed to load video metadata'));
+        };
+        
+        video.src = URL.createObjectURL(file);
+      });
+    };
+
+    // Set initial state with "-" duration, then update with actual duration
+    setSource({ type: 'file', file, duration: -1 }); // -1 indicates loading
     setImmersiveOpen(true);
+
+    // Get actual duration after modal is open
+    getVideoDuration(file).then(duration => {
+      setSource(prev => prev.type === 'file' ? { ...prev, duration } : prev);
+    }).catch(error => {
+      console.error('Error getting video duration:', error);
+      // Keep -1 as fallback to indicate loading failed
+    });
   };
 
   const openImmersive = (val?: string) => {
@@ -128,9 +157,40 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                 throw new Error('Video not accessible or invalid');
               }
               
+              // Get duration from YouTube API
+              let duration = -1; // -1 indicates loading
+              try {
+                // Use the Next.js API route instead of calling YouTube directly from frontend
+                const apiUrl = `/api/youtube?videoId=${id}`;
+
+                const youtubeRes = await fetch(apiUrl);
+                
+                if (!youtubeRes.ok) {
+                  const errorData = await youtubeRes.json();
+                  throw new Error(errorData.error || `YouTube API Error: ${youtubeRes.status}`);
+                }
+
+                const youtubeData = await youtubeRes.json();
+                
+                if (youtubeData.items?.[0]?.contentDetails?.duration) {
+                  // Parse ISO 8601 duration (PT1M30S) to seconds
+                  const durationStr = youtubeData.items[0].contentDetails.duration;
+                  const durationMatch = durationStr.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+                  if (durationMatch) {
+                    const hours = parseInt(durationMatch[1] || '0');
+                    const minutes = parseInt(durationMatch[2] || '0');
+                    const seconds = parseInt(durationMatch[3] || '0');
+                    duration = hours * 3600 + minutes * 60 + seconds;
+                  }
+                }
+              } catch {
+                // If YouTube API fails, use a reasonable estimate for most YouTube videos
+                duration = 300; // 5 minutes as default estimate
+              }
+              
               const title = meta.title || 'YouTube Video';
               const thumbnail = meta.image || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-              setSource({ type: 'link', url: trimmed, preview: { title, thumbnail, videoId: id } });
+              setSource({ type: 'link', url: trimmed, preview: { title, thumbnail, videoId: id, duration } });
               // Only open modal after successful preview fetch
               setImmersiveOpen(true);
             } else {

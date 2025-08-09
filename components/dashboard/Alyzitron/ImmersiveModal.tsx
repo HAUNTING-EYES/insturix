@@ -12,13 +12,16 @@ import { useToast } from "@/hooks/use-toast";
 import { useVideoAnalysis } from "@/app/dashboard/alyzitron/hooks/useVideoAnalysis";
 import { Analysis } from "@/app/dashboard/alyzitron/types/analysis";
 
+// Mock usage data - in a real app, this would come from an API
+const mockUsage = { minutesUsed: 48, minutesCap: 60 };
+
 type Source =
   | { type: "none" }
   | { type: "file"; file: File; duration: number }
   | {
       type: "link";
       url: string;
-      preview?: { title: string; thumbnail: string; videoId: string };
+      preview?: { title: string; thumbnail: string; videoId: string; duration: number };
     };
 
 interface ImmersiveModalProps {
@@ -88,11 +91,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     return null;
   }, []);
 
+  // Note: Duration fetching is now handled by VideoUpload component
+  // This function is kept for compatibility but doesn't fetch duration
   const fetchPreview = useCallback(
     async (url: string) => {
       const id = extractYouTubeVideoId(url);
       if (!id) {
-        return { title: "Unknown Video", thumbnail: "", videoId: "" };
+        return { title: "Unknown Video", thumbnail: "", videoId: "", duration: 0 };
       }
       try {
         // Use our link-preview endpoint for robustness (title/image fallback)
@@ -103,12 +108,16 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         const title = meta.title || "YouTube Video";
         const thumbnail =
           meta.image || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-        return { title, thumbnail, videoId: id };
+        
+        // Duration should be provided by VideoUpload component
+        // Return 0 as fallback (should not be used in production)
+        return { title, thumbnail, videoId: id, duration: 0 };
       } catch {
         return {
           title: "YouTube Video",
           thumbnail: `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
           videoId: id,
+          duration: 0, // Duration should be provided by VideoUpload component
         };
       }
     },
@@ -902,6 +911,36 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                           />
                         </div>
 
+{/* Usage meter (subtle near Begin Analysis) */}
+<div className="mt-4 text-xs text-zinc-400 space-y-1">
+  <div>
+    Monthly analysis allowance:{" "}
+    <span className="text-zinc-200 font-medium">
+      {mockUsage.minutesUsed} / {mockUsage.minutesCap} minutes
+    </span>{" "}
+    remaining.
+  </div>
+  <div className="text-blue-400">
+    This analysis will cost{" "}
+    <span className="text-blue-300 font-medium">
+      {source.type === "file" && source.duration === -1
+        ? "-"
+        : source.type === "file" && source.duration > 0
+          ? Math.ceil(source.duration / 60)
+          : source.type === "link" && source.preview?.duration === -1
+            ? "-"
+            : source.type === "link" && source.preview?.duration && source.preview.duration > 0
+              ? Math.ceil(source.preview.duration / 60)
+              : "0"
+      }{" "}
+      minute{source.type === "file" && source.duration === -1 ? "" :
+             source.type === "file" && source.duration > 0 && Math.ceil(source.duration / 60) !== 1 ? "s" :
+             source.type === "link" && source.preview?.duration === -1 ? "" :
+             source.type === "link" && source.preview?.duration && source.preview.duration > 0 && Math.ceil(source.preview.duration / 60) !== 1 ? "s" : ""}
+    </span>{" "}
+    of your allowance.
+  </div>
+</div>
                         <div className="mt-4 border-t border-zinc-800/60 pt-4 flex items-center justify-between">
                           <p className="text-[11px] text-zinc-500">
                             This helps the AI better understand your content&apos;s
