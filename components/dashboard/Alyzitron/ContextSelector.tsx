@@ -254,6 +254,28 @@ export function ContextSelector({
               selected={value.tone}
               onSelect={(id) => onChange({ ...value, tone: id })}
             />
+            
+            {/* Additional Details */}
+            <div>
+              <div className="flex items-center gap-2 mb-2.5">
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-zinc-800/40 ring-1 ring-inset ring-white/5">
+                  <MessageSquare className="h-3.5 w-3.5 text-zinc-400" />
+                </span>
+                <h4 className="text-[13px] font-medium text-zinc-100 tracking-tight">
+                  Additional Details
+                </h4>
+              </div>
+              <textarea
+                placeholder="Provide any additional context, requirements, or specific areas you'd like the analysis to focus on..."
+                value={value.additionalDetails || ""}
+                onChange={(e) => onChange({ ...value, additionalDetails: e.target.value })}
+                className="w-full h-20 px-3 py-2 text-sm bg-zinc-900/40 border border-zinc-800/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 resize-none text-zinc-200 placeholder:text-zinc-500"
+                rows={3}
+              />
+              <p className="text-xs text-zinc-500 mt-1">
+                Optional: Provide additional context to help tailor the analysis to your specific needs.
+              </p>
+            </div>
           </div>
         </motion.div>
       )}
