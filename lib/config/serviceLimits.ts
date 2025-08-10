@@ -32,7 +32,7 @@ export const SERVICE_LIMIT_DEFINITIONS: Record<string, ServiceLimitConfig> = {
     description: 'Total minutes of video analyses you can perform per week, regardless of video type or content category.',
     icon: 'BarChart2',
     defaultResetPeriod: 'weekly',
-    category: 'count',
+    category: 'duration',
     unit: 'minutes'
   },
 

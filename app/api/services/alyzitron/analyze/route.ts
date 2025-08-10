@@ -105,8 +105,8 @@ export async function POST(request: Request) {
       return createAlyzitronLimitResponse(limitCheck);
     }
 
-    // Increment usage count BEFORE creating task to ensure proper limit enforcement
-    const usageResult = await incrementAlyzitronUsage(requestData, 1);
+    // Increment usage duration BEFORE creating task to ensure proper limit enforcement
+    const usageResult = await incrementAlyzitronUsage(requestData, videoDuration);
 
     if (!usageResult.success) {
       logger.error('Failed to increment Alyzitron usage', {
@@ -250,8 +250,8 @@ export async function POST(request: Request) {
         }
       }
 
-      // Refund usage if task processing failed
-      const refundResult = await incrementAlyzitronUsage(requestData, -1);
+      // Refund usage duration if task processing failed
+      const refundResult = await incrementAlyzitronUsage(requestData, -videoDuration);
       if (!refundResult.success) {
         logger.error('Failed to refund Alyzitron usage', {
           data: {

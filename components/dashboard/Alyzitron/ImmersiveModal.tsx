@@ -12,8 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useVideoAnalysis } from "@/app/dashboard/alyzitron/hooks/useVideoAnalysis";
 import { Analysis } from "@/app/dashboard/alyzitron/types/analysis";
 
-// Mock usage data - in a real app, this would come from an API
-const mockUsage = { minutesUsed: 48, minutesCap: 60 };
+// Usage data will be passed as a prop from the parent component
 
 type Source =
   | { type: "none" }
@@ -31,6 +30,11 @@ interface ImmersiveModalProps {
   onSubmit: (analysisId: string, analysis: Analysis) => void;
   onComplete: (analysisId: string, analysis: Analysis) => void;
   uploadStates: Map<string, any>;
+  usageData?: {
+    minutesUsed: number;
+    minutesCap: number | string;
+    remaining: number | string;
+  };
 }
 
 export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
@@ -40,12 +44,14 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   onSubmit,
   onComplete,
   uploadStates,
+  usageData,
 }) => {
   // Modal manages its own state
   const [context, setContext] = useState<ContextValues>({
     niche: "",
     audience: "",
     tone: "",
+    additionalDetails: "",
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
@@ -898,12 +904,30 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                           />
                         </div>
 
+                        {/* Additional Details Textarea */}
+                        <div className="mt-4">
+                          <label htmlFor="additional-details" className="block text-xs uppercase tracking-wider text-zinc-400/80 mb-2">
+                            Additional Details
+                          </label>
+                          <textarea
+                            id="additional-details"
+                            placeholder="Provide any additional context, requirements, or specific areas you'd like the analysis to focus on..."
+                            value={context.additionalDetails || ""}
+                            onChange={(e) => setContext({ ...context, additionalDetails: e.target.value })}
+                            className="w-full h-20 px-3 py-2 text-sm bg-zinc-900/40 border border-zinc-800/60 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 resize-none text-zinc-200 placeholder:text-zinc-500"
+                            rows={3}
+                          />
+                          <p className="text-xs text-zinc-500 mt-1">
+                            Optional: Provide additional context to help tailor the analysis to your specific needs.
+                          </p>
+                        </div>
+
 {/* Usage meter (subtle near Begin Analysis) */}
 <div className="mt-4 text-xs text-zinc-400 space-y-1">
   <div>
     Monthly analysis allowance:{" "}
     <span className="text-zinc-200 font-medium">
-      {mockUsage.minutesUsed} / {mockUsage.minutesCap} minutes
+      {usageData?.remaining || '-'} / {usageData?.minutesCap || '-'} minutes
     </span>{" "}
     remaining.
   </div>

@@ -14,14 +14,14 @@ export async function POST(request: Request) {
   try {
     // 2. Parse request body
     const body = await request.json();
-    const { taskType, userid: userId } = body;
+    const { taskType, userid: userId, minutes } = body;
 
-    if (!taskType || !userId) {
-      return new NextResponse('Missing required fields: taskType or userid', { status: 400 });
+    if (!taskType || !userId || minutes === undefined) {
+      return new NextResponse('Missing required fields: taskType, userid, or minutes', { status: 400 });
     }
 
     // 3. Process refund
-    await processRefund('alyzitron', taskType, userId);
+    await processRefund('alyzitron', taskType, userId, minutes);
 
     return new NextResponse('Refund processed successfully', { status: 200 });
   } catch (error) {

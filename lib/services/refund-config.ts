@@ -9,8 +9,8 @@ export const REFUND_MAPPING: RefundMapping = {
     thumbnail_gen: ['maxThumbnailGeneration'],
   },
   alyzitron: {
-    analysis: ['maxTotalAnalysis'],
-    analysis_long: ['maxTotalAnalysis','maxOver20MinuteAnalysis'],
+    analysis: ['AnalysisMinutes'],
+    analysis_long: ['AnalysisMinutes'],
   },
   musitron: {
     music_generation: ['maxMusicGeneration'],

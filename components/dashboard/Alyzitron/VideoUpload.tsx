@@ -2,6 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery } from '@tanstack/react-query';
 import { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -55,6 +56,42 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   
   const { toast } = useToast();
+
+  // Fetch usage data using React Query
+  const { data: usageData } = useQuery({
+    queryKey: ['alyzitron-analytics'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/user/service-usage?service=alyzitron');
+        if (!response.ok) {
+          throw new Error('Failed to fetch usage data');
+        }
+        const data = await response.json();
+        const alyzitronUsage = data.AnalysisMinutes;
+        if (alyzitronUsage) {
+          return {
+            minutesUsed: alyzitronUsage.currentUsage,
+            minutesCap: alyzitronUsage.maxUsage === -1 ? '∞' : alyzitronUsage.maxUsage,
+            remaining: alyzitronUsage.remaining === -1 ? '∞' : alyzitronUsage.remaining
+          };
+        }
+        return {
+          minutesUsed: 0,
+          minutesCap: 60,
+          remaining: 60
+        };
+      } catch (error) {
+        console.error('Failed to fetch usage data:', error);
+        return {
+          minutesUsed: 0,
+          minutesCap: 60,
+          remaining: 60
+        };
+      }
+    },
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    gcTime: 30 * 60 * 1000, // 30 minutes
+  });
 
   // Local input state to ensure a visible, controlled URL input when source.type === 'none'
   const [inputUrl, setInputUrl] = useState<string>('');
@@ -443,6 +480,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
             onSubmit={onSubmit}
             onComplete={onComplete}
             uploadStates={uploadStates}
+            usageData={usageData || undefined}
           />
 
           {/* Progress overlay - moved to ImmersiveModal */}

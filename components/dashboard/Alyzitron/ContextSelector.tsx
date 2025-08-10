@@ -14,6 +14,7 @@ export type ContextValues = {
   niche: string;
   audience: string;
   tone: string;
+  additionalDetails?: string;
 };
 
 interface ContextSelectorProps {

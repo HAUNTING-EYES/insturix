@@ -5,63 +5,33 @@ export const ALYZITRON_LIMIT_CONFIG: LimitConfig = {
   serviceName: 'alyzitron',
   limitMappings: {
     // All analyses count toward total weekly limit (regardless of content type)
-    'general': 'maxTotalAnalysis',
-    // Videos over 20 minutes have additional limit
-    'longVideo': 'maxOver20MinuteAnalysis',
+    'general': 'AnalysisMinutes',
   },
-  defaultLimitType: 'maxTotalAnalysis'
+  defaultLimitType: 'AnalysisMinutes'
 };
 
 // Create Alyzitron-specific middleware instance
 export const alyzitronLimitMiddleware = createLimitMiddleware(ALYZITRON_LIMIT_CONFIG);
 
-// Enhanced limit checking for Alyzitron (checks multiple limits)
+// Enhanced limit checking for Alyzitron (checks duration-based limits)
 type AlyzitronRequest = {
-  type?: string;
-  videoDuration?: number;
+  videoDuration: number;
   [key: string]: unknown;
 };
 
 export const checkAlyzitronLimits = async (requestData: AlyzitronRequest) => {
   const middleware = alyzitronLimitMiddleware;
   
-  // Always check total analysis limit
-  const totalCheck = await middleware.checkLimits({ ...requestData, limitType: 'general' });
-  if (!totalCheck.success || !totalCheck.hasAccess) {
-    return totalCheck;
-  }
-
-
-  // Check long video limit if video duration > 20 minutes
-  if (typeof requestData.videoDuration === 'number' && requestData.videoDuration > 1200) { // 20 minutes = 1200 seconds
-    const longVideoCheck = await middleware.checkLimits({ ...requestData, limitType: 'longVideo' });
-    if (!longVideoCheck.success || !longVideoCheck.hasAccess) {
-      return longVideoCheck;
-    }
-  }
-
-  return totalCheck; // All checks passed
+  // Always check total analysis minutes limit
+  return middleware.checkLimits({ ...requestData, limitType: 'general' });
 };
 
-// Enhanced usage increment for Alyzitron (only tracks persistent counts)
-export const incrementAlyzitronUsage = async (requestData: AlyzitronRequest, amount?: number) => {
+// Enhanced usage increment for Alyzitron (tracks duration in minutes)
+export const incrementAlyzitronUsage = async (requestData: AlyzitronRequest, minutes: number) => {
   const middleware = alyzitronLimitMiddleware;
   
-  // Always increment total analysis count
-  const totalResult = await middleware.incrementUsage({ ...requestData, limitType: 'general' }, amount);
-  if (!totalResult.success) {
-    return totalResult;
-  }
-
-  // Increment long video count if applicable
-  if (typeof requestData.videoDuration === 'number' && requestData.videoDuration > 1200) {
-    const longVideoResult = await middleware.incrementUsage({ ...requestData, limitType: 'longVideo' }, amount);
-    if (!longVideoResult.success) {
-      return longVideoResult;
-    }
-  }
-
-  return totalResult;
+  // Always increment total analysis minutes by the specified minutes
+  return middleware.incrementUsage({ ...requestData, limitType: 'general' }, minutes);
 };
 
 import type { LimitCheckResult } from '../limitMiddleware';
