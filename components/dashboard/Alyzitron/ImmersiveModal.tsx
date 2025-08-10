@@ -58,6 +58,11 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     tone: "",
     additionalDetails: "",
   });
+
+  // Log context changes for debugging
+  useEffect(() => {
+    console.log("📊 Context state updated:", context);
+  }, [context]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     progress: number;
@@ -243,6 +248,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       context: ContextValues,
       onSubmit: (analysisId: string, analysis: Analysis) => void
     ) => {
+      console.log("🔧 handleStartAnalysisOnly called with context:", context);
       if (!source.type) return;
 
       setIsProcessing(true);
@@ -257,12 +263,28 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
       try {
         let result;
+        const contextForAnalysis = JSON.parse(JSON.stringify(context));
+        console.log(
+          "📋 Context being sent to startAnalysis:",
+          contextForAnalysis
+        );
+
         if (source.type === "file") {
           // File should already be uploaded, start analysis
+          const payload = {
+            videoUrl: "file://" + submissionId,
+            submissionId: submissionId,
+            context: contextForAnalysis,
+            sourceType: "file",
+          };
+          console.log(
+            "🚀 Sending payload to analyze route (file):",
+            JSON.stringify(payload, null, 2)
+          );
           result = await startAnalysis(
             "file://" + submissionId,
             submissionId,
-            JSON.parse(JSON.stringify(context))
+            contextForAnalysis
           );
         } else if (source.type === "link") {
           if (!isYouTubeUrl(source.url)) {
@@ -274,10 +296,21 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
             setIsProcessing(false);
             return;
           }
+          const payload = {
+            videoUrl: source.url,
+            submissionId: submissionId,
+            context: contextForAnalysis,
+            sourceType: "link",
+            preview: source.preview,
+          };
+          console.log(
+            "🚀 Sending payload to analyze route (link):",
+            JSON.stringify(payload, null, 2)
+          );
           result = await startAnalysis(
             source.url,
             submissionId,
-            JSON.parse(JSON.stringify(context))
+            contextForAnalysis
           );
         }
 
@@ -345,7 +378,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setIsProcessing(false);
       }
     },
-    [analysisId, isYouTubeUrl, startAnalysis, toast]
+    [analysisId, isYouTubeUrl, startAnalysis, toast, context]
   );
 
   // Handle analysis completion
@@ -624,7 +657,14 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   };
 
   const handleStartAnalysis = async () => {
+    console.log("🚀 handleStartAnalysis called with context:", context);
     if (!source.type || !context.niche || !context.audience || !context.tone) {
+      console.warn("❌ Missing required context fields:", {
+        hasSource: !!source.type,
+        hasNiche: !!context.niche,
+        hasAudience: !!context.audience,
+        hasTone: !!context.tone,
+      });
       setError("Please fill all context fields");
       return;
     }
@@ -975,7 +1015,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   <ContextSelector
                     show={true}
                     value={context}
-                    onChange={setContext}
+                    onChange={(newContext) => {
+                      console.log(
+                        "🔄 ContextSelector onChange called:",
+                        newContext
+                      );
+                      setContext(newContext);
+                    }}
                   />
 
                   {/* Usage Info */}

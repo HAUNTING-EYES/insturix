@@ -21,7 +21,6 @@ export async function GET(request: NextRequest) {
       const allUsage = await ServiceUsageService.getServiceUsageForAllServices(session.userId);
       const serviceUsage = allUsage[serviceName] || {};
       
-      console.log(`[API] Service usage for ${serviceName}:`, serviceUsage);
       return NextResponse.json(serviceUsage);
     } else {
       // Get usage for all services

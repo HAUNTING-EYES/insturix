@@ -51,10 +51,10 @@ export async function POST(request: Request) {
 
     // Ensure context is properly typed as ContextValues
     const parsedContext: ContextValues = {
-      niche: context?.niche || '',
-      audience: context?.audience || '',
-      tone: context?.tone || '',
-      additionalDetails: context?.additionalDetails || ''
+      niche: context.niche,
+      audience: context.audience,
+      tone: context.tone,
+      additionalDetails: context.additionalDetails
     };
 
     if (!video_url) {
@@ -111,7 +111,9 @@ export async function POST(request: Request) {
     }
 
     // Increment usage duration BEFORE creating task to ensure proper limit enforcement
-    const usageResult = await incrementAlyzitronUsage(requestData, videoDuration);
+    // Convert seconds to minutes for usage tracking
+    const usageMinutes = Math.ceil(videoDuration / 60);
+    const usageResult = await incrementAlyzitronUsage(requestData, usageMinutes);
 
     if (!usageResult.success) {
       logger.error('Failed to increment Alyzitron usage', {
@@ -256,7 +258,9 @@ export async function POST(request: Request) {
       }
 
       // Refund usage duration if task processing failed
-      const refundResult = await incrementAlyzitronUsage(requestData, -videoDuration);
+      // Convert seconds to minutes for usage tracking (same as increment)
+      const refundMinutes = Math.ceil(videoDuration / 60);
+      const refundResult = await incrementAlyzitronUsage(requestData, -refundMinutes);
       if (!refundResult.success) {
         logger.error('Failed to refund Alyzitron usage', {
           data: {

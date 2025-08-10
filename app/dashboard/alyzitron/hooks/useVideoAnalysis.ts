@@ -381,7 +381,7 @@ export function useVideoAnalysis() {
     async (
       videoUrl: string,
       analysisId: string,
-      additional_details?: Record<string, any>
+      context: Record<string, any>
     ) => {
       try {
         setUploadStates((prev) => {
@@ -403,8 +403,8 @@ export function useVideoAnalysis() {
 
         const requestData = {
           video_url: videoUrl,
-          // Always send additional_details as a JSON string to the backend
-          additional_details: JSON.stringify(additional_details || {}),
+          // Send context directly to match API expectations
+          context: context,
         };
 
         logger.info("Submitting analysis request", {
