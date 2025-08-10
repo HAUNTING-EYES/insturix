@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCollections } from "../utils/mongodb";
 import { auth } from "@clerk/nextjs/server";
 import { logger } from "../utils/logger";
+import { ObjectId } from "mongodb";
 
 export async function GET(request: Request) {
   try {
@@ -90,7 +91,7 @@ export async function PATCH(request: Request) {
     }
 
     const { analysisId } = await request.json();
-    
+
     if (!analysisId) {
       return NextResponse.json(
         { error: 'Analysis ID is required' },
@@ -98,11 +99,19 @@ export async function PATCH(request: Request) {
       );
     }
 
+    // Validate ObjectId format
+    if (!ObjectId.isValid(analysisId)) {
+      return NextResponse.json(
+        { error: 'Invalid analysis ID format' },
+        { status: 400 }
+      );
+    }
+
     const { analyses } = await getCollections();
-    
+
     const result = await analyses.updateOne(
       {
-        _id: analysisId,
+        _id: ObjectId.createFromHexString(analysisId),
         clerkUserId: session.userId
       },
       {

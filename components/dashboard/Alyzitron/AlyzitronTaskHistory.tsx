@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
-import Image from 'next/image';
-import type { AlyzitronAnalysis, AnalysisStatus } from '@/app/api/services/alyzitron/types';
-import { useTaskUpdater } from '@/hooks/useTaskUpdater';
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { useRouter } from "next/navigation";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
+import type {
+  AlyzitronAnalysis,
+  AnalysisStatus,
+} from "@/app/api/services/alyzitron/types";
+import { useTaskUpdater } from "@/hooks/useTaskUpdater";
 import {
   Loader2,
   History,
@@ -18,7 +21,7 @@ import {
   ChevronRight as ChevronRightIcon,
   Calendar,
   Clock,
-  AlertCircle
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -44,15 +47,17 @@ interface PaginatedAnalysisResponse {
 
 const DEFAULT_ITEMS_PER_PAGE = 6;
 
-
 interface AnalysisCardProps {
   analysis: AnalysisDisplay;
-  onClick: () => void;
+  onClick: (analysis: AnalysisDisplay) => void;
 }
 
 function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
-  const displayTitle = analysis.metadata?.originalFilename || `Analysis #${analysis._id?.toString().slice(-6)}`;
-  const isClickable = analysis.status === 'completed' || analysis.status === 'failed';
+  const displayTitle =
+    analysis.metadata?.originalFilename ||
+    `Analysis #${analysis._id?.toString().slice(-6)}`;
+  const isClickable =
+    analysis.status === "completed" || analysis.status === "failed";
 
   // Extract YouTube video ID from URL
   const extractYouTubeVideoId = (url: string): string | null => {
@@ -73,8 +78,13 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
     return null;
   };
 
-  const isYouTubeUrl = analysis.videoUrl && (analysis.videoUrl.includes('youtube.com') || analysis.videoUrl.includes('youtu.be'));
-  const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(analysis.videoUrl) : null;
+  const isYouTubeUrl =
+    analysis.videoUrl &&
+    (analysis.videoUrl.includes("youtube.com") ||
+      analysis.videoUrl.includes("youtu.be"));
+  const youtubeVideoId = isYouTubeUrl
+    ? extractYouTubeVideoId(analysis.videoUrl)
+    : null;
 
   return (
     <motion.div
@@ -85,10 +95,16 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
       <Card
         className={cn(
           "relative bg-black/40 border-zinc-800 backdrop-blur-xl",
-          analysis.status === 'processing' || analysis.status === 'queued' || analysis.status === 'listed' ? 'ring-1 ring-zinc-700' : '',
-          (analysis.status === 'completed' || analysis.status === 'failed') ? 'cursor-pointer hover:bg-black/50 transition-colors duration-300' : ''
+          analysis.status === "processing" ||
+            analysis.status === "queued" ||
+            analysis.status === "listed"
+            ? "ring-1 ring-zinc-700"
+            : "",
+          analysis.status === "completed" || analysis.status === "failed"
+            ? "cursor-pointer hover:bg-black/50 transition-colors duration-300"
+            : ""
         )}
-        onClick={isClickable ? onClick : undefined}
+        onClick={isClickable ? () => onClick(analysis) : undefined}
       >
         <CardContent className="flex items-center p-4">
           {/* Thumbnail Preview */}
@@ -96,7 +112,7 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
             {youtubeVideoId ? (
               <Image
                 src={`https://img.youtube.com/vi/${youtubeVideoId}/hqdefault.jpg`}
-                alt={displayTitle || 'Video thumbnail'}
+                alt={displayTitle || "Video thumbnail"}
                 fill
                 sizes="48px"
                 className="object-cover"
@@ -111,14 +127,17 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                 "h-6 w-6 text-zinc-400",
                 youtubeVideoId ? "hidden" : ""
               )}
-              style={{ display: youtubeVideoId ? 'none' : 'block' }}
+              style={{ display: youtubeVideoId ? "none" : "block" }}
             />
           </div>
 
           {/* Analysis Info */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
-              <h3 className="text-sm font-medium text-zinc-100 truncate" title={displayTitle}>
+              <h3
+                className="text-sm font-medium text-zinc-100 truncate"
+                title={displayTitle}
+              >
                 {displayTitle}
               </h3>
             </div>
@@ -130,10 +149,13 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
               {analysis.completedAt && (
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  {new Date(analysis.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {new Date(analysis.completedAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </div>
               )}
-              {analysis.status === 'failed' && analysis.error && (
+              {analysis.status === "failed" && analysis.error && (
                 <div className="flex items-center gap-1 text-red-400">
                   <AlertCircle className="h-3 w-3" />
                   Error
@@ -146,7 +168,7 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
           <div className="ml-4 flex items-center gap-4">
             <div className="text-right min-h-[40px] flex flex-col items-end justify-center">
               <AnimatePresence mode="wait" initial={false}>
-                {analysis.status === 'listed' && (
+                {analysis.status === "listed" && (
                   <motion.div
                     key="listed"
                     initial={{ opacity: 0 }}
@@ -158,7 +180,7 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                     Listed
                   </motion.div>
                 )}
-                {analysis.status === 'queued' && (
+                {analysis.status === "queued" && (
                   <motion.div
                     key="queued"
                     initial={{ opacity: 0 }}
@@ -167,10 +189,12 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                     transition={{ duration: 0.3 }}
                     className="text-sm text-zinc-400"
                   >
-                    {analysis.queuePosition != null ? `Queue: #${analysis.queuePosition}` : 'Queued'}
+                    {analysis.queuePosition != null
+                      ? `Queue: #${analysis.queuePosition}`
+                      : "Queued"}
                   </motion.div>
                 )}
-                {analysis.status === 'processing' && (
+                {analysis.status === "processing" && (
                   <motion.div
                     key="processing"
                     initial={{ opacity: 0 }}
@@ -183,7 +207,7 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                     <span>Processing</span>
                   </motion.div>
                 )}
-                {analysis.status === 'completed' && (
+                {analysis.status === "completed" && (
                   <motion.div
                     key="completed"
                     initial={{ opacity: 0 }}
@@ -192,7 +216,9 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                     transition={{ duration: 0.3 }}
                     className="flex items-center gap-2"
                   >
-                    <div className={`h-10 w-10 rounded-lg ${analysis.unread ? 'bg-white text-black':'text-white'} flex items-center justify-center`}>
+                    <div
+                      className={`h-10 w-10 rounded-lg ${analysis.unread ? "bg-white text-black" : "text-white"} flex items-center justify-center`}
+                    >
                       <svg
                         viewBox="0 0 24 24"
                         fill="none"
@@ -207,7 +233,7 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                     <ChevronRightIcon className="h-5 w-5 text-zinc-500" />
                   </motion.div>
                 )}
-                {analysis.status === 'failed' && (
+                {analysis.status === "failed" && (
                   <motion.div
                     key="failed"
                     initial={{ opacity: 0 }}
@@ -217,9 +243,13 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
                     className="flex items-center gap-2"
                   >
                     <div className="text-right">
-                      <div className="text-sm font-medium text-red-400">Failed</div>
+                      <div className="text-sm font-medium text-red-400">
+                        Failed
+                      </div>
                       {analysis.error?.code && (
-                        <div className="text-sm text-zinc-500">{analysis.error.code}</div>
+                        <div className="text-sm text-zinc-500">
+                          {analysis.error.code}
+                        </div>
                       )}
                     </div>
                     <ChevronRightIcon className="h-5 w-5 text-zinc-500" />
@@ -234,8 +264,11 @@ function AnalysisCard({ analysis, onClick }: AnalysisCardProps) {
   );
 }
 
-export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AlyzitronTaskHistoryProps) {
+export function AlyzitronTaskHistory({
+  itemsPerPage = DEFAULT_ITEMS_PER_PAGE,
+}: AlyzitronTaskHistoryProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
 
   // Align with Musitron/Clickatron: RTDB-driven invalidation only
@@ -244,10 +277,12 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
   // SERVER pagination: trust API metadata, no client slicing for history
   const { data: pageData, isLoading } = useQuery<PaginatedAnalysisResponse>({
     // Standardized per-service key: ['alyzitron-tasks', page, limit]
-    queryKey: ['alyzitron-tasks', currentPage, itemsPerPage],
+    queryKey: ["alyzitron-tasks", currentPage, itemsPerPage],
     queryFn: async () => {
-      const response = await fetch(`/api/services/alyzitron/analyses?page=${currentPage}&limit=${itemsPerPage}`);
-      if (!response.ok) throw new Error('Failed to fetch analyses');
+      const response = await fetch(
+        `/api/services/alyzitron/analyses?page=${currentPage}&limit=${itemsPerPage}`
+      );
+      if (!response.ok) throw new Error("Failed to fetch analyses");
       return response.json();
     },
     placeholderData: (previousData) => previousData,
@@ -257,12 +292,21 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
   });
 
   const pageItems = Array.isArray(pageData?.data) ? pageData!.data : [];
-  const inProgressStatuses: AnalysisStatus[] = ['listed', 'queued', 'processing'];
-  const inProgressAnalyses: AnalysisDisplay[] = pageItems.filter(a => inProgressStatuses.includes(a.status));
-  const completedFailedAnalyses: AnalysisDisplay[] = pageItems.filter(a => !inProgressStatuses.includes(a.status));
+  const inProgressStatuses: AnalysisStatus[] = [
+    "listed",
+    "queued",
+    "processing",
+  ];
+  const inProgressAnalyses: AnalysisDisplay[] = pageItems.filter((a) =>
+    inProgressStatuses.includes(a.status)
+  );
+  const completedFailedAnalyses: AnalysisDisplay[] = pageItems.filter(
+    (a) => !inProgressStatuses.includes(a.status)
+  );
 
   const totalPages = Math.max(1, Number(pageData?.pagination?.totalPages) || 1);
-  const totalItems = Number(pageData?.pagination?.totalItems) || pageItems.length;
+  const totalItems =
+    Number(pageData?.pagination?.totalItems) || pageItems.length;
   const processingAnalysesCount = inProgressAnalyses.length;
 
   const handlePreviousPage = () => {
@@ -273,8 +317,49 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
     setCurrentPage((prev) => Math.min(prev + 1, totalPages));
   };
 
-  const handleAnalysisClick = (analysisId: string) => {
-    router.push(`/dashboard/alyzitron/report/${analysisId}`);
+  const markAsRead = async (analysisId: string) => {
+    try {
+      // Update server using existing PATCH endpoint
+      const response = await fetch("/api/services/alyzitron/analyses", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ analysisId }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to mark analysis as read");
+      }
+
+      // Update local cache for all relevant query keys
+      queryClient.setQueriesData(
+        { queryKey: ["alyzitron-tasks"] },
+        (oldData: PaginatedAnalysisResponse | undefined) => {
+          if (!oldData) return oldData;
+
+          return {
+            ...oldData,
+            data: oldData.data.map((analysis) =>
+              analysis._id === analysisId
+                ? { ...analysis, unread: false }
+                : analysis
+            ),
+          };
+        }
+      );
+    } catch (error) {
+      console.error("Failed to mark analysis as read:", error);
+      // Continue with navigation even if marking as read fails
+    }
+  };
+
+  const handleAnalysisClick = async (analysis: AnalysisDisplay) => {
+    // Only mark as read if it's currently unread to avoid unnecessary API calls
+    if (analysis.unread) {
+      await markAsRead(analysis._id);
+    }
+    router.push(`/dashboard/alyzitron/report/${analysis._id}`);
   };
 
   return (
@@ -283,7 +368,9 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <History className="h-5 w-5 text-blue-400" />
-          <h2 className="text-lg sm:text-xl font-medium text-zinc-100">Analysis History</h2>
+          <h2 className="text-lg sm:text-xl font-medium text-zinc-100">
+            Analysis History
+          </h2>
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs">
               {totalItems} total
@@ -300,10 +387,16 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
       {/* In Progress Section */}
       {inProgressAnalyses && inProgressAnalyses.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-md font-semibold text-blue-300 mb-2">In Progress</h3>
+          <h3 className="text-md font-semibold text-blue-300 mb-2">
+            In Progress
+          </h3>
           <div className="space-y-3 sm:space-y-4">
             {inProgressAnalyses.map((analysis: AnalysisDisplay) => (
-              <AnalysisCard key={analysis._id} analysis={analysis} onClick={() => handleAnalysisClick(analysis._id)} />
+              <AnalysisCard
+                key={analysis._id}
+                analysis={analysis}
+                onClick={handleAnalysisClick}
+              />
             ))}
           </div>
         </div>
@@ -315,22 +408,27 @@ export function AlyzitronTaskHistory({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: 
           <div className="flex items-center justify-center h-full">
             <Loader2 className="h-6 w-6 animate-spin text-zinc-400" />
           </div>
-        ) : completedFailedAnalyses.length === 0 && inProgressAnalyses.length === 0 ? (
+        ) : completedFailedAnalyses.length === 0 &&
+          inProgressAnalyses.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-700 bg-black/20 py-24 px-6">
             <FileVideo className="h-12 w-12 text-zinc-500 mb-4" />
-            <p className="text-zinc-400 text-center mb-2">No analyses found yet</p>
+            <p className="text-zinc-400 text-center mb-2">
+              No analyses found yet
+            </p>
             <p className="text-zinc-500 text-sm text-center">
               Start an analysis using the form above to see it appear here.
             </p>
           </div>
         ) : (
           <>
-            <h3 className="text-md font-semibold text-blue-300 mb-2">Completed</h3>
+            <h3 className="text-md font-semibold text-blue-300 mb-2">
+              Completed
+            </h3>
             {completedFailedAnalyses.map((analysis) => (
               <AnalysisCard
                 key={analysis._id}
                 analysis={analysis}
-                onClick={() => handleAnalysisClick(analysis._id)}
+                onClick={handleAnalysisClick}
               />
             ))}
 
