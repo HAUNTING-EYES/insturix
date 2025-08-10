@@ -37,23 +37,34 @@ export async function POST(request: Request) {
       expiresAt: { $lt: new Date() },
     }).toArray();
 
-    logger.info('Found orphaned uploads for cleanup', {
-      data: { count: orphanedUploads.length },
+    // Also find uploads that are stuck in intermediate states and expired
+    const stuckUploads = await uploadTracking.find({
+      status: { $in: ['analysis_started', 'queued'] },
+      expiresAt: { $lt: new Date() },
+    }).toArray();
+
+    logger.info('Found uploads for cleanup', {
+      data: {
+        orphanedCount: orphanedUploads.length,
+        stuckCount: stuckUploads.length,
+      },
     });
 
-    if (orphanedUploads.length === 0) {
-      return NextResponse.json({ 
-        success: true, 
-        message: 'No orphaned uploads found',
-        cleaned: 0 
+    const allUploadsToClean = [...orphanedUploads, ...stuckUploads];
+    
+    if (allUploadsToClean.length === 0) {
+      return NextResponse.json({
+        success: true,
+        message: 'No uploads to clean found',
+        cleaned: 0
       });
     }
 
     let cleanedCount = 0;
     const batchSize = 10; // Process in batches to avoid timeouts
 
-    for (let i = 0; i < orphanedUploads.length && i < batchSize; i++) {
-      const upload = orphanedUploads[i];
+    for (let i = 0; i < allUploadsToClean.length && i < batchSize; i++) {
+      const upload = allUploadsToClean[i];
       
       try {
         // Extract object name from GCS path
@@ -64,30 +75,22 @@ export async function POST(request: Request) {
         // Delete from GCS
         await bucket.file(objectName).delete({ ignoreNotFound: true });
 
-        // Update database record
-        await uploadTracking.updateOne(
-          { _id: upload._id },
-          { 
-            $set: { 
-              status: 'deleted',
-              deletedAt: new Date(),
-            }
-          }
-        );
+        // Delete the database record completely
+        await uploadTracking.deleteOne({ _id: upload._id });
 
         cleanedCount++;
         
-        logger.info('Cleaned up orphaned upload', {
-          data: { 
-            uploadId: upload.uploadId, 
+        logger.info('Cleaned up expired upload', {
+          data: {
+            uploadId: upload.uploadId,
             gcsPath: upload.gcsPath,
             userId: upload.userId,
           },
         });
 
       } catch (error) {
-        logger.error('Failed to cleanup orphaned upload', {
-          data: { 
+        logger.error('Failed to cleanup expired upload', {
+          data: {
             uploadId: upload.uploadId,
             gcsPath: upload.gcsPath,
             error: error instanceof Error ? error.message : String(error),
@@ -101,8 +104,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Cleaned up ${cleanedCount} orphaned uploads`,
+      message: `Cleaned up ${cleanedCount} expired uploads`,
       cleaned: cleanedCount,
+      orphanedCount: orphanedUploads.length,
+      stuckCount: stuckUploads.length,
       remaining,
     });
 
