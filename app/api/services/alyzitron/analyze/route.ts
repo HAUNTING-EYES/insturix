@@ -9,10 +9,12 @@ import {
   createAlyzitronLimitResponse
 } from '@/lib/middleware/services/alyzitron';
 
+import { ContextValues } from "@/components/dashboard/Alyzitron/ContextSelector";
+
 interface AlyzitronGenerateRequest {
   clerkUserId: string;
   videoUrl: string;
-  additionalDetails?: Record<string, any> | null;
+  context: ContextValues;
   metadata: MetadataModel;
 }
 
@@ -45,12 +47,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const { video_url, additional_details } = await request.json();
+    const { video_url, context } = await request.json();
 
-    // Ensure additional_details is always an object, not a string
-    const parsedAdditionalDetails = typeof additional_details === 'string'
-      ? JSON.parse(additional_details || '{}')
-      : (additional_details || {});
+    // Ensure context is properly typed as ContextValues
+    const parsedContext: ContextValues = {
+      niche: context?.niche || '',
+      audience: context?.audience || '',
+      tone: context?.tone || '',
+      additionalDetails: context?.additionalDetails || ''
+    };
 
     if (!video_url) {
       return NextResponse.json(
@@ -87,7 +92,7 @@ export async function POST(request: Request) {
     // Check service limits using enhanced middleware
     const requestData = {
       video_url,
-      additional_details: parsedAdditionalDetails,
+      context: parsedContext,
       videoDuration
     };
 
@@ -177,7 +182,7 @@ export async function POST(request: Request) {
       const generateRequest: AlyzitronGenerateRequest = {
         clerkUserId: session.userId,
         videoUrl: finalVideoUrl,
-        additionalDetails: parsedAdditionalDetails,
+        context: parsedContext,
         metadata: metadata,
       };
 

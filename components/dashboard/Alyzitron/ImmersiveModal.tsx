@@ -71,8 +71,10 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const [analysisStarted, setAnalysisStarted] = useState(false);
   const [uploadCompleted, setUploadCompleted] = useState(false);
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
+  const [showScrollIndicator, setShowScrollIndicator] = useState(false);
 
   const { toast } = useToast();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const {
     uploadVideo,
     startAnalysis,
@@ -576,6 +578,32 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     }
   }, [uploadProgress?.status, analysisId, deleteUploadedFile]);
 
+  // Check if content is scrollable and show scroll indicator
+  useEffect(() => {
+    const checkScrollable = () => {
+      const container = scrollContainerRef.current;
+      if (container) {
+        const isScrollable = container.scrollHeight > container.clientHeight;
+        const isAtBottom =
+          container.scrollTop + container.clientHeight >=
+          container.scrollHeight - 10;
+        setShowScrollIndicator(isScrollable && !isAtBottom);
+      }
+    };
+
+    const container = scrollContainerRef.current;
+    if (container) {
+      checkScrollable();
+      container.addEventListener("scroll", checkScrollable);
+      window.addEventListener("resize", checkScrollable);
+
+      return () => {
+        container.removeEventListener("scroll", checkScrollable);
+        window.removeEventListener("resize", checkScrollable);
+      };
+    }
+  }, [open, source, context]);
+
   const formatBytes = (bytes: number) => {
     if (!bytes) return "0 B";
     const k = 1024;
@@ -633,8 +661,33 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     onOpenChange(false);
   };
 
+  // Calculate analysis cost in minutes
+  const getAnalysisCost = () => {
+    if (source.type === "file" && source.duration > 0) {
+      return Math.ceil(source.duration / 60);
+    } else if (
+      source.type === "link" &&
+      source.preview?.duration &&
+      source.preview.duration > 0
+    ) {
+      return Math.ceil(source.preview.duration / 60);
+    }
+    return 0;
+  };
+
+  const analysisCost = getAnalysisCost();
+  const remainingMinutes =
+    typeof usageData?.remaining === "string"
+      ? parseInt(usageData.remaining)
+      : usageData?.remaining || 0;
+  const hasInsufficientMinutes = analysisCost > remainingMinutes;
+
   const canSubmit =
-    source.type !== "none" && context.niche && context.audience && context.tone;
+    source.type !== "none" &&
+    context.niche &&
+    context.audience &&
+    context.tone &&
+    !hasInsufficientMinutes;
 
   return (
     <>
@@ -677,300 +730,386 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
             {/* Content */}
             <motion.div
+              ref={scrollContainerRef}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5, ease: "easeOut", delay: 0.05 }}
-              className="px-6 pb-6 pt-5 overflow-y-auto"
+              className="flex-1 overflow-y-auto scrollbar-thin scrollbar-track-zinc-900/50 scrollbar-thumb-zinc-700/70 hover:scrollbar-thumb-zinc-600/80"
+              style={{
+                scrollbarWidth: "thin",
+                scrollbarColor:
+                  "rgba(113, 113, 122, 0.7) rgba(24, 24, 27, 0.5)",
+              }}
             >
-              {/* Video Preview Section */}
-              <div className="flex items-start gap-4 mb-6 p-4 rounded-xl bg-zinc-950/50 border border-zinc-800/70 ring-1 ring-white/5">
-                <div className="relative w-[120px] h-[67.5px] flex-shrink-0 rounded-lg overflow-hidden border border-zinc-800/60 bg-zinc-900/50">
-                  {source.type === "link" && source.preview?.thumbnail ? (
-                    <div className="w-full h-full relative">
-                      <Image
-                        src={source.preview.thumbnail}
-                        alt={source.preview.title || "Video thumbnail"}
-                        fill
-                        className="object-cover"
+              <div className="px-6 pt-5 pb-4">
+                {/* Video Preview Section */}
+                <div className="flex items-start gap-4 mb-6 p-4 rounded-xl bg-zinc-950/50 border border-zinc-800/70 ring-1 ring-white/5">
+                  <div className="relative w-[120px] h-[67.5px] flex-shrink-0 rounded-lg overflow-hidden border border-zinc-800/60 bg-zinc-900/50">
+                    {source.type === "link" && source.preview?.thumbnail ? (
+                      <div className="w-full h-full relative">
+                        <Image
+                          src={source.preview.thumbnail}
+                          alt={source.preview.title || "Video thumbnail"}
+                          fill
+                          className="object-cover"
+                        />
+                      </div>
+                    ) : source.type === "file" && previewUrl ? (
+                      <video
+                        src={previewUrl}
+                        className="w-full h-full object-cover"
+                        muted
+                        playsInline
                       />
-                    </div>
-                  ) : source.type === "file" && previewUrl ? (
-                    <video
-                      src={previewUrl}
-                      className="w-full h-full object-cover"
-                      muted
-                      playsInline
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs">
-                      <Upload className="h-4 w-4" />
-                    </div>
-                  )}
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-zinc-500 text-xs">
+                        <Upload className="h-4 w-4" />
+                      </div>
+                    )}
 
-                  {/* Upload progress overlay */}
-                  <AnimatePresence mode="wait">
-                    {source.type === "file" &&
-                      uploadProgress?.status === "uploading" && (
-                        <motion.div
-                          key="uploading"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          transition={{ duration: 0.3, ease: "easeOut" }}
-                          className="absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center rounded-md"
-                        >
-                          {/* Futuristic circular progress indicator */}
-                          <div className="relative w-14 h-14">
-                            {/* Outer glow ring */}
-                            <div className="absolute inset-0 rounded-full bg-blue-500/20 blur-md animate-pulse"></div>
+                    {/* Upload progress overlay */}
+                    <AnimatePresence mode="wait">
+                      {source.type === "file" &&
+                        uploadProgress?.status === "uploading" && (
+                          <motion.div
+                            key="uploading"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            transition={{ duration: 0.3, ease: "easeOut" }}
+                            className="absolute inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center rounded-md"
+                          >
+                            {/* Futuristic circular progress indicator */}
+                            <div className="relative w-14 h-14">
+                              {/* Outer glow ring */}
+                              <div className="absolute inset-0 rounded-full bg-blue-500/20 blur-md animate-pulse"></div>
 
-                            {/* Main progress ring */}
-                            <svg
-                              className="w-14 h-14 transform -rotate-90 relative z-10"
-                              viewBox="0 0 56 56"
-                            >
-                              {/* Background track */}
-                              <circle
-                                cx="28"
-                                cy="28"
-                                r="22"
-                                stroke="currentColor"
-                                strokeWidth="4"
-                                fill="none"
-                                className="text-zinc-700/50"
-                              />
-
-                              {/* Progress circle with gradient */}
-                              <defs>
-                                <linearGradient
-                                  id="progressGradient"
-                                  x1="0%"
-                                  y1="0%"
-                                  x2="100%"
-                                  y2="100%"
-                                >
-                                  <stop offset="0%" stopColor="#3b82f6" />
-                                  <stop offset="50%" stopColor="#06b6d4" />
-                                  <stop offset="100%" stopColor="#8b5cf6" />
-                                </linearGradient>
-                                <filter id="glow">
-                                  <feGaussianBlur
-                                    stdDeviation="2"
-                                    result="coloredBlur"
-                                  />
-                                  <feMerge>
-                                    <feMergeNode in="coloredBlur" />
-                                    <feMergeNode in="SourceGraphic" />
-                                  </feMerge>
-                                </filter>
-                              </defs>
-
-                              <circle
-                                cx="28"
-                                cy="28"
-                                r="22"
-                                stroke="url(#progressGradient)"
-                                strokeWidth="4"
-                                fill="none"
-                                strokeDasharray={`${2 * Math.PI * 22}`}
-                                strokeDashoffset={`${2 * Math.PI * 22 * (1 - (uploadProgress?.progress ?? 0) / 100)}`}
-                                className="transition-all duration-700 ease-out drop-shadow-lg"
-                                strokeLinecap="round"
-                                filter="url(#glow)"
-                              />
-
-                              {/* Inner accent ring */}
-                              <circle
-                                cx="28"
-                                cy="28"
-                                r="18"
-                                stroke="currentColor"
-                                strokeWidth="1"
-                                fill="none"
-                                className="text-blue-400/30"
-                              />
-                            </svg>
-
-                            {/* Percentage text with futuristic styling */}
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="text-xs font-bold text-white tracking-wider drop-shadow-lg">
-                                {Math.round(uploadProgress?.progress ?? 0)}%
-                              </span>
-                            </div>
-
-                            {/* Rotating accent dots */}
-                            <motion.div
-                              animate={{ rotate: 360 }}
-                              transition={{
-                                duration: 3,
-                                repeat: Infinity,
-                                ease: "linear",
-                              }}
-                              className="absolute inset-0"
-                            >
-                              <div className="absolute top-0 left-1/2 w-1 h-1 bg-blue-400 rounded-full transform -translate-x-1/2 -translate-y-1"></div>
-                              <div className="absolute bottom-0 left-1/2 w-1 h-1 bg-cyan-400 rounded-full transform -translate-x-1/2 translate-y-1"></div>
-                            </motion.div>
-                          </div>
-                        </motion.div>
-                      )}
-
-                    {source.type === "file" &&
-                      uploadProgress?.status === "completed" && (
-                        <motion.div
-                          key="completed"
-                          initial={{ opacity: 0, scale: 0.8 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          exit={{ opacity: 0, scale: 0.8 }}
-                          transition={{ duration: 0.4, ease: "easeOut" }}
-                          className="absolute inset-0 bg-green-500/20 backdrop-blur-sm flex items-center justify-center rounded-md"
-                        >
-                          <div className="flex flex-col items-center">
-                            {/* Success checkmark */}
-                            <motion.div
-                              initial={{ scale: 0 }}
-                              animate={{ scale: 1 }}
-                              transition={{
-                                delay: 0.1,
-                                duration: 0.3,
-                                ease: "backOut",
-                              }}
-                              className="w-10 h-10 mb-2 rounded-full bg-green-500 flex items-center justify-center"
-                            >
+                              {/* Main progress ring */}
                               <svg
-                                className="w-5 h-5 text-white"
-                                fill="none"
-                                stroke="currentColor"
-                                viewBox="0 0 24 24"
+                                className="w-14 h-14 transform -rotate-90 relative z-10"
+                                viewBox="0 0 56 56"
                               >
-                                <path
+                                {/* Background track */}
+                                <circle
+                                  cx="28"
+                                  cy="28"
+                                  r="22"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                  fill="none"
+                                  className="text-zinc-700/50"
+                                />
+
+                                {/* Progress circle with gradient */}
+                                <defs>
+                                  <linearGradient
+                                    id="progressGradient"
+                                    x1="0%"
+                                    y1="0%"
+                                    x2="100%"
+                                    y2="100%"
+                                  >
+                                    <stop offset="0%" stopColor="#3b82f6" />
+                                    <stop offset="50%" stopColor="#06b6d4" />
+                                    <stop offset="100%" stopColor="#8b5cf6" />
+                                  </linearGradient>
+                                  <filter id="glow">
+                                    <feGaussianBlur
+                                      stdDeviation="2"
+                                      result="coloredBlur"
+                                    />
+                                    <feMerge>
+                                      <feMergeNode in="coloredBlur" />
+                                      <feMergeNode in="SourceGraphic" />
+                                    </feMerge>
+                                  </filter>
+                                </defs>
+
+                                <circle
+                                  cx="28"
+                                  cy="28"
+                                  r="22"
+                                  stroke="url(#progressGradient)"
+                                  strokeWidth="4"
+                                  fill="none"
+                                  strokeDasharray={`${2 * Math.PI * 22}`}
+                                  strokeDashoffset={`${2 * Math.PI * 22 * (1 - (uploadProgress?.progress ?? 0) / 100)}`}
+                                  className="transition-all duration-700 ease-out drop-shadow-lg"
                                   strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  strokeWidth={2}
-                                  d="M5 13l4 4L19 7"
+                                  filter="url(#glow)"
+                                />
+
+                                {/* Inner accent ring */}
+                                <circle
+                                  cx="28"
+                                  cy="28"
+                                  r="18"
+                                  stroke="currentColor"
+                                  strokeWidth="1"
+                                  fill="none"
+                                  className="text-blue-400/30"
                                 />
                               </svg>
-                            </motion.div>
-                            {/* Success text */}
-                            <span className="text-[10px] text-green-200 font-medium">
-                              Uploaded!
+
+                              {/* Percentage text with futuristic styling */}
+                              <div className="absolute inset-0 flex items-center justify-center">
+                                <span className="text-xs font-bold text-white tracking-wider drop-shadow-lg">
+                                  {Math.round(uploadProgress?.progress ?? 0)}%
+                                </span>
+                              </div>
+
+                              {/* Rotating accent dots */}
+                              <motion.div
+                                animate={{ rotate: 360 }}
+                                transition={{
+                                  duration: 3,
+                                  repeat: Infinity,
+                                  ease: "linear",
+                                }}
+                                className="absolute inset-0"
+                              >
+                                <div className="absolute top-0 left-1/2 w-1 h-1 bg-blue-400 rounded-full transform -translate-x-1/2 -translate-y-1"></div>
+                                <div className="absolute bottom-0 left-1/2 w-1 h-1 bg-cyan-400 rounded-full transform -translate-x-1/2 translate-y-1"></div>
+                              </motion.div>
+                            </div>
+                          </motion.div>
+                        )}
+
+                      {source.type === "file" &&
+                        uploadProgress?.status === "completed" && (
+                          <motion.div
+                            key="completed"
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            transition={{ duration: 0.4, ease: "easeOut" }}
+                            className="absolute inset-0 bg-green-500/20 backdrop-blur-sm flex items-center justify-center rounded-md"
+                          >
+                            <div className="flex flex-col items-center">
+                              {/* Success checkmark */}
+                              <motion.div
+                                initial={{ scale: 0 }}
+                                animate={{ scale: 1 }}
+                                transition={{
+                                  delay: 0.1,
+                                  duration: 0.3,
+                                  ease: "backOut",
+                                }}
+                                className="w-10 h-10 mb-2 rounded-full bg-green-500 flex items-center justify-center"
+                              >
+                                <svg
+                                  className="w-5 h-5 text-white"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  viewBox="0 0 24 24"
+                                >
+                                  <path
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                    strokeWidth={2}
+                                    d="M5 13l4 4L19 7"
+                                  />
+                                </svg>
+                              </motion.div>
+                              {/* Success text */}
+                              <span className="text-[10px] text-green-200 font-medium">
+                                Uploaded!
+                              </span>
+                            </div>
+                          </motion.div>
+                        )}
+                    </AnimatePresence>
+                  </div>
+
+                  <div className="min-w-0 flex-1">
+                    <h4 className="text-sm text-zinc-200 font-medium truncate">
+                      {source.type === "link"
+                        ? source.preview?.title || "Loading..."
+                        : source.type === "file"
+                          ? source.file.name
+                          : "—"}
+                    </h4>
+
+                    {/* Upload status */}
+                    <AnimatePresence mode="wait">
+                      {source.type === "file" && uploadProgress && (
+                        <motion.p
+                          key={uploadProgress.status}
+                          initial={{ opacity: 0, y: -4 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -4 }}
+                          transition={{ duration: 0.2 }}
+                          className="text-xs mt-1"
+                        >
+                          {uploadProgress.status === "uploading" && (
+                            <span className="text-blue-400 font-medium">
+                              Uploading...
                             </span>
-                          </div>
-                        </motion.div>
+                          )}
+                          {uploadProgress.status === "completed" && (
+                            <span className="text-green-400 font-medium">
+                              ✓ Uploaded
+                            </span>
+                          )}
+                          {uploadProgress.status === "error" && (
+                            <span className="text-red-400 font-medium">
+                              Upload failed
+                            </span>
+                          )}
+                        </motion.p>
                       )}
-                  </AnimatePresence>
+                    </AnimatePresence>
+
+                    <p className="text-xs text-zinc-500 mt-1">
+                      {source.type === "file" && source.file
+                        ? `${formatBytes(source.file.size)} • ${formatDuration(source.duration)}`
+                        : source.type === "link"
+                          ? "YouTube video"
+                          : ""}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-sm text-zinc-200 font-medium truncate">
-                    {source.type === "link"
-                      ? source.preview?.title || "Loading..."
-                      : source.type === "file"
-                        ? source.file.name
-                        : "—"}
-                  </h4>
+                {/* Context Section */}
+                <div className="space-y-4">
+                  <ContextSelector
+                    show={true}
+                    value={context}
+                    onChange={setContext}
+                  />
 
-                  {/* Upload status */}
-                  <AnimatePresence mode="wait">
-                    {source.type === "file" && uploadProgress && (
-                      <motion.p
-                        key={uploadProgress.status}
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.2 }}
-                        className="text-xs mt-1"
-                      >
-                        {uploadProgress.status === "uploading" && (
-                          <span className="text-blue-400 font-medium">
-                            Uploading...
-                          </span>
-                        )}
-                        {uploadProgress.status === "completed" && (
-                          <span className="text-green-400 font-medium">
-                            ✓ Uploaded
-                          </span>
-                        )}
-                        {uploadProgress.status === "error" && (
-                          <span className="text-red-400 font-medium">
-                            Upload failed
-                          </span>
-                        )}
-                      </motion.p>
-                    )}
-                  </AnimatePresence>
+                  {/* Usage Info */}
+                  <div className="text-xs text-zinc-400 space-y-1 p-3 bg-zinc-900/30 rounded-lg border border-zinc-800/40">
+                    <div>
+                      Monthly allowance:{" "}
+                      <span className="text-zinc-200 font-medium">
+                        {usageData?.remaining || "-"} /{" "}
+                        {usageData?.minutesCap || "-"} minutes
+                      </span>{" "}
+                      remaining
+                    </div>
+                    <div className="text-blue-400">
+                      This analysis will cost{" "}
+                      <span className="text-blue-300 font-medium">
+                        {source.type === "file" && source.duration === -1
+                          ? "-"
+                          : source.type === "file" && source.duration > 0
+                            ? Math.ceil(source.duration / 60)
+                            : source.type === "link" &&
+                                source.preview?.duration === -1
+                              ? "-"
+                              : source.type === "link" &&
+                                  source.preview?.duration &&
+                                  source.preview.duration > 0
+                                ? Math.ceil(source.preview.duration / 60)
+                                : "0"}{" "}
+                        minute
+                        {source.type === "file" && source.duration === -1
+                          ? ""
+                          : source.type === "file" &&
+                              source.duration > 0 &&
+                              Math.ceil(source.duration / 60) !== 1
+                            ? "s"
+                            : source.type === "link" &&
+                                source.preview?.duration === -1
+                              ? ""
+                              : source.type === "link" &&
+                                  source.preview?.duration &&
+                                  source.preview.duration > 0 &&
+                                  Math.ceil(source.preview.duration / 60) !== 1
+                                ? "s"
+                                : ""}
+                      </span>
+                    </div>
+                  </div>
+                </div>
 
-                  <p className="text-xs text-zinc-500 mt-1">
-                    {source.type === "file" && source.file
-                      ? `${formatBytes(source.file.size)} • ${formatDuration(source.duration)}`
-                      : source.type === "link"
-                        ? "YouTube video"
-                        : ""}
+                {/* Privacy Notice */}
+                <div className="mt-6 text-xs text-zinc-500 space-y-1">
+                  <p>
+                    • We upload your video to generate analysis and suggestions
                   </p>
+                  <p>• Your original file is never shared publicly</p>
                 </div>
               </div>
+            </motion.div>
 
-              {/* Context Section */}
-              <div className="space-y-4">
-                <ContextSelector
-                  show={true}
-                  value={context}
-                  onChange={setContext}
+            {/* Scroll Fade Indicator */}
+            <AnimatePresence>
+              {showScrollIndicator && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="absolute bottom-16 left-0 right-0 h-8 bg-gradient-to-t from-zinc-900/80 to-transparent pointer-events-none z-10"
                 />
+              )}
+            </AnimatePresence>
 
-                {/* Usage Info */}
-                <div className="text-xs text-zinc-400 space-y-1 p-3 bg-zinc-900/30 rounded-lg border border-zinc-800/40">
-                  <div>
-                    Monthly allowance:{" "}
-                    <span className="text-zinc-200 font-medium">
-                      {usageData?.remaining || "-"} /{" "}
-                      {usageData?.minutesCap || "-"} minutes
-                    </span>{" "}
-                    remaining
+            {/* Scroll Indicator */}
+            <AnimatePresence>
+              {showScrollIndicator && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  className="absolute bottom-20 left-1/2 transform -translate-x-1/2 z-10"
+                >
+                  <div className="flex flex-col items-center gap-2 px-2 py-2 bg-zinc-800/90 backdrop-blur-sm rounded-full border border-zinc-700/50 shadow-lg">
+                    <motion.div
+                      animate={{ y: [0, 4, 0] }}
+                      transition={{
+                        duration: 1.5,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                      }}
+                      className="text-zinc-400"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 14l-7 7m0 0l-7-7m7 7V3"
+                        />
+                      </svg>
+                    </motion.div>
                   </div>
-                  <div className="text-blue-400">
-                    This analysis will cost{" "}
-                    <span className="text-blue-300 font-medium">
-                      {source.type === "file" && source.duration === -1
-                        ? "-"
-                        : source.type === "file" && source.duration > 0
-                          ? Math.ceil(source.duration / 60)
-                          : source.type === "link" &&
-                              source.preview?.duration === -1
-                            ? "-"
-                            : source.type === "link" &&
-                                source.preview?.duration &&
-                                source.preview.duration > 0
-                              ? Math.ceil(source.preview.duration / 60)
-                              : "0"}{" "}
-                      minute
-                      {source.type === "file" && source.duration === -1
-                        ? ""
-                        : source.type === "file" &&
-                            source.duration > 0 &&
-                            Math.ceil(source.duration / 60) !== 1
-                          ? "s"
-                          : source.type === "link" &&
-                              source.preview?.duration === -1
-                            ? ""
-                            : source.type === "link" &&
-                                source.preview?.duration &&
-                                source.preview.duration > 0 &&
-                                Math.ceil(source.preview.duration / 60) !== 1
-                              ? "s"
-                              : ""}
-                    </span>
-                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Fixed Footer */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, ease: "easeOut", delay: 0.1 }}
+              className="shrink-0 px-6 py-4 border-t border-zinc-800/60 bg-gradient-to-t from-zinc-900/90 to-zinc-900/70 backdrop-blur-sm rounded-b-2xl"
+            >
+              {error && (
+                <div className="mb-4 p-3 rounded-lg border border-red-500/50 bg-red-500/10">
+                  <p className="text-sm text-red-400">{error}</p>
                 </div>
-              </div>
+              )}
 
-              {/* Actions */}
-              <div className="mt-6 pt-4 border-t border-zinc-800/60 flex items-center justify-between">
-                <div className="text-xs text-zinc-500">
+              <div className="flex items-center justify-between">
+                <div className="text-xs space-y-1">
                   {(!context.niche || !context.audience || !context.tone) && (
-                    <span className="text-red-400">
+                    <div className="text-red-400">
                       Please fill all required fields
-                    </span>
+                    </div>
+                  )}
+                  {hasInsufficientMinutes && (
+                    <div className="text-orange-400 font-medium">
+                      Not enough minutes left.
+                    </div>
                   )}
                 </div>
 
@@ -997,37 +1136,35 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   <Button
                     onClick={handleStartAnalysis}
                     disabled={!canSubmit || isProcessing}
-                    className="rounded-lg bg-zinc-100 text-zinc-900 hover:bg-zinc-200 disabled:opacity-60 flex items-center gap-2"
+                    className={`rounded-lg flex items-center gap-2 shadow-lg transition-all duration-200 ${
+                      hasInsufficientMinutes
+                        ? "bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 disabled:bg-orange-500/10 disabled:text-orange-400/60 disabled:border-orange-500/20"
+                        : "bg-zinc-100 text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
+                    }`}
+                    title={
+                      hasInsufficientMinutes
+                        ? `Need ${analysisCost} minutes but only ${remainingMinutes} remaining`
+                        : !context.niche || !context.audience || !context.tone
+                          ? "Please fill all required fields first"
+                          : undefined
+                    }
                   >
                     <span>
-                      {source.type === "file"
-                        ? uploadProgress?.status === "completed"
-                          ? "Begin Analysis"
+                      {hasInsufficientMinutes
+                        ? "Usage Exhausted"
+                        : source.type === "file"
+                          ? uploadProgress?.status === "completed"
+                            ? "Begin Analysis"
+                            : isProcessing
+                              ? "Uploading..."
+                              : "Start Analysis"
                           : isProcessing
-                            ? "Uploading..."
-                            : "Start Analysis"
-                        : isProcessing
-                          ? "Starting..."
-                          : "Start Analysis"}
+                            ? "Starting..."
+                            : "Start Analysis"}
                     </span>
                     <ArrowRight className="h-4 w-4" />
                   </Button>
                 </div>
-              </div>
-
-              {error && (
-                <div className="mt-4 p-3 rounded-lg border border-red-500/50 bg-red-500/10">
-                  <p className="text-sm text-red-400">{error}</p>
-                </div>
-              )}
-
-              {/* Privacy Notice */}
-              <div className="mt-6 text-xs text-zinc-500 space-y-1">
-                <p>
-                  • We upload parts of your video to generate analysis and
-                  suggestions
-                </p>
-                <p>• Your original file is never shared publicly</p>
               </div>
             </motion.div>
           </div>
