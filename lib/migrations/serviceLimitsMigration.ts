@@ -3,7 +3,7 @@ import connectToDatabase from '@/schemas/ConnectToDatabase';
 import { User } from '@/schemas/user';
 import Plan from '@/schemas/plans';
 import { 
-  SERVICE_PLAN_CONFIGS, 
+  UNIFIED_SERVICE_LIMITS,
   getPlanLimits,
 } from '@/lib/config/serviceLimits';
 import { IServiceLimits } from '@/types/userTypes';
@@ -88,17 +88,45 @@ export class ServiceLimitsMigrationService {
   private generateServiceLimitsForPlan(planName: string): IServiceLimits {
     const serviceLimits: Partial<IServiceLimits> = {};
     
-    // Get all unique service names from SERVICE_PLAN_CONFIGS
-    const serviceNames = [...new Set(
-      SERVICE_PLAN_CONFIGS
-        .filter(config => config.planType === planName)
-        .map(config => config.serviceName)
-    )];
+    // Map plan names to plan types
+    const planTypeMap: Record<string, "free" | "plus" | "pro" | "premium"> = {
+      'free': 'free',
+      'plus': 'plus', 
+      'pro': 'pro',
+      'premium': 'premium',
+      'Free Plan': 'free',
+      'Plus Plan': 'plus',
+      'Pro Plan': 'pro', 
+      'Premium Plan': 'premium'
+    };
+    
+    const planType = planTypeMap[planName] || planTypeMap[planName.toLowerCase()] || 'free';
+    
+    // Get all service names from UNIFIED_SERVICE_LIMITS
+    const serviceNames = Object.keys(UNIFIED_SERVICE_LIMITS);
     
     // For each service, get the limits for this plan type
     serviceNames.forEach(serviceName => {
       // @ts-expect-error
-      serviceLimits[serviceName] = getPlanLimits(serviceName, planName);
+      serviceLimits[serviceName] = getPlanLimits(serviceName, planType, false); // Plans don't need user fields
+    });
+    
+    return serviceLimits as IServiceLimits;
+  }
+
+  /**
+   * Generate user service limits for a plan type using unified configuration
+   */
+  private generateUserServiceLimits(planType: string): IServiceLimits {
+    const serviceLimits: Partial<IServiceLimits> = {};
+    
+    // Get all service names from UNIFIED_SERVICE_LIMITS
+    const serviceNames = Object.keys(UNIFIED_SERVICE_LIMITS);
+    
+    // For each service, get the limits for this plan type
+    serviceNames.forEach(serviceName => {
+      // @ts-expect-error
+      serviceLimits[serviceName] = getPlanLimits(serviceName, planType as "free" | "plus" | "pro" | "premium", true); // Users need currentUsage
     });
     
     return serviceLimits as IServiceLimits;
@@ -147,15 +175,15 @@ export class ServiceLimitsMigrationService {
     const serviceLimits = user.currentPlan.serviceLimits;
 
     // Check if user already has unified limits (they will have the new structure)
-    const hasUnifiedLimits = this.hasUnifiedLimits(serviceLimits);
+    const hasUnifiedLimits = this.hasUnifiedLimits(serviceLimits, true);
 
     if (hasUnifiedLimits) {
       console.log(`[MigrationService] User ${user.clerkUserId} already has unified limits, skipping...`);
       return;
     }
 
-    // Generate unified limits for this plan type
-    const unifiedLimits = this.generateServiceLimitsForPlan(planType);
+    // Generate unified limits for this plan type (for users)
+    const unifiedLimits = this.generateUserServiceLimits(planType);
 
     // Merge existing usage data with new unified structure
     const mergedLimits = this.mergeUsageData(serviceLimits, unifiedLimits);
@@ -171,23 +199,45 @@ export class ServiceLimitsMigrationService {
   /**
    * Check if service limits already use unified structure
    */
-  private hasUnifiedLimits(serviceLimits: any): boolean {
+  private hasUnifiedLimits(serviceLimits: any, isUserLimits: boolean = true): boolean {
     if (!serviceLimits || typeof serviceLimits !== 'object') {
       return false;
     }
 
-    // Check if limits have the expected structure from unified configuration
-    const firstService = Object.keys(serviceLimits)[0];
-    if (!firstService || !Array.isArray(serviceLimits[firstService])) {
-      return false;
+    // Get all expected services from UNIFIED_SERVICE_LIMITS
+    const expectedServices = Object.keys(UNIFIED_SERVICE_LIMITS);
+    
+    // Check if all expected services are present
+    for (const serviceName of expectedServices) {
+      if (!serviceLimits[serviceName] || !Array.isArray(serviceLimits[serviceName])) {
+        console.log(`[MigrationService] Missing or invalid service: ${serviceName}`);
+        return false;
+      }
+      
+      // Check if the service has valid limit structure
+      const serviceArray = serviceLimits[serviceName];
+      if (serviceArray.length === 0) {
+        console.log(`[MigrationService] Empty service array for: ${serviceName}`);
+        return false;
+      }
+      
+      // Check the first limit in the service
+      const firstLimit = serviceArray[0];
+      if (!firstLimit || 
+          typeof firstLimit.limitType !== 'string' ||
+          typeof firstLimit.maxUsage !== 'number') {
+        console.log(`[MigrationService] Invalid limit structure in service: ${serviceName}`);
+        return false;
+      }
+      
+      // For user limits, also check currentUsage
+      if (isUserLimits && typeof firstLimit.currentUsage !== 'number') {
+        console.log(`[MigrationService] Missing currentUsage in user service: ${serviceName}`);
+        return false;
+      }
     }
 
-    // Check if limits have the expected properties
-    const firstLimit = serviceLimits[firstService][0];
-    return firstLimit && 
-           typeof firstLimit.limitType === 'string' &&
-           typeof firstLimit.maxUsage === 'number' &&
-           typeof firstLimit.currentUsage === 'number';
+    return true;
   }
 
   /**
@@ -228,11 +278,14 @@ export class ServiceLimitsMigrationService {
       let validationErrors = 0;
 
       for (const plan of plans) {
-        const hasValidLimits = this.hasUnifiedLimits(plan.serviceLimits);
+        const hasValidLimits = this.hasUnifiedLimits(plan.serviceLimits, false); // Plans don't need currentUsage
         
         if (!hasValidLimits) {
           console.error(`[MigrationService] Plan ${plan.name} has invalid limits structure`);
+          console.error(`[MigrationService] Plan ${plan.name} serviceLimits:`, JSON.stringify(plan.serviceLimits, null, 2));
           validationErrors++;
+        } else {
+          console.log(`[MigrationService] Plan ${plan.name} has valid limits structure`);
         }
       }
 
@@ -261,10 +314,11 @@ export class ServiceLimitsMigrationService {
       let validationErrors = 0;
 
       for (const user of users) {
-        const hasValidLimits = this.hasUnifiedLimits(user.currentPlan.serviceLimits);
+        const hasValidLimits = this.hasUnifiedLimits(user.currentPlan.serviceLimits, true); // Users need currentUsage
         
         if (!hasValidLimits) {
           console.error(`[MigrationService] User ${user.clerkUserId} has invalid limits structure`);
+          console.error(`[MigrationService] User ${user.clerkUserId} serviceLimits:`, JSON.stringify(user.currentPlan.serviceLimits, null, 2));
           validationErrors++;
         }
       }

@@ -22,34 +22,34 @@ This document provides a comprehensive guide for administrators to manage the un
 
 ## Quick Start
 
-This system provides a single source of truth for all service limits and plan configurations. Instead of hardcoding limits in multiple places, you can now define them once in `lib/config/serviceLimits.ts` and use them throughout your application.
+This system provides a single source of truth for all service limits and plan configurations. All limits are defined once in `lib/config/serviceLimits.ts` and automatically applied throughout the application.
 
 ### Key Files and Endpoints
 
-- **Configuration**: [`lib/config/serviceLimits.ts`](lib/config/serviceLimits.ts:1) - The single source of truth for all limits and plans.
-- **Migration Endpoint**: [`/api/admin/migrations/service-limits`](app/api/admin/migrations/service-limits/route.ts:1) - Use this to migrate existing data to the new system.
-- **Plan Seeder**: [`/api/admin/plans/seed`](app/api/admin/plans/seed/route.ts:1) - Use this to create or update plans in the database.
+- **Configuration**: [`lib/config/serviceLimits.ts`](lib/config/serviceLimits.ts:1) - The single source of truth for all limits, plans, and pricing.
+- **Migration Endpoint**: [`/api/admin/migrations/service-limits`](app/api/admin/migrations/service-limits/route.ts:1) - Migrates existing data to the unified system.
+- **Plan Seeder**: [`/api/admin/plans/seed`](app/api/admin/plans/seed/route.ts:1) - Creates or updates plans in the database.
 
 ### Common Tasks
 
-- **Migrate Data**: Run the migration endpoint to update all users and plans.
-- **Update Plans**: Re-run the plan seeder to apply new configurations or add new currencies.
-- **Check Limits**: Use the utility functions from `serviceLimits.ts` to get limits for any service or plan.
+- **Migrate Data**: Run the migration endpoint to update all users and plans to the unified structure.
+- **Update Plans**: Re-run the plan seeder after modifying `serviceLimits.ts` to apply changes.
+- **Add New Service**: Simply add to `UNIFIED_SERVICE_LIMITS` and run migration.
+- **Add New Plan**: Add plan type to interfaces and run migration.
 
 See the [API Endpoints](#api-endpoints) section for detailed curl commands.
 
 ## Configuration
 
-The unified configuration is located in `lib/config/serviceLimits.ts`. This file replaces the redundant limit definitions that were previously scattered across user schemas, plan setup scripts, and configuration files.
+The unified configuration is located in `lib/config/serviceLimits.ts`. This file is the single source of truth for all service limits, plan configurations, and pricing.
 
 ### Key Components
 
-#### 1. Service Limit Definitions (`SERVICE_LIMIT_DEFINITIONS`)
+#### 1. Unified Service Limits (`UNIFIED_SERVICE_LIMITS`)
 
-This object defines all available service limits, including their names, descriptions, reset periods, and categories.
+This is the single source of truth that combines service limit definitions with plan configurations. It's organized by service name, then by limit type.
 
-- **Key**: `limitType` (e.g., `AnalysisMinutes`, `maxVideoEdits`)
-- **Value**: `ServiceLimitConfig` object
+- **Structure**: `Record<serviceName, Record<limitType, ServiceLimitConfig>>`
 
 ```typescript
 export interface ServiceLimitConfig {
@@ -59,30 +59,26 @@ export interface ServiceLimitConfig {
   defaultResetPeriod: "weekly" | "monthly" | "daily" | "none";
   category?: "count" | "duration" | "storage" | "time";
   unit?: string;
+  planLimits: {
+    free: number;
+    plus: number;
+    pro: number;
+    premium: number;
+  };
+  resetPeriods?: {
+    free?: "weekly" | "monthly" | "daily" | "none";
+    plus?: "weekly" | "monthly" | "daily" | "none";
+    pro?: "weekly" | "monthly" | "daily" | "none";
+    premium?: "weekly" | "monthly" | "daily" | "none";
+  };
 }
 ```
 
-#### 2. Service Plan Configurations (`SERVICE_PLAN_CONFIGS`)
+#### 2. Service Pricing Configurations (`SERVICE_PRICING_CONFIGS`)
 
-This array defines the service limits for each plan type (free, plus, pro, premium) across all services.
+This object defines the pricing for all plans and currencies in a clean, organized structure.
 
-- **Structure**: `ServicePlanConfig` array
-
-```typescript
-export interface ServicePlanConfig {
-  serviceName: string;
-  planType: "free" | "plus" | "pro" | "premium";
-  limits: Record<string, number>; // limitType -> maxUsage
-  resetPeriods?: Record<string, "weekly" | "monthly" | "daily" | "none">;
-}
-```
-
-#### 3. Service Pricing Configurations (`SERVICE_PRICING_CONFIGS`)
-
-This object defines the pricing for all plans and currencies.
-
-- **Key**: `currencyCode` (e.g., `USD`, `INR`)
-- **Value**: `CurrencyPricing` object
+- **Structure**: `Record<planType, Record<currencyCode, CurrencyPricing>>`
 
 ```typescript
 export interface CurrencyPricing {
@@ -98,15 +94,22 @@ export interface PricingDetail {
 }
 ```
 
+#### 3. Clean Architecture
+
+- **No Backward Compatibility**: Removed legacy exports to maintain clean codebase
+- **Single Source of Truth**: All configurations come from one place
+- **Type Safety**: Full TypeScript support with proper interfaces
+
 ### Utility Functions
 
 The configuration file provides several utility functions for working with service limits:
 
-- `getPlanLimits(serviceName, planType)`: Returns the service limits for a specific plan.
-- `getLimitDisplayName(limitType)`: Returns the human-readable name for a limit type.
-- `getLimitDescription(limitType)`: Returns the description for a limit type.
+- `getPlanLimits(serviceName, planType, forUser?)`: Returns the service limits for a specific plan. Set `forUser=true` to include `currentUsage` and `lastReset` fields.
+- `getLimitDisplayName(limitType, serviceName?)`: Returns the human-readable name for a limit type.
+- `getLimitDescription(limitType, serviceName?)`: Returns the description for a limit type.
 - `getAllLimitTypesForService(serviceName)`: Returns all limit types for a specific service.
 - `getAllServiceLimitMappings()`: Returns a mapping of limit types to display names.
+- `getLimitByCategory(category)`: Returns all limits of a specific category (count, duration, storage, time).
 
 ### Usage in Services
 
@@ -274,13 +277,64 @@ curl -X DELETE "http://localhost:3000/api/admin/plans/64f8d0e8b54764421b7156a3" 
 
 ## System Overview
 
+### Adding New Services or Limits
+
+To add a new service or limit, follow these simple steps:
+
+#### Adding a New Service
+
+1. **Add to `UNIFIED_SERVICE_LIMITS`**:
+```typescript
+export const UNIFIED_SERVICE_LIMITS = {
+  // ... existing services
+  newservice: {
+    maxNewFeature: {
+      name: 'New Feature Usage',
+      description: 'Description of the new feature limit',
+      icon: 'IconName',
+      defaultResetPeriod: 'monthly',
+      category: 'count',
+      unit: 'uses',
+      planLimits: {
+        free: 5,
+        plus: 50,
+        pro: 200,
+        premium: -1
+      }
+    }
+  }
+};
+```
+
+2. **Update `IServiceLimits` interface** in `types/userTypes.ts`:
+```typescript
+export interface IServiceLimits {
+  // ... existing services
+  newservice: IServiceLimit[];
+}
+```
+
+3. **Run migration** to apply changes:
+```bash
+curl -X POST "http://localhost:3000/api/admin/migrations/service-limits" \
+  -H "Authorization: Bearer YOUR_ADMIN_SECRET_KEY" \
+  -d '{"dryRun": false}'
+```
+
+#### Adding a New Plan Type
+
+1. **Update interfaces** to include new plan type in all relevant places
+2. **Add pricing** to `SERVICE_PRICING_CONFIGS`
+3. **Run migration** to apply changes
+
 ### Benefits
 
-- **Single Source of Truth**: All service limit definitions are centralized in one file.
-- **Reduced Redundancy**: Eliminates duplicate limit definitions across the codebase.
-- **Easy Maintenance**: Adding or modifying service limits is now a simple process.
-- **Consistency**: Ensures that all services use the same limit definitions and logic.
-- **Scalability**: The system is designed to easily accommodate new services and limit types.
+- **Single Source of Truth**: All service limits, plans, and pricing are centralized in one file.
+- **Zero Redundancy**: No duplicate definitions anywhere in the codebase.
+- **Easy Maintenance**: Adding services, limits, or plans requires minimal changes.
+- **Type Safety**: Full TypeScript support with proper interfaces and validation.
+- **Clean Architecture**: No backward compatibility exports or legacy code.
+- **Automatic Migration**: Changes are automatically applied via migration system.
 
 ## API Examples
 

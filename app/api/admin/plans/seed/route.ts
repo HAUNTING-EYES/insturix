@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { withAdmin } from '@/lib/api/middleware/withAdmin';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
 import Plan from '@/schemas/plans';
-import { getPlanLimits, SERVICE_PRICING_CONFIGS } from '@/lib/config/serviceLimits';
+import { getPlanLimits, SERVICE_PRICING_CONFIGS, UNIFIED_SERVICE_LIMITS } from '@/lib/config/serviceLimits';
 import { createPlan } from '@/lib/services/paymentService';
 
 // Define the structure for a plan template, based on the schema
@@ -56,90 +56,111 @@ async function handler() {
   let skippedCount = 0;
 
   for (const planConfig of PLANS_CONFIG) {
-    // Get service limits from the unified configuration
-    const serviceLimits = getPlanLimits('alyzitron', planConfig.type);
-    // Add limits for other services by mapping the existing structure
-    const allServiceLimits: any = {
-      alyzitron: serviceLimits,
-    };
-    
-    // Add other services based on the plan type
-    const otherServices = ['clickatron', 'editron', 'shield', 'socialize', 'thinkforge', 'musitron'];
-    otherServices.forEach(service => {
-      const serviceLimits = getPlanLimits(service, planConfig.type);
-      allServiceLimits[service] = serviceLimits;
+    // Get service limits from the unified configuration for all services
+    const allServiceLimits: any = {};
+
+    // Dynamically get all services from UNIFIED_SERVICE_LIMITS
+    Object.keys(UNIFIED_SERVICE_LIMITS).forEach(serviceName => {
+      const serviceLimits = getPlanLimits(serviceName, planConfig.type as "free" | "plus" | "pro" | "premium", false);
+      allServiceLimits[serviceName] = serviceLimits;
     });
 
     // Create a single plan document with pricing for all currencies
     const pricing = {} as any;
 
     // Initialize pricing for all currencies
-    for (const c of Object.keys(SERVICE_PRICING_CONFIGS)) {
-      const currencyPricing = SERVICE_PRICING_CONFIGS[c as keyof typeof SERVICE_PRICING_CONFIGS];
-      pricing[c] = {
-        monthly: {
-          amount: currencyPricing.monthly.amount,
-          currency: c,
-          symbol: currencyPricing.monthly.symbol,
-          providerPlanIds: currencyPricing.monthly.providerPlanIds,
-        },
-        yearly: {
-          amount: currencyPricing.yearly.amount,
-          currency: c,
-          symbol: currencyPricing.yearly.symbol,
-          providerPlanIds: currencyPricing.yearly.providerPlanIds,
-        },
-      };
+    if (planConfig.type !== 'free') {
+      const planPricing = SERVICE_PRICING_CONFIGS[planConfig.type as keyof typeof SERVICE_PRICING_CONFIGS];
+      if (planPricing) {
+        for (const currency of Object.keys(planPricing)) {
+          const currencyPricing = planPricing[currency];
+          pricing[currency] = {
+            monthly: {
+              amount: currencyPricing.monthly.amount,
+              currency: currency,
+              symbol: currencyPricing.monthly.symbol,
+              providerPlanIds: currencyPricing.monthly.providerPlanIds,
+            },
+            yearly: {
+              amount: currencyPricing.yearly.amount,
+              currency: currency,
+              symbol: currencyPricing.yearly.symbol,
+              providerPlanIds: currencyPricing.yearly.providerPlanIds,
+            },
+          };
+        }
+      }
+    } else {
+      // Free plan has zero pricing for all currencies
+      const samplePlan = SERVICE_PRICING_CONFIGS.plus; // Use plus plan as template for currencies
+      for (const currency of Object.keys(samplePlan)) {
+        const currencyInfo = samplePlan[currency];
+        pricing[currency] = {
+          monthly: {
+            amount: 0,
+            currency: currency,
+            symbol: currencyInfo.monthly.symbol,
+          },
+          yearly: {
+            amount: 0,
+            currency: currency,
+            symbol: currencyInfo.yearly.symbol,
+          },
+        };
+      }
     }
 
     // For non-free plans, create plans in Razorpay for each currency
     if (planConfig.type !== 'free') {
-      for (const currency of Object.keys(SERVICE_PRICING_CONFIGS)) {
-        const currencyPricing = SERVICE_PRICING_CONFIGS[currency as keyof typeof SERVICE_PRICING_CONFIGS];
-        if (!currencyPricing.monthly.amount && !currencyPricing.yearly.amount) {
-          continue;
-        }
-
-        try {
-          if (currencyPricing.monthly.amount > 0) {
-            console.log(`[PlanSeeder] Creating monthly plan for ${planConfig.type} in ${currency}...`);
-            const monthlyPlan = await createPlan({
-              name: planConfig.name,
-              amount: currencyPricing.monthly.amount,
-              currency: currency,
-              period: 'monthly',
-              type: planConfig.type,
-            });
-
-            if (monthlyPlan && monthlyPlan.id) {
-              if (!pricing[currency].monthly.providerPlanIds) {
-                pricing[currency].monthly.providerPlanIds = new Map();
-              }
-              pricing[currency].monthly.providerPlanIds.set('razorpay', monthlyPlan.id);
-              console.log(`[PlanSeeder] -> Razorpay monthly plan created with ID: ${monthlyPlan.id}`);
-            }
+      const planPricing = SERVICE_PRICING_CONFIGS[planConfig.type as keyof typeof SERVICE_PRICING_CONFIGS];
+      if (planPricing) {
+        for (const currency of Object.keys(planPricing)) {
+          const currencyPricing = planPricing[currency];
+          if (!currencyPricing.monthly.amount && !currencyPricing.yearly.amount) {
+            continue;
           }
 
-          if (currencyPricing.yearly.amount > 0) {
-            console.log(`[PlanSeeder] Creating yearly plan for ${planConfig.type} in ${currency}...`);
-            const yearlyPlan = await createPlan({
-              name: planConfig.name,
-              amount: currencyPricing.yearly.amount,
-              currency: currency,
-              period: 'yearly',
-              type: planConfig.type,
-            });
+          try {
+            if (currencyPricing.monthly.amount > 0) {
+              console.log(`[PlanSeeder] Creating monthly plan for ${planConfig.type} in ${currency}...`);
+              const monthlyPlan = await createPlan({
+                name: planConfig.name,
+                amount: currencyPricing.monthly.amount,
+                currency: currency,
+                period: 'monthly',
+                type: planConfig.type,
+              });
 
-            if (yearlyPlan && yearlyPlan.id) {
-              if (!pricing[currency].yearly.providerPlanIds) {
-                pricing[currency].yearly.providerPlanIds = new Map();
+              if (monthlyPlan && monthlyPlan.id) {
+                if (!pricing[currency].monthly.providerPlanIds) {
+                  pricing[currency].monthly.providerPlanIds = new Map();
+                }
+                pricing[currency].monthly.providerPlanIds.set('razorpay', monthlyPlan.id);
+                console.log(`[PlanSeeder] -> Razorpay monthly plan created with ID: ${monthlyPlan.id}`);
               }
-              pricing[currency].yearly.providerPlanIds.set('razorpay', yearlyPlan.id);
-              console.log(`[PlanSeeder] -> Razorpay yearly plan created with ID: ${yearlyPlan.id}`);
             }
+
+            if (currencyPricing.yearly.amount > 0) {
+              console.log(`[PlanSeeder] Creating yearly plan for ${planConfig.type} in ${currency}...`);
+              const yearlyPlan = await createPlan({
+                name: planConfig.name,
+                amount: currencyPricing.yearly.amount,
+                currency: currency,
+                period: 'yearly',
+                type: planConfig.type,
+              });
+
+              if (yearlyPlan && yearlyPlan.id) {
+                if (!pricing[currency].yearly.providerPlanIds) {
+                  pricing[currency].yearly.providerPlanIds = new Map();
+                }
+                pricing[currency].yearly.providerPlanIds.set('razorpay', yearlyPlan.id);
+                console.log(`[PlanSeeder] -> Razorpay yearly plan created with ID: ${yearlyPlan.id}`);
+              }
+            }
+          } catch (error: any) {
+            console.error(`[PlanSeeder] Failed to create Razorpay plans for ${planConfig.type} (${currency}):`, error);
           }
-        } catch (error: any) {
-          console.error(`[PlanSeeder] Failed to create Razorpay plans for ${planConfig.type} (${currency}):`, error);
         }
       }
     }

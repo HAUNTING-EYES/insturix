@@ -172,7 +172,7 @@ export class LimitMiddleware {
    * Get human-readable limit name
    */
   private getHumanReadableLimitName(limitType: string): string {
-    return getLimitDisplayName(this.config.serviceName, limitType) || limitType;
+    return getLimitDisplayName(limitType, this.config.serviceName) || limitType;
   }
 
   /**

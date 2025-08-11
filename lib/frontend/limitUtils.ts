@@ -135,7 +135,7 @@ export class FrontendLimitUtils {
    */
   getActionName(requestData: Record<string, unknown> | { type?: string }): string {
     const limitType = this.determineLimitType(requestData);
-    return getLimitDisplayName(this.config.serviceName, limitType) || limitType;
+    return getLimitDisplayName(limitType, this.config.serviceName) || limitType;
   }
 }
 

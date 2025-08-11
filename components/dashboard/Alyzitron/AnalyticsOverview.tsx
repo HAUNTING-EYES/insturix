@@ -22,7 +22,7 @@ import {
   Clock,
   Info,
 } from "lucide-react";
-import { SERVICE_LIMIT_DEFINITIONS } from "@/lib/config/serviceLimits";
+import { UNIFIED_SERVICE_LIMITS } from "@/lib/config/serviceLimits";
 import { useQuery } from "@tanstack/react-query";
 
 // type to normalize limit usage entries coming from API
@@ -44,8 +44,8 @@ const iconMap: Record<string, React.ReactNode> = {
 };
 
 const getLimitDisplayInfo = (limitType: string) => {
-  const alyzitronLimits = SERVICE_LIMIT_DEFINITIONS.alyzitron;
-  const limitDef = (alyzitronLimits as any)?.[limitType];
+  const alyzitronLimits = UNIFIED_SERVICE_LIMITS.alyzitron;
+  const limitDef = alyzitronLimits?.[limitType];
 
   if (!limitDef) {
     return {
