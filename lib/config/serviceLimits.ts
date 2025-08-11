@@ -35,6 +35,22 @@ export const SERVICE_LIMIT_DEFINITIONS: Record<string, ServiceLimitConfig> = {
     category: 'duration',
     unit: 'minutes'
   },
+  // maxTotalAnalysis: {
+  //   name: 'Total Analysis',
+  //   description: 'Total number of video analyses you can perform per month.',
+  //   icon: 'BarChart2',
+  //   defaultResetPeriod: 'monthly',
+  //   category: 'count',
+  //   unit: 'analyses'
+  // },
+  // maxOver20MinuteAnalysis: {
+  //   name: 'Over 20 Minute Analyses',
+  //   description: 'Number of analyses for videos longer than 20 minutes you can perform per month.',
+  //   icon: 'Clock',
+  //   defaultResetPeriod: 'monthly',
+  //   category: 'count',
+  //   unit: 'analyses'
+  // },
 
   // Editron Limits
   maxVideoEdits: {
@@ -126,6 +142,38 @@ export const SERVICE_PLAN_CONFIGS: ServicePlanConfig[] = [
       AnalysisMinutes: 700,
     }
   },
+  // {
+  //   serviceName: 'alyzitron',
+  //   planType: 'free',
+  //   limits: {
+  //     maxTotalAnalysis: 10,
+  //     maxOver20MinuteAnalysis: 3
+  //   }
+  // },
+  // {
+  //   serviceName: 'alyzitron',
+  //   planType: 'plus',
+  //   limits: {
+  //     maxTotalAnalysis: 40,
+  //     maxOver20MinuteAnalysis: 15
+  //   }
+  // },
+  // {
+  //   serviceName: 'alyzitron',
+  //   planType: 'pro',
+  //   limits: {
+  //     maxTotalAnalysis: 120,
+  //     maxOver20MinuteAnalysis: 40
+  //   }
+  // },
+  // {
+  //   serviceName: 'alyzitron',
+  //   planType: 'premium',
+  //   limits: {
+  //     maxTotalAnalysis: -1,
+  //     maxOver20MinuteAnalysis: -1
+  //   }
+  // },
   {
     serviceName: 'clickatron',
     planType: 'free',
@@ -249,7 +297,7 @@ export const SERVICE_PLAN_CONFIGS: ServicePlanConfig[] = [
     serviceName: 'thinkforge',
     planType: 'plus',
     limits: {
-      maxSessions: 40
+      maxSessions: 25
     }
   },
   {
