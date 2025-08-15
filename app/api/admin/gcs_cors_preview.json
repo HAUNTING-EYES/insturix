@@ -1,0 +1,17 @@
+[
+  {
+    "origin": ["*"],
+    "method": ["*"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length", 
+      "Range",
+      "Authorization",
+      "X-Requested-With",
+      "Access-Control-Allow-Origin",
+      "Access-Control-Allow-Methods",
+      "Access-Control-Allow-Headers"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

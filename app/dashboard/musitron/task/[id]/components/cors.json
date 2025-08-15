@@ -1,8 +1,0 @@
-[
-  {
-    "origin": ["http://localhost:3000", "https://www.insturix.com"],
-    "method": ["GET"],
-    "responseHeader": ["Content-Type", "Content-Length", "Range"],
-    "maxAgeSeconds": 3600
-  }
-]

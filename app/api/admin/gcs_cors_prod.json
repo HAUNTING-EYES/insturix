@@ -1,0 +1,14 @@
+[
+  {
+    "origin": ["https://www.insturix.com"],
+    "method": ["GET", "POST", "PUT", "DELETE", "HEAD"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length", 
+      "Range",
+      "ETag",
+      "Cache-Control"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
