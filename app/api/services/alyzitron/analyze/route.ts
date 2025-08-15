@@ -73,7 +73,20 @@ export async function POST(request: Request) {
 
     if (isGCS && metadata?.duration) {
       // Use duration from uploaded file metadata
-      videoDuration = metadata.duration;
+      if (!metadata.duration || metadata.duration <= 0) {
+        logger.warn('Uploaded file duration is invalid or missing.', { data: { url: video_url, duration: metadata.duration } });
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              type: 'INVALID_VIDEO_DURATION',
+              message: 'Video duration is invalid or missing. Please provide a valid video.',
+            }
+          },
+          { status: 400 }
+        );
+      }
+      videoDuration = Math.ceil(metadata.duration);
     } else if (isMaybeYouTube) {
       // Validate YouTube URL and get duration
       const validationResult = await validateYouTubeVideo(video_url);
@@ -90,7 +103,23 @@ export async function POST(request: Request) {
           { status: 400 }
         );
       }
-      videoDuration = validationResult.duration || 0;
+      
+      // Ensure duration is available and valid
+      if (!validationResult.duration || validationResult.duration <= 0) {
+        logger.warn('YouTube video duration is invalid or missing.', { data: { url: video_url, duration: validationResult.duration } });
+        return NextResponse.json(
+          {
+            success: false,
+            error: {
+              type: 'INVALID_VIDEO_DURATION',
+              message: 'Video duration is invalid or missing. Please provide a valid video.',
+            }
+          },
+          { status: 400 }
+        );
+      }
+      
+      videoDuration = Math.ceil(validationResult.duration);
     }
 
     // Check service limits using enhanced middleware
@@ -150,7 +179,7 @@ export async function POST(request: Request) {
       finalMetadata = {
         originalFilename: title,
         videoSize: metadata.fileSize || 0,
-        videoDuration: videoDuration,
+        videoDuration: Math.ceil(videoDuration),
         mimeType: 'video/mp4',
         isPublic: false,
       };
@@ -173,7 +202,7 @@ export async function POST(request: Request) {
       finalMetadata = {
         originalFilename: title,
         videoSize: 0,
-        videoDuration: videoDuration,
+        videoDuration: Math.ceil(videoDuration),
         mimeType: 'video/mp4',
         isPublic: false,
       };
@@ -182,7 +211,7 @@ export async function POST(request: Request) {
       finalMetadata = {
         originalFilename: title,
         videoSize: 0,
-        videoDuration: videoDuration,
+        videoDuration: Math.ceil(videoDuration),
         mimeType: 'video/mp4',
         isPublic: false,
       };
