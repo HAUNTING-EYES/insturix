@@ -381,7 +381,12 @@ export function useVideoAnalysis() {
     async (
       videoUrl: string,
       analysisId: string,
-      context: Record<string, any>
+      context: Record<string, any>,
+      metadata?: {
+        duration?: number;
+        fileSize?: number;
+        filename?: string;
+      }
     ) => {
       try {
         setUploadStates((prev) => {
@@ -405,6 +410,8 @@ export function useVideoAnalysis() {
           video_url: videoUrl,
           // Send context directly to match API expectations
           context: context,
+          // Include metadata if provided
+          ...(metadata && { metadata }),
         };
 
         logger.info("Submitting analysis request", {

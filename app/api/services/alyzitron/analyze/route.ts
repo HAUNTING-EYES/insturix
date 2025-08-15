@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const { video_url, context } = await request.json();
+    const { video_url, context, metadata } = await request.json();
 
     // Ensure context is properly typed as ContextValues
     const parsedContext: ContextValues = {
@@ -65,13 +65,17 @@ export async function POST(request: Request) {
     }
 
     // Determine if it's a GCS path or a potential YouTube URL
-    // GCS paths typically start with 'user_' followed by user ID
-    const isGCS = video_url.startsWith('user_') && video_url.includes('/alyzitron-uploads/');
+    const isGCS = video_url.startsWith('gs://') || (video_url.startsWith('user_') && video_url.includes('/alyzitron-uploads/'));
     const isMaybeYouTube = !isGCS && (video_url.includes('youtube.com') || video_url.includes('youtu.be'));
-    let videoDuration = 0; // Default duration
 
-    // Validate YouTube URL if applicable and get duration
-    if (isMaybeYouTube) {
+    // Get video duration from metadata (for uploaded files) or validate YouTube URL
+    let videoDuration = 0;
+
+    if (isGCS && metadata?.duration) {
+      // Use duration from uploaded file metadata
+      videoDuration = metadata.duration;
+    } else if (isMaybeYouTube) {
+      // Validate YouTube URL and get duration
       const validationResult = await validateYouTubeVideo(video_url);
       if (!validationResult.valid) {
         logger.warn('YouTube URL validation failed.', { data: { url: video_url, error: validationResult.error } });
@@ -136,13 +140,20 @@ export async function POST(request: Request) {
     // If it's a GCS file, format the videoUrl as gs://${bucketName}/${gcsPath}
     const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
 
-    // Generate appropriate title based on video source
+    // Generate appropriate title and prepare metadata
     let title: string;
-    if (isGCS) {
-      // For GCS files, extract filename from path (works with both full URL and path only)
-      const pathParts = video_url.split('/');
-      const filename = pathParts[pathParts.length - 1];
-      title = decodeURIComponent(filename);
+    let finalMetadata: MetadataModel;
+
+    if (isGCS && metadata) {
+      // For uploaded files, use the metadata from frontend
+      title = metadata.filename || 'Uploaded Video';
+      finalMetadata = {
+        originalFilename: title,
+        videoSize: metadata.fileSize || 0,
+        videoDuration: videoDuration,
+        mimeType: 'video/mp4',
+        isPublic: false,
+      };
     } else if (isMaybeYouTube) {
       // For YouTube URLs, try to get title from oEmbed API
       try {
@@ -158,19 +169,24 @@ export async function POST(request: Request) {
       } catch {
         title = video_url;
       }
+
+      finalMetadata = {
+        originalFilename: title,
+        videoSize: 0,
+        videoDuration: videoDuration,
+        mimeType: 'video/mp4',
+        isPublic: false,
+      };
     } else {
       title = video_url;
+      finalMetadata = {
+        originalFilename: title,
+        videoSize: 0,
+        videoDuration: videoDuration,
+        mimeType: 'video/mp4',
+        isPublic: false,
+      };
     }
-
-    // Prepare metadata for monolithic backend
-    const metadata = {
-      originalFilename: title,
-      videoSize: 0,
-      videoDuration: videoDuration,
-      mimeType: 'video/mp4',
-      isPublic: false, // Default to private
-      ...(isGCS && { gcsPath: video_url }) // Store original GCS path for cleanup reference
-    };
 
     try {
       // Call monolithic backend for task processing
@@ -185,7 +201,7 @@ export async function POST(request: Request) {
         clerkUserId: session.userId,
         videoUrl: finalVideoUrl,
         context: parsedContext,
-        metadata: metadata,
+        metadata: finalMetadata,
       };
 
       const backendResponse = await fetch(`${monolithicUrl}/alyzitron/generate`, {

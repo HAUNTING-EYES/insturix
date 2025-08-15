@@ -201,7 +201,12 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           console.log("💾 Setting gcsPath:", uploadResult.gcsPath);
           setGcsPath(uploadResult.gcsPath);
         } else {
-          console.warn("⚠️ No gcsPath in upload result");
+          console.warn("⚠️ No gcsPath in upload result:", uploadResult);
+          // If upload was cancelled or failed, don't proceed
+          if (!uploadResult) {
+            console.log("🚫 Upload was cancelled or returned undefined");
+            return;
+          }
         }
 
         // Mark as completed
@@ -270,21 +275,39 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         );
 
         if (source.type === "file") {
-          // File should already be uploaded, start analysis
+          // File should already be uploaded, use the actual GCS path
+          console.log("🔍 Checking gcsPath for file analysis:", {
+            gcsPath,
+            uploadCompleted,
+          });
+          if (!gcsPath) {
+            console.error("❌ No gcsPath available for file analysis");
+            throw new Error("File upload not completed. Please try again.");
+          }
+          
+          // Prepare metadata for the file
+          const metadata = {
+            duration: source.duration > 0 ? source.duration : undefined,
+            fileSize: source.file.size,
+            filename: source.file.name,
+          };
+          
           const payload = {
-            videoUrl: "file://" + submissionId,
+            videoUrl: gcsPath,
             submissionId: submissionId,
             context: contextForAnalysis,
             sourceType: "file",
+            metadata,
           };
           console.log(
             "🚀 Sending payload to analyze route (file):",
             JSON.stringify(payload, null, 2)
           );
           result = await startAnalysis(
-            "file://" + submissionId,
+            gcsPath,
             submissionId,
-            contextForAnalysis
+            contextForAnalysis,
+            metadata
           );
         } else if (source.type === "link") {
           if (!isYouTubeUrl(source.url)) {
@@ -343,9 +366,15 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           onSubmit(result.analysisId, analysisData);
         }
       } catch (err) {
+        console.error("❌ Analysis start failed:", err);
         let description = "Analysis failed to start. Please try again.";
 
         if (err instanceof Error) {
+          console.error("❌ Error details:", {
+            message: err.message,
+            stack: err.stack,
+          });
+
           if (
             err.message.includes("limit exceeded") ||
             err.message.includes("LIMIT_EXCEEDED")
@@ -365,6 +394,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           } else if (err.message.includes("Network Error")) {
             description =
               "Network error occurred. Please check your connection and try again.";
+          } else {
+            // Use the actual error message for better debugging
+            description = err.message;
           }
         }
 
@@ -658,6 +690,15 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
   const handleStartAnalysis = async () => {
     console.log("🚀 handleStartAnalysis called with context:", context);
+    console.log("🔍 Current state:", {
+      sourceType: source.type,
+      gcsPath,
+      uploadCompleted,
+      analysisStarted,
+      uploadProgress: uploadProgress?.status,
+      isProcessing,
+    });
+
     if (!source.type || !context.niche || !context.audience || !context.tone) {
       console.warn("❌ Missing required context fields:", {
         hasSource: !!source.type,
@@ -712,6 +753,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     ) {
       return Math.ceil(source.preview.duration / 60);
     }
+    // Return 0 for loading states (-1) or unknown durations
     return 0;
   };
 
@@ -1037,34 +1079,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     <div className="text-blue-400">
                       This analysis will cost{" "}
                       <span className="text-blue-300 font-medium">
-                        {source.type === "file" && source.duration === -1
-                          ? "-"
-                          : source.type === "file" && source.duration > 0
-                            ? Math.ceil(source.duration / 60)
-                            : source.type === "link" &&
-                                source.preview?.duration === -1
-                              ? "-"
-                              : source.type === "link" &&
-                                  source.preview?.duration &&
-                                  source.preview.duration > 0
-                                ? Math.ceil(source.preview.duration / 60)
-                                : "0"}{" "}
-                        minute
-                        {source.type === "file" && source.duration === -1
-                          ? ""
-                          : source.type === "file" &&
-                              source.duration > 0 &&
-                              Math.ceil(source.duration / 60) !== 1
-                            ? "s"
-                            : source.type === "link" &&
-                                source.preview?.duration === -1
-                              ? ""
-                              : source.type === "link" &&
-                                  source.preview?.duration &&
-                                  source.preview.duration > 0 &&
-                                  Math.ceil(source.preview.duration / 60) !== 1
-                                ? "s"
-                                : ""}
+                        {getAnalysisCost()} minute{getAnalysisCost() !== 1 ? "s" : ""}
                       </span>
                     </div>
                   </div>
@@ -1199,14 +1214,14 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                       {hasInsufficientMinutes
                         ? "Usage Exhausted"
                         : source.type === "file"
-                          ? uploadProgress?.status === "completed"
-                            ? "Begin Analysis"
+                            ? uploadProgress?.status === "completed"
+                              ? "Begin Analysis"
+                              : isProcessing
+                                ? "Uploading..."
+                                : "Start Analysis"
                             : isProcessing
-                              ? "Uploading..."
-                              : "Start Analysis"
-                          : isProcessing
-                            ? "Starting..."
-                            : "Start Analysis"}
+                              ? "Starting..."
+                              : "Start Analysis"}
                     </span>
                     <ArrowRight className="h-4 w-4" />
                   </Button>
