@@ -21,3 +21,5 @@ editron-457314-dbaa23a9bf46.json
 secret_md_files
 app/dashboard/musitron/task/[id]/reference_ui
 .vscode/settings.json
+
+*.env
