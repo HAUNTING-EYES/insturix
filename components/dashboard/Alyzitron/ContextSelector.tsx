@@ -46,7 +46,7 @@ const defaultNiche: Pill[] = [
 ];
 
 const defaultAudience: Pill[] = [
-  { id: "creators-18-35", label: "Creators • 18-35" },
+  { id: "creators", label: "Creators" },
   { id: "professionals", label: "Professionals" },
   { id: "students", label: "Students" },
   { id: "beginners", label: "Beginners" },
@@ -101,9 +101,8 @@ function Section({
       setCustomValue(value);
 
       // If user is typing a custom value, update state
-      if (value.trim()) {
-        onSelect(value.trim());
-      }
+      // Update even if it ends with spaces to preserve the input
+      onSelect(value.trim());
     }
   };
 
@@ -172,7 +171,7 @@ function Section({
         <input
           type="text"
           placeholder="Custom..."
-          value={isCustomSelected ? selected : customValue}
+          value={customValue || (isCustomSelected ? selected : "")}
           maxLength={100}
           className={cn(
             "h-8 px-3.5 rounded-full text-xs outline-none min-w-[80px]",
