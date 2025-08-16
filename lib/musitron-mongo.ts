@@ -2,9 +2,14 @@ import mongoose from 'mongoose';
 import { MusitronTask } from '../schemas/Musitron';
 
 const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
 if (!MONGODB_URI) {
   throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
+}
+
+if (!MONGODB_DB_NAME) {
+  throw new Error('Please define the MONGODB_DB_NAME environment variable inside .env.local');
 }
 
 type MongooseCache = {
@@ -30,7 +35,7 @@ async function dbConnect(): Promise<typeof mongoose> {
   if (!cached.promise) {
     const opts: Parameters<typeof mongoose.connect>[1] = {
       bufferCommands: false,
-      // Don't override the database name - use the one from MONGODB_URI
+      dbName: MONGODB_DB_NAME
     };
 
     cached.promise = mongoose.connect(MONGODB_URI!, opts).then((m) => m);

@@ -26,6 +26,12 @@ export const getSocializeUserData = cache(async (uniqueUsername: string): Promis
   try {
     // Connect to the MongoDB database with the required connection string
     const MONGODB_URI = process.env.MONGODB_URI || '';
+    const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
+    
+    if (!MONGODB_DB_NAME) {
+      throw new Error('Please define the MONGODB_DB_NAME environment variable');
+    }
+    
     await connectToDatabase(MONGODB_URI);
     
     // Find the user in the Socialize collection by username

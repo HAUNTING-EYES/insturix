@@ -121,7 +121,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    await connectToDatabase(process.env.MONGODB_URI as string);
+    await connectToDatabase();
     
     const user = await User.findOne({ clerkUserId: userId });
     if (!user) {
@@ -198,7 +198,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    await connectToDatabase(process.env.MONGODB_URI as string);
+    await connectToDatabase();
     
     const user = await User.findOne({ email });
     if (!user) {

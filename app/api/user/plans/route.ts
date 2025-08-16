@@ -16,7 +16,7 @@ export async function GET() {
       );
     }
 
-    await connectToDatabase(process.env.MONGODB_URI as string);
+    await connectToDatabase();
 
     const user = await User.findOne({ clerkUserId: userId });
 
@@ -87,7 +87,7 @@ export async function POST(req: Request) {
       );
     }
 
-    await connectToDatabase(process.env.MONGODB_URI as string);
+    await connectToDatabase();
     const user = await User.findOne({ clerkUserId: userId });
 
     if (!user) {

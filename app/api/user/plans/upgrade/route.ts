@@ -24,7 +24,7 @@ export async function PATCH(request: Request) {
       );
     }
 
-    await connectToDatabase(process.env.MONGODB_URI as string);
+    await connectToDatabase();
 
     const user = await User.findOne({ clerkUserId: userId });
     
