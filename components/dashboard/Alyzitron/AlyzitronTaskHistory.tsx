@@ -22,6 +22,9 @@ import {
   Calendar,
   Clock,
   AlertCircle,
+  Activity,
+  CheckCircle2,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -367,16 +370,18 @@ export function AlyzitronTaskHistory({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <History className="h-5 w-5 text-blue-400" />
-          <h2 className="text-lg sm:text-xl font-medium text-zinc-100">
+          <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/30">
+            <BarChart3 className="h-4 w-4 text-blue-300" />
+          </div>
+          <h2 className="text-lg sm:text-xl font-semibold text-white tracking-tight">
             Analysis History
           </h2>
           <div className="flex items-center gap-2 text-sm text-zinc-400">
-            <span className="px-2 py-1 bg-zinc-800/50 rounded-full text-xs">
+            <span className="px-2.5 py-1 bg-zinc-800/60 border border-zinc-700/50 rounded-full text-xs font-medium">
               {totalItems} total
             </span>
             {processingAnalysesCount > 0 && (
-              <span className="px-2 py-1 bg-blue-500/20 text-blue-300 rounded-full text-xs animate-pulse">
+              <span className="px-2.5 py-1 bg-blue-500/10 border border-blue-500/30 text-blue-300 rounded-full text-xs font-medium animate-pulse">
                 {processingAnalysesCount} processing
               </span>
             )}
@@ -387,9 +392,15 @@ export function AlyzitronTaskHistory({
       {/* In Progress Section */}
       {inProgressAnalyses && inProgressAnalyses.length > 0 && (
         <div className="mb-6">
-          <h3 className="text-md font-semibold text-blue-300 mb-2">
-            In Progress
-          </h3>
+          <div className="flex items-center gap-2.5 mb-4 pb-2 border-b border-zinc-800/50">
+            <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-500/20">
+              <Activity className="h-3.5 w-3.5 text-amber-400" />
+            </div>
+            <h3 className="text-sm font-semibold text-amber-100 tracking-wide uppercase letter-spacing-wider">
+              In Progress
+            </h3>
+            <div className="h-1 w-1 rounded-full bg-amber-400/60 animate-pulse"></div>
+          </div>
           <div className="space-y-3 sm:space-y-4">
             {inProgressAnalyses.map((analysis: AnalysisDisplay) => (
               <AnalysisCard
@@ -421,9 +432,14 @@ export function AlyzitronTaskHistory({
           </div>
         ) : (
           <>
-            <h3 className="text-md font-semibold text-blue-300 mb-2">
-              Completed
-            </h3>
+            <div className="flex items-center gap-2.5 mb-4 pb-2 border-b border-zinc-800/50">
+              <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-emerald-500/20 to-green-500/20 border border-emerald-500/20">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+              </div>
+              <h3 className="text-sm font-semibold text-emerald-100 tracking-wide uppercase letter-spacing-wider">
+                Completed
+              </h3>
+            </div>
             {completedFailedAnalyses.map((analysis) => (
               <AnalysisCard
                 key={analysis._id}
