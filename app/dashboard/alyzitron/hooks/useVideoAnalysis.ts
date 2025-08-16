@@ -296,7 +296,7 @@ export function useVideoAnalysis() {
 
       return new Promise<string>((resolve, reject) => {
         video.onloadedmetadata = () => {
-          const duration = Math.round(video.duration);
+          const duration = Math.ceil(video.duration);
           URL.revokeObjectURL(url);
 
           if (duration > MAX_DURATION_SECONDS) {

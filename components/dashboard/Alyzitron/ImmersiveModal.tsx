@@ -60,9 +60,6 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   });
 
   // Log context changes for debugging
-  useEffect(() => {
-    console.log("📊 Context state updated:", context);
-  }, [context]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{
     progress: number;
@@ -77,6 +74,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const [uploadCompleted, setUploadCompleted] = useState(false);
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
   const [showScrollIndicator, setShowScrollIndicator] = useState(false);
+  const [isModalClosing, setIsModalClosing] = useState(false);
 
   const { toast } = useToast();
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -364,6 +362,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           console.log("🚀 Analysis started successfully, marking as started");
           setAnalysisStarted(true);
           onSubmit(result.analysisId, analysisData);
+
+          // Auto-close modal on analysis start
+          setIsModalClosing(true);
+          setTimeout(() => {
+            onOpenChange(false);
+            setIsModalClosing(false);
+          }, 1500);
         }
       } catch (err) {
         console.error("❌ Analysis start failed:", err);
@@ -406,6 +411,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           description,
           variant: "destructive",
         });
+
+        // Auto-close modal on analysis failure
+        setIsModalClosing(true);
+        setTimeout(() => {
+          onOpenChange(false);
+          setIsModalClosing(false);
+        }, 2000);
       } finally {
         setIsProcessing(false);
       }
@@ -1196,7 +1208,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
                   <Button
                     onClick={handleStartAnalysis}
-                    disabled={!canSubmit || isProcessing}
+                    disabled={!canSubmit || isProcessing || isModalClosing}
                     className={`rounded-lg flex items-center gap-2 shadow-lg transition-all duration-200 ${
                       hasInsufficientMinutes
                         ? "bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 disabled:bg-orange-500/10 disabled:text-orange-400/60 disabled:border-orange-500/20"
@@ -1207,7 +1219,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                         ? `Need ${analysisCost} minutes but only ${remainingMinutes} remaining`
                         : !context.niche || !context.audience || !context.tone
                           ? "Please fill all required fields first"
-                          : undefined
+                          : isModalClosing
+                            ? "Modal is closing..."
+                            : undefined
                     }
                   >
                     <span>
@@ -1216,11 +1230,11 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                         : source.type === "file"
                             ? uploadProgress?.status === "completed"
                               ? "Begin Analysis"
-                              : isProcessing
-                                ? "Uploading..."
+                              : isProcessing || isModalClosing
+                                ? isProcessing ? "Uploading..." : "Closing..."
                                 : "Start Analysis"
-                            : isProcessing
-                              ? "Starting..."
+                            : isProcessing || isModalClosing
+                              ? isProcessing ? "Starting..." : "Closing..."
                               : "Start Analysis"}
                     </span>
                     <ArrowRight className="h-4 w-4" />

@@ -93,7 +93,8 @@ export async function validateYouTubeVideo(url: string): Promise<{ valid: boolea
       return { valid: false, error: 'YOUTUBE_VIDEO_TOO_LONG' };
     }
 
-    return { valid: true, duration: durationSeconds };
+    // Ensure duration is returned as an integer
+    return { valid: true, duration: Math.ceil(durationSeconds) };
 
   } catch (error: unknown) {
     logger.error('Error validating YouTube video', {

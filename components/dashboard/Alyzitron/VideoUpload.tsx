@@ -139,6 +139,17 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
     const file = e.target.files?.[0];
     if (!file) return;
     
+    // Validate file type
+    const isValidVideoType = file.type.startsWith('video/');
+    if (!isValidVideoType) {
+      toast({
+        title: "Invalid File Type",
+        description: "Please select a valid video file (MP4, WebM, AVI, MOV, etc.)",
+        variant: "destructive",
+      });
+      return;
+    }
+    
     // Extract duration from local video file
     const getVideoDuration = (file: File): Promise<number> => {
       return new Promise((resolve, reject) => {
@@ -147,7 +158,11 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         
         video.onloadedmetadata = () => {
           window.URL.revokeObjectURL(video.src);
-          resolve(video.duration);
+          if (video.duration > 0) {
+            resolve(video.duration);
+          } else {
+            reject(new Error('Video file is corrupted or has invalid duration'));
+          }
         };
         
         video.onerror = () => {
@@ -159,17 +174,40 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
       });
     };
 
-    // Set initial state with "-" duration, then update with actual duration
-    setSource({ type: 'file', file, duration: -1 }); // -1 indicates loading
-    setImmersiveOpen(true);
-
-    // Get actual duration after modal is open
-    getVideoDuration(file).then(duration => {
-      setSource(prev => prev.type === 'file' ? { ...prev, duration } : prev);
-    }).catch(error => {
-      console.error('Error getting video duration:', error);
-      // Keep -1 as fallback to indicate loading failed
-    });
+    // Validate video file before opening modal
+    getVideoDuration(file)
+      .then(duration => {
+        // Check duration constraints
+        if (duration > 55 * 60) { // 55 minutes in seconds
+          toast({
+            title: "Video Too Long",
+            description: "Video duration exceeds 55 minutes limit",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        if (duration <= 0) {
+          toast({
+            title: "Invalid Video",
+            description: "The selected video file appears to be corrupted or invalid",
+            variant: "destructive",
+          });
+          return;
+        }
+        
+        // Video is valid, open modal
+        setSource({ type: 'file', file, duration });
+        setImmersiveOpen(true);
+      })
+      .catch(error => {
+        console.error('Error validating video file:', error);
+        toast({
+          title: "Invalid Video File",
+          description: error.message || "The selected video file could not be processed. Please try a different file.",
+          variant: "destructive",
+        });
+      });
   };
 
   const openImmersive = (val?: string) => {
@@ -183,65 +221,56 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         const fetchYouTubePreview = async () => {
           try {
             const id = extractYouTubeVideoId(trimmed);
-            if (id) {
-              // Use our link-preview endpoint for robustness (title/image fallback)
-              const res = await fetch(`/api/link-preview?url=${encodeURIComponent(trimmed)}`);
-              const meta = await res.json();
-              
-              // Check if the response indicates an error (e.g., video not accessible)
-              if (res.status !== 200 || !meta.title) {
-                throw new Error('Video not accessible or invalid');
-              }
-              
-              // Get duration from YouTube API
-              let duration = -1; // -1 indicates loading
-              try {
-                // Use the Next.js API route instead of calling YouTube directly from frontend
-                const apiUrl = `/api/youtube?videoId=${id}`;
-
-                const youtubeRes = await fetch(apiUrl);
-                
-                if (!youtubeRes.ok) {
-                  const errorData = await youtubeRes.json();
-                  throw new Error(errorData.error || `YouTube API Error: ${youtubeRes.status}`);
-                }
-
-                const youtubeData = await youtubeRes.json();
-                
-                if (youtubeData.items?.[0]?.contentDetails?.duration) {
-                  // Parse ISO 8601 duration (PT1M30S) to seconds
-                  const durationStr = youtubeData.items[0].contentDetails.duration;
-                  const durationMatch = durationStr.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
-                  if (durationMatch) {
-                    const hours = parseInt(durationMatch[1] || '0');
-                    const minutes = parseInt(durationMatch[2] || '0');
-                    const seconds = parseInt(durationMatch[3] || '0');
-                    duration = hours * 3600 + minutes * 60 + seconds;
-                  }
-                }
-              } catch {
-                // If YouTube API fails, use a reasonable estimate for most YouTube videos
-                duration = 300; // 5 minutes as default estimate
-              }
-              
-              const title = meta.title || 'YouTube Video';
-              const thumbnail = meta.image || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
-              setSource({ type: 'link', url: trimmed, preview: { title, thumbnail, videoId: id, duration } });
-              // Only open modal after successful preview fetch
-              setImmersiveOpen(true);
-            } else {
-              // If no video ID found, don't open modal
-              throw new Error('Invalid YouTube URL');
+            if (!id) {
+              throw new Error('Invalid YouTube URL format');
             }
+            
+            // Use our YouTube validation API to ensure video is accessible and get duration
+            const validationRes = await fetch(`/api/services/alyzitron/utils/youtube?url=${encodeURIComponent(trimmed)}`);
+            const validationData = await validationRes.json();
+            
+            if (!validationRes.ok || !validationData.valid) {
+              throw new Error(validationData.error || 'YouTube video validation failed');
+            }
+            
+            // Use our link-preview endpoint for title and thumbnail
+            const res = await fetch(`/api/link-preview?url=${encodeURIComponent(trimmed)}`);
+            const meta = await res.json();
+            
+            if (res.status !== 200 || !meta.title) {
+              throw new Error('Could not fetch video title');
+            }
+            
+            const duration = validationData.duration;
+            if (!duration || duration <= 0) {
+              throw new Error('Invalid video duration');
+            }
+            
+            if (duration > 55 * 60) { // 55 minutes limit
+              throw new Error('Video duration exceeds 55 minutes limit');
+            }
+            
+            const title = meta.title || 'YouTube Video';
+            const thumbnail = meta.image || `https://img.youtube.com/vi/${id}/maxresdefault.jpg`;
+            setSource({ type: 'link', url: trimmed, preview: { title, thumbnail, videoId: id, duration } });
+            // Only open modal after successful validation
+            setImmersiveOpen(true);
+            
           } catch (error) {
-            console.error('Failed to fetch preview:', error);
-            // Don't open the modal if preview fetch fails
+            console.error('Failed to validate YouTube video:', error);
+            // Don't open the modal if validation fails
             setSource({ type: 'none' });
             setInputUrl(''); // Clear the input on error
-            // Show error message to user
+            // Show specific error message to user
+            const errorMessage = error instanceof Error ? error.message : 'Invalid YouTube video';
             toast({
-              title: "Invalid YouTube Link",
-              description: "Please make sure the video is publicly accessible and try again.",
+              title: errorMessage.includes('Invalid YouTube URL') ? "Invalid YouTube URL" :
+                     errorMessage.includes('duration exceeds') ? "Video Too Long" :
+                     errorMessage.includes('validation failed') ? "Video Not Accessible" : "Invalid YouTube Link",
+              description: errorMessage.includes('Invalid YouTube URL') ? "Please check the URL format and try again." :
+                          errorMessage.includes('duration exceeds') ? "Video duration must be under 55 minutes." :
+                          errorMessage.includes('validation failed') ? "The video may be private, deleted, or unavailable." :
+                          errorMessage.includes('Could not fetch video title') ? "Could not retrieve video information." : "Please make sure the video is publicly accessible and try again.",
               variant: "destructive",
             });
           } finally {
@@ -250,10 +279,14 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
         };
         fetchYouTubePreview();
       } else {
-        // For non-YouTube URLs, we can open the modal directly
-        setSource({ type: 'link', url: trimmed });
-        setImmersiveOpen(true);
+        // For non-YouTube URLs, show error as we only support YouTube
         setIsPreviewLoading(false);
+        toast({
+          title: "Unsupported URL",
+          description: "Currently only YouTube URLs are supported for video analysis.",
+          variant: "destructive",
+        });
+        setInputUrl(''); // Clear the input
       }
     } else {
       setIsPreviewLoading(false);
@@ -290,7 +323,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                     <p className="text-zinc-300 text-sm sm:text-base">
                       Drag your video file here, or paste a video link
                     </p>
-                    <p className="text-xs text-zinc-500 mt-2">Max size 1GB • Max duration 55 minutes</p>
+                    <p className="text-xs text-zinc-500 mt-2">Max size 1GB • Max duration 55 minutes • YouTube URLs supported</p>
 
                     {/* Always-visible typed URL input in initial state */}
                     <div className="mt-4 w-full max-w-3xl">
@@ -301,7 +334,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                             const v = e.target.value;
                             setInputUrl(v);
                           }}
-                          placeholder="Type or paste a YouTube URL, then press Enter"
+                          placeholder="Type or paste a YouTube URL (Enter to validate)"
                           className="bg-zinc-900/50 border-zinc-800 w-full"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !isPreviewLoading) {
@@ -350,7 +383,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                     <p className="text-zinc-300 text-sm sm:text-base">
                       Drag your video file here, or paste a video link
                     </p>
-                    <p className="text-xs text-zinc-500 mt-2">Max size 1GB • Max duration 55 minutes</p>
+                    <p className="text-xs text-zinc-500 mt-2">Max size 1GB • Max duration 55 minutes • YouTube URLs supported</p>
 
                     {/* Always-visible typed URL input in initial state */}
                     <div className="mt-4 w-full max-w-3xl">
@@ -361,7 +394,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                             const v = e.target.value;
                             setInputUrl(v);
                           }}
-                          placeholder="Type or paste a YouTube URL, then press Enter"
+                          placeholder="Type or paste a YouTube URL (Enter to validate)"
                           className="bg-zinc-900/50 border-zinc-800 w-full"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !isPreviewLoading) {
@@ -410,7 +443,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                     <p className="text-zinc-300 text-sm sm:text-base">
                       Drag your video file here, or paste a video link
                     </p>
-                    <p className="text-xs text-zinc-500 mt-2">Max size 1GB • Max duration 55 minutes</p>
+                    <p className="text-xs text-zinc-500 mt-2">Max size 1GB • Max duration 55 minutes • YouTube URLs supported</p>
 
                     {/* Always-visible typed URL input in initial state */}
                     <div className="mt-4 w-full max-w-3xl">
@@ -421,7 +454,7 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
                             const v = e.target.value;
                             setInputUrl(v);
                           }}
-                          placeholder="Type or paste a YouTube URL, then press Enter"
+                          placeholder="Type or paste a YouTube URL (Enter to validate)"
                           className="bg-zinc-900/50 border-zinc-800 w-full"
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && !isPreviewLoading) {

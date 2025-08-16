@@ -68,7 +68,7 @@ export interface AlyzitronAnalysis {
   metadata: {
     originalFilename: string;
     videoSize: number;       // in bytes
-    videoDuration: number;   // in seconds
+    videoDuration: number;   // in seconds (integer, rounded up)
     mimeType: string;
     isPublic: boolean;       // Determines if the analysis is public or private
   };
