@@ -39,7 +39,7 @@ class PersistentAuthManager {
           this.clearAuthState();
         }
       }
-    } catch (error) {
+    } catch {
       // Failed to load auth state from storage - silent failure for security
       this.clearAuthState();
     }
@@ -50,7 +50,7 @@ class PersistentAuthManager {
       if (this.authState) {
         localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(this.authState));
       }
-    } catch (error) {
+    } catch {
       // Failed to save auth state to storage - silent failure for security
     }
   }
@@ -59,7 +59,7 @@ class PersistentAuthManager {
     this.authState = null;
     try {
       localStorage.removeItem(AUTH_STORAGE_KEY);
-    } catch (error) {
+    } catch {
       // Failed to clear auth state from storage - silent failure for security
     }
   }
@@ -135,7 +135,7 @@ class PersistentAuthManager {
       // Auth validation failed
       this.clearAuthState();
       return false;
-    } catch (error) {
+    } catch {
       // Network error - don't clear auth, just return false
       // Auth validation failed due to network error - silent failure for security
       return false;

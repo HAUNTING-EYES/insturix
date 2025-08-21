@@ -14,7 +14,6 @@ import type {
 import { useTaskUpdater } from "@/hooks/useTaskUpdater";
 import {
   Loader2,
-  History,
   FileVideo,
   ChevronLeft,
   ChevronRight,

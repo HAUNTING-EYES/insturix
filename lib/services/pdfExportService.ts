@@ -35,7 +35,6 @@ export class PDFExportService {
     const {
       filename = `${metadata.title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_script.pdf`,
       includeMetadata = true,
-      format = 'A4'
     } = options;
 
     try {
@@ -43,7 +42,7 @@ export class PDFExportService {
       const fullHtml = this.createFullHTMLDocument(htmlContent, metadata, includeMetadata);
       
       // Use the browser's print functionality for better results
-      await this.exportUsingPrint(fullHtml, filename);
+      await this.exportUsingPrint(fullHtml);
       
     } catch (error) {
       console.error('PDF export failed:', error);
@@ -171,7 +170,7 @@ export class PDFExportService {
   /**
    * Export using browser's print functionality
    */
-  private async exportUsingPrint(htmlContent: string, filename: string): Promise<void> {
+  private async exportUsingPrint(htmlContent: string): Promise<void> {
     // Create a new window/iframe for printing
     const printWindow = window.open('', '_blank');
     if (!printWindow) {

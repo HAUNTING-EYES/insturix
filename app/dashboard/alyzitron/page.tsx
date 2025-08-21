@@ -18,7 +18,7 @@ export default async function AlyzitronDashboard() {
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-100">
             Upload with confidence.
             <br className="hidden sm:block" />
-            Get your video's check-up.
+            Get your video&apos;s check-up.
           </h1>
 
           {/* Usage display component - fetches data using React Query */}

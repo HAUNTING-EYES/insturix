@@ -291,7 +291,7 @@ class SecureErrorHandler {
         },
         body: JSON.stringify(logData)
       });
-    } catch (error) {
+    } catch {
       // Silent failure - don't create error loops
     }
   }
@@ -313,7 +313,7 @@ class SecureErrorHandler {
   /**
    * Create a user-friendly error response for API routes
    */
-  createApiErrorResponse(error: any, statusCode: number = 500): { error: string; action: string; code: string } {
+  createApiErrorResponse(error: any): { error: string; action: string; code: string } {
     const secureError = this.processError(error);
     
     return {
@@ -395,8 +395,8 @@ export function handleSecureError(error: any, customLevel?: ErrorLevel): SecureE
 /**
  * Create sanitized API error response
  */
-export function createSecureApiError(error: any, statusCode?: number) {
-  return errorHandler.createApiErrorResponse(error, statusCode);
+export function createSecureApiError(error: any) {
+  return errorHandler.createApiErrorResponse(error);
 }
 
 export default errorHandler; 

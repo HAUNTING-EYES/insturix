@@ -168,7 +168,7 @@ export const getAllLimitTypesForService = (serviceName: string): ServiceLimitCon
 export const getAllServiceLimitMappings = (): Record<string, string> => {
   const mappings: Record<string, string> = {};
 
-  Object.entries(UNIFIED_SERVICE_LIMITS).forEach(([serviceName, limits]) => {
+  Object.entries(UNIFIED_SERVICE_LIMITS).forEach(([, limits]) => {
     Object.entries(limits).forEach(([limitType, config]) => {
       mappings[limitType] = config.name;
     });

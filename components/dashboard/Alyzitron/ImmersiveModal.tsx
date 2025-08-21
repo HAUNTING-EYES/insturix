@@ -422,7 +422,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setIsProcessing(false);
       }
     },
-    [analysisId, isYouTubeUrl, startAnalysis, toast, context]
+    [analysisId, gcsPath, onOpenChange, uploadCompleted, isYouTubeUrl, startAnalysis, toast]
   );
 
   // Handle analysis completion

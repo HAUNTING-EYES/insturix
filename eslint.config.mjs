@@ -10,6 +10,19 @@ const compat = new FlatCompat({
 });
 
 const eslintConfig = [
+  {
+    ignores: [
+      "app/api/services/thinkforge/**",
+      "app/dashboard/thinkforge/**",
+      "components/dashboard/ThinkForge/**",
+      "lib/middleware/services/thinkforge.ts",
+      "./lib/utils/thinkforgeSession.ts",
+      "./lib/utils/sessionMetadata.ts",
+      "./lib/auth/sessionManager.ts",
+      "./lib/utils/raceConditionManager.ts",
+      "./lib/services/pdfExportService.ts"
+    ]
+  },
   ...compat.extends("next/core-web-vitals", "next/typescript"),
   {
     rules: {

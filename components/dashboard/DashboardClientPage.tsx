@@ -15,8 +15,7 @@ const THEME = {
 };
 
 export default function DashboardClientPage() {
-  //@ts-ignore
-  const { isLoading, error } = useUserInitialization();
+  useUserInitialization();
 
   // Remove blocking loading state for user initialization
   // Always show dashboard; handle initialization in background

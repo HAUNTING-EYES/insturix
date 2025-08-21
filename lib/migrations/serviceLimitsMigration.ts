@@ -103,11 +103,10 @@ export class ServiceLimitsMigrationService {
     const planType = planTypeMap[planName] || planTypeMap[planName.toLowerCase()] || 'free';
     
     // Get all service names from UNIFIED_SERVICE_LIMITS
-    const serviceNames = Object.keys(UNIFIED_SERVICE_LIMITS);
+    const serviceNames = Object.keys(UNIFIED_SERVICE_LIMITS) as (keyof IServiceLimits)[];
     
     // For each service, get the limits for this plan type
     serviceNames.forEach(serviceName => {
-      // @ts-expect-error
       serviceLimits[serviceName] = getPlanLimits(serviceName, planType, false); // Plans don't need user fields
     });
     
@@ -121,11 +120,10 @@ export class ServiceLimitsMigrationService {
     const serviceLimits: Partial<IServiceLimits> = {};
     
     // Get all service names from UNIFIED_SERVICE_LIMITS
-    const serviceNames = Object.keys(UNIFIED_SERVICE_LIMITS);
+    const serviceNames = Object.keys(UNIFIED_SERVICE_LIMITS) as (keyof IServiceLimits)[];
     
     // For each service, get the limits for this plan type
     serviceNames.forEach(serviceName => {
-      // @ts-expect-error
       serviceLimits[serviceName] = getPlanLimits(serviceName, planType as "free" | "plus" | "pro" | "premium", true); // Users need currentUsage
     });
     

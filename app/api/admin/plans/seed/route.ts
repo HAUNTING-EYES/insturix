@@ -53,7 +53,7 @@ async function handler() {
   await connectToDatabase();
   let createdCount = 0;
   let updatedCount = 0;
-  let skippedCount = 0;
+  const skippedCount = 0;
 
   for (const planConfig of PLANS_CONFIG) {
     // Get service limits from the unified configuration for all services

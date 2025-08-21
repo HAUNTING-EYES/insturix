@@ -16,7 +16,7 @@ export async function GET(request: Request) {
     const result = await validateYouTubeVideo(url);
     return NextResponse.json(result);
 
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
