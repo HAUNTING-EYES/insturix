@@ -60,7 +60,8 @@ export async function createSubscription(
     currency: string,
     billingCycle: 'monthly' | 'yearly',
     paymentProvider?: string,
-    paymentPlanId?: string
+    paymentPlanId?: string,
+    offerId?: string
 ): Promise<{ provider: 'razorpay'; key: string | undefined; subscriptionId: string; }> {
     console.log(`[Checkout] Starting for plan: ${planType}, currency: ${currency}, cycle: ${billingCycle}, provider: ${paymentProvider}, planId: ${paymentPlanId}`);
     const plan = await Plan.findOne({ type: planType });
@@ -81,8 +82,9 @@ export async function createSubscription(
 
     if (selectedProvider === 'razorpay') {
         console.log(`[Checkout] Attempting to use Razorpay Plan ID: ${selectedPlanId}`);
-        // Razorpay checkout logic
-        const subscription = await razorpay.subscriptions.create({
+        
+        // Prepare subscription data
+        const subscriptionData: any = {
             plan_id: selectedPlanId,
             customer_notify: 1,
             total_count: billingCycle === 'monthly' ? 12 : 1,
@@ -91,7 +93,16 @@ export async function createSubscription(
               planType: planType,
               billingCycle: billingCycle,
             }
-        });
+        };
+
+        // Add offer ID if provided (for coupon discounts)
+        if (offerId) {
+            console.log(`[Checkout] Applying offer ID: ${offerId}`);
+            subscriptionData.offer_id = offerId;
+        }
+
+        // Razorpay checkout logic
+        const subscription = await razorpay.subscriptions.create(subscriptionData);
         return {
             provider: 'razorpay',
             key: process.env.RAZORPAY_KEY_ID,

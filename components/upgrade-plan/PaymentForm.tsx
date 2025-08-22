@@ -12,6 +12,8 @@ import { createSubscription } from "@/lib/services/paymentService";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGradientClass } from "@/lib/themeConfig";
 import { Plan } from "./UpgradePageContent";
+import { CouponInput } from "./CouponInput";
+import { AppliedCoupon } from "@/lib/services/couponService";
 
 interface PaymentFormProps {
   plan: Plan;
@@ -30,9 +32,15 @@ declare global {
 export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess, onPaymentError }: PaymentFormProps) {
   const [loading, setLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'processing' | 'success' | 'failed'>('idle');
+  const [appliedCoupon, setAppliedCoupon] = useState<AppliedCoupon | null>(null);
   const { user } = useUser();
   const { selectedCurrency, selectedSymbol } = useCurrency();
   const queryClient = useQueryClient();
+
+  // Calculate final amount after coupon discount
+  const finalAmount = appliedCoupon 
+    ? Math.max(0, totalAmount - appliedCoupon.discount.amount)
+    : totalAmount;
 
   const fadeIn = {
     hidden: { opacity: 0 },
@@ -69,7 +77,8 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
         selectedCurrency,
         billingCycle,
         plan.paymentProvider?.provider,
-        plan.paymentProvider?.planId
+        plan.paymentProvider?.planId,
+        appliedCoupon?.offerId // Pass the offer ID if coupon is applied
       );
 
       if (checkout.provider === 'razorpay') {
@@ -109,6 +118,8 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
                   provider: 'razorpay',
                   billingCycle: billingCycle,
                   currency: selectedCurrency,
+                  couponCode: appliedCoupon?.code,
+                  offerId: appliedCoupon?.offerId,
                 }),
               });
 
@@ -191,6 +202,36 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
       <div className="space-y-4">
         <h3 className="text-lg font-medium">Payment Information</h3>
 
+        {/* Coupon Input - Only for INR */}
+        <CouponInput
+          amount={totalAmount}
+          currency={selectedCurrency}
+          onCouponApplied={setAppliedCoupon}
+          appliedCoupon={appliedCoupon}
+        />
+
+        {/* Show discount summary if coupon is applied */}
+        {appliedCoupon && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="p-3 bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20 rounded-lg"
+          >
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-white/70">Original Amount:</span>
+              <span className="text-white">{selectedSymbol}{totalAmount.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-green-400">Discount ({appliedCoupon.code}):</span>
+              <span className="text-green-400">-{selectedSymbol}{appliedCoupon.discount.amount.toFixed(2)}</span>
+            </div>
+            <div className="border-t border-green-500/20 mt-2 pt-2 flex justify-between items-center font-medium">
+              <span className="text-white">Final Amount:</span>
+              <span className="text-white">{selectedSymbol}{finalAmount.toFixed(2)}</span>
+            </div>
+          </motion.div>
+        )}
+
         <div className="text-sm text-white/70 flex items-center p-3 border border-blue-500/20 rounded-lg bg-gradient-to-r from-blue-500/10 to-cyan-500/10 backdrop-blur-sm">
           <Shield className="h-4 w-4 mr-2 text-blue-400" />
           Your payment information is secure and encrypted
@@ -214,7 +255,7 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
             ? "Payment Successful!"
             : paymentStatus === 'failed'
             ? "Payment Failed - Retry"
-            : `Pay ${selectedSymbol}${totalAmount.toFixed(2)}`
+            : `Pay ${selectedSymbol}${finalAmount.toFixed(2)}`
           }
         </Button>
 

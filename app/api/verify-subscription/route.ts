@@ -19,6 +19,8 @@ export async function POST(request: NextRequest) {
       planType,
       billingCycle,
       currency,
+      couponCode,
+      offerId,
     }: {
       razorpay_payment_id: string;
       razorpay_subscription_id: string;
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
       planType: UserType;
       billingCycle: 'monthly' | 'yearly';
       currency: string;
+      couponCode?: string;
+      offerId?: string;
     } = await request.json();
 
     const keySecret = process.env.RAZORPAY_SECRET_KEY_ID!;
@@ -74,6 +78,8 @@ export async function POST(request: NextRequest) {
           status: "pending",
           subscriptionId: { razorpay: razorpay_subscription_id },
           serviceLimits: plan.serviceLimits,
+          couponCode: couponCode || null,
+          offerId: offerId || null,
       };
       user.planHistory.push(newPlan);
 
