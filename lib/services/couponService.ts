@@ -32,13 +32,13 @@ export interface CouponValidationResult {
 // TODO: Replace these offer IDs with your actual Razorpay offer IDs
 const COUPON_CONFIGS: CouponConfig[] = [
     {
-        code: 'WELCOME20',
-        offerId: 'offer_R8VLtyV0Y8OWnk', // Updated with the actual Razorpay offer ID
+        code: 'IGNITEROOM',
+        offerId: 'offer_R8i1ltygEw146K', // Updated with the actual Razorpay offer ID
         type: 'percentage',
         value: 10,
-        description: '10% off on your first subscription',
-        minAmount: 100,
-        maxDiscount: 500,
+        description: 'Special 10% off!',
+        minAmount: 800,
+        maxDiscount: 150,
         currency: 'INR',
         isActive: true,
     },
