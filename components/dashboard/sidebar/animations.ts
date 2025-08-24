@@ -30,7 +30,7 @@ export const linkVariants = {
     }
   },
   collapsed: {
-    paddingLeft: "0px",
+    paddingLeft: "4px", // Keep consistent padding
     paddingRight: "8px", 
     transition: {
       duration: 0.3,
@@ -49,7 +49,7 @@ export const containerVariants = {
     }
   },
   collapsed: {
-    marginLeft: "5px",
+    marginLeft: "0px", // Keep consistent positioning
     transition: {
       duration: 0.3,
       ease: [0.4, 0, 0.2, 1],
