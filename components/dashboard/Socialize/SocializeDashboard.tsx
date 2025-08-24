@@ -234,9 +234,7 @@ export default function SocializeDashboard({
 
   const handleRemoveLink = async (indexToRemove: number) => {
     if (!links) return;
-    const updatedLinks = links.filter(
-      (_, index) => index !== indexToRemove
-    );
+    const updatedLinks = links.filter((_, index) => index !== indexToRemove);
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
@@ -435,8 +433,8 @@ export default function SocializeDashboard({
 
       {/* Modals */}
       <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-        <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
-          <DialogHeader>
+        <DialogContent className="bg-black text-white p-6">
+          <DialogHeader className="pb-4">
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Plus className="w-5 h-5 text-[#0e6b9c]" />
               Add New Link
@@ -503,7 +501,7 @@ export default function SocializeDashboard({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowAddModal(false)}>
               Cancel
             </Button>
@@ -523,8 +521,8 @@ export default function SocializeDashboard({
       </Dialog>
 
       <Dialog open={showEditBioModal} onOpenChange={setShowEditBioModal}>
-        <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
-          <DialogHeader>
+        <DialogContent className="bg-black text-white p-6">
+          <DialogHeader className="pb-4">
             <DialogTitle className="text-xl">Edit Bio</DialogTitle>
             <DialogDescription>Update your profile bio</DialogDescription>
           </DialogHeader>
@@ -546,7 +544,7 @@ export default function SocializeDashboard({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button
               variant="outline"
               onClick={() => setShowEditBioModal(false)}
@@ -564,8 +562,8 @@ export default function SocializeDashboard({
       </Dialog>
 
       <Dialog open={showUpdatePopup} onOpenChange={setShowUpdatePopup}>
-        <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
-          <DialogHeader>
+        <DialogContent className="bg-black text-white p-6">
+          <DialogHeader className="pb-4">
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Bell className="w-5 h-5 text-[#0e6b9c]" />
               Update Notification
@@ -593,7 +591,8 @@ export default function SocializeDashboard({
                   }
                 }}
                 onBlur={() => {
-                  if (duration === "" || isNaN(Number(duration))) setDuration(1);
+                  if (duration === "" || isNaN(Number(duration)))
+                    setDuration(1);
                 }}
                 className="bg-[#121212] border-[#0e6b9c]/30 focus:ring-[#0e6b9c]/30 text-white"
               />
@@ -616,7 +615,7 @@ export default function SocializeDashboard({
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-4">
             <Button variant="outline" onClick={() => setShowUpdatePopup(false)}>
               Cancel
             </Button>
@@ -645,8 +644,8 @@ export default function SocializeDashboard({
 
       {/* Edit Link Modal */}
       <Dialog open={showEditLinkModal} onOpenChange={setShowEditLinkModal}>
-        <DialogContent className="bg-black border-[#0e6b9c]/50 text-white">
-          <DialogHeader>
+        <DialogContent className="bg-black text-white p-6">
+          <DialogHeader className="pb-4">
             <DialogTitle className="flex items-center gap-2 text-xl">
               <Plus className="w-5 h-5 text-[#0e6b9c]" />
               Edit Link
@@ -673,7 +672,9 @@ export default function SocializeDashboard({
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm text-gray-400">Title (optional)</label>
+                <label className="text-sm text-gray-400">
+                  Title (optional)
+                </label>
                 <Input
                   type="text"
                   placeholder="Link title (defaults to platform)"
@@ -715,8 +716,11 @@ export default function SocializeDashboard({
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowEditLinkModal(false)}>
+          <DialogFooter className="pt-4">
+            <Button
+              variant="outline"
+              onClick={() => setShowEditLinkModal(false)}
+            >
               Cancel
             </Button>
             <Button
