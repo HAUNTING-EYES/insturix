@@ -21,30 +21,12 @@ export const coreCreationTools: Product[] = [
     isPro: false,
   },
   {
-    name: "Alyzitron",
-    path: "/dashboard/alyzitron",
-    icon: Video,
-    description: "AI Analysis Tool",
-    color: "#3b82f6",
-    hoverColor: "#60a5fa",
-    isPro: false,
-  },
-  {
     name: "Clickatron",
     path: "/dashboard/clickatron",
     icon: Sparkles,
     description: "YouTube Thumbnail Generator",
     color: "#8B5CF6",
     hoverColor: "#A78BFA",
-    isPro: false,
-  },
-  {
-    name: "Musitron",
-    path: "/dashboard/musitron",
-    icon: Music,
-    description: "Music Generation",
-    color: "#eab308",
-    hoverColor: "#facc15",
     isPro: false,
   },
   {
@@ -56,10 +38,28 @@ export const coreCreationTools: Product[] = [
     hoverColor: "#2dd4bf",
     isPro: false,
   },
+  {
+    name: "Alyzitron",
+    path: "/dashboard/alyzitron",
+    icon: Video,
+    description: "AI Analysis Tool",
+    color: "#3b82f6",
+    hoverColor: "#60a5fa",
+    isPro: false,
+  },
 ]
 
 // Growth & Legal tools
 export const growthLegalTools: Product[] = [
+    {
+    name: "Musitron",
+    path: "/dashboard/musitron",
+    icon: Music,
+    description: "Music Generation",
+    color: "#eab308",
+    hoverColor: "#facc15",
+    isPro: false,
+  },
   {
     name: "Socialize",
     path: "/dashboard/socialize",
