@@ -45,37 +45,22 @@ export function NavItem({
   const shouldApplyHoverColor = isHovered && itemHoverColor && !isActive;
 
   const backgroundColor = useMemo(() => {
-    if (shouldApplyColor) return `${itemColor}15`;
-    if (isHovered && !isActive) return "rgba(255, 255, 255, 0.08)";
+    if (isActive) return "rgba(28, 29, 36, 0.6)"; // Subtle depth for active state
+    if (isHovered) return "rgba(255, 255, 255, 0.05)"; // Very subtle hover
     return "transparent";
-  }, [shouldApplyColor, isHovered, isActive, itemColor]);
+  }, [isActive, isHovered]);
 
   const iconColor = useMemo(() => {
-    if (shouldApplyColor) return itemColor;
-    if (shouldApplyHoverColor) return itemHoverColor;
-    if (isActive) return "#ffffff";
-    return isHovered ? "#ffffff" : "rgba(255, 255, 255, 0.8)";
-  }, [
-    shouldApplyColor,
-    shouldApplyHoverColor,
-    isActive,
-    isHovered,
-    itemColor,
-    itemHoverColor,
-  ]);
+    if (isActive) return "#ffffff"; // Pure white for active
+    if (isHovered) return "#ffffff"; // Pure white for hover
+    return "#a0a0a0"; // Light grey for default state
+  }, [isActive, isHovered]);
 
   const textColor = useMemo(() => {
-    if (shouldApplyColor) return itemColor;
-    if (shouldApplyHoverColor) return itemHoverColor;
-    return isHovered || isActive ? "#ffffff" : "rgba(255, 255, 255, 0.8)";
-  }, [
-    shouldApplyColor,
-    shouldApplyHoverColor,
-    isHovered,
-    isActive,
-    itemColor,
-    itemHoverColor,
-  ]);
+    if (isActive) return "#ffffff"; // Pure white for active
+    if (isHovered) return "#ffffff"; // Pure white for hover
+    return "#a0a0a0"; // Light grey for default state
+  }, [isActive, isHovered]);
 
   // Create consistent icon with proper styling for active state
   const iconElement = useMemo(() => {
@@ -98,16 +83,22 @@ export function NavItem({
 
   const content = (
     <motion.div className="relative">
-      {/* Active indicator bar - always present but animated */}
-      <motion.div
-        className="absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-r-full z-10"
-        style={{ backgroundColor: itemColor || "#ffffff" }}
-        initial={false}
-        animate={
-          isActive ? { height: "70%", opacity: 1 } : { height: 0, opacity: 0 }
-        }
-        transition={{ duration: 0.3, ease: "easeOut" }}
-      />
+      {/* Active indicator bar with smooth sliding animation */}
+      {isActive && (
+        <motion.div
+          layoutId="activeIndicator"
+          className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 rounded-r-sm z-10"
+          style={{ backgroundColor: itemColor || "#ffffff" }}
+          initial={false}
+          animate={{ height: "60%" }}
+          transition={{
+            type: "spring",
+            stiffness: 500,
+            damping: 30,
+            duration: 0.3,
+          }}
+        />
+      )}
 
       <motion.div
         className={cn(
@@ -148,7 +139,7 @@ export function NavItem({
             }}
           >
             <motion.div
-              className="flex items-center justify-center"
+              className="flex items-center justify-center transition-all duration-200"
               style={{
                 color: iconColor,
               }}
@@ -169,7 +160,10 @@ export function NavItem({
             }}
           >
             <motion.span
-              className="text-sm font-medium tracking-wide flex-shrink-0"
+              className={cn(
+                "text-sm tracking-wide flex-shrink-0 transition-all duration-200",
+                isActive ? "font-semibold" : "font-medium"
+              )}
               style={{
                 color: textColor,
                 whiteSpace: "nowrap",
