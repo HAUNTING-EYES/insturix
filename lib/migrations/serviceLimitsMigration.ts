@@ -17,14 +17,16 @@ export interface MigrationResult {
 }
 
 export class ServiceLimitsMigrationService {
-  private migratedUsers = 0;
-  private migratedPlans = 0;
-  private errors: string[] = [];
+  public migratedUsers = 0;
+  public migratedPlans = 0;
+  public errors: string[] = [];
+  public Plan: any;
+  public User: any;
 
   /**
    * Connect to database
    */
-  private async connect() {
+  public async connect() {
     try {
       await connectToDatabase();
       console.log('[MigrationService] Connected to database successfully');
@@ -37,7 +39,7 @@ export class ServiceLimitsMigrationService {
   /**
    * Disconnect from database
    */
-  private async disconnect() {
+  public async disconnect() {
     try {
       await mongoose.disconnect();
       console.log('[MigrationService] Disconnected from database');
@@ -57,7 +59,11 @@ export class ServiceLimitsMigrationService {
       const existingPlans = await Plan.find({});
       console.log(`[MigrationService] Found ${existingPlans.length} existing plans`);
 
-      for (const plan of existingPlans) {
+      // Filter plans that actually need updating
+      const plansToUpdate = existingPlans.filter(plan => !this.hasUnifiedLimits(plan.serviceLimits, false));
+      console.log(`[MigrationService] Plans that need updating: ${plansToUpdate.length}/${existingPlans.length}`);
+
+      for (const plan of plansToUpdate) {
         try {
           // Generate service limits using unified configuration
           const serviceLimits = this.generateServiceLimitsForPlan(plan.name);
@@ -138,13 +144,15 @@ export class ServiceLimitsMigrationService {
     
     try {
       // Get all users with service limits
-      const users = await User.find({ 
+      const allUsers = await User.find({ 
         'currentPlan.serviceLimits': { $exists: true }
       });
       
-      console.log(`[MigrationService] Found ${users.length} users to migrate`);
+      // Filter users that actually need migration
+      const usersToMigrate = allUsers.filter(user => !this.hasUnifiedLimits(user.currentPlan.serviceLimits, true));
+      console.log(`[MigrationService] Users that need migration: ${usersToMigrate.length}/${allUsers.length}`);
 
-      for (const user of users) {
+      for (const user of usersToMigrate) {
         try {
           await this.migrateUser(user);
           this.migratedUsers++;
@@ -172,14 +180,6 @@ export class ServiceLimitsMigrationService {
     const planType = user.currentPlan.name;
     const serviceLimits = user.currentPlan.serviceLimits;
 
-    // Check if user already has unified limits (they will have the new structure)
-    const hasUnifiedLimits = this.hasUnifiedLimits(serviceLimits, true);
-
-    if (hasUnifiedLimits) {
-      console.log(`[MigrationService] User ${user.clerkUserId} already has unified limits, skipping...`);
-      return;
-    }
-
     // Generate unified limits for this plan type (for users)
     const unifiedLimits = this.generateUserServiceLimits(planType);
 
@@ -197,13 +197,24 @@ export class ServiceLimitsMigrationService {
   /**
    * Check if service limits already use unified structure
    */
-  private hasUnifiedLimits(serviceLimits: any, isUserLimits: boolean = true): boolean {
+  public hasUnifiedLimits(serviceLimits: any, isUserLimits: boolean = true): boolean {
     if (!serviceLimits || typeof serviceLimits !== 'object') {
       return false;
     }
 
     // Get all expected services from UNIFIED_SERVICE_LIMITS
     const expectedServices = Object.keys(UNIFIED_SERVICE_LIMITS);
+    const actualServices = Object.keys(serviceLimits).filter(key => 
+      // Filter out Mongoose internal properties
+      !key.startsWith('$') && !key.startsWith('_') && key !== 'isNew'
+    );
+    
+    // Check if there are any unexpected services
+    const unexpectedServices = actualServices.filter(service => !expectedServices.includes(service));
+    if (unexpectedServices.length > 0) {
+      console.log(`[MigrationService] Unexpected services found: ${unexpectedServices.join(', ')}`);
+      return false;
+    }
     
     // Check if all expected services are present
     for (const serviceName of expectedServices) {
@@ -212,25 +223,48 @@ export class ServiceLimitsMigrationService {
         return false;
       }
       
-      // Check if the service has valid limit structure
+      // Get expected limit types for this service
+      const expectedLimitTypes = Object.keys(UNIFIED_SERVICE_LIMITS[serviceName]);
       const serviceArray = serviceLimits[serviceName];
+      
       if (serviceArray.length === 0) {
         console.log(`[MigrationService] Empty service array for: ${serviceName}`);
         return false;
       }
       
-      // Check the first limit in the service
-      const firstLimit = serviceArray[0];
-      if (!firstLimit || 
-          typeof firstLimit.limitType !== 'string' ||
-          typeof firstLimit.maxUsage !== 'number') {
-        console.log(`[MigrationService] Invalid limit structure in service: ${serviceName}`);
+      // Check if the service has the correct number of limit types
+      if (serviceArray.length !== expectedLimitTypes.length) {
+        console.log(`[MigrationService] Service ${serviceName} has ${serviceArray.length} limits, expected ${expectedLimitTypes.length}`);
         return false;
       }
       
-      // For user limits, also check currentUsage
-      if (isUserLimits && typeof firstLimit.currentUsage !== 'number') {
-        console.log(`[MigrationService] Missing currentUsage in user service: ${serviceName}`);
+      // Check each limit in the service
+      for (const limit of serviceArray) {
+        if (!limit || 
+            typeof limit.limitType !== 'string' ||
+            typeof limit.maxUsage !== 'number') {
+          console.log(`[MigrationService] Invalid limit structure in service: ${serviceName}`, limit);
+          return false;
+        }
+        
+        // Check if this limit type is expected for this service
+        if (!expectedLimitTypes.includes(limit.limitType)) {
+          console.log(`[MigrationService] Unexpected limit type '${limit.limitType}' in service: ${serviceName}`);
+          return false;
+        }
+        
+        // For user limits, also check currentUsage
+        if (isUserLimits && typeof limit.currentUsage !== 'number') {
+          console.log(`[MigrationService] Missing currentUsage in user service: ${serviceName}, limit: ${limit.limitType}`);
+          return false;
+        }
+      }
+      
+      // Check if all expected limit types are present
+      const actualLimitTypes = serviceArray.map((limit: any) => limit.limitType);
+      const missingLimitTypes = expectedLimitTypes.filter(limitType => !actualLimitTypes.includes(limitType));
+      if (missingLimitTypes.length > 0) {
+        console.log(`[MigrationService] Missing limit types in service ${serviceName}: ${missingLimitTypes.join(', ')}`);
         return false;
       }
     }
@@ -412,13 +446,13 @@ export class ServiceLimitsMigrationService {
 
       // Count plans that would be updated
       const plans = await Plan.find({});
-      const plansToUpdate = plans.filter(plan => !this.hasUnifiedLimits(plan.serviceLimits));
+      const plansToUpdate = plans.filter(plan => !this.hasUnifiedLimits(plan.serviceLimits, false));
       console.log(`Plans to update: ${plansToUpdate.length}/${plans.length}`);
       result.migratedPlans = plansToUpdate.length;
 
       // Count users that would be migrated
       const users = await User.find({ 'currentPlan.serviceLimits': { $exists: true } });
-      const usersToMigrate = users.filter(user => !this.hasUnifiedLimits(user.currentPlan.serviceLimits));
+      const usersToMigrate = users.filter(user => !this.hasUnifiedLimits(user.currentPlan.serviceLimits, true));
       console.log(`Users to migrate: ${usersToMigrate.length}/${users.length}`);
       result.migratedUsers = usersToMigrate.length;
 
@@ -445,3 +479,7 @@ export const runServiceLimitsMigration = async ({ dryRun = false }: { dryRun?: b
   const migrationService = new ServiceLimitsMigrationService();
   return dryRun ? migrationService.dryRun() : migrationService.runMigration();
 };
+
+// Make the models available to the service
+ServiceLimitsMigrationService.prototype.Plan = Plan;
+ServiceLimitsMigrationService.prototype.User = User;
