@@ -6,18 +6,16 @@ import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { IdeationStage } from './stages/IdeationStage';
-import { GalleryStage } from './stages/GalleryStage';
 import { CanvasStage } from './stages/CanvasStage';
 import { FloatingGenerativeChat } from './FloatingGenerativeChat';
 
-type WorkflowStage = 'ideation' | 'gallery' | 'canvas';
+type WorkflowStage = 'ideation' | 'canvas';
 
 interface TaskData {
   videoIdea: string;
   timestamp: number;
   stage: WorkflowStage;
   selectedDirection?: string;
-  selectedThumbnail?: string;
   selectedPreset?: {
     id: string;
     name: string;
@@ -77,13 +75,6 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
       case 'ideation':
         updateTaskData({ 
           selectedDirection: data.selectedDirection,
-          stage: 'gallery' 
-        });
-        setCurrentStage('gallery');
-        break;
-      case 'gallery':
-        updateTaskData({ 
-          selectedThumbnail: data.selectedThumbnail,
           stage: 'canvas' 
         });
         setCurrentStage('canvas');
@@ -105,13 +96,9 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
 
   const handleBack = () => {
     switch (currentStage) {
-      case 'gallery':
+      case 'canvas':
         setCurrentStage('ideation');
         updateTaskData({ stage: 'ideation' });
-        break;
-      case 'canvas':
-        setCurrentStage('gallery');
-        updateTaskData({ stage: 'gallery' });
         break;
       default:
         router.push('/dashboard/clickatron2');
@@ -148,13 +135,13 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
             {taskData.videoIdea}
           </h1>
           <div className="flex items-center gap-2 mt-1">
-            {(['ideation', 'gallery', 'canvas'] as const).map((stage, index) => (
+            {(['ideation', 'canvas'] as const).map((stage, index) => (
               <div
                 key={stage}
                 className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
                   currentStage === stage
                     ? 'bg-purple-500'
-                    : index < (['ideation', 'gallery', 'canvas'] as const).indexOf(currentStage)
+                    : index < (['ideation', 'canvas'] as const).indexOf(currentStage)
                     ? 'bg-purple-600/50'
                     : 'bg-zinc-700'
                 }`}
@@ -176,23 +163,11 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
           </motion.div>
         )}
         
-        {currentStage === 'gallery' && (
-          <motion.div key="gallery" {...stageTransition}>
-            <GalleryStage
-              videoIdea={taskData.videoIdea}
-              selectedDirection={taskData.selectedDirection!}
-              selectedPreset={taskData.selectedPreset}
-              onComplete={(data) => handleStageComplete('gallery', data)}
-            />
-          </motion.div>
-        )}
-        
         {currentStage === 'canvas' && (
           <motion.div key="canvas" {...stageTransition}>
             <CanvasStage
               videoIdea={taskData.videoIdea}
               selectedDirection={taskData.selectedDirection!}
-              selectedThumbnail={taskData.selectedThumbnail!}
               selectedPreset={taskData.selectedPreset}
               referenceImage={taskData.referenceImage}
               onComplete={(data) => handleStageComplete('canvas', data)}

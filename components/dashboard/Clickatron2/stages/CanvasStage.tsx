@@ -19,7 +19,6 @@ import {
 interface CanvasStageProps {
   videoIdea: string;
   selectedDirection: string;
-  selectedThumbnail: string;
   selectedPreset?: {
     id: string;
     name: string;
@@ -52,7 +51,6 @@ const fadeIn = {
 export function CanvasStage({
   videoIdea,
   selectedDirection,
-  selectedThumbnail,
   selectedPreset,
   referenceImage,
   onComplete,
@@ -71,6 +69,16 @@ export function CanvasStage({
     "adjust"
   );
 
+  const [thumbnailLoading, setThumbnailLoading] = useState(true);
+
+  // Simulate thumbnail generation when component mounts
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setThumbnailLoading(false);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
   const updateControl = (key: keyof CanvasControls, value: number) => {
     setControls((prev) => ({ ...prev, [key]: value }));
   };
@@ -86,7 +94,7 @@ export function CanvasStage({
   };
 
   const handleSave = () => {
-    onComplete({ finalThumbnail: selectedThumbnail });
+    onComplete({ finalThumbnail: `${selectedDirection}_thumbnail` });
   };
 
   const canvasStyle = {
@@ -122,30 +130,51 @@ export function CanvasStage({
                         ? "aspect-[9/16] max-w-sm"
                         : "aspect-video" // 16:9 default
                   }`}
-                  style={canvasStyle}
+                  style={thumbnailLoading ? {} : canvasStyle}
                 >
-                  {/* Mock thumbnail with applied effects */}
-                  <div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center relative">
-                    <div className="text-center">
-                      <div className="text-4xl mb-4">🎬</div>
-                      <div
-                        className="text-white font-bold text-xl"
-                        style={{
-                          fontSize: `${controls.textSize}%`,
-                          opacity: controls.textOpacity / 100,
-                        }}
-                      >
-                        {videoIdea.length > 30
-                          ? videoIdea.substring(0, 30) + "..."
-                          : videoIdea}
+                  {thumbnailLoading ? (
+                    /* Loading State */
+                    <div className="w-full h-full bg-zinc-800/50 flex items-center justify-center">
+                      <div className="text-center">
+                        <motion.div
+                          animate={{ rotate: 360 }}
+                          transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                          className="inline-block mb-4"
+                        >
+                          <Sparkles className="h-8 w-8 text-purple-400" />
+                        </motion.div>
+                        <div className="text-zinc-300 font-medium">
+                          Generating thumbnail...
+                        </div>
+                        <div className="text-zinc-500 text-sm mt-1">
+                          {selectedDirection} style
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    /* Generated thumbnail with applied effects */
+                    <div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center relative">
+                      <div className="text-center">
+                        <div className="text-4xl mb-4">🎬</div>
+                        <div
+                          className="text-white font-bold text-xl"
+                          style={{
+                            fontSize: `${controls.textSize}%`,
+                            opacity: controls.textOpacity / 100,
+                          }}
+                        >
+                          {videoIdea.length > 30
+                            ? videoIdea.substring(0, 30) + "..."
+                            : videoIdea}
+                        </div>
+                      </div>
 
-                    {/* Overlay effects indicator */}
-                    <div className="absolute top-4 left-4 text-xs text-white/70 bg-black/30 px-2 py-1 rounded">
-                      {selectedDirection}
+                      {/* Overlay effects indicator */}
+                      <div className="absolute top-4 left-4 text-xs text-white/70 bg-black/30 px-2 py-1 rounded">
+                        {selectedDirection}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Quick Actions */}
@@ -154,6 +183,7 @@ export function CanvasStage({
                     variant="outline"
                     size="sm"
                     className="border-zinc-700 text-zinc-300"
+                    disabled={thumbnailLoading}
                   >
                     <Move className="h-4 w-4 mr-2" />
                     Reposition
@@ -163,6 +193,7 @@ export function CanvasStage({
                     size="sm"
                     className="border-zinc-700 text-zinc-300"
                     onClick={resetControls}
+                    disabled={thumbnailLoading}
                   >
                     <RotateCcw className="h-4 w-4 mr-2" />
                     Reset
@@ -196,7 +227,7 @@ export function CanvasStage({
               </div>
 
               {/* Control Content */}
-              <div className="space-y-6">
+              <div className={`space-y-6 ${thumbnailLoading ? 'opacity-50 pointer-events-none' : ''}`}>
                 {activeTab === "adjust" && (
                   <motion.div {...fadeIn} className="space-y-4">
                     <div>
@@ -326,9 +357,10 @@ export function CanvasStage({
                 <Button
                   onClick={handleSave}
                   className="w-full bg-purple-600 hover:bg-purple-700 text-white"
+                  disabled={thumbnailLoading}
                 >
                   <Save className="h-4 w-4 mr-2" />
-                  Save Thumbnail
+                  {thumbnailLoading ? 'Generating...' : 'Save Thumbnail'}
                 </Button>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -336,6 +368,7 @@ export function CanvasStage({
                     variant="outline"
                     size="sm"
                     className="border-zinc-700 text-zinc-300"
+                    disabled={thumbnailLoading}
                   >
                     <Download className="h-4 w-4 mr-2" />
                     Download
@@ -344,6 +377,7 @@ export function CanvasStage({
                     variant="outline"
                     size="sm"
                     className="border-zinc-700 text-zinc-300"
+                    disabled={thumbnailLoading}
                   >
                     <Share2 className="h-4 w-4 mr-2" />
                     Share

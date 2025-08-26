@@ -151,9 +151,11 @@ export function CanvasPresetSelector({
     <motion.div {...fadeIn} className="mb-4">
       {/* Mobile Dropdown */}
       <div className="block sm:hidden">
-        <label className="block text-sm font-medium text-zinc-300 mb-2">
-          Format
-        </label>
+        <div className="mb-3 text-center">
+          <label className="text-base font-medium text-zinc-200 mb-2 block">
+            Format
+          </label>
+        </div>
         <select
           value={selectedPreset}
           onChange={(e) => {
@@ -172,8 +174,8 @@ export function CanvasPresetSelector({
 
       {/* Desktop Grid */}
       <div className="hidden sm:block">
-        <div className="mb-3 text-center">
-          <h3 className="text-base font-medium text-zinc-200 mb-1">
+        <div className="mb-4 text-center">
+          <h3 className="text-base font-medium text-zinc-200 mb-2">
             Choose Your Format
           </h3>
         </div>
