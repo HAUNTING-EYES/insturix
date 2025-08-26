@@ -45,7 +45,7 @@ export default function HeroSection() {
       <div className="absolute bottom-1/3 right-1/5 w-32 h-32 rounded-full bg-gradient-to-r from-[rgb(var(--secondary))/10] to-[rgb(var(--primary))/10] blur-xl animate-float" />
 
       <div className="relative mx-auto w-full px-4 sm:px-6 lg:px-8">
-        <div className="flex min-h-screen w-full flex-col items-center justify-center text-center">
+        <div className="flex min-h-screen w-full flex-col items-center justify-center text-center py-8 sm:py-12">
           <motion.div
             className="w-full"
             initial={{ opacity: 0, y: 20 }}
@@ -67,8 +67,8 @@ export default function HeroSection() {
               </span>
             </motion.div> */}
 
-            <div className="relative mb-8 sm:mb-12 w-full">
-              <div className="absolute -inset-x-20 -inset-y-10 z-0 opacity-30 blur-2xl md:blur-none">
+            <div className="relative mb-6 sm:mb-8 md:mb-12 w-full px-2 sm:px-0">
+              <div className="absolute -inset-x-10 sm:-inset-x-20 -inset-y-6 sm:-inset-y-10 z-0 opacity-30 blur-xl sm:blur-2xl md:blur-none">
                 <div className="absolute inset-0 bg-gradient-to-r from-[rgb(var(--primary))/10] to-[rgb(var(--secondary))/10] [mask-image:radial-gradient(farthest-side_at_top,white,transparent)]" />
               </div>
 
@@ -79,13 +79,13 @@ export default function HeroSection() {
                   characterDelay={40}
                   transitionDuration={350}
                   shouldLoop={true}
-                  textClass="w-full text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground"
+                  textClass="w-full text-2xl xs:text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-tight"
                 />
               </div>
             </div>
 
             <motion.p
-              className="mx-auto max-w-xl text-base sm:text-lg md:text-xl text-muted-foreground/80 px-4 mb-8"
+              className="mx-auto max-w-xl text-sm sm:text-base md:text-lg lg:text-xl text-muted-foreground/80 px-6 sm:px-4 mb-6 sm:mb-8 leading-relaxed"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8, delay: 1 }}
@@ -94,29 +94,29 @@ export default function HeroSection() {
               for creator protection, AI-powered tools, and brand collaborations
             </motion.p>
 
-            {/* Waitlist button - the highlight of our changes */}
+            {/* Waitlist button - Enhanced for mobile */}
             <motion.div
-              className="mb-8"
+              className="mb-6 sm:mb-8 px-4 sm:px-0"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, delay: 1.2 }}
             >
               <Link href="/signup">
                 <motion.button
-                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-red-700 to-orange-600 px-8 py-4 text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_50px_5px_rgba(var(--primary),0.6)] active:scale-[0.98]"
+                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-red-700 to-orange-600 px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_50px_5px_rgba(var(--primary),0.6)] active:scale-[0.98] w-full sm:w-auto max-w-xs sm:max-w-none mx-auto"
                   onMouseEnter={() => setIsHovering(true)}
                   onMouseLeave={() => setIsHovering(false)}
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.98 }}
                 >
-                  <span className="relative z-10 flex items-center gap-2">
-                    <Users className="h-5 w-5" />
+                  <span className="relative z-10 flex items-center justify-center gap-2">
+                    <Users className="h-4 w-4 sm:h-5 sm:w-5" />
                     <span>Join Now!</span>
                     <motion.div
                       animate={{ x: isHovering ? 5 : 0 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <ArrowRight className="h-5 w-5" />
+                      <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5" />
                     </motion.div>
                   </span>
 
@@ -146,9 +146,9 @@ export default function HeroSection() {
               </Link>
             </motion.div>
 
-            {/* Startup Program Logos - Centered below CTA */}
+            {/* Startup Program Logos - Mobile Optimized */}
             <motion.div
-              className="flex flex-col items-center gap-4 mt-20"
+              className="flex flex-col items-center gap-3 sm:gap-4 mt-12 sm:mt-16 md:mt-20 px-4 sm:px-0"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 1.4 }}
@@ -163,23 +163,23 @@ export default function HeroSection() {
                 Backed by
               </motion.p>
 
-              {/* Logos in horizontal line */}
-              <div className="flex items-center gap-4">
+              {/* Logos - Responsive layout */}
+              <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full max-w-md sm:max-w-none">
                 {/* Google for Startups */}
                 <motion.div
                   initial={{ opacity: 0, x: -20, scale: 0.95 }}
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   transition={{ duration: 0.6, delay: 1.6, ease: "easeOut" }}
                   whileHover={{ scale: 1.03, y: -2 }}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer w-full sm:w-auto"
                 >
-                  <div className="bg-white/30 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-white/15 hover:shadow-xl transition-all duration-300 hover:border-white/30 hover:backdrop-blur-md hover:bg-white/15">
+                  <div className="bg-white/30 backdrop-blur-sm rounded-lg p-2.5 sm:p-3 shadow-lg border border-white/15 hover:shadow-xl transition-all duration-300 hover:border-white/30 hover:backdrop-blur-md hover:bg-white/15">
                     <Image
                       src="/icons/Google_for_Startups_logo.svg"
                       alt="Google for Startups"
                       width={160}
                       height={36}
-                      className="w-auto h-auto max-h-7 transition-all duration-300 group-hover:scale-105 block"
+                      className="w-auto h-auto max-h-5 sm:max-h-6 md:max-h-7 transition-all duration-300 group-hover:scale-105 block mx-auto"
                     />
                   </div>
                 </motion.div>
@@ -190,15 +190,15 @@ export default function HeroSection() {
                   animate={{ opacity: 1, x: 0, scale: 1 }}
                   transition={{ duration: 0.6, delay: 1.8, ease: "easeOut" }}
                   whileHover={{ scale: 1.03, y: -2 }}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer w-full sm:w-auto"
                 >
-                  <div className="bg-white/30 backdrop-blur-sm rounded-lg p-3 shadow-lg border border-white/15 hover:shadow-xl transition-all duration-300 hover:border-white/30 hover:backdrop-blur-md hover:bg-white/15">
+                  <div className="bg-white/30 backdrop-blur-sm rounded-lg p-2.5 sm:p-3 shadow-lg border border-white/15 hover:shadow-xl transition-all duration-300 hover:border-white/30 hover:backdrop-blur-md hover:bg-white/15">
                     <Image
                       src="/icons/Microsoft-for-Startups-alpha.png"
                       alt="Microsoft for Startups"
                       width={180}
                       height={50}
-                      className="w-auto h-auto max-h-8 transition-all duration-300 group-hover:scale-105 block"
+                      className="w-auto h-auto max-h-6 sm:max-h-7 md:max-h-8 transition-all duration-300 group-hover:scale-105 block mx-auto"
                     />
                   </div>
                 </motion.div>

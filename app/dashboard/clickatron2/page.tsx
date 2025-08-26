@@ -13,13 +13,13 @@ export default async function Clickatron2Dashboard() {
       <section className="relative overflow-hidden rounded-2xl border border-zinc-800/80 bg-gradient-to-b from-zinc-950/90 to-zinc-900/40 p-5 sm:p-7 md:p-10">
         <div className="max-w-3xl">
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-zinc-100">
-            Turn ideas into thumbnails.
-            <br className="hidden sm:block" />
+            Turn ideas into thumbnails. <br className="hidden sm:block" />
             Your creative lab awaits.
           </h1>
-          
+
           <p className="mt-4 text-lg text-zinc-400 max-w-2xl">
-            From video concept to stunning thumbnail in seconds. Let AI guide your creative process.
+            From video concept to stunning thumbnail in seconds. Let AI guide
+            your creative process.
           </p>
         </div>
 

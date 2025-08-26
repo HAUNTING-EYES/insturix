@@ -128,7 +128,7 @@ export function EnhancedInput({
         onDrop={handleDrop}
       >
         {/* Main Input Container */}
-        <div className={`relative flex items-center gap-3 p-2 rounded-xl border transition-all duration-200 ${
+        <div className={`relative flex flex-col sm:flex-row sm:items-center gap-3 p-3 sm:p-2 rounded-xl border transition-all duration-200 ${
           dragActive 
             ? 'border-purple-500/50 bg-purple-500/5 shadow-lg shadow-purple-500/10' 
             : 'border-zinc-800 bg-zinc-900/50'
@@ -155,20 +155,35 @@ export function EnhancedInput({
             )}
           </AnimatePresence>
 
-          {/* Text Input */}
-          <Input
-            ref={inputRef}
-            value={value}
-            onChange={(e) => onChange(e.target.value)}
-            onPaste={handlePaste}
-            onKeyDown={handleKeyDown}
-            placeholder={dragActive ? "Drop image here or continue typing..." : placeholder}
-            className="border-0 bg-transparent text-zinc-100 placeholder:text-zinc-500 flex-1 h-10 focus-visible:ring-0 focus-visible:ring-offset-0"
-            disabled={disabled}
-          />
+          {/* Text Input - Textarea on mobile, Input on desktop */}
+          <div className="flex-1">
+            {/* Mobile Textarea */}
+            <textarea
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onPaste={handlePaste}
+              onKeyDown={handleKeyDown}
+              placeholder={dragActive ? "Drop image here or continue typing..." : placeholder}
+              className="block sm:hidden w-full min-h-[80px] max-h-[120px] resize-none border-0 bg-transparent text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0 text-sm leading-relaxed p-2"
+              disabled={disabled}
+              rows={3}
+            />
+            
+            {/* Desktop Input */}
+            <Input
+              ref={inputRef}
+              value={value}
+              onChange={(e) => onChange(e.target.value)}
+              onPaste={handlePaste}
+              onKeyDown={handleKeyDown}
+              placeholder={dragActive ? "Drop image here or continue typing..." : placeholder}
+              className="hidden sm:block border-0 bg-transparent text-zinc-100 placeholder:text-zinc-500 h-10 focus-visible:ring-0 focus-visible:ring-offset-0"
+              disabled={disabled}
+            />
+          </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center justify-between sm:justify-end gap-2 flex-shrink-0">
             {/* Image Upload Button */}
             <Button
               type="button"

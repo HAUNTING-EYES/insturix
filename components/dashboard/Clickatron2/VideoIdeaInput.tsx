@@ -21,6 +21,7 @@ export function VideoIdeaInput() {
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<CanvasPreset>(presets[0]); // Default to Auto Detect
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
+  const [customAspectRatio, setCustomAspectRatio] = useState<{ width: number; height: number }>({ width: 16, height: 9 });
   const router = useRouter();
   const { toast } = useToast();
 
@@ -43,12 +44,13 @@ export function VideoIdeaInput() {
     
     try {
       // Generate a mock task ID for now
-      const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
       
       // Store the video idea and settings in sessionStorage for the lab to access
       const sessionData = {
         videoIdea: videoIdea.trim(),
         selectedPreset: selectedPreset,
+        customAspectRatio: selectedPreset.id === 'custom' ? customAspectRatio : null,
         referenceImage: referenceImage ? {
           name: referenceImage.name,
           size: referenceImage.size,
@@ -83,32 +85,31 @@ export function VideoIdeaInput() {
 
   return (
     <Card className="relative bg-gradient-to-b from-zinc-950/60 to-zinc-900/30 border-zinc-800/80 backdrop-blur-xl shadow-elevated">
-      <CardContent className="relative p-5 sm:p-7 min-h-[280px] overflow-hidden">
+      <CardContent className="relative p-4 sm:p-6 overflow-hidden">
         <motion.div
-          className="group relative rounded-2xl border border-dashed border-zinc-800/70 bg-zinc-950/40 p-6 sm:p-8 overflow-hidden"
-          style={{ minHeight: '240px' }}
+          className="group relative rounded-2xl border border-dashed border-zinc-800/70 bg-zinc-950/40 p-4 sm:p-6 overflow-hidden"
           {...fadeIn}
         >
-          <div className="flex min-h-[240px] items-center w-full">
-            <div className="w-full">
-              <div className="w-full">
-                {/* Canvas Preset Selector */}
-                <CanvasPresetSelector 
-                  selectedPreset={selectedPreset.id}
-                  onPresetChange={setSelectedPreset}
-                />
+          <div className="w-full">
+            {/* Canvas Preset Selector */}
+            <CanvasPresetSelector 
+              selectedPreset={selectedPreset.id}
+              onPresetChange={setSelectedPreset}
+              customAspectRatio={customAspectRatio}
+              onCustomAspectRatioChange={setCustomAspectRatio}
+            />
 
-                <div className="flex flex-col items-center text-center">
-                  <div className="mb-6 relative">
-                    <div className="absolute inset-0 rounded-full bg-purple-500/40 blur-2xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
-                    <Sparkles className="h-12 w-12 text-purple-400 relative z-10 transition-colors duration-300 group-hover:text-purple-300" />
-                  </div>
+            <div className="flex flex-col items-center text-center p-3 mt-6">
+              <div className="mb-4 relative">
+                <div className="absolute inset-0 rounded-full bg-purple-500/40 blur-2xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
+                <Sparkles className="h-10 w-10 text-purple-400 relative z-10 transition-colors duration-300 group-hover:text-purple-300" />
+              </div>
+            
+              <h2 className="text-lg sm:text-xl font-semibold text-zinc-100 mb-2">
+                {selectedPreset.promptText}
+              </h2>
                 
-                <h2 className="text-xl sm:text-2xl font-semibold text-zinc-100 mb-2">
-                  {selectedPreset.promptText}
-                </h2>
-                
-                <p className="text-zinc-400 text-sm sm:text-base mb-6 max-w-md">
+                <p className="text-zinc-400 text-sm mb-4 max-w-2xl mx-auto">
                   {selectedPreset.id === 'youtube-thumbnail' 
                     ? "Describe your video idea and we'll help you create the perfect thumbnail"
                     : selectedPreset.id === 'social-post'
@@ -119,7 +120,7 @@ export function VideoIdeaInput() {
                   }
                 </p>
 
-                <form onSubmit={handleFormSubmit} className="w-full">
+                <form onSubmit={handleFormSubmit} className="w-full max-w-2xl mx-auto">
                   <EnhancedInput
                     value={videoIdea}
                     onChange={setVideoIdea}
@@ -131,12 +132,6 @@ export function VideoIdeaInput() {
                     disabled={isLoading}
                   />
                 </form>
-
-                  <p className="text-xs text-zinc-500 mt-4">
-                    AI will suggest creative directions for your {selectedPreset.name.toLowerCase()}
-                  </p>
-                </div>
-              </div>
             </div>
           </div>
         </motion.div>

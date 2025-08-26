@@ -41,7 +41,7 @@ export default function WhoWeAre() {
     <div className="relative mt-[calc(-200px-5vh)]">
       <div className="h-[200px] bg-linear-to-b from-transparent via-[rgb(var(--surface-0))]/40 to-[rgb(var(--surface-0))]" />
       <div className="bg-[rgb(var(--surface-0))]">
-        <div className="container mx-auto px-4 sm:px-6 py-8 sm:py-12 space-y-8 sm:space-y-12 pt-[80px] sm:pt-[100px]">
+        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 md:py-12 space-y-6 sm:space-y-8 md:space-y-12 pt-[60px] sm:pt-[80px] md:pt-[100px]">
           <Header />
           <MissionVision />
           <Story />
@@ -71,7 +71,7 @@ function Header() {
         </div>
       </div>
       <motion.p
-        className="text-xl text-muted-foreground max-w-2xl mx-auto"
+        className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto px-4 sm:px-0"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1, delay: 0.2 }}
@@ -89,7 +89,7 @@ function MissionVision() {
       whileInView={{ opacity: 1, y: 0 }}
       transition={{ duration: 1 }}
       viewport={{ once: true }}
-      className="grid md:grid-cols-2 gap-4"
+      className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4"
     >
       {[
         { title: "Our Mission", content: companyData.mission },
@@ -175,13 +175,13 @@ function Values() {
           <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
         </div>
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
         {companyData.values.map((value) => {
           const IconComponent =
             iconComponents[value.icon as keyof typeof iconComponents];
           return (
             <HoverCard key={value.name} className="relative overflow-hidden">
-              <div className="relative z-10 flex flex-col items-center py-8">
+              <div className="relative z-10 flex flex-col items-center py-4 sm:py-6 md:py-8 px-2">
                 <motion.div
                   className="p-2 rounded-lg bg-primary/10"
                   whileHover={
@@ -189,9 +189,9 @@ function Values() {
                   }
                   whileTap={{ scale: 0.95 }}
                 >
-                  <IconComponent className="w-8 h-8 text-primary" />
+                  <IconComponent className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-primary" />
                 </motion.div>
-                <h3 className="text-lg font-medium text-center mt-4">
+                <h3 className="text-sm sm:text-base md:text-lg font-medium text-center mt-2 sm:mt-3 md:mt-4 leading-tight">
                   {value.name}
                 </h3>
               </div>
