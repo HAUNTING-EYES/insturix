@@ -4,10 +4,10 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Sparkles, ArrowRight } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { CanvasPresetSelector, type CanvasPreset, presets } from './CanvasPresetSelector';
+import { EnhancedInput } from './EnhancedInput';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -19,12 +19,17 @@ const fadeIn = {
 export function VideoIdeaInput() {
   const [videoIdea, setVideoIdea] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedPreset, setSelectedPreset] = useState<CanvasPreset>(presets[0]); // Default to Auto Detect
+  const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const router = useRouter();
   const { toast } = useToast();
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+    await handleSubmit();
+  };
+
+  const handleSubmit = async () => {
     if (!videoIdea.trim()) {
       toast({
         title: "Video idea required",
@@ -40,12 +45,26 @@ export function VideoIdeaInput() {
       // Generate a mock task ID for now
       const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       
-      // Store the video idea in sessionStorage for the lab to access
-      sessionStorage.setItem(`clickatron2_${taskId}`, JSON.stringify({
+      // Store the video idea and settings in sessionStorage for the lab to access
+      const sessionData = {
         videoIdea: videoIdea.trim(),
+        selectedPreset: selectedPreset,
+        referenceImage: referenceImage ? {
+          name: referenceImage.name,
+          size: referenceImage.size,
+          type: referenceImage.type,
+          // Store as base64 for session persistence
+          data: await new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.readAsDataURL(referenceImage);
+          })
+        } : null,
         timestamp: Date.now(),
         stage: 'ideation'
-      }));
+      };
+      
+      sessionStorage.setItem(`clickatron2_${taskId}`, JSON.stringify(sessionData));
       
       // Navigate to the lab
       router.push(`/dashboard/clickatron2/lab/${taskId}`);
@@ -72,54 +91,51 @@ export function VideoIdeaInput() {
         >
           <div className="flex min-h-[240px] items-center w-full">
             <div className="w-full">
-              <div className="flex flex-col items-center text-center">
-                <div className="mb-6 relative">
-                  <div className="absolute inset-0 rounded-full bg-purple-500/40 blur-2xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
-                  <Sparkles className="h-12 w-12 text-purple-400 relative z-10 transition-colors duration-300 group-hover:text-purple-300" />
-                </div>
+              <div className="w-full">
+                {/* Canvas Preset Selector */}
+                <CanvasPresetSelector 
+                  selectedPreset={selectedPreset.id}
+                  onPresetChange={setSelectedPreset}
+                />
+
+                <div className="flex flex-col items-center text-center">
+                  <div className="mb-6 relative">
+                    <div className="absolute inset-0 rounded-full bg-purple-500/40 blur-2xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
+                    <Sparkles className="h-12 w-12 text-purple-400 relative z-10 transition-colors duration-300 group-hover:text-purple-300" />
+                  </div>
                 
                 <h2 className="text-xl sm:text-2xl font-semibold text-zinc-100 mb-2">
-                  What's your video about?
+                  {selectedPreset.promptText}
                 </h2>
                 
                 <p className="text-zinc-400 text-sm sm:text-base mb-6 max-w-md">
-                  Describe your video idea and we'll help you create the perfect thumbnail
+                  {selectedPreset.id === 'youtube-thumbnail' 
+                    ? "Describe your video idea and we'll help you create the perfect thumbnail"
+                    : selectedPreset.id === 'social-post'
+                    ? "Describe your social media concept and we'll create engaging visuals"
+                    : selectedPreset.id === 'poster-portrait'
+                    ? "Describe your poster concept and we'll design something striking"
+                    : "Describe what you want to create and we'll help bring it to life"
+                  }
                 </p>
 
-                <form onSubmit={handleSubmit} className="w-full max-w-2xl">
-                  <div className="flex items-center gap-3">
-                    <Input
-                      value={videoIdea}
-                      onChange={(e) => setVideoIdea(e.target.value)}
-                      placeholder="e.g., A video about Indian chai and its craze"
-                      className="bg-zinc-900/50 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 flex-1 h-12"
-                      disabled={isLoading}
-                    />
-                    <Button
-                      type="submit"
-                      disabled={isLoading || !videoIdea.trim()}
-                      className="bg-purple-600 hover:bg-purple-700 text-white px-6 h-12 shrink-0"
-                    >
-                      {isLoading ? (
-                        <motion.div
-                          animate={{ rotate: 360 }}
-                          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                        >
-                          <Sparkles className="h-4 w-4" />
-                        </motion.div>
-                      ) : (
-                        <>
-                          <span className="hidden sm:inline mr-2">Get Ideas</span>
-                          <ArrowRight className="h-4 w-4" />
-                        </>
-                      )}
-                    </Button>
-                  </div>
+                <form onSubmit={handleFormSubmit} className="w-full">
+                  <EnhancedInput
+                    value={videoIdea}
+                    onChange={setVideoIdea}
+                    placeholder={selectedPreset.placeholder}
+                    onSubmit={handleSubmit}
+                    onImageUpload={setReferenceImage}
+                    uploadedImage={referenceImage}
+                    isLoading={isLoading}
+                    disabled={isLoading}
+                  />
                 </form>
 
-                <p className="text-xs text-zinc-500 mt-4">
-                  AI will suggest creative directions for your thumbnail
-                </p>
+                  <p className="text-xs text-zinc-500 mt-4">
+                    AI will suggest creative directions for your {selectedPreset.name.toLowerCase()}
+                  </p>
+                </div>
               </div>
             </div>
           </div>

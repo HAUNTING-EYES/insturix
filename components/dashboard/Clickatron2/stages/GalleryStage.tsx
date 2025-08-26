@@ -9,6 +9,12 @@ import { Sparkles, Check, Download, Edit } from 'lucide-react';
 interface GalleryStageProps {
   videoIdea: string;
   selectedDirection: string;
+  selectedPreset?: {
+    id: string;
+    name: string;
+    aspectRatio: string;
+    dimensions: string;
+  };
   onComplete: (data: { selectedThumbnail: string }) => void;
 }
 
@@ -64,7 +70,7 @@ const staggerChildren = {
   }
 };
 
-export function GalleryStage({ videoIdea, selectedDirection, onComplete }: GalleryStageProps) {
+export function GalleryStage({ videoIdea, selectedDirection, selectedPreset, onComplete }: GalleryStageProps) {
   const [thumbnails, setThumbnails] = useState<ThumbnailVariation[]>([]);
   const [selectedThumbnail, setSelectedThumbnail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -109,7 +115,13 @@ export function GalleryStage({ videoIdea, selectedDirection, onComplete }: Galle
           </p>
           <div className="mt-6 grid grid-cols-2 gap-4 max-w-2xl mx-auto">
             {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="aspect-video bg-zinc-800/50 rounded-lg animate-pulse" />
+              <div key={i} className={`bg-zinc-800/50 rounded-lg animate-pulse ${
+                selectedPreset?.aspectRatio === '1:1' 
+                  ? 'aspect-square'
+                  : selectedPreset?.aspectRatio === '9:16'
+                  ? 'aspect-[9/16]'
+                  : 'aspect-video' // 16:9 default
+              }`} />
             ))}
           </div>
         </CardContent>
@@ -124,7 +136,7 @@ export function GalleryStage({ videoIdea, selectedDirection, onComplete }: Galle
           <div className="text-center mb-8">
             <div className="inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 px-3 py-1 rounded-full text-sm mb-4">
               <Sparkles className="h-4 w-4" />
-              {selectedDirection}
+              {selectedDirection} • {selectedPreset?.name || 'Thumbnail'}
             </div>
             <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-100 mb-3">
               Choose your favorite
@@ -151,7 +163,13 @@ export function GalleryStage({ videoIdea, selectedDirection, onComplete }: Galle
                   onClick={() => handleThumbnailSelect(thumbnail.id)}
                 >
                   <CardContent className="p-4">
-                    <div className="relative aspect-video bg-zinc-800/50 rounded-lg mb-4 overflow-hidden">
+                    <div className={`relative bg-zinc-800/50 rounded-lg mb-4 overflow-hidden ${
+                      selectedPreset?.aspectRatio === '1:1' 
+                        ? 'aspect-square'
+                        : selectedPreset?.aspectRatio === '9:16'
+                        ? 'aspect-[9/16]'
+                        : 'aspect-video' // 16:9 default
+                    }`}>
                       {/* Mock thumbnail placeholder */}
                       <div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30 flex items-center justify-center">
                         <div className="text-center">

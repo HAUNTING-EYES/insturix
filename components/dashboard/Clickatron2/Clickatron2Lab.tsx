@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { IdeationStage } from './stages/IdeationStage';
 import { GalleryStage } from './stages/GalleryStage';
 import { CanvasStage } from './stages/CanvasStage';
+import { FloatingGenerativeChat } from './FloatingGenerativeChat';
 
 type WorkflowStage = 'ideation' | 'gallery' | 'canvas';
 
@@ -17,6 +18,20 @@ interface TaskData {
   stage: WorkflowStage;
   selectedDirection?: string;
   selectedThumbnail?: string;
+  selectedPreset?: {
+    id: string;
+    name: string;
+    aspectRatio: string;
+    dimensions: string;
+    promptText: string;
+    placeholder: string;
+  };
+  referenceImage?: {
+    name: string;
+    size: number;
+    type: string;
+    data: string;
+  } | null;
 }
 
 interface Clickatron2LabProps {
@@ -33,6 +48,7 @@ const stageTransition = {
 export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
   const [taskData, setTaskData] = useState<TaskData | null>(null);
   const [currentStage, setCurrentStage] = useState<WorkflowStage>('ideation');
+  const [isGenerating, setIsGenerating] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -77,6 +93,14 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
         console.log('Canvas stage complete:', data);
         break;
     }
+  };
+
+  const handleGenerativeEdit = async (prompt: string, settings: any) => {
+    setIsGenerating(true);
+    // Simulate AI generation
+    console.log('Generating with prompt:', prompt, 'settings:', settings);
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    setIsGenerating(false);
   };
 
   const handleBack = () => {
@@ -146,6 +170,7 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
           <motion.div key="ideation" {...stageTransition}>
             <IdeationStage
               videoIdea={taskData.videoIdea}
+              selectedPreset={taskData.selectedPreset}
               onComplete={(data) => handleStageComplete('ideation', data)}
             />
           </motion.div>
@@ -156,6 +181,7 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
             <GalleryStage
               videoIdea={taskData.videoIdea}
               selectedDirection={taskData.selectedDirection!}
+              selectedPreset={taskData.selectedPreset}
               onComplete={(data) => handleStageComplete('gallery', data)}
             />
           </motion.div>
@@ -167,11 +193,24 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
               videoIdea={taskData.videoIdea}
               selectedDirection={taskData.selectedDirection!}
               selectedThumbnail={taskData.selectedThumbnail!}
+              selectedPreset={taskData.selectedPreset}
+              referenceImage={taskData.referenceImage}
               onComplete={(data) => handleStageComplete('canvas', data)}
+              onGenerativeEdit={handleGenerativeEdit}
+              isGenerating={isGenerating}
             />
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Floating Generative Chat - Only show in canvas stage */}
+      {currentStage === 'canvas' && (
+        <FloatingGenerativeChat
+          referenceImage={taskData.referenceImage}
+          onGenerate={handleGenerativeEdit}
+          isGenerating={isGenerating}
+        />
+      )}
     </div>
   );
 }

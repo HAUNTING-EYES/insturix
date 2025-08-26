@@ -7,6 +7,12 @@ import { Sparkles, ArrowRight } from 'lucide-react';
 
 interface IdeationStageProps {
   videoIdea: string;
+  selectedPreset?: {
+    id: string;
+    name: string;
+    aspectRatio: string;
+    dimensions: string;
+  };
   onComplete: (data: { selectedDirection: string }) => void;
 }
 
@@ -79,7 +85,7 @@ const staggerChildren = {
   }
 };
 
-export function IdeationStage({ videoIdea, onComplete }: IdeationStageProps) {
+export function IdeationStage({ videoIdea, selectedPreset, onComplete }: IdeationStageProps) {
   const [directions, setDirections] = useState<CreativeDirection[]>([]);
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -133,11 +139,17 @@ export function IdeationStage({ videoIdea, onComplete }: IdeationStageProps) {
       <Card className="bg-gradient-to-b from-zinc-950/60 to-zinc-900/30 border-zinc-800/80">
         <CardContent className="p-6 sm:p-8">
           <div className="text-center mb-8">
+            {selectedPreset && (
+              <div className="inline-flex items-center gap-2 bg-purple-500/10 text-purple-400 px-3 py-1 rounded-full text-sm mb-4">
+                <Sparkles className="h-4 w-4" />
+                {selectedPreset.name} • {selectedPreset.aspectRatio}
+              </div>
+            )}
             <h2 className="text-2xl sm:text-3xl font-semibold text-zinc-100 mb-3">
               Great start! Let's refine the angle.
             </h2>
             <p className="text-zinc-400 text-lg">
-              Which of these creative directions feels best for your thumbnail?
+              Which of these creative directions feels best for your {selectedPreset?.name.toLowerCase() || 'thumbnail'}?
             </p>
           </div>
 

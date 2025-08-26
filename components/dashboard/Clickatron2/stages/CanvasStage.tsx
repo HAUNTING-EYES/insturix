@@ -20,7 +20,19 @@ interface CanvasStageProps {
   videoIdea: string;
   selectedDirection: string;
   selectedThumbnail: string;
+  selectedPreset?: {
+    id: string;
+    name: string;
+    aspectRatio: string;
+    dimensions: string;
+  };
+  referenceImage?: {
+    name: string;
+    data: string;
+  } | null;
   onComplete: (data: { finalThumbnail: string }) => void;
+  onGenerativeEdit: (prompt: string, settings: any) => void;
+  isGenerating: boolean;
 }
 
 interface CanvasControls {
@@ -41,7 +53,11 @@ export function CanvasStage({
   videoIdea,
   selectedDirection,
   selectedThumbnail,
+  selectedPreset,
+  referenceImage,
   onComplete,
+  onGenerativeEdit,
+  isGenerating,
 }: CanvasStageProps) {
   const [controls, setControls] = useState<CanvasControls>({
     brightness: 100,
@@ -99,7 +115,13 @@ export function CanvasStage({
             <div className="lg:col-span-2">
               <div className="bg-zinc-900/50 rounded-xl p-6">
                 <div
-                  className="aspect-video bg-zinc-800/50 rounded-lg overflow-hidden relative"
+                  className={`bg-zinc-800/50 rounded-lg overflow-hidden relative mx-auto ${
+                    selectedPreset?.aspectRatio === "1:1"
+                      ? "aspect-square max-w-md"
+                      : selectedPreset?.aspectRatio === "9:16"
+                        ? "aspect-[9/16] max-w-sm"
+                        : "aspect-video" // 16:9 default
+                  }`}
                   style={canvasStyle}
                 >
                   {/* Mock thumbnail with applied effects */}
