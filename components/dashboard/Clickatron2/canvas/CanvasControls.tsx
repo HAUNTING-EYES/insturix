@@ -5,44 +5,41 @@ import { motion } from "framer-motion";
 import { Undo2, Redo2, ZoomIn, ZoomOut, Download, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-interface BottomActionBarProps {
+interface CanvasControlsProps {
   onUndo: () => void;
   onRedo: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onDownload: () => void;
-  onSaveAndExit: () => void;
+  onSave: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
   zoomLevel?: number;
   isDisabled?: boolean;
-  galleryCollapsed?: boolean;
 }
 
-export function BottomActionBar({
+export function CanvasControls({
   onUndo,
   onRedo,
   onZoomIn,
   onZoomOut,
   onDownload,
-  onSaveAndExit,
+  onSave,
   canUndo = false,
   canRedo = false,
   zoomLevel = 100,
   isDisabled = false,
-  galleryCollapsed = false,
-}: BottomActionBarProps) {
+}: CanvasControlsProps) {
   return (
     <motion.div
-      initial={{ y: 50, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.3, ease: "easeOut", delay: 0.1 }}
-      className={`
-        fixed bottom-0 left-0 right-0 z-40
-        bg-zinc-950/90 backdrop-blur-sm border-t border-zinc-800/50
-        h-16 flex items-center justify-between px-6 pr-80 transition-all duration-300
-        ${galleryCollapsed ? "pl-16" : "pl-72"}
-      `}
+      initial={{ opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="
+        mb-6 bg-zinc-900/90 backdrop-blur-xl border border-zinc-700/50
+        rounded-2xl p-3 shadow-xl
+        flex items-center justify-between gap-4 max-w-2xl mx-auto
+      "
     >
       {/* Left: History Controls */}
       <div className="flex items-center gap-2">
@@ -51,7 +48,8 @@ export function BottomActionBar({
           size="sm"
           onClick={onUndo}
           disabled={!canUndo || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          title="Undo"
         >
           <Undo2 className="h-4 w-4" />
         </Button>
@@ -60,7 +58,8 @@ export function BottomActionBar({
           size="sm"
           onClick={onRedo}
           disabled={!canRedo || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          title="Redo"
         >
           <Redo2 className="h-4 w-4" />
         </Button>
@@ -73,11 +72,12 @@ export function BottomActionBar({
           size="sm"
           onClick={onZoomOut}
           disabled={zoomLevel <= 25 || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          title="Zoom Out"
         >
           <ZoomOut className="h-4 w-4" />
         </Button>
-        <div className="text-xs text-zinc-500 min-w-[50px] text-center">
+        <div className="text-xs text-zinc-400 min-w-[50px] text-center px-2 py-1 bg-zinc-800/50 rounded-lg">
           {zoomLevel}%
         </div>
         <Button
@@ -85,31 +85,35 @@ export function BottomActionBar({
           size="sm"
           onClick={onZoomIn}
           disabled={zoomLevel >= 200 || isDisabled}
-          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30"
+          className="text-zinc-400 hover:text-zinc-200 disabled:opacity-30 h-8 w-8 p-0"
+          title="Zoom In"
         >
           <ZoomIn className="h-4 w-4" />
         </Button>
       </div>
 
       {/* Right: Action Buttons */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <Button
-          variant="outline"
+          variant="ghost"
           size="sm"
           onClick={onDownload}
           disabled={isDisabled}
-          className="border-zinc-700 text-zinc-300 hover:text-zinc-100 hover:border-zinc-600"
+          className="text-zinc-400 hover:text-zinc-200 h-8 px-3"
+          title="Download"
         >
-          <Download className="h-4 w-4 mr-2" />
+          <Download className="h-4 w-4 mr-1" />
           Download
         </Button>
         <Button
-          onClick={onSaveAndExit}
+          onClick={onSave}
           disabled={isDisabled}
-          className="bg-purple-600 hover:bg-purple-700 text-white"
+          size="sm"
+          className="bg-purple-600 hover:bg-purple-700 text-white h-8 px-3"
+          title="Save & Exit"
         >
-          <Save className="h-4 w-4 mr-2" />
-          Save & Exit
+          <Save className="h-4 w-4 mr-1" />
+          Save
         </Button>
       </div>
     </motion.div>

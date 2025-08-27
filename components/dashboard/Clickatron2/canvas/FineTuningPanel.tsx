@@ -31,32 +31,42 @@ const colorLooks: ColorLook[] = [
   {
     id: 'vibrant',
     name: 'Vibrant',
-    preview: 'linear-gradient(45deg, #ff6b6b, #4ecdc4)',
+    preview: 'linear-gradient(135deg, #ff6b6b, #4ecdc4)',
   },
   {
     id: 'cinematic',
     name: 'Cinematic',
-    preview: 'linear-gradient(45deg, #2c3e50, #34495e)',
+    preview: 'linear-gradient(135deg, #1a1a2e, #16213e)',
   },
   {
     id: 'warm',
     name: 'Warm',
-    preview: 'linear-gradient(45deg, #f39c12, #e67e22)',
+    preview: 'linear-gradient(135deg, #ff9a56, #ff6b35)',
   },
   {
     id: 'cool',
     name: 'Cool',
-    preview: 'linear-gradient(45deg, #3498db, #9b59b6)',
+    preview: 'linear-gradient(135deg, #667eea, #764ba2)',
   },
   {
     id: 'vintage',
     name: 'Vintage',
-    preview: 'linear-gradient(45deg, #d35400, #c0392b)',
+    preview: 'linear-gradient(135deg, #d4a574, #b8860b)',
   },
   {
     id: 'monochrome',
     name: 'Mono',
-    preview: 'linear-gradient(45deg, #2c3e50, #95a5a6)',
+    preview: 'linear-gradient(135deg, #434343, #000000)',
+  },
+  {
+    id: 'sunset',
+    name: 'Sunset',
+    preview: 'linear-gradient(135deg, #ff7e5f, #feb47b)',
+  },
+  {
+    id: 'ocean',
+    name: 'Ocean',
+    preview: 'linear-gradient(135deg, #2193b0, #6dd5ed)',
   },
 ];
 
@@ -103,62 +113,19 @@ export function FineTuningPanel({
 
       {/* Content */}
       <div className={`flex-1 overflow-y-auto p-4 space-y-6 ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}>
-        {/* Color Grading - Moved to top */}
+        {/* Basic Adjustments - Most commonly used */}
         <div className="space-y-4">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
-            Color Grading
+            Basic Adjustments
           </h4>
           
-          <div className="grid grid-cols-2 gap-2">
-            {colorLooks.map((look) => (
-              <button
-                key={look.id}
-                onClick={() => onColorLookApply(look.id)}
-                className="
-                  group relative aspect-square rounded-lg overflow-hidden
-                  border border-zinc-700 hover:border-zinc-600
-                  transition-all duration-200 hover:scale-105
-                "
-              >
-                <div
-                  className="w-full h-full"
-                  style={{ background: look.preview }}
-                />
-                <div className="
-                  absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100
-                  transition-opacity duration-200 flex items-center justify-center
-                ">
-                  <span className="text-white text-xs font-medium">
-                    {look.name}
-                  </span>
-                </div>
-              </button>
-            ))}
-          </div>
-
-          {/* Custom Color Grading */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowCustomGrading(true)}
-            className="w-full border-zinc-700 text-zinc-300 justify-start"
-            disabled={isDisabled}
-          >
-            Custom Color Grading
-          </Button>
-        </div>
-
-        {/* Adjustment Sliders */}
-        <div className="space-y-4">
-          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
-            Adjustments
-          </h4>
-          
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-zinc-300">Brightness</label>
-                <span className="text-xs text-zinc-500">{controls.brightness}%</span>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                  {controls.brightness}%
+                </span>
               </div>
               <Slider
                 value={[controls.brightness]}
@@ -173,7 +140,9 @@ export function FineTuningPanel({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-zinc-300">Contrast</label>
-                <span className="text-xs text-zinc-500">{controls.contrast}%</span>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                  {controls.contrast}%
+                </span>
               </div>
               <Slider
                 value={[controls.contrast]}
@@ -188,7 +157,9 @@ export function FineTuningPanel({
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="text-sm text-zinc-300">Saturation</label>
-                <span className="text-xs text-zinc-500">{controls.saturation}%</span>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded">
+                  {controls.saturation}%
+                </span>
               </div>
               <Slider
                 value={[controls.saturation]}
@@ -202,17 +173,59 @@ export function FineTuningPanel({
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="space-y-3 pt-4 border-t border-zinc-800">
+        {/* Color Styles - Changed to pills */}
+        <div className="space-y-4">
           <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
-            Quick Actions
+            Color Styles
           </h4>
           
-          <div className="space-y-2">
+          <div className="flex flex-wrap gap-1.5">
+            {colorLooks.map((look) => (
+              <button
+                key={look.id}
+                onClick={() => onColorLookApply(look.id)}
+                className="
+                  group relative px-2.5 py-1 rounded-full text-xs font-medium
+                  border border-zinc-700 hover:border-zinc-500 hover:bg-zinc-800/50
+                  transition-all duration-200 hover:scale-105
+                  flex items-center gap-1.5 min-w-0 bg-zinc-900/50
+                "
+              >
+                <div
+                  className="w-2.5 h-2.5 rounded-full flex-shrink-0 border border-zinc-600"
+                  style={{ background: look.preview }}
+                />
+                <span className="text-zinc-300 group-hover:text-zinc-100 truncate">
+                  {look.name}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {/* Custom Color Grading */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCustomGrading(true)}
+            className="w-full border-zinc-700 text-zinc-300 justify-start hover:bg-zinc-800"
+            disabled={isDisabled}
+          >
+            <Palette className="h-4 w-4 mr-2" />
+            Advanced Color Grading
+          </Button>
+        </div>
+
+        {/* Quick Enhancement Tools */}
+        <div className="space-y-3 pt-2 border-t border-zinc-800">
+          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+            Enhancement Tools
+          </h4>
+          
+          <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="w-full border-zinc-700 text-zinc-300 justify-start"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
               disabled={isDisabled}
             >
               Auto Enhance
@@ -220,7 +233,7 @@ export function FineTuningPanel({
             <Button
               variant="outline"
               size="sm"
-              className="w-full border-zinc-700 text-zinc-300 justify-start"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 text-xs"
               disabled={isDisabled}
             >
               Match Colors

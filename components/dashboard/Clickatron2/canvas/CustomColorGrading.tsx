@@ -73,8 +73,8 @@ export function CustomColorGrading({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-md bg-zinc-900 border-zinc-700">
-        <DialogHeader>
+      <DialogContent className="max-w-lg bg-zinc-900 border-zinc-700 p-6">
+        <DialogHeader className="pb-4">
           <DialogTitle className="text-zinc-100 flex items-center justify-between">
             Custom Color Grading
             <Button
@@ -88,12 +88,12 @@ export function CustomColorGrading({
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 max-h-96 overflow-y-auto">
+        <div className="grid grid-cols-2 gap-x-6 gap-y-4 max-h-80 overflow-y-auto pr-2 pb-4">
           {controlsConfig.map(({ key, label, min, max }) => (
-            <div key={key}>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm text-zinc-300">{label}</label>
-                <span className="text-xs text-zinc-500">
+            <div key={key} className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-zinc-300">{label}</label>
+                <span className="text-xs text-zinc-500 bg-zinc-800 px-2 py-0.5 rounded min-w-[32px] text-center">
                   {controls[key] > 0 ? '+' : ''}{controls[key]}
                 </span>
               </div>
@@ -109,11 +109,11 @@ export function CustomColorGrading({
           ))}
         </div>
 
-        <div className="flex gap-3 pt-4 border-t border-zinc-800">
+        <div className="flex gap-3 pt-4 border-t border-zinc-800 mt-2">
           <Button
             variant="outline"
             onClick={onClose}
-            className="flex-1 border-zinc-700 text-zinc-300"
+            className="flex-1 border-zinc-700 text-zinc-300 hover:bg-zinc-800"
           >
             Cancel
           </Button>
