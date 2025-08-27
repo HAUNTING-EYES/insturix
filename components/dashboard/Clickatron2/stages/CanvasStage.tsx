@@ -262,9 +262,6 @@ export function CanvasStage({
             <h2 className="text-lg font-semibold text-zinc-100 truncate">
               {videoIdea}
             </h2>
-            <p className="text-zinc-400 text-sm mt-1">
-              {selectedDirection} • {selectedPreset?.name || "16:9 Thumbnail"}
-            </p>
           </div>
         </div>
 
@@ -338,26 +335,6 @@ export function CanvasStage({
                   className="w-full h-full object-cover"
                   draggable={false}
                 />
-
-                {/* Active variation indicator */}
-                <div className="absolute top-4 left-4 text-xs text-white/70 bg-black/50 backdrop-blur-sm px-2 py-1 rounded">
-                  {variations.find((v) => v.id === activeVariationId)?.prompt ||
-                    selectedDirection}
-                </div>
-
-                {/* Zoom level indicator */}
-                {zoomLevel !== 100 && (
-                  <div className="absolute top-4 right-4 text-xs text-white/70 bg-black/50 backdrop-blur-sm px-2 py-1 rounded">
-                    {zoomLevel}%
-                  </div>
-                )}
-
-                {/* Pan instruction for zoomed images */}
-                {zoomLevel > 100 && (
-                  <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 text-xs text-white/50 bg-black/30 backdrop-blur-sm px-3 py-1 rounded-full">
-                    Click and drag to pan
-                  </div>
-                )}
               </div>
             )}
           </div>
