@@ -1,0 +1,241 @@
+"use client";
+
+import React, { useState, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Send, Image, Loader2, X, Plus } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+
+interface ReferenceImage {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  data: string;
+}
+
+interface AICommandConsoleProps {
+  onGenerate: (prompt: string, referenceImages?: ReferenceImage[]) => void;
+  isGenerating: boolean;
+  galleryCollapsed?: boolean;
+  className?: string;
+}
+
+export function AICommandConsole({
+  onGenerate,
+  isGenerating,
+  galleryCollapsed = false,
+  className = "",
+}: AICommandConsoleProps) {
+  const [prompt, setPrompt] = useState("");
+  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prompt.trim() || isGenerating) return;
+
+    onGenerate(prompt, referenceImages.length > 0 ? referenceImages : undefined);
+    setPrompt("");
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        const newImage: ReferenceImage = {
+          id: `${Date.now()}_${Math.random()}`,
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          data: result,
+        };
+        setReferenceImages(prev => [...prev, newImage]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type.indexOf('image') !== -1) {
+        const file = item.getAsFile();
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = (event) => {
+            const result = event.target?.result as string;
+            const newImage: ReferenceImage = {
+              id: `${Date.now()}_${Math.random()}`,
+              name: file.name || 'pasted-image.png',
+              size: file.size,
+              type: file.type,
+              data: result,
+            };
+            setReferenceImages(prev => [...prev, newImage]);
+          };
+          reader.readAsDataURL(file);
+        }
+        break;
+      }
+    }
+  };
+
+  const removeReferenceImage = (imageId: string) => {
+    setReferenceImages(prev => prev.filter(img => img.id !== imageId));
+  };
+
+  // Calculate proper centering accounting for dashboard sidebar (64px) and canvas sidebars
+  const leftOffset = 64; // Dashboard sidebar
+  const galleryWidth = galleryCollapsed ? 60 : 280;
+  const fineTuningWidth = 320; // 80 * 4 = 320px (w-80)
+  const totalSidebarWidth = leftOffset + galleryWidth + fineTuningWidth;
+  const availableWidth = `calc(100vw - ${totalSidebarWidth}px)`;
+  const leftMargin = leftOffset + galleryWidth;
+
+  return (
+    <motion.div
+      initial={{ y: 100, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
+      className={`
+        fixed bottom-0 left-0 right-0 z-50
+        bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800/80
+        ${className}
+      `}
+    >
+      <div 
+        className="p-4 transition-all duration-300"
+        style={{
+          marginLeft: `${leftMargin}px`,
+          marginRight: `${fineTuningWidth}px`,
+          width: availableWidth,
+        }}
+      >
+        {/* Main Input Container */}
+        <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-3">
+          {/* Reference Images - Inline with input */}
+          <AnimatePresence>
+            {referenceImages.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-zinc-700/50"
+              >
+                {referenceImages.map((image) => (
+                  <motion.div
+                    key={image.id}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    className="relative group"
+                  >
+                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-700 border border-zinc-600">
+                      <img
+                        src={image.data}
+                        alt={image.name}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <button
+                      onClick={() => removeReferenceImage(image.id)}
+                      className="
+                        absolute -top-1 -right-1 w-5 h-5 bg-zinc-800 border border-zinc-600
+                        rounded-full flex items-center justify-center
+                        opacity-0 group-hover:opacity-100 transition-opacity
+                        hover:bg-red-600 hover:border-red-500
+                      "
+                    >
+                      <X className="h-3 w-3 text-zinc-300" />
+                    </button>
+                  </motion.div>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Input Row */}
+          <form onSubmit={handleSubmit} className="flex items-end gap-3">
+            {/* Image Upload Button */}
+            <div className="flex-shrink-0">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImageUpload}
+                className="hidden"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isGenerating}
+                className="
+                  h-10 w-10 p-0 rounded-xl
+                  text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50
+                  transition-colors
+                "
+              >
+                {referenceImages.length > 0 ? (
+                  <Plus className="h-4 w-4" />
+                ) : (
+                  <Image className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+
+            {/* Prompt Input */}
+            <div className="flex-1">
+              <Textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onPaste={handlePaste}
+                placeholder="Describe a change... (e.g., 'make background futuristic city', 'change chai to coffee', 'add steampunk style')"
+                disabled={isGenerating}
+                className="
+                  min-h-[48px] max-h-[120px] resize-none border-0 bg-transparent
+                  text-zinc-100 placeholder-zinc-500 p-0
+                  focus:ring-0 focus:outline-none
+                "
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSubmit(e);
+                  }
+                }}
+              />
+            </div>
+
+            {/* Send Button */}
+            <div className="flex-shrink-0">
+              <Button
+                type="submit"
+                disabled={!prompt.trim() || isGenerating}
+                className="
+                  h-10 w-10 p-0 rounded-xl
+                  bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700
+                  transition-colors
+                "
+              >
+                {isGenerating ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </motion.div>
+  );
+}

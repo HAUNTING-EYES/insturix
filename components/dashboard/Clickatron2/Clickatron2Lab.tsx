@@ -7,7 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { IdeationStage } from './stages/IdeationStage';
 import { CanvasStage } from './stages/CanvasStage';
-import { FloatingGenerativeChat } from './FloatingGenerativeChat';
+
 
 type WorkflowStage = 'ideation' | 'canvas';
 
@@ -178,14 +178,7 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
         )}
       </AnimatePresence>
 
-      {/* Floating Generative Chat - Only show in canvas stage */}
-      {currentStage === 'canvas' && (
-        <FloatingGenerativeChat
-          referenceImage={taskData.referenceImage}
-          onGenerate={handleGenerativeEdit}
-          isGenerating={isGenerating}
-        />
-      )}
+
     </div>
   );
 }
