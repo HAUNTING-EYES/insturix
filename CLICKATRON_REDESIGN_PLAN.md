@@ -16,7 +16,6 @@ The new Clickatron will be an intelligent, conversational creative partner that 
 
 - **Spark Stage**: Alyzitron-inspired hero with video idea input
 - **Ideation Stage**: AI suggests 4 creative directions with smooth animations
-- **Gallery Stage**: Focused 2x2 thumbnail grid based on selected direction
 - **Canvas Stage**: Interactive editing with brightness, contrast, saturation, and text controls
 - **Routing System**: Clean URL structure with task-based sessions
 - **Progress Tracking**: Visual progress indicator across workflow stages
@@ -36,7 +35,7 @@ The new Clickatron will be an intelligent, conversational creative partner that 
 
 The current flow is perfectly optimized for thumbnails. To accommodate broader creative needs, we need strategic additions at key stages without ruining the beautiful simplicity.
 
-### Enhanced User Experience Flow: `Setup → Spark → Ideation → Gallery → Generative Studio`
+### Enhanced User Experience Flow: `Setup → Spark → Ideation → Generative Studio`
 
 #### 1. **NEW: "Canvas Preset" Selector (Setup Stage)**
 
@@ -73,13 +72,8 @@ The current flow is perfectly optimized for thumbnails. To accommodate broader c
 - Smooth animations and selection feedback
 - Maintains current elegant simplicity
 
-#### 4. **The "Gallery" - Focused Generation** _(Unchanged)_
 
-- 2x2 grid based on selected direction
-- Selection states and download options
-- Proceed to enhanced canvas
-
-#### 5. **MAJOR ENHANCEMENT: "Generative Studio" (Canvas Evolution)**
+#### r. **MAJOR ENHANCEMENT: "Generative Studio" (Canvas Evolution)**
 
 **Problem**: Current canvas only has basic sliders, generative editing buried in tabs
 **Solution**: Transform into AI-first editing experience with floating chat interface
@@ -164,7 +158,7 @@ The current flow is perfectly optimized for thumbnails. To accommodate broader c
 
 1. **Start**: `/dashboard/clickatron2` (Spark stage with Alyzitron-inspired layout)
 2. **Task Creation**: "Get Ideas" → navigate to `/dashboard/clickatron2/lab/:taskId`
-3. **Stage Transitions**: All stages (Ideation → Gallery → Canvas) on same route with smooth animations
+3. **Stage Transitions**: All stages (Ideation → Canvas) on same route with smooth animations
 4. **State Management**: URL persists, internal state tracks current workflow stage
 
 **Benefits:**
@@ -195,7 +189,7 @@ The current flow is perfectly optimized for thumbnails. To accommodate broader c
 
 ### ✅ Phase 1: Mock UI/UX Foundation (COMPLETED)
 
-- [x] Complete `Spark → Ideation → Gallery → Canvas` workflow
+- [x] Complete `Spark → Ideation → Canvas` workflow
 - [x] Smooth animations and transitions
 - [x] Responsive design with mobile support
 - [x] Mock data system for testing
