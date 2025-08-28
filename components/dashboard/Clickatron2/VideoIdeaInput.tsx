@@ -105,7 +105,7 @@ export function VideoIdeaInput() {
       await idbManager.saveSession(`clickatron2_${taskId}`, taskData);
       
       // Navigate to the lab
-      router.push(`/dashboard/clickatron2/lab/${taskId}`);
+      router.push(`/dashboard/clickatron/lab/${taskId}`);
       
     } catch (error) {
       console.error('Error creating task:', error);

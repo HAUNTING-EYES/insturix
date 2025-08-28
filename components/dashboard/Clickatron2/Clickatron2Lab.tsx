@@ -34,6 +34,19 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
   const updateTaskData = useCanvasStore((state) => state.updateTaskData);
   const setIsGenerating = useCanvasStore((state) => state.setIsGenerating);
   const loadError = useCanvasStore((state) => state.loadError);
+  
+  // Backend sync methods
+  const sessionId = useCanvasStore((state) => state.sessionId);
+  const backendSynced = useCanvasStore((state) => state.backendSynced);
+  const isDirty = useCanvasStore((state) => state.isDirty);
+  const syncError = useCanvasStore((state) => state.syncError);
+  const createBackendSession = useCanvasStore((state) => state.createBackendSession);
+  const fetchBackendSession = useCanvasStore((state) => state.fetchBackendSession);
+  const createVariation = useCanvasStore((state) => state.createVariation);
+  const updateVariation = useCanvasStore((state) => state.updateVariation);
+  const commitVariation = useCanvasStore((state) => state.commitVariation);
+  const addVariation = useCanvasStore((state) => state.addVariation);
+  const setActiveVariation = useCanvasStore((state) => state.setActiveVariation);
 
   // Auto-save hook
   useAutoSave(true);
@@ -63,10 +76,51 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
     }
   }, [effectiveStage, taskData]);
 
-  // Load task data on mount (don't redirect; show in-component error UI instead)
+  // Load task data on mount with backend integration
   useEffect(() => {
-    loadTaskData(taskId);
-  }, [taskId, loadTaskData]);
+    const loadTaskWithBackend = async () => {
+      useCanvasStore.getState().setIsLoading(true);
+      
+      try {
+        // Check if taskId looks like a Mongo ObjectId (legacy task)
+        const isLegacyTask = /^[a-f\d]{24}$/i.test(taskId);
+        
+        if (isLegacyTask) {
+          // Try to fetch existing session from backend
+          try {
+            const session = await fetchBackendSession(taskId);
+            useCanvasStore.getState().setSessionId(taskId);
+            useCanvasStore.getState().setBackendSynced(true);
+          } catch (error) {
+            console.warn('Failed to fetch backend session, using local storage:', error);
+            // Fall back to local loading
+            await loadTaskData(taskId);
+          }
+        } else {
+          // New session - create it in the backend
+          try {
+            const newSessionId = await createBackendSession({
+              clerkUserId: '', // Will be set by auth
+              videoIdea: 'New Session',
+            });
+            useCanvasStore.getState().setSessionId(newSessionId);
+            useCanvasStore.getState().setBackendSynced(true);
+          } catch (error) {
+            console.warn('Failed to create backend session, using local storage:', error);
+            // Fall back to local loading
+            await loadTaskData(taskId);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load task:', error);
+        useCanvasStore.getState().setSyncError('Failed to load task');
+      } finally {
+        useCanvasStore.getState().setIsLoading(false);
+      }
+    };
+    
+    loadTaskWithBackend();
+  }, [taskId, loadTaskData, fetchBackendSession, createBackendSession]);
 
   const handleStageComplete = async (stage: WorkflowStage, data: any) => {
     switch (stage) {
@@ -84,11 +138,86 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
   };
 
   const handleGenerativeEdit = async (prompt: string, settings: any) => {
+    if (!sessionId) {
+      console.error('No session ID available for variation generation');
+      return;
+    }
+
     setIsGenerating(true);
-    // Simulate AI generation
-    console.log("Generating with prompt:", prompt, "settings:", settings);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    setIsGenerating(false);
+    
+    try {
+      // Create variation via API
+      const variationId = await createVariation({
+        sessionId,
+        prompt,
+        fineTuning: settings,
+      });
+      
+      // Optimistically add variation to store
+      const newVariation = {
+        id: variationId,
+        prompt,
+        timestamp: Date.now(),
+        status: 'generating' as const,
+        fineTuning: settings,
+      };
+      
+      addVariation(newVariation);
+      setActiveVariation(variationId);
+      
+      // Poll for completion (in a real app, you'd use WebSockets or server-sent events)
+      const pollForCompletion = async () => {
+        try {
+          const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation/${variationId}`);
+          const data = await response.json();
+          
+          if (data.status === 'completed') {
+            // Update variation in store
+            const updatedVariation = {
+              ...newVariation,
+              status: 'completed' as const,
+              imageRef: `generated_${variationId}.png`,
+            };
+            
+            // Remove old and add updated variation
+            useCanvasStore.getState().removeVariation(variationId);
+            addVariation(updatedVariation);
+            setActiveVariation(variationId);
+          } else if (data.status === 'failed') {
+            // Update variation in store
+            const failedVariation = {
+              ...newVariation,
+              status: 'failed' as const,
+            };
+            
+            useCanvasStore.getState().removeVariation(variationId);
+            addVariation(failedVariation);
+            setActiveVariation(variationId);
+          } else {
+            // Still generating, poll again
+            setTimeout(pollForCompletion, 2000);
+          }
+        } catch (error) {
+          console.error('Error polling variation status:', error);
+          // Mark as failed on error
+          const failedVariation = {
+            ...newVariation,
+            status: 'failed' as const,
+          };
+          
+          useCanvasStore.getState().removeVariation(variationId);
+          addVariation(failedVariation);
+          setActiveVariation(variationId);
+        }
+      };
+      
+      // Start polling
+      setTimeout(pollForCompletion, 2000);
+      
+    } catch (error) {
+      console.error('Error creating variation:', error);
+      setIsGenerating(false);
+    }
   };
 
   const handleBack = async () => {
@@ -99,7 +228,7 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
         await updateTaskData({ stage: "ideation" });
         break;
       default:
-        router.push("/dashboard/clickatron2");
+        router.push("/dashboard/clickatron");
     }
   };
 
@@ -126,7 +255,7 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
         <div className="text-center max-w-md">
           <h2 className="text-xl font-semibold text-zinc-100 mb-2">{msg.title}</h2>
           <p className="text-zinc-400 mb-4">{msg.desc}</p>
-          <Button onClick={() => router.push('/dashboard/clickatron2')} variant="secondary" size="sm">Return Home</Button>
+          <Button onClick={() => router.push('/dashboard/clickatron')} variant="secondary" size="sm">Return Home</Button>
         </div>
       </div>
     );

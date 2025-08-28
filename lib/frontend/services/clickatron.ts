@@ -5,22 +5,22 @@ export interface ThumbnailGenerationParams {
   details: string;
 }
 
-export const useGenerateThumbnail = () => {
+export const useClickatronVariation = () => {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (params: ThumbnailGenerationParams) => {
-      const response = await axios.post('/api/services/clickatron/generate', params);
+    mutationFn: async (params: { sessionId: string; prompt: string; fineTuning?: any }) => {
+      const response = await axios.post(`/api/services/clickatron/session/${params.sessionId}/variation`, params);
       const data = response.data;
       
       if (!data.success) {
-        throw new Error(data.error?.message || 'Failed to generate thumbnail');
+        throw new Error(data.error?.message || 'Failed to generate variation');
       }
       
       return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['clickatron', 'history'] });
+      queryClient.invalidateQueries({ queryKey: ['clickatron', 'sessions'] });
     },
   });
 };

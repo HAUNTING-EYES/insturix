@@ -9,7 +9,7 @@ interface LabPageProps {
   };
 }
 
-export default async function Clickatron2LabPage({ params }: LabPageProps) {
+export default async function ClickatronLabPage({ params }: LabPageProps) {
   const session = await auth();
   if (!session?.userId) {
     // Better fallback instead of returning null
@@ -19,7 +19,7 @@ export default async function Clickatron2LabPage({ params }: LabPageProps) {
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-4"></div>
             <p className="text-zinc-400">Authentication required...</p>
-            <p className="text-sm text-zinc-500 mt-2">Please sign in to access Clickatron2</p>
+            <p className="text-sm text-zinc-500 mt-2">Please sign in to access Clickatron</p>
           </div>
         </div>
       </div>

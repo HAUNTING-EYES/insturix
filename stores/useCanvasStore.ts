@@ -52,6 +52,13 @@ interface CanvasState {
   taskId: string | null;
   loadError: string | null; // e.g. 'not_found' | 'invalid'
   
+  // Backend sync
+  sessionId: string | null;
+  backendSynced: boolean;
+  isDirty: boolean; // indicates local changes not yet synced to backend
+  syncError: string | null;
+  lastSyncTime: number | null;
+  
   // Canvas state
   variations: Variation[];
   activeVariationId: string | null;
@@ -77,6 +84,18 @@ interface CanvasActions {
   setTaskId: (taskId: string) => void;
   updateTaskData: (updates: Partial<TaskData>) => Promise<void>;
   loadTaskData: (taskId: string) => Promise<boolean>;
+  
+  // Backend sync
+  setSessionId: (sessionId: string) => void;
+  setBackendSynced: (synced: boolean) => void;
+  setIsDirty: (dirty: boolean) => void;
+  setSyncError: (error: string | null) => void;
+  persistToBackend: (updates: any) => Promise<void>;
+  createBackendSession: (request: any) => Promise<string>;
+  fetchBackendSession: (sessionId: string) => Promise<any>;
+  createVariation: (request: any) => Promise<string>;
+  updateVariation: (variationId: string, updates: any) => Promise<void>;
+  commitVariation: (request: any) => Promise<any>;
   
   // Variation management
   addVariation: (variation: Variation) => void;
@@ -111,6 +130,11 @@ const initialState: CanvasState = {
   taskData: null,
   taskId: null,
   loadError: null,
+  sessionId: null,
+  backendSynced: false,
+  isDirty: false,
+  syncError: null,
+  lastSyncTime: null,
   variations: [],
   activeVariationId: null,
   fineTuningControls: {
@@ -438,6 +462,179 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           await idbManager.saveSession(`clickatron2_${taskId}`, taskData);
         } catch (error) {
           console.error('Failed to save session:', error);
+        }
+      },
+      
+      // Backend sync methods
+      setSessionId: (sessionId) => set({ sessionId }),
+      setBackendSynced: (synced) => set({ backendSynced: synced }),
+      setIsDirty: (dirty) => set({ isDirty: dirty }),
+      setSyncError: (error) => set({ syncError: error }),
+      
+      persistToBackend: async (updates) => {
+        const { sessionId, isDirty, setIsDirty, setSyncError } = get();
+        
+        if (!sessionId || !isDirty) return;
+        
+        try {
+          setSyncError(null);
+          
+          const response = await fetch(`/api/services/clickatron/session/${sessionId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updates),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Backend sync failed: ${response.status}`);
+          }
+          
+          setIsDirty(false);
+          set({ lastSyncTime: Date.now() });
+        } catch (error) {
+          console.error('Backend sync failed:', error);
+          setSyncError(error instanceof Error ? error.message : 'Sync failed');
+          throw error;
+        }
+      },
+      
+      createBackendSession: async (request) => {
+        try {
+          const response = await fetch('/api/services/clickatron/session', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(request),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Session creation failed: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          set({
+            sessionId: data.sessionId,
+            backendSynced: true,
+            isDirty: false,
+          });
+          
+          return data.sessionId;
+        } catch (error) {
+          console.error('Session creation failed:', error);
+          throw error;
+        }
+      },
+      
+      fetchBackendSession: async (sessionId) => {
+        try {
+          const response = await fetch(`/api/services/clickatron/session/${sessionId}`);
+          
+          if (!response.ok) {
+            throw new Error(`Session fetch failed: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          set({
+            backendSynced: true,
+            isDirty: false,
+            lastSyncTime: Date.now(),
+          });
+          
+          return data.session;
+        } catch (error) {
+          console.error('Session fetch failed:', error);
+          set({ syncError: error instanceof Error ? error.message : 'Fetch failed' });
+          throw error;
+        }
+      },
+      
+      createVariation: async (request) => {
+        const { sessionId } = get();
+        
+        if (!sessionId) {
+          throw new Error('No session ID available');
+        }
+        
+        try {
+          const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(request),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Variation creation failed: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          set(state => ({ isDirty: true }));
+          
+          return data.variationId;
+        } catch (error) {
+          console.error('Variation creation failed:', error);
+          throw error;
+        }
+      },
+      
+      updateVariation: async (variationId, updates) => {
+        const { sessionId } = get();
+        
+        if (!sessionId) {
+          throw new Error('No session ID available');
+        }
+        
+        try {
+          const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation/${variationId}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(updates),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Variation update failed: ${response.status}`);
+          }
+          
+          set(state => ({ isDirty: true }));
+        } catch (error) {
+          console.error('Variation update failed:', error);
+          throw error;
+        }
+      },
+      
+      commitVariation: async (request) => {
+        const { sessionId } = get();
+        
+        if (!sessionId) {
+          throw new Error('No session ID available');
+        }
+        
+        try {
+          const response = await fetch(`/api/services/clickatron/session/${sessionId}/commit`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(request),
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Variation commit failed: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          set(state => ({ isDirty: false }));
+          
+          return data;
+        } catch (error) {
+          console.error('Variation commit failed:', error);
+          throw error;
         }
       },
     }),

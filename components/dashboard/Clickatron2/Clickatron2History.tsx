@@ -93,7 +93,7 @@ export function Clickatron2History() {
       >
         {localSessions && localSessions.map(sess => (
           <motion.div key={sess.id} variants={fadeIn}>
-            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 transition-all duration-200 cursor-pointer" onClick={() => router.push(`/dashboard/clickatron2/lab/${sess.taskId}`)}>
+            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 transition-all duration-200 cursor-pointer" onClick={() => router.push(`/dashboard/clickatron/lab/${sess.taskId}`)}>
               <CardContent className="p-4">
                 <div className="aspect-video bg-zinc-800/50 rounded-lg mb-3 overflow-hidden flex items-center justify-center text-xs text-zinc-500">
                   {sess.selectedDirection ? 'Canvas Ready' : 'Ideation'}
