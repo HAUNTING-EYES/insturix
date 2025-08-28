@@ -49,6 +49,41 @@ const UpsertSessionRequestSchema = z.object({
   }).optional(),
 });
 
+// GET /api/services/clickatron/session/:id - Fetch a session
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+
+    if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
+      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+    }
+
+    await getClickatronDb();
+    const objectId = new Types.ObjectId(id);
+
+    const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
+
+    if (!task) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ session: task });
+  } catch (error) {
+    console.error('Error fetching session:', error);
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500 }
+    );
+  }
+}
 // PATCH /api/services/clickatron/session/:id - Upsert partial workflow / canvas fields
 export async function PATCH(
   request: Request,

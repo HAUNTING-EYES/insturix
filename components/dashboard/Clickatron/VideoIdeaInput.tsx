@@ -8,8 +8,7 @@ import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CanvasPresetSelector, type CanvasPreset, presets } from './CanvasPresetSelector';
 import { EnhancedInput } from './EnhancedInput';
-import { InitialTaskData } from './ClickatronLayout';
-
+import { useCanvasStore } from '@/stores/useCanvasStore';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -18,18 +17,17 @@ const fadeIn = {
   transition: { duration: 0.28, ease: "easeOut" } as any
 };
 
-interface VideoIdeaInputProps {
-  onSubmit: (data: InitialTaskData) => void;
-}
+export function VideoIdeaInput() {
+  const router = useRouter();
+  const { toast } = useToast();
+  const createBackendSession = useCanvasStore((state) => state.createBackendSession);
 
-export function VideoIdeaInput({ onSubmit }: VideoIdeaInputProps) {
   const [videoIdea, setVideoIdea] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState<CanvasPreset>(presets[0]); // Default to Auto Detect
+  const [selectedPreset, setSelectedPreset] = useState<CanvasPreset>(presets[0]);
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [customAspectRatio, setCustomAspectRatio] = useState<{ width: number; height: number }>({ width: 16, height: 9 });
-  const { toast } = useToast();
-  
+
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await handleSubmit();
@@ -47,16 +45,22 @@ export function VideoIdeaInput({ onSubmit }: VideoIdeaInputProps) {
 
     setIsLoading(true);
     
-    // We are not creating a task here anymore, just passing the data up
-    const taskData: InitialTaskData = {
-      videoIdea: videoIdea.trim(),
-      selectedPreset,
-    };
-    
-    onSubmit(taskData);
-    
-    // No longer need to handle loading state here, parent will do it
-    // setIsLoading(false);
+    try {
+      const sessionId = await createBackendSession({
+        videoIdea: videoIdea.trim(),
+        selectedPreset,
+        stage: 'ideation',
+      });
+      router.push(`/dashboard/clickatron/lab/${sessionId}`);
+    } catch (error) {
+      console.error("Failed to create session:", error);
+      toast({
+        title: "Failed to start session",
+        description: "Could not create a new Clickatron session. Please try again.",
+        variant: "destructive",
+      });
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -67,7 +71,6 @@ export function VideoIdeaInput({ onSubmit }: VideoIdeaInputProps) {
           {...fadeIn}
         >
           <div className="w-full">
-            {/* Canvas Preset Selector */}
             <CanvasPresetSelector 
               selectedPreset={selectedPreset.id}
               onPresetChange={setSelectedPreset}

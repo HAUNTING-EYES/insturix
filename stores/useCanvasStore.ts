@@ -166,17 +166,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       setTaskId: (taskId) => set({ taskId }),
       
       updateTaskData: async (updates) => {
-        const { taskData, taskId } = get();
-        if (!taskData || !taskId) return;
+        const { taskData, sessionId, persistToBackend } = get();
+        if (!taskData || !sessionId) return;
         
         const updatedData = { ...taskData, ...updates };
-        set({ taskData: updatedData });
+        set({ taskData: updatedData, isDirty: true });
         
-        try {
-          await idbManager.saveSession(`clickatron_${taskId}`, updatedData);
-        } catch (error) {
-          console.error('Failed to save task data:', error);
-        }
+        await persistToBackend({ workflow: updatedData });
       },
       
   loadTaskData: async (taskId) => {
@@ -229,7 +225,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
 
       // Variation management
       addVariation: (variation) => {
-        const { variations, history, historyIndex } = get();
+        const { variations, history, historyIndex, persistToBackend } = get();
         const newVariations = [variation, ...variations];
         const newHistory = [...history.slice(0, historyIndex + 1), variation.id];
         
@@ -238,11 +234,14 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           activeVariationId: variation.id,
           history: newHistory,
           historyIndex: newHistory.length - 1,
+          isDirty: true,
         });
+        
+        persistToBackend({ canvas: { variations: newVariations } });
       },
       
       removeVariation: (variationId) => {
-        const { variations, activeVariationId, history, historyIndex } = get();
+        const { variations, activeVariationId, history, persistToBackend } = get();
         
         if (variations.length <= 1) return;
         
@@ -271,13 +270,15 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           activeVariationId: newActiveId,
           history: newHistory,
           historyIndex: newHistory.length - 1,
+          isDirty: true,
         });
+        
+        persistToBackend({ canvas: { variations: newVariations } });
       },
       
       setActiveVariation: (variationId) => {
         const { history, historyIndex, variations } = get();
         
-        // Find the variation and load its fine-tuning settings
         const variation = variations.find(v => v.id === variationId);
         const fineTuningControls = variation?.fineTuning || {
           brightness: 100,
@@ -290,7 +291,6 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           fineTuningControls,
         });
         
-        // Add to history if not already there
         if (!history.includes(variationId)) {
           const newHistory = history.slice(0, historyIndex + 1);
           newHistory.push(variationId);
@@ -302,7 +302,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       },
       
       duplicateVariation: (variationId) => {
-        const { variations } = get();
+        const { variations, addVariation } = get();
         const original = variations.find(v => v.id === variationId);
         if (!original) return;
         
@@ -312,25 +312,16 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           timestamp: Date.now(),
         };
         
-        const originalIndex = variations.findIndex(v => v.id === variationId);
-        const newVariations = [...variations];
-        newVariations.splice(originalIndex + 1, 0, duplicate);
-        
-        set({
-          variations: newVariations,
-          activeVariationId: duplicate.id,
-        });
-        
-        get().addToHistory(duplicate.id);
+        addVariation(duplicate);
       },
 
       // Fine-tuning
       updateFineTuning: (key, value) => {
-        const { activeVariationId } = get();
+        const { activeVariationId, persistToBackend } = get();
         if (!activeVariationId) return;
         
-        set(state => ({
-          variations: state.variations.map(v => 
+        set(state => {
+          const newVariations = state.variations.map(v => 
             v.id === activeVariationId 
               ? {
                   ...v,
@@ -343,17 +334,23 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
                   }
                 }
               : v
-          ),
-          // Also update global controls for immediate UI feedback
-          fineTuningControls: {
-            ...state.fineTuningControls,
-            [key]: value,
-          },
-        }));
+          );
+          
+          persistToBackend({ canvas: { variations: newVariations } });
+          
+          return {
+            variations: newVariations,
+            fineTuningControls: {
+              ...state.fineTuningControls,
+              [key]: value,
+            },
+            isDirty: true,
+          };
+        });
       },
       
       resetFineTuning: () => {
-        const { activeVariationId } = get();
+        const { activeVariationId, persistToBackend } = get();
         const defaultControls = {
           brightness: 100,
           contrast: 100,
@@ -361,14 +358,21 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         };
         
         if (activeVariationId) {
-          set(state => ({
-            variations: state.variations.map(v => 
+          set(state => {
+            const newVariations = state.variations.map(v => 
               v.id === activeVariationId 
                 ? { ...v, fineTuning: defaultControls }
                 : v
-            ),
-            fineTuningControls: defaultControls,
-          }));
+            );
+            
+            persistToBackend({ canvas: { variations: newVariations } });
+            
+            return {
+              variations: newVariations,
+              fineTuningControls: defaultControls,
+              isDirty: true,
+            };
+          });
         } else {
           set({ fineTuningControls: defaultControls });
         }
@@ -439,7 +443,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       persistToBackend: async (updates) => {
         const { sessionId, isDirty, setIsDirty, setSyncError } = get();
         
-        if (!sessionId || !isDirty) return;
+        if (!sessionId) return;
         
         try {
           setSyncError(null);
@@ -467,10 +471,8 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       
       createBackendSession: async (request) => {
         const { sessionId } = get();
-        // If session already exists, return it immediately
         if (sessionId) return sessionId;
 
-        // If a creation is already in progress, reuse the promise
         if (createSessionPromise) return createSessionPromise;
 
         createSessionPromise = (async () => {
@@ -512,10 +514,12 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       },
       
       fetchBackendSession: async (sessionId) => {
+        set({ isLoading: true, loadError: null, sessionId });
         try {
           const response = await fetch(`/api/services/clickatron/session/${sessionId}`);
           
           if (!response.ok) {
+            if(response.status === 404) set({ loadError: 'not_found' });
             throw new Error(`Session fetch failed: ${response.status}`);
           }
           
@@ -550,29 +554,38 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             activeVariationId: activeCompleted ? activeCompleted.id : null,
             history: activeCompleted ? [activeCompleted.id] : [],
             historyIndex: activeCompleted ? 0 : -1,
+            isLoading: false,
           });
           return session;
         } catch (error) {
           console.error('Session fetch failed:', error);
-          set({ syncError: error instanceof Error ? error.message : 'Fetch failed' });
+          set({ syncError: error instanceof Error ? error.message : 'Fetch failed', isLoading: false });
           throw error;
         }
       },
       
       createVariation: async (request) => {
-        const { sessionId } = get();
+        const { sessionId, addVariation } = get();
         
         if (!sessionId) {
           throw new Error('No session ID available');
         }
         
+        const tempId = `temp_${Date.now()}`;
+        addVariation({
+          id: tempId,
+          prompt: request.prompt,
+          timestamp: Date.now(),
+          status: 'generating',
+        });
+
         try {
           const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(request),
+            body: JSON.stringify({ ...request, tempId }),
           });
           
           if (!response.ok) {
@@ -580,11 +593,17 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           }
           
           const data = await response.json();
+          // The backend will eventually push an update via WebSocket
+          // For now, we just mark as dirty and wait for next fetch
           set(state => ({ isDirty: true }));
           
           return data.variationId;
         } catch (error) {
           console.error('Variation creation failed:', error);
+          // Revert the optimistic update
+          set(state => ({
+            variations: state.variations.filter(v => v.id !== tempId)
+          }));
           throw error;
         }
       },
