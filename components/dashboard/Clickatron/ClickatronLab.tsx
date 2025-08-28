@@ -12,7 +12,7 @@ import { useAutoSave } from "@/hooks/useAutoSave";
 
 type WorkflowStage = "ideation" | "canvas";
 
-interface Clickatron2LabProps {
+interface ClickatronLabProps {
   taskId: string;
 }
 
@@ -23,7 +23,7 @@ const stageTransition = {
   transition: { duration: 0.5, ease: "easeOut" } as any,
 };
 
-export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
+export function ClickatronLab({ taskId }: ClickatronLabProps) {
   const router = useRouter();
 
   // Zustand store

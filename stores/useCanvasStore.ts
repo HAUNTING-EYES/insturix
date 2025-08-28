@@ -1,4 +1,4 @@
-// Zustand store for Clickatron2 canvas state management
+// Zustand store for Clickatron canvas state management
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { idbManager } from '@/lib/idb';
@@ -169,7 +169,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         set({ taskData: updatedData });
         
         try {
-          await idbManager.saveSession(`clickatron2_${taskId}`, updatedData);
+          await idbManager.saveSession(`clickatron_${taskId}`, updatedData);
         } catch (error) {
           console.error('Failed to save task data:', error);
         }
@@ -179,7 +179,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         set({ isLoading: true, taskId, loadError: null });
 
         try {
-          const raw = await idbManager.getSession(`clickatron2_${taskId}`);
+          const raw = await idbManager.getSession(`clickatron_${taskId}`);
           if (raw) {
             // Validate
             if (typeof raw.videoIdea !== 'string' || !raw.videoIdea.trim()) {
@@ -240,7 +240,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             },
             referenceImage: null,
           };
-          await idbManager.saveSession(`clickatron2_${taskId}`, mock);
+          await idbManager.saveSession(`clickatron_${taskId}`, mock);
           set({
             taskData: mock,
             isLoading: false,
@@ -459,7 +459,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         if (!taskData || !taskId) return;
         
         try {
-          await idbManager.saveSession(`clickatron2_${taskId}`, taskData);
+          await idbManager.saveSession(`clickatron_${taskId}`, taskData);
         } catch (error) {
           console.error('Failed to save session:', error);
         }

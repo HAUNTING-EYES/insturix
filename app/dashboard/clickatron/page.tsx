@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { Clickatron2Layout } from "@/components/dashboard/Clickatron2/Clickatron2Layout";
+import { ClickatronLayout } from "@/components/dashboard/Clickatron/ClickatronLayout";
 
 export const revalidate = 30;
 
@@ -25,7 +25,7 @@ export default async function ClickatronDashboard() {
 
         {/* Main Interface */}
         <div className="mt-6 sm:mt-8">
-          <Clickatron2Layout />
+          <ClickatronLayout />
         </div>
 
         {/* Ambient background shape */}

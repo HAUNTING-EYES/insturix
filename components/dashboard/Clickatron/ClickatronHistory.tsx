@@ -37,7 +37,7 @@ function formatTimeAgo(timestamp: number): string {
   return 'Just now';
 }
 
-export function Clickatron2History() {
+export function ClickatronHistory() {
   const { data: history, isLoading, error } = useUserHistory();
   const { data: localSessions, loading: localLoading } = useClickatronSessions();
   const router = useRouter();

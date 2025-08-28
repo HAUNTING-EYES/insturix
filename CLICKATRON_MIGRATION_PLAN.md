@@ -2,7 +2,7 @@
 
 > Date: 2025-08-28  
 > Author: Migration Assistant  
-> Scope: Replace legacy `/dashboard/clickatron` implementation with the new Clickatron2 workflow currently at `/dashboard/clickatron2` and integrate real backend services while preserving schema continuity for a smooth migration.
+> Scope: Replace legacy `/dashboard/clickatron` implementation with the new Clickatron workflow currently at `/dashboard/clickatron` and integrate real backend services while preserving schema continuity for a smooth migration.
 
 ---
 
@@ -18,12 +18,12 @@
 
 ## 2. Current State Summary
 
-| Aspect | Legacy Clickatron | New Clickatron2 |
+| Aspect | Legacy Clickatron | New Clickatron |
 | ------ | ----------------- | --------------- |
-| Entry Route | `/dashboard/clickatron` | `/dashboard/clickatron2` |
-| Detail Route | `/dashboard/clickatron/task/:id` | `/dashboard/clickatron2/lab/:taskId` |
+| Entry Route | `/dashboard/clickatron` | `/dashboard/clickatron` |
+| Detail Route | `/dashboard/clickatron/task/:id` | `/dashboard/clickatron/lab/:taskId` |
 | Workflow | Single prompt → async generation → history | Multi-stage: Spark (idea) → Ideation (directions) → Canvas (variations + edits) |
-| Persistence | Mongo (`ClickatronTask`) | IndexedDB (local `clickatron2_<taskId>` sessions) + mock variations |
+| Persistence | Mongo (`ClickatronTask`) | IndexedDB (local `clickatron_<taskId>` sessions) + mock variations |
 | Schema | `IClickatronTask` with `details`, `results.thumbnail` | No server schema yet; `TaskData` (videoIdea, stage, selectedDirection, preset, referenceImage) |
 | Realtime | RTDB listener (`useTaskUpdater`) | None (mock only) |
 | Generation API | `/api/services/clickatron/generate` (thumbnail) | Not wired (simulated) |
@@ -76,7 +76,7 @@ Schema change: NONE required. We simply nest under `details.workflow` & `details
 | ----- | ---- | ----- |
 | 1 | Backend session + variation endpoints | Build straight on existing API namespace (v2 path optional) |
 | 2 | Frontend integration & schema extension | Hook store to server; implement lazy legacy adaptation |
-| 3 | Route swap & cutover | Rename `clickatron2` → `clickatron`; delete legacy folder same PR (after local QA) |
+| 3 | Route swap & cutover | Rename `clickatron` → `clickatron`; delete legacy folder same PR (after local QA) |
 | 4 | Post-cutover cleanup | Remove unused hooks/components, finalize docs & tests |
 
 ---
@@ -107,10 +107,10 @@ Implementation notes:
 5. Allow offline fallback: if PATCH fails, mark dirty and retry on next interaction.
 
 ### 4.3 Phase 3: Cutover
-1. Rename `app/dashboard/clickatron2` → `app/dashboard/clickatron`.
+1. Rename `app/dashboard/clickatron` → `app/dashboard/clickatron`.
 2. Delete legacy `components/dashboard/Clickatron` & `app/dashboard/clickatron/*` (old) in same PR (after confirming new route loads & basic flows function locally).
 3. Update sidebar/navigation constants to new path (already present references to old path are updated).
-4. Add simple redirect route file sending `/dashboard/clickatron2/*` → `/dashboard/clickatron/*` (static 301 acceptable since we deploy only when ready).
+4. Add simple redirect route file sending `/dashboard/clickatron/*` → `/dashboard/clickatron/*` (static 301 acceptable since we deploy only when ready).
 
 ### 4.4 Phase 4: Post-Cutover Cleanup
 1. Remove obsolete hooks: `useGenerateThumbnail` (or refactor to call variation create endpoint then rename to `useClickatronVariation`).
@@ -189,8 +189,8 @@ Legend: [ ] pending, [*] in progress, [x] done
 6. [ ] Implement lazy auto-migration on session fetch.
 7. [ ] Wire lab to fetch sessions (ObjectId) or create ephemeral then persist.
 8. [ ] Add debounce persistence for fine-tuning & stage changes.
-9. [ ] Rename route `clickatron2` → `clickatron` & remove legacy folder.
-10. [ ] Add redirect from `/dashboard/clickatron2/*` → new route.
+9. [ ] Rename route `clickatron` → `clickatron` & remove legacy folder.
+10. [ ] Add redirect from `/dashboard/clickatron/*` → new route.
 11. [ ] Update navigation/sidebar references.
 12. [ ] Add E2E & API tests (see Section 8).
 13. [ ] Cap variation length & enforce server-side validation.

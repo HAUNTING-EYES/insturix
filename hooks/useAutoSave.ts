@@ -14,7 +14,7 @@ interface AutoSaveData {
 
 const saveSession = async (data: AutoSaveData): Promise<void> => {
   const { taskId, ...sessionData } = data;
-  await idbManager.saveSession(`clickatron2_${taskId}`, sessionData);
+  await idbManager.saveSession(`clickatron_${taskId}`, sessionData);
 };
 
 export const useAutoSave = (enabled: boolean = true) => {

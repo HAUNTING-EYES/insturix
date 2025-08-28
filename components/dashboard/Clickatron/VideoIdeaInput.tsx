@@ -102,7 +102,7 @@ export function VideoIdeaInput() {
       // Set in store and save to IndexedDB
       setTaskId(taskId);
       setTaskData(taskData);
-      await idbManager.saveSession(`clickatron2_${taskId}`, taskData);
+      await idbManager.saveSession(`clickatron_${taskId}`, taskData);
       
       // Navigate to the lab
       router.push(`/dashboard/clickatron/lab/${taskId}`);

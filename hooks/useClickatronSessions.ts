@@ -1,11 +1,11 @@
-// Hook to fetch Clickatron2 sessions from IndexedDB (client-side only)
+// Hook to fetch Clickatron sessions from IndexedDB (client-side only)
 "use client";
 
 import { useEffect, useState } from 'react';
 import { idbManager } from '@/lib/idb';
 
 export interface ClickatronSessionSummary {
-  id: string;            // full key e.g. clickatron2_task_...
+  id: string;            // full key e.g. clickatron_task_...
   taskId: string;        // extracted task id
   videoIdea: string;
   stage: string;
@@ -26,12 +26,12 @@ export function useClickatronSessions() {
       try {
         const sessions = await idbManager.getAllSessions();
         const filtered = sessions
-          .filter(s => s.id.startsWith('clickatron2_'))
+          .filter(s => s.id.startsWith('clickatron_'))
           .map(s => {
             const d = s.data || {};
             return {
               id: s.id,
-              taskId: s.id.replace('clickatron2_', ''),
+              taskId: s.id.replace('clickatron_', ''),
               videoIdea: d.videoIdea || '(untitled)',
               stage: d.stage || 'ideation',
               selectedDirection: d.selectedDirection,

@@ -28,7 +28,7 @@ interface ClickatronDB extends DBSchema {
 class IDBManager {
   private static instance: IDBManager;
   private db: IDBPDatabase<ClickatronDB> | null = null;
-  private readonly DB_NAME = 'clickatron2_db';
+  private readonly DB_NAME = 'clickatron_db';
   private readonly DB_VERSION = 1;
 
   private constructor() {}

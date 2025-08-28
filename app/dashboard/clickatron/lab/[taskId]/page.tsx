@@ -1,5 +1,5 @@
 import { auth } from "@clerk/nextjs/server";
-import { Clickatron2Lab } from "@/components/dashboard/Clickatron2/Clickatron2Lab";
+import { ClickatronLab } from "@/components/dashboard/Clickatron/ClickatronLab";
 
 export const revalidate = 30;
 
@@ -30,7 +30,7 @@ export default async function ClickatronLabPage({ params }: LabPageProps) {
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8 relative min-h-screen">
-      <Clickatron2Lab taskId={taskId} />
+      <ClickatronLab taskId={taskId} />
     </div>
   );
 }

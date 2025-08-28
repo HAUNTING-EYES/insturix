@@ -10,7 +10,7 @@ The new Clickatron will be an intelligent, conversational creative partner that 
 
 ## ✅ Phase 1 Complete: Mock UI/UX Foundation
 
-**Status: COMPLETED** - Full mock workflow implemented at `/dashboard/clickatron2`
+**Status: COMPLETED** - Full mock workflow implemented at `/dashboard/clickatron`
 
 ### Implemented Features:
 
@@ -24,7 +24,7 @@ The new Clickatron will be an intelligent, conversational creative partner that 
 
 ### Technical Implementation:
 
-- Routes: `/dashboard/clickatron2` and `/dashboard/clickatron2/lab/:taskId`
+- Routes: `/dashboard/clickatron` and `/dashboard/clickatron/lab/:taskId`
 - Smooth stage transitions without route changes during workflow
 - Purple theme differentiation from Alyzitron's blue
 - Framer Motion animations with proper TypeScript compatibility
@@ -132,7 +132,7 @@ The current flow is perfectly optimized for thumbnails. To accommodate broader c
 
 **Phase 1: Mock UI/UX Experience**
 
-- Create `/dashboard/clickatron2` for testing and validation
+- Create `/dashboard/clickatron` for testing and validation
 - Build complete workflow with mock data and animations
 - Validate user experience before backend integration
 - Use Alyzitron homepage as base design inspiration
@@ -148,15 +148,15 @@ The current flow is perfectly optimized for thumbnails. To accommodate broader c
 **Primary Routes:**
 
 ```
-/dashboard/clickatron2                    # New lab experience entry point
-/dashboard/clickatron2/lab/:taskId        # Active generation session
-/dashboard/clickatron2/history            # Past generations view
+/dashboard/clickatron                    # New lab experience entry point
+/dashboard/clickatron/lab/:taskId        # Active generation session
+/dashboard/clickatron/history            # Past generations view
 ```
 
 **Workflow Navigation:**
 
-1. **Start**: `/dashboard/clickatron2` (Spark stage with Alyzitron-inspired layout)
-2. **Task Creation**: "Get Ideas" → navigate to `/dashboard/clickatron2/lab/:taskId`
+1. **Start**: `/dashboard/clickatron` (Spark stage with Alyzitron-inspired layout)
+2. **Task Creation**: "Get Ideas" → navigate to `/dashboard/clickatron/lab/:taskId`
 3. **Stage Transitions**: All stages (Ideation → Canvas) on same route with smooth animations
 4. **State Management**: URL persists, internal state tracks current workflow stage
 
@@ -304,7 +304,7 @@ A creative canvas suite that scales from simple thumbnail generation to professi
 
 ## Current Status
 
-**Phase 1 Complete**: Full mock workflow ready for testing at `/dashboard/clickatron2`
+**Phase 1 Complete**: Full mock workflow ready for testing at `/dashboard/clickatron`
 **Phase 2 Complete**: ✅ **Three-Pillar Canvas Architecture Implemented**
 
 ### **Major Redesign Completed: Creative Workspace Canvas**

@@ -153,9 +153,57 @@ export interface UpdateVariationRequest {
   };
 }
 
+export interface GenerateIdeaRequest {
+  prompt: string;
+  count?: number;
+  style?: 'professional' | 'creative' | 'minimal' | 'bold';
+}
+
+export interface GenerateDirectionsRequest {
+  videoIdea: string;
+  selectedPreset?: CanvasPreset;
+  style?: 'professional' | 'creative' | 'minimal' | 'bold';
+  count?: number;
+}
+
 export interface CommitVariationRequest {
   variationId: string;
   finalPrompt?: string;
+}
+
+export interface GenerateIdeaResponse {
+  success: boolean;
+  ideas: Array<{
+    id: string;
+    title: string;
+    description: string;
+    prompt: string;
+    tags: string[];
+  }>;
+  metadata: {
+    prompt: string;
+    count: number;
+    style?: string;
+    generatedAt: string;
+  };
+}
+
+export interface GenerateDirectionsResponse {
+  success: boolean;
+  directions: Array<{
+    id: string;
+    title: string;
+    description: string;
+    prompt: string;
+    tags: string[];
+    styleHints: string[];
+  }>;
+  metadata: {
+    videoIdea: string;
+    preset?: CanvasPreset;
+    style?: string;
+    generatedAt: string;
+  };
 }
 
 export interface CommitVariationResponse {
@@ -294,6 +342,25 @@ export const UpdateVariationRequestSchema = z.object({
     dimensions: z.string().optional(),
     style: z.string().optional(),
   }).optional(),
+});
+
+export const GenerateIdeaRequestSchema = z.object({
+  prompt: z.string().min(1).max(500),
+  count: z.number().min(1).max(5).default(3),
+  style: z.enum(['professional', 'creative', 'minimal', 'bold']).optional(),
+});
+
+export const GenerateDirectionsRequestSchema = z.object({
+  videoIdea: z.string().min(1),
+  selectedPreset: z.object({
+    id: z.string(),
+    name: z.string(),
+    aspectRatio: z.string(),
+    dimensions: z.string(),
+    promptText: z.string(),
+  }).optional(),
+  style: z.enum(['professional', 'creative', 'minimal', 'bold']).optional(),
+  count: z.number().min(1).max(5).default(3),
 });
 
 export const CommitVariationRequestSchema = z.object({
