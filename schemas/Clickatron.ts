@@ -53,4 +53,4 @@ ClickatronTaskSchema.index({ clerkUserId: 1, status: 1, createdAt: -1 });
 
 export const ClickatronTask =
   mongoose.models.ClickatronTask ||
-  mongoose.model<IClickatronTask>('ClickatronTask', ClickatronTaskSchema, 'clickatron_tasks');
+  mongoose.model<IClickatronTask>('ClickatronTask', ClickatronTaskSchema, 'clickatron_tasks2');
