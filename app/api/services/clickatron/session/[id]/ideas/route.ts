@@ -3,12 +3,12 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { StoreDirectionsRequest } from '@/types/clickatron';
+import { StoreIdeasRequest } from '@/types/clickatron';
 import { z } from 'zod';
 
 // Validation schema
-const StoreDirectionsRequestSchema = z.object({
-  directions: z.array(z.object({
+const StoreIdeasRequestSchema = z.object({
+  ideas: z.array(z.object({
     id: z.string(),
     title: z.string(),
     description: z.string(),
@@ -17,10 +17,10 @@ const StoreDirectionsRequestSchema = z.object({
     styleHints: z.array(z.string()),
     generatedAt: z.string().datetime(),
   })),
-  selectedDirectionId: z.string().optional(),
+  selectedIdeaId: z.string().optional(),
 });
 
-// POST /api/services/clickatron/session/:id/directions - Store generated creative directions
+// POST /api/services/clickatron/session/:id/ideas - Store generated ideas
 export async function POST(
   request: Request,
   { params }: { params: { id: string } }
@@ -50,17 +50,17 @@ export async function POST(
     const body = await request.json();
 
     // Validate request body
-    const validatedData = StoreDirectionsRequestSchema.parse(body);
+    const validatedData = StoreIdeasRequestSchema.parse(body);
 
     // Convert generatedAt strings to Date objects
-    const directions = validatedData.directions.map(direction => ({
-      ...direction,
-      generatedAt: new Date(direction.generatedAt),
+    const ideas = validatedData.ideas.map(idea => ({
+      ...idea,
+      generatedAt: new Date(idea.generatedAt),
     }));
 
-    // Find selected direction if specified
-    const selectedDirection = validatedData.selectedDirectionId
-      ? directions.find(direction => direction.id === validatedData.selectedDirectionId)
+    // Find selected idea if specified
+    const selectedIdea = validatedData.selectedIdeaId
+      ? ideas.find(idea => idea.id === validatedData.selectedIdeaId)
       : undefined;
 
     // Initialize workflow if it doesn't exist
@@ -75,12 +75,11 @@ export async function POST(
       };
     }
 
-    // Store directions and selection
-    task.details.workflow.generatedDirections = directions;
-    if (selectedDirection) {
-      task.details.workflow.selectedDirectionData = selectedDirection;
-      task.details.workflow.selectedDirection = selectedDirection.prompt;
-      task.details.workflow.stage = 'canvas';
+    // Store ideas and selection
+    task.details.workflow.generatedIdeas = ideas;
+    if (selectedIdea) {
+      task.details.workflow.selectedIdea = selectedIdea;
+      task.details.workflow.stage = 'ideation';
     }
 
     task.updatedAt = new Date();
@@ -89,11 +88,11 @@ export async function POST(
     return NextResponse.json({
       success: true,
       sessionId: id,
-      storedDirections: directions.length,
-      selectedDirection: selectedDirection?.id,
+      storedIdeas: ideas.length,
+      selectedIdea: selectedIdea?.id,
     });
   } catch (error) {
-    console.error('Error storing directions:', error);
+    console.error('Error storing ideas:', error);
 
     if (error instanceof z.ZodError) {
       return NextResponse.json(

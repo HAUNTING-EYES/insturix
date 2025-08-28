@@ -24,13 +24,3 @@ export const useClickatronVariation = () => {
     },
   });
 };
-
-export const useClickatronHistory = () => {
-  return useQuery({
-    queryKey: ['clickatron', 'history'],
-    queryFn: async () => {
-      const { data } = await axios.get('/api/services/clickatron/history');
-      return data;
-    },
-  });
-};

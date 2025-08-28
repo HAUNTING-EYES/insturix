@@ -27,6 +27,29 @@ export interface TaskData {
   referenceImage?: ReferenceImageMeta | null; // stored locally
 }
 
+// Creative session data (comprehensive audit trail)
+export interface CreativeSession {
+  // Original user input
+  videoIdea: string;
+  selectedPreset?: CanvasPreset;
+  referenceImage?: ReferenceImageMeta | null;
+
+  // Ideation stage data
+  generatedIdeas: GeneratedIdea[];           // All ideas generated for user
+  selectedIdea?: GeneratedIdea;              // What user chose
+  selectedDirection?: string;                // Chosen creative direction
+
+  // Canvas stage data
+  variations: Variation[];                   // All variations created
+  committedVariation?: Variation;            // Final chosen variation
+
+  // Session metadata
+  createdAt: Date;
+  updatedAt: Date;
+  stage: 'spark' | 'ideation' | 'canvas' | 'completed';
+  workflowVersion: number;
+}
+
 export interface CanvasPreset {
   id: string;
   name: string;
@@ -43,20 +66,59 @@ export interface ReferenceImageMeta {
   imageId: string; // Reference to image in IndexedDB
 }
 
-// Canvas variations
+// Generated ideas from ideation stage
+export interface GeneratedIdea {
+  id: string;
+  title: string;
+  description: string;
+  prompt: string;
+  tags: string[];
+  styleHints: string[];
+  generatedAt: Date;
+}
+
+// Enhanced variation with GCS storage
 export interface Variation {
   id: string;
   prompt: string;
   timestamp: number;
   status: VariationStatus;
   fineTuning?: FineTuningControls;
-  imageRef?: string; // Reference to generated image
-  referenceImages?: string[]; // Array of image IDs used as input
+  imageRef?: string; // GCS URL for generated image
+  referenceImages?: string[]; // Array of GCS URLs used as input
   metadata?: {
     aspectRatio?: string;
     dimensions?: string;
     style?: string;
+    gcsPath?: string; // Full GCS path
+    fileSize?: number; // File size in bytes
+    contentType?: string; // MIME type
   };
+  jobId?: string; // Associated async job ID
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// Canvas variations (enhanced with GCS storage)
+export interface Variation {
+  id: string;
+  prompt: string;
+  timestamp: number;
+  status: VariationStatus;
+  fineTuning?: FineTuningControls;
+  imageRef?: string; // GCS URL for generated image
+  referenceImages?: string[]; // Array of GCS URLs used as input
+  metadata?: {
+    aspectRatio?: string;
+    dimensions?: string;
+    style?: string;
+    gcsPath?: string; // Full GCS path
+    fileSize?: number; // File size in bytes
+    contentType?: string; // MIME type
+  };
+  jobId?: string; // Associated async job ID
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export type VariationStatus = 'generating' | 'completed' | 'failed';
@@ -70,16 +132,35 @@ export interface FineTuningControls {
 // Workflow and Canvas sections (to be nested under details in legacy schema)
 export interface WorkflowData {
   videoIdea: string;
-  stage: 'ideation' | 'canvas';
+  stage: 'spark' | 'ideation' | 'canvas';
   selectedPreset?: CanvasPreset;
   selectedDirection?: string;
   referenceImageMeta?: ReferenceImageMeta;
   workflowVersion?: number; // for future silent migrations
+
+  // Comprehensive audit trail
+  generatedIdeas?: GeneratedIdea[];     // All ideas generated during ideation
+  selectedIdea?: GeneratedIdea;         // User's chosen idea
+  generatedDirections?: CreativeDirection[]; // All directions generated
+  selectedDirectionData?: CreativeDirection; // User's chosen direction
+  committedVariation?: Variation;       // Final committed variation
 }
 
 export interface CanvasData {
   variations: Variation[];
+  committedVariationId?: string; // ID of the committed variation
   // Future: additional canvas-specific data
+}
+
+// Creative directions generated during ideation
+export interface CreativeDirection {
+  id: string;
+  title: string;
+  description: string;
+  prompt: string;
+  tags: string[];
+  styleHints: string[];
+  generatedAt: Date;
 }
 
 // Unified document structure (extends legacy schema)
@@ -164,6 +245,31 @@ export interface GenerateDirectionsRequest {
   selectedPreset?: CanvasPreset;
   style?: 'professional' | 'creative' | 'minimal' | 'bold';
   count?: number;
+}
+
+// Enhanced API types for comprehensive audit trail
+export interface StoreIdeasRequest {
+  sessionId: string;
+  ideas: GeneratedIdea[];
+  selectedIdeaId?: string;
+}
+
+export interface StoreDirectionsRequest {
+  sessionId: string;
+  directions: CreativeDirection[];
+  selectedDirectionId?: string;
+}
+
+export interface CommitVariationRequest {
+  sessionId: string;
+  variationId: string;
+  gcsPath: string;
+  metadata?: {
+    fileSize: number;
+    contentType: string;
+    aspectRatio?: string;
+    dimensions?: string;
+  };
 }
 
 export interface CommitVariationRequest {
@@ -366,4 +472,115 @@ export const GenerateDirectionsRequestSchema = z.object({
 export const CommitVariationRequestSchema = z.object({
   variationId: z.string(),
   finalPrompt: z.string().optional(),
+});
+
+// QStash Job Types (for async generation)
+export interface ClickatronJob {
+  id: string;
+  userId: string;
+  sessionId: string;
+  variationId: string;
+  prompt: string;
+  status: JobStatus;
+  progress: number;
+  stage: JobStage;
+  attempt: number;
+  startedAt: number;
+  updatedAt: number;
+  resultRef?: string;
+  error?: JobError;
+  trace: JobTraceEntry[];
+  fineTuning?: FineTuningControls;
+  metadata?: {
+    aspectRatio?: string;
+    dimensions?: string;
+    style?: string;
+  };
+}
+
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled';
+export type JobStage = 'queued' | 'prompting' | 'generating' | 'refining' | 'finalizing';
+
+export interface JobError {
+  code: string;
+  message: string;
+  details?: any;
+}
+
+export interface JobTraceEntry {
+  timestamp: number;
+  stage: JobStage;
+  progress: number;
+  message?: string;
+}
+
+// Job API request/response types
+export interface CreateJobRequest {
+  sessionId: string;
+  variationId: string;
+  prompt: string;
+  userId: string;
+  fineTuning?: FineTuningControls;
+  metadata?: {
+    aspectRatio?: string;
+    dimensions?: string;
+    style?: string;
+  };
+}
+
+export interface CreateJobResponse {
+  jobId: string;
+  variationId: string;
+  status: JobStatus;
+  estimatedTime?: number;
+}
+
+export interface JobStatusResponse {
+  job: ClickatronJob;
+  isTerminal: boolean;
+}
+
+export interface CancelJobResponse {
+  success: boolean;
+  previousStatus: JobStatus;
+}
+
+// SSE Event types
+export interface JobStatusEvent {
+  type: 'status' | 'progress' | 'completed' | 'failed' | 'canceled';
+  data: Partial<ClickatronJob>;
+  timestamp: number;
+}
+
+// Worker execution types
+export interface WorkerPayload extends CreateJobRequest {
+  jobId: string;
+}
+
+export interface WorkerResponse {
+  success: boolean;
+  resultRef?: string;
+  error?: JobError;
+}
+
+// Job validation schemas
+export const CreateJobRequestSchema = z.object({
+  sessionId: z.string(),
+  variationId: z.string(),
+  prompt: z.string().min(1).max(1000),
+  userId: z.string(),
+  fineTuning: z.object({
+    brightness: z.number().min(0).max(200),
+    contrast: z.number().min(0).max(200),
+    saturation: z.number().min(0).max(200),
+  }).optional(),
+  metadata: z.object({
+    aspectRatio: z.string().optional(),
+    dimensions: z.string().optional(),
+    style: z.string().optional(),
+  }).optional(),
+});
+
+export const WorkerPayloadSchema = CreateJobRequestSchema.extend({
+  jobId: z.string(),
 });

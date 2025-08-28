@@ -4,6 +4,7 @@ import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
 import { CreateVariationRequestSchema } from '@/types/clickatron';
+import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
@@ -34,7 +35,22 @@ export async function POST(
     }
 
     const body = await request.json();
-    
+
+    // Check for idempotency key
+    const idempotencyKey = request.headers.get('Idempotency-Key');
+    if (idempotencyKey) {
+      const existingJobId = await getIdempotencyKey(idempotencyKey);
+      if (existingJobId) {
+        return NextResponse.json({
+          success: true,
+          variationId: `var_${existingJobId.split('_')[1]}_${existingJobId.split('_')[2]}`,
+          jobId: existingJobId,
+          status: 'queued',
+          estimatedTime: 30, // seconds
+        });
+      }
+    }
+
     // Validate request body
     const validatedData = CreateVariationRequestSchema.parse({
       ...body,
@@ -47,8 +63,9 @@ export async function POST(
     }
 
     // Create new variation
+    const variationId = `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newVariation = {
-      id: `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: variationId,
       prompt: validatedData.prompt,
       timestamp: Date.now(),
       status: 'generating' as const,
@@ -64,7 +81,7 @@ export async function POST(
     // Add variation to canvas (capping at 50)
     const currentVariations = task.details.canvas.variations || [];
     currentVariations.unshift(newVariation); // Add to beginning
-    
+
     // Keep only the 50 most recent variations
     task.details.canvas.variations = currentVariations.slice(0, 50);
 
@@ -73,58 +90,38 @@ export async function POST(
     task.updatedAt = new Date();
     await task.save();
 
-    // Mock generation - simulate async processing
-    setTimeout(async () => {
-      try {
-        // Simulate generation completion after 2-5 seconds
-        await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
-        
-        // Update the variation status to completed
-        const updatedTask = await ClickatronTask.findById(task._id);
-        if (updatedTask && updatedTask.details?.canvas?.variations) {
-          const variation = updatedTask.details.canvas.variations.find(
-            (v: any) => v.id === newVariation.id
-          );
-          if (variation) {
-            variation.status = 'completed';
-            variation.timestamp = Date.now();
-            // Mock image reference
-            variation.imageRef = `generated_${newVariation.id}.png`;
-            
-            // If this is the first completed variation, update task status
-            const hasCompletedVariation = updatedTask.details.canvas.variations.some(
-              (v: any) => v.status === 'completed'
-            );
-            if (hasCompletedVariation) {
-              updatedTask.status = 'completed';
-            }
-            
-            updatedTask.updatedAt = new Date();
-            await updatedTask.save();
-          }
-        }
-      } catch (error) {
-        console.error('Error during mock variation generation:', error);
-        // Update variation status to failed on error
-        const updatedTask = await ClickatronTask.findById(task._id);
-        if (updatedTask && updatedTask.details?.canvas?.variations) {
-          const variation = updatedTask.details.canvas.variations.find(
-            (v: any) => v.id === newVariation.id
-          );
-          if (variation) {
-            variation.status = 'failed';
-            updatedTask.updatedAt = new Date();
-            await updatedTask.save();
-          }
-        }
-      }
-    }, 100); // Small delay to allow the initial response to be sent
+    // Use QStash for async processing
+    const jobId = await createJob({
+      sessionId: id,
+      variationId,
+      prompt: validatedData.prompt,
+      userId,
+      fineTuning: validatedData.fineTuning,
+      metadata: validatedData.metadata,
+    });
+
+    // Set idempotency key if provided
+    if (idempotencyKey) {
+      await setIdempotencyKey(idempotencyKey, jobId);
+    }
+
+    // Enqueue job with QStash
+    const qstashResult = await enqueueQStashJob({
+      jobId,
+      sessionId: id,
+      variationId,
+      prompt: validatedData.prompt,
+      userId,
+      fineTuning: validatedData.fineTuning,
+      metadata: validatedData.metadata,
+    });
 
     return NextResponse.json({
       success: true,
-      variationId: newVariation.id,
-      status: 'generating',
-      estimatedTime: 5, // seconds
+      variationId,
+      jobId,
+      status: 'queued',
+      estimatedTime: 30, // seconds
     });
   } catch (error) {
     console.error('Error creating variation:', error);
@@ -141,4 +138,29 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+/**
+ * Enqueue job with QStash
+ */
+async function enqueueQStashJob(jobData: any) {
+  const { Client } = await import('@upstash/qstash');
+
+  const qstashClient = new Client({
+    token: process.env.UPSTASH_QSTASH_TOKEN!,
+  });
+
+  const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/internal/workers/clickatron/variation`;
+
+  const result = await qstashClient.publishJSON({
+    url: workerUrl,
+    body: jobData,
+    retries: 3,
+    // Add signature verification in production
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  return result;
 }
