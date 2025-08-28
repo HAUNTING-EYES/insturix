@@ -164,7 +164,7 @@ export default function HeroSection() {
               </motion.p>
 
               {/* Logos - Responsive layout */}
-              <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-4 w-full max-w-md sm:max-w-none">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full max-w-md sm:max-w-none">
                 {/* Google for Startups */}
                 <motion.div
                   initial={{ opacity: 0, x: -20, scale: 0.95 }}
