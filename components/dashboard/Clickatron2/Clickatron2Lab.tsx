@@ -7,6 +7,7 @@ import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { IdeationStage } from './stages/IdeationStage';
 import { CanvasStage } from './stages/CanvasStage';
+import { StorageManager } from '@/lib/storage';
 
 
 type WorkflowStage = 'ideation' | 'canvas';
@@ -50,30 +51,43 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
   const router = useRouter();
 
   useEffect(() => {
-    // Load task data from sessionStorage
-    const storedData = sessionStorage.getItem(`clickatron2_${taskId}`);
-    if (storedData) {
-      const data = JSON.parse(storedData) as TaskData;
-      setTaskData(data);
-      setCurrentStage(data.stage);
-    } else {
-      // If no data found, redirect back to main page
-      router.push('/dashboard/clickatron2');
-    }
+    // Load task data from storage
+    const loadTaskData = async () => {
+      try {
+        const data = await StorageManager.getItem(`clickatron2_${taskId}`);
+        if (data) {
+          setTaskData(data as TaskData);
+          setCurrentStage(data.stage);
+        } else {
+          // If no data found, redirect back to main page
+          router.push('/dashboard/clickatron2');
+        }
+      } catch (error) {
+        console.error('Failed to load task data:', error);
+        router.push('/dashboard/clickatron2');
+      }
+    };
+
+    loadTaskData();
   }, [taskId, router]);
 
-  const updateTaskData = (updates: Partial<TaskData>) => {
+  const updateTaskData = async (updates: Partial<TaskData>) => {
     if (!taskData) return;
     
     const updatedData = { ...taskData, ...updates };
     setTaskData(updatedData);
-    sessionStorage.setItem(`clickatron2_${taskId}`, JSON.stringify(updatedData));
+    
+    try {
+      await StorageManager.setItem(`clickatron2_${taskId}`, updatedData);
+    } catch (error) {
+      console.error('Failed to update task data:', error);
+    }
   };
 
-  const handleStageComplete = (stage: WorkflowStage, data: any) => {
+  const handleStageComplete = async (stage: WorkflowStage, data: any) => {
     switch (stage) {
       case 'ideation':
-        updateTaskData({ 
+        await updateTaskData({ 
           selectedDirection: data.selectedDirection,
           stage: 'canvas' 
         });
@@ -94,11 +108,11 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
     setIsGenerating(false);
   };
 
-  const handleBack = () => {
+  const handleBack = async () => {
     switch (currentStage) {
       case 'canvas':
         setCurrentStage('ideation');
-        updateTaskData({ stage: 'ideation' });
+        await updateTaskData({ stage: 'ideation' });
         break;
       default:
         router.push('/dashboard/clickatron2');

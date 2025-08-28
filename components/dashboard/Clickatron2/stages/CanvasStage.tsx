@@ -32,6 +32,7 @@ interface Variation {
   prompt: string;
   timestamp: number;
   isActive?: boolean;
+  referenceImages?: any[];
 }
 
 interface FineTuningControls {
@@ -62,6 +63,12 @@ export function CanvasStage({
   const [zoomLevel, setZoomLevel] = useState(100);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [history, setHistory] = useState<string[]>(["initial"]);
+  const [clearConsoleTrigger, setClearConsoleTrigger] = useState(0);
+  const [setPromptData, setSetPromptData] = useState<{
+    prompt: string;
+    referenceImages?: any[];
+    trigger: number;
+  } | undefined>();
 
   // Pan/drag state for zoomed images
   const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
@@ -125,6 +132,111 @@ export function CanvasStage({
   const handleAddToCompare = (variationId: string) => {
     console.log("Add to compare:", variationId);
     // TODO: Implement comparison feature
+  };
+
+  const handleNewCanvas = () => {
+    // Create a new blank canvas
+    const newVariation: Variation = {
+      id: `new_canvas_${Date.now()}`,
+      imageUrl: "",
+      prompt: "",
+      timestamp: Date.now(),
+    };
+
+    // Add to top of variations list and make it active
+    setVariations((prev) => [newVariation, ...prev]);
+    setActiveVariationId(newVariation.id);
+
+    // Reset fine-tuning controls
+    setFineTuningControls({
+      brightness: 100,
+      contrast: 100,
+      saturation: 100,
+    });
+
+    // Clear AI Command Console
+    setClearConsoleTrigger(prev => prev + 1);
+
+    // Add to history
+    const newHistory = [...history, newVariation.id];
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleDuplicateCanvas = (variationId: string) => {
+    const originalVariation = variations.find((v) => v.id === variationId);
+    if (!originalVariation) return;
+
+    // Create exact duplicate with all data
+    const duplicatedVariation: Variation = {
+      id: `${variationId}_duplicate_${Date.now()}`,
+      imageUrl: originalVariation.imageUrl,
+      prompt: originalVariation.prompt,
+      timestamp: Date.now(),
+      // Copy reference images if they exist
+      ...(originalVariation.referenceImages && {
+        referenceImages: [...originalVariation.referenceImages],
+      }),
+    };
+
+    // Find the index of the original variation
+    const originalIndex = variations.findIndex((v) => v.id === variationId);
+    
+    // Insert the duplicate directly below the original
+    setVariations((prev) => {
+      const newVariations = [...prev];
+      newVariations.splice(originalIndex + 1, 0, duplicatedVariation);
+      return newVariations;
+    });
+
+    // Make the duplicated canvas active
+    setActiveVariationId(duplicatedVariation.id);
+
+    // Populate AI Command Console with original prompt and reference images
+    setSetPromptData({
+      prompt: originalVariation.prompt,
+      referenceImages: originalVariation.referenceImages,
+      trigger: Date.now(),
+    });
+
+    // Add to history
+    const newHistory = [...history, duplicatedVariation.id];
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleDeleteCanvas = (variationId: string) => {
+    // Don't allow deleting if it's the only variation
+    if (variations.length <= 1) return;
+
+    const variationIndex = variations.findIndex((v) => v.id === variationId);
+    if (variationIndex === -1) return;
+
+    // Remove from variations
+    setVariations((prev) => prev.filter((v) => v.id !== variationId));
+
+    // If the deleted canvas was active, select the next best one
+    if (activeVariationId === variationId) {
+      let nextActiveId: string;
+      
+      if (variationIndex > 0) {
+        // Select the one above it
+        nextActiveId = variations[variationIndex - 1].id;
+      } else {
+        // Select the first one in the list (after deletion)
+        nextActiveId = variations[variationIndex + 1]?.id || variations[0].id;
+      }
+      
+      setActiveVariationId(nextActiveId);
+      
+      // Update history
+      const newHistory = history.filter((id) => id !== variationId);
+      if (!newHistory.includes(nextActiveId)) {
+        newHistory.push(nextActiveId);
+      }
+      setHistory(newHistory);
+      setHistoryIndex(newHistory.length - 1);
+    }
   };
 
   const handleAIGenerate = async (prompt: string, referenceImages?: any[]) => {
@@ -245,6 +357,9 @@ export function CanvasStage({
           onVariationSelect={handleVariationSelect}
           onGenerateMoreLike={handleGenerateMoreLike}
           onAddToCompare={handleAddToCompare}
+          onNewCanvas={handleNewCanvas}
+          onDuplicateCanvas={handleDuplicateCanvas}
+          onDeleteCanvas={handleDeleteCanvas}
           isCollapsed={galleryCollapsed}
           onToggleCollapse={() => setGalleryCollapsed(!galleryCollapsed)}
         />
@@ -329,12 +444,26 @@ export function CanvasStage({
             ) : (
               /* Generated Canvas */
               <div className="w-full h-full relative">
-                <img
-                  src="https://picsum.photos/1920/1080?random=1"
-                  alt="Generated thumbnail"
-                  className="w-full h-full object-cover"
-                  draggable={false}
-                />
+                {activeVariationId.startsWith('new_canvas_') && 
+                 variations.find(v => v.id === activeVariationId)?.prompt === "" ? (
+                  /* Blank Canvas State */
+                  <div className="w-full h-full bg-zinc-800/30 flex items-center justify-center border-2 border-dashed border-zinc-600/50 rounded-lg">
+                    <div className="text-center">
+                      <div className="text-zinc-400 text-lg mb-2">Blank Canvas</div>
+                      <div className="text-zinc-500 text-sm">
+                        Use the AI Command Console below to generate content
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Generated Image */
+                  <img
+                    src="https://picsum.photos/1920/1080?random=1"
+                    alt="Generated thumbnail"
+                    className="w-full h-full object-cover"
+                    draggable={false}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -358,6 +487,8 @@ export function CanvasStage({
           onGenerate={handleAIGenerate}
           isGenerating={isGenerating}
           galleryCollapsed={galleryCollapsed}
+          clearTrigger={clearConsoleTrigger}
+          setPromptData={setPromptData}
         />
       </div>
     </motion.div>

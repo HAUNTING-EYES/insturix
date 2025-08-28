@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Image, Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,12 @@ interface AICommandConsoleProps {
   isGenerating: boolean;
   galleryCollapsed?: boolean;
   className?: string;
+  clearTrigger?: number; // When this changes, clear the console
+  setPromptData?: { // When this changes, populate the console
+    prompt: string;
+    referenceImages?: ReferenceImage[];
+    trigger: number;
+  };
 }
 
 export function AICommandConsole({
@@ -26,10 +32,28 @@ export function AICommandConsole({
   isGenerating,
   galleryCollapsed = false,
   className = "",
+  clearTrigger,
+  setPromptData,
 }: AICommandConsoleProps) {
   const [prompt, setPrompt] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Clear console when clearTrigger changes
+  useEffect(() => {
+    if (clearTrigger !== undefined) {
+      setPrompt("");
+      setReferenceImages([]);
+    }
+  }, [clearTrigger]);
+
+  // Set prompt data when setPromptData changes
+  useEffect(() => {
+    if (setPromptData) {
+      setPrompt(setPromptData.prompt);
+      setReferenceImages(setPromptData.referenceImages || []);
+    }
+  }, [setPromptData]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -204,7 +228,8 @@ export function AICommandConsole({
                 className="
                   min-h-[48px] max-h-[120px] resize-none border-0 bg-transparent
                   text-zinc-100 placeholder-zinc-500 p-0
-                  focus:ring-0 focus:outline-none
+                  focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none
+                  [&:focus]:ring-0 [&:focus]:outline-none [&:focus]:border-transparent
                 "
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {

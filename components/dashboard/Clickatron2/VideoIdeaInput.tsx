@@ -8,6 +8,8 @@ import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CanvasPresetSelector, type CanvasPreset, presets } from './CanvasPresetSelector';
 import { EnhancedInput } from './EnhancedInput';
+import { StorageManager } from '@/lib/storage';
+import { ImageCompressor } from '@/lib/imageUtils';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -46,36 +48,74 @@ export function VideoIdeaInput() {
       // Generate a mock task ID for now
       const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
       
-      // Store the video idea and settings in sessionStorage for the lab to access
+      let compressedImageData = null;
+      
+      if (referenceImage) {
+        try {
+          // Compress the image to reduce storage size
+          const compressedDataUrl = await ImageCompressor.compressImage(referenceImage, 800, 600, 0.7);
+          const imageSize = ImageCompressor.getImageSize(compressedDataUrl);
+          
+          // If still too large, compress more aggressively
+          if (imageSize > 2 * 1024 * 1024) { // 2MB
+            const moreCompressed = await ImageCompressor.compressImage(referenceImage, 600, 400, 0.5);
+            compressedImageData = {
+              name: referenceImage.name,
+              size: referenceImage.size,
+              type: referenceImage.type,
+              data: moreCompressed
+            };
+          } else {
+            compressedImageData = {
+              name: referenceImage.name,
+              size: referenceImage.size,
+              type: referenceImage.type,
+              data: compressedDataUrl
+            };
+          }
+        } catch (compressionError) {
+          console.warn('Image compression failed, storing without compression:', compressionError);
+          // Fallback to original method if compression fails
+          compressedImageData = {
+            name: referenceImage.name,
+            size: referenceImage.size,
+            type: referenceImage.type,
+            data: await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.readAsDataURL(referenceImage);
+            })
+          };
+        }
+      }
+      
+      // Store the video idea and settings using our storage manager
       const sessionData = {
         videoIdea: videoIdea.trim(),
         selectedPreset: selectedPreset,
         customAspectRatio: selectedPreset.id === 'custom' ? customAspectRatio : null,
-        referenceImage: referenceImage ? {
-          name: referenceImage.name,
-          size: referenceImage.size,
-          type: referenceImage.type,
-          // Store as base64 for session persistence
-          data: await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.readAsDataURL(referenceImage);
-          })
-        } : null,
+        referenceImage: compressedImageData,
         timestamp: Date.now(),
         stage: 'ideation'
       };
       
-      sessionStorage.setItem(`clickatron2_${taskId}`, JSON.stringify(sessionData));
+      await StorageManager.setItem(`clickatron2_${taskId}`, sessionData);
       
       // Navigate to the lab
       router.push(`/dashboard/clickatron2/lab/${taskId}`);
       
     } catch (error) {
       console.error('Error creating task:', error);
+      
+      // Provide more specific error messages
+      let errorMessage = "Failed to start the creative process. Please try again.";
+      if (error instanceof Error && error.message.includes('quota')) {
+        errorMessage = "Image too large. Please try with a smaller image or reduce the file size.";
+      }
+      
       toast({
         title: "Something went wrong",
-        description: "Failed to start the creative process. Please try again.",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

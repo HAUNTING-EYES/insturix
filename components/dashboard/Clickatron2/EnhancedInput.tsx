@@ -73,6 +73,11 @@ export function EnhancedInput({
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
       const file = e.dataTransfer.files[0];
       if (file.type.startsWith('image/')) {
+        // Check file size (limit to 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+          alert('Image too large. Please select an image smaller than 10MB.');
+          return;
+        }
         onImageUpload(file);
       }
     }
@@ -85,6 +90,11 @@ export function EnhancedInput({
         if (items[i].type.startsWith('image/')) {
           const file = items[i].getAsFile();
           if (file) {
+            // Check file size (limit to 10MB)
+            if (file.size > 10 * 1024 * 1024) {
+              alert('Image too large. Please select an image smaller than 10MB.');
+              return;
+            }
             onImageUpload(file);
             break;
           }
@@ -97,6 +107,11 @@ export function EnhancedInput({
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       if (file.type.startsWith('image/')) {
+        // Check file size (limit to 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+          alert('Image too large. Please select an image smaller than 10MB.');
+          return;
+        }
         onImageUpload(file);
       }
     }
