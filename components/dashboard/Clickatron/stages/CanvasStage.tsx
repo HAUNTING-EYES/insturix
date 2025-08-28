@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { VariationsGallery } from "../canvas/VariationsGallery";
@@ -19,7 +19,6 @@ import {
   useCanRedo,
   type Variation,
 } from "@/stores/useCanvasStore";
-import { useGenerateImage } from "@/hooks/useAIGeneration";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 
 interface CanvasStageProps {
@@ -86,6 +85,7 @@ export function CanvasStage({
   const redo = useCanvasStore((state) => state.redo);
 
   // Local state for UI interactions
+  // Loading is true if we have no completed variation yet
   const [thumbnailLoading, setThumbnailLoading] = useState(true);
   const [clearConsoleTrigger, setClearConsoleTrigger] = useState(0);
   const [setPromptData, setSetPromptData] = useState<
@@ -101,35 +101,20 @@ export function CanvasStage({
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // AI generation hook
-  const generateImageMutation = useGenerateImage();
+  // Removed local mock AI generation hook (backend handles variation creation)
 
   // Track if we've initialized to prevent duplicate variations
   const initializedRef = useRef(false);
 
-  // Initialize variations if empty (only when we have selectedDirection and haven't initialized yet)
-  // Note: On refresh, the store's loadTaskData will create mock variations, so this mainly handles
-  // the case when navigating from ideation to canvas for the first time
+  // Determine loading state based on variation status
   useEffect(() => {
-    if (!initializedRef.current && variations.length === 0 && selectedDirection) {
-      console.log('Initializing first variation with prompt:', selectedDirection);
-      const initialVariation: Variation = {
-        id: `initial_${Date.now()}`, // Make ID unique
-        prompt: selectedDirection,
-        timestamp: Date.now(),
-      };
-      addVariation(initialVariation);
+    const hasCompleted = variations.some(v => v.status === 'completed');
+    setThumbnailLoading(!hasCompleted && isGenerating);
+    if (!hasCompleted && !isGenerating && variations.length === 0 && selectedDirection && !initializedRef.current) {
+      // We rely on backend variation creation now. This component no longer seeds mock variations.
       initializedRef.current = true;
     }
-  }, [variations.length, selectedDirection, addVariation]);
-
-  // Simulate initial thumbnail generation
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setThumbnailLoading(false);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
+  }, [variations, isGenerating, selectedDirection]);
 
   // Handlers
   const handleVariationSelect = (variationId: string) => {
@@ -195,17 +180,8 @@ export function CanvasStage({
 
   const handleAIGenerate = async (prompt: string, referenceImages?: any[]) => {
     // Create new variation
-    const newVariation: Variation = {
-      id: `generated_${Date.now()}`,
-      prompt: prompt,
-      timestamp: Date.now(),
-    };
-
-    // Add to variations and make it active
-    addVariation(newVariation);
-
-    // Call the parent handler
-    onGenerativeEdit(prompt, { referenceImages });
+  // Delegate to parent which triggers backend create + polling
+  onGenerativeEdit(prompt, { referenceImages });
   };
 
   const handleFineTuningChange = (

@@ -98,3 +98,47 @@ export async function PATCH(
     );
   }
 }
+
+// GET /api/services/clickatron/session/:id/variation/:varId - Fetch variation status
+export async function GET(
+  request: Request,
+  { params }: { params: { id: string; varId: string } }
+) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id, varId } = params;
+    if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
+      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+    }
+    if (!varId) {
+      return NextResponse.json({ error: 'Invalid Variation ID' }, { status: 400 });
+    }
+
+    await getClickatronDb();
+    const objectId = new Types.ObjectId(id);
+    const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
+    if (!task) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+    const variations = task.details?.canvas?.variations || [];
+    const variation = variations.find((v: any) => v.id === varId);
+    if (!variation) {
+      return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
+    }
+    return NextResponse.json({
+      id: variation.id,
+      status: variation.status || 'generating',
+      imageRef: variation.imageRef,
+      prompt: variation.prompt,
+      timestamp: variation.timestamp,
+      fineTuning: variation.fineTuning,
+    });
+  } catch (error) {
+    console.error('Error fetching variation status:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}

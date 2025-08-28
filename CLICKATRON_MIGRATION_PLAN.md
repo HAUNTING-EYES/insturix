@@ -1,5 +1,5 @@
 # Clickatron Migration & Integration Plan (Legacy → New Canvas Suite)
-
+(((I have renamed clickatron2 everywhere to clickatron, including in these md files.)))
 > Date: 2025-08-28  
 > Author: Migration Assistant  
 > Scope: Replace legacy `/dashboard/clickatron` implementation with the new Clickatron workflow currently at `/dashboard/clickatron` and integrate real backend services while preserving schema continuity for a smooth migration.

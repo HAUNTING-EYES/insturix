@@ -7,6 +7,7 @@ import { Sparkles, ArrowRight } from 'lucide-react';
 
 interface IdeationStageProps {
   videoIdea: string;
+  sessionId?: string | null;
   selectedPreset?: {
     id: string;
     name: string;
@@ -24,53 +25,23 @@ interface CreativeDirection {
   icon: string;
 }
 
-// Mock creative directions generator
-const generateCreativeDirections = (videoIdea: string | undefined | null): CreativeDirection[] => {
-  const idea = (videoIdea || '').trim();
-  // This would be replaced with actual AI generation
-  const baseDirections = [
-    {
-      id: 'cozy',
-      title: 'Cozy Vibe',
-      description: 'Focus on the warm, comforting feeling',
-      angle: 'Emphasize comfort, warmth, and intimate moments',
-      icon: '🏠'
-    },
-    {
-      id: 'energy',
-      title: 'High Energy',
-      description: 'Capture dynamic action and excitement',
-      angle: 'Vibrant colors, movement, and energetic composition',
-      icon: '⚡'
-    },
-    {
-      id: 'cultural',
-      title: 'Cultural Deep-Dive',
-      description: 'Rich tradition and heritage focus',
-      angle: 'Historical elements, traditional motifs, and authenticity',
-      icon: '🏛️'
-    },
-    {
-      id: 'modern',
-      title: 'Bold & Modern',
-      description: 'Contemporary, graphic-heavy design',
-      angle: 'Clean lines, bold typography, trendy aesthetic',
-      icon: '🎨'
-    }
-  ];
-
-  // Customize based on video idea (mock logic)
-  if (idea.toLowerCase().includes('chai')) {
-    return [
-      { ...baseDirections[0], title: 'Cozy Chai Moment', description: 'Warm, steaming cup in perfect lighting' },
-      { ...baseDirections[1], title: 'Street Energy', description: 'Bustling chai-wallah in action' },
-      { ...baseDirections[2], title: 'Cultural Heritage', description: 'Traditional chai culture and history' },
-      { ...baseDirections[3], title: 'Chai Craze Trend', description: 'Modern take on viral chai content' }
-    ];
-  }
-
-  return baseDirections;
-};
+// Backend fetch helper
+async function fetchDirections(sessionId: string, videoIdea: string, preset?: any): Promise<CreativeDirection[]> {
+  const res = await fetch(`/api/services/clickatron/session/${sessionId}/directions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ videoIdea, selectedPreset: preset, count: 4 }),
+  });
+  if (!res.ok) throw new Error('Failed to generate directions');
+  const data = await res.json();
+  return (data.directions || []).map((d: any) => ({
+    id: d.id,
+    title: d.title,
+    description: d.description,
+    angle: d.prompt,
+    icon: '🎯',
+  }));
+}
 
 const fadeIn = {
   initial: { opacity: 0, y: 20 },
@@ -86,30 +57,36 @@ const staggerChildren = {
   }
 };
 
-export function IdeationStage({ videoIdea, selectedPreset, onComplete }: IdeationStageProps) {
+export function IdeationStage({ videoIdea, selectedPreset, onComplete, sessionId }: IdeationStageProps) {
   const [directions, setDirections] = useState<CreativeDirection[]>([]);
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Simulate AI generation delay
-    const timer = setTimeout(() => {
-      const generatedDirections = generateCreativeDirections(videoIdea);
-      setDirections(generatedDirections);
-      setIsLoading(false);
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, [videoIdea]);
+    let cancelled = false;
+    async function load() {
+      if (!sessionId) return; // wait for session
+      setIsLoading(true);
+      try {
+        const dirs = await fetchDirections(sessionId, videoIdea, selectedPreset);
+        if (!cancelled) {
+          setDirections(dirs);
+          setIsLoading(false);
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setIsLoading(false);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [videoIdea, sessionId, selectedPreset]);
 
   const handleDirectionSelect = (directionId: string) => {
     setSelectedDirection(directionId);
     const direction = directions.find(d => d.id === directionId);
     if (direction) {
-      // Small delay for visual feedback
-      setTimeout(() => {
-        onComplete({ selectedDirection: direction.title });
-      }, 300);
+      onComplete({ selectedDirection: direction.title });
     }
   };
 

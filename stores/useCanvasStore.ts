@@ -8,6 +8,7 @@ export interface Variation {
   imageId?: string; // Reference to image in IndexedDB
   prompt: string;
   timestamp: number;
+  status?: 'generating' | 'completed' | 'failed';
   referenceImages?: string[]; // Array of image IDs
   fineTuning?: FineTuningControls; // Per-variation fine-tuning settings
   metadata?: {
@@ -175,7 +176,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         }
       },
       
-      loadTaskData: async (taskId) => {
+  loadTaskData: async (taskId) => {
         set({ isLoading: true, taskId, loadError: null });
 
         try {
@@ -191,25 +192,13 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
               stage: raw.selectedDirection ? 'canvas' : (raw.stage || 'ideation'),
             };
 
-            let mockVariations: Variation[] = [];
-            let activeId: string | null = null;
-            if (normalized.stage === 'canvas' && normalized.selectedDirection) {
-              const v: Variation = {
-                id: `mock_${Date.now()}`,
-                prompt: normalized.selectedDirection,
-                timestamp: Date.now(),
-              };
-              mockVariations = [v];
-              activeId = v.id;
-            }
-
             set({
               taskData: normalized,
               isLoading: false,
-              variations: mockVariations,
-              activeVariationId: activeId,
-              history: activeId ? [activeId] : [],
-              historyIndex: activeId ? 0 : -1,
+              variations: [],
+              activeVariationId: null,
+              history: [],
+              historyIndex: -1,
               fineTuningControls: { brightness: 100, contrast: 100, saturation: 100 },
               galleryCollapsed: false,
               zoomLevel: 100,
@@ -224,37 +213,10 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             return false;
           }
 
-          // Dev fallback mock
-            console.warn(`No session data found for taskId: ${taskId}. Creating mock data for development.`);
-          const mock: TaskData = {
-            videoIdea: 'Direct URL Access - Mock Video Idea',
-            timestamp: Date.now(),
-            stage: 'ideation',
-            selectedPreset: {
-              id: 'youtube',
-              name: 'YouTube Thumbnail',
-              aspectRatio: '16:9',
-              dimensions: '1920x1080',
-              promptText: "What's your video about?",
-              placeholder: 'e.g., "10 JavaScript tricks every developer should know"',
-            },
-            referenceImage: null,
-          };
-          await idbManager.saveSession(`clickatron_${taskId}`, mock);
-          set({
-            taskData: mock,
-            isLoading: false,
-            loadError: null,
-            variations: [],
-            activeVariationId: null,
-            history: [],
-            historyIndex: -1,
-            fineTuningControls: { brightness: 100, contrast: 100, saturation: 100 },
-            galleryCollapsed: false,
-            zoomLevel: 100,
-            panOffset: { x: 0, y: 0 },
-          });
-          return true;
+          // Dev fallback (no mock variations)
+          console.warn(`No session data found for taskId: ${taskId}. No mock data created (backend expected).`);
+          set({ isLoading: false, loadError: 'not_found' });
+          return false;
         } catch (e) {
           console.error('Failed to load task data:', e);
           set({ isLoading: false, loadError: 'error' });
@@ -519,6 +481,17 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             sessionId: data.sessionId,
             backendSynced: true,
             isDirty: false,
+            taskData: data.taskData ? {
+              videoIdea: data.taskData.videoIdea,
+              timestamp: data.taskData.timestamp,
+              stage: data.taskData.stage,
+              selectedPreset: data.taskData.selectedPreset,
+              referenceImage: data.taskData.referenceImage || null,
+            } : null,
+            variations: [],
+            activeVariationId: null,
+            history: [],
+            historyIndex: -1,
           });
           
           return data.sessionId;
@@ -537,13 +510,38 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
           }
           
           const data = await response.json();
+          const session = data.session;
+          const workflow = session?.details?.workflow || {};
+          const canvas = session?.details?.canvas || { variations: [] };
+          const variations: Variation[] = (canvas.variations || []).map((v: any) => ({
+            id: v.id,
+            prompt: v.prompt,
+            timestamp: v.timestamp,
+            status: v.status,
+            imageId: v.imageRef,
+            referenceImages: v.referenceImages,
+            fineTuning: v.fineTuning,
+            metadata: v.metadata,
+          }));
+          const activeCompleted = variations.find(v => v.status === 'completed') || variations[0] || null;
           set({
             backendSynced: true,
             isDirty: false,
             lastSyncTime: Date.now(),
+            taskData: workflow.videoIdea ? {
+              videoIdea: workflow.videoIdea,
+              timestamp: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
+              stage: workflow.stage || 'ideation',
+              selectedDirection: workflow.selectedDirection,
+              selectedPreset: workflow.selectedPreset,
+              referenceImage: workflow.referenceImageMeta || null,
+            } : null,
+            variations,
+            activeVariationId: activeCompleted ? activeCompleted.id : null,
+            history: activeCompleted ? [activeCompleted.id] : [],
+            historyIndex: activeCompleted ? 0 : -1,
           });
-          
-          return data.session;
+          return session;
         } catch (error) {
           console.error('Session fetch failed:', error);
           set({ syncError: error instanceof Error ? error.message : 'Fetch failed' });

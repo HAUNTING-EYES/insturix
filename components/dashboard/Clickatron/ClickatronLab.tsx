@@ -57,24 +57,7 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
     ? "canvas"
     : (taskData?.stage as WorkflowStage) || "ideation";
 
-  // Ensure a starter variation exists when reloading directly into canvas
-  useEffect(() => {
-    if (!taskData) return; // nothing loaded yet
-    if (effectiveStage === "canvas" && taskData.selectedDirection) {
-      const { variations } = useCanvasStore.getState();
-      if (variations.length === 0) {
-        const id = `reload_${Date.now()}`;
-        useCanvasStore.setState(() => ({
-          variations: [
-            { id, prompt: taskData.selectedDirection!, timestamp: Date.now() },
-          ],
-          activeVariationId: id,
-          history: [id],
-          historyIndex: 0,
-        }) as any);
-      }
-    }
-  }, [effectiveStage, taskData]);
+  // Removed mock starter variation seeding; backend variations are authoritative
 
   // Load task data on mount with backend integration
   useEffect(() => {
@@ -129,6 +112,18 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
           selectedDirection: data.selectedDirection,
           stage: "canvas",
         });
+        // Persist workflow update to backend if session exists
+        if (sessionId) {
+          try {
+            await fetch(`/api/services/clickatron/session/${sessionId}`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ workflow: { selectedDirection: data.selectedDirection, stage: 'canvas' } }),
+            });
+          } catch (e) {
+            console.error('Failed to persist workflow stage transition:', e);
+          }
+        }
         break;
       case "canvas":
         // Final stage - could save to history, etc.
@@ -165,54 +160,38 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
       addVariation(newVariation);
       setActiveVariation(variationId);
       
-      // Poll for completion (in a real app, you'd use WebSockets or server-sent events)
-      const pollForCompletion = async () => {
+      // Poll for completion (simple interval, no artificial delay beyond backend simulation)
+      const start = Date.now();
+      const poll = async () => {
         try {
           const response = await fetch(`/api/services/clickatron/session/${sessionId}/variation/${variationId}`);
+          if (!response.ok) throw new Error('Status fetch failed');
           const data = await response.json();
-          
-          if (data.status === 'completed') {
-            // Update variation in store
+          if (data.status === 'completed' || data.status === 'failed') {
             const updatedVariation = {
               ...newVariation,
-              status: 'completed' as const,
-              imageRef: `generated_${variationId}.png`,
-            };
-            
-            // Remove old and add updated variation
+              status: data.status,
+              imageRef: data.imageRef,
+            } as any;
             useCanvasStore.getState().removeVariation(variationId);
             addVariation(updatedVariation);
             setActiveVariation(variationId);
-          } else if (data.status === 'failed') {
-            // Update variation in store
-            const failedVariation = {
-              ...newVariation,
-              status: 'failed' as const,
-            };
-            
-            useCanvasStore.getState().removeVariation(variationId);
-            addVariation(failedVariation);
-            setActiveVariation(variationId);
-          } else {
-            // Still generating, poll again
-            setTimeout(pollForCompletion, 2000);
+            setIsGenerating(false);
+            return; // stop polling
           }
-        } catch (error) {
-          console.error('Error polling variation status:', error);
-          // Mark as failed on error
-          const failedVariation = {
-            ...newVariation,
-            status: 'failed' as const,
-          };
-          
-          useCanvasStore.getState().removeVariation(variationId);
-          addVariation(failedVariation);
-          setActiveVariation(variationId);
+          // Continue polling every 1s, with a max timeout of 60s
+          if (Date.now() - start < 60000) {
+            setTimeout(poll, 1000);
+          } else {
+            console.warn('Variation generation timeout');
+            setIsGenerating(false);
+          }
+        } catch (err) {
+          console.error('Polling error:', err);
+          setIsGenerating(false);
         }
       };
-      
-      // Start polling
-      setTimeout(pollForCompletion, 2000);
+      poll();
       
     } catch (error) {
       console.error('Error creating variation:', error);
@@ -307,6 +286,7 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
             <IdeationStage
               videoIdea={taskData.videoIdea}
               selectedPreset={taskData.selectedPreset}
+              sessionId={sessionId}
               onComplete={(data) => handleStageComplete("ideation", data)}
             />
           </motion.div>
