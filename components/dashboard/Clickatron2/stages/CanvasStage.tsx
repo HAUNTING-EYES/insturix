@@ -1,12 +1,26 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole } from "../canvas/AICommandConsole";
 import { FineTuningPanel } from "../canvas/FineTuningPanel";
 import { CanvasControls } from "../canvas/CanvasControls";
+import {
+  useCanvasStore,
+  useVariations,
+  useActiveVariation,
+  useFineTuningControls,
+  useGalleryCollapsed,
+  useZoomLevel,
+  usePanOffset,
+  useCanUndo,
+  useCanRedo,
+  type Variation,
+} from "@/stores/useCanvasStore";
+import { useGenerateImage } from "@/hooks/useAIGeneration";
+import { ImageDisplay } from "../canvas/ImageDisplay";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -19,26 +33,13 @@ interface CanvasStageProps {
   };
   referenceImage?: {
     name: string;
-    data: string;
+    size: number;
+    type: string;
+    imageId: string; // Reference to image in IndexedDB
   } | null;
   onComplete: (data: { finalThumbnail: string }) => void;
   onGenerativeEdit: (prompt: string, settings: any) => void;
   isGenerating: boolean;
-}
-
-interface Variation {
-  id: string;
-  imageUrl: string;
-  prompt: string;
-  timestamp: number;
-  isActive?: boolean;
-  referenceImages?: any[];
-}
-
-interface FineTuningControls {
-  brightness: number;
-  contrast: number;
-  saturation: number;
 }
 
 const fadeIn = {
@@ -51,48 +52,76 @@ export function CanvasStage({
   videoIdea,
   selectedDirection,
   selectedPreset,
-  referenceImage,
   onComplete,
   onGenerativeEdit,
   isGenerating,
 }: CanvasStageProps) {
-  // State management
+  // Zustand store selectors
+  const variations = useVariations();
+  const activeVariation = useActiveVariation();
+  const fineTuningControls = useFineTuningControls();
+  const galleryCollapsed = useGalleryCollapsed();
+  const zoomLevel = useZoomLevel();
+  const panOffset = usePanOffset();
+  const canUndo = useCanUndo();
+  const canRedo = useCanRedo();
+
+  // Store actions
+  const addVariation = useCanvasStore((state) => state.addVariation);
+  const removeVariation = useCanvasStore((state) => state.removeVariation);
+  const setActiveVariation = useCanvasStore(
+    (state) => state.setActiveVariation
+  );
+  const duplicateVariation = useCanvasStore(
+    (state) => state.duplicateVariation
+  );
+  const updateFineTuning = useCanvasStore((state) => state.updateFineTuning);
+  const resetFineTuning = useCanvasStore((state) => state.resetFineTuning);
+  const setGalleryCollapsed = useCanvasStore(
+    (state) => state.setGalleryCollapsed
+  );
+  const setZoomLevel = useCanvasStore((state) => state.setZoomLevel);
+  const setPanOffset = useCanvasStore((state) => state.setPanOffset);
+  const undo = useCanvasStore((state) => state.undo);
+  const redo = useCanvasStore((state) => state.redo);
+
+  // Local state for UI interactions
   const [thumbnailLoading, setThumbnailLoading] = useState(true);
-  const [galleryCollapsed, setGalleryCollapsed] = useState(false);
-  const [activeVariationId, setActiveVariationId] = useState("initial");
-  const [zoomLevel, setZoomLevel] = useState(100);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const [history, setHistory] = useState<string[]>(["initial"]);
   const [clearConsoleTrigger, setClearConsoleTrigger] = useState(0);
-  const [setPromptData, setSetPromptData] = useState<{
-    prompt: string;
-    referenceImages?: any[];
-    trigger: number;
-  } | undefined>();
+  const [setPromptData, setSetPromptData] = useState<
+    | {
+        prompt: string;
+        referenceImages?: any[];
+        trigger: number;
+      }
+    | undefined
+  >();
 
   // Pan/drag state for zoomed images
-  const [panOffset, setPanOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
-  // Mock variations data - in real app, this would come from API
-  const [variations, setVariations] = useState<Variation[]>([
-    {
-      id: "initial",
-      imageUrl: "",
-      prompt: selectedDirection,
-      timestamp: Date.now(),
-      isActive: true,
-    },
-  ]);
+  // AI generation hook
+  const generateImageMutation = useGenerateImage();
 
-  // Fine-tuning controls
-  const [fineTuningControls, setFineTuningControls] =
-    useState<FineTuningControls>({
-      brightness: 100,
-      contrast: 100,
-      saturation: 100,
-    });
+  // Track if we've initialized to prevent duplicate variations
+  const initializedRef = useRef(false);
+
+  // Initialize variations if empty (only when we have selectedDirection and haven't initialized yet)
+  // Note: On refresh, the store's loadTaskData will create mock variations, so this mainly handles
+  // the case when navigating from ideation to canvas for the first time
+  useEffect(() => {
+    if (!initializedRef.current && variations.length === 0 && selectedDirection) {
+      console.log('Initializing first variation with prompt:', selectedDirection);
+      const initialVariation: Variation = {
+        id: `initial_${Date.now()}`, // Make ID unique
+        prompt: selectedDirection,
+        timestamp: Date.now(),
+      };
+      addVariation(initialVariation);
+      initializedRef.current = true;
+    }
+  }, [variations.length, selectedDirection, addVariation]);
 
   // Simulate initial thumbnail generation
   useEffect(() => {
@@ -104,14 +133,7 @@ export function CanvasStage({
 
   // Handlers
   const handleVariationSelect = (variationId: string) => {
-    setActiveVariationId(variationId);
-    // Add to history if not already there
-    if (!history.includes(variationId)) {
-      const newHistory = history.slice(0, historyIndex + 1);
-      newHistory.push(variationId);
-      setHistory(newHistory);
-      setHistoryIndex(newHistory.length - 1);
-    }
+    setActiveVariation(variationId);
   };
 
   const handleGenerateMoreLike = (variationId: string) => {
@@ -121,12 +143,12 @@ export function CanvasStage({
 
     const newVariations = Array.from({ length: 4 }, (_, i) => ({
       id: `${variationId}_variant_${i + 1}_${Date.now()}`,
-      imageUrl: "",
       prompt: `${baseVariation.prompt} (variant ${i + 1})`,
       timestamp: Date.now() + i,
     }));
 
-    setVariations((prev) => [...newVariations, ...prev]);
+    // Add all new variations
+    newVariations.forEach((variation) => addVariation(variation));
   };
 
   const handleAddToCompare = (variationId: string) => {
@@ -138,59 +160,26 @@ export function CanvasStage({
     // Create a new blank canvas
     const newVariation: Variation = {
       id: `new_canvas_${Date.now()}`,
-      imageUrl: "",
       prompt: "",
       timestamp: Date.now(),
     };
 
-    // Add to top of variations list and make it active
-    setVariations((prev) => [newVariation, ...prev]);
-    setActiveVariationId(newVariation.id);
+    // Add to variations and make it active
+    addVariation(newVariation);
 
     // Reset fine-tuning controls
-    setFineTuningControls({
-      brightness: 100,
-      contrast: 100,
-      saturation: 100,
-    });
+    resetFineTuning();
 
     // Clear AI Command Console
-    setClearConsoleTrigger(prev => prev + 1);
-
-    // Add to history
-    const newHistory = [...history, newVariation.id];
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    setClearConsoleTrigger((prev) => prev + 1);
   };
 
   const handleDuplicateCanvas = (variationId: string) => {
     const originalVariation = variations.find((v) => v.id === variationId);
     if (!originalVariation) return;
 
-    // Create exact duplicate with all data
-    const duplicatedVariation: Variation = {
-      id: `${variationId}_duplicate_${Date.now()}`,
-      imageUrl: originalVariation.imageUrl,
-      prompt: originalVariation.prompt,
-      timestamp: Date.now(),
-      // Copy reference images if they exist
-      ...(originalVariation.referenceImages && {
-        referenceImages: [...originalVariation.referenceImages],
-      }),
-    };
-
-    // Find the index of the original variation
-    const originalIndex = variations.findIndex((v) => v.id === variationId);
-    
-    // Insert the duplicate directly below the original
-    setVariations((prev) => {
-      const newVariations = [...prev];
-      newVariations.splice(originalIndex + 1, 0, duplicatedVariation);
-      return newVariations;
-    });
-
-    // Make the duplicated canvas active
-    setActiveVariationId(duplicatedVariation.id);
+    // Use store's duplicate function
+    duplicateVariation(variationId);
 
     // Populate AI Command Console with original prompt and reference images
     setSetPromptData({
@@ -198,77 +187,36 @@ export function CanvasStage({
       referenceImages: originalVariation.referenceImages,
       trigger: Date.now(),
     });
-
-    // Add to history
-    const newHistory = [...history, duplicatedVariation.id];
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
   };
 
   const handleDeleteCanvas = (variationId: string) => {
-    // Don't allow deleting if it's the only variation
-    if (variations.length <= 1) return;
-
-    const variationIndex = variations.findIndex((v) => v.id === variationId);
-    if (variationIndex === -1) return;
-
-    // Remove from variations
-    setVariations((prev) => prev.filter((v) => v.id !== variationId));
-
-    // If the deleted canvas was active, select the next best one
-    if (activeVariationId === variationId) {
-      let nextActiveId: string;
-      
-      if (variationIndex > 0) {
-        // Select the one above it
-        nextActiveId = variations[variationIndex - 1].id;
-      } else {
-        // Select the first one in the list (after deletion)
-        nextActiveId = variations[variationIndex + 1]?.id || variations[0].id;
-      }
-      
-      setActiveVariationId(nextActiveId);
-      
-      // Update history
-      const newHistory = history.filter((id) => id !== variationId);
-      if (!newHistory.includes(nextActiveId)) {
-        newHistory.push(nextActiveId);
-      }
-      setHistory(newHistory);
-      setHistoryIndex(newHistory.length - 1);
-    }
+    removeVariation(variationId);
   };
 
   const handleAIGenerate = async (prompt: string, referenceImages?: any[]) => {
     // Create new variation
     const newVariation: Variation = {
       id: `generated_${Date.now()}`,
-      imageUrl: "",
       prompt: prompt,
       timestamp: Date.now(),
     };
 
     // Add to variations and make it active
-    setVariations((prev) => [newVariation, ...prev]);
-    setActiveVariationId(newVariation.id);
+    addVariation(newVariation);
 
     // Call the parent handler
     onGenerativeEdit(prompt, { referenceImages });
   };
 
   const handleFineTuningChange = (
-    key: keyof FineTuningControls,
+    key: keyof import("@/stores/useCanvasStore").FineTuningControls,
     value: number
   ) => {
-    setFineTuningControls((prev) => ({ ...prev, [key]: value }));
+    updateFineTuning(key, value);
   };
 
   const handleFineTuningReset = () => {
-    setFineTuningControls({
-      brightness: 100,
-      contrast: 100,
-      saturation: 100,
-    });
+    resetFineTuning();
   };
 
   const handleColorLookApply = (lookId: string) => {
@@ -277,27 +225,19 @@ export function CanvasStage({
   };
 
   const handleUndo = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndex(newIndex);
-      setActiveVariationId(history[newIndex]);
-    }
+    undo();
   };
 
   const handleRedo = () => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setHistoryIndex(newIndex);
-      setActiveVariationId(history[newIndex]);
-    }
+    redo();
   };
 
   const handleZoomIn = () => {
-    setZoomLevel((prev) => Math.min(prev + 25, 200));
+    setZoomLevel(Math.min(zoomLevel + 25, 200));
   };
 
   const handleZoomOut = () => {
-    setZoomLevel((prev) => Math.max(prev - 25, 25));
+    setZoomLevel(Math.max(zoomLevel - 25, 25));
   };
 
   const handleDownload = () => {
@@ -306,7 +246,7 @@ export function CanvasStage({
   };
 
   const handleSave = () => {
-    onComplete({ finalThumbnail: activeVariationId });
+    onComplete({ finalThumbnail: activeVariation?.id || "" });
   };
 
   // Pan/drag handlers
@@ -335,7 +275,7 @@ export function CanvasStage({
     if (zoomLevel <= 100) {
       setPanOffset({ x: 0, y: 0 });
     }
-  }, [zoomLevel]);
+  }, [zoomLevel, setPanOffset]);
 
   // Canvas styling with fine-tuning applied
   const canvasStyle = {
@@ -353,9 +293,8 @@ export function CanvasStage({
       <div className="relative z-10">
         <VariationsGallery
           variations={variations}
-          activeVariationId={activeVariationId}
+          activeVariationId={activeVariation?.id || null}
           onVariationSelect={handleVariationSelect}
-          onGenerateMoreLike={handleGenerateMoreLike}
           onAddToCompare={handleAddToCompare}
           onNewCanvas={handleNewCanvas}
           onDuplicateCanvas={handleDuplicateCanvas}
@@ -391,9 +330,11 @@ export function CanvasStage({
                 onZoomIn={handleZoomIn}
                 onZoomOut={handleZoomOut}
                 onDownload={handleDownload}
-                onSave={handleSave}
-                canUndo={historyIndex > 0}
-                canRedo={historyIndex < history.length - 1}
+                onSave={() =>
+                  onComplete({ finalThumbnail: activeVariation?.id || "" })
+                }
+                canUndo={canUndo}
+                canRedo={canRedo}
                 zoomLevel={zoomLevel}
                 isDisabled={isGenerating}
               />
@@ -444,12 +385,14 @@ export function CanvasStage({
             ) : (
               /* Generated Canvas */
               <div className="w-full h-full relative">
-                {activeVariationId.startsWith('new_canvas_') && 
-                 variations.find(v => v.id === activeVariationId)?.prompt === "" ? (
+                {activeVariation?.id?.startsWith("new_canvas_") &&
+                activeVariation?.prompt === "" ? (
                   /* Blank Canvas State */
                   <div className="w-full h-full bg-zinc-800/30 flex items-center justify-center border-2 border-dashed border-zinc-600/50 rounded-lg">
                     <div className="text-center">
-                      <div className="text-zinc-400 text-lg mb-2">Blank Canvas</div>
+                      <div className="text-zinc-400 text-lg mb-2">
+                        Blank Canvas
+                      </div>
                       <div className="text-zinc-500 text-sm">
                         Use the AI Command Console below to generate content
                       </div>
@@ -457,11 +400,17 @@ export function CanvasStage({
                   </div>
                 ) : (
                   /* Generated Image */
-                  <img
-                    src="https://picsum.photos/1920/1080?random=1"
-                    alt="Generated thumbnail"
+                  <ImageDisplay
+                    imageId={activeVariation?.imageId}
                     className="w-full h-full object-cover"
-                    draggable={false}
+                    fallback={
+                      <img
+                        src="https://picsum.photos/1920/1080?random=1"
+                        alt="Generated thumbnail"
+                        className="w-full h-full object-cover"
+                        draggable={false}
+                      />
+                    }
                   />
                 )}
               </div>

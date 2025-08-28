@@ -21,19 +21,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-interface Variation {
-  id: string;
-  imageUrl: string;
-  prompt: string;
-  timestamp: number;
-  isActive?: boolean;
-  referenceImages?: any[];
-}
+import { type Variation } from "@/stores/useCanvasStore";
+import { ImageDisplay } from "./ImageDisplay";
 
 interface VariationsGalleryProps {
   variations: Variation[];
-  activeVariationId: string;
+  activeVariationId: string | null;
   onVariationSelect: (variationId: string) => void;
+  onAddToCompare: (variationId: string) => void;
   onNewCanvas: () => void;
   onDuplicateCanvas: (variationId: string) => void;
   onDeleteCanvas: (variationId: string) => void;
@@ -45,6 +40,7 @@ export function VariationsGallery({
   variations,
   activeVariationId,
   onVariationSelect,
+  onAddToCompare,
   onNewCanvas,
   onDuplicateCanvas,
   onDeleteCanvas,
@@ -219,8 +215,12 @@ export function VariationsGallery({
                     layout: { duration: 0.3, ease: "easeOut" },
                   }}
                 >
-                  {/* Mock thumbnail - replace with actual image */}
-                  <div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30 rounded" />
+                  {/* Thumbnail image */}
+                  <ImageDisplay
+                    imageId={variation.imageId}
+                    className="w-full h-full object-cover"
+                    fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}
+                  />
 
                   {/* Active indicator - subtle white dot */}
                   {activeVariationId === variation.id && (

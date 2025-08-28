@@ -25,7 +25,8 @@ interface CreativeDirection {
 }
 
 // Mock creative directions generator
-const generateCreativeDirections = (videoIdea: string): CreativeDirection[] => {
+const generateCreativeDirections = (videoIdea: string | undefined | null): CreativeDirection[] => {
+  const idea = (videoIdea || '').trim();
   // This would be replaced with actual AI generation
   const baseDirections = [
     {
@@ -59,7 +60,7 @@ const generateCreativeDirections = (videoIdea: string): CreativeDirection[] => {
   ];
 
   // Customize based on video idea (mock logic)
-  if (videoIdea.toLowerCase().includes('chai')) {
+  if (idea.toLowerCase().includes('chai')) {
     return [
       { ...baseDirections[0], title: 'Cozy Chai Moment', description: 'Warm, steaming cup in perfect lighting' },
       { ...baseDirections[1], title: 'Street Energy', description: 'Bustling chai-wallah in action' },
@@ -127,7 +128,7 @@ export function IdeationStage({ videoIdea, selectedPreset, onComplete }: Ideatio
             Analyzing your idea...
           </h2>
           <p className="text-zinc-400">
-            AI is crafting creative directions for "{videoIdea}"
+            AI is crafting creative directions for "{videoIdea || 'your idea'}"
           </p>
         </CardContent>
       </Card>

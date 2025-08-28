@@ -8,8 +8,8 @@ import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CanvasPresetSelector, type CanvasPreset, presets } from './CanvasPresetSelector';
 import { EnhancedInput } from './EnhancedInput';
-import { StorageManager } from '@/lib/storage';
-import { ImageCompressor } from '@/lib/imageUtils';
+import { useCanvasStore } from '@/stores/useCanvasStore';
+import { idbManager } from '@/lib/idb';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -26,6 +26,10 @@ export function VideoIdeaInput() {
   const [customAspectRatio, setCustomAspectRatio] = useState<{ width: number; height: number }>({ width: 16, height: 9 });
   const router = useRouter();
   const { toast } = useToast();
+  
+  // Zustand store actions
+  const setTaskData = useCanvasStore(state => state.setTaskData);
+  const setTaskId = useCanvasStore(state => state.setTaskId);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,61 +49,60 @@ export function VideoIdeaInput() {
     setIsLoading(true);
     
     try {
-      // Generate a mock task ID for now
+      // Generate a task ID
       const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
       
-      let compressedImageData = null;
+      let referenceImageData = null;
       
       if (referenceImage) {
         try {
-          // Compress the image to reduce storage size
-          const compressedDataUrl = await ImageCompressor.compressImage(referenceImage, 800, 600, 0.7);
-          const imageSize = ImageCompressor.getImageSize(compressedDataUrl);
+          // Store image as blob in IndexedDB
+          const imageId = `ref_${Date.now()}`;
+          await idbManager.saveImage(imageId, referenceImage, {
+            name: referenceImage.name,
+            type: referenceImage.type,
+          });
           
-          // If still too large, compress more aggressively
-          if (imageSize > 2 * 1024 * 1024) { // 2MB
-            const moreCompressed = await ImageCompressor.compressImage(referenceImage, 600, 400, 0.5);
-            compressedImageData = {
-              name: referenceImage.name,
-              size: referenceImage.size,
-              type: referenceImage.type,
-              data: moreCompressed
-            };
-          } else {
-            compressedImageData = {
-              name: referenceImage.name,
-              size: referenceImage.size,
-              type: referenceImage.type,
-              data: compressedDataUrl
-            };
-          }
-        } catch (compressionError) {
-          console.warn('Image compression failed, storing without compression:', compressionError);
-          // Fallback to original method if compression fails
-          compressedImageData = {
+          referenceImageData = {
             name: referenceImage.name,
             size: referenceImage.size,
             type: referenceImage.type,
-            data: await new Promise<string>((resolve) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(reader.result as string);
-              reader.readAsDataURL(referenceImage);
-            })
+            imageId: imageId,
           };
+        } catch (imageError) {
+          console.warn('Image storage failed:', imageError);
+          toast({
+            title: "Image upload failed",
+            description: "Could not save reference image. Continuing without it.",
+            variant: "destructive",
+          });
         }
       }
       
-      // Store the video idea and settings using our storage manager
-      const sessionData = {
+      // Create task data with only serializable properties
+      const taskData = {
         videoIdea: videoIdea.trim(),
-        selectedPreset: selectedPreset,
+        selectedPreset: {
+          id: selectedPreset.id,
+          name: selectedPreset.name,
+          description: selectedPreset.description,
+          aspectRatio: selectedPreset.aspectRatio,
+          dimensions: selectedPreset.dimensions,
+          promptText: selectedPreset.promptText,
+          placeholder: selectedPreset.placeholder,
+          isRecommended: selectedPreset.isRecommended,
+          // Explicitly exclude the 'icon' property which is a React component
+        },
         customAspectRatio: selectedPreset.id === 'custom' ? customAspectRatio : null,
-        referenceImage: compressedImageData,
+        referenceImage: referenceImageData,
         timestamp: Date.now(),
-        stage: 'ideation'
+        stage: 'ideation' as const,
       };
       
-      await StorageManager.setItem(`clickatron2_${taskId}`, sessionData);
+      // Set in store and save to IndexedDB
+      setTaskId(taskId);
+      setTaskData(taskData);
+      await idbManager.saveSession(`clickatron2_${taskId}`, taskData);
       
       // Navigate to the lab
       router.push(`/dashboard/clickatron2/lab/${taskId}`);
@@ -107,15 +110,9 @@ export function VideoIdeaInput() {
     } catch (error) {
       console.error('Error creating task:', error);
       
-      // Provide more specific error messages
-      let errorMessage = "Failed to start the creative process. Please try again.";
-      if (error instanceof Error && error.message.includes('quota')) {
-        errorMessage = "Image too large. Please try with a smaller image or reduce the file size.";
-      }
-      
       toast({
         title: "Something went wrong",
-        description: errorMessage,
+        description: "Failed to start the creative process. Please try again.",
         variant: "destructive",
       });
     } finally {

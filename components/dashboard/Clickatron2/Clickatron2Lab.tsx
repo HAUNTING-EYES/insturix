@@ -1,37 +1,16 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { IdeationStage } from './stages/IdeationStage';
-import { CanvasStage } from './stages/CanvasStage';
-import { StorageManager } from '@/lib/storage';
+import React, { useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { IdeationStage } from "./stages/IdeationStage";
+import { CanvasStage } from "./stages/CanvasStage";
+import { useCanvasStore } from "@/stores/useCanvasStore";
+import { useAutoSave } from "@/hooks/useAutoSave";
 
-
-type WorkflowStage = 'ideation' | 'canvas';
-
-interface TaskData {
-  videoIdea: string;
-  timestamp: number;
-  stage: WorkflowStage;
-  selectedDirection?: string;
-  selectedPreset?: {
-    id: string;
-    name: string;
-    aspectRatio: string;
-    dimensions: string;
-    promptText: string;
-    placeholder: string;
-  };
-  referenceImage?: {
-    name: string;
-    size: number;
-    type: string;
-    data: string;
-  } | null;
-}
+type WorkflowStage = "ideation" | "canvas";
 
 interface Clickatron2LabProps {
   taskId: string;
@@ -41,61 +20,65 @@ const stageTransition = {
   initial: { opacity: 0, x: 20 },
   animate: { opacity: 1, x: 0 },
   exit: { opacity: 0, x: -20 },
-  transition: { duration: 0.5, ease: "easeOut" } as any
+  transition: { duration: 0.5, ease: "easeOut" } as any,
 };
 
 export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
-  const [taskData, setTaskData] = useState<TaskData | null>(null);
-  const [currentStage, setCurrentStage] = useState<WorkflowStage>('ideation');
-  const [isGenerating, setIsGenerating] = useState(false);
   const router = useRouter();
 
+  // Zustand store
+  const taskData = useCanvasStore((state) => state.taskData);
+  const isLoading = useCanvasStore((state) => state.isLoading);
+  const isGenerating = useCanvasStore((state) => state.isGenerating);
+  const loadTaskData = useCanvasStore((state) => state.loadTaskData);
+  const updateTaskData = useCanvasStore((state) => state.updateTaskData);
+  const setIsGenerating = useCanvasStore((state) => state.setIsGenerating);
+  const loadError = useCanvasStore((state) => state.loadError);
+
+  // Auto-save hook
+  useAutoSave(true);
+
+  // Derive effective stage early so hook order is stable even during loading renders
+  const hasDirection = !!taskData?.selectedDirection;
+  const effectiveStage: WorkflowStage = hasDirection
+    ? "canvas"
+    : (taskData?.stage as WorkflowStage) || "ideation";
+
+  // Ensure a starter variation exists when reloading directly into canvas
   useEffect(() => {
-    // Load task data from storage
-    const loadTaskData = async () => {
-      try {
-        const data = await StorageManager.getItem(`clickatron2_${taskId}`);
-        if (data) {
-          setTaskData(data as TaskData);
-          setCurrentStage(data.stage);
-        } else {
-          // If no data found, redirect back to main page
-          router.push('/dashboard/clickatron2');
-        }
-      } catch (error) {
-        console.error('Failed to load task data:', error);
-        router.push('/dashboard/clickatron2');
+    if (!taskData) return; // nothing loaded yet
+    if (effectiveStage === "canvas" && taskData.selectedDirection) {
+      const { variations } = useCanvasStore.getState();
+      if (variations.length === 0) {
+        const id = `reload_${Date.now()}`;
+        useCanvasStore.setState(() => ({
+          variations: [
+            { id, prompt: taskData.selectedDirection!, timestamp: Date.now() },
+          ],
+          activeVariationId: id,
+          history: [id],
+          historyIndex: 0,
+        }) as any);
       }
-    };
-
-    loadTaskData();
-  }, [taskId, router]);
-
-  const updateTaskData = async (updates: Partial<TaskData>) => {
-    if (!taskData) return;
-    
-    const updatedData = { ...taskData, ...updates };
-    setTaskData(updatedData);
-    
-    try {
-      await StorageManager.setItem(`clickatron2_${taskId}`, updatedData);
-    } catch (error) {
-      console.error('Failed to update task data:', error);
     }
-  };
+  }, [effectiveStage, taskData]);
+
+  // Load task data on mount (don't redirect; show in-component error UI instead)
+  useEffect(() => {
+    loadTaskData(taskId);
+  }, [taskId, loadTaskData]);
 
   const handleStageComplete = async (stage: WorkflowStage, data: any) => {
     switch (stage) {
-      case 'ideation':
-        await updateTaskData({ 
+      case "ideation":
+        await updateTaskData({
           selectedDirection: data.selectedDirection,
-          stage: 'canvas' 
+          stage: "canvas",
         });
-        setCurrentStage('canvas');
         break;
-      case 'canvas':
+      case "canvas":
         // Final stage - could save to history, etc.
-        console.log('Canvas stage complete:', data);
+        console.log("Canvas stage complete:", data);
         break;
     }
   };
@@ -103,23 +86,24 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
   const handleGenerativeEdit = async (prompt: string, settings: any) => {
     setIsGenerating(true);
     // Simulate AI generation
-    console.log('Generating with prompt:', prompt, 'settings:', settings);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log("Generating with prompt:", prompt, "settings:", settings);
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     setIsGenerating(false);
   };
 
   const handleBack = async () => {
-    switch (currentStage) {
-      case 'canvas':
-        setCurrentStage('ideation');
-        await updateTaskData({ stage: 'ideation' });
+    if (!taskData) return;
+
+    switch (taskData.stage) {
+      case "canvas":
+        await updateTaskData({ stage: "ideation" });
         break;
       default:
-        router.push('/dashboard/clickatron2');
+        router.push("/dashboard/clickatron2");
     }
   };
 
-  if (!taskData) {
+  if (isLoading || !taskData) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
@@ -129,6 +113,25 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
       </div>
     );
   }
+
+  if (loadError) {
+    const messages: Record<string, { title: string; desc: string }> = {
+      not_found: { title: 'Session Not Found', desc: 'This task does not exist or you do not have access.' },
+      invalid: { title: 'Invalid Session Data', desc: 'Stored data is incomplete or corrupt.' },
+      error: { title: 'Load Error', desc: 'An unexpected error occurred while loading the session.' },
+    };
+    const msg = messages[loadError] || messages.error;
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-semibold text-zinc-100 mb-2">{msg.title}</h2>
+          <p className="text-zinc-400 mb-4">{msg.desc}</p>
+          <Button onClick={() => router.push('/dashboard/clickatron2')} variant="secondary" size="sm">Return Home</Button>
+        </div>
+      </div>
+    );
+  }
+  console.log('Rendering stage (effective):', effectiveStage, 'raw stage:', taskData.stage, 'data:', taskData);
 
   return (
     <div className="space-y-6">
@@ -141,23 +144,26 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
           className="text-zinc-400 hover:text-zinc-200"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />
-          {currentStage === 'ideation' ? 'Back to Home' : 'Previous Step'}
+          {effectiveStage === "ideation" ? "Back to Home" : "Previous Step"}
         </Button>
-        
+
         <div className="flex-1">
           <h1 className="text-lg font-medium text-zinc-200 truncate">
             {taskData.videoIdea}
           </h1>
           <div className="flex items-center gap-2 mt-1">
-            {(['ideation', 'canvas'] as const).map((stage, index) => (
+    {(["ideation", "canvas"] as const).map((stage, index) => (
               <div
                 key={stage}
                 className={`h-1 flex-1 rounded-full transition-colors duration-300 ${
-                  currentStage === stage
-                    ? 'bg-purple-500'
-                    : index < (['ideation', 'canvas'] as const).indexOf(currentStage)
-                    ? 'bg-purple-600/50'
-                    : 'bg-zinc-700'
+      effectiveStage === stage
+                    ? "bg-purple-500"
+                    : index <
+        (["ideation", "canvas"] as const).indexOf(
+          effectiveStage
+                        )
+                      ? "bg-purple-600/50"
+                      : "bg-zinc-700"
                 }`}
               />
             ))}
@@ -167,32 +173,29 @@ export function Clickatron2Lab({ taskId }: Clickatron2LabProps) {
 
       {/* Stage Content */}
       <AnimatePresence mode="wait">
-        {currentStage === 'ideation' && (
+  {effectiveStage === "ideation" && (
           <motion.div key="ideation" {...stageTransition}>
             <IdeationStage
               videoIdea={taskData.videoIdea}
               selectedPreset={taskData.selectedPreset}
-              onComplete={(data) => handleStageComplete('ideation', data)}
+              onComplete={(data) => handleStageComplete("ideation", data)}
             />
           </motion.div>
         )}
-        
-        {currentStage === 'canvas' && (
+  {effectiveStage === "canvas" && taskData.selectedDirection && (
           <motion.div key="canvas" {...stageTransition}>
             <CanvasStage
               videoIdea={taskData.videoIdea}
               selectedDirection={taskData.selectedDirection!}
               selectedPreset={taskData.selectedPreset}
               referenceImage={taskData.referenceImage}
-              onComplete={(data) => handleStageComplete('canvas', data)}
+              onComplete={(data) => handleStageComplete("canvas", data)}
               onGenerativeEdit={handleGenerativeEdit}
               isGenerating={isGenerating}
             />
           </motion.div>
         )}
       </AnimatePresence>
-
-
     </div>
   );
 }
