@@ -3,6 +3,9 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { idbManager } from '@/lib/idb';
 
+// Module-scoped promise to ensure only one session creation runs at a time
+let createSessionPromise: Promise<string> | null = null;
+
 export interface Variation {
   id: string;
   imageId?: string; // Reference to image in IndexedDB
@@ -463,42 +466,49 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       },
       
       createBackendSession: async (request) => {
-        try {
-          const response = await fetch('/api/services/clickatron/session', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(request),
-          });
-          
-          if (!response.ok) {
-            throw new Error(`Session creation failed: ${response.status}`);
+        const { sessionId } = get();
+        // If session already exists, return it immediately
+        if (sessionId) return sessionId;
+
+        // If a creation is already in progress, reuse the promise
+        if (createSessionPromise) return createSessionPromise;
+
+        createSessionPromise = (async () => {
+          try {
+            const response = await fetch('/api/services/clickatron/session', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(request),
+            });
+
+            if (!response.ok) {
+              throw new Error(`Session creation failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            set({
+              sessionId: data.sessionId,
+              backendSynced: true,
+              isDirty: false,
+              taskData: data.taskData ? { ...data.taskData } : null,
+              variations: [],
+              activeVariationId: null,
+              history: [],
+              historyIndex: -1,
+            });
+
+            return data.sessionId;
+          } catch (error) {
+            console.error('Session creation failed:', error);
+            throw error;
+          } finally {
+            createSessionPromise = null;
           }
-          
-          const data = await response.json();
-          set({
-            sessionId: data.sessionId,
-            backendSynced: true,
-            isDirty: false,
-            taskData: data.taskData ? {
-              videoIdea: data.taskData.videoIdea,
-              timestamp: data.taskData.timestamp,
-              stage: data.taskData.stage,
-              selectedPreset: data.taskData.selectedPreset,
-              referenceImage: data.taskData.referenceImage || null,
-            } : null,
-            variations: [],
-            activeVariationId: null,
-            history: [],
-            historyIndex: -1,
-          });
-          
-          return data.sessionId;
-        } catch (error) {
-          console.error('Session creation failed:', error);
-          throw error;
-        }
+        })();
+
+        return createSessionPromise;
       },
       
       fetchBackendSession: async (sessionId) => {

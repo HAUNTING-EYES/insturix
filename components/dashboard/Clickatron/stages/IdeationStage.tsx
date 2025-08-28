@@ -5,9 +5,16 @@ import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sparkles, ArrowRight } from 'lucide-react';
 
+interface CreativeDirection {
+  id: string;
+  title: string;
+  description: string;
+  angle: string;
+  icon: string;
+}
+
 interface IdeationStageProps {
   videoIdea: string;
-  sessionId?: string | null;
   selectedPreset?: {
     id: string;
     name: string;
@@ -17,29 +24,25 @@ interface IdeationStageProps {
   onComplete: (data: { selectedDirection: string }) => void;
 }
 
-interface CreativeDirection {
-  id: string;
-  title: string;
-  description: string;
-  angle: string;
-  icon: string;
-}
-
-// Backend fetch helper
-async function fetchDirections(sessionId: string, videoIdea: string, preset?: any): Promise<CreativeDirection[]> {
-  const res = await fetch(`/api/services/clickatron/session/${sessionId}/directions`, {
+async function fetchDirections(videoIdea: string): Promise<CreativeDirection[]> {
+  const res = await fetch(`/api/services/clickatron/generate-directions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoIdea, selectedPreset: preset, count: 4 }),
+    body: JSON.stringify({ videoIdea, count: 4 }),
   });
-  if (!res.ok) throw new Error('Failed to generate directions');
+
+  if (!res.ok) {
+    const errorData = await res.json();
+    throw new Error(errorData.error || 'Failed to generate directions');
+  }
+  
   const data = await res.json();
   return (data.directions || []).map((d: any) => ({
     id: d.id,
     title: d.title,
     description: d.description,
     angle: d.prompt,
-    icon: '🎯',
+    icon: d.icon || '🎯',
   }));
 }
 
@@ -57,40 +60,42 @@ const staggerChildren = {
   }
 };
 
-export function IdeationStage({ videoIdea, selectedPreset, onComplete, sessionId }: IdeationStageProps) {
+export function IdeationStage({ videoIdea, selectedPreset, onComplete }: IdeationStageProps) {
   const [directions, setDirections] = useState<CreativeDirection[]>([]);
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!sessionId) return; // wait for session
-      setIsLoading(true);
-      try {
-        const dirs = await fetchDirections(sessionId, videoIdea, selectedPreset);
-        if (!cancelled) {
+    let isMounted = true;
+    
+    fetchDirections(videoIdea)
+      .then(dirs => {
+        if (isMounted) {
           setDirections(dirs);
+        }
+      })
+      .catch(err => {
+        if (isMounted) {
+          setLoadError(err.message);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
           setIsLoading(false);
         }
-      } catch (e) {
-        console.error(e);
-        if (!cancelled) setIsLoading(false);
-      }
-    }
-    load();
-    return () => { cancelled = true; };
-  }, [videoIdea, sessionId, selectedPreset]);
+      });
+      
+    return () => {
+      isMounted = false;
+    };
+  }, [videoIdea]);
 
   const handleDirectionSelect = (directionId: string) => {
-    console.log('Direction selected:', directionId);
     setSelectedDirection(directionId);
     const direction = directions.find(d => d.id === directionId);
     if (direction) {
-      console.log('Calling onComplete with direction:', direction.title);
       onComplete({ selectedDirection: direction.title });
-    } else {
-      console.error('Direction not found for ID:', directionId);
     }
   };
 
@@ -111,6 +116,17 @@ export function IdeationStage({ videoIdea, selectedPreset, onComplete, sessionId
           <p className="text-zinc-400">
             AI is crafting creative directions for "{videoIdea || 'your idea'}"
           </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <Card className="bg-gradient-to-b from-zinc-950/60 to-zinc-900/30 border-zinc-800/80">
+        <CardContent className="p-8 text-center space-y-2">
+          <h2 className="text-xl font-semibold text-zinc-100">Could not generate directions</h2>
+          <p className="text-zinc-400 text-sm">{loadError}</p>
         </CardContent>
       </Card>
     );

@@ -8,6 +8,24 @@ Clickatron is a sophisticated AI-powered creative canvas suite that transforms t
 
 Clickatron is an intelligent, conversational creative partner that helps users generate professional visual content through a structured workflow. It supports multiple content types including YouTube thumbnails, social media posts, posters, and custom formats.
 
+## Current Status
+
+### ✅ **Working Features**
+- **MongoDB Integration**: Using `clickatron_tasks2` collection
+- **History Management**: Only shows canvas sessions (persistent sessions)
+- **Persistence Logic**: Ideation work is temporary, canvas work is saved
+- **QStash & Redis**: Async job processing infrastructure implemented
+
+### ⚠️ **Known Issues**
+- **Ideation Stage**: Currently stuck at "Analyzing your idea" loading state
+- **Session Creation**: New sessions need backend session creation before ideation
+
+### 🔄 **Recent Updates**
+- **QStash Integration**: Async job processing for direction generation
+- **Redis Job Management**: Job status tracking and result storage
+- **Enhanced API**: Directions endpoint now uses async processing
+- **Polling System**: Frontend polls for job completion
+
 ### Key Features
 
 - **Multi-Stage Creative Workflow**: Spark → Ideation → Canvas
@@ -88,10 +106,11 @@ Clickatron guides users through a collaborative creative process with three inte
 
 ### Backend
 - **Runtime**: Next.js API Routes (Serverless)
-- **Database**: MongoDB with Mongoose ODM
-- **Async Processing**: Upstash QStash for job queuing
-- **Caching**: Upstash Redis for job state management
+- **Database**: MongoDB with Mongoose ODM (`clickatron_tasks2` collection)
+- **Async Processing**: Upstash QStash for job queuing (✅ implemented)
+- **Job Management**: Upstash Redis for job state and result storage (✅ implemented)
 - **Authentication**: Clerk for user management
+- **Job Workers**: Background processing for direction generation
 
 ### AI Integration
 - **Job Processing**: Durable async job handling
@@ -240,6 +259,38 @@ yarn dev
 - **Professional Adoption**: Increased usage for complex creative workflows
 - **Performance**: Fast generation times with reliable async processing
 - **Scalability**: Handles concurrent users without degradation
+
+## Troubleshooting
+
+### Ideation Stage Stuck at "Analyzing your idea"
+
+If the ideation stage shows an infinite loading spinner:
+
+1. **Check Browser Console**: Look for JavaScript errors or failed network requests
+2. **Verify Session Creation**: Ensure backend session is created before ideation
+3. **Check QStash Activity**: Verify jobs are being published to QStash
+4. **Test Redis Connection**: Ensure Redis is accessible for job storage
+5. **Check API Endpoints**: Verify all Clickatron API routes are responding
+
+### Debug Commands
+
+```bash
+# Check Redis connectivity
+redis-cli -u $UPSTASH_REDIS_REST_URL ping
+
+# Check MongoDB collection
+mongosh $MONGODB_URI --eval "db.clickatron_tasks2.countDocuments()"
+
+# Test QStash endpoint
+curl -H "Authorization: Bearer $QSTASH_TOKEN" https://qstash.upstash.io/v1/topics
+```
+
+### Common Issues
+
+- **Missing Environment Variables**: Ensure all Upstash credentials are set
+- **Session ID Issues**: New sessions may need backend creation before ideation
+- **Network Connectivity**: Verify Upstash services are accessible
+- **API Route Errors**: Check server logs for API endpoint failures
 
 ## Future Roadmap
 

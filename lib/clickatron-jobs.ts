@@ -12,7 +12,7 @@ import {
 // Redis client instance
 let redis: Redis | null = null;
 
-function getRedisClient(): Redis {
+export function getRedisClient(): Redis {
   if (!redis) {
     const url = process.env.UPSTASH_REDIS_REST_URL;
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -106,13 +106,24 @@ export async function getJob(jobId: string): Promise<ClickatronJob | null> {
   const redis = getRedisClient();
   const jobKey = REDIS_KEYS.job(jobId);
 
-  const jobData = await redis.get<string>(jobKey);
+  const jobData = await redis.get(jobKey);
   if (!jobData) {
     return null;
   }
 
   try {
-    return JSON.parse(jobData) as ClickatronJob;
+    // Handle case where Redis returns an object instead of JSON string
+    if (typeof jobData === 'object') {
+      return jobData as ClickatronJob;
+    }
+    
+    // Parse JSON string
+    if (typeof jobData === 'string') {
+      return JSON.parse(jobData) as ClickatronJob;
+    }
+    
+    console.error('Unexpected Redis data type for job:', typeof jobData, jobData);
+    return null;
   } catch (error) {
     console.error('Error parsing job data:', error);
     return null;

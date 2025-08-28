@@ -1,0 +1,69 @@
+unreachable code after return statement node_modules_swr_dist_24149bb6._.js:307:5
+unreachable code after return statement node_modules_@tanstack_query-devtools_build_c02dd60e._.js:937:9
+unreachable code after return statement node_modules_@tanstack_query-devtools_build_c02dd60e._.js:998:9
+Download the React DevTools for a better development experience: https://react.dev/link/react-devtools node_modules_next_dist_compiled_2ce9398a._.js:16384:54
+unreachable code after return statement node_modules_3c6dd735._.js:568:5
+unreachable code after return statement node_modules_3c6dd735._.js:726:5
+unreachable code after return statement node_modules_3c6dd735._.js:774:5
+unreachable code after return statement node_modules_3c6dd735._.js:790:5
+unreachable code after return statement node_modules_5bee3a67._.js:3890:5
+Clerk: Clerk has been loaded with development keys. Development instances have strict usage limits and should not be used when deploying your application to production. Learn more: https://clerk.com/docs/deployments/overview clerk.browser.js:16:1280
+[Fast Refresh] rebuilding node_modules_next_dist_client_8f19e6fb._.js:14975:17
+[Fast Refresh] done in 147ms node_modules_next_dist_client_8f19e6fb._.js:14839:13
+[Vercel Web Analytics] Debug mode is enabled by default in development. No requests will be sent to the server. script.debug.js:1:462
+[Vercel Web Analytics] [pageview] http://localhost:3000/dashboard/clickatron 
+Object { o: "http://localhost:3000/dashboard/clickatron", sv: "0.1.3", sdkn: "@vercel/analytics/react", sdkv: "1.5.0", ts: 1756406897483, r: "", f: undefined }
+script.debug.js:1:462
+[Vercel Speed Insights] Debug mode is enabled by default in development. No requests will be sent to the server. script.debug.js:1:11258
+unreachable code after return statement node_modules_@tanstack_query-devtools_build_4f9de65b._.js:1391:5
+[Vercel Speed Insights] [vitals] 
+Object { speed: "", metrics: (4) […], scriptVersion: "0.1.3", sdkName: "@vercel/speed-insights/next", sdkVersion: "1.2.0" }
+script.debug.js:1:11258
+The resource at “http://localhost:3000/_next/static/media/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw-s.p.0faac26c.woff2” preloaded with link preload was not used within a few seconds. Make sure all attributes of the preload tag are set correctly. clickatron
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Starting new session with local storage 6 _53b0fcd4._.js:4279:37
+[Vercel Web Analytics] [pageview] http://localhost:3000/dashboard/clickatron/lab/task_1756406909424_svojcsyeo 
+Object { o: "http://localhost:3000/dashboard/clickatron/lab/task_1756406909424_svojcsyeo", sv: "0.1.3", sdkn: "@vercel/analytics/react", sdkv: "1.5.0", ts: 1756406909680, f: undefined }
+script.debug.js:1:462
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Starting new session with local storage 2 _53b0fcd4._.js:4279:37
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13
+Rendering stage (effective): ideation raw stage: ideation data: 
+Object { videoIdea: "video on green tea", selectedPreset: {…}, customAspectRatio: null, referenceImage: null, timestamp: 1756406909424, stage: "ideation" }
+_53b0fcd4._.js:4510:13

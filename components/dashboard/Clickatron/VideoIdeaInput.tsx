@@ -8,8 +8,8 @@ import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { CanvasPresetSelector, type CanvasPreset, presets } from './CanvasPresetSelector';
 import { EnhancedInput } from './EnhancedInput';
-import { useCanvasStore } from '@/stores/useCanvasStore';
-import { idbManager } from '@/lib/idb';
+import { InitialTaskData } from './ClickatronLayout';
+
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -18,19 +18,18 @@ const fadeIn = {
   transition: { duration: 0.28, ease: "easeOut" } as any
 };
 
-export function VideoIdeaInput() {
+interface VideoIdeaInputProps {
+  onSubmit: (data: InitialTaskData) => void;
+}
+
+export function VideoIdeaInput({ onSubmit }: VideoIdeaInputProps) {
   const [videoIdea, setVideoIdea] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [selectedPreset, setSelectedPreset] = useState<CanvasPreset>(presets[0]); // Default to Auto Detect
   const [referenceImage, setReferenceImage] = useState<File | null>(null);
   const [customAspectRatio, setCustomAspectRatio] = useState<{ width: number; height: number }>({ width: 16, height: 9 });
-  const router = useRouter();
   const { toast } = useToast();
   
-  // Zustand store actions
-  const setTaskData = useCanvasStore(state => state.setTaskData);
-  const setTaskId = useCanvasStore(state => state.setTaskId);
-
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await handleSubmit();
@@ -48,76 +47,16 @@ export function VideoIdeaInput() {
 
     setIsLoading(true);
     
-    try {
-      // Generate a task ID
-      const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
-      
-      let referenceImageData = null;
-      
-      if (referenceImage) {
-        try {
-          // Store image as blob in IndexedDB
-          const imageId = `ref_${Date.now()}`;
-          await idbManager.saveImage(imageId, referenceImage, {
-            name: referenceImage.name,
-            type: referenceImage.type,
-          });
-          
-          referenceImageData = {
-            name: referenceImage.name,
-            size: referenceImage.size,
-            type: referenceImage.type,
-            imageId: imageId,
-          };
-        } catch (imageError) {
-          console.warn('Image storage failed:', imageError);
-          toast({
-            title: "Image upload failed",
-            description: "Could not save reference image. Continuing without it.",
-            variant: "destructive",
-          });
-        }
-      }
-      
-      // Create task data with only serializable properties
-      const taskData = {
-        videoIdea: videoIdea.trim(),
-        selectedPreset: {
-          id: selectedPreset.id,
-          name: selectedPreset.name,
-          description: selectedPreset.description,
-          aspectRatio: selectedPreset.aspectRatio,
-          dimensions: selectedPreset.dimensions,
-          promptText: selectedPreset.promptText,
-          placeholder: selectedPreset.placeholder,
-          isRecommended: selectedPreset.isRecommended,
-          // Explicitly exclude the 'icon' property which is a React component
-        },
-        customAspectRatio: selectedPreset.id === 'custom' ? customAspectRatio : null,
-        referenceImage: referenceImageData,
-        timestamp: Date.now(),
-        stage: 'ideation' as const,
-      };
-      
-      // Set in store and save to IndexedDB
-      setTaskId(taskId);
-      setTaskData(taskData);
-      await idbManager.saveSession(`clickatron_${taskId}`, taskData);
-      
-      // Navigate to the lab
-      router.push(`/dashboard/clickatron/lab/${taskId}`);
-      
-    } catch (error) {
-      console.error('Error creating task:', error);
-      
-      toast({
-        title: "Something went wrong",
-        description: "Failed to start the creative process. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    // We are not creating a task here anymore, just passing the data up
+    const taskData: InitialTaskData = {
+      videoIdea: videoIdea.trim(),
+      selectedPreset,
+    };
+    
+    onSubmit(taskData);
+    
+    // No longer need to handle loading state here, parent will do it
+    // setIsLoading(false);
   };
 
   return (

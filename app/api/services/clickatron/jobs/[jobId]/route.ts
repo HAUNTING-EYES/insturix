@@ -14,9 +14,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { jobId } = await params;
-
-    if (!jobId || typeof jobId !== 'string') {
+    const { jobId } = await params;    if (!jobId || typeof jobId !== 'string') {
       return NextResponse.json({ error: 'Invalid Job ID' }, { status: 400 });
     }
 
@@ -24,7 +22,12 @@ export async function GET(
     const job = await getJob(jobId);
 
     if (!job) {
-      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      // Grace period: job may not yet be committed to Redis right after creation
+      return NextResponse.json({
+        job: null,
+        pending: true,
+        message: 'Job not yet indexed, retry shortly'
+      }, { status: 202 });
     }
 
     // Validate ownership
@@ -59,9 +62,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { jobId } = await params;
-
-    if (!jobId || typeof jobId !== 'string') {
+    const { jobId } = await params;    if (!jobId || typeof jobId !== 'string') {
       return NextResponse.json({ error: 'Invalid Job ID' }, { status: 400 });
     }
 

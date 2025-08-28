@@ -4,6 +4,25 @@
 
 This document provides comprehensive technical details about Clickatron's implementation, including architecture, API endpoints, data structures, and setup instructions.
 
+## Current Status & Recent Updates
+
+### ✅ **Completed Features**
+- **MongoDB Collection Migration**: Successfully switched from `clickatron_tasks` to `clickatron_tasks2`
+- **History Component**: Only shows canvas sessions, removed local/saved distinction
+- **Persistence Logic**: Ideation stage is temporary, canvas stage saves to both local and MongoDB
+- **QStash & Redis Integration**: Full async job processing for ideation stage directions generation
+
+### ⚠️ **Known Issues**
+- **Ideation Stage Loading**: Currently stuck at "Analyzing your idea" due to session creation flow
+- **Session ID Management**: New sessions need backend session creation before ideation API calls
+
+### 🔄 **Recent Changes**
+- **QStash Client**: `lib/qstash.ts` - Async job publishing
+- **Directions Worker**: `app/api/internal/workers/clickatron/directions/route.ts` - Async processing
+- **Job Result API**: `app/api/services/clickatron/jobs/[jobId]/result/route.ts` - Result retrieval
+- **Enhanced Directions API**: Now uses async processing instead of mock data
+- **IdeationStage Polling**: Added job status polling capability
+
 ## Architecture
 
 ### System Components
@@ -29,6 +48,15 @@ This document provides comprehensive technical details about Clickatron's implem
 4. **Worker Execution** → Background processing with Redis state tracking
 5. **Real-time Updates** → SSE streams provide live status to frontend
 6. **Result Delivery** → Completed jobs update MongoDB and notify frontend
+
+### Ideation Stage Flow (Recently Implemented)
+
+1. **Session Creation** → User creates new task with video idea
+2. **Directions Request** → IdeationStage calls `/api/services/clickatron/session/:id/directions`
+3. **Job Creation** → API creates Redis job and publishes to QStash
+4. **Async Processing** → QStash worker generates directions and stores in Redis
+5. **Polling** → Frontend polls job status until completion
+6. **Result Display** → Directions shown to user for selection
 
 ## API Endpoints
 
@@ -102,7 +130,50 @@ Update workflow or canvas data.
 Generate creative ideas from video concept.
 
 #### `POST /api/services/clickatron/session/:id/directions`
-Generate creative directions for session.
+Generate creative directions for session (async with QStash).
+
+**Request:**
+```json
+{
+  "videoIdea": "How to cook perfect eggs",
+  "selectedPreset": {
+    "id": "youtube",
+    "name": "YouTube Thumbnail",
+    "aspectRatio": "16:9",
+    "dimensions": "1920x1080"
+  },
+  "count": 4
+}
+```
+
+**Response (Async):**
+```json
+{
+  "success": true,
+  "jobId": "job_1698765432123_abc123",
+  "status": "queued",
+  "message": "Direction generation started",
+  "estimatedTime": 3000
+}
+```
+
+**Response (Legacy Sync - for backward compatibility):**
+```json
+{
+  "success": true,
+  "directions": [
+    {
+      "id": "direction_123",
+      "title": "Warm & Inviting",
+      "description": "Soft, warm lighting with inviting colors",
+      "prompt": "Create a warm and inviting thumbnail...",
+      "tags": ["warm", "inviting"],
+      "styleHints": ["warm tones", "soft lighting"],
+      "generatedAt": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
 
 #### `POST /api/services/clickatron/session/:id/ideas`
 Store all generated ideas with user's selection for comprehensive audit trail.
@@ -180,6 +251,33 @@ Get current job status.
 #### `DELETE /api/services/clickatron/jobs/:jobId`
 Cancel running job.
 
+#### `GET /api/services/clickatron/jobs/:jobId/result`
+Fetch completed job results from Redis storage.
+
+**Response:**
+```json
+{
+  "success": true,
+  "directions": [
+    {
+      "id": "direction_123",
+      "title": "Warm & Inviting",
+      "description": "Soft, warm lighting with inviting colors",
+      "prompt": "Create a warm and inviting thumbnail...",
+      "tags": ["warm", "inviting"],
+      "styleHints": ["warm tones", "soft lighting"],
+      "generatedAt": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "jobId": "job_1698765432123_abc123",
+  "metadata": {
+    "videoIdea": "How to cook perfect eggs",
+    "count": 4,
+    "generatedAt": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
 #### `GET /api/services/clickatron/jobs/:jobId/stream`
 Server-sent events for real-time job status updates.
 
@@ -244,7 +342,7 @@ interface CanvasData {
 
 ### Database Schema
 
-#### MongoDB Collection: ClickatronTask (Comprehensive Audit Trail)
+#### MongoDB Collection: clickatron_tasks2 (Comprehensive Audit Trail)
 ```javascript
 {
   _id: ObjectId,
@@ -340,13 +438,13 @@ Create `.env.local` with required variables:
 
 ```bash
 # Upstash QStash (for async job processing)
-UPSTASH_QSTASH_TOKEN=qstash_token_here
-UPSTASH_QSTASH_CURRENT_SIGNING_KEY=current_signing_key
-UPSTASH_QSTASH_NEXT_SIGNING_KEY=next_signing_key
+QSTASH_TOKEN=eyJVc2VySUQiOiJkMmNiYjQyOS02NjljLTQ5OTItYTcyNi1jNzE2OWIwYTNhYzAiLCJQYXNzd29yZCI6Ijk0MmFmM2UyYjcyZjQ5NDg5MzAxNjM1ZmY3ZTM4ZTA2In0=
+QSTASH_CURRENT_SIGNING_KEY=sig_4getKC77WtkPKunsfGEtKLuYTFeF
+QSTASH_NEXT_SIGNING_KEY=sig_4nKg68Xgu55pvwQwPNnuK8rTxGm6
 
 # Upstash Redis (for job state management)
-UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
-UPSTASH_REDIS_REST_TOKEN=redis_token_here
+UPSTASH_REDIS_REST_URL=https://sunny-ant-28867.upstash.io
+UPSTASH_REDIS_REST_TOKEN=AXDDAAIncDE4NmYxMDUxZjFiNGM0ZjQ4OGU1OTNmNjFkNmNiNTM3N3AxMjg4Njc
 
 # MongoDB
 MONGODB_URI=mongodb+srv://...
@@ -393,28 +491,40 @@ db.ClickatronTask.createIndex({ status: 1 });
 ### Job Processing Flow
 
 1. **Job Creation** (`variation/route.ts`)
-   - Validate session and user permissions
-   - Create job record in Redis
-   - Enqueue job with QStash
-   - Return job ID to frontend
+    - Validate session and user permissions
+    - Create job record in Redis
+    - Enqueue job with QStash
+    - Return job ID to frontend
 
 2. **Job Execution** (`workers/clickatron/variation/route.ts`)
-   - Receive job payload from QStash
-   - Update job status to 'running'
-   - Process AI generation (mock or real)
-   - Update MongoDB with results
-   - Mark job as completed
+    - Receive job payload from QStash
+    - Update job status to 'running'
+    - Process AI generation (mock or real)
+    - Update MongoDB with results
+    - Mark job as completed
 
-3. **Status Monitoring** (`jobs/[jobId]/route.ts`)
-   - Fetch job status from Redis
-   - Return current state and progress
-   - Handle job cancellation
+3. **Directions Generation** (`workers/clickatron/directions/route.ts`) *[NEW]*
+    - Receive direction generation request from QStash
+    - Generate creative directions (currently mock data)
+    - Store results in Redis with job ID as key
+    - Update job status to completed
+    - Include result reference for retrieval
 
-4. **Real-time Updates** (`jobs/[jobId]/stream/route.ts`)
-   - Establish SSE connection
-   - Poll Redis for status changes
-   - Send events to frontend
-   - Handle connection cleanup
+4. **Status Monitoring** (`jobs/[jobId]/route.ts`)
+    - Fetch job status from Redis
+    - Return current state and progress
+    - Handle job cancellation
+
+5. **Result Retrieval** (`jobs/[jobId]/result/route.ts`) *[NEW]*
+    - Fetch completed job results from Redis
+    - Parse and return structured data
+    - Handle different job types (directions, variations)
+
+6. **Real-time Updates** (`jobs/[jobId]/stream/route.ts`)
+    - Establish SSE connection
+    - Poll Redis for status changes
+    - Send events to frontend
+    - Handle connection cleanup
 
 ### Error Handling
 
@@ -498,6 +608,56 @@ function adaptLegacyTask(task: IClickatronTask): TaskData {
 ### Debugging Tools
 - **Redis CLI**: Direct Redis inspection for job debugging
 - **MongoDB Compass**: Database query and analysis
+
+## Troubleshooting
+
+### Ideation Stage Stuck at "Analyzing your idea"
+
+**Symptoms:**
+- Loading spinner never completes
+- No directions appear after several minutes
+- Browser console shows repeated rendering logs
+
+**Root Causes & Solutions:**
+
+1. **Missing Backend Session ID**
+   - **Cause**: New sessions don't create backend sessions until canvas transition
+   - **Solution**: Create backend session during ideation stage initialization
+   - **Status**: Currently being addressed in session creation flow
+
+2. **QStash Job Not Processing**
+   - **Check**: Verify QStash dashboard shows job publishing activity
+   - **Check**: Confirm worker endpoint is accessible
+   - **Solution**: Ensure QSTASH_TOKEN is properly configured
+
+3. **Redis Connection Issues**
+   - **Check**: Verify UPSTASH_REDIS_REST_URL and token are correct
+   - **Check**: Confirm Redis can accept connections
+   - **Solution**: Test Redis connectivity with redis-cli
+
+4. **Frontend Polling Issues**
+   - **Check**: Browser network tab for failed API calls
+   - **Check**: Console for JavaScript errors
+   - **Solution**: Verify job status polling logic
+
+**Debug Commands:**
+```bash
+# Check Redis connectivity
+redis-cli -u $UPSTASH_REDIS_REST_URL -a $UPSTASH_REDIS_REST_TOKEN ping
+
+# Check MongoDB collection
+mongosh $MONGODB_URI --eval "db.clickatron_tasks2.find().limit(1)"
+
+# Check QStash configuration
+curl -H "Authorization: Bearer $QSTASH_TOKEN" https://qstash.upstash.io/v1/topics
+```
+
+### Common Issues
+
+1. **Environment Variables**: Ensure all required env vars are set in `.env`
+2. **Network Connectivity**: Verify Upstash services are accessible
+3. **Session State**: Check if sessionId is properly set in Zustand store
+4. **API Routes**: Confirm all API endpoints are accessible and returning correct responses
 - **Browser DevTools**: Network and console debugging
 - **SSE Inspector**: Real-time event stream monitoring
 
