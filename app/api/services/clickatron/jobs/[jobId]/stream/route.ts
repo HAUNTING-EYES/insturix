@@ -6,7 +6,7 @@ import { JobStatusEvent } from '@/types/clickatron';
 // GET /api/services/clickatron/jobs/:jobId/stream - SSE stream for job status
 export async function GET(
   request: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -14,7 +14,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { jobId } = params;
+    const { jobId } = await params;
 
     if (!jobId || typeof jobId !== 'string') {
       return NextResponse.json({ error: 'Invalid Job ID' }, { status: 400 });

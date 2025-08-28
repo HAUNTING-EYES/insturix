@@ -18,13 +18,20 @@ function getRedisClient(): Redis {
     const token = process.env.UPSTASH_REDIS_REST_TOKEN;
 
     if (!url || !token) {
+      console.error('Redis environment variables not configured');
       throw new Error('Redis environment variables not configured');
     }
 
-    redis = new Redis({
-      url,
-      token,
-    });
+    try {
+      redis = new Redis({
+        url,
+        token,
+      });
+      console.log('Redis client initialized successfully');
+    } catch (error) {
+      console.error('Failed to initialize Redis client:', error);
+      throw error;
+    }
   }
   return redis;
 }

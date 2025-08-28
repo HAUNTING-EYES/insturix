@@ -10,7 +10,7 @@ import { z } from 'zod';
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -18,7 +18,7 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id } = params;
+    const { id } = await params;
     
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
@@ -106,15 +106,22 @@ export async function POST(
     }
 
     // Enqueue job with QStash
-    const qstashResult = await enqueueQStashJob({
-      jobId,
-      sessionId: id,
-      variationId,
-      prompt: validatedData.prompt,
-      userId,
-      fineTuning: validatedData.fineTuning,
-      metadata: validatedData.metadata,
-    });
+    try {
+      const qstashResult = await enqueueQStashJob({
+        jobId,
+        sessionId: id,
+        variationId,
+        prompt: validatedData.prompt,
+        userId,
+        fineTuning: validatedData.fineTuning,
+        metadata: validatedData.metadata,
+      });
+      console.log('QStash job enqueued successfully:', qstashResult);
+    } catch (qstashError) {
+      console.error('Failed to enqueue QStash job:', qstashError);
+      // Continue with the response even if QStash fails
+      // The job will be created in Redis but won't be processed
+    }
 
     return NextResponse.json({
       success: true,

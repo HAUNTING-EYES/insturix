@@ -48,14 +48,14 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
   const addVariation = useCanvasStore((state) => state.addVariation);
   const setActiveVariation = useCanvasStore((state) => state.setActiveVariation);
 
-  // Auto-save hook
-  useAutoSave(true);
-
   // Derive effective stage early so hook order is stable even during loading renders
   const hasDirection = !!taskData?.selectedDirection;
   const effectiveStage: WorkflowStage = hasDirection
     ? "canvas"
     : (taskData?.stage as WorkflowStage) || "ideation";
+
+  // Auto-save hook - only enable for canvas stage
+  useAutoSave(hasDirection);
 
   // Removed mock starter variation seeding; backend variations are authoritative
 
@@ -80,19 +80,9 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
             await loadTaskData(taskId);
           }
         } else {
-          // New session - create it in the backend
-          try {
-            const newSessionId = await createBackendSession({
-              clerkUserId: '', // Will be set by auth
-              videoIdea: 'New Session',
-            });
-            useCanvasStore.getState().setSessionId(newSessionId);
-            useCanvasStore.getState().setBackendSynced(true);
-          } catch (error) {
-            console.warn('Failed to create backend session, using local storage:', error);
-            // Fall back to local loading
-            await loadTaskData(taskId);
-          }
+          // New session - start with local storage, will create backend session on canvas transition
+          console.log('Starting new session with local storage');
+          await loadTaskData(taskId);
         }
       } catch (error) {
         console.error('Failed to load task:', error);
@@ -106,23 +96,51 @@ export function ClickatronLab({ taskId }: ClickatronLabProps) {
   }, [taskId, loadTaskData, fetchBackendSession, createBackendSession]);
 
   const handleStageComplete = async (stage: WorkflowStage, data: any) => {
+    console.log('Stage completion triggered:', stage, data);
+
     switch (stage) {
       case "ideation":
-        await updateTaskData({
-          selectedDirection: data.selectedDirection,
-          stage: "canvas",
-        });
-        // Persist workflow update to backend if session exists
-        if (sessionId) {
-          try {
-            await fetch(`/api/services/clickatron/session/${sessionId}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ workflow: { selectedDirection: data.selectedDirection, stage: 'canvas' } }),
-            });
-          } catch (e) {
-            console.error('Failed to persist workflow stage transition:', e);
-          }
+        console.log('Transitioning from ideation to canvas with direction:', data.selectedDirection);
+
+        // Update local state first
+        try {
+          await updateTaskData({
+            selectedDirection: data.selectedDirection,
+            stage: "canvas",
+          });
+          console.log('Local state updated successfully');
+        } catch (error) {
+          console.error('Failed to update local state:', error);
+          return;
+        }
+
+        // Create backend session when transitioning to canvas
+        try {
+          console.log('Creating backend session for canvas stage...');
+          const newSessionId = await createBackendSession({
+            clerkUserId: '', // Will be set by auth
+            videoIdea: taskData?.videoIdea || 'Untitled Session',
+            selectedDirection: data.selectedDirection,
+            stage: 'canvas',
+            selectedPreset: taskData?.selectedPreset,
+          });
+
+          // Update the session ID in the store
+          useCanvasStore.getState().setSessionId(newSessionId);
+          useCanvasStore.getState().setBackendSynced(true);
+
+          console.log('Backend session created successfully:', newSessionId);
+        } catch (error) {
+          console.error('Failed to create backend session:', error);
+        }
+
+        // Save current state to local storage as well
+        try {
+          const currentState = useCanvasStore.getState();
+          await currentState.saveSession();
+          console.log('Local session saved successfully');
+        } catch (error) {
+          console.error('Failed to save local session:', error);
         }
         break;
       case "canvas":

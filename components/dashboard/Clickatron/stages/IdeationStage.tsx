@@ -83,10 +83,14 @@ export function IdeationStage({ videoIdea, selectedPreset, onComplete, sessionId
   }, [videoIdea, sessionId, selectedPreset]);
 
   const handleDirectionSelect = (directionId: string) => {
+    console.log('Direction selected:', directionId);
     setSelectedDirection(directionId);
     const direction = directions.find(d => d.id === directionId);
     if (direction) {
+      console.log('Calling onComplete with direction:', direction.title);
       onComplete({ selectedDirection: direction.title });
+    } else {
+      console.error('Direction not found for ID:', directionId);
     }
   };
 

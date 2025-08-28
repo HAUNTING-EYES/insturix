@@ -9,7 +9,7 @@ import { z } from 'zod';
 // PATCH /api/services/clickatron/session/:id/variation/:varId - Fine-tuning metadata update
 export async function PATCH(
   request: Request,
-  { params }: { params: { id: string; varId: string } }
+  { params }: { params: Promise<{ id: string; varId: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -17,7 +17,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id, varId } = params;
+    const { id, varId } = await params;
     
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });

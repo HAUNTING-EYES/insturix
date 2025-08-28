@@ -6,7 +6,7 @@ import { JobStatusResponse } from '@/types/clickatron';
 // GET /api/services/clickatron/jobs/:jobId - Get job status
 export async function GET(
   request: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -14,7 +14,7 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { jobId } = params;
+    const { jobId } = await params;
 
     if (!jobId || typeof jobId !== 'string') {
       return NextResponse.json({ error: 'Invalid Job ID' }, { status: 400 });
@@ -51,7 +51,7 @@ export async function GET(
 // DELETE /api/services/clickatron/jobs/:jobId - Cancel job
 export async function DELETE(
   request: Request,
-  { params }: { params: { jobId: string } }
+  { params }: { params: Promise<{ jobId: string }> }
 ) {
   try {
     const { userId } = await auth();
@@ -59,7 +59,7 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { jobId } = params;
+    const { jobId } = await params;
 
     if (!jobId || typeof jobId !== 'string') {
       return NextResponse.json({ error: 'Invalid Job ID' }, { status: 400 });
