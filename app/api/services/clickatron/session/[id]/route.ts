@@ -54,9 +54,18 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const start = Date.now();
   try {
+    const originHeader = (request.headers.get('x-origin') || request.headers.get('X-Origin') || 'unknown');
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[API] session GET RECEIVED origin=${originHeader} time=${new Date().toISOString()}`);
+    }
+
     const { userId } = await auth();
     if (!userId) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[API] session GET AUTH FAILED duration=${Date.now()-start}ms`);
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -72,9 +81,14 @@ export async function GET(
     const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
 
     if (!task) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[API] session GET NOT FOUND duration=${Date.now()-start}ms`);
+      }
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
-
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[API] session GET DONE status=200 duration=${Date.now()-start}ms`);
+    }
     return NextResponse.json({ session: task });
   } catch (error) {
     console.error('Error fetching session:', error);

@@ -5,6 +5,8 @@ import { idbManager } from '@/lib/idb';
 
 // Module-scoped promise to ensure only one session creation runs at a time
 let createSessionPromise: Promise<string> | null = null;
+// Map to dedupe concurrent fetchBackendSession calls per sessionId
+const fetchSessionInFlight = new Map<string, Promise<any>>();
 
 export interface Variation {
   id: string;
@@ -515,53 +517,76 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       
       fetchBackendSession: async (sessionId) => {
         set({ isLoading: true, loadError: null, sessionId });
-        try {
-          const response = await fetch(`/api/services/clickatron/session/${sessionId}`);
-          
-          if (!response.ok) {
-            if(response.status === 404) set({ loadError: 'not_found' });
-            throw new Error(`Session fetch failed: ${response.status}`);
-          }
-          
-          const data = await response.json();
-          const session = data.session;
-          const workflow = session?.details?.workflow || {};
-          const canvas = session?.details?.canvas || { variations: [] };
-          const variations: Variation[] = (canvas.variations || []).map((v: any) => ({
-            id: v.id,
-            prompt: v.prompt,
-            timestamp: v.timestamp,
-            status: v.status,
-            imageId: v.imageRef,
-            referenceImages: v.referenceImages,
-            fineTuning: v.fineTuning,
-            metadata: v.metadata,
-          }));
-          const activeCompleted = variations.find(v => v.status === 'completed') || variations[0] || null;
-          set({
-            backendSynced: true,
-            isDirty: false,
-            lastSyncTime: Date.now(),
-            taskData: workflow.videoIdea ? {
-              videoIdea: workflow.videoIdea,
-              timestamp: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
-              stage: workflow.stage || 'ideation',
-              selectedDirection: workflow.selectedDirection,
-              selectedPreset: workflow.selectedPreset,
-              referenceImage: workflow.referenceImageMeta || null,
-            } : null,
-            variations,
-            activeVariationId: activeCompleted ? activeCompleted.id : null,
-            history: activeCompleted ? [activeCompleted.id] : [],
-            historyIndex: activeCompleted ? 0 : -1,
-            isLoading: false,
-          });
-          return session;
-        } catch (error) {
-          console.error('Session fetch failed:', error);
-          set({ syncError: error instanceof Error ? error.message : 'Fetch failed', isLoading: false });
-          throw error;
+
+        // If there's an in-flight fetch for this sessionId, reuse it
+        if (fetchSessionInFlight.has(sessionId)) {
+          return fetchSessionInFlight.get(sessionId)!;
         }
+
+        const promise = (async () => {
+          const start = Date.now();
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[STORE] fetchBackendSession start=${new Date().toISOString()} sessionId=${sessionId}`);
+          }
+          try {
+            const response = await fetch(`/api/services/clickatron/session/${sessionId}`, {
+              headers: { 'X-Origin': 'store-fetch-backend' },
+            });
+
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`[STORE] fetchBackendSession completed status=${response.status} duration=${Date.now() - start}ms`);
+            }
+
+            if (!response.ok) {
+              if(response.status === 404) set({ loadError: 'not_found' });
+              throw new Error(`Session fetch failed: ${response.status}`);
+            }
+
+            const data = await response.json();
+            const session = data.session;
+            const workflow = session?.details?.workflow || {};
+            const canvas = session?.details?.canvas || { variations: [] };
+            const variations: Variation[] = (canvas.variations || []).map((v: any) => ({
+              id: v.id,
+              prompt: v.prompt,
+              timestamp: v.timestamp,
+              status: v.status,
+              imageId: v.imageRef,
+              referenceImages: v.referenceImages,
+              fineTuning: v.fineTuning,
+              metadata: v.metadata,
+            }));
+            const activeCompleted = variations.find(v => v.status === 'completed') || variations[0] || null;
+            set({
+              backendSynced: true,
+              isDirty: false,
+              lastSyncTime: Date.now(),
+              taskData: workflow.videoIdea ? {
+                videoIdea: workflow.videoIdea,
+                timestamp: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
+                stage: workflow.stage || 'ideation',
+                selectedDirection: workflow.selectedDirection,
+                selectedPreset: workflow.selectedPreset,
+                referenceImage: workflow.referenceImageMeta || null,
+              } : null,
+              variations,
+              activeVariationId: activeCompleted ? activeCompleted.id : null,
+              history: activeCompleted ? [activeCompleted.id] : [],
+              historyIndex: activeCompleted ? 0 : -1,
+              isLoading: false,
+            });
+            return session;
+          } catch (error) {
+            console.error('Session fetch failed:', error);
+            set({ syncError: error instanceof Error ? error.message : 'Fetch failed', isLoading: false });
+            throw error;
+          } finally {
+            fetchSessionInFlight.delete(sessionId);
+          }
+        })();
+
+        fetchSessionInFlight.set(sessionId, promise);
+        return promise;
       },
       
       createVariation: async (request) => {

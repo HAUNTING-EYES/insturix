@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sparkles, ArrowRight } from 'lucide-react';
@@ -24,26 +24,47 @@ interface IdeationStageProps {
   onComplete: (data: { selectedDirection: string }) => void;
 }
 
-async function fetchDirections(videoIdea: string): Promise<CreativeDirection[]> {
-  const res = await fetch(`/api/services/clickatron/generate-directions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ videoIdea, count: 4 }),
-  });
+// Dedupe map for concurrent generate-directions requests keyed by idea string
+const generateDirectionsInFlight = new Map<string, Promise<CreativeDirection[]>>();
 
-  if (!res.ok) {
-    const errorData = await res.json();
-    throw new Error(errorData.error || 'Failed to generate directions');
+async function fetchDirections(videoIdea: string, signal?: AbortSignal): Promise<CreativeDirection[]> {
+  if (generateDirectionsInFlight.has(videoIdea)) {
+    console.log(`[IDEATION] Reusing in-flight generateDirections promise for idea=${videoIdea}`);
+    return generateDirectionsInFlight.get(videoIdea)!;
   }
-  
-  const data = await res.json();
-  return (data.directions || []).map((d: any) => ({
-    id: d.id,
-    title: d.title,
-    description: d.description,
-    angle: d.prompt,
-    icon: d.icon || '🎯',
-  }));
+
+  const promise = (async () => {
+    const start = Date.now();
+    console.log(`[IDEATION] POST /api/services/clickatron/generate-directions start=${new Date().toISOString()} idea=${videoIdea}`);
+
+    const res = await fetch(`/api/services/clickatron/generate-directions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Origin': 'ideation-stage' },
+      body: JSON.stringify({ videoIdea, count: 4 }),
+      signal,
+    });
+
+    console.log(`[IDEATION] POST completed status=${res.status} duration=${Date.now() - start}ms`);
+
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.error || 'Failed to generate directions');
+    }
+
+    const data = await res.json();
+    return (data.directions || []).map((d: any) => ({
+      id: d.id,
+      title: d.title,
+      description: d.description,
+      angle: d.prompt,
+      icon: d.icon || '🎯',
+    }));
+  })();
+
+  generateDirectionsInFlight.set(videoIdea, promise);
+  // ensure cleanup after completion (success or failure)
+  promise.finally(() => generateDirectionsInFlight.delete(videoIdea));
+  return promise;
 }
 
 const fadeIn = {
@@ -65,29 +86,46 @@ export function IdeationStage({ videoIdea, selectedPreset, onComplete }: Ideatio
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    let isMounted = true;
-    
-    fetchDirections(videoIdea)
-      .then(dirs => {
-        if (isMounted) {
+    // Abort any previous request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const loadDirections = async () => {
+      // Prevent concurrent starts
+      if (inFlightRef.current) return;
+      inFlightRef.current = true;
+
+      setIsLoading(true);
+      setLoadError(null);
+      try {
+        const dirs = await fetchDirections(videoIdea);
+        if (!controller.signal.aborted) {
           setDirections(dirs);
         }
-      })
-      .catch(err => {
-        if (isMounted) {
-          setLoadError(err.message);
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          setLoadError(err instanceof Error ? err.message : 'Failed to load directions');
         }
-      })
-      .finally(() => {
-        if (isMounted) {
+      } finally {
+        if (!controller.signal.aborted) {
           setIsLoading(false);
         }
-      });
-      
+        inFlightRef.current = false;
+      }
+    };
+
+    loadDirections();
+
     return () => {
-      isMounted = false;
+      controller.abort();
+      inFlightRef.current = false;
     };
   }, [videoIdea]);
 

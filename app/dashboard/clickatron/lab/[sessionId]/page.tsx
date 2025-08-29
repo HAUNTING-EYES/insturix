@@ -8,8 +8,8 @@ interface LabPageProps {
 }
 
 // This is a server component responsible for fetching initial data
-export default function ClickatronLabPage({ params }: LabPageProps) {
-  const { sessionId } = params;
+export default async function ClickatronLabPage({ params }: LabPageProps) {
+  const { sessionId } = await params;
 
   // In a real app, you would fetch this from your database
   // For now, we'll just pass the ID and let the client component fetch

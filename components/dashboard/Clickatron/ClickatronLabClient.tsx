@@ -1,15 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IdeationStage } from "./stages/IdeationStage";
 import { CanvasStage } from "./stages/CanvasStage";
-import { useCanvasStore, TaskData } from "@/stores/useCanvasStore";
+import { useCanvasStore } from "@/stores/useCanvasStore";
 import { useRouter } from "next/navigation";
-
-type WorkflowStage = "ideation" | "canvas";
 
 interface ClickatronLabClientProps {
   initialData: {
@@ -26,59 +24,60 @@ const stageTransition = {
 
 export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
   const router = useRouter();
-  
-  // Zustand store selectors
-  const taskData = useCanvasStore((state) => state.taskData);
-  const variations = useCanvasStore((state) => state.variations);
-  const fetchBackendSession = useCanvasStore((state) => state.fetchBackendSession);
-  const updateTaskData = useCanvasStore((state) => state.updateTaskData);
-  const createVariation = useCanvasStore((state) => state.createVariation);
-  const isLoading = useCanvasStore((state) => state.isLoading);
-  const loadError = useCanvasStore((state) => state.loadError);
+  const renderCount = useRef(0);
+  renderCount.current += 1;
+
+  const taskData = useCanvasStore((s) => s.taskData);
+  const variations = useCanvasStore((s) => s.variations);
+  const fetchBackendSession = useCanvasStore((s) => s.fetchBackendSession);
+  const updateTaskData = useCanvasStore((s) => s.updateTaskData);
+  const createVariation = useCanvasStore((s) => s.createVariation);
+  const isLoading = useCanvasStore((s) => s.isLoading);
+  const loadError = useCanvasStore((s) => s.loadError);
 
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Fetch session when initialData.sessionId changes
   useEffect(() => {
-    fetchBackendSession(initialData.sessionId);
-  }, [initialData.sessionId, fetchBackendSession]);
+    if (initialData?.sessionId) {
+      fetchBackendSession(initialData.sessionId).catch(() => {});
+    }
+  }, [initialData?.sessionId, fetchBackendSession]);
 
-  // Generate initial variation when canvas stage is reached and no variations exist
+  // Generate initial variation when entering canvas stage and there are no variations yet
   useEffect(() => {
-    if (taskData?.stage === 'canvas' && taskData.selectedDirection && variations.length === 0 && !isGenerating) {
-      console.log('Canvas opened, generating initial variation');
+    if (
+      taskData?.stage === 'canvas' &&
+      taskData.selectedDirection &&
+      variations.length === 0 &&
+      !isGenerating
+    ) {
       setIsGenerating(true);
       createVariation({
         prompt: `Initial variation for ${taskData.videoIdea} with a ${taskData.selectedDirection} style.`,
-      }).catch((error) => {
-        console.error("Failed to generate initial variation:", error);
-      }).finally(() => {
-        setIsGenerating(false);
-      });
+      })
+        .catch(() => {})
+        .finally(() => setIsGenerating(false));
     }
   }, [taskData?.stage, taskData?.selectedDirection, taskData?.videoIdea, variations.length, isGenerating, createVariation]);
-  
+
   const handleIdeationComplete = useCallback(async (data: { selectedDirection: string }) => {
     if (!taskData) return;
-
-    console.log('Ideation complete. Updating session with direction:', data.selectedDirection);
     await updateTaskData({ stage: 'canvas', selectedDirection: data.selectedDirection });
   }, [taskData, updateTaskData]);
 
-  const handleGenerativeEdit = async (prompt: string, settings: any) => {
+  const handleGenerativeEdit = useCallback(async (prompt: string, settings: any) => {
     setIsGenerating(true);
     try {
       await createVariation({ prompt, ...settings });
-    } catch (error) {
-      console.error("Failed to generate variation:", error);
     } finally {
       setIsGenerating(false);
     }
-  };
-  
-  const handleCanvasComplete = (data: { finalThumbnail: string }) => {
-    console.log("Canvas complete, final thumbnail:", data.finalThumbnail);
+  }, [createVariation]);
+
+  const handleCanvasComplete = useCallback((data: { finalThumbnail: string }) => {
     router.push('/dashboard/clickatron');
-  };
+  }, [router]);
 
   if (isLoading) {
     return (
@@ -90,7 +89,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
       </div>
     );
   }
-  
+
   if (loadError) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -105,9 +104,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     );
   }
 
-  if (!taskData) {
-    return null; // or a more specific loading/error state
-  }
+  if (!taskData) return null;
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -138,7 +135,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
             />
           </motion.div>
         )}
-        
+
         {taskData.stage === "canvas" && taskData.selectedDirection && (
           <motion.div key="canvas" {...stageTransition}>
             <CanvasStage

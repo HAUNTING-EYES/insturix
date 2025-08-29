@@ -34,11 +34,12 @@ const generateMockDirections = (videoIdea: string, count: number) => {
   ];
 
   const selectedDirections = [];
-  const availableDirections = [...directionTemplates];
 
-  for (let i = 0; i < Math.min(count, availableDirections.length); i++) {
-    const randomIndex = Math.floor(Math.random() * availableDirections.length);
-    const template = availableDirections.splice(randomIndex, 1)[0];
+  // Generate 'count' directions, reusing templates if necessary
+  for (let i = 0; i < count; i++) {
+    // Use modulo to cycle through templates if count exceeds available templates
+    const templateIndex = i % directionTemplates.length;
+    const template = directionTemplates[templateIndex];
 
     selectedDirections.push({
       id: `direction_${Date.now()}_${i}`,
@@ -53,9 +54,18 @@ const generateMockDirections = (videoIdea: string, count: number) => {
 };
 
 export async function POST(request: Request) {
+  const start = Date.now();
   try {
+    const originHeader = (request.headers.get('x-origin') || request.headers.get('X-Origin') || 'unknown');
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[API] generate-directions RECEIVED origin=${originHeader} time=${new Date().toISOString()}`);
+    }
+
     const { userId } = await auth();
     if (!userId) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[API] generate-directions AUTH FAILED duration=${Date.now()-start}ms`);
+      }
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -70,6 +80,9 @@ export async function POST(request: Request) {
       validatedData.count
     );
 
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`[API] generate-directions DONE status=200 duration=${Date.now()-start}ms`);
+    }
     return NextResponse.json({ success: true, directions });
   } catch (error) {
     console.error('Error generating directions:', error);
@@ -79,6 +92,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+  console.error(`[API] generate-directions ERROR duration=${Date.now()-start}ms`, error);
     return NextResponse.json(
       { error: 'Internal Server Error' },
       { status: 500 }
