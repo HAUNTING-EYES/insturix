@@ -1,53 +1,24 @@
-// Unified Clickatron types for migration from legacy to new canvas suite
-
-// Legacy schema (must remain compatible)
 export interface IClickatronTask {
   _id?: string;
   clerkUserId: string;
   title?: string; // used as a human label
-  details: any;   // stores original request payload / structured prompt JSON
-  status: TaskStatus;
-  results?: { thumbnail: { prompt: string; gcs_url: string }; details?: string };
+  details: {
+    workflow: WorkflowData;
+    canvas: CanvasData;
+  };
   error_message?: string;
-  createdAt: Date; 
-  updatedAt: Date; 
-  completedAt?: Date; 
+  createdAt: Date;
+  updatedAt: Date;
   refunded?: boolean;
 }
 
-export type TaskStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
-
-// New session model (client-side only, now unified with legacy schema)
 export interface TaskData {
   videoIdea: string;
   timestamp: number;
   stage: 'ideation' | 'canvas';
-  selectedDirection?: string;         // maps to chosen creative direction → becomes part of prompt
-  selectedPreset?: CanvasPreset;      // preset configuration
-  referenceImage?: ReferenceImageMeta | null; // stored locally
-}
-
-// Creative session data (comprehensive audit trail)
-export interface CreativeSession {
-  // Original user input
-  videoIdea: string;
+  selectedDirection?: string;
   selectedPreset?: CanvasPreset;
   referenceImage?: ReferenceImageMeta | null;
-
-  // Ideation stage data
-  generatedIdeas: GeneratedIdea[];           // All ideas generated for user
-  selectedIdea?: GeneratedIdea;              // What user chose
-  selectedDirection?: string;                // Chosen creative direction
-
-  // Canvas stage data
-  variations: Variation[];                   // All variations created
-  committedVariation?: Variation;            // Final chosen variation
-
-  // Session metadata
-  createdAt: Date;
-  updatedAt: Date;
-  stage: 'spark' | 'ideation' | 'canvas' | 'completed';
-  workflowVersion: number;
 }
 
 export interface CanvasPreset {
@@ -66,14 +37,11 @@ export interface ReferenceImageMeta {
   imageId: string; // Reference to image in IndexedDB
 }
 
-// Generated ideas from ideation stage
 export interface GeneratedIdea {
   id: string;
   title: string;
   description: string;
   prompt: string;
-  tags: string[];
-  styleHints: string[];
   generatedAt: Date;
 }
 
@@ -99,27 +67,6 @@ export interface Variation {
   updatedAt: Date;
 }
 
-// Canvas variations (enhanced with GCS storage)
-export interface Variation {
-  id: string;
-  prompt: string;
-  timestamp: number;
-  status: VariationStatus;
-  fineTuning?: FineTuningControls;
-  imageRef?: string; // GCS URL for generated image
-  referenceImages?: string[]; // Array of GCS URLs used as input
-  metadata?: {
-    aspectRatio?: string;
-    dimensions?: string;
-    style?: string;
-    gcsPath?: string; // Full GCS path
-    fileSize?: number; // File size in bytes
-    contentType?: string; // MIME type
-  };
-  jobId?: string; // Associated async job ID
-  createdAt: Date;
-  updatedAt: Date;
-}
 
 export type VariationStatus = 'generating' | 'completed' | 'failed';
 
@@ -132,18 +79,18 @@ export interface FineTuningControls {
 // Workflow and Canvas sections (to be nested under details in legacy schema)
 export interface WorkflowData {
   videoIdea: string;
-  stage: 'spark' | 'ideation' | 'canvas';
+  stage: 'ideation' | 'canvas';
   selectedPreset?: CanvasPreset;
   selectedDirection?: string;
   referenceImageMeta?: ReferenceImageMeta;
   workflowVersion?: number; // for future silent migrations
 
   // Comprehensive audit trail
-  generatedIdeas?: GeneratedIdea[];     // All ideas generated during ideation
-  selectedIdea?: GeneratedIdea;         // User's chosen idea
-  generatedDirections?: CreativeDirection[]; // All directions generated
-  selectedDirectionData?: CreativeDirection; // User's chosen direction
-  committedVariation?: Variation;       // Final committed variation
+  generatedIdeas?: GeneratedIdea[];
+  selectedIdea?: GeneratedIdea;
+  generatedDirections?: CreativeDirection[];
+  selectedDirectionData?: CreativeDirection;
+  committedVariation?: Variation;
 }
 
 export interface CanvasData {
@@ -158,30 +105,7 @@ export interface CreativeDirection {
   title: string;
   description: string;
   prompt: string;
-  tags: string[];
-  styleHints: string[];
   generatedAt: Date;
-}
-
-// Unified document structure (extends legacy schema)
-export interface ClickatronSession extends IClickatronTask {
-  // Legacy fields remain unchanged
-  clerkUserId: string;
-  title?: string;
-  details: any;
-  status: TaskStatus;
-  results?: { thumbnail: { prompt: string; gcs_url: string }; details?: string };
-  error_message?: string;
-  createdAt: Date; 
-  updatedAt: Date; 
-  completedAt?: Date; 
-  refunded?: boolean;
-  
-  // New workflow section (nested under details)
-  'details.workflow'?: WorkflowData;
-  
-  // New canvas section (nested under details)
-  'details.canvas'?: CanvasData;
 }
 
 // API request/response types
@@ -198,8 +122,8 @@ export interface CreateSessionResponse {
 }
 
 export interface GetSessionResponse {
-  session: ClickatronSession;
-  isLegacyAdapted: boolean; // indicates if this was a legacy task that got auto-migrated
+  session: IClickatronTask;
+  isLegacyAdapted: boolean;
 }
 
 export interface UpsertSessionRequest {
@@ -260,17 +184,6 @@ export interface StoreDirectionsRequest {
   selectedDirectionId?: string;
 }
 
-export interface CommitVariationRequest {
-  sessionId: string;
-  variationId: string;
-  gcsPath: string;
-  metadata?: {
-    fileSize: number;
-    contentType: string;
-    aspectRatio?: string;
-    dimensions?: string;
-  };
-}
 
 export interface CommitVariationRequest {
   variationId: string;
@@ -372,25 +285,13 @@ export interface CanvasStoreActions {
   setSyncError: (error: string | null) => void;
   persistToBackend: (updates: UpsertSessionRequest) => Promise<void>;
   createBackendSession: (request: CreateSessionRequest) => Promise<string>;
-  fetchBackendSession: (sessionId: string) => Promise<ClickatronSession>;
+  fetchBackendSession: (sessionId: string) => Promise<IClickatronTask>;
   createVariation: (request: CreateVariationRequest) => Promise<string>;
   updateVariation: (variationId: string, updates: UpdateVariationRequest) => Promise<void>;
   commitVariation: (request: CommitVariationRequest) => Promise<CommitVariationResponse>;
 }
 
 // Utility types
-export type LegacyTask = Omit<IClickatronTask, 'details.workflow' | 'details.canvas'>;
-
-export interface AdaptedLegacyTask extends ClickatronSession {
-  _isAdapted: true; // type marker for runtime identification
-}
-
-export interface SessionLoadResult {
-  success: boolean;
-  session?: ClickatronSession;
-  isLegacy?: boolean;
-  error?: string;
-}
 
 // Error types
 export interface ClickatronError {

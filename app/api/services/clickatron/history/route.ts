@@ -54,6 +54,8 @@ export async function GET(request: Request) {
       timestamp: task.createdAt?.getTime() || Date.now(),
       preset: task.details?.workflow?.selectedPreset?.name || 'Default',
       selectedDirection: task.details?.workflow?.selectedDirection,
+  // expose workflow stage so UI can decide whether to open ideation or canvas
+  stage: task.details?.workflow?.stage || ((task.details && task.details.canvas && Array.isArray(task.details.canvas.variations) && task.details.canvas.variations.length > 0) ? 'canvas' : 'ideation'),
       status: task.status || 'active',
       createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
       updatedAt: task.updatedAt?.toISOString() || new Date().toISOString(),

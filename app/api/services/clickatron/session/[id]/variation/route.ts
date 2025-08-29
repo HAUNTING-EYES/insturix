@@ -62,6 +62,17 @@ export async function POST(
       task.details.canvas = { variations: [] };
     }
 
+    // Ensure workflow exists and mark session as canvas (guard server-side to keep session lifecycle authoritative)
+    if (!task.details.workflow) {
+      task.details.workflow = {
+        videoIdea: task.title || 'Untitled Session',
+        stage: 'canvas',
+        workflowVersion: 1,
+      };
+    } else {
+      task.details.workflow.stage = 'canvas';
+    }
+
     // Create new variation
     const variationId = `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newVariation = {

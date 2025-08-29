@@ -21,51 +21,13 @@ interface IdeationStageProps {
     aspectRatio: string;
     dimensions: string;
   };
-  onComplete: (data: { selectedDirection: string }) => void;
+  sessionId?: string;
+  onComplete: (data: { selectedDirectionId: string; selectedDirection: string }) => void;
 }
 
-// Dedupe map for concurrent generate-directions requests keyed by idea string
-const generateDirectionsInFlight = new Map<string, Promise<CreativeDirection[]>>();
+// Per-instance dedupe map (stored in a ref) to avoid cross-component reuse which can lead to aborted signals
 
-async function fetchDirections(videoIdea: string, signal?: AbortSignal): Promise<CreativeDirection[]> {
-  if (generateDirectionsInFlight.has(videoIdea)) {
-    console.log(`[IDEATION] Reusing in-flight generateDirections promise for idea=${videoIdea}`);
-    return generateDirectionsInFlight.get(videoIdea)!;
-  }
-
-  const promise = (async () => {
-    const start = Date.now();
-    console.log(`[IDEATION] POST /api/services/clickatron/generate-directions start=${new Date().toISOString()} idea=${videoIdea}`);
-
-    const res = await fetch(`/api/services/clickatron/generate-directions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Origin': 'ideation-stage' },
-      body: JSON.stringify({ videoIdea, count: 4 }),
-      signal,
-    });
-
-    console.log(`[IDEATION] POST completed status=${res.status} duration=${Date.now() - start}ms`);
-
-    if (!res.ok) {
-      const errorData = await res.json();
-      throw new Error(errorData.error || 'Failed to generate directions');
-    }
-
-    const data = await res.json();
-    return (data.directions || []).map((d: any) => ({
-      id: d.id,
-      title: d.title,
-      description: d.description,
-      angle: d.prompt,
-      icon: d.icon || '🎯',
-    }));
-  })();
-
-  generateDirectionsInFlight.set(videoIdea, promise);
-  // ensure cleanup after completion (success or failure)
-  promise.finally(() => generateDirectionsInFlight.delete(videoIdea));
-  return promise;
-}
+// fetchDirections removed; network call handled per-component inside useEffect to allow per-instance dedupe and AbortController
 
 const fadeIn = {
   initial: { opacity: 0, y: 20 },
@@ -81,61 +43,156 @@ const staggerChildren = {
   }
 };
 
-export function IdeationStage({ videoIdea, selectedPreset, onComplete }: IdeationStageProps) {
+export function IdeationStage({ videoIdea, selectedPreset, sessionId, onComplete }: IdeationStageProps) {
   const [directions, setDirections] = useState<CreativeDirection[]>([]);
   const [selectedDirection, setSelectedDirection] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const inFlightRef = useRef(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const inFlightRef = useRef<Map<string, { promise: Promise<CreativeDirection[]>; controller?: AbortController }>>(new Map());
+  const isLoadingRef = useRef(false);
+  // Tracks whether this component instance created the current in-flight entry
+  const createdEntryRef = useRef(false);
 
   useEffect(() => {
-    // Abort any previous request
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    // Do not attempt generation until we have a backend sessionId
+    if (!sessionId) {
+      setIsLoading(false);
+      setLoadError('Waiting for session to be created...');
+      return;
     }
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+
+    const key = `${videoIdea}::${sessionId || ''}`;
+    // Reset instance-created flag for this run
+    createdEntryRef.current = false;
 
     const loadDirections = async () => {
       // Prevent concurrent starts
-      if (inFlightRef.current) return;
-      inFlightRef.current = true;
+      if (isLoadingRef.current) return;
+      isLoadingRef.current = true;
 
       setIsLoading(true);
       setLoadError(null);
+      let currentController: AbortController | undefined;
+
       try {
-        const dirs = await fetchDirections(videoIdea);
-        if (!controller.signal.aborted) {
-          setDirections(dirs);
+        // First, try to fetch existing directions from the session
+        const sessionRes = await fetch(`/api/services/clickatron/session/${sessionId}`);
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json();
+          const existingDirections = sessionData.session?.details?.workflow?.generatedDirections;
+
+          if (existingDirections && existingDirections.length > 0) {
+            // Use existing directions
+            // Use existing directions directly from the database
+            setDirections(existingDirections.map((d: any) => ({
+              id: d.id,
+              title: d.title,
+              description: d.description,
+              angle: d.prompt,
+              icon: d.icon || '🎯',
+            })));
+            setIsLoading(false);
+            // VERY IMPORTANT: Return here to prevent re-generation
+            return;
+          }
+        }
+
+        // If no existing directions, generate new ones
+        // Per-instance dedupe key
+        if (inFlightRef.current.has(key)) {
+          const entry = inFlightRef.current.get(key)!;
+          currentController = entry.controller;
+          try {
+            const reused = await entry.promise;
+            if (!entry.controller?.signal.aborted) setDirections(reused);
+          } catch (e) {
+            // If the shared promise was aborted by its creator, fall through and start a new one
+            const isAbortShared = !!(e && ((e as any).name === 'AbortError' || /aborted/i.test(String(e))));
+            if (!isAbortShared) throw e;
+          }
+        }
+
+        if (!inFlightRef.current.has(key)) {
+          const controller = new AbortController();
+          currentController = controller;
+          const promise = (async () => {
+            const start = Date.now();
+            console.log(`[IDEATION] POST /api/services/clickatron/generate-directions start=${new Date().toISOString()} idea=${videoIdea}`);
+
+            const body: any = { videoIdea, count: 4 };
+            if (sessionId) body.sessionId = sessionId;
+
+            const res = await fetch(`/api/services/clickatron/generate-directions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'X-Origin': 'ideation-stage' },
+              body: JSON.stringify(body),
+              signal: controller.signal,
+            });
+
+            console.log(`[IDEATION] POST completed status=${res.status} duration=${Date.now() - start}ms`);
+
+            if (!res.ok) {
+              const errorData = await res.json();
+              throw new Error(errorData.error || 'Failed to generate directions');
+            }
+
+            const data = await res.json();
+            return (data.directions || []).map((d: any) => ({
+              id: d.id,
+              title: d.title,
+              description: d.description,
+              angle: d.prompt,
+              icon: d.icon || '🎯',
+            }));
+          })();
+
+          // Mark that this instance created the shared entry so cleanup knows whether to abort
+          createdEntryRef.current = true;
+          inFlightRef.current.set(key, { promise, controller });
+
+          try {
+            const result = await promise;
+            if (!currentController?.signal.aborted) setDirections(result);
+          } finally {
+            inFlightRef.current.delete(key);
+          }
         }
       } catch (err) {
-        if (!controller.signal.aborted) {
-          setLoadError(err instanceof Error ? err.message : 'Failed to load directions');
+        // Detect aborts coming from either this controller or from a reused in-flight promise
+        const isAbort = !!(err && ((err as any).name === 'AbortError' || /aborted/i.test(String(err))));
+        if (isAbort) {
+          if (process.env.NODE_ENV === 'development') {
+            console.log(`[IDEATION] fetch aborted for idea=${videoIdea}`);
+          }
+          // Don't show an error to the user for cancelled requests
+        } else {
+          if (!currentController?.signal.aborted) {
+            setLoadError(err instanceof Error ? err.message : 'Failed to load directions');
+          }
         }
       } finally {
-        if (!controller.signal.aborted) {
+        if (!currentController?.signal.aborted) {
           setIsLoading(false);
         }
-        inFlightRef.current = false;
+        isLoadingRef.current = false;
       }
     };
 
     loadDirections();
 
     return () => {
-      controller.abort();
-      inFlightRef.current = false;
+      // Only abort the controller if this instance created the in-flight entry
+      try {
+        const entry = inFlightRef.current.get(key);
+        if (createdEntryRef.current && entry?.controller) {
+          entry.controller.abort();
+        }
+      } catch (e) {
+        // swallow
+      }
+      isLoadingRef.current = false;
     };
-  }, [videoIdea]);
-
-  const handleDirectionSelect = (directionId: string) => {
-    setSelectedDirection(directionId);
-    const direction = directions.find(d => d.id === directionId);
-    if (direction) {
-      onComplete({ selectedDirection: direction.title });
-    }
-  };
+  }, [videoIdea, sessionId]);
 
   if (isLoading) {
     return (
@@ -203,7 +260,10 @@ export function IdeationStage({ videoIdea, selectedPreset, onComplete }: Ideatio
                       ? 'bg-purple-500/20 border-purple-500/50 shadow-lg shadow-purple-500/20'
                       : 'bg-zinc-900/40 border-zinc-800/60 hover:border-zinc-700/80 hover:bg-zinc-900/60'
                   }`}
-                  onClick={() => handleDirectionSelect(direction.id)}
+                  onClick={() => {
+                    setSelectedDirection(direction.id);
+                    onComplete({ selectedDirectionId: direction.id, selectedDirection: direction.title });
+                  }}
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start gap-4">

@@ -34,6 +34,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
   const createVariation = useCanvasStore((s) => s.createVariation);
   const isLoading = useCanvasStore((s) => s.isLoading);
   const loadError = useCanvasStore((s) => s.loadError);
+  const sessionId = useCanvasStore((s) => s.sessionId);
 
   const [isGenerating, setIsGenerating] = useState(false);
 
@@ -44,27 +45,30 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     }
   }, [initialData?.sessionId, fetchBackendSession]);
 
-  // Generate initial variation when entering canvas stage and there are no variations yet
-  useEffect(() => {
-    if (
-      taskData?.stage === 'canvas' &&
-      taskData.selectedDirection &&
-      variations.length === 0 &&
-      !isGenerating
-    ) {
-      setIsGenerating(true);
-      createVariation({
-        prompt: `Initial variation for ${taskData.videoIdea} with a ${taskData.selectedDirection} style.`,
-      })
-        .catch(() => {})
-        .finally(() => setIsGenerating(false));
-    }
-  }, [taskData?.stage, taskData?.selectedDirection, taskData?.videoIdea, variations.length, isGenerating, createVariation]);
+  const handleIdeationComplete = useCallback(async (data: { selectedDirectionId: string; selectedDirection: string }) => {
+    if (!sessionId) return;
 
-  const handleIdeationComplete = useCallback(async (data: { selectedDirection: string }) => {
-    if (!taskData) return;
-    await updateTaskData({ stage: 'canvas', selectedDirection: data.selectedDirection });
-  }, [taskData, updateTaskData]);
+    try {
+      const response = await fetch(`/api/services/clickatron/session/${sessionId}/ideas/select`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ideaId: data.selectedDirectionId,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to select idea');
+      }
+
+      await fetchBackendSession(sessionId);
+    } catch (error) {
+      console.error('Error selecting idea:', error);
+    }
+  }, [sessionId, fetchBackendSession]);
 
   const handleGenerativeEdit = useCallback(async (prompt: string, settings: any) => {
     setIsGenerating(true);
@@ -127,10 +131,11 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
 
       <AnimatePresence mode="wait">
         {taskData.stage === "ideation" && (
-          <motion.div key="ideation" {...stageTransition}>
+            <motion.div key="ideation" {...stageTransition}>
             <IdeationStage
               videoIdea={taskData.videoIdea}
               selectedPreset={taskData.selectedPreset}
+              sessionId={sessionId || ''}
               onComplete={handleIdeationComplete}
             />
           </motion.div>

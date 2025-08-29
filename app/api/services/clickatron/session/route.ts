@@ -40,7 +40,6 @@ export async function POST(request: Request) {
           variations: [],
         },
       },
-      status: 'listed',
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -117,7 +116,6 @@ export async function GET(
       _id: task._id.toString(),
       createdAt: task.createdAt.toISOString(),
       updatedAt: task.updatedAt.toISOString(),
-      ...(task.completedAt && { completedAt: task.completedAt.toISOString() }),
       isLegacyAdapted: !isLegacyAdapted, // Mark if we just adapted it
     };
 
@@ -139,9 +137,14 @@ async function migrateLegacyTask(task: any) {
   const prompt = task.results?.thumbnail?.prompt || task.details?.prompt || '';
   
   // Create synthetic workflow data
+  // Determine stage from existing details or presence of a completed prompt/variation
+  const inferredStage = (task.details && task.details.canvas && Array.isArray(task.details.canvas.variations) && task.details.canvas.variations.length > 0)
+    ? 'canvas'
+    : 'ideation';
+
   const workflowData = {
     videoIdea: task.title || task.details?.videoIdea || 'Legacy Task',
-    stage: task.status === 'completed' ? 'canvas' : 'ideation',
+    stage: inferredStage,
     selectedDirection: prompt || undefined,
     selectedPreset: {
       id: 'youtube',
@@ -160,11 +163,13 @@ async function migrateLegacyTask(task: any) {
     variations: [],
   };
 
-  if (task.status === 'completed' && prompt) {
+  // If there is an existing prompt in results or canvas info, create a legacy variation record
+  if (prompt) {
     canvasData.variations = [{
       id: `legacy_${task._id.toString()}`,
       prompt,
-      timestamp: task.completedAt?.getTime() || task.updatedAt.getTime(),
+      // Use updatedAt as a fallback timestamp since session-level completedAt was removed
+      timestamp: task.updatedAt.getTime(),
       status: 'completed' as const,
       metadata: {
         aspectRatio: '16:9',

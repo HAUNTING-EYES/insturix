@@ -66,7 +66,7 @@ export function ClickatronHistory() {
         <div className="text-zinc-500 mb-4">
           <Image className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p>Your clickatron sessions will appear here</p>
-          <p className="text-sm text-zinc-400 mt-2">Sessions are saved when you transition to the canvas stage</p>
+          <p className="text-sm text-zinc-400 mt-2">Sessions (including ideations) are saved as you create them</p>
         </div>
       </motion.div>
     );
@@ -104,17 +104,14 @@ export function ClickatronHistory() {
                   </h3>
 
                   <div className="flex items-center justify-between text-xs">
-                    <span className="text-purple-400 bg-purple-500/10 px-2 py-1 rounded">
-                      {item.preset}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-purple-400 bg-purple-500/10 px-2 py-1 rounded">
+                        {item.preset}
+                      </span>
+                      <span className="text-xs text-zinc-400 px-2 py-1 rounded bg-zinc-800/40">{item.stage === 'canvas' ? 'Canvas' : 'Ideation'}</span>
+                    </div>
                     <span className="text-zinc-500">
                       {formatTimeAgo(item.timestamp)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-zinc-400">
-                    <span className="text-zinc-500">
-                      {item.status}
                     </span>
                   </div>
                 </div>
@@ -128,7 +125,7 @@ export function ClickatronHistory() {
                     router.push(`/dashboard/clickatron/lab/${item.id}`);
                   }}
                 >
-                  Continue Session
+                  {item.stage === 'canvas' ? 'Open Canvas' : 'Open Ideation'}
                   <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </CardContent>

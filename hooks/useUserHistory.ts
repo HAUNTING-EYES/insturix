@@ -10,6 +10,7 @@ interface HistoryItem {
   preset: string;
   selectedDirection?: string;
   status: string;
+  stage?: 'ideation' | 'canvas';
   createdAt: string;
   updatedAt: string;
 }

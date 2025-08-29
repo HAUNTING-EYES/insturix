@@ -3,8 +3,10 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { StoreIdeasRequest } from '@/types/clickatron';
 import { z } from 'zod';
+
+// NOTE: Selection of an idea now happens via /ideas/select endpoint.
+// This route ONLY stores freshly generated ideas and sets stage to 'ideation'.
 
 // Validation schema
 const StoreIdeasRequestSchema = z.object({
@@ -17,7 +19,6 @@ const StoreIdeasRequestSchema = z.object({
     styleHints: z.array(z.string()),
     generatedAt: z.string().datetime(),
   })),
-  selectedIdeaId: z.string().optional(),
 });
 
 // POST /api/services/clickatron/session/:id/ideas - Store generated ideas
@@ -49,19 +50,14 @@ export async function POST(
 
     const body = await request.json();
 
-    // Validate request body
-    const validatedData = StoreIdeasRequestSchema.parse(body);
+  // Validate request body (no selectedIdeaId allowed now)
+  const validatedData = StoreIdeasRequestSchema.parse(body);
 
     // Convert generatedAt strings to Date objects
     const ideas = validatedData.ideas.map(idea => ({
       ...idea,
       generatedAt: new Date(idea.generatedAt),
     }));
-
-    // Find selected idea if specified
-    const selectedIdea = validatedData.selectedIdeaId
-      ? ideas.find(idea => idea.id === validatedData.selectedIdeaId)
-      : undefined;
 
     // Initialize workflow if it doesn't exist
     if (!task.details) {
@@ -70,16 +66,30 @@ export async function POST(
     if (!task.details.workflow) {
       task.details.workflow = {
         videoIdea: task.title || 'Untitled Session',
-        stage: 'spark',
+        stage: 'ideation',
         workflowVersion: 1,
       };
     }
 
-    // Store ideas and selection
+    // Guards
+    if (task.details.workflow.stage === 'canvas') {
+      return NextResponse.json({ error: 'Session already in canvas stage; cannot overwrite ideas' }, { status: 409 });
+    }
+    if (task.details.workflow.generatedIdeas?.length) {
+      // Ideas already exist; do not overwrite (frontend should fetch existing instead of regenerating)
+      return NextResponse.json({
+        success: true,
+        sessionId: id,
+        storedIdeas: task.details.workflow.generatedIdeas.length,
+        note: 'Ideas already existed; no changes applied'
+      });
+    }
+
+    // Store ideas with no selection yet
     task.details.workflow.generatedIdeas = ideas;
-    if (selectedIdea) {
-      task.details.workflow.selectedIdea = selectedIdea;
-      task.details.workflow.stage = 'ideation';
+    // Ensure no stray selectedIdea from previous inconsistent state
+    if (task.details.workflow.selectedIdea) {
+      delete task.details.workflow.selectedIdea;
     }
 
     task.updatedAt = new Date();
@@ -89,7 +99,7 @@ export async function POST(
       success: true,
       sessionId: id,
       storedIdeas: ideas.length,
-      selectedIdea: selectedIdea?.id,
+      selectedIdea: null,
     });
   } catch (error) {
     console.error('Error storing ideas:', error);

@@ -228,17 +228,25 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
       // Variation management
       addVariation: (variation) => {
         const { variations, history, historyIndex, persistToBackend } = get();
-        const newVariations = [variation, ...variations];
-        const newHistory = [...history.slice(0, historyIndex + 1), variation.id];
-        
+
+        // Ensure a status is present to satisfy server-side validation.
+        const normalized: Variation = {
+          status: 'generating',
+          ...variation,
+        };
+
+        const newVariations = [normalized, ...variations];
+        const newHistory = [...history.slice(0, historyIndex + 1), normalized.id];
+
         set({
           variations: newVariations,
-          activeVariationId: variation.id,
+          activeVariationId: normalized.id,
           history: newHistory,
           historyIndex: newHistory.length - 1,
           isDirty: true,
         });
-        
+
+        // Persist normalized variations so the backend receives a valid shape
         persistToBackend({ canvas: { variations: newVariations } });
       },
       
@@ -538,7 +546,7 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             }
 
             if (!response.ok) {
-              if(response.status === 404) set({ loadError: 'not_found' });
+              if (response.status === 404) set({ loadError: 'not_found' });
               throw new Error(`Session fetch failed: ${response.status}`);
             }
 
@@ -546,37 +554,44 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
             const session = data.session;
             const workflow = session?.details?.workflow || {};
             const canvas = session?.details?.canvas || { variations: [] };
+
+            const taskData: TaskData = {
+              videoIdea: workflow.videoIdea || session.title || 'Untitled',
+              timestamp: new Date(session.createdAt).getTime(),
+              stage: workflow.stage || 'ideation',
+              selectedDirection: workflow.selectedDirection,
+              selectedPreset: workflow.selectedPreset,
+              referenceImage: workflow.referenceImageMeta || null,
+            };
+
             const variations: Variation[] = (canvas.variations || []).map((v: any) => ({
-              id: v.id,
-              prompt: v.prompt,
-              timestamp: v.timestamp,
-              status: v.status,
-              imageId: v.imageRef,
-              referenceImages: v.referenceImages,
-              fineTuning: v.fineTuning,
-              metadata: v.metadata,
+              ...v,
+              status: v.status || 'completed',
             }));
-            const activeCompleted = variations.find(v => v.status === 'completed') || variations[0] || null;
+
             set({
-              backendSynced: true,
-              isDirty: false,
-              lastSyncTime: Date.now(),
-              taskData: workflow.videoIdea ? {
-                videoIdea: workflow.videoIdea,
-                timestamp: session.createdAt ? new Date(session.createdAt).getTime() : Date.now(),
-                stage: workflow.stage || 'ideation',
-                selectedDirection: workflow.selectedDirection,
-                selectedPreset: workflow.selectedPreset,
-                referenceImage: workflow.referenceImageMeta || null,
-              } : null,
+              taskData,
               variations,
-              activeVariationId: activeCompleted ? activeCompleted.id : null,
-              history: activeCompleted ? [activeCompleted.id] : [],
-              historyIndex: activeCompleted ? 0 : -1,
+              activeVariationId: variations[0]?.id || null,
+              sessionId: session._id,
+              backendSynced: true,
               isLoading: false,
+              loadError: null,
             });
+
             return session;
           } catch (error) {
+            // If the fetch was aborted (e.g. by an AbortController elsewhere), treat it as a benign cancellation
+            const isAbort = !!(error && ((error as any).name === 'AbortError' || /aborted/i.test(String(error))));
+            if (isAbort) {
+              if (process.env.NODE_ENV === 'development') {
+                console.log(`[STORE] fetchBackendSession aborted for sessionId=${sessionId}`);
+              }
+              // Ensure loading state is cleared but don't surface a sync error for cancellations
+              set({ isLoading: false });
+              throw error;
+            }
+
             console.error('Session fetch failed:', error);
             set({ syncError: error instanceof Error ? error.message : 'Fetch failed', isLoading: false });
             throw error;
@@ -595,7 +610,22 @@ export const useCanvasStore = create<CanvasState & CanvasActions>()(
         if (!sessionId) {
           throw new Error('No session ID available');
         }
-        
+        // If the session is not yet marked as canvas, mark it and persist to backend
+        const { taskData, persistToBackend } = get();
+        if (taskData?.stage !== 'canvas') {
+          // update local state immediately (only if taskData exists)
+          if (taskData) {
+            set({ taskData: { ...taskData, stage: 'canvas' } });
+          }
+          try {
+            // persist stage change before creating variation so history reflects canvas
+            await persistToBackend({ workflow: { stage: 'canvas' } });
+          } catch (err) {
+            // log but continue — generation should still proceed
+            console.error('Failed to persist stage change to canvas:', err);
+          }
+        }
+
         const tempId = `temp_${Date.now()}`;
         addVariation({
           id: tempId,

@@ -145,7 +145,21 @@ export async function PATCH(
       }
 
       // Merge workflow updates
-      Object.assign(task.details.workflow, validatedData.workflow);
+      // Protect against client-side downgrades: if the session already has canvas variations,
+      // do not allow a PATCH to set stage back to 'ideation'. The server (variation/worker)
+      // is authoritative for moving to 'canvas'.
+      if (validatedData.workflow.stage && validatedData.workflow.stage === 'ideation') {
+        const hasCanvas = !!(task.details.canvas && Array.isArray(task.details.canvas.variations) && task.details.canvas.variations.length > 0);
+        if (hasCanvas) {
+          // Remove stage from incoming updates so we don't overwrite the canvas state
+          const { stage, ...rest } = validatedData.workflow as any;
+          Object.assign(task.details.workflow, rest);
+        } else {
+          Object.assign(task.details.workflow, validatedData.workflow);
+        }
+      } else {
+        Object.assign(task.details.workflow, validatedData.workflow);
+      }
     }
 
     // Handle canvas updates

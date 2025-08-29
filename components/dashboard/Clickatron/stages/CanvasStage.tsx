@@ -19,11 +19,12 @@ import {
   useCanRedo,
   type Variation,
 } from "@/stores/useCanvasStore";
+import { CreativeDirection } from "@/types/clickatron";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 
 interface CanvasStageProps {
   videoIdea: string;
-  selectedDirection: string;
+  selectedDirection: CreativeDirection;
   selectedPreset?: {
     id: string;
     name: string;
@@ -354,7 +355,7 @@ export function CanvasStage({
                     Generating canvas...
                   </div>
                   <div className="text-zinc-500 text-sm mt-1">
-                    {selectedDirection} style
+                    {selectedDirection?.title} style
                   </div>
                 </div>
               </div>
