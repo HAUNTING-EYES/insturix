@@ -378,7 +378,7 @@ export default function ScriptEditor({
       {!generatingScript || script ? (
         <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
           <CardContent className="p-0">
-            <div className="min-h-[600px] overflow-hidden rounded-lg">
+            <div className="min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
               <BlockNoteView 
                 editor={editor as any}
                 editable={!isPreviewMode}
