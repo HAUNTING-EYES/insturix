@@ -1,0 +1,124 @@
+"use client";
+
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { RectangleHorizontal, Crop, ChevronDown } from 'lucide-react';
+
+const aspectRatios = [
+    { name: 'Square', ratio: '1:1', value: 1 },
+    { name: 'Portrait', ratio: '4:5', value: 4 / 5 },
+    { name: 'Vertical', ratio: '9:16', value: 9 / 16 },
+    { name: 'Landscape', ratio: '16:9', value: 16 / 9 },
+    { name: 'Widescreen', ratio: '1.85:1', value: 1.85 / 1 },
+    { name: 'CinemaScope', ratio: '2.39:1', value: 2.39 / 1 },
+];
+
+interface AspectRatioSelectorProps {
+    value: number;
+    onChange: (value: number) => void;
+}
+
+export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({ value, onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [isCustom, setIsCustom] = useState(false);
+    const [customWidth, setCustomWidth] = useState(16);
+    const [customHeight, setCustomHeight] = useState(9);
+
+    const selectedOption = aspectRatios.find(ar => ar.value === value);
+
+    useEffect(() => {
+        if (!selectedOption) {
+            setIsCustom(true);
+            // Heuristic to parse value back to a common ratio
+            // This is imperfect but better than nothing.
+            // For example 0.5625 becomes 9/16
+            // A more robust solution might involve GCD calculations for fractions
+            if (value > 0) {
+                // For simplicity, we'll just show the decimal value in the custom input
+                // and not try to reverse-engineer a width/height.
+            }
+        } else {
+            setIsCustom(false);
+        }
+    }, [value, selectedOption]);
+
+
+    const handleCustomChange = () => {
+        if (customWidth > 0 && customHeight > 0) {
+            onChange(customWidth / customHeight);
+        }
+    };
+
+    return (
+        <div className="relative w-full">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="w-full flex items-center justify-between px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
+            >
+                <div className="flex items-center">
+                    <RectangleHorizontal className="w-4 h-4 mr-2" />
+                    <span>{selectedOption ? `${selectedOption.name} (${selectedOption.ratio})` : 'Custom'}</span>
+                </div>
+                <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute z-10 w-full mt-1 bg-zinc-900 border border-zinc-700 rounded-md shadow-lg"
+                    >
+                        {aspectRatios.map(ar => (
+                            <div
+                                key={ar.name}
+                                onClick={() => {
+                                    onChange(ar.value);
+                                    setIsOpen(false);
+                                    setIsCustom(false);
+                                }}
+                                className="px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 cursor-pointer flex justify-between items-center"
+                            >
+                                <span>{ar.name}</span>
+                                <span className="text-zinc-500">{ar.ratio}</span>
+                            </div>
+                        ))}
+                        <div
+                            onClick={() => {
+                                setIsCustom(true);
+                                setIsOpen(false);
+                            }}
+                            className="px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-800 cursor-pointer flex items-center"
+                        >
+                            <Crop className="w-4 h-4 mr-2" />
+                            <span>Custom</span>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {isCustom && (
+                <div className="mt-2 flex items-center gap-2">
+                    <input
+                        type="number"
+                        value={customWidth}
+                        onChange={(e) => setCustomWidth(parseInt(e.target.value, 10))}
+                        onBlur={handleCustomChange}
+                        className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded-md text-sm"
+                        placeholder="Width"
+                    />
+                    <span className="text-zinc-500">:</span>
+                    <input
+                        type="number"
+                        value={customHeight}
+                        onChange={(e) => setCustomHeight(parseInt(e.target.value, 10))}
+                        onBlur={handleCustomChange}
+                        className="w-full px-2 py-1 bg-zinc-800 border border-zinc-700 rounded-md text-sm"
+                        placeholder="Height"
+                    />
+                </div>
+            )}
+        </div>
+    );
+};

@@ -21,7 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import { type Variation } from "@/stores/useCanvasStore";
+import { Variation } from "@/types/clickatron";
 import { ImageDisplay } from "./ImageDisplay";
 
 interface VariationsGalleryProps {
@@ -217,7 +217,7 @@ export function VariationsGallery({
                 >
                   {/* Thumbnail image */}
                   <ImageDisplay
-                    imageId={variation.imageId}
+                    imageRef={variation.imageRef}
                     className="w-full h-full object-cover"
                     fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}
                   />

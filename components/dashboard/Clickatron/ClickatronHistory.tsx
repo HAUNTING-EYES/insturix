@@ -1,11 +1,10 @@
 "use client";
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Clock, Image, ArrowRight, Loader2 } from 'lucide-react';
-import { useUserHistory } from '@/hooks/useUserHistory';
 import { useRouter } from 'next/navigation';
 
 const fadeIn = {
@@ -22,9 +21,10 @@ const staggerChildren = {
   }
 };
 
-function formatTimeAgo(timestamp: number): string {
-  const now = Date.now();
-  const diff = now - timestamp;
+function formatTimeAgo(dateString: string): string {
+  const date = new Date(dateString);
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
   
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(diff / (1000 * 60 * 60));
@@ -36,9 +36,36 @@ function formatTimeAgo(timestamp: number): string {
   return 'Just now';
 }
 
+interface HistoryItem {
+    sessionId: string;
+    title: string;
+    updatedAt: string;
+}
+
 export function ClickatronHistory() {
-  const { data: history, isLoading, error } = useUserHistory();
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch('/api/services/clickatron/history');
+        if (!response.ok) {
+          throw new Error('Failed to fetch history');
+        }
+        const data = await response.json();
+        setHistory(data.history);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'An unknown error occurred');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchHistory();
+  }, []);
 
   if (isLoading) {
     return (
@@ -66,7 +93,6 @@ export function ClickatronHistory() {
         <div className="text-zinc-500 mb-4">
           <Image className="h-12 w-12 mx-auto mb-4 opacity-50" />
           <p>Your clickatron sessions will appear here</p>
-          <p className="text-sm text-zinc-400 mt-2">Sessions (including ideations) are saved as you create them</p>
         </div>
       </motion.div>
     );
@@ -91,8 +117,8 @@ export function ClickatronHistory() {
         className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
       >
         {history && history.map((item) => (
-          <motion.div key={item.id} variants={fadeIn}>
-            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 transition-all duration-200 cursor-pointer" onClick={() => router.push(`/dashboard/clickatron/lab/${item.id}`)}>
+          <motion.div key={item.sessionId} variants={fadeIn}>
+            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 transition-all duration-200 cursor-pointer" onClick={() => router.push(`/dashboard/clickatron/lab/${item.sessionId}`)}>
               <CardContent className="p-4">
                 <div className="aspect-video bg-zinc-800/50 rounded-lg mb-3 overflow-hidden flex items-center justify-center text-xs text-zinc-500">
                   Past Sessions
@@ -100,18 +126,12 @@ export function ClickatronHistory() {
 
                 <div className="space-y-2">
                   <h3 className="font-medium text-zinc-200 text-sm line-clamp-2 group-hover:text-zinc-100 transition-colors">
-                    {item.videoIdea || item.name}
+                    {item.title}
                   </h3>
 
                   <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="text-purple-400 bg-purple-500/10 px-2 py-1 rounded">
-                        {item.preset}
-                      </span>
-                      <span className="text-xs text-zinc-400 px-2 py-1 rounded bg-zinc-800/40">{item.stage === 'canvas' ? 'Canvas' : 'Ideation'}</span>
-                    </div>
                     <span className="text-zinc-500">
-                      {formatTimeAgo(item.timestamp)}
+                      {formatTimeAgo(item.updatedAt)}
                     </span>
                   </div>
                 </div>
@@ -122,10 +142,10 @@ export function ClickatronHistory() {
                   className="w-full mt-3 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
                   onClick={(e) => {
                     e.stopPropagation();
-                    router.push(`/dashboard/clickatron/lab/${item.id}`);
+                    router.push(`/dashboard/clickatron/lab/${item.sessionId}`);
                   }}
                 >
-                  {item.stage === 'canvas' ? 'Open Canvas' : 'Open Ideation'}
+                  Open Session
                   <ArrowRight className="h-3 w-3 ml-1" />
                 </Button>
               </CardContent>

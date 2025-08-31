@@ -4,16 +4,19 @@ import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
 import { z } from 'zod';
-import { getQStashClient } from '@/lib/qstash';
+import { SelectIdeaRequestSchema } from '@/types/clickatron';
 
-const SelectIdeaSchema = z.object({
-  ideaId: z.string(),
-  // Optional prompt override if user edits before selecting
-  promptOverride: z.string().min(1).max(1000).optional(),
-});
+const mockImages = [
+  'https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?q=80&w=2874&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+  'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?q=80&w=2940&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+  'https://images.unsplash.com/photo-1554034483-04fda0d3507b?q=80&w=2940&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+  'https://images.unsplash.com/photo-1567359781514-3b964e2b04d6?q=80&w=2835&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+];
+
+const getRandomImage = () => mockImages[Math.floor(Math.random() * mockImages.length)];
 
 // POST /api/services/clickatron/session/:id/ideas/select
-// Marks an idea as selected, advances stage to 'canvas', creates initial variation job
+// Marks an idea as selected, and creates the initial canvas.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -24,8 +27,12 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const { id } = await params;
+    if (!Types.ObjectId.isValid(id)) {
+        return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+    }
+
     const body = await request.json();
-    const { ideaId, promptOverride } = SelectIdeaSchema.parse(body);
+    const { selectedIdea } = SelectIdeaRequestSchema.parse(body);
 
     await getClickatronDb();
     const objectId = new Types.ObjectId(id);
@@ -34,56 +41,27 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    const selected = task.details.workflow.generatedDirections.find((i: any) => i.id === ideaId);
-    if (!selected) {
-      return NextResponse.json({ error: 'Idea not found in session' }, { status: 404 });
-    }
+    // Persist selection
+    task.details.selectedIdea = selectedIdea;
 
-    // Persist selection and stage transition
-    task.details.workflow.selectedDirection = selected;
-    task.details.workflow.stage = 'canvas';
-
-    // Initialize canvas structure
-    if (!task.details.canvas) {
-      task.details.canvas = { variations: [] };
-    }
-
-    // Create first variation placeholder and enqueue job
-    const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const prompt = promptOverride || selected.prompt;
-    const variation = {
-      id: variationId,
-      prompt,
-      timestamp: Date.now(),
-      status: 'generating' as const,
-      fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
-      referenceImages: [],
-      metadata: {},
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    // Initialize canvas with a default variation
+    const variationId = `var_${Date.now()}`;
+    task.details.canvas = {
+      variations: [
+        {
+          id: variationId,
+          prompt: selectedIdea.prompt,
+          status: 'completed',
+          imageRef: getRandomImage(),
+          fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+        },
+      ],
     };
 
-    task.details.canvas.variations.unshift(variation);
-
-    // Mark the mixed-type 'details' field as modified before saving
     task.markModified('details');
     await task.save();
 
-    const qstash = getQStashClient();
-    const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/internal/workers/clickatron/variation`;
-    const job = await qstash.publishJSON({
-      url: workerUrl,
-      body: {
-        sessionId: id,
-        variationId,
-        prompt,
-        userId,
-        fineTuning: variation.fineTuning,
-      },
-      retries: 3,
-    });
-
-    return NextResponse.json({ success: true, variationId, jobId: job.messageId, stage: 'canvas' });
+    return NextResponse.json({ success: true, message: 'Canvas initialized' });
   } catch (error) {
     console.error('Error selecting idea:', error);
     if (error instanceof z.ZodError) {
@@ -92,4 +70,3 @@ export async function POST(
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
-

@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { CanvasPresetSelector, type CanvasPreset, presets } from './CanvasPresetSelector';
 import { EnhancedInput } from './EnhancedInput';
-import { useCanvasStore } from '@/stores/useCanvasStore';
+import useClickatronStore from '@/stores/useCanvasStore';
+import { AspectRatioSelector } from './canvas/AspectRatioSelector';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -20,13 +20,11 @@ const fadeIn = {
 export function VideoIdeaInput() {
   const router = useRouter();
   const { toast } = useToast();
-  const createBackendSession = useCanvasStore((state) => state.createBackendSession);
+  const createSession = useClickatronStore((state) => state.createSession);
 
   const [videoIdea, setVideoIdea] = useState('');
+  const [aspectRatio, setAspectRatio] = useState(16 / 9);
   const [isLoading, setIsLoading] = useState(false);
-  const [selectedPreset, setSelectedPreset] = useState<CanvasPreset>(presets[0]);
-  const [referenceImage, setReferenceImage] = useState<File | null>(null);
-  const [customAspectRatio, setCustomAspectRatio] = useState<{ width: number; height: number }>({ width: 16, height: 9 });
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,12 +44,15 @@ export function VideoIdeaInput() {
     setIsLoading(true);
     
     try {
-      const sessionId = await createBackendSession({
+      const sessionId = await createSession({
         videoIdea: videoIdea.trim(),
-        selectedPreset,
-        stage: 'ideation',
+        aspectRatio: aspectRatio.toString(),
       });
-      router.push(`/dashboard/clickatron/lab/${sessionId}`);
+      if (sessionId) {
+        router.push(`/dashboard/clickatron/lab/${sessionId}`);
+      } else {
+        throw new Error('Session ID not returned');
+      }
     } catch (error) {
       console.error("Failed to create session:", error);
       toast({
@@ -71,13 +72,6 @@ export function VideoIdeaInput() {
           {...fadeIn}
         >
           <div className="w-full">
-            <CanvasPresetSelector 
-              selectedPreset={selectedPreset.id}
-              onPresetChange={setSelectedPreset}
-              customAspectRatio={customAspectRatio}
-              onCustomAspectRatioChange={setCustomAspectRatio}
-            />
-
             <div className="flex flex-col items-center text-center p-3 mt-6">
               <div className="mb-4 relative">
                 <div className="absolute inset-0 rounded-full bg-purple-500/40 blur-2xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
@@ -85,31 +79,25 @@ export function VideoIdeaInput() {
               </div>
             
               <h2 className="text-lg sm:text-xl font-semibold text-zinc-100 mb-2">
-                {selectedPreset.promptText}
+                What's your video about?
               </h2>
                 
                 <p className="text-zinc-400 text-sm mb-4 max-w-2xl mx-auto">
-                  {selectedPreset.id === 'youtube-thumbnail' 
-                    ? "Describe your video idea and we'll help you create the perfect thumbnail"
-                    : selectedPreset.id === 'social-post'
-                    ? "Describe your social media concept and we'll create engaging visuals"
-                    : selectedPreset.id === 'poster-portrait'
-                    ? "Describe your poster concept and we'll design something striking"
-                    : "Describe what you want to create and we'll help bring it to life"
-                  }
+                  Describe your video idea and we'll help you create the perfect thumbnail.
                 </p>
 
                 <form onSubmit={handleFormSubmit} className="w-full max-w-2xl mx-auto">
                   <EnhancedInput
                     value={videoIdea}
                     onChange={setVideoIdea}
-                    placeholder={selectedPreset.placeholder}
+                    placeholder="e.g., A review of the new MacBook Pro"
                     onSubmit={handleSubmit}
-                    onImageUpload={setReferenceImage}
-                    uploadedImage={referenceImage}
                     isLoading={isLoading}
                     disabled={isLoading}
                   />
+                  <div className="mt-4 w-full max-w-xs mx-auto">
+                    <AspectRatioSelector value={aspectRatio} onChange={setAspectRatio} />
+                  </div>
                 </form>
             </div>
           </div>

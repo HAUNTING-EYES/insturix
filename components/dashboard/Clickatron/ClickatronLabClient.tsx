@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IdeationStage } from "./stages/IdeationStage";
 import { CanvasStage } from "./stages/CanvasStage";
-import { useCanvasStore } from "@/stores/useCanvasStore";
+import useClickatronStore from "@/stores/useCanvasStore";
 import { useRouter } from "next/navigation";
+import { Idea } from "@/types/clickatron";
 
 interface ClickatronLabClientProps {
   initialData: {
@@ -24,62 +25,22 @@ const stageTransition = {
 
 export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
   const router = useRouter();
-  const renderCount = useRef(0);
-  renderCount.current += 1;
+  const { task, loadSession, selectIdea } = useClickatronStore();
+  const [isLoading, setIsLoading] = useState(true);
 
-  const taskData = useCanvasStore((s) => s.taskData);
-  const variations = useCanvasStore((s) => s.variations);
-  const fetchBackendSession = useCanvasStore((s) => s.fetchBackendSession);
-  const updateTaskData = useCanvasStore((s) => s.updateTaskData);
-  const createVariation = useCanvasStore((s) => s.createVariation);
-  const isLoading = useCanvasStore((s) => s.isLoading);
-  const loadError = useCanvasStore((s) => s.loadError);
-  const sessionId = useCanvasStore((s) => s.sessionId);
-
-  const [isGenerating, setIsGenerating] = useState(false);
-
-  // Fetch session when initialData.sessionId changes
   useEffect(() => {
     if (initialData?.sessionId) {
-      fetchBackendSession(initialData.sessionId).catch(() => {});
+      setIsLoading(true);
+      loadSession(initialData.sessionId).finally(() => setIsLoading(false));
     }
-  }, [initialData?.sessionId, fetchBackendSession]);
+  }, [initialData?.sessionId, loadSession]);
 
-  const handleIdeationComplete = useCallback(async (data: { selectedDirectionId: string; selectedDirection: string }) => {
-    if (!sessionId) return;
+  const handleIdeationComplete = useCallback(async (idea: Idea) => {
+    if (!task?._id) return;
+    await selectIdea(task._id, idea);
+  }, [task?._id, selectIdea]);
 
-    try {
-      const response = await fetch(`/api/services/clickatron/session/${sessionId}/ideas/select`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ideaId: data.selectedDirectionId,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to select idea');
-      }
-
-      await fetchBackendSession(sessionId);
-    } catch (error) {
-      console.error('Error selecting idea:', error);
-    }
-  }, [sessionId, fetchBackendSession]);
-
-  const handleGenerativeEdit = useCallback(async (prompt: string, settings: any) => {
-    setIsGenerating(true);
-    try {
-      await createVariation({ prompt, ...settings });
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [createVariation]);
-
-  const handleCanvasComplete = useCallback((data: { finalThumbnail: string }) => {
+  const handleCanvasComplete = useCallback(() => {
     router.push('/dashboard/clickatron');
   }, [router]);
 
@@ -94,7 +55,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     );
   }
 
-  if (loadError) {
+  if (!task) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -107,8 +68,8 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
       </div>
     );
   }
-
-  if (!taskData) return null;
+  
+  const currentStage = task.details.canvas ? 'canvas' : 'ideation';
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -124,32 +85,27 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
         </Button>
         <div className="flex-1">
           <h1 className="text-lg font-medium text-zinc-200 truncate">
-            {taskData.videoIdea}
+            {task.details.videoIdea}
           </h1>
         </div>
       </div>
 
       <AnimatePresence mode="wait">
-        {taskData.stage === "ideation" && (
+        {currentStage === "ideation" && (
             <motion.div key="ideation" {...stageTransition}>
             <IdeationStage
-              videoIdea={taskData.videoIdea}
-              selectedPreset={taskData.selectedPreset}
-              sessionId={sessionId || ''}
-              onComplete={handleIdeationComplete}
+              ideas={task.details.ideas || []}
+              onSelectIdea={handleIdeationComplete}
             />
           </motion.div>
         )}
 
-        {taskData.stage === "canvas" && taskData.selectedDirection && (
+        {currentStage === "canvas" && (
           <motion.div key="canvas" {...stageTransition}>
             <CanvasStage
-              videoIdea={taskData.videoIdea}
-              selectedPreset={taskData.selectedPreset}
-              selectedDirection={taskData.selectedDirection}
-              onGenerativeEdit={handleGenerativeEdit}
+              videoIdea={task.details.videoIdea}
               onComplete={handleCanvasComplete}
-              isGenerating={isGenerating}
+              isGenerating={false} // This will be handled differently now
             />
           </motion.div>
         )}
