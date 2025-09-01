@@ -32,9 +32,10 @@ export interface Canvas {
 
 export interface Variation {
   id: string;
-  prompt: string;
-  status: 'completed' | 'generating'; // Simplified status
-  imageRef: string; // URL to the mock image
+  prompt: string; // Can be empty string for blank variations
+  status: 'completed' | 'generating' | 'blank'; // Added blank status
+  imageRef: string; // Can be empty string for blank variations
+  aspectRatio: string; // Moved from session to variation
   fineTuning?: FineTuningControls;
 }
 
@@ -61,7 +62,10 @@ export interface CreateSessionRequest {
 
 export const CreateSessionRequestSchema = z.object({
   videoIdea: z.string().min(1, "Idea cannot be empty"),
-  aspectRatio: z.string().regex(/^\d+:\d+$/, "Aspect ratio must be in format 'W:H'"),
+  // Accept integers or decimals for width and height, e.g. '16:9' or '1.85:1'
+  aspectRatio: z
+    .string()
+    .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'"),
 });
 
 export interface CreateSessionResponse {
@@ -98,6 +102,9 @@ export const SyncCanvasRequestSchema = z.object({
 // Zustand Store Types
 export interface ClickatronStore {
   task: IClickatronTask | null;
+  isSaving: boolean;
+  saveError: string | null;
+  lastSaved: Date | null;
   setTask: (task: IClickatronTask) => void;
   updateCanvas: (canvas: Canvas) => void;
 

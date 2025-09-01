@@ -105,7 +105,7 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
             <CanvasStage
               videoIdea={task.details.videoIdea}
               onComplete={handleCanvasComplete}
-              isGenerating={false} // This will be handled differently now
+              isGenerating={false}
             />
           </motion.div>
         )}

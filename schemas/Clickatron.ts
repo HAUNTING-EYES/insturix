@@ -8,9 +8,10 @@ const FineTuningSchema = new Schema({
 
 const VariationSchema = new Schema({
   id: { type: String, required: true },
-  prompt: { type: String, required: true },
-  imageRef: { type: String, required: true },
-  status: { type: String, enum: ['generating', 'completed', 'failed'], required: true },
+  prompt: { type: String, default: '' },
+  imageRef: { type: String, default: '' },
+  status: { type: String, enum: ['generating', 'completed', 'failed', 'blank'], required: true },
+  aspectRatio: { type: String, required: true },
   fineTuning: { type: FineTuningSchema, required: true, default: () => ({}) },
 });
 
@@ -55,6 +56,9 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
 // Compound index for efficient querying by clerkUserId, status, and createdAt
 ClickatronTaskSchema.index({ clerkUserId: 1, createdAt: -1 });
 
-export const ClickatronTask =
-  mongoose.models.ClickatronTask ||
-  mongoose.model<IClickatronTask>('ClickatronTask', ClickatronTaskSchema);
+// Force model refresh by deleting cached model
+if (mongoose.models.ClickatronTask) {
+  delete mongoose.models.ClickatronTask;
+}
+
+export const ClickatronTask = mongoose.model<IClickatronTask>('ClickatronTask', ClickatronTaskSchema);

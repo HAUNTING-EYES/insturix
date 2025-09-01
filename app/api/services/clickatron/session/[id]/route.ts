@@ -8,33 +8,33 @@ import { SyncCanvasRequestSchema } from '@/types/clickatron';
 
 // GET /api/services/clickatron/session/:id - Fetch a single session
 export async function GET(
-    request: Request,
-    { params }: { params: { id: string } }
+  request: Request,
+  { params }: { params: { id: string } }
 ) {
-    try {
-        const { userId } = await auth();
-        if (!userId) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
-
-        const { id } = params;
-        if (!Types.ObjectId.isValid(id)) {
-            return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
-        }
-
-        await getClickatronDb();
-        const objectId = new Types.ObjectId(id);
-        const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
-
-        if (!task) {
-            return NextResponse.json({ error: 'Session not found' }, { status: 404 });
-        }
-
-        return NextResponse.json({ session: task });
-    } catch (error) {
-        console.error('Error fetching session:', error);
-        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const { id } = await params;
+    if (!Types.ObjectId.isValid(id)) {
+      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+    }
+
+    await getClickatronDb();
+    const objectId = new Types.ObjectId(id);
+    const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
+
+    if (!task) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    return NextResponse.json({ session: task });
+  } catch (error) {
+    console.error('Error fetching session:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }
 
 // PATCH /api/services/clickatron/session/:id - Sync canvas data
@@ -50,7 +50,7 @@ export async function PATCH(
 
     const { id } = await params;
     if (!Types.ObjectId.isValid(id)) {
-        return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
     }
 
     const body = await request.json();

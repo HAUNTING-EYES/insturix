@@ -216,11 +216,18 @@ export function VariationsGallery({
                   }}
                 >
                   {/* Thumbnail image */}
-                  <ImageDisplay
-                    imageRef={variation.imageRef}
-                    className="w-full h-full object-cover"
-                    fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}
-                  />
+                  {variation.status === 'blank' || !variation.imageRef || variation.imageRef.trim() === '' ? (
+                    <div className="w-full h-full bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center">
+                      <Plus className="h-3 w-3 text-zinc-500" />
+                    </div>
+                  ) : (
+                    <ImageDisplay
+                      imageRef={variation.imageRef}
+                      status={variation.status}
+                      className="w-full h-full object-cover"
+                      fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}
+                    />
+                  )}
 
                   {/* Active indicator - subtle white dot */}
                   {activeVariationId === variation.id && (

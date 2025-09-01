@@ -23,7 +23,7 @@ export function VideoIdeaInput() {
   const createSession = useClickatronStore((state) => state.createSession);
 
   const [videoIdea, setVideoIdea] = useState('');
-  const [aspectRatio, setAspectRatio] = useState(16 / 9);
+  const [aspectRatio, setAspectRatio] = useState('16:9');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -46,7 +46,7 @@ export function VideoIdeaInput() {
     try {
       const sessionId = await createSession({
         videoIdea: videoIdea.trim(),
-        aspectRatio: aspectRatio.toString(),
+        aspectRatio: aspectRatio,
       });
       if (sessionId) {
         router.push(`/dashboard/clickatron/lab/${sessionId}`);

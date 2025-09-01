@@ -13,6 +13,9 @@ const useClickatronStore = create<ClickatronStore>()(
   devtools(
     (set, get) => ({
       task: null,
+      isSaving: false,
+      saveError: null,
+      lastSaved: null,
       setTask: (task) => set({ task }),
       
       updateCanvas: (canvas) => {
@@ -83,6 +86,9 @@ const useClickatronStore = create<ClickatronStore>()(
       },
 
       syncCanvas: async (sessionId, canvas) => {
+        // Set saving state
+        set({ isSaving: true, saveError: null });
+        
         // Optimistic update
         const originalTask = get().task;
         set(produce((state: ClickatronStore) => {
@@ -100,12 +106,15 @@ const useClickatronStore = create<ClickatronStore>()(
 
           if (!response.ok) {
             // Revert on failure
-            set({ task: originalTask });
+            set({ task: originalTask, isSaving: false, saveError: 'Failed to sync canvas' });
             throw new Error('Failed to sync canvas');
           }
+          
+          // Success
+          set({ isSaving: false, saveError: null, lastSaved: new Date() });
         } catch (error) {
           // Revert on failure
-          set({ task: originalTask });
+          set({ task: originalTask, isSaving: false, saveError: error instanceof Error ? error.message : 'Unknown error' });
           console.error('Error syncing canvas:', error);
         }
       },

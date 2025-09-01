@@ -44,7 +44,7 @@ export async function POST(
     // Persist selection
     task.details.selectedIdea = selectedIdea;
 
-    // Initialize canvas with a default variation
+    // Initialize canvas with a default variation using session's aspect ratio
     const variationId = `var_${Date.now()}`;
     task.details.canvas = {
       variations: [
@@ -53,6 +53,7 @@ export async function POST(
           prompt: selectedIdea.prompt,
           status: 'completed',
           imageRef: getRandomImage(),
+          aspectRatio: task.details.aspectRatio, // Use session's aspect ratio for first variation
           fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
         },
       ],

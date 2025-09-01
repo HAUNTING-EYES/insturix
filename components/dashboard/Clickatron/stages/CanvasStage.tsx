@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
-import { CanvasActions } from '../canvas/CanvasActions';
+import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole } from "../canvas/AICommandConsole";
 import useClickatronStore from "@/stores/useCanvasStore";
@@ -10,7 +10,8 @@ import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
 import { useDebounce } from "use-debounce";
 import { produce } from "immer";
-import { CanvasControls } from '../canvas/CanvasControls';
+import { CanvasControls } from "../canvas/CanvasControls";
+import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -24,14 +25,39 @@ const fadeIn = {
   transition: { duration: 0.4, ease: "easeOut" } as any,
 };
 
-export function CanvasStage({
-  videoIdea,
-}: CanvasStageProps) {
-  const { task, updateCanvas, syncCanvas } = useClickatronStore();
-  const [activeVariationId, setActiveVariationId] = useState<string | null>(null);
+export function CanvasStage({ videoIdea }: CanvasStageProps) {
+  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved } =
+    useClickatronStore();
+  const [activeVariationId, setActiveVariationId] = useState<string | null>(
+    null
+  );
+  const imageRef = useRef<ReactZoomPanPinchRef>(null);
 
   const canvas = task?.details.canvas;
   const variations = canvas?.variations || [];
+
+  // Get aspect ratio from first variation, fallback to session aspect ratio
+  const currentAspectRatio =
+    variations.length > 0 && variations[0].aspectRatio
+      ? variations[0].aspectRatio
+      : task?.details.aspectRatio || "16:9";
+
+  // Ensure all variations have aspectRatio field (migration for existing data)
+  useEffect(() => {
+    if (canvas && variations.length > 0) {
+      const needsMigration = variations.some(v => !v.aspectRatio);
+      if (needsMigration) {
+        const migratedCanvas = produce(canvas, draft => {
+          draft.variations.forEach(variation => {
+            if (!variation.aspectRatio) {
+              variation.aspectRatio = task?.details.aspectRatio || "16:9";
+            }
+          });
+        });
+        updateCanvas(migratedCanvas);
+      }
+    }
+  }, [canvas, variations, task?.details.aspectRatio, updateCanvas]);
 
   useEffect(() => {
     if (!activeVariationId && variations.length > 0) {
@@ -39,7 +65,7 @@ export function CanvasStage({
     }
   }, [variations, activeVariationId]);
 
-  const activeVariation = variations.find(v => v.id === activeVariationId);
+  const activeVariation = variations.find((v) => v.id === activeVariationId);
 
   const [debouncedCanvas] = useDebounce(canvas, 1000);
   useEffect(() => {
@@ -51,54 +77,97 @@ export function CanvasStage({
   const handleVariationSelect = (variationId: string) => {
     setActiveVariationId(variationId);
   };
-  
-  const handleAIGenerate = (prompt: string) => {
-      if(!canvas) return;
 
+  const handleAIGenerate = (prompt: string) => {
+    if (!canvas) return;
+
+    // Check if active variation is blank - if so, update it instead of creating new one
+    if (activeVariation && activeVariation.status === "blank") {
+      const newCanvas = produce(canvas, (draft) => {
+        const variation = draft.variations.find(
+          (v) => v.id === activeVariation.id
+        );
+        if (variation) {
+          variation.prompt = prompt;
+          variation.status = "completed";
+          variation.imageRef = `https://picsum.photos/1280/720?random=${Date.now()}`;
+        }
+      });
+      updateCanvas(newCanvas);
+    } else {
+      // Create new variation
       const newVariation = {
         id: `var_${Date.now()}`,
         prompt,
-        status: 'completed' as const,
+        status: "completed" as const,
         imageRef: `https://picsum.photos/1280/720?random=${Date.now()}`,
+        aspectRatio: currentAspectRatio, // Use current aspect ratio
         fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       };
 
-      const newCanvas = produce(canvas, draft => {
-          draft.variations.unshift(newVariation);
+      const newCanvas = produce(canvas, (draft) => {
+        draft.variations.unshift(newVariation);
       });
-      
+
       updateCanvas(newCanvas);
       setActiveVariationId(newVariation.id);
-  }
+    }
+  };
 
   const handleNewCanvas = () => {
-    if(!canvas) return;
+    if (!canvas) return;
     const newVariation = {
       id: `new_canvas_${Date.now()}`,
-      prompt: "",
-      status: 'completed' as const,
-      imageRef: `https://picsum.photos/1280/720?random=${Date.now()}`,
+      prompt: "", // Empty prompt for blank variations
+      status: "blank" as const, // New variations start as blank
+      imageRef: "", // Empty image for blank variations
+      aspectRatio: currentAspectRatio, // Use current aspect ratio
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
     };
-    const newCanvas = produce(canvas, draft => {
-        draft.variations.unshift(newVariation);
+    const newCanvas = produce(canvas, (draft) => {
+      draft.variations.unshift(newVariation);
     });
     updateCanvas(newCanvas);
     setActiveVariationId(newVariation.id);
   };
 
+  const handleDuplicateCanvas = (variationId: string) => {
+    if (!canvas) return;
+    
+    const originalVariation = variations.find(v => v.id === variationId);
+    if (!originalVariation) return;
+
+    const duplicatedVariation = {
+      ...originalVariation,
+      id: `dup_${Date.now()}`,
+    };
+
+    const newCanvas = produce(canvas, (draft) => {
+      const originalIndex = draft.variations.findIndex(v => v.id === variationId);
+      // Insert the duplicate right after the original
+      draft.variations.splice(originalIndex + 1, 0, duplicatedVariation);
+    });
+    
+    updateCanvas(newCanvas);
+    setActiveVariationId(duplicatedVariation.id);
+  };
+
   const handleFinetuningChange = (
     variationId: string,
-    key: 'brightness' | 'contrast' | 'saturation',
+    key: "brightness" | "contrast" | "saturation",
     value: number
   ) => {
     if (!canvas) return;
 
-    const newCanvas = produce(canvas, draft => {
-      const variation = draft.variations.find(v => v.id === variationId);
+    const newCanvas = produce(canvas, (draft) => {
+      const variation = draft.variations.find((v) => v.id === variationId);
       if (variation) {
         if (!variation.fineTuning) {
-          variation.fineTuning = { brightness: 100, contrast: 100, saturation: 100 };
+          variation.fineTuning = {
+            brightness: 100,
+            contrast: 100,
+            saturation: 100,
+          };
         }
         variation.fineTuning[key] = value;
       }
@@ -142,42 +211,53 @@ export function CanvasStage({
             <h2 className="text-lg font-semibold text-zinc-100 truncate">
               {videoIdea}
             </h2>
-            <SaveStatusIndicator isSaving={false} saveError={null} lastSaved={new Date()} />
+            <SaveStatusIndicator
+              isSaving={isSaving}
+              saveError={saveError ? new Error(saveError) : null}
+              lastSaved={lastSaved}
+            />
           </div>
         </div>
 
         <div className="flex-1 flex flex-col items-center justify-center p-8 pb-32 overflow-hidden relative">
-            <ImageDisplay
-                imageRef={activeVariation.imageRef}
-                status={activeVariation.status}
-                variationId={activeVariation.id}
-                fineTuning={activeVariation.fineTuning}
-            />
-            <CanvasActions
-                onZoomIn={() => console.log("Zoom In")}
-                onZoomOut={() => console.log("Zoom Out")}
-                onDownload={() => console.log("Download")}
-                onShare={() => console.log("Share")}
-            />
-            {activeVariation.fineTuning && (
-              <CanvasControls
-                brightness={activeVariation.fineTuning.brightness}
-                contrast={activeVariation.fineTuning.contrast}
-                saturation={activeVariation.fineTuning.saturation}
-                onBrightnessChange={(val) => handleFinetuningChange(activeVariation.id, 'brightness', val)}
-                onContrastChange={(val) => handleFinetuningChange(activeVariation.id, 'contrast', val)}
-                onSaturationChange={(val) => handleFinetuningChange(activeVariation.id, 'saturation', val)}
-              />
-            )}
+          <ImageDisplay
+            ref={imageRef}
+            imageRef={activeVariation.imageRef}
+            status={activeVariation.status}
+            variationId={activeVariation.id}
+            fineTuning={activeVariation.fineTuning}
+          />
+          <CanvasActions
+            onZoomIn={() => imageRef.current?.zoomIn()}
+            onZoomOut={() => imageRef.current?.zoomOut()}
+            onDownload={() => console.log("Download")}
+            onShare={() => console.log("Share")}
+          />
         </div>
       </div>
-      
-      <div className="relative z-20">
+
+      <div className="relative z-20 w-80 bg-zinc-900/80 backdrop-blur-md border-l border-zinc-700/80 p-4 flex flex-col gap-4">
         <AICommandConsole
           onGenerate={handleAIGenerate}
           isGenerating={false}
           galleryCollapsed={false}
         />
+        {activeVariation.fineTuning && (
+          <CanvasControls
+            brightness={activeVariation.fineTuning.brightness}
+            contrast={activeVariation.fineTuning.contrast}
+            saturation={activeVariation.fineTuning.saturation}
+            onBrightnessChange={(val) =>
+              handleFinetuningChange(activeVariation.id, "brightness", val)
+            }
+            onContrastChange={(val) =>
+              handleFinetuningChange(activeVariation.id, "contrast", val)
+            }
+            onSaturationChange={(val) =>
+              handleFinetuningChange(activeVariation.id, "saturation", val)
+            }
+          />
+        )}
       </div>
     </motion.div>
   );

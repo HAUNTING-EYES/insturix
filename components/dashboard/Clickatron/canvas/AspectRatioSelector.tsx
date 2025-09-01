@@ -5,17 +5,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { RectangleHorizontal, Crop, ChevronDown } from 'lucide-react';
 
 const aspectRatios = [
-    { name: 'Square', ratio: '1:1', value: 1 },
-    { name: 'Portrait', ratio: '4:5', value: 4 / 5 },
-    { name: 'Vertical', ratio: '9:16', value: 9 / 16 },
-    { name: 'Landscape', ratio: '16:9', value: 16 / 9 },
-    { name: 'Widescreen', ratio: '1.85:1', value: 1.85 / 1 },
-    { name: 'CinemaScope', ratio: '2.39:1', value: 2.39 / 1 },
+    { name: 'Square', ratio: '1:1', value: '1:1' },
+    { name: 'Portrait', ratio: '4:5', value: '4:5' },
+    { name: 'Vertical', ratio: '9:16', value: '9:16' },
+    { name: 'Landscape', ratio: '16:9', value: '16:9' },
+    { name: 'Widescreen', ratio: '1.85:1', value: '1.85:1' },
+    { name: 'CinemaScope', ratio: '2.39:1', value: '2.39:1' },
 ];
 
 interface AspectRatioSelectorProps {
-    value: number;
-    onChange: (value: number) => void;
+    value: string;
+    onChange: (value: string) => void;
 }
 
 export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({ value, onChange }) => {
@@ -29,13 +29,13 @@ export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({ value,
     useEffect(() => {
         if (!selectedOption) {
             setIsCustom(true);
-            // Heuristic to parse value back to a common ratio
-            // This is imperfect but better than nothing.
-            // For example 0.5625 becomes 9/16
-            // A more robust solution might involve GCD calculations for fractions
-            if (value > 0) {
-                // For simplicity, we'll just show the decimal value in the custom input
-                // and not try to reverse-engineer a width/height.
+            // If value is a string like 'W:H' try to parse into width/height for the inputs
+            if (typeof value === 'string' && value.includes(':')) {
+                const parts = value.split(':').map(p => parseInt(p, 10));
+                if (parts.length === 2 && parts[0] > 0 && parts[1] > 0) {
+                    setCustomWidth(parts[0]);
+                    setCustomHeight(parts[1]);
+                }
             }
         } else {
             setIsCustom(false);
@@ -45,13 +45,14 @@ export const AspectRatioSelector: React.FC<AspectRatioSelectorProps> = ({ value,
 
     const handleCustomChange = () => {
         if (customWidth > 0 && customHeight > 0) {
-            onChange(customWidth / customHeight);
+            onChange(`${customWidth}:${customHeight}`);
         }
     };
 
     return (
         <div className="relative w-full">
             <button
+                type="button"
                 onClick={() => setIsOpen(!isOpen)}
                 className="w-full flex items-center justify-between px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md text-sm text-zinc-300 hover:bg-zinc-700 transition-colors"
             >
