@@ -12,6 +12,7 @@ import { useDebounce } from "use-debounce";
 import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
+import { Settings } from "lucide-react";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -25,12 +26,70 @@ const fadeIn = {
   transition: { duration: 0.4, ease: "easeOut" } as any,
 };
 
+// Helper function to get aspect ratio dimensions
+const getAspectRatioDimensions = (aspectRatio: string, maxWidth: number, maxHeight: number) => {
+  const [widthRatio, heightRatio] = aspectRatio.split(':').map(Number);
+  const ratio = widthRatio / heightRatio;
+  
+  let width = maxWidth;
+  let height = width / ratio;
+  
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * ratio;
+  }
+  
+  return { width, height };
+};
+
+// Blank Canvas Component
+const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
+  const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      const containerWidth = window.innerWidth - 400; // Approximate sidebar widths
+      const containerHeight = window.innerHeight - 200; // Header and padding
+      const { width, height } = getAspectRatioDimensions(
+        aspectRatio, 
+        Math.min(containerWidth * 0.8, 1200), 
+        Math.min(containerHeight * 0.8, 800)
+      );
+      setDimensions({ width, height });
+    };
+
+    updateDimensions();
+    window.addEventListener('resize', updateDimensions);
+    return () => window.removeEventListener('resize', updateDimensions);
+  }, [aspectRatio]);
+
+  return (
+    <div 
+      className="bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300"
+      style={{ 
+        width: `${dimensions.width}px`, 
+        height: `${dimensions.height}px`,
+        minWidth: '300px',
+        minHeight: '200px'
+      }}
+    >
+      <div className="text-center">
+        <div className="text-zinc-400 text-lg mb-2">Create Image to Start</div>
+        <div className="text-zinc-500/70 text-sm">Use the AI console below to generate your first image</div>
+        <div className="text-zinc-600 text-xs mt-2">{aspectRatio} aspect ratio</div>
+      </div>
+    </div>
+  );
+};
+
 export function CanvasStage({ videoIdea }: CanvasStageProps) {
+  // All hooks must be called at the top level, before any early returns
   const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved } =
     useClickatronStore();
   const [activeVariationId, setActiveVariationId] = useState<string | null>(
     null
   );
+  const [galleryCollapsed, setGalleryCollapsed] = useState(false);
   const imageRef = useRef<ReactZoomPanPinchRef>(null);
 
   const canvas = task?.details.canvas;
@@ -41,6 +100,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     variations.length > 0 && variations[0].aspectRatio
       ? variations[0].aspectRatio
       : task?.details.aspectRatio || "16:9";
+
+  const [debouncedCanvas] = useDebounce(canvas, 1000);
 
   // Ensure all variations have aspectRatio field (migration for existing data)
   useEffect(() => {
@@ -65,14 +126,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, [variations, activeVariationId]);
 
-  const activeVariation = variations.find((v) => v.id === activeVariationId);
-
-  const [debouncedCanvas] = useDebounce(canvas, 1000);
   useEffect(() => {
     if (debouncedCanvas && task?._id) {
       syncCanvas(task._id, debouncedCanvas);
     }
   }, [debouncedCanvas, task?._id, syncCanvas]);
+
+  const activeVariation = variations.find((v) => v.id === activeVariationId);
 
   const handleVariationSelect = (variationId: string) => {
     setActiveVariationId(variationId);
@@ -152,6 +212,27 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     setActiveVariationId(duplicatedVariation.id);
   };
 
+  const handleDeleteCanvas = (variationId: string) => {
+    if (!canvas || variations.length <= 1) return; // Don't delete if it's the last variation
+    
+    const newCanvas = produce(canvas, (draft) => {
+      const variationIndex = draft.variations.findIndex(v => v.id === variationId);
+      if (variationIndex !== -1) {
+        draft.variations.splice(variationIndex, 1);
+      }
+    });
+    
+    updateCanvas(newCanvas);
+    
+    // If we deleted the active variation, select another one
+    if (activeVariationId === variationId) {
+      const remainingVariations = newCanvas.variations;
+      if (remainingVariations.length > 0) {
+        setActiveVariationId(remainingVariations[0].id);
+      }
+    }
+  };
+
   const handleFinetuningChange = (
     variationId: string,
     key: "brightness" | "contrast" | "saturation",
@@ -191,6 +272,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       {...fadeIn}
       className="fixed inset-0 bg-zinc-950 flex overflow-hidden"
     >
+      {/* Left Sidebar - Variations Gallery */}
       <div className="relative z-10">
         <VariationsGallery
           variations={variations}
@@ -198,14 +280,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           onVariationSelect={handleVariationSelect}
           onAddToCompare={() => {}}
           onNewCanvas={handleNewCanvas}
-          onDuplicateCanvas={() => {}}
-          onDeleteCanvas={() => {}}
-          isCollapsed={false}
-          onToggleCollapse={() => {}}
+          onDuplicateCanvas={handleDuplicateCanvas}
+          onDeleteCanvas={handleDeleteCanvas}
+          isCollapsed={galleryCollapsed}
+          onToggleCollapse={() => setGalleryCollapsed(!galleryCollapsed)}
         />
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Main Canvas Area */}
+      <div className="flex-1 flex flex-col min-w-0 relative">
+        {/* Top Header */}
         <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10">
           <div className="text-center">
             <h2 className="text-lg font-semibold text-zinc-100 truncate">
@@ -219,45 +303,76 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           </div>
         </div>
 
-        <div className="flex-1 flex flex-col items-center justify-center p-8 pb-32 overflow-hidden relative">
-          <ImageDisplay
-            ref={imageRef}
-            imageRef={activeVariation.imageRef}
-            status={activeVariation.status}
-            variationId={activeVariation.id}
-            fineTuning={activeVariation.fineTuning}
-          />
-          <CanvasActions
-            onZoomIn={() => imageRef.current?.zoomIn()}
-            onZoomOut={() => imageRef.current?.zoomOut()}
-            onDownload={() => console.log("Download")}
-            onShare={() => console.log("Share")}
+        {/* Canvas Display Area */}
+        <div className="flex-1 flex overflow-hidden relative bg-zinc-900/20">
+          {/* Main Canvas Container */}
+          <div className="flex-1 flex items-center justify-center p-8 overflow-hidden relative">
+            {/* Canvas Actions - Top Center */}
+            <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20">
+              <CanvasActions
+                onZoomIn={() => imageRef.current?.zoomIn(0.3)}
+                onZoomOut={() => imageRef.current?.zoomOut(0.3)}
+                onResetZoom={() => imageRef.current?.resetTransform()}
+                onDownload={() => console.log("Download")}
+                onShare={() => console.log("Share")}
+              />
+            </div>
+
+            {/* Image Display with proper sizing */}
+            <div className="relative w-full h-full flex items-center justify-center">
+              {activeVariation.status === 'blank' || !activeVariation.imageRef ? (
+                // Blank canvas with proper aspect ratio
+                <BlankCanvas aspectRatio={currentAspectRatio} />
+              ) : (
+                <ImageDisplay
+                  ref={imageRef}
+                  imageRef={activeVariation.imageRef}
+                  status={activeVariation.status}
+                  variationId={activeVariation.id}
+                  fineTuning={activeVariation.fineTuning}
+                  className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Right Sidebar - Fine-tuning Controls */}
+          <div className="w-80 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-700/80 flex flex-col shadow-2xl">
+            {activeVariation.fineTuning ? (
+              <CanvasControls
+                brightness={activeVariation.fineTuning.brightness}
+                contrast={activeVariation.fineTuning.contrast}
+                saturation={activeVariation.fineTuning.saturation}
+                onBrightnessChange={(val) =>
+                  handleFinetuningChange(activeVariation.id, "brightness", val)
+                }
+                onContrastChange={(val) =>
+                  handleFinetuningChange(activeVariation.id, "contrast", val)
+                }
+                onSaturationChange={(val) =>
+                  handleFinetuningChange(activeVariation.id, "saturation", val)
+                }
+              />
+            ) : (
+              <div className="flex-1 flex items-center justify-center p-6">
+                <div className="text-center text-zinc-500">
+                  <Settings className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No adjustments available</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom AI Command Console */}
+        <div className="relative z-30">
+          <AICommandConsole
+            onGenerate={handleAIGenerate}
+            isGenerating={false}
+            galleryCollapsed={galleryCollapsed}
+            className="border-t border-zinc-800/80"
           />
         </div>
-      </div>
-
-      <div className="relative z-20 w-80 bg-zinc-900/80 backdrop-blur-md border-l border-zinc-700/80 p-4 flex flex-col gap-4">
-        <AICommandConsole
-          onGenerate={handleAIGenerate}
-          isGenerating={false}
-          galleryCollapsed={false}
-        />
-        {activeVariation.fineTuning && (
-          <CanvasControls
-            brightness={activeVariation.fineTuning.brightness}
-            contrast={activeVariation.fineTuning.contrast}
-            saturation={activeVariation.fineTuning.saturation}
-            onBrightnessChange={(val) =>
-              handleFinetuningChange(activeVariation.id, "brightness", val)
-            }
-            onContrastChange={(val) =>
-              handleFinetuningChange(activeVariation.id, "contrast", val)
-            }
-            onSaturationChange={(val) =>
-              handleFinetuningChange(activeVariation.id, "saturation", val)
-            }
-          />
-        )}
       </div>
     </motion.div>
   );

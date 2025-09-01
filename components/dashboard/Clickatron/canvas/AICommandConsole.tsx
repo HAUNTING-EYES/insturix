@@ -115,35 +115,19 @@ export function AICommandConsole({
     setReferenceImages(prev => prev.filter(img => img.id !== imageId));
   };
 
-  // Calculate proper centering accounting for dashboard sidebar (64px) and canvas sidebars
-  const leftOffset = 64; // Dashboard sidebar
-  const galleryWidth = galleryCollapsed ? 60 : 280;
-  const fineTuningWidth = 320; // 80 * 4 = 320px (w-80)
-  const totalSidebarWidth = leftOffset + galleryWidth + fineTuningWidth;
-  const availableWidth = `calc(100vw - ${totalSidebarWidth}px)`;
-  const leftMargin = leftOffset + galleryWidth;
-
   return (
     <motion.div
       initial={{ y: 100, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.4, ease: "easeOut" }}
       className={`
-        fixed bottom-0 left-0 right-0 z-50
         bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800/80
         ${className}
       `}
     >
-      <div 
-        className="p-4 transition-all duration-300"
-        style={{
-          marginLeft: `${leftMargin}px`,
-          marginRight: `${fineTuningWidth}px`,
-          width: availableWidth,
-        }}
-      >
+      <div className="p-6 max-w-5xl mx-auto">
         {/* Main Input Container */}
-        <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-3">
+        <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-4 max-w-4xl mx-auto">
           {/* Reference Images - Inline with input */}
           <AnimatePresence>
             {referenceImages.length > 0 && (
