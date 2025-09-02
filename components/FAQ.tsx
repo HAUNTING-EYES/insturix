@@ -52,6 +52,11 @@ const faqs = [
     answer:
       "Our unique combination of AI technology, user-focused design, and commitment to innovation sets us apart. We're constantly evolving to meet our users' needs.",
   },
+  {
+    question: "How do I delete all my data?",
+    answer:
+      "To delete all your data, navigate to the dashboard, go to the sidebar, hover over your profile icon/username, and click on Settings > Profile > Delete Account. Confirm the deletion. This will permanently remove all your data, including uploads and account information.",
+  },
 ];
 
 export default function FAQ() {
