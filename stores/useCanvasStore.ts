@@ -74,9 +74,22 @@ const useClickatronStore = create<ClickatronStore>()(
           if (!response.ok) {
             throw new Error('Failed to select idea');
           }
-          
-          // After selecting an idea, we should reload the session to get the new canvas
+
+          // Immediately load the session to get the "generating" state
           await get().loadSession(sessionId);
+
+          // Poll for updates
+          const poll = setInterval(async () => {
+            await get().loadSession(sessionId);
+            const task = get().task;
+            const variation = task?.details.canvas?.variations[0];
+            if (variation && variation.status !== 'generating') {
+              clearInterval(poll);
+            }
+          }, 2000);
+
+          // Stop polling after 30 seconds to prevent infinite loops
+          setTimeout(() => clearInterval(poll), 30000);
 
           return true;
         } catch (error) {

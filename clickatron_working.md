@@ -68,6 +68,47 @@ Images are displayed with professional zoom and pan controls using react-zoom-pa
 
 Fine-tuning adjustments (brightness, contrast, saturation) are applied using CSS filters, providing real-time preview without requiring server-side image processing.
 
+### Ideal Image Generation Flow
+
+The image generation process is designed to be asynchronous, using QStash for background processing. Generation is triggered in two specific scenarios:
+
+1.  **Initial Canvas Creation**: When a user selects a creative idea for the first time.
+2.  **Generative Edit**: When a user provides a new prompt via the AI Command Console in the canvas.
+
+#### 1. Initial Canvas Generation
+
+*   **Trigger**: User selects an idea in the `IdeationStage`.
+*   **Frontend**: The `selectIdea` action in the Zustand store calls the `/api/services/clickatron/session/[id]/ideas/select` endpoint.
+*   **Backend (`select/route.ts`)**:
+    1.  Creates a new variation with `status: 'generating'`.
+    2.  Creates a job in Redis via `createJob()`.
+    3.  Enqueues the job with QStash, pointing to the `/api/internal/workers/clickatron/variation` worker.
+    4.  The frontend receives the updated session state, showing the variation in a "generating" state.
+
+#### 2. Generative Edit in Canvas
+
+*   **Trigger**: User submits a prompt in the `AICommandConsole`.
+*   **Frontend**: The `handleAIGenerate` function in `CanvasStage.tsx` calls the `/api/services/clickatron/session/[id]/variation` endpoint.
+*   **Backend (`variation/route.ts`)**:
+    1.  Creates a new variation with `status: 'generating'`.
+    2.  Creates a job in Redis and enqueues it with QStash, pointing to the same worker.
+
+#### 3. QStash Worker
+
+*   **File**: `/api/internal/workers/clickatron/variation/route.ts`
+*   **Behavior**: This endpoint is called by QStash to process the generation job.
+*   **Implementation (Mock)**: For now, the worker will:
+    1.  Receive the job payload (sessionId, variationId, prompt).
+    2.  Wait for a few seconds to simulate processing.
+    3.  Select a random mock image from a predefined list.
+    4.  Update the `ClickatronTask` in MongoDB, setting the variation's `status` to `completed` and `imageRef` to the mock image URL.
+
+#### 4. Frontend Updates
+
+*   The frontend now polls the session endpoint every 2 seconds to check for updates after an idea is selected.
+*   Once the job is done, the UI will automatically update the variation from "generating" to "completed" and display the new image.
+*   Creating a new variation from the canvas UI (e.g., "New Canvas" button) will create a variation with `status: 'blank'` and will NOT trigger any image generation.
+
 ### Aspect Ratio Handling
 
 Blank canvases dynamically size themselves based on the selected aspect ratio and available screen space. The system calculates appropriate dimensions that fit within the interface while maintaining the correct proportions, with responsive updates on window resize.

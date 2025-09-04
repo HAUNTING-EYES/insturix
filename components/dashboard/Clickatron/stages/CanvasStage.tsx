@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
-import { AICommandConsole } from "../canvas/AICommandConsole";
+import { AICommandConsole, ReferenceImage } from "../canvas/AICommandConsole";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
@@ -27,18 +27,22 @@ const fadeIn = {
 };
 
 // Helper function to get aspect ratio dimensions
-const getAspectRatioDimensions = (aspectRatio: string, maxWidth: number, maxHeight: number) => {
-  const [widthRatio, heightRatio] = aspectRatio.split(':').map(Number);
+const getAspectRatioDimensions = (
+  aspectRatio: string,
+  maxWidth: number,
+  maxHeight: number
+) => {
+  const [widthRatio, heightRatio] = aspectRatio.split(":").map(Number);
   const ratio = widthRatio / heightRatio;
-  
+
   let width = maxWidth;
   let height = width / ratio;
-  
+
   if (height > maxHeight) {
     height = maxHeight;
     width = height * ratio;
   }
-  
+
   return { width, height };
 };
 
@@ -51,32 +55,36 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
       const containerWidth = window.innerWidth - 400; // Approximate sidebar widths
       const containerHeight = window.innerHeight - 200; // Header and padding
       const { width, height } = getAspectRatioDimensions(
-        aspectRatio, 
-        Math.min(containerWidth * 0.8, 1200), 
+        aspectRatio,
+        Math.min(containerWidth * 0.8, 1200),
         Math.min(containerHeight * 0.8, 800)
       );
       setDimensions({ width, height });
     };
 
     updateDimensions();
-    window.addEventListener('resize', updateDimensions);
-    return () => window.removeEventListener('resize', updateDimensions);
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
   }, [aspectRatio]);
 
   return (
-    <div 
+    <div
       className="bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300"
-      style={{ 
-        width: `${dimensions.width}px`, 
+      style={{
+        width: `${dimensions.width}px`,
         height: `${dimensions.height}px`,
-        minWidth: '300px',
-        minHeight: '200px'
+        minWidth: "300px",
+        minHeight: "200px",
       }}
     >
       <div className="text-center">
         <div className="text-zinc-400 text-lg mb-2">Create Image to Start</div>
-        <div className="text-zinc-500/70 text-sm">Use the AI console below to generate your first image</div>
-        <div className="text-zinc-600 text-xs mt-2">{aspectRatio} aspect ratio</div>
+        <div className="text-zinc-500/70 text-sm">
+          Use the AI console below to generate your first image
+        </div>
+        <div className="text-zinc-600 text-xs mt-2">
+          {aspectRatio} aspect ratio
+        </div>
       </div>
     </div>
   );
@@ -106,10 +114,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   // Ensure all variations have aspectRatio field (migration for existing data)
   useEffect(() => {
     if (canvas && variations.length > 0) {
-      const needsMigration = variations.some(v => !v.aspectRatio);
+      const needsMigration = variations.some((v) => !v.aspectRatio);
       if (needsMigration) {
-        const migratedCanvas = produce(canvas, draft => {
-          draft.variations.forEach(variation => {
+        const migratedCanvas = produce(canvas, (draft) => {
+          draft.variations.forEach((variation) => {
             if (!variation.aspectRatio) {
               variation.aspectRatio = task?.details.aspectRatio || "16:9";
             }
@@ -126,11 +134,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, [variations, activeVariationId]);
 
+  // Autosave canvas
   useEffect(() => {
-    if (debouncedCanvas && task?._id) {
+    if (
+      debouncedCanvas &&
+      task?._id &&
+      JSON.stringify(debouncedCanvas) !== JSON.stringify(task.details.canvas)
+    ) {
       syncCanvas(task._id, debouncedCanvas);
     }
-  }, [debouncedCanvas, task?._id, syncCanvas]);
+  }, [debouncedCanvas, task?._id, syncCanvas, task?.details.canvas]);
 
   const activeVariation = variations.find((v) => v.id === activeVariationId);
 
@@ -138,30 +151,43 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     setActiveVariationId(variationId);
   };
 
-  const handleAIGenerate = (prompt: string) => {
-    if (!canvas) return;
+  const handleAIGenerate = async (
+    prompt: string,
+    referenceImages?: ReferenceImage[]
+  ) => {
+    if (!canvas || !task?._id) return;
 
-    // Check if active variation is blank - if so, update it instead of creating new one
-    if (activeVariation && activeVariation.status === "blank") {
-      const newCanvas = produce(canvas, (draft) => {
-        const variation = draft.variations.find(
-          (v) => v.id === activeVariation.id
-        );
-        if (variation) {
-          variation.prompt = prompt;
-          variation.status = "completed";
-          variation.imageRef = `https://picsum.photos/1280/720?random=${Date.now()}`;
+    const imageDataUrls = referenceImages?.map((img) => img.data) || [];
+
+    try {
+      const response = await fetch(
+        `/api/services/clickatron/session/${task._id}/variation`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt,
+            fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+            referenceImages: imageDataUrls,
+            metadata: { aspectRatio: currentAspectRatio },
+          }),
         }
-      });
-      updateCanvas(newCanvas);
-    } else {
-      // Create new variation
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to generate variation");
+      }
+
+      const data = await response.json();
+      console.log("Variation generation queued:", data);
+
+      // Create a new variation in "generating" state
       const newVariation = {
-        id: `var_${Date.now()}`,
+        id: data.variationId,
         prompt,
-        status: "completed" as const,
-        imageRef: `https://picsum.photos/1280/720?random=${Date.now()}`,
-        aspectRatio: currentAspectRatio, // Use current aspect ratio
+        status: "blank" as const,
+        imageRef: "",
+        aspectRatio: currentAspectRatio,
         fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       };
 
@@ -171,6 +197,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
       updateCanvas(newCanvas);
       setActiveVariationId(newVariation.id);
+    } catch (error) {
+      console.error("Error generating variation:", error);
+      // Handle error appropriately in UI
     }
   };
 
@@ -179,7 +208,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     const newVariation = {
       id: `new_canvas_${Date.now()}`,
       prompt: "", // Empty prompt for blank variations
-      status: "blank" as const, // New variations start as blank
+      status: "generating" as const,
       imageRef: "", // Empty image for blank variations
       aspectRatio: currentAspectRatio, // Use current aspect ratio
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
@@ -193,8 +222,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const handleDuplicateCanvas = (variationId: string) => {
     if (!canvas) return;
-    
-    const originalVariation = variations.find(v => v.id === variationId);
+
+    const originalVariation = variations.find((v) => v.id === variationId);
     if (!originalVariation) return;
 
     const duplicatedVariation = {
@@ -203,27 +232,31 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     };
 
     const newCanvas = produce(canvas, (draft) => {
-      const originalIndex = draft.variations.findIndex(v => v.id === variationId);
+      const originalIndex = draft.variations.findIndex(
+        (v) => v.id === variationId
+      );
       // Insert the duplicate right after the original
       draft.variations.splice(originalIndex + 1, 0, duplicatedVariation);
     });
-    
+
     updateCanvas(newCanvas);
     setActiveVariationId(duplicatedVariation.id);
   };
 
   const handleDeleteCanvas = (variationId: string) => {
     if (!canvas || variations.length <= 1) return; // Don't delete if it's the last variation
-    
+
     const newCanvas = produce(canvas, (draft) => {
-      const variationIndex = draft.variations.findIndex(v => v.id === variationId);
+      const variationIndex = draft.variations.findIndex(
+        (v) => v.id === variationId
+      );
       if (variationIndex !== -1) {
         draft.variations.splice(variationIndex, 1);
       }
     });
-    
+
     updateCanvas(newCanvas);
-    
+
     // If we deleted the active variation, select another one
     if (activeVariationId === variationId) {
       const remainingVariations = newCanvas.variations;
@@ -320,7 +353,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
             {/* Image Display with proper sizing */}
             <div className="relative w-full h-full flex items-center justify-center">
-              {activeVariation.status === 'blank' || !activeVariation.imageRef ? (
+              {activeVariation.status === "blank" &&
+              !activeVariation.imageRef ? (
                 // Blank canvas with proper aspect ratio
                 <BlankCanvas aspectRatio={currentAspectRatio} />
               ) : (

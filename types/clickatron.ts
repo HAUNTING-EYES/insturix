@@ -5,12 +5,17 @@ export interface IClickatronTask {
   _id?: string;
   clerkUserId: string;
   title?: string;
+  status?: 'pending' | 'processing' | 'completed' | 'failed';
   details: {
     videoIdea: string;
     aspectRatio: string;
     ideas?: Idea[];
     selectedIdea?: Idea;
     canvas?: Canvas;
+    workflow?: {
+      stage: 'ideation' | 'canvas';
+      workflowVersion: number;
+    };
   };
   error_message?: string;
   createdAt: Date;
@@ -45,12 +50,6 @@ export interface FineTuningControls {
   saturation: number;
 }
 
-export interface CanvasPreset {
-  id: string;
-  name: string;
-  aspectRatio: string;
-  dimensions: string;
-}
 
 // API Request/Response Types
 
@@ -85,6 +84,46 @@ export const SelectIdeaRequestSchema = z.object({
     description: z.string(),
     prompt: z.string(),
   }),
+});
+
+// POST /api/services/clickatron/session/[id]/variation
+export interface CreateVariationRequest {
+  prompt: string;
+  fineTuning?: FineTuningControls;
+  referenceImages?: string[]; // Store as data URLs
+  metadata?: Record<string, any>;
+}
+
+export const CreateVariationRequestSchema = z.object({
+  prompt: z.string().min(1, "Prompt is required"),
+  fineTuning: z.object({
+    brightness: z.number().min(0).max(200).default(100),
+    contrast: z.number().min(0).max(200).default(100),
+    saturation: z.number().min(0).max(200).default(100),
+  }).optional(),
+  referenceImages: z.array(z.string()).optional(),
+  metadata: z.record(z.any()).optional(),
+});
+
+// PATCH /api/services/clickatron/session/[id]/variation/[varId]
+export interface UpdateVariationRequest {
+  status?: 'completed' | 'failed' | 'generating';
+  imageRef?: string;
+  fineTuning?: FineTuningControls;
+  metadata?: Record<string, any>;
+}
+
+export const UpdateVariationRequestSchema = z.object({
+  status: z.enum(['completed', 'failed', 'generating']).optional(),
+  imageRef: z.string().optional(),
+  fineTuning: z.object({
+    brightness: z.number().min(0).max(200),
+    contrast: z.number().min(0).max(200),
+    saturation: z.number().min(0).max(200),
+  }).optional(),
+  metadata: z.record(z.any()).optional(),
+}).refine((data) => Object.keys(data).length > 0, {
+  message: "At least one field must be provided for update",
 });
 
 // PATCH /api/services/clickatron/session/[id]

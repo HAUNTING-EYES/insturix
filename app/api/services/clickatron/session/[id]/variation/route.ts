@@ -6,6 +6,7 @@ import { Types } from 'mongoose';
 import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
+import { enqueueQStashJob } from '@/lib/clickatron-qtask';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
@@ -19,7 +20,7 @@ export async function POST(
     }
 
     const { id } = await params;
-    
+
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
     }
@@ -29,7 +30,7 @@ export async function POST(
 
     // Find the task
     const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
-    
+
     if (!task) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
@@ -62,24 +63,15 @@ export async function POST(
       task.details.canvas = { variations: [] };
     }
 
-    // Ensure workflow exists and mark session as canvas (guard server-side to keep session lifecycle authoritative)
-    if (!task.details.workflow) {
-      task.details.workflow = {
-        videoIdea: task.title || 'Untitled Session',
-        stage: 'canvas',
-        workflowVersion: 1,
-      };
-    } else {
-      task.details.workflow.stage = 'canvas';
-    }
 
     // Create new variation
     const variationId = `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const newVariation = {
       id: variationId,
       prompt: validatedData.prompt,
-      timestamp: Date.now(),
       status: 'generating' as const,
+      imageRef: '',
+      aspectRatio: validatedData.metadata?.aspectRatio || '16:9',
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
         contrast: 100,
@@ -90,14 +82,12 @@ export async function POST(
     };
 
     // Add variation to canvas (capping at 50)
-    const currentVariations = task.details.canvas.variations || [];
+    const currentVariations = task.details.canvas?.variations || [];
     currentVariations.unshift(newVariation); // Add to beginning
 
     // Keep only the 50 most recent variations
     task.details.canvas.variations = currentVariations.slice(0, 50);
 
-    // Update task status and save
-    task.status = 'processing';
     task.updatedAt = new Date();
     await task.save();
 
@@ -158,27 +148,3 @@ export async function POST(
   }
 }
 
-/**
- * Enqueue job with QStash
- */
-async function enqueueQStashJob(jobData: any) {
-  const { Client } = await import('@upstash/qstash');
-
-  const qstashClient = new Client({
-    token: process.env.UPSTASH_QSTASH_TOKEN!,
-  });
-
-  const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/internal/workers/clickatron/variation`;
-
-  const result = await qstashClient.publishJSON({
-    url: workerUrl,
-    body: jobData,
-    retries: 3,
-    // Add signature verification in production
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  });
-
-  return result;
-}

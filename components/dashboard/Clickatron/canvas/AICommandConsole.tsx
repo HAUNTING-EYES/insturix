@@ -6,7 +6,7 @@ import { Send, Image, Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
-interface ReferenceImage {
+export interface ReferenceImage {
   id: string;
   name: string;
   size: number;

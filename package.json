@@ -58,6 +58,7 @@
     "@tanstack/react-query": "^5.81.5",
     "@tanstack/react-table": "^8.21.3",
     "@upstash/qstash": "^2.8.2",
+    "@upstash/qstash-cli": "^2.30.4",
     "@upstash/redis": "^1.35.3",
     "@vercel/analytics": "^1.5.0",
     "@vercel/edge": "^1.2.2",
