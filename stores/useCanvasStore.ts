@@ -28,6 +28,17 @@ const useClickatronStore = create<ClickatronStore>()(
         );
       },
 
+      // Update canvas without triggering autosave (for backend updates)
+      setCanvasFromBackend: (canvas) => {
+        set(
+          produce((state: ClickatronStore) => {
+            if (state.task) {
+              state.task.details.canvas = canvas;
+            }
+          })
+        );
+      },
+
       createSession: async (request) => {
         try {
           const response = await fetch('/api/services/clickatron/session', {
@@ -78,18 +89,28 @@ const useClickatronStore = create<ClickatronStore>()(
           // Immediately load the session to get the "generating" state
           await get().loadSession(sessionId);
 
-          // Poll for updates
+          // Set up polling with proper cleanup
+          let pollCount = 0;
+          const maxPolls = 15; // 30 seconds max (15 * 2 seconds)
+          
           const poll = setInterval(async () => {
-            await get().loadSession(sessionId);
-            const task = get().task;
-            const variation = task?.details.canvas?.variations[0];
-            if (variation && variation.status !== 'generating') {
+            pollCount++;
+            
+            try {
+              await get().loadSession(sessionId);
+              const task = get().task;
+              const variation = task?.details.canvas?.variations[0];
+              
+              // Stop polling if generation is complete or we've reached max attempts
+              if (variation && variation.status !== 'generating' || pollCount >= maxPolls) {
+                clearInterval(poll);
+                console.log('Polling stopped:', variation?.status || 'max attempts reached');
+              }
+            } catch (error) {
+              console.error('Polling error:', error);
               clearInterval(poll);
             }
           }, 2000);
-
-          // Stop polling after 30 seconds to prevent infinite loops
-          setTimeout(() => clearInterval(poll), 30000);
 
           return true;
         } catch (error) {
@@ -99,35 +120,70 @@ const useClickatronStore = create<ClickatronStore>()(
       },
 
       syncCanvas: async (sessionId, canvas) => {
+        // Prevent concurrent syncs
+        if (get().isSaving) {
+          console.log('Sync already in progress, skipping...');
+          return;
+        }
+
         // Set saving state
         set({ isSaving: true, saveError: null });
         
-        // Optimistic update
-        const originalTask = get().task;
-        set(produce((state: ClickatronStore) => {
-            if(state.task) {
-                state.task.details.canvas = canvas;
+        // Get current state for intelligent merging
+        const currentTask = get().task;
+        if (!currentTask) {
+          set({ isSaving: false, saveError: 'No task available' });
+          return;
+        }
+
+        // Create merged canvas that preserves backend updates
+        const mergedCanvas = produce(canvas, (draft) => {
+          // For each variation in the frontend canvas
+          draft.variations.forEach((frontendVariation, index) => {
+            // Find corresponding variation in current task (which may have backend updates)
+            const backendVariation = currentTask.details.canvas?.variations.find(
+              (v) => v.id === frontendVariation.id
+            );
+            
+            if (backendVariation) {
+              // Preserve backend-controlled fields (status, imageRef) if they're more recent
+              // Backend updates these when generation completes
+              if (backendVariation.status === 'completed' && backendVariation.imageRef) {
+                frontendVariation.status = backendVariation.status;
+                frontendVariation.imageRef = backendVariation.imageRef;
+              }
+              
+              // Keep frontend-controlled fields (fineTuning, prompt for user edits)
+              // These are what the user is actively modifying
             }
-        }));
+          });
+        });
 
         try {
           const response = await fetch(`/api/services/clickatron/session/${sessionId}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ canvas }),
+            body: JSON.stringify({ canvas: mergedCanvas }),
           });
 
           if (!response.ok) {
-            // Revert on failure
-            set({ task: originalTask, isSaving: false, saveError: 'Failed to sync canvas' });
+            set({ isSaving: false, saveError: 'Failed to sync canvas' });
             throw new Error('Failed to sync canvas');
           }
           
-          // Success
+          // Success - update the task state directly without triggering loadSession
+          set(produce((state: ClickatronStore) => {
+            if (state.task) {
+              state.task.details.canvas = mergedCanvas;
+              state.task.updatedAt = new Date();
+            }
+          }));
+          
+          // Set saving state separately to avoid potential issues
           set({ isSaving: false, saveError: null, lastSaved: new Date() });
+
         } catch (error) {
-          // Revert on failure
-          set({ task: originalTask, isSaving: false, saveError: error instanceof Error ? error.message : 'Unknown error' });
+          set({ isSaving: false, saveError: error instanceof Error ? error.message : 'Unknown error' });
           console.error('Error syncing canvas:', error);
         }
       },
@@ -139,6 +195,8 @@ const useClickatronStore = create<ClickatronStore>()(
             throw new Error('Failed to load session');
           }
           const data = await response.json();
+          
+          // Simply set the task - the component will handle preventing autosave loops
           set({ task: data.session });
         } catch (error) {
           console.error('Error loading session:', error);

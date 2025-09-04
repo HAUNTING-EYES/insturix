@@ -14,20 +14,33 @@ The store manages:
 
 All state updates use Immer's `produce` function to ensure immutability when modifying nested objects like the canvas data.
 
-### Optimistic Updates
+### Optimistic Updates with Intelligent Merging
 
-Clickatron provides instant UI feedback through optimistic updates. When users make changes:
+Clickatron provides instant UI feedback through optimistic updates with intelligent conflict resolution. When users make changes:
 
 1. **Immediate UI Update**: Changes appear instantly in the interface
-2. **Background Sync**: API call happens in the background
-3. **Error Recovery**: If the API call fails, the UI automatically reverts to the previous state
-4. **User Feedback**: Loading indicators and error messages keep users informed
+2. **Background Sync**: API call happens in the background with intelligent merging
+3. **Conflict Resolution**: Frontend and backend changes are merged intelligently:
+   - **Frontend-controlled fields**: User modifications (fineTuning, prompt edits) take precedence
+   - **Backend-controlled fields**: Generation status and image URLs are preserved when completed
+4. **Error Recovery**: If the API call fails, the UI automatically reverts to the previous state
+5. **State Synchronization**: After successful sync, latest state is fetched to ensure consistency
 
-This pattern ensures the interface feels responsive while maintaining data integrity.
+This pattern ensures the interface feels responsive while preventing conflicts between user edits and background generation processes.
 
-### Auto-save with Debouncing
+### Auto-save with Debouncing and Intelligent Merging
 
-Changes are automatically saved to prevent data loss. The system uses a 1-second debounce delay, meaning it waits for users to stop making changes before syncing to the backend. This prevents excessive API calls while ensuring no work is lost.
+Changes are automatically saved to prevent data loss with intelligent conflict resolution. The system uses a 1-second debounce delay, meaning it waits for users to stop making changes before syncing to the backend. 
+
+**Key Features:**
+- **Debounced Sync**: Prevents excessive API calls while ensuring no work is lost
+- **Intelligent Merging**: Resolves conflicts between frontend user edits and backend generation updates
+- **Field Separation**: 
+  - Frontend controls: fineTuning parameters, user prompt modifications
+  - Backend controls: variation status, generated image URLs
+- **State Consistency**: Post-sync state refresh ensures UI reflects latest backend state
+
+This prevents the common issue where frontend autosave overwrites backend generation completion status.
 
 ### API Design
 
@@ -65,7 +78,19 @@ The interface is built with a three-panel layout:
 - **Variation**: Individual image versions that you create and switch between
 - The canvas contains and displays variations, but variations are the actual content
 
-Components follow React's Rules of Hooks - all hooks are called at the top level before any conditional logic or early returns. State is managed through Zustand selectors to prevent unnecessary re-renders.
+**State Management:**
+- Components follow React's Rules of Hooks - all hooks are called at the top level before any conditional logic or early returns
+- State is managed through Zustand selectors to prevent unnecessary re-renders
+- **Active Variation Handling**: The system gracefully handles null active variation states:
+  - When no variation is selected: Shows "Select a variation" placeholder
+  - When all variations are deleted: Maintains UI structure with disabled controls
+  - When creating new variations: Immediately sets as active to prevent null states
+
+**Variation Management:**
+- **New Variation**: Creates blank variation with `status: 'blank'` and sets as active immediately
+- **Duplicate Variation**: Creates copy of existing variation and sets as active
+- **Delete Variation**: Handles active variation cleanup, selects next available or sets to null
+- **Generation**: Updates status from 'blank' to 'generating' to 'completed' with proper state preservation
 
 ### Image Handling & Canvas Controls
 
@@ -126,6 +151,13 @@ The system handles errors gracefully at multiple levels:
 - **Validation errors**: Clear feedback on invalid input data
 - **Network issues**: Retry mechanisms and offline state indicators
 - **Authentication**: Proper handling of expired sessions and unauthorized access
+- **State Conflicts**: Intelligent merging prevents data loss from concurrent updates
+- **Null State Handling**: Graceful UI degradation when no variations are available
+
+**Specific Conflict Resolution:**
+- **Generation vs User Edits**: Backend generation status preserved while user fine-tuning changes are maintained
+- **Concurrent Updates**: Post-sync state refresh ensures consistency across all clients
+- **Variation Management**: Proper cleanup and state transitions prevent UI from getting stuck in loading states
 
 Users always receive clear feedback about what went wrong and how to proceed.
 

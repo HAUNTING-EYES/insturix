@@ -11,7 +11,7 @@ Clickatron bridges the gap between creative vision and professional execution by
 - **Intelligent Ideation**: AI-powered creative concept generation from simple video ideas
 - **Professional Canvas**: Advanced editing workspace with real-time fine-tuning controls
 - **Variation Management**: Complete creative session history with instant switching between concepts
-- **Optimistic Updates**: Seamless user experience with automatic background synchronization
+- **Optimistic Updates**: Seamless user experience with intelligent conflict resolution and automatic background synchronization
 
 ## How It Works
 
@@ -57,7 +57,7 @@ Professional editing environment featuring:
 
 - **Real-time Fine-tuning**: Instant preview of brightness, contrast, and saturation adjustments
 - **Variation Management**: Create, duplicate, delete, and organize image variations
-- **Optimistic Updates**: Changes appear instantly while syncing in the background
+- **Optimistic Updates**: Changes appear instantly while syncing in the background with intelligent conflict resolution
 - **Auto-save**: Debounced synchronization prevents data loss
 - **Blank Variation Support**: Proper aspect ratio placeholders for new variations
 - **Professional Zoom Controls**: Zoom in/out/reset with smooth pan functionality
@@ -75,8 +75,9 @@ To avoid confusion in the codebase and user interface:
 
 - **Zustand Store**: Centralized state management for the entire creative session
 - **MongoDB Persistence**: All session data stored in MongoDB for reliability
-- **Optimistic UI**: Immediate feedback with background synchronization
-- **Error Recovery**: Automatic rollback on sync failures
+- **Optimistic UI**: Immediate feedback with intelligent conflict resolution
+- **Smart Merging**: Separates frontend-controlled (user edits) from backend-controlled (generation status) fields
+- **Error Recovery**: Automatic rollback on sync failures with state consistency checks
 
 ## Technical Architecture
 
@@ -114,7 +115,7 @@ To avoid confusion in the codebase and user interface:
 - **Guided Creativity**: Structured process from idea to final image
 - **Professional Tools**: Advanced controls without overwhelming complexity
 - **Complete History**: Never lose creative decisions or variations
-- **Seamless Experience**: Optimistic updates with reliable persistence
+- **Seamless Experience**: Intelligent optimistic updates with reliable persistence and conflict resolution
 
 ## Getting Started
 

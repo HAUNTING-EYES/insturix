@@ -15,6 +15,7 @@ interface CanvasControlsProps {
     onBrightnessChange: (value: number) => void;
     onContrastChange: (value: number) => void;
     onSaturationChange: (value: number) => void;
+    disabled?: boolean;
 }
 
 export const CanvasControls: React.FC<CanvasControlsProps> = ({
@@ -23,7 +24,8 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
     saturation,
     onBrightnessChange,
     onContrastChange,
-    onSaturationChange
+    onSaturationChange,
+    disabled = false
 }) => {
     const handleReset = () => {
         onBrightnessChange(100);
@@ -49,7 +51,8 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                         variant="ghost"
                         size="sm"
                         onClick={handleReset}
-                        className="text-zinc-400 hover:text-zinc-200 h-8 px-2"
+                        disabled={disabled}
+                        className="text-zinc-400 hover:text-zinc-200 h-8 px-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         <RotateCcw className="w-4 h-4 mr-1" />
                         Reset
@@ -76,10 +79,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <div className="px-1">
                         <Slider
                             value={[brightness]}
-                            onValueChange={([val]) => onBrightnessChange(val)}
+                            onValueChange={([val]) => !disabled && onBrightnessChange(val)}
                             min={0}
                             max={200}
                             step={1}
+                            disabled={disabled}
                             className="w-full"
                         />
                         <div className="flex justify-between text-xs text-zinc-600 mt-1">
@@ -108,10 +112,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <div className="px-1">
                         <Slider
                             value={[contrast]}
-                            onValueChange={([val]) => onContrastChange(val)}
+                            onValueChange={([val]) => !disabled && onContrastChange(val)}
                             min={0}
                             max={200}
                             step={1}
+                            disabled={disabled}
                             className="w-full"
                         />
                         <div className="flex justify-between text-xs text-zinc-600 mt-1">
@@ -140,10 +145,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <div className="px-1">
                         <Slider
                             value={[saturation]}
-                            onValueChange={([val]) => onSaturationChange(val)}
+                            onValueChange={([val]) => !disabled && onSaturationChange(val)}
                             min={0}
                             max={200}
                             step={1}
+                            disabled={disabled}
                             className="w-full"
                         />
                         <div className="flex justify-between text-xs text-zinc-600 mt-1">

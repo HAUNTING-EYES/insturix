@@ -37,7 +37,7 @@ export async function GET(
   }
 }
 
-// PATCH /api/services/clickatron/session/:id - Sync canvas data
+// PATCH /api/services/clickatron/session/:id - Sync canvas data with intelligent merging
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } }
@@ -62,6 +62,36 @@ export async function PATCH(
 
     if (!task) {
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    // Intelligent merging: preserve backend-controlled fields while updating frontend-controlled fields
+    if (task.details.canvas && task.details.canvas.variations) {
+      const mergedVariations = canvas.variations.map((frontendVariation: any) => {
+        const backendVariation = task.details.canvas?.variations.find(
+          (v: any) => v.id === frontendVariation.id
+        );
+        
+        if (backendVariation) {
+          // Preserve backend-controlled fields (status, imageRef) if they indicate completion
+          const preserveBackendFields = 
+            backendVariation.status === 'completed' && 
+            backendVariation.imageRef && 
+            frontendVariation.status !== 'completed';
+            
+          return {
+            ...frontendVariation,
+            // Preserve backend status and imageRef if backend has completed the generation
+            ...(preserveBackendFields && {
+              status: backendVariation.status,
+              imageRef: backendVariation.imageRef
+            })
+          };
+        }
+        
+        return frontendVariation;
+      });
+      
+      canvas.variations = mergedVariations;
     }
 
     task.details.canvas = canvas;

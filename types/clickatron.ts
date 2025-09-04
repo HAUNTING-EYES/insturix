@@ -146,6 +146,7 @@ export interface ClickatronStore {
   lastSaved: Date | null;
   setTask: (task: IClickatronTask) => void;
   updateCanvas: (canvas: Canvas) => void;
+  setCanvasFromBackend: (canvas: Canvas) => void;
 
   // Actions
   createSession: (request: CreateSessionRequest) => Promise<string | null>; // Returns sessionId

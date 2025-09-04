@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
@@ -78,9 +78,57 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
       }}
     >
       <div className="text-center">
-        <div className="text-zinc-400 text-lg mb-2">Create Variation to Start</div>
+        <div className="text-zinc-400 text-lg mb-2">
+          Create Variation to Start
+        </div>
         <div className="text-zinc-500/70 text-sm">
           Use the AI console below to generate your first image
+        </div>
+        <div className="text-zinc-600 text-xs mt-2">
+          {aspectRatio} aspect ratio
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// No Variation Selected Component
+const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
+  aspectRatio,
+}) => {
+  const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      const containerWidth = window.innerWidth - 400; // Approximate sidebar widths
+      const containerHeight = window.innerHeight - 200; // Header and padding
+      const { width, height } = getAspectRatioDimensions(
+        aspectRatio,
+        Math.min(containerWidth * 0.8, 1200),
+        Math.min(containerHeight * 0.8, 800)
+      );
+      setDimensions({ width, height });
+    };
+
+    updateDimensions();
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
+  }, [aspectRatio]);
+
+  return (
+    <div
+      className="bg-zinc-800/20 border-2 border-dashed border-zinc-700/30 flex items-center justify-center rounded-lg transition-all duration-300"
+      style={{
+        width: `${dimensions.width}px`,
+        height: `${dimensions.height}px`,
+        minWidth: "300px",
+        minHeight: "200px",
+      }}
+    >
+      <div className="text-center">
+        <div className="text-zinc-400 text-lg mb-2">Select a Variation</div>
+        <div className="text-zinc-500/70 text-sm">
+          Choose a variation from the gallery to view and edit
         </div>
         <div className="text-zinc-600 text-xs mt-2">
           {aspectRatio} aspect ratio
@@ -99,6 +147,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   );
   const [galleryCollapsed, setGalleryCollapsed] = useState(false);
   const imageRef = useRef<ReactZoomPanPinchRef>(null);
+  const lastSyncedCanvasRef = useRef<string | null>(null);
+  const isInitialMount = useRef(true);
+  const renderCount = useRef(0);
+
+  // Debug: Track re-renders (only warn if excessive)
+  renderCount.current += 1;
+  if (renderCount.current > 50 && renderCount.current % 10 === 0) {
+    console.warn("CanvasStage re-rendered", renderCount.current, "times - check for infinite loops");
+  }
 
   const canvas = task?.details.canvas;
   const variations = canvas?.variations || [];
@@ -111,11 +168,23 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const [debouncedCanvas] = useDebounce(canvas, 1000);
 
-  // Ensure all variations have aspectRatio field (migration for existing data)
+  // Debug: Log when debounced canvas changes (only in development)
   useEffect(() => {
-    if (canvas && variations.length > 0) {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Debounced canvas changed:', {
+        hasCanvas: !!debouncedCanvas,
+        variationsCount: debouncedCanvas?.variations?.length || 0
+      });
+    }
+  }, [debouncedCanvas]);
+
+  // Ensure all variations have aspectRatio field (migration for existing data)
+  const hasMigratedRef = useRef(false);
+  useEffect(() => {
+    if (canvas && variations.length > 0 && !hasMigratedRef.current) {
       const needsMigration = variations.some((v) => !v.aspectRatio);
       if (needsMigration) {
+        hasMigratedRef.current = true;
         const migratedCanvas = produce(canvas, (draft) => {
           draft.variations.forEach((variation) => {
             if (!variation.aspectRatio) {
@@ -126,7 +195,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         updateCanvas(migratedCanvas);
       }
     }
-  }, [canvas, variations, task?.details.aspectRatio, updateCanvas]);
+  }, [canvas?.variations?.length]); // Only depend on variations count, not the full objects
 
   useEffect(() => {
     if (!activeVariationId && variations.length > 0) {
@@ -134,22 +203,38 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, [variations, activeVariationId]);
 
-  // Autosave canvas
+  // Autosave canvas - simplified approach
   useEffect(() => {
-    if (
-      debouncedCanvas &&
-      task?._id &&
-      JSON.stringify(debouncedCanvas) !== JSON.stringify(task.details.canvas)
-    ) {
+    // Skip on initial mount to prevent immediate sync
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      if (debouncedCanvas) {
+        lastSyncedCanvasRef.current = JSON.stringify(debouncedCanvas);
+      }
+      return;
+    }
+
+    if (!debouncedCanvas || !task?._id || isSaving) {
+      return;
+    }
+
+    const currentCanvasString = JSON.stringify(debouncedCanvas);
+    const isDifferentFromLastSync = currentCanvasString !== lastSyncedCanvasRef.current;
+    
+    if (isDifferentFromLastSync) {
+      if (process.env.NODE_ENV === 'development') {
+        console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!");
+      }
+      lastSyncedCanvasRef.current = currentCanvasString;
       syncCanvas(task._id, debouncedCanvas);
     }
-  }, [debouncedCanvas, task?._id, syncCanvas, task?.details.canvas]);
+  }, [debouncedCanvas, task?._id, isSaving]);
 
   const activeVariation = variations.find((v) => v.id === activeVariationId);
 
-  const handleVariationSelect = (variationId: string) => {
+  const handleVariationSelect = useCallback((variationId: string) => {
     setActiveVariationId(variationId);
-  };
+  }, []);
 
   const handleAIGenerate = async (
     prompt: string,
@@ -185,7 +270,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const newVariation = {
         id: data.variationId,
         prompt,
-        status: "blank" as const,
+        status: "generating" as const,
         imageRef: "",
         aspectRatio: currentAspectRatio,
         fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
@@ -203,12 +288,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   };
 
-  const handleNewVariation = () => {
+  const handleNewVariation = useCallback(() => {
     if (!canvas) return;
     const newVariation = {
       id: `new_variation_${Date.now()}`,
       prompt: "", // Empty prompt for blank variations
-      status: "generating" as const,
+      status: "blank" as const, // Use blank status for new variations
       imageRef: "", // Empty image for blank variations
       aspectRatio: currentAspectRatio, // Use current aspect ratio
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
@@ -217,61 +302,75 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       draft.variations.unshift(newVariation);
     });
     updateCanvas(newCanvas);
+    // Immediately set as active variation to prevent null state
     setActiveVariationId(newVariation.id);
-  };
+  }, [canvas, currentAspectRatio]); // Removed updateCanvas from deps
 
-  const handleDuplicateVariation = (variationId: string) => {
-    if (!canvas) return;
+  const handleDuplicateVariation = useCallback(
+    (variationId: string) => {
+      if (!canvas) return;
 
-    const originalVariation = variations.find((v) => v.id === variationId);
-    if (!originalVariation) return;
+      const originalVariation = variations.find((v) => v.id === variationId);
+      if (!originalVariation) return;
 
-    const duplicatedVariation = {
-      ...originalVariation,
-      id: `dup_${Date.now()}`,
-    };
+      const duplicatedVariation = {
+        ...originalVariation,
+        id: `dup_${Date.now()}`,
+      };
 
-    const newCanvas = produce(canvas, (draft) => {
-      const originalIndex = draft.variations.findIndex(
-        (v) => v.id === variationId
-      );
-      // Insert the duplicate right after the original
-      draft.variations.splice(originalIndex + 1, 0, duplicatedVariation);
-    });
+      const newCanvas = produce(canvas, (draft) => {
+        const originalIndex = draft.variations.findIndex(
+          (v) => v.id === variationId
+        );
+        // Insert the duplicate right after the original
+        draft.variations.splice(originalIndex + 1, 0, duplicatedVariation);
+      });
 
-    updateCanvas(newCanvas);
-    setActiveVariationId(duplicatedVariation.id);
-  };
+      updateCanvas(newCanvas);
+      setActiveVariationId(duplicatedVariation.id);
+    },
+    [canvas, variations] // Removed updateCanvas from deps
+  );
 
-  const handleDeleteVariation = (variationId: string) => {
-    if (!canvas || variations.length <= 1) return; // Don't delete if it's the last variation
+  const handleDeleteVariation = useCallback(
+    (variationId: string) => {
+      if (!canvas) return;
 
-    const newCanvas = produce(canvas, (draft) => {
-      const variationIndex = draft.variations.findIndex(
-        (v) => v.id === variationId
-      );
-      if (variationIndex !== -1) {
-        draft.variations.splice(variationIndex, 1);
+      const newCanvas = produce(canvas, (draft) => {
+        const variationIndex = draft.variations.findIndex(
+          (v) => v.id === variationId
+        );
+        if (variationIndex !== -1) {
+          draft.variations.splice(variationIndex, 1);
+        }
+      });
+
+      updateCanvas(newCanvas);
+
+      // If we deleted the active variation, select another one
+      if (activeVariationId === variationId) {
+        const remainingVariations = newCanvas.variations;
+        if (remainingVariations.length > 0) {
+          setActiveVariationId(remainingVariations[0].id);
+        } else {
+          // No variations left, set to null
+          setActiveVariationId(null);
+        }
       }
-    });
+    },
+    [canvas, activeVariationId] // Removed updateCanvas from deps
+  );
 
-    updateCanvas(newCanvas);
-
-    // If we deleted the active variation, select another one
-    if (activeVariationId === variationId) {
-      const remainingVariations = newCanvas.variations;
-      if (remainingVariations.length > 0) {
-        setActiveVariationId(remainingVariations[0].id);
-      }
-    }
-  };
-
-  const handleFinetuningChange = (
+  const handleFinetuningChange = useCallback((
     variationId: string,
     key: "brightness" | "contrast" | "saturation",
     value: number
   ) => {
     if (!canvas) return;
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Fine-tuning change:', { variationId, key, value });
+    }
 
     const newCanvas = produce(canvas, (draft) => {
       const variation = draft.variations.find((v) => v.id === variationId);
@@ -287,9 +386,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       }
     });
     updateCanvas(newCanvas);
-  };
+  }, [canvas]); // Removed updateCanvas from deps
 
-  if (!canvas || !activeVariation) {
+  const handleManualSync = useCallback(() => {
+    if (canvas && task?._id) {
+      console.log('Manual sync triggered');
+      syncCanvas(task._id, canvas);
+    }
+  }, [canvas, task?._id]);
+
+  if (!canvas) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -309,7 +415,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       <div className="relative z-10">
         <VariationsGallery
           variations={variations}
-          activeVariationId={activeVariation.id}
+          activeVariationId={activeVariation?.id || null}
           onVariationSelect={handleVariationSelect}
           onAddToCompare={() => {}}
           onNewVariation={handleNewVariation}
@@ -333,6 +439,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               saveError={saveError ? new Error(saveError) : null}
               lastSaved={lastSaved}
             />
+            {process.env.NODE_ENV === 'development' && (
+              <button 
+                onClick={handleManualSync}
+                className="text-xs bg-blue-600 text-white px-2 py-1 rounded mt-1"
+              >
+                Manual Sync (Debug)
+              </button>
+            )}
+
           </div>
         </div>
 
@@ -353,8 +468,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
             {/* Image Display with proper sizing */}
             <div className="relative w-full h-full flex items-center justify-center">
-              {activeVariation.status === "blank" &&
-              !activeVariation.imageRef ? (
+              {!activeVariation ? (
+                // No variation selected
+                <NoVariationSelected aspectRatio={currentAspectRatio} />
+              ) : activeVariation.status === "blank" &&
+                !activeVariation.imageRef ? (
                 // Blank canvas with proper aspect ratio
                 <BlankCanvas aspectRatio={currentAspectRatio} />
               ) : (
@@ -372,7 +490,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
           {/* Right Sidebar - Fine-tuning Controls */}
           <div className="w-80 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-700/80 flex flex-col shadow-2xl">
-            {activeVariation.fineTuning ? (
+            {activeVariation?.fineTuning ? (
               <CanvasControls
                 brightness={activeVariation.fineTuning.brightness}
                 contrast={activeVariation.fineTuning.contrast}
@@ -386,12 +504,17 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 onSaturationChange={(val) =>
                   handleFinetuningChange(activeVariation.id, "saturation", val)
                 }
+                disabled={!activeVariation}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center p-6">
                 <div className="text-center text-zinc-500">
                   <Settings className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No adjustments available</p>
+                  <p className="text-sm">
+                    {!activeVariation
+                      ? "Select a variation to adjust"
+                      : "No adjustments available"}
+                  </p>
                 </div>
               </div>
             )}
