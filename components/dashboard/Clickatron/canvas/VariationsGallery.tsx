@@ -29,9 +29,9 @@ interface VariationsGalleryProps {
   activeVariationId: string | null;
   onVariationSelect: (variationId: string) => void;
   onAddToCompare: (variationId: string) => void;
-  onNewCanvas: () => void;
-  onDuplicateCanvas: (variationId: string) => void;
-  onDeleteCanvas: (variationId: string) => void;
+  onNewVariation: () => void;
+  onDuplicateVariation: (variationId: string) => void;
+  onDeleteVariation: (variationId: string) => void;
   isCollapsed?: boolean;
   onToggleCollapse: () => void;
 }
@@ -41,9 +41,9 @@ export function VariationsGallery({
   activeVariationId,
   onVariationSelect,
   onAddToCompare,
-  onNewCanvas,
-  onDuplicateCanvas,
-  onDeleteCanvas,
+  onNewVariation,
+  onDuplicateVariation,
+  onDeleteVariation,
   isCollapsed = false,
   onToggleCollapse,
 }: VariationsGalleryProps) {
@@ -59,7 +59,7 @@ export function VariationsGallery({
 
   const handleDeleteConfirm = () => {
     if (variationToDelete) {
-      onDeleteCanvas(variationToDelete);
+      onDeleteVariation(variationToDelete);
       setVariationToDelete(null);
     }
     setDeleteDialogOpen(false);
@@ -67,7 +67,7 @@ export function VariationsGallery({
 
   const handleDuplicateClick = (variationId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    onDuplicateCanvas(variationId);
+    onDuplicateVariation(variationId);
   };
 
   return (
@@ -122,7 +122,7 @@ export function VariationsGallery({
         </Tooltip>
       </div>
 
-      {/* New Canvas Button */}
+      {/* New Variation Button */}
       <AnimatePresence>
         {!isCollapsed && (
           <motion.div
@@ -135,17 +135,17 @@ export function VariationsGallery({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
-                  onClick={onNewCanvas}
+                  onClick={onNewVariation}
                   variant="outline"
                   size="sm"
                   className="w-full bg-zinc-800/50 border-zinc-700 hover:bg-zinc-700/50 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-all duration-200"
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  New Canvas
+                  New Variation
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>New Canvas</p>
+                <p>New Variation</p>
               </TooltipContent>
             </Tooltip>
           </motion.div>
@@ -241,7 +241,7 @@ export function VariationsGallery({
                   )}
                 </motion.div>
 
-                {/* Canvas Management Actions - Top-right corner on hover */}
+                {/* Variation Management Actions - Top-right corner on hover */}
                 <AnimatePresence>
                   {hoveredVariation === variation.id && !isCollapsed && (
                     <motion.div
@@ -263,7 +263,7 @@ export function VariationsGallery({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Duplicate Canvas</p>
+                          <p>Duplicate Variation</p>
                         </TooltipContent>
                       </Tooltip>
                       <Tooltip>
@@ -278,7 +278,7 @@ export function VariationsGallery({
                           </Button>
                         </TooltipTrigger>
                         <TooltipContent>
-                          <p>Delete Canvas</p>
+                          <p>Delete Variation</p>
                         </TooltipContent>
                       </Tooltip>
                     </motion.div>
@@ -309,9 +309,9 @@ export function VariationsGallery({
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent className="bg-zinc-900 border-zinc-800">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-zinc-100">Delete Canvas</AlertDialogTitle>
+            <AlertDialogTitle className="text-zinc-100">Delete Variation</AlertDialogTitle>
             <AlertDialogDescription className="text-zinc-400">
-              Are you sure you want to delete this canvas? This action cannot be undone.
+              Are you sure you want to delete this variation? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

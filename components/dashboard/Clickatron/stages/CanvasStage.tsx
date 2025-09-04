@@ -78,7 +78,7 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
       }}
     >
       <div className="text-center">
-        <div className="text-zinc-400 text-lg mb-2">Create Image to Start</div>
+        <div className="text-zinc-400 text-lg mb-2">Create Variation to Start</div>
         <div className="text-zinc-500/70 text-sm">
           Use the AI console below to generate your first image
         </div>
@@ -203,10 +203,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   };
 
-  const handleNewCanvas = () => {
+  const handleNewVariation = () => {
     if (!canvas) return;
     const newVariation = {
-      id: `new_canvas_${Date.now()}`,
+      id: `new_variation_${Date.now()}`,
       prompt: "", // Empty prompt for blank variations
       status: "generating" as const,
       imageRef: "", // Empty image for blank variations
@@ -220,7 +220,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     setActiveVariationId(newVariation.id);
   };
 
-  const handleDuplicateCanvas = (variationId: string) => {
+  const handleDuplicateVariation = (variationId: string) => {
     if (!canvas) return;
 
     const originalVariation = variations.find((v) => v.id === variationId);
@@ -243,7 +243,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     setActiveVariationId(duplicatedVariation.id);
   };
 
-  const handleDeleteCanvas = (variationId: string) => {
+  const handleDeleteVariation = (variationId: string) => {
     if (!canvas || variations.length <= 1) return; // Don't delete if it's the last variation
 
     const newCanvas = produce(canvas, (draft) => {
@@ -312,9 +312,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           activeVariationId={activeVariation.id}
           onVariationSelect={handleVariationSelect}
           onAddToCompare={() => {}}
-          onNewCanvas={handleNewCanvas}
-          onDuplicateCanvas={handleDuplicateCanvas}
-          onDeleteCanvas={handleDeleteCanvas}
+          onNewVariation={handleNewVariation}
+          onDuplicateVariation={handleDuplicateVariation}
+          onDeleteVariation={handleDeleteVariation}
           isCollapsed={galleryCollapsed}
           onToggleCollapse={() => setGalleryCollapsed(!galleryCollapsed)}
         />

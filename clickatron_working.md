@@ -55,10 +55,15 @@ The schema is designed for efficient querying by user and creation date. Connect
 
 The interface is built with a three-panel layout:
 
-- **Left Panel**: Variations gallery showing all generated images
-- **Center Panel**: Main canvas with zoom/pan controls and image display
+- **Left Panel**: Variations gallery showing all generated image variations
+- **Center Panel**: Main canvas with zoom/pan controls and image display for the active variation
 - **Right Panel**: Fine-tuning controls for brightness, contrast, and saturation
 - **Bottom Panel**: AI command console for natural language editing
+
+**Terminology Clarification:**
+- **Canvas**: The editing interface/workspace (the stage where you work)
+- **Variation**: Individual image versions that you create and switch between
+- The canvas contains and displays variations, but variations are the actual content
 
 Components follow React's Rules of Hooks - all hooks are called at the top level before any conditional logic or early returns. State is managed through Zustand selectors to prevent unnecessary re-renders.
 
@@ -107,7 +112,7 @@ The image generation process is designed to be asynchronous, using QStash for ba
 
 *   The frontend now polls the session endpoint every 2 seconds to check for updates after an idea is selected.
 *   Once the job is done, the UI will automatically update the variation from "generating" to "completed" and display the new image.
-*   Creating a new variation from the canvas UI (e.g., "New Canvas" button) will create a variation with `status: 'blank'` and will NOT trigger any image generation.
+*   Creating a new variation from the canvas UI (e.g., "New Variation" button) will create a variation with `status: 'blank'` and will NOT trigger any image generation.
 
 ### Aspect Ratio Handling
 

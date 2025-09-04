@@ -35,10 +35,14 @@ Each idea includes a title, description, and AI-optimized prompt for image gener
 
 #### 3. **Canvas Stage** 🎨 (Ongoing Workspace)
 Professional editing environment featuring:
-- **Variation Gallery**: Left sidebar with all generated images
-- **Main Canvas**: Center workspace with zoom/pan controls
+- **Variation Gallery**: Left sidebar with all generated image variations
+- **Main Canvas**: Center workspace with zoom/pan controls for viewing the active variation
 - **Fine-Tuning Panel**: Right sidebar with professional adjustment controls
 - **AI Command Console**: Bottom interface for natural language editing
+
+**Key Terminology:**
+- **Canvas**: The editing interface/stage where you work with variations
+- **Variation**: Individual versions of your image that you can create, edit, and switch between
 
 ## Key Features
 
@@ -55,8 +59,17 @@ Professional editing environment featuring:
 - **Variation Management**: Create, duplicate, delete, and organize image variations
 - **Optimistic Updates**: Changes appear instantly while syncing in the background
 - **Auto-save**: Debounced synchronization prevents data loss
-- **Blank Canvas Support**: Proper aspect ratio placeholders for new variations
+- **Blank Variation Support**: Proper aspect ratio placeholders for new variations
 - **Professional Zoom Controls**: Zoom in/out/reset with smooth pan functionality
+
+### Understanding Canvas vs Variations
+
+To avoid confusion in the codebase and user interface:
+
+- **Canvas**: The editing interface/stage - the workspace where you view and edit images
+- **Variation**: Individual image versions within a session - what you create, duplicate, and switch between
+- **Canvas Stage**: The overall editing environment (as opposed to the Ideation Stage)
+- **New Variation**: Creates a new image version (not a new canvas/workspace)
 
 ### Intelligent State Management
 
