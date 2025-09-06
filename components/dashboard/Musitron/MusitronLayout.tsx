@@ -1,9 +1,12 @@
 "use client";
 
 import { AudioWaveform } from "lucide-react";
-import { ClientWrapper } from "@/components/dashboard/Musitron/ClientWrapper";
-import { AnalyticsOverview } from "@/components/dashboard/Musitron/AnalyticsOverview";
-import { CompactAnalytics } from "@/components/dashboard/Musitron/CompactAnalytics";
+import { lazy, Suspense } from "react";
+
+// Lazy load heavy components
+const ClientWrapper = lazy(() => import("@/components/dashboard/Musitron/ClientWrapper").then(mod => ({ default: mod.ClientWrapper })));
+const AnalyticsOverview = lazy(() => import("@/components/dashboard/Musitron/AnalyticsOverview").then(mod => ({ default: mod.AnalyticsOverview })));
+const CompactAnalytics = lazy(() => import("@/components/dashboard/Musitron/CompactAnalytics").then(mod => ({ default: mod.CompactAnalytics })));
 
 export function MusitronLayout() {
   return (
@@ -11,7 +14,7 @@ export function MusitronLayout() {
       <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-start gap-6 lg:gap-8">
         {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-6 lg:space-y-8">
-          {/* Hero Section */}
+          {/* Hero Section - Load immediately */}
           <div className="pt-4 sm:pt-0">
             <div>
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-2 sm:gap-3">
@@ -23,17 +26,25 @@ export function MusitronLayout() {
               </p>
             </div>
           </div>
+          
           {/* Mobile Analytics */}
           <div className="block lg:hidden">
-            <CompactAnalytics />
+            <Suspense fallback={<div className="h-20 bg-zinc-800/20 rounded animate-pulse"></div>}>
+              <CompactAnalytics />
+            </Suspense>
           </div>
+          
           {/* Client Components */}
-          <ClientWrapper />
+          <Suspense fallback={<div className="h-64 bg-zinc-800/20 rounded animate-pulse"></div>}>
+            <ClientWrapper />
+          </Suspense>
         </div>
 
-        {/* Desktop Analytics - Placeholder for future use */}
+        {/* Desktop Analytics */}
         <div className="hidden lg:block space-y-6 lg:space-y-8 sticky top-6">
-          <AnalyticsOverview />
+          <Suspense fallback={<div className="h-32 bg-zinc-800/20 rounded animate-pulse"></div>}>
+            <AnalyticsOverview />
+          </Suspense>
         </div>
       </div>
     </div>
