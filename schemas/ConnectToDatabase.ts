@@ -23,20 +23,42 @@ const connectToDatabase = async (uri?: string) => {
     throw new Error("MONGODB_DB_NAME is not defined in environment variables");
   }
 
+  // Return cached connection if available
+  if (cached.conn) {
+    return cached.conn;
+  }
+
+  // Return existing promise if connection is in progress
+  if (cached.promise) {
+    return cached.promise;
+  }
+
   if (mongoose.connection.readyState === 1) {
-    // console.log("Using existing MongoDB connection.");
+    cached.conn = mongoose;
     return mongoose;
   }
 
   console.log("Creating new MongoDB connection.");
-  try {
-    await mongoose.connect(mongoUri, { dbName });
+  
+  // Cache the connection promise
+  cached.promise = mongoose.connect(mongoUri, { 
+    dbName,
+    maxPoolSize: 10, // Maintain up to 10 socket connections
+    serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
+    socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
+    bufferCommands: false, // Disable mongoose buffering
+    bufferMaxEntries: 0 // Disable mongoose buffering
+  }).then((mongoose) => {
     console.log("MongoDB connected successfully.");
+    cached.conn = mongoose;
     return mongoose;
-  } catch (e) {
+  }).catch((e) => {
     console.error("Error connecting to database:", e);
+    cached.promise = null; // Reset promise on error
     throw e;
-  }
+  });
+
+  return cached.promise;
 };
 
 export default connectToDatabase;

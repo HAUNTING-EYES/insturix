@@ -22,29 +22,34 @@ export function FeatureUsageOverviewClient() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const fetchServiceUsage = async () => {
-      if (!isInitialized || isLoading || !user) {
-        return;
-      }
-
-      try {
-        setLoading(true);
-        
-        const response = await fetch('/api/user/feature-usage');
-        if (!response.ok) {
-          throw new Error('Failed to fetch service usage');
+    // Delay the fetch to not block initial render
+    const timer = setTimeout(() => {
+      const fetchServiceUsage = async () => {
+        if (!isInitialized || isLoading || !user) {
+          return;
         }
-        
-        const result = await response.json();
-        setServiceUsage(result.data || {});
-      } catch (err) {
-        console.error('Error fetching service usage:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
 
-    fetchServiceUsage();
+        try {
+          setLoading(true);
+          
+          const response = await fetch('/api/user/feature-usage');
+          if (!response.ok) {
+            throw new Error('Failed to fetch service usage');
+          }
+          
+          const result = await response.json();
+          setServiceUsage(result.data || {});
+        } catch (err) {
+          console.error('Error fetching service usage:', err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      fetchServiceUsage();
+    }, 100); // Small delay to prioritize critical rendering
+
+    return () => clearTimeout(timer);
   }, [isInitialized, isLoading, user]);
 
   return <FeatureUsageOverview initialData={serviceUsage} isLoadingInitial={isLoading || !isInitialized || loading} />;

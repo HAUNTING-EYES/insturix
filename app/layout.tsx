@@ -7,12 +7,9 @@ import ReactQueryProvider from "@/providers/ReactQuery";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { TransitionProvider } from "@/components/Loader/TransitionProvider";
+import { PerformanceMonitor } from "@/components/performance/PerformanceMonitor";
 import { Inter } from "next/font/google";
 import { keywords } from "@/lib/seo/keywords";
-import { PricingClientProvider } from "@/lib/PricingContext";
-import { CurrencyProvider } from "@/lib/CurrencyContext";
-import { LocationProvider } from "@/lib/LocationProvider";
 
 
 const inter = Inter({ subsets: ["latin"] });
@@ -156,22 +153,18 @@ export default function RootLayout({
         </head>
         <body>
           <ReactQueryProvider>
-            <LocationProvider>
-              <PricingClientProvider>
-                <CurrencyProvider>
-                  <ThemeProvider>
-                    <TransitionProvider>
-                      {/* <Toaster /> */}
-                      {children}
-                      <Analytics />
-                      <SpeedInsights />
-                      <Toaster />
-                      <ReactQueryDevtools />
-                    </TransitionProvider>
-                  </ThemeProvider>
-                </CurrencyProvider>
-              </PricingClientProvider>
-            </LocationProvider>
+            <ThemeProvider>
+              {children}
+              <Analytics />
+              <SpeedInsights />
+              <Toaster />
+              {process.env.NODE_ENV === 'development' && (
+                <>
+                  <ReactQueryDevtools />
+                  <PerformanceMonitor />
+                </>
+              )}
+            </ThemeProvider>
           </ReactQueryProvider>
         </body>
       </html>

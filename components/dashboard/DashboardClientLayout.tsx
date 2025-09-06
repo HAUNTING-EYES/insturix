@@ -1,14 +1,17 @@
 "use client";
 
-import { AnimatePresence, motion } from "framer-motion";
 import { usePathname } from "next/navigation";
-import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
 import { useAuth } from "@clerk/nextjs";
 import NotSignedIn from "@/components/NotSignedup";
-import { TaskNotificationManager } from "@/components/dashboard/rtdb/TaskNotificationManager";
-import { RtdbProvider } from "@/providers/RtdbProvider";
 import { UserInitializationProvider } from "@/components/dashboard/UserInitializationProvider";
+import { DashboardProviders } from "@/components/providers/DashboardProviders";
 import { User } from "@/types/userTypes";
+import { lazy, Suspense } from "react";
+
+// Lazy load heavy components
+const DashboardSidebar = lazy(() => import("@/components/dashboard/DashboardSidebar"));
+const TaskNotificationManager = lazy(() => import("@/components/dashboard/rtdb/TaskNotificationManager").then(mod => ({ default: mod.TaskNotificationManager })));
+const RtdbProvider = lazy(() => import("@/providers/RtdbProvider").then(mod => ({ default: mod.RtdbProvider })));
 
 export default function DashboardClientLayout({
   children,
@@ -27,25 +30,24 @@ export default function DashboardClientLayout({
   }
 
   return (
-    <UserInitializationProvider initialData={initialUserData}>
-      <RtdbProvider>
-        <DashboardSidebar />
-        <main className="min-h-screen bg-zinc-950/95 lg:pl-[64px] pt-16 lg:pt-0">
-          <AnimatePresence mode="sync">
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2, ease: "easeInOut" }}
-              className="min-h-screen"
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
-        </main>
-        <TaskNotificationManager />
-      </RtdbProvider>
-    </UserInitializationProvider>
+    <DashboardProviders>
+      <UserInitializationProvider initialData={initialUserData}>
+        <Suspense fallback={<div className="fixed top-4 left-4 w-12 h-12 bg-zinc-800 rounded animate-pulse" />}>
+          <RtdbProvider>
+            <Suspense fallback={<div className="fixed left-0 top-0 w-16 h-screen bg-zinc-900 animate-pulse lg:block hidden" />}>
+              <DashboardSidebar />
+            </Suspense>
+            <main className="min-h-screen bg-zinc-950/95 lg:pl-[64px] pt-16 lg:pt-0">
+              <div className="min-h-screen">
+                {children}
+              </div>
+            </main>
+            <Suspense fallback={null}>
+              <TaskNotificationManager />
+            </Suspense>
+          </RtdbProvider>
+        </Suspense>
+      </UserInitializationProvider>
+    </DashboardProviders>
   );
 }
