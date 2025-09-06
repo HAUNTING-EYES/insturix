@@ -39,50 +39,41 @@ export async function getUserData() {
       return null;
     }
 
-    await connectToDatabase();
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Database connection timeout')), 5000);
+    });
 
-    let user = await User.findOne({ clerkUserId: userId });
+    const dbPromise = (async () => {
+      await connectToDatabase();
+      return User.findOne({ clerkUserId: userId }).lean(); // Use lean() for better performance
+    })();
+
+    let user = await Promise.race([dbPromise, timeoutPromise]) as any;
 
     if (!user) {
-      console.log(`User not found in database for Clerk ID: ${userId}, initializing user...`);
-      
-      try {
-        const clerkUser = await (await clerkClient()).users.getUser(userId);
-        const email = clerkUser.emailAddresses?.[0]?.emailAddress || "";
-        const username = clerkUser.username;
-        
-        if (!email) {
-          console.log("User email not found from Clerk, returning null for graceful initialization");
-          return null;
-        }
-
-        if (!username) {
-          console.log("Username not found for user, returning null for graceful initialization");
-          return null;
-        }
-        
-        const result = await UserInitializationService.ensureUserExists(userId, email, username);
-        if (result.error) {
-          console.log(`User initialization failed: ${result.error}, returning null for graceful initialization`);
-          return null;
-        }
-        user = result.user;
-        console.log(`Successfully created missing user: ${userId}`);
-      } catch (createError) {
-        console.error("Failed to create missing user:", createError);
-        console.log("Returning null to allow graceful initialization flow");
-        return null;
-      }
+      console.log(`User not found in database for Clerk ID: ${userId}, returning null for client-side initialization`);
+      return null; // Let client handle user creation
     }
 
-    await checkAndUpdateExpiredPlans(user);
+    // Quick plan expiration check without saving (non-blocking)
+    const now = new Date();
+    let planExpired = false;
+    if (user.currentPlan &&
+        user.currentPlan.endDate &&
+        user.currentPlan.status === "active" &&
+        new Date(user.currentPlan.endDate) < now &&
+        user.currentPlan.name !== "Free") {
+      planExpired = true;
+    }
 
     return {
       _id: user._id.toString(),
       clerkUserId: user.clerkUserId,
       email: user.email,
+      username: user.username, // Add username to return
       signUpDate: user.signUpDate || new Date(),
-      currentPlan: user.currentPlan,
+      currentPlan: planExpired ? { ...user.currentPlan, status: "expired" } : user.currentPlan,
       planHistory: user.planHistory || [],
       uiMessages: user.uiMessages || [],
       payments: user.payments || [],

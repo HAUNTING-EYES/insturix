@@ -1,9 +1,12 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
-import { ClientWrapper } from "@/components/dashboard/Clickatron/ClientWrapper";
-import { AnalyticsOverview } from "@/components/dashboard/Clickatron/AnalyticsOverview";
-import { CompactAnalytics } from "@/components/dashboard/Clickatron/CompactAnalytics";
+import { lazy, Suspense } from "react";
+
+// Lazy load heavy components
+const ClientWrapper = lazy(() => import("@/components/dashboard/Clickatron/ClientWrapper").then(mod => ({ default: mod.ClientWrapper })));
+const AnalyticsOverview = lazy(() => import("@/components/dashboard/Clickatron/AnalyticsOverview").then(mod => ({ default: mod.AnalyticsOverview })));
+const CompactAnalytics = lazy(() => import("@/components/dashboard/Clickatron/CompactAnalytics").then(mod => ({ default: mod.CompactAnalytics })));
 
 export function ClickatronLayout() {
   return (
@@ -11,7 +14,7 @@ export function ClickatronLayout() {
       <div className="flex flex-col lg:grid lg:grid-cols-3 lg:items-start gap-6 lg:gap-8">
         {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-6 lg:space-y-8">
-          {/* Hero Section */}
+          {/* Hero Section - Load immediately */}
           <div className="pt-4 sm:pt-0">
             <div>
               <h1 className="text-2xl sm:text-3xl lg:text-4xl font-semibold tracking-tight text-zinc-100 flex items-center gap-2 sm:gap-3">
@@ -26,20 +29,39 @@ export function ClickatronLayout() {
 
           {/* Mobile/Tablet Compact Analytics */}
           <div className="lg:hidden">
-            <CompactAnalytics />
+            <Suspense fallback={
+              <div className="p-4 rounded-lg bg-white/[0.02] border border-white/[0.08] animate-pulse">
+                <div className="h-4 bg-white/10 rounded mb-2"></div>
+                <div className="h-8 bg-white/5 rounded"></div>
+              </div>
+            }>
+              <CompactAnalytics />
+            </Suspense>
           </div>
 
           {/* Client Components */}
-          <ClientWrapper />
+          <Suspense fallback={
+            <div className="space-y-6">
+              <div className="p-6 rounded-lg bg-white/[0.02] border border-white/[0.08] animate-pulse">
+                <div className="h-6 bg-white/10 rounded mb-4"></div>
+                <div className="h-32 bg-white/5 rounded"></div>
+              </div>
+            </div>
+          }>
+            <ClientWrapper />
+          </Suspense>
         </div>
 
         {/* Desktop Analytics - Hidden on mobile/tablet */}
         <div className="hidden lg:block space-y-6 lg:space-y-8 sticky top-6">
-          <AnalyticsOverview />
-        </div>
-        {/* Mobile/Tablet Compact Analytics */}
-        <div className="lg:hidden">
-          <CompactAnalytics />
+          <Suspense fallback={
+            <div className="p-4 rounded-lg bg-white/[0.02] border border-white/[0.08] animate-pulse">
+              <div className="h-4 bg-white/10 rounded mb-2"></div>
+              <div className="h-8 bg-white/5 rounded"></div>
+            </div>
+          }>
+            <AnalyticsOverview />
+          </Suspense>
         </div>
       </div>
     </div>

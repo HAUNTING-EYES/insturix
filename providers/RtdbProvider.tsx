@@ -31,9 +31,11 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const userTasksRef = ref(database, `/${userId}`);
+    // Delay RTDB connection to not block initial render
+    const timer = setTimeout(() => {
+      const userTasksRef = ref(database, `/${userId}`);
 
-    const listener = onValue(userTasksRef, (snapshot) => {
+      const listener = onValue(userTasksRef, (snapshot) => {
       const data = snapshot.val() as RTDBTaskData | null;
       const newNotifications: TaskNotification[] = [];
       const currentTasks: Record<string, TaskUpdate> = {};
@@ -77,8 +79,13 @@ export function RtdbProvider({ children }: { children: React.ReactNode }) {
       }
     });
 
+      return () => {
+        off(userTasksRef, 'value', listener);
+      };
+    }, 200); // Delay RTDB initialization
+
     return () => {
-      off(userTasksRef, 'value', listener);
+      clearTimeout(timer);
     };
   }, [userId, isSignedIn]);
 

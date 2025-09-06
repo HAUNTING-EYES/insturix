@@ -66,14 +66,14 @@ export function NavItem({
   const iconElement = useMemo(() => {
     if (icon) {
       const iconProps: any = {
-        strokeWidth: 2,
         className: "h-5 w-5", // Ensure consistent size
       };
 
-      // Only add fill if the icon is active and supports it
+      // Adjust stroke for active state to make it bolder (simulating filled)
       if (isActive) {
-        iconProps.fill = "currentColor";
-        iconProps.strokeWidth = 1.5;
+        iconProps.strokeWidth = 2.5;
+      } else {
+        iconProps.strokeWidth = 2;
       }
 
       return cloneElement(icon as React.ReactElement, iconProps);

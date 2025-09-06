@@ -31,9 +31,11 @@ export function useTaskUpdater() {
       return;
     }
 
-    const userTasksRef = ref(database, `/${userId}`);
+    // Delay RTDB listener to not block initial render
+    const timer = setTimeout(() => {
+      const userTasksRef = ref(database, `/${userId}`);
 
-    const listener = onValue(userTasksRef, (snapshot) => {
+      const listener = onValue(userTasksRef, (snapshot) => {
       const data = snapshot.val() as RTDBTaskData | null;
       if (!data) return;
 
@@ -78,8 +80,13 @@ export function useTaskUpdater() {
       }
     });
 
+      return () => {
+        off(userTasksRef, 'value', listener);
+      };
+    }, 300); // Delay to prioritize critical rendering
+
     return () => {
-      off(userTasksRef, 'value', listener);
+      clearTimeout(timer);
     };
   }, [userId, isSignedIn, queryClient]);
 }

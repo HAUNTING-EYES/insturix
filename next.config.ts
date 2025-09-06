@@ -11,6 +11,68 @@ const nextConfig: NextConfig = {
     // your project has type errors.
     ignoreBuildErrors: true,
   },
+  // Performance optimizations
+  experimental: {
+    optimizePackageImports: [
+      '@radix-ui/react-icons',
+      '@tabler/icons-react',
+      'lucide-react',
+      'framer-motion',
+      '@tanstack/react-query',
+      'firebase'
+    ],
+  },
+  // Turbopack configuration (moved from experimental.turbo)
+  turbopack: {
+    rules: {
+      '*.svg': {
+        loaders: ['@svgr/webpack'],
+        as: '*.js',
+      },
+    },
+  },
+  // Optimize bundle splitting
+  webpack: (config, { dev, isServer }) => {
+    if (!dev && !isServer) {
+      config.optimization.splitChunks = {
+        chunks: 'all',
+        cacheGroups: {
+          default: false,
+          vendors: false,
+          // Vendor chunk for large libraries
+          vendor: {
+            name: 'vendor',
+            chunks: 'all',
+            test: /node_modules/,
+            priority: 20,
+          },
+          // Separate chunk for UI libraries
+          ui: {
+            name: 'ui',
+            chunks: 'all',
+            test: /node_modules\/(framer-motion|@radix-ui|lucide-react)/,
+            priority: 30,
+          },
+          // Firebase chunk
+          firebase: {
+            name: 'firebase',
+            chunks: 'all',
+            test: /node_modules\/firebase/,
+            priority: 25,
+          },
+          // Common chunk for shared code
+          common: {
+            name: 'common',
+            minChunks: 2,
+            chunks: 'all',
+            priority: 10,
+            reuseExistingChunk: true,
+          },
+        },
+      };
+    }
+    return config;
+  },
   images: {
     remotePatterns: [
       {

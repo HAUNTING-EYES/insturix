@@ -23,7 +23,8 @@ export function FeatureUsageOverviewClient() {
 
   useEffect(() => {
     const fetchServiceUsage = async () => {
-      if (!isInitialized || isLoading || !user) {
+      // Wait for user initialization to complete
+      if (!isInitialized || isLoading) {
         return;
       }
 
@@ -39,13 +40,20 @@ export function FeatureUsageOverviewClient() {
         setServiceUsage(result.data || {});
       } catch (err) {
         console.error('Error fetching service usage:', err);
+        // Set empty data on error to stop loading state
+        setServiceUsage({});
       } finally {
         setLoading(false);
       }
     };
 
-    fetchServiceUsage();
-  }, [isInitialized, isLoading, user]);
+    // Only fetch when user is properly initialized
+    if (isInitialized && !isLoading) {
+      // Small delay to prioritize critical rendering
+      const timer = setTimeout(fetchServiceUsage, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isInitialized, isLoading]);
 
   return <FeatureUsageOverview initialData={serviceUsage} isLoadingInitial={isLoading || !isInitialized || loading} />;
 }
