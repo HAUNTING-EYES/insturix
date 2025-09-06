@@ -22,35 +22,38 @@ export function FeatureUsageOverviewClient() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    // Delay the fetch to not block initial render
-    const timer = setTimeout(() => {
-      const fetchServiceUsage = async () => {
-        if (!isInitialized || isLoading || !user) {
-          return;
+    const fetchServiceUsage = async () => {
+      // Wait for user initialization to complete
+      if (!isInitialized || isLoading) {
+        return;
+      }
+
+      try {
+        setLoading(true);
+        
+        const response = await fetch('/api/user/feature-usage');
+        if (!response.ok) {
+          throw new Error('Failed to fetch service usage');
         }
+        
+        const result = await response.json();
+        setServiceUsage(result.data || {});
+      } catch (err) {
+        console.error('Error fetching service usage:', err);
+        // Set empty data on error to stop loading state
+        setServiceUsage({});
+      } finally {
+        setLoading(false);
+      }
+    };
 
-        try {
-          setLoading(true);
-          
-          const response = await fetch('/api/user/feature-usage');
-          if (!response.ok) {
-            throw new Error('Failed to fetch service usage');
-          }
-          
-          const result = await response.json();
-          setServiceUsage(result.data || {});
-        } catch (err) {
-          console.error('Error fetching service usage:', err);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      fetchServiceUsage();
-    }, 100); // Small delay to prioritize critical rendering
-
-    return () => clearTimeout(timer);
-  }, [isInitialized, isLoading, user]);
+    // Only fetch when user is properly initialized
+    if (isInitialized && !isLoading) {
+      // Small delay to prioritize critical rendering
+      const timer = setTimeout(fetchServiceUsage, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isInitialized, isLoading]);
 
   return <FeatureUsageOverview initialData={serviceUsage} isLoadingInitial={isLoading || !isInitialized || loading} />;
 }
