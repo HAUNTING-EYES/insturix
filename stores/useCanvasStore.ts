@@ -90,27 +90,31 @@ const useClickatronStore = create<ClickatronStore>()(
           await get().loadSession(sessionId);
 
           // Set up polling with proper cleanup
-          let pollCount = 0;
-          const maxPolls = 15; // 30 seconds max (15 * 2 seconds)
-          
-          const poll = setInterval(async () => {
-            pollCount++;
+          const firstVariation = get().task?.details.canvas?.variations[0];
+          if (firstVariation) {
+            // Use the polling utility (we'll need to import it)
+            let pollCount = 0;
+            const maxPolls = 15; // 30 seconds max (15 * 2 seconds)
             
-            try {
-              await get().loadSession(sessionId);
-              const task = get().task;
-              const variation = task?.details.canvas?.variations[0];
+            const poll = setInterval(async () => {
+              pollCount++;
               
-              // Stop polling if generation is complete or we've reached max attempts
-              if (variation && variation.status !== 'generating' || pollCount >= maxPolls) {
+              try {
+                await get().loadSession(sessionId);
+                const task = get().task;
+                const variation = task?.details.canvas?.variations[0];
+                
+                // Stop polling if generation is complete or we've reached max attempts
+                if (variation && variation.status !== 'generating' || pollCount >= maxPolls) {
+                  clearInterval(poll);
+                  console.log('Polling stopped:', variation?.status || 'max attempts reached');
+                }
+              } catch (error) {
+                console.error('Polling error:', error);
                 clearInterval(poll);
-                console.log('Polling stopped:', variation?.status || 'max attempts reached');
               }
-            } catch (error) {
-              console.error('Polling error:', error);
-              clearInterval(poll);
-            }
-          }, 2000);
+            }, 2000);
+          }
 
           return true;
         } catch (error) {

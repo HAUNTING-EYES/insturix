@@ -13,6 +13,7 @@ import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 import { Settings } from "lucide-react";
+import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -140,7 +141,7 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
 
 export function CanvasStage({ videoIdea }: CanvasStageProps) {
   // All hooks must be called at the top level, before any early returns
-  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved } =
+  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved, loadSession } =
     useClickatronStore();
   const [activeVariationId, setActiveVariationId] = useState<string | null>(
     null
@@ -160,11 +161,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const canvas = task?.details.canvas;
   const variations = canvas?.variations || [];
 
-  // Get aspect ratio from first variation, fallback to session aspect ratio
-  const currentAspectRatio =
-    variations.length > 0 && variations[0].aspectRatio
-      ? variations[0].aspectRatio
-      : task?.details.aspectRatio || "16:9";
+  // Get aspect ratio from session
+  const currentAspectRatio = task?.details.aspectRatio || "16:9";
 
   const [debouncedCanvas] = useDebounce(canvas, 1000);
 
@@ -178,24 +176,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, [debouncedCanvas]);
 
-  // Ensure all variations have aspectRatio field (migration for existing data)
-  const hasMigratedRef = useRef(false);
-  useEffect(() => {
-    if (canvas && variations.length > 0 && !hasMigratedRef.current) {
-      const needsMigration = variations.some((v) => !v.aspectRatio);
-      if (needsMigration) {
-        hasMigratedRef.current = true;
-        const migratedCanvas = produce(canvas, (draft) => {
-          draft.variations.forEach((variation) => {
-            if (!variation.aspectRatio) {
-              variation.aspectRatio = task?.details.aspectRatio || "16:9";
-            }
-          });
-        });
-        updateCanvas(migratedCanvas);
-      }
-    }
-  }, [canvas?.variations?.length]); // Only depend on variations count, not the full objects
+
 
   useEffect(() => {
     if (!activeVariationId && variations.length > 0) {
@@ -243,15 +224,22 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     if (!canvas || !task?._id) return;
 
     const imageDataUrls = referenceImages?.map((img) => img.data) || [];
+    
+    // Generate idempotency key to prevent duplicate requests
+    const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
     try {
       const response = await fetch(
         `/api/services/clickatron/session/${task._id}/variation`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { 
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey
+          },
           body: JSON.stringify({
             prompt,
+            parentVariationId: activeVariationId, // Include parent for edit context
             fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
             referenceImages: imageDataUrls,
             metadata: { aspectRatio: currentAspectRatio },
@@ -266,22 +254,21 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const data = await response.json();
       console.log("Variation generation queued:", data);
 
-      // Create a new variation in "generating" state
-      const newVariation = {
-        id: data.variationId,
-        prompt,
-        status: "generating" as const,
-        imageRef: "",
-        aspectRatio: currentAspectRatio,
-        fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
-      };
+      // Instead of immediately inserting, reload session to get server state
+      // This prevents duplication and ensures we have the correct server state
+      await loadSession(task._id);
+      
+      // Set the new variation as active
+      setActiveVariationId(data.variationId);
+      
+      // Start polling for completion using the utility function
+      await pollVariationCompletion(
+        task._id,
+        data.variationId,
+        loadSession,
+        () => useClickatronStore.getState().task
+      );
 
-      const newCanvas = produce(canvas, (draft) => {
-        draft.variations.unshift(newVariation);
-      });
-
-      updateCanvas(newCanvas);
-      setActiveVariationId(newVariation.id);
     } catch (error) {
       console.error("Error generating variation:", error);
       // Handle error appropriately in UI
@@ -290,21 +277,23 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const handleNewVariation = useCallback(() => {
     if (!canvas) return;
+    const now = new Date();
     const newVariation = {
       id: `new_variation_${Date.now()}`,
-      prompt: "", // Empty prompt for blank variations
-      status: "blank" as const, // Use blank status for new variations
-      imageRef: "", // Empty image for blank variations
-      aspectRatio: currentAspectRatio, // Use current aspect ratio
+      prompt: "",
+      status: "blank" as const,
+      imageRef: "",
+      aspectRatio: currentAspectRatio,
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+      createdAt: now,
+      updatedAt: now,
     };
     const newCanvas = produce(canvas, (draft) => {
       draft.variations.unshift(newVariation);
     });
     updateCanvas(newCanvas);
-    // Immediately set as active variation to prevent null state
     setActiveVariationId(newVariation.id);
-  }, [canvas, currentAspectRatio]); // Removed updateCanvas from deps
+  }, [canvas, currentAspectRatio]);
 
   const handleDuplicateVariation = useCallback(
     (variationId: string) => {
@@ -475,6 +464,32 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 !activeVariation.imageRef ? (
                 // Blank canvas with proper aspect ratio
                 <BlankCanvas aspectRatio={currentAspectRatio} />
+              ) : activeVariation.status === "failed" ? (
+                // Failed variation - show error state with retry option
+                <div
+                  className="bg-red-900/20 border-2 border-dashed border-red-600/50 flex items-center justify-center rounded-lg transition-all duration-300"
+                  style={{
+                    width: `${800}px`,
+                    height: `${450}px`,
+                    minWidth: "300px",
+                    minHeight: "200px",
+                  }}
+                >
+                  <div className="text-center">
+                    <div className="text-red-400 text-lg mb-2">
+                      Generation Failed
+                    </div>
+                    <div className="text-red-500/70 text-sm mb-4">
+                      Something went wrong while generating this variation
+                    </div>
+                    <button
+                      onClick={() => handleAIGenerate(activeVariation.prompt)}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors"
+                    >
+                      Retry Generation
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <ImageDisplay
                   ref={imageRef}
@@ -528,6 +543,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             isGenerating={false}
             galleryCollapsed={galleryCollapsed}
             className="border-t border-zinc-800/80"
+            chatHistory={canvas?.chatHistory ?? []}
           />
         </div>
       </div>

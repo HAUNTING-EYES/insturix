@@ -31,17 +31,30 @@ export interface Idea {
   prompt: string;
 }
 
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  variationId?: string; // Link to variation if this message generated one
+  referenceImages?: string[]; // Store reference image data URLs
+}
+
 export interface Canvas {
   variations: Variation[];
+  chatHistory: ChatMessage[];
 }
 
 export interface Variation {
   id: string;
   prompt: string; // Can be empty string for blank variations
-  status: 'completed' | 'generating' | 'blank'; // Added blank status
+  status: 'completed' | 'generating' | 'blank' | 'failed';
   imageRef: string; // Can be empty string for blank variations
-  aspectRatio: string; // Moved from session to variation
-  fineTuning?: FineTuningControls;
+  aspectRatio: string;
+  fineTuning: FineTuningControls;
+  createdAt: Date;
+  updatedAt: Date;
+  parentVariationId?: string; // For tracking edit relationships
 }
 
 export interface FineTuningControls {
@@ -89,6 +102,7 @@ export const SelectIdeaRequestSchema = z.object({
 // POST /api/services/clickatron/session/[id]/variation
 export interface CreateVariationRequest {
   prompt: string;
+  parentVariationId?: string; // For editing existing variations
   fineTuning?: FineTuningControls;
   referenceImages?: string[]; // Store as data URLs
   metadata?: Record<string, any>;
@@ -96,6 +110,7 @@ export interface CreateVariationRequest {
 
 export const CreateVariationRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt is required"),
+  parentVariationId: z.string().optional(), // For editing existing variations
   fineTuning: z.object({
     brightness: z.number().min(0).max(200).default(100),
     contrast: z.number().min(0).max(200).default(100),
@@ -137,6 +152,62 @@ export const SyncCanvasRequestSchema = z.object({
   }),
 });
 
+
+// Job Management Types
+export type JobStatus = 'queued' | 'running' | 'completed' | 'failed' | 'canceled';
+export type JobStage = 'queued' | 'prompting' | 'generating' | 'processing' | 'finalizing';
+
+export interface JobError {
+  code: string;
+  message: string;
+  details?: any;
+}
+
+export interface JobTraceEntry {
+  timestamp: number;
+  stage: JobStage;
+  progress: number;
+  message?: string;
+}
+
+export interface ClickatronJob {
+  id: string;
+  userId: string;
+  sessionId: string;
+  variationId: string;
+  prompt: string;
+  status: JobStatus;
+  progress: number;
+  stage: JobStage;
+  attempt: number;
+  startedAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  resultRef?: string;
+  error?: JobError;
+  trace: JobTraceEntry[];
+  fineTuning?: FineTuningControls;
+  metadata?: Record<string, any>;
+}
+
+export interface CreateJobRequest {
+  sessionId: string;
+  variationId: string;
+  prompt: string;
+  userId: string;
+  fineTuning?: FineTuningControls;
+  metadata?: Record<string, any>;
+}
+
+export interface WorkerPayload {
+  jobId: string;
+  sessionId: string;
+  variationId: string;
+  prompt: string;
+  userId: string;
+  fineTuning?: FineTuningControls;
+  metadata?: Record<string, any>;
+}
 
 // Zustand Store Types
 export interface ClickatronStore {

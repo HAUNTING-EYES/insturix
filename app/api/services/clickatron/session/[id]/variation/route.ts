@@ -60,12 +60,13 @@ export async function POST(
 
     // Initialize canvas if it doesn't exist
     if (!task.details?.canvas) {
-      task.details.canvas = { variations: [] };
+      task.details.canvas = { variations: [], chatHistory: [] };
     }
 
 
     // Create new variation
-    const variationId = `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const now = new Date();
     const newVariation = {
       id: variationId,
       prompt: validatedData.prompt,
@@ -77,6 +78,9 @@ export async function POST(
         contrast: 100,
         saturation: 100,
       },
+      createdAt: now,
+      updatedAt: now,
+      parentVariationId: validatedData.parentVariationId,
       referenceImages: validatedData.referenceImages || [],
       metadata: validatedData.metadata || {},
     };
@@ -88,7 +92,25 @@ export async function POST(
     // Keep only the 50 most recent variations
     task.details.canvas.variations = currentVariations.slice(0, 50);
 
+
+
+    // Add user message to chat history
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const userMessage = {
+      id: messageId,
+      role: 'user' as const,
+      content: validatedData.prompt,
+      timestamp: now,
+      variationId: variationId,
+      referenceImages: validatedData.referenceImages || [],
+    };
+
+    task.details.canvas.chatHistory.unshift(userMessage);
+    // Keep last 100 messages
+    task.details.canvas.chatHistory = task.details.canvas.chatHistory.slice(0, 100);
+
     task.updatedAt = new Date();
+    task.markModified('details');
     await task.save();
 
     // Use QStash for async processing

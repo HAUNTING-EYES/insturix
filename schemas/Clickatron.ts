@@ -13,10 +13,23 @@ const VariationSchema = new Schema({
   status: { type: String, enum: ['generating', 'completed', 'failed', 'blank'], required: true },
   aspectRatio: { type: String, required: true },
   fineTuning: { type: FineTuningSchema, required: true, default: () => ({}) },
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+  parentVariationId: { type: String },
 });
+
+const ChatMessageSchema = new Schema({
+  id: { type: String, required: true },
+  role: { type: String, enum: ['user', 'assistant'], required: true },
+  content: { type: String, required: true },
+  timestamp: { type: Date, default: Date.now },
+  variationId: { type: String }, // Link to variation if this message generated one
+  referenceImages: { type: [String], default: [] }, // Store reference image data URLs
+}, { _id: false });
 
 const CanvasSchema = new Schema({
   variations: { type: [VariationSchema], default: [] },
+  chatHistory: { type: [ChatMessageSchema], default: [] },
 }, { _id: false });
 
 export interface IClickatronTask extends Document {

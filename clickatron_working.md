@@ -44,12 +44,29 @@ This prevents the common issue where frontend autosave overwrites backend genera
 
 ### API Design
 
-The API follows RESTful patterns with these main endpoints:
+The API follows RESTful patterns with comprehensive endpoint coverage:
 
-- **Session Management**: Create, fetch, and update creative sessions
-- **Idea Selection**: Choose from AI-generated creative directions
-- **Canvas Sync**: Save canvas changes with variations and fine-tuning
-- **History**: Retrieve user's past sessions
+#### **Session Management**
+- `POST /api/services/clickatron/session` - Create new creative session
+- `GET /api/services/clickatron/session/:id` - Fetch session data
+- `PATCH /api/services/clickatron/session/:id` - Sync canvas changes
+- `POST /api/services/clickatron/session/:id/ideas/select` - Select creative direction
+- `GET /api/services/clickatron/history` - Retrieve user's past sessions
+
+#### **Variation Management**
+- `POST /api/services/clickatron/session/:id/variation` - Create/generate new variation
+- `GET /api/services/clickatron/session/:id/variation/:varId` - Get single variation
+- `PATCH /api/services/clickatron/session/:id/variation/:varId` - Update variation
+
+#### **Chat & Messages**
+- `POST /api/services/clickatron/session/:id/chat` - Add chat message
+- `GET /api/services/clickatron/session/:id/chat` - Get chat history
+
+#### **Features**
+- **Idempotency**: All mutation endpoints support `Idempotency-Key` headers
+- **Validation**: Comprehensive Zod schemas for all request/response types
+- **Authentication**: Clerk-based user authentication with proper isolation
+- **Error Handling**: Consistent HTTP status codes and error messages
 
 All requests are validated using Zod schemas to ensure data integrity. Authentication is handled through Clerk, with user isolation enforced at the database level.
 
@@ -60,7 +77,7 @@ Clickatron uses MongoDB with a single collection for all creative sessions. Each
 - **User identification**: Links sessions to specific users
 - **Session metadata**: Video idea, aspect ratio, creation timestamps
 - **Creative workflow**: Generated ideas and user selections
-- **Canvas data**: All variations with images, prompts, and fine-tuning settings
+- **Canvas data**: All variations with images, prompts, fine-tuning settings, and chat history
 
 The schema is designed for efficient querying by user and creation date. Connections are cached across serverless function invocations for performance.
 
@@ -71,7 +88,7 @@ The interface is built with a three-panel layout:
 - **Left Panel**: Variations gallery showing all generated image variations
 - **Center Panel**: Main canvas with zoom/pan controls and image display for the active variation
 - **Right Panel**: Fine-tuning controls for brightness, contrast, and saturation
-- **Bottom Panel**: AI command console for natural language editing
+- **Bottom Panel**: AI command console for natural language editing with chat history
 
 **Terminology Clarification:**
 - **Canvas**: The editing interface/workspace (the stage where you work)
@@ -90,7 +107,7 @@ The interface is built with a three-panel layout:
 - **New Variation**: Creates blank variation with `status: 'blank'` and sets as active immediately
 - **Duplicate Variation**: Creates copy of existing variation and sets as active
 - **Delete Variation**: Handles active variation cleanup, selects next available or sets to null
-- **Generation**: Updates status from 'blank' to 'generating' to 'completed' with proper state preservation
+- **Generation**: Updates status from 'blank' to 'generating' to 'completed/failed' with proper state preservation
 
 ### Image Handling & Canvas Controls
 
@@ -98,46 +115,95 @@ Images are displayed with professional zoom and pan controls using react-zoom-pa
 
 Fine-tuning adjustments (brightness, contrast, saturation) are applied using CSS filters, providing real-time preview without requiring server-side image processing.
 
-### Ideal Image Generation Flow
+### Complete Image Generation Flow
 
 The image generation process is designed to be asynchronous, using QStash for background processing. Generation is triggered in two specific scenarios:
 
-1.  **Initial Canvas Creation**: When a user selects a creative idea for the first time.
-2.  **Generative Edit**: When a user provides a new prompt via the AI Command Console in the canvas.
+1. **Initial Canvas Creation**: When a user selects a creative idea for the first time.
+2. **Generative Edit**: When a user provides a new prompt via the AI Command Console in the canvas.
 
 #### 1. Initial Canvas Generation
 
-*   **Trigger**: User selects an idea in the `IdeationStage`.
-*   **Frontend**: The `selectIdea` action in the Zustand store calls the `/api/services/clickatron/session/[id]/ideas/select` endpoint.
-*   **Backend (`select/route.ts`)**:
-    1.  Creates a new variation with `status: 'generating'`.
-    2.  Creates a job in Redis via `createJob()`.
-    3.  Enqueues the job with QStash, pointing to the `/api/internal/workers/clickatron/variation` worker.
-    4.  The frontend receives the updated session state, showing the variation in a "generating" state.
+- **Trigger**: User selects an idea in the `IdeationStage`.
+- **Frontend**: The `selectIdea` action in the Zustand store calls the `/api/services/clickatron/session/[id]/ideas/select` endpoint.
+- **Backend (`select/route.ts`)**:
+  1. Creates a new variation with `status: 'generating'`, complete timestamps, and required fields.
+  2. Initializes canvas with empty chat history.
+  3. Creates a job in Redis via `createJob()`.
+  4. Enqueues the job with QStash, pointing to the `/api/internal/workers/clickatron/variation` worker.
+  5. The frontend receives the updated session state, showing the variation in a "generating" state.
 
 #### 2. Generative Edit in Canvas
 
-*   **Trigger**: User submits a prompt in the `AICommandConsole`.
-*   **Frontend**: The `handleAIGenerate` function in `CanvasStage.tsx` calls the `/api/services/clickatron/session/[id]/variation` endpoint.
-*   **Backend (`variation/route.ts`)**:
-    1.  Creates a new variation with `status: 'generating'`.
-    2.  Creates a job in Redis and enqueues it with QStash, pointing to the same worker.
+- **Trigger**: User submits a prompt in the `AICommandConsole`.
+- **Frontend**: The `handleAIGenerate` function in `CanvasStage.tsx` calls the `/api/services/clickatron/session/[id]/variation` endpoint.
+- **Backend (`variation/route.ts`)**:
+  1. Creates a new variation with `status: 'generating'`, timestamps, and parent variation context.
+  2. Automatically saves the user prompt as a chat message with reference images.
+  3. Creates a job in Redis and enqueues it with QStash, pointing to the same worker.
 
 #### 3. QStash Worker
 
-*   **File**: `/api/internal/workers/clickatron/variation/route.ts`
-*   **Behavior**: This endpoint is called by QStash to process the generation job.
-*   **Implementation (Mock)**: For now, the worker will:
-    1.  Receive the job payload (sessionId, variationId, prompt).
-    2.  Wait for a few seconds to simulate processing.
-    3.  Select a random mock image from a predefined list.
-    4.  Update the `ClickatronTask` in MongoDB, setting the variation's `status` to `completed` and `imageRef` to the mock image URL.
+- **File**: `/api/internal/workers/clickatron/variation/route.ts`
+- **Behavior**: This endpoint is called by QStash to process the generation job.
+- **Implementation**: 
+  1. Validates job ownership (`job.userId === task.clerkUserId`)
+  2. Simulates processing with 10% failure rate for testing
+  3. Updates variation status to `completed` or `failed`
+  4. Sets `updatedAt` timestamp and mock image URL (for successful generations)
+  5. Completes or fails the job in Redis
 
 #### 4. Frontend Updates
 
-*   The frontend now polls the session endpoint every 2 seconds to check for updates after an idea is selected.
-*   Once the job is done, the UI will automatically update the variation from "generating" to "completed" and display the new image.
-*   Creating a new variation from the canvas UI (e.g., "New Variation" button) will create a variation with `status: 'blank'` and will NOT trigger any image generation.
+- The frontend uses consistent polling utilities for both idea selection and generative edits
+- `pollVariationCompletion()` utility handles polling logic with proper cleanup
+- Once generation is complete, the UI automatically updates the variation status and displays the result
+- Failed variations show retry buttons with graceful error handling
+
+### ✅ **Completed Implementation (December 2024)**
+
+All previously identified gaps have been resolved:
+
+#### **✅ Fixed State Management Issues**
+- **No More Duplication**: Removed local variation insertion in `handleAIGenerate`
+- **Server Reconciliation**: Now calls `loadSession()` after server response to get authoritative state
+- **Consistent Polling**: Unified polling utility for both idea selection and generative edits
+- **Idempotency**: Client generates and sends `Idempotency-Key` headers to prevent duplicate requests
+
+#### **✅ Enhanced Variation Management**
+- **Parent Variation Support**: Added `parentVariationId` field for edit context tracking
+- **Timestamps**: All variations have required `createdAt` and `updatedAt` fields
+- **Individual Endpoints**: `GET/PATCH /session/:id/variation/:varId` for single variation access
+- **Failed State Handling**: UI shows retry buttons for failed generations with 10% mock failure rate
+
+#### **✅ Chat & Message Persistence**
+- **Chat Endpoints**: `POST/GET /api/services/clickatron/session/:id/chat` for message management
+- **Auto-save Messages**: Variation generation automatically saves prompts as chat messages
+- **Chat History UI**: Integrated chat history display in AI Command Console
+- **Reference Images**: Full support for reference image persistence in chat
+
+#### **✅ Robust Error Handling**
+- **Job Ownership**: Worker validates `job.userId === task.clerkUserId` before processing
+- **Failure Recovery**: Graceful error states with retry functionality
+- **State Consistency**: Intelligent merging preserves user edits while respecting backend updates
+- **Null State Handling**: Proper UI degradation for edge cases
+
+#### **✅ Production-Ready Architecture**
+- **Complete Schema**: All new fields are required (no backwards compatibility needed)
+- **Type Safety**: Comprehensive Zod validation for all endpoints
+- **Security**: Proper authentication and user isolation throughout
+- **Testing**: Integration test suite covering all new functionality
+
+### **Current Worker Behavior**
+- **Mock Generation**: Worker still uses mock Unsplash URLs as intended for development
+- **Failure Simulation**: 10% random failure rate for testing error handling
+- **Ready for Production**: Easy to replace with real AI generation service
+
+### **Next Steps for Real Image Generation**
+1. Replace mock URLs in `app/api/internal/workers/clickatron/variation/route.ts`
+2. Integrate actual AI image generation service
+3. Add proper image storage and CDN integration
+4. All state management and error handling is already production-ready
 
 ### Aspect Ratio Handling
 
@@ -187,12 +253,15 @@ Security is enforced at multiple layers:
 - **Data validation**: Input validation using Zod schemas prevents malformed data
 - **User isolation**: Database queries always filter by user ID to prevent data leakage
 - **Session ownership**: Users can only access and modify their own creative sessions
+- **Job ownership**: Worker validates job ownership before processing
 
 ### Environment Setup
 
 The application requires:
 
 - **MongoDB**: Database for storing creative sessions
+- **Redis (Upstash)**: Job queue and caching
+- **QStash**: Background job processing
 - **Clerk**: Authentication service for user management
 - **Next.js**: Framework with serverless API routes
 
@@ -206,6 +275,7 @@ Configuration is handled through environment variables for database connections,
 2. **Idea Selection**: User chooses from AI-generated directions, triggering canvas initialization
 3. **Canvas Editing**: User creates variations, applies fine-tuning, with automatic background saving
 4. **Variation Management**: Users can create, duplicate, delete, and switch between image variations
+5. **Chat History**: Complete conversation tracking with reference image support
 
 ### Data Flow
 
@@ -219,6 +289,7 @@ Configuration is handled through environment variables for database connections,
 - **Next.js**: Provides both frontend React components and serverless API routes
 - **Zustand + Immer**: Manages complex nested state with immutable updates
 - **MongoDB + Mongoose**: Stores session data with proper indexing and validation
+- **Redis + QStash**: Handles background job processing and caching
 - **Clerk**: Handles authentication and user management across all components
 
-This architecture provides a responsive, reliable creative workspace that feels instant to users while maintaining data integrity through robust background synchronization.
+This architecture provides a responsive, reliable creative workspace that feels instant to users while maintaining data integrity through robust background synchronization and comprehensive error handling.

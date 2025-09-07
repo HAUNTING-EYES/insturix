@@ -5,6 +5,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Image, Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { ChatHistory } from './ChatHistory';
+import { ChatMessage } from '@/types/clickatron';
 
 export interface ReferenceImage {
   id: string;
@@ -25,6 +27,7 @@ interface AICommandConsoleProps {
     referenceImages?: ReferenceImage[];
     trigger: number;
   };
+  chatHistory?: ChatMessage[]; // Optional chat history
 }
 
 export function AICommandConsole({
@@ -34,9 +37,11 @@ export function AICommandConsole({
   className = "",
   clearTrigger,
   setPromptData,
+  chatHistory = [],
 }: AICommandConsoleProps) {
   const [prompt, setPrompt] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
+  const [showChatHistory, setShowChatHistory] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Clear console when clearTrigger changes
@@ -126,6 +131,15 @@ export function AICommandConsole({
       `}
     >
       <div className="p-6 max-w-5xl mx-auto">
+        {/* Chat History */}
+        {chatHistory.length > 0 && (
+          <ChatHistory
+            messages={chatHistory}
+            isVisible={showChatHistory}
+            onToggle={() => setShowChatHistory(!showChatHistory)}
+          />
+        )}
+        
         {/* Main Input Container */}
         <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-4 max-w-4xl mx-auto">
           {/* Reference Images - Inline with input */}

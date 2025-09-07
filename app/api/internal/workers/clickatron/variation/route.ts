@@ -50,27 +50,56 @@ async function handler(req: Request) {
       return NextResponse.json({ error: 'Task or canvas not found' }, { status: 404 });
     }
 
+    // Validate job ownership
+    if (job.userId !== task.clerkUserId) {
+      console.error('Worker: Job ownership validation failed', { jobUserId: job.userId, taskUserId: task.clerkUserId });
+      await failJob(jobId, { code: 'UNAUTHORIZED', message: 'Job ownership validation failed' });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
     // Simulate image generation
     console.log('Worker: Starting image generation simulation...');
     await new Promise(resolve => setTimeout(resolve, 3000));
-    const mockImageUrl = getRandomImage();
-    console.log('Worker: Image generation complete. Mock URL:', mockImageUrl);
-
+    
+    // Simulate occasional failures (10% chance)
+    const shouldFail = Math.random() < 0.1;
+    
     const variation = task.details.canvas.variations.find((v: Variation) => v.id === variationId);
     console.log('Worker: Found variation:', variation);
-    if (variation) {
-      variation.status = 'completed';
-      variation.imageRef = mockImageUrl;
-      console.log('Worker: Updated variation status and imageRef');
+    
+    if (!variation) {
+      console.error('Worker: Variation not found');
+      await failJob(jobId, { code: 'VARIATION_NOT_FOUND', message: 'Variation not found in task' });
+      return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
     }
 
-    task.markModified('details');
-    console.log('Worker: Marked task as modified');
-    await task.save();
-    console.log('Worker: Saved task to database');
+    if (shouldFail) {
+      console.log('Worker: Simulating generation failure');
+      variation.status = 'failed';
+      variation.updatedAt = new Date();
+      
+      task.markModified('details');
+      await task.save();
+      
+      await failJob(jobId, { code: 'GENERATION_FAILED', message: 'Mock generation failure' });
+      console.log('Worker: Failed job in QStash');
+    } else {
+      const mockImageUrl = getRandomImage();
+      console.log('Worker: Image generation complete. Mock URL:', mockImageUrl);
+      
+      variation.status = 'completed';
+      variation.imageRef = mockImageUrl;
+      variation.updatedAt = new Date();
+      console.log('Worker: Updated variation status, imageRef, and updatedAt');
+      
+      task.markModified('details');
+      console.log('Worker: Marked task as modified');
+      await task.save();
+      console.log('Worker: Saved task to database');
 
-    await completeJob(jobId, mockImageUrl);
-    console.log('Worker: Completed job in QStash');
+      await completeJob(jobId, mockImageUrl);
+      console.log('Worker: Completed job in QStash');
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -38,7 +38,8 @@ export async function POST(
     task.details.selectedIdea = selectedIdea;
 
     // Initialize canvas with a "generating" variation
-    const variationId = `var_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    const now = new Date();
     task.details.canvas = {
       variations: [
         {
@@ -48,8 +49,11 @@ export async function POST(
           imageRef: '',
           aspectRatio: task.details.aspectRatio,
           fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+          createdAt: now,
+          updatedAt: now,
         },
       ],
+      chatHistory: [],
     };
 
     task.markModified('details');
