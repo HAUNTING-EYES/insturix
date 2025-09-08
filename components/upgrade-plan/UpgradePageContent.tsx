@@ -86,6 +86,8 @@ export function UpgradePageContent({
     startDate: Date;
     status: string;
   } | null>(initialPlanData);
+  // Determine authentication from server-provided prop: null means not signed in
+  const isAuthenticated = currentUserPlan !== null;
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
   const [dynamicPlans, setDynamicPlans] = useState(serverPlans);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -227,6 +229,11 @@ export function UpgradePageContent({
     }
   }, [initialPlan, convertedPlans]);
 
+  useEffect(() => {
+    // Debug: log incoming SSR props for current user plan
+    console.log('[UpgradePageContent] debug props:', { initialUserPlan, initialPlanData });
+  }, [initialUserPlan, initialPlanData]);
+
   // Keep this useEffect for selectedPlan
   useEffect(() => {
     if (selectedPlan) {
@@ -247,10 +254,25 @@ export function UpgradePageContent({
 
   const handleNextStep = () => {
     if (currentStep < 2) { // Only 2 steps now: Plan Selection and Payment
-      if (selectedPlan?.price === 0 && currentStep === 1) {
+      if (!selectedPlan) return;
+
+      // If plan costs > 0, require authentication
+      if (selectedPlan.price > 0 && !isAuthenticated) {
+        toast({
+          title: 'Sign in required',
+          description: 'Please sign in to continue to payment.',
+        });
+        // Redirect to sign in page
+        router.push('/signin');
+        return;
+      }
+
+      // Free plans complete immediately
+      if (selectedPlan.price === 0 && currentStep === 1) {
         handlePaymentSuccess();
         return;
       }
+
       setAnimationDirection("forward");
       setCurrentStep(currentStep + 1);
     }
@@ -440,33 +462,38 @@ export function UpgradePageContent({
           </AnimatePresence>
 
           {showNavigation && currentStep < 2 && ( // Navigation only for step 1
-            <div className="flex justify-between mt-8 pt-6 border-t border-white/10">
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  variant="outline"
-                  onClick={handleCancel}
-                  className="bg-transparent border-white/20 hover:bg-white/10"
-                >
-                  Cancel
-                </Button>
-              </motion.div>
+            <>
+              <div className="flex justify-between mt-8 pt-6 border-t border-white/10">
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button
+                    variant="outline"
+                    onClick={handleCancel}
+                    className="bg-transparent border-white/20 hover:bg-white/10"
+                  >
+                    Cancel
+                  </Button>
+                </motion.div>
 
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                <Button
-                  onClick={handleNextStep}
-                  disabled={!selectedPlan}
-                  className={cn(
-                    "flex items-center gap-2 transition-all duration-300 shadow-lg",
-                    selectedPlan?.color
-                      ? `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
-                      : `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
-                  )}
-                >
-                  Continue to Payment
-                  <ArrowRight className="h-4 w-4" />
-                </Button>
-              </motion.div>
-            </div>
+                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                  <Button
+                    onClick={handleNextStep}
+                    disabled={!selectedPlan || (!!selectedPlan && selectedPlan.price > 0 && !isAuthenticated)}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-300 shadow-lg",
+                      selectedPlan?.color
+                        ? `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
+                        : `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
+                    )}
+                  >
+                    Continue to Payment
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
+                </motion.div>
+              </div>
+              {selectedPlan && selectedPlan.price > 0 && !isAuthenticated && (
+                <p className="text-sm text-muted-foreground mt-2">You must be signed in to purchase paid plans. Click continue to sign in.</p>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

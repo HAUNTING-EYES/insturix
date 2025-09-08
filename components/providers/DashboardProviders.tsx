@@ -14,7 +14,7 @@ interface DashboardProvidersProps {
 
 export function DashboardProviders({ children }: DashboardProvidersProps) {
   return (
-    <Suspense fallback={children}>
+    <Suspense fallback={<div aria-hidden className="min-h-[200px]" /> }>
       <LocationProvider>
         <PricingClientProvider>
           <CurrencyProvider>

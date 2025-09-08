@@ -2,11 +2,15 @@ import React from "react";
 import { cookies, headers } from "next/headers";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import { DashboardProviders } from "@/components/providers/DashboardProviders";
 import { UpgradePageContent, UpgradePageContentProps } from "@/components/upgrade-plan/UpgradePageContent";
 import { fetchPlans } from "@/lib/data/plans";
 import { getCurrencyInfoFromCountry } from "@/lib/location";
 import { auth } from "@clerk/nextjs/server";
 import { UserType } from "@/types/userTypes";
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { getUserPlanWithServiceLimits } from '@/lib/services/planService';
 
 async function getCountry() {
   const rawHeaders = await headers();
@@ -37,28 +41,31 @@ async function fetchUserPlanServerSide(userId: string | null) {
     return { userType: null, currentPlan: null };
   }
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/user/plans`, {
-      headers: {
-        // Pass the user ID to the API route if needed for authentication/authorization
-        // This is a simplified example, actual auth might use Clerk's session tokens
-        'X-User-ID': userId,
-      },
-      cache: 'no-store', // Ensure fresh data
-    });
-    if (!response.ok) {
-      throw new Error("Failed to fetch user plan");
+    // Instead of calling the internal API (which requires forwarding cookies/headers),
+    // query the database directly on the server using the same helpers as the API route.
+    await connectToDatabase();
+    const user = await User.findOne({ clerkUserId: userId });
+
+    if (!user) {
+      return { userType: null, currentPlan: null };
     }
-    const data = await response.json();
+
+    const userPlanWithServiceLimits = await getUserPlanWithServiceLimits(userId);
+
+    // Build the same simplified shape the client expects
+    const currentPlan = userPlanWithServiceLimits ? {
+      endDate: userPlanWithServiceLimits.endDate ? new Date(userPlanWithServiceLimits.endDate) : null,
+      // UpgradePageContent expects a non-null startDate; fallback to now if missing
+      startDate: userPlanWithServiceLimits.startDate ? new Date(userPlanWithServiceLimits.startDate) : new Date(),
+      status: userPlanWithServiceLimits.status,
+    } : null;
+
     return {
-      userType: data.userType || UserType.Free,
-      currentPlan: data.currentPlan ? {
-        endDate: data.currentPlan.endDate ? new Date(data.currentPlan.endDate) : null,
-        startDate: new Date(data.currentPlan.startDate),
-        status: data.currentPlan.status
-      } : null
+      userType: user.currentPlan?.name || UserType.Free,
+      currentPlan,
     };
   } catch (error) {
-    console.error('Error fetching user plan server-side:', error);
+    console.error('Error fetching user plan server-side (direct DB):', error instanceof Error ? error.message : error);
     return { userType: null, currentPlan: null };
   }
 }
@@ -100,7 +107,9 @@ export default async function UpgradePage({ searchParams }: any) {
   return (
     <div className="min-h-screen bg-background relative pt-24">
       <Navbar />
-      <UpgradePageContent {...upgradePageContentProps} />
+      <DashboardProviders>
+        <UpgradePageContent {...upgradePageContentProps} />
+      </DashboardProviders>
       <Footer />
       {/* Background pattern */}
       <div className="fixed inset-0 -z-20">
