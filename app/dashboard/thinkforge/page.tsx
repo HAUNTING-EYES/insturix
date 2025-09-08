@@ -51,9 +51,21 @@ export default function ThinkForgeLanding() {
 		setLoading(true);
 		setHasSubmitted(true);
 		setPhase('IDEAS');
-		await new Promise(r => setTimeout(r, 550)); // simulate
-		setIdeas(skeletonIdeas(prompt));
-		setLoading(false);
+			try {
+				const res = await fetch('/api/services/thinkforge/ideas', {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify({ prompt })
+				});
+				if (!res.ok) throw new Error('bad');
+				const data = await res.json();
+				const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
+				setIdeas(list.length === 4 ? list : skeletonIdeas(prompt));
+			} catch {
+				setIdeas(skeletonIdeas(prompt));
+			} finally {
+				setLoading(false);
+			}
 	}, [prompt, skeletonIdeas]);
 
 	const onSubmit = (e: React.FormEvent) => {
