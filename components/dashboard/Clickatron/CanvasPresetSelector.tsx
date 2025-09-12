@@ -1,300 +1,259 @@
 "use client";
 
-import React from "react";
-import { motion } from "framer-motion";
-import { Card, CardContent } from "@/components/ui/card";
-import {
-  Monitor,
-  Smartphone,
-  FileImage,
-  Settings,
-  Sparkles,
-} from "lucide-react";
+import React, { useState, useEffect, useMemo, ChangeEvent } from 'react';
+import { motion, AnimatePresence, Easing } from 'framer-motion';
+import { Check, Edit3 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
 
-export interface CanvasPreset {
-  id: string;
+interface Preset {
   name: string;
-  description: string;
-  aspectRatio: string;
-  dimensions: string;
+  ratio: string;
   icon: React.ComponentType<{ className?: string }>;
-  promptText: string;
-  placeholder: string;
-  isRecommended?: boolean;
 }
 
-const presets: CanvasPreset[] = [
-  {
-    id: "auto",
-    name: "Automatic",
-    description: "Auto-detect best format",
-    aspectRatio: "Auto",
-    dimensions: "Optimized",
-    icon: Sparkles,
-    promptText: "What are you creating?",
-    placeholder: "Describe your idea and we'll handle the rest",
-    isRecommended: true,
-  },
-  {
-    id: "youtube-thumbnail",
-    name: "YouTube",
-    description: "Video thumbnails",
-    aspectRatio: "16:9",
-    dimensions: "1280×720",
-    icon: Monitor,
-    promptText: "What's your video about?",
-    placeholder: "e.g., A cooking tutorial for beginners",
-  },
-  {
-    id: "social-post",
-    name: "Social Post",
-    description: "Instagram, Twitter, Facebook",
-    aspectRatio: "1:1",
-    dimensions: "1080×1080",
-    icon: Smartphone,
-    promptText: "What's your post about?",
-    placeholder: "e.g., Motivational quote for Monday",
-  },
-  {
-    id: "poster-portrait",
-    name: "Poster",
-    description: "Vertical posters & stories",
-    aspectRatio: "9:16",
-    dimensions: "1080×1920",
-    icon: FileImage,
-    promptText: "Describe your poster",
-    placeholder: "e.g., Event announcement poster",
-  },
-  {
-    id: "custom",
-    name: "Custom",
-    description: "Your own dimensions",
-    aspectRatio: "Custom",
-    dimensions: "Variable",
-    icon: Settings,
-    promptText: "What are you creating?",
-    placeholder: "e.g., Website banner or custom graphic",
-  },
+const LandscapeIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="10" rx="2" ry="2"></rect></svg>
+);
+const PortraitIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="2" width="10" height="20" rx="2" ry="2"></rect></svg>
+);
+const SquareIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+);
+
+const presets: Preset[] = [
+  { name: 'Landscape', ratio: '16:9', icon: LandscapeIcon },
+  { name: 'Portrait', ratio: '9:16', icon: PortraitIcon },
+  { name: 'Square', ratio: '1:1', icon: SquareIcon },
 ];
 
+const fadeIn: {
+    initial: { opacity: number; y: number };
+    animate: { opacity: number; y: number };
+    transition: { duration: number; ease: Easing };
+} = {
+    initial: { opacity: 0, y: 10 },
+    animate: { opacity: 1, y: 0 },
+    transition: { duration: 0.3, ease: 'easeOut' },
+};
+
+const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
+
 interface CanvasPresetSelectorProps {
-  selectedPreset: string;
-  onPresetChange: (preset: CanvasPreset) => void;
-  customAspectRatio?: { width: number; height: number };
-  onCustomAspectRatioChange?: (aspectRatio: {
-    width: number;
-    height: number;
-  }) => void;
+  value: string;
+  onChange: (value: string) => void;
 }
 
-const fadeIn = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.4, ease: "easeOut" } as any,
-};
+export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ value, onChange }) => {
+  const isPreset = useMemo(() => presets.some(p => p.ratio === value), [value]);
+  const [customWidth, setCustomWidth] = useState<string>('');
+  const [customHeight, setCustomHeight] = useState<string>('');
 
-const staggerChildren = {
-  animate: {
-    transition: {
-      staggerChildren: 0.05,
-    },
-  },
-};
-
-const cardVariants = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-};
-
-export function CanvasPresetSelector({
-  selectedPreset,
-  onPresetChange,
-  customAspectRatio,
-  onCustomAspectRatioChange,
-}: CanvasPresetSelectorProps) {
-  const [showCustomInputs, setShowCustomInputs] = React.useState(false);
-  const [aspectWidth, setAspectWidth] = React.useState(
-    customAspectRatio?.width || 16
-  );
-  const [aspectHeight, setAspectHeight] = React.useState(
-    customAspectRatio?.height || 9
-  );
-
-  const handlePresetChange = (preset: CanvasPreset) => {
-    onPresetChange(preset);
-    if (preset.id === "custom") {
-      setShowCustomInputs(true);
-    } else {
-      setShowCustomInputs(false);
+  useEffect(() => {
+    if (!isPreset) {
+      const [w, h] = value.split(':');
+      setCustomWidth(w || '');
+      setCustomHeight(h || '');
     }
+  }, [isPreset, value]);
+
+  const handleBlur = () => {
+    let w = parseFloat(customWidth);
+    let h = parseFloat(customHeight);
+
+    if (isNaN(w) || w <= 0) w = 1;
+    if (isNaN(h) || h <= 0) h = 1;
+
+    const commonDivisor = gcd(w * 100, h * 100);
+    const simplifiedWidth = (w * 100) / commonDivisor;
+    const simplifiedHeight = (h * 100) / commonDivisor;
+
+    onChange(`${simplifiedWidth}:${simplifiedHeight}`);
   };
-
-  const handleCustomAspectRatioUpdate = () => {
-    if (onCustomAspectRatioChange) {
-      onCustomAspectRatioChange({ width: aspectWidth, height: aspectHeight });
-    }
-  };
-
-  React.useEffect(() => {
-    if (selectedPreset === "custom") {
-      setShowCustomInputs(true);
-    }
-  }, [selectedPreset]);
-
-  React.useEffect(() => {
-    if (showCustomInputs) {
-      handleCustomAspectRatioUpdate();
-    }
-  }, [aspectWidth, aspectHeight, showCustomInputs]);
 
   return (
-    <motion.div {...fadeIn} className="mb-4">
-      {/* Mobile Dropdown */}
-      <div className="block sm:hidden">
-        <div className="mb-3 text-center">
-          <label className="text-base font-medium text-zinc-200 mb-2 block">
-            Format
-          </label>
-        </div>
-        <select
-          value={selectedPreset}
-          onChange={(e) => {
-            const preset = presets.find((p) => p.id === e.target.value);
-            if (preset) handlePresetChange(preset);
+    <motion.div {...fadeIn} className="w-full">
+      <div className="grid grid-cols-5 gap-3 sm:gap-4">
+        {presets.map(preset => (
+          <PresetCard
+            key={preset.name}
+            preset={preset}
+            isSelected={value === preset.ratio}
+            onSelect={() => onChange(preset.ratio)}
+          />
+        ))}
+        <CustomPresetCard
+          isSelected={!isPreset}
+          width={customWidth}
+          height={customHeight}
+          onSelect={() => {
+            if (isPreset) {
+              onChange('4:3');
+            }
           }}
-          className="w-full p-3 bg-zinc-900/60 border border-zinc-800/60 rounded-lg text-zinc-100 focus:border-zinc-700 focus:outline-none"
-        >
-          {presets.map((preset) => (
-            <option key={preset.id} value={preset.id}>
-              {preset.name} ({preset.aspectRatio})
-            </option>
-          ))}
-        </select>
+          onWidthChange={(e) => setCustomWidth(e.target.value)}
+          onHeightChange={(e) => setCustomHeight(e.target.value)}
+          onBlur={handleBlur}
+        />
       </div>
-
-      {/* Desktop Grid */}
-      <div className="hidden sm:block">
-        <div className="mb-4 text-center">
-          <h3 className="text-base font-medium text-zinc-200 mb-2">
-            Choose Your Format
-          </h3>
-        </div>
-
-        <motion.div
-          className="grid grid-cols-5 gap-2 items-stretch"
-          variants={staggerChildren}
-          initial="initial"
-          animate="animate"
-        >
-          {presets.map((preset) => {
-            const Icon = preset.icon;
-            const isSelected = selectedPreset === preset.id;
-
-            return (
-              <motion.div
-                key={preset.id}
-                variants={cardVariants}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                transition={{ duration: 0.15 }}
-                className="h-full"
-              >
-                <Card
-                  className={`cursor-pointer transition-all duration-150 h-full ${
-                    isSelected
-                      ? "bg-purple-600/20 border-purple-500/50"
-                      : "bg-zinc-900/40 border-zinc-800/50 hover:border-zinc-700/70"
-                  }`}
-                  onClick={() => handlePresetChange(preset)}
-                >
-                  <CardContent className="p-3 h-full">
-                    <div className="text-center h-full flex flex-col justify-between">
-                      <div className="flex flex-col items-center">
-                        <div
-                          className={`inline-flex p-2 rounded-lg mb-2 ${
-                            isSelected
-                              ? "bg-purple-500/20 text-purple-400"
-                              : "bg-zinc-800/50 text-zinc-400"
-                          }`}
-                        >
-                          <Icon className="h-4 w-4" />
-                        </div>
-
-                        <h4
-                          className={`font-medium text-xs mb-1 ${
-                            isSelected ? "text-purple-100" : "text-zinc-200"
-                          }`}
-                        >
-                          {preset.name}
-                        </h4>
-
-                        <p className="text-xs text-zinc-500 mb-2 leading-tight">
-                          {preset.description}
-                        </p>
-                      </div>
-
-                      <div
-                        className={`text-xs px-2 py-1 rounded font-mono ${
-                          isSelected
-                            ? "bg-purple-500/20 text-purple-300"
-                            : "bg-zinc-800/50 text-zinc-400"
-                        }`}
-                      >
-                        {preset.aspectRatio}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })}
-        </motion.div>
-      </div>
-
-      {/* Custom Aspect Ratio Input */}
-      {showCustomInputs && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          exit={{ opacity: 0, height: 0 }}
-          className="mt-3 p-3 bg-zinc-900/40 border border-zinc-800/50 rounded-lg"
-        >
-          <label className="block text-sm font-medium text-zinc-300 mb-2">
-            Custom Aspect Ratio
-          </label>
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <input
-                type="number"
-                value={aspectWidth}
-                onChange={(e) => setAspectWidth(Number(e.target.value))}
-                className="w-full p-2 bg-zinc-800/50 border border-zinc-700/50 rounded text-zinc-100 text-sm focus:border-zinc-600 focus:outline-none text-center"
-                min="1"
-                max="100"
-                placeholder="16"
-              />
-            </div>
-            <span className="text-zinc-400 font-mono">:</span>
-            <div className="flex-1">
-              <input
-                type="number"
-                value={aspectHeight}
-                onChange={(e) => setAspectHeight(Number(e.target.value))}
-                className="w-full p-2 bg-zinc-800/50 border border-zinc-700/50 rounded text-zinc-100 text-sm focus:border-zinc-600 focus:outline-none text-center"
-                min="1"
-                max="100"
-                placeholder="9"
-              />
-            </div>
-          </div>
-          <p className="text-xs text-zinc-500 mt-2 text-center">
-            Ratio: {aspectWidth}:{aspectHeight} (
-            {(aspectWidth / aspectHeight).toFixed(2)}:1)
-          </p>
-        </motion.div>
-      )}
     </motion.div>
   );
-}
+};
 
-export { presets };
+const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelected: boolean, onSelect: () => void }) => (
+  <div
+    onClick={onSelect}
+    className={cn(
+      "relative rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70",
+      isSelected ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-zinc-700 hover:border-zinc-500'
+    )}
+    style={{ minHeight: '120px' }}
+  >
+    <AnimatePresence>
+      {isSelected && (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.5 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.5 }}
+          className="absolute top-2 right-2 bg-purple-500 rounded-full p-1"
+        >
+          <Check className="w-3 h-3 text-white" />
+        </motion.div>
+      )}
+    </AnimatePresence>
+    <div className="flex flex-col items-center justify-center h-full text-center">
+      <preset.icon className={cn("w-10 h-10 sm:w-12 sm:h-12 mb-2 transition-colors", isSelected ? "text-purple-400" : "text-zinc-400 group-hover:text-zinc-300")} />
+      <p className={cn("text-sm font-medium transition-colors", isSelected ? "text-zinc-100" : "text-zinc-300 group-hover:text-zinc-100")}>{preset.name}</p>
+      <p className={cn("text-xs transition-colors", isSelected ? "text-zinc-400" : "text-zinc-500 group-hover:text-zinc-400")}>{preset.ratio}</p>
+    </div>
+  </div>
+);
+
+const CustomPresetCard = ({
+  isSelected,
+  width,
+  height,
+  onSelect,
+  onWidthChange,
+  onHeightChange,
+  onBlur,
+}: {
+  isSelected: boolean;
+  width: string;
+  height: string;
+  onSelect: () => void;
+  onWidthChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onHeightChange: (e: ChangeEvent<HTMLInputElement>) => void;
+  onBlur: () => void;
+}) => {
+  const aspectRatio = useMemo(() => {
+    const w = parseFloat(width) || 1;
+    const h = parseFloat(height) || 1;
+    return w / h;
+  }, [width, height]);
+
+  return (
+    <div
+      onClick={onSelect}
+      className={cn(
+        'col-span-2 relative rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center',
+        isSelected
+          ? 'border-purple-500 shadow-lg shadow-purple-500/10'
+          : 'border-zinc-700 hover:border-zinc-500'
+      )}
+      style={{ minHeight: '120px' }}
+    >
+      <AnimatePresence>
+        {isSelected && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            className="absolute top-2 right-2 bg-purple-500 rounded-full p-1 z-10"
+          >
+            <Check className="w-3 h-3 text-white" />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex flex-col items-center justify-between h-full text-center w-full">
+        <div className="w-full flex justify-center items-center">
+            <Edit3
+                className={cn(
+                    'w-6 h-6 mr-2 transition-colors',
+                    isSelected
+                    ? 'text-purple-400'
+                    : 'text-zinc-400 group-hover:text-zinc-300'
+                )}
+                />
+            <p
+            className={cn(
+                'text-sm font-medium transition-colors',
+                isSelected
+                ? 'text-zinc-100'
+                : 'text-zinc-300 group-hover:text-zinc-100'
+            )}
+            >
+            Custom
+            </p>
+        </div>
+
+        <div className="w-full h-10 flex items-center justify-center my-2 overflow-hidden">
+            {isSelected && (
+                <motion.div
+                    initial={{opacity: 0, scale: 0.8}}
+                    animate={{opacity: 1, scale: 1}}
+                    className="h-full w-full max-w-[80px] max-h-[40px] flex items-center justify-center"
+                >
+                     <div
+                        className="bg-purple-500/20 rounded-sm transition-all duration-300"
+                        style={{
+                            width: aspectRatio >= 1 ? '100%' : `${aspectRatio * 100}%`,
+                            height: aspectRatio < 1 ? '100%' : `${(1 / aspectRatio) * 100}%`,
+                        }}
+                    />
+                </motion.div>
+            )}
+        </div>
+
+        <div className="h-8 w-full">
+          {isSelected ? (
+            <motion.div
+              initial={{ opacity: 0, y: 5 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex items-center justify-center gap-1"
+            >
+              <Input
+                type="number"
+                placeholder="W"
+                value={width}
+                onChange={onWidthChange}
+                onBlur={onBlur}
+                onClick={(e) => e.stopPropagation()}
+                className="w-16 h-full text-center bg-zinc-950/50 border-zinc-700 rounded-md text-sm"
+                min="0.1"
+                step="0.1"
+                autoFocus
+              />
+              <span className="text-zinc-500">:</span>
+              <Input
+                type="number"
+                placeholder="H"
+                value={height}
+                onChange={onHeightChange}
+                onBlur={onBlur}
+                onClick={(e) => e.stopPropagation()}
+                className="w-16 h-full text-center bg-zinc-950/50 border-zinc-700 rounded-md text-sm"
+                min="0.1"
+                step="0.1"
+              />
+            </motion.div>
+          ) : (
+            <p className="text-xs text-zinc-500 group-hover:text-zinc-400">Enter ratio</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

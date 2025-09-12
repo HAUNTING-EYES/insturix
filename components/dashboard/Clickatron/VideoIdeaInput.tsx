@@ -8,7 +8,7 @@ import { Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { EnhancedInput } from './EnhancedInput';
 import useClickatronStore from '@/stores/useCanvasStore';
-import { AspectRatioSelector } from './canvas/AspectRatioSelector';
+import { CanvasPresetSelector } from './CanvasPresetSelector';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -95,8 +95,8 @@ export function VideoIdeaInput() {
                     isLoading={isLoading}
                     disabled={isLoading}
                   />
-                  <div className="mt-4 w-full max-w-xs mx-auto">
-                    <AspectRatioSelector value={aspectRatio} onChange={setAspectRatio} />
+                  <div className="mt-6 w-full max-w-md mx-auto">
+                    <CanvasPresetSelector value={aspectRatio} onChange={setAspectRatio} />
                   </div>
                 </form>
             </div>
