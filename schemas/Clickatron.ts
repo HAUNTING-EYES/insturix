@@ -17,7 +17,7 @@ const VariationSchema = new Schema({
   updatedAt: { type: Date, default: Date.now },
   parentVariationId: { type: String },
   // AI generation metadata
-  modelUsed: { type: String },
+  modelId: { type: String, required: true }, // Renamed from modelUsed and now required
   seed: { type: Number },
   generationParams: { type: Schema.Types.Mixed },
 });

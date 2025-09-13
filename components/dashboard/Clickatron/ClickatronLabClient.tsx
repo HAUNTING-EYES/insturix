@@ -35,9 +35,9 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     }
   }, [initialData?.sessionId, loadSession]);
 
-  const handleIdeationComplete = useCallback(async (idea: Idea) => {
+  const handleIdeationComplete = useCallback(async (idea: Idea, modelId?: string) => {
     if (!task?._id) return;
-    await selectIdea(task._id, idea);
+    await selectIdea(task._id, idea, modelId);
   }, [task?._id, selectIdea]);
 
   const handleCanvasComplete = useCallback(() => {

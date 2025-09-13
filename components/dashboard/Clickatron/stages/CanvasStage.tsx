@@ -225,7 +225,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const handleAIGenerate = async (
     prompt: string,
-    referenceImages?: ReferenceImage[]
+    referenceImages?: ReferenceImage[],
+    modelId?: string
   ) => {
     if (!canvas || !task?._id) return;
 
@@ -235,16 +236,20 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
     try {
+      // Use the passed modelId, or fall back to the active variation's modelId, or use default
+      const selectedModelId = modelId || activeVariation?.modelId || "flux-kontext/dev";
+      
       const response = await fetch(
         `/api/services/clickatron/session/${task._id}/variation`,
         {
           method: "POST",
-          headers: { 
+          headers: {
             "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey
           },
           body: JSON.stringify({
             prompt,
+            modelId: selectedModelId, // Include modelId in the request
             parentVariationId: activeVariationId, // Include parent for edit context
             fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
             referenceImages: imageDataUrls,
@@ -291,6 +296,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       createdAt: now,
       updatedAt: now,
+      modelId: "flux-kontext/dev", // Default model for new variations
     };
     const newCanvas = produce(canvas, (draft) => {
       draft.variations.unshift(newVariation);

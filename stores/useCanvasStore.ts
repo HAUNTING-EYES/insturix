@@ -17,7 +17,11 @@ const useClickatronStore = create<ClickatronStore>()(
       isSaving: false,
       saveError: null,
       lastSaved: null,
+      ideationModelId: null,
+      editModelId: null,
       setTask: (task) => set({ task }),
+      setIdeationModelId: (modelId: string | null) => set({ ideationModelId: modelId }),
+      setEditModelId: (modelId: string | null) => set({ editModelId: modelId }),
       
       updateCanvas: (canvas) => {
         set(
@@ -93,12 +97,17 @@ const useClickatronStore = create<ClickatronStore>()(
         }
       },
 
-      selectIdea: async (sessionId, idea) => {
+      selectIdea: async (sessionId, idea, modelId) => {
         try {
+          const requestBody: any = { selectedIdea: idea };
+          if (modelId) {
+            requestBody.modelId = modelId;
+          }
+          
           const response = await fetch(`/api/services/clickatron/session/${sessionId}/ideas/select`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ selectedIdea: idea }),
+            body: JSON.stringify(requestBody),
           });
 
           if (!response.ok) {

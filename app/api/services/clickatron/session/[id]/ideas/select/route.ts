@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { SelectIdeaRequestSchema } from '@/types/clickatron';
 import { createJob } from '@/lib/clickatron-jobs';
 import { enqueueQStashJob } from '@/lib/clickatron-qtask';
+import { CLICKATRON_MODELS } from '@/lib/config/clickatron-models';
 
 // POST /api/services/clickatron/session/:id/ideas/select
 // Marks an idea as selected, and creates the initial canvas.
@@ -25,7 +26,7 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { selectedIdea } = SelectIdeaRequestSchema.parse(body);
+    const { selectedIdea, modelId } = SelectIdeaRequestSchema.parse(body);
 
     await getClickatronDb();
     const objectId = new Types.ObjectId(id);
@@ -40,6 +41,10 @@ export async function POST(
     // Initialize canvas with a "generating" variation
     const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const now = new Date();
+    
+    // Get default model if none provided
+    const selectedModelId = modelId || Object.values(CLICKATRON_MODELS).find(model => model.isDefault)?.id || 'flux-kontext/dev';
+    
     task.details.canvas = {
       variations: [
         {
@@ -51,6 +56,7 @@ export async function POST(
           fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
           createdAt: now,
           updatedAt: now,
+          modelId: selectedModelId, // Add modelId to variation
         },
       ],
       chatHistory: [],
@@ -75,6 +81,7 @@ export async function POST(
       variationId,
       prompt: selectedIdea.prompt,
       userId,
+      modelId: selectedModelId, // Pass modelId to the job
     });
 
     return NextResponse.json({ success: true, message: 'Canvas initialization job queued' });

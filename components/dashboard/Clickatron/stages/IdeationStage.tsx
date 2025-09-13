@@ -5,10 +5,11 @@ import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Sparkles, ArrowRight } from 'lucide-react';
 import { Idea } from '@/types/clickatron';
+import { ModelSelector } from './ModelSelector';
 
 interface IdeationStageProps {
   ideas: Idea[];
-  onSelectIdea: (idea: Idea) => void;
+  onSelectIdea: (idea: Idea, modelId?: string) => void;
 }
 
 const fadeIn = {
@@ -27,6 +28,16 @@ const staggerChildren = {
 
 export function IdeationStage({ ideas, onSelectIdea }: IdeationStageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+
+  const handleModelChange = (modelId: string) => {
+    setSelectedModelId(modelId);
+  };
+
+  const handleSelectIdea = (idea: Idea) => {
+    setSelectedId(idea.id);
+    onSelectIdea(idea, selectedModelId || undefined);
+  };
 
   if (!ideas || ideas.length === 0) {
     return (
@@ -58,6 +69,15 @@ export function IdeationStage({ ideas, onSelectIdea }: IdeationStageProps) {
               Which of these creative directions feels best for your thumbnail?
             </p>
           </div>
+          
+          {/* Model Selector */}
+          <div className="flex justify-center mb-6">
+            <ModelSelector
+              stage="ideation"
+              selectedModelId={selectedModelId || undefined}
+              onModelChange={handleModelChange}
+            />
+          </div>
 
           <motion.div 
             variants={staggerChildren}
@@ -73,10 +93,7 @@ export function IdeationStage({ ideas, onSelectIdea }: IdeationStageProps) {
                       ? 'bg-purple-500/20 border-purple-500/50 shadow-lg shadow-purple-500/20'
                       : 'bg-zinc-900/40 border-zinc-800/60 hover:border-zinc-700/80 hover:bg-zinc-900/60'
                   }`}
-                  onClick={() => {
-                    setSelectedId(idea.id);
-                    onSelectIdea(idea);
-                  }}
+                  onClick={() => handleSelectIdea(idea)}
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start gap-4">

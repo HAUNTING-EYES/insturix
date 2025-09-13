@@ -349,6 +349,14 @@ Clickatron measures success through:
 - **Batch Processing**: Multiple variation generation
 - **Mobile Optimization**: Responsive design for mobile creativity
 
+### Known Issues and Limitations
+
+1.  **Model Selection Logic**: The logic for selecting between text-to-image and image-to-image models based on the presence of reference images is not fully implemented. Currently, the system may not correctly switch models when a reference image is added or removed. Key files to examine: `lib/config/clickatron-models.ts`, `app/api/internal/workers/clickatron/variation/route.ts`.
+2.  **Payload Construction**: The current implementation for constructing API payloads for different AI models is complex and relies on numerous conditional checks. This makes it difficult to add new models or modify existing ones. Key files to examine: `app/api/internal/workers/clickatron/variation/route.ts`.
+3.  **Ideation Stage Model Filtering**: In the initial ideation stage, when no reference images are provided, the system should only show text-to-image models. However, image-to-image models like `flux-kontext/dev` are currently available for selection. Key files to examine: `components/dashboard/Clickatron/stages/ModelSelector.tsx`, `lib/config/clickatron-models.ts`.
+4.  **Model Selector Dropdown**: The model selector dropdown in the ideation stage may not be functioning correctly. User selections might not be properly propagated, causing the system to default to `flux-kontext/dev`. Key files to examine: `components/dashboard/Clickatron/stages/IdeationStage.tsx`, `components/dashboard/Clickatron/ClickatronLabClient.tsx`, `stores/useCanvasStore.ts`.
+5.  **Model Configuration**: The configuration for different AI models is not intuitive. Adding a new model with its specific API requirements should be simpler. Key files to examine: `lib/config/clickatron-models.ts`.
+
 ---
 
 **Clickatron** represents the evolution from simple AI tools to intelligent creative partners. It's not just about generating images—it's about empowering creators with AI that understands context, maintains creative history, and delivers professional results through an intuitive, powerful interface.

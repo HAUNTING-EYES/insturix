@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ChatHistory } from './ChatHistory';
 import { ChatMessage } from '@/types/clickatron';
+import { ModelSelector } from '../stages/ModelSelector';
 
 export interface ReferenceImage {
   id: string;
@@ -17,7 +18,7 @@ export interface ReferenceImage {
 }
 
 interface AICommandConsoleProps {
-  onGenerate: (prompt: string, referenceImages?: ReferenceImage[]) => void;
+  onGenerate: (prompt: string, referenceImages?: ReferenceImage[], modelId?: string) => void;
   isGenerating: boolean;
   galleryCollapsed?: boolean;
   className?: string;
@@ -42,7 +43,12 @@ export function AICommandConsole({
   const [prompt, setPrompt] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [showChatHistory, setShowChatHistory] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleModelChange = (modelId: string) => {
+    setSelectedModelId(modelId);
+  };
 
   // Clear console when clearTrigger changes
   useEffect(() => {
@@ -64,7 +70,7 @@ export function AICommandConsole({
     e.preventDefault();
     if (!prompt.trim() || isGenerating) return;
 
-    onGenerate(prompt, referenceImages.length > 0 ? referenceImages : undefined);
+    onGenerate(prompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
     setPrompt("");
   };
 
@@ -139,6 +145,15 @@ export function AICommandConsole({
             onToggle={() => setShowChatHistory(!showChatHistory)}
           />
         )}
+        
+        {/* Model Selector */}
+        <div className="flex justify-center mb-4">
+          <ModelSelector
+            stage="edit"
+            selectedModelId={selectedModelId || undefined}
+            onModelChange={handleModelChange}
+          />
+        </div>
         
         {/* Main Input Container */}
         <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-4 max-w-4xl mx-auto">

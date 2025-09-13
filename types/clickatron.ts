@@ -56,7 +56,7 @@ export interface Variation {
   updatedAt: Date;
   parentVariationId?: string; // For tracking edit relationships
   // AI generation metadata
-  modelUsed?: string;
+  modelId: string; // Renamed from modelUsed and now required
   seed?: number;
   generationParams?: Record<string, any>;
 }
@@ -92,6 +92,7 @@ export interface CreateSessionResponse {
 // POST /api/services/clickatron/session/[id]/ideas/select
 export interface SelectIdeaRequest {
   selectedIdea: Idea;
+  modelId?: string; // Optional: If not provided, the default model is used
 }
 
 export const SelectIdeaRequestSchema = z.object({
@@ -101,11 +102,13 @@ export const SelectIdeaRequestSchema = z.object({
     description: z.string(),
     prompt: z.string(),
   }),
+  modelId: z.string().optional(),
 });
 
 // POST /api/services/clickatron/session/[id]/variation
 export interface CreateVariationRequest {
   prompt: string;
+  modelId: string; // Now required
   parentVariationId?: string; // For editing existing variations
   fineTuning?: FineTuningControls;
   referenceImages?: string[]; // Store as data URLs
@@ -114,6 +117,7 @@ export interface CreateVariationRequest {
 
 export const CreateVariationRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt is required"),
+  modelId: z.string().min(1, "Model ID is required"),
   parentVariationId: z.string().optional(), // For editing existing variations
   fineTuning: z.object({
     brightness: z.number().min(0).max(200).default(100),
@@ -193,6 +197,7 @@ export interface ClickatronJob {
   parentVariationId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
+  modelId?: string;
 }
 
 export interface CreateJobRequest {
@@ -203,6 +208,7 @@ export interface CreateJobRequest {
   parentVariationId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
+  modelId?: string;
 }
 
 export interface WorkerPayload {
@@ -212,6 +218,7 @@ export interface WorkerPayload {
   prompt: string;
   userId: string;
   parentVariationId?: string;
+  modelId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
 }
@@ -222,14 +229,18 @@ export interface ClickatronStore {
   isSaving: boolean;
   saveError: string | null;
   lastSaved: Date | null;
+  ideationModelId: string | null;
+  editModelId: string | null;
   setTask: (task: IClickatronTask) => void;
   updateCanvas: (canvas: Canvas) => void;
   setCanvasFromBackend: (canvas: Canvas) => void;
   updateVariation: (variationId: string, newVariationData: Partial<Variation>) => void;
+  setIdeationModelId: (modelId: string | null) => void;
+  setEditModelId: (modelId: string | null) => void;
 
   // Actions
   createSession: (request: CreateSessionRequest) => Promise<string | null>; // Returns sessionId
-  selectIdea: (sessionId: string, idea: Idea) => Promise<boolean>;
-  syncCanvas: (sessionId: string, canvas: Canvas) => Promise<void>;
+  selectIdea: (sessionId: string, idea: Idea, modelId?: string) => Promise<boolean>;
+ syncCanvas: (sessionId: string, canvas: Canvas) => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
 }

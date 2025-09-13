@@ -7,6 +7,7 @@ import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 import { enqueueQStashJob } from '@/lib/clickatron-qtask';
+import { CLICKATRON_MODELS } from '@/lib/config/clickatron-models';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
@@ -83,6 +84,7 @@ export async function POST(
       parentVariationId: validatedData.parentVariationId,
       referenceImages: validatedData.referenceImages || [],
       metadata: validatedData.metadata || {},
+      modelId: validatedData.modelId, // Add modelId to variation
     };
 
     // Add variation to canvas (capping at 50)
@@ -120,8 +122,13 @@ export async function POST(
       prompt: validatedData.prompt,
       userId,
       parentVariationId: validatedData.parentVariationId,
-      fineTuning: validatedData.fineTuning,
+      fineTuning: validatedData.fineTuning || {
+        brightness: 100,
+        contrast: 100,
+        saturation: 100,
+      },
       metadata: validatedData.metadata,
+      modelId: validatedData.modelId, // Add modelId to job
     });
 
     // Set idempotency key if provided
@@ -138,8 +145,13 @@ export async function POST(
         prompt: validatedData.prompt,
         userId,
         parentVariationId: validatedData.parentVariationId,
-        fineTuning: validatedData.fineTuning,
+        fineTuning: validatedData.fineTuning || {
+          brightness: 100,
+          contrast: 100,
+          saturation: 100,
+        },
         metadata: validatedData.metadata,
+        modelId: validatedData.modelId, // Add modelId to job
       });
       console.log('QStash job enqueued successfully:', qstashResult);
     } catch (qstashError) {

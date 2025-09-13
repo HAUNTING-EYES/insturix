@@ -8,6 +8,7 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
+import { CLICKATRON_MODELS } from '@/lib/config/clickatron-models';
 
 // Configure Fal AI client
 if (process.env.FAL_AI_API_KEY) {
@@ -151,10 +152,7 @@ async function handler(req: Request) {
       // Prepare generation parameters
       const generationParams: any = {
         prompt: job.prompt,
-        image_size: {
-          width,
-          height
-        },
+        // Note: image_size is not added by default, it will be handled model-specifically
         num_inference_steps: 28,
         guidance_scale: 3.5,
         num_images: 1,
@@ -188,14 +186,29 @@ async function handler(req: Request) {
 
       console.log('Worker: Starting image generation with params:', generationParams);
 
-      // Generate image using Fal AI
-      // Use different models for text-to-image vs image-to-image
-      const isImageToImage = !!generationParams.image_url;
-      const modelId = isImageToImage
-        ? "fal-ai/flux-1/dev/redux"
-        : "fal-ai/flux-1/dev";
+      // Get the model configuration from the variation
+      const selectedModelId = variation.modelId;
+      const modelConfig = CLICKATRON_MODELS[selectedModelId];
       
-      console.log('Worker: Using model:', modelId, 'for', isImageToImage ? 'image-to-image' : 'text-to-image');
+      if (!modelConfig) {
+        console.error('Worker: Model configuration not found for modelId:', selectedModelId);
+        await failJob(jobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
+        
+        variation.status = 'failed';
+        variation.updatedAt = new Date();
+        
+        task.markModified('details');
+        await task.save();
+        
+        return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
+      }
+      
+      // Use the model ID from the configuration and prepend 'fal-ai/'
+      const modelId = `fal-ai/${modelConfig.id}`;
+      console.log('Worker: Using model:', modelId, 'from configuration');
+      
+      // Determine if this is an image-to-image generation
+      const isImageToImage = !!generationParams.image_url;
       
       // Validate image URL accessibility before making the API call
       if (isImageToImage && generationParams.image_url) {
@@ -219,8 +232,49 @@ async function handler(req: Request) {
         }
       }
       
+      // Construct the payload dynamically based on the model configuration
+      const payload: Record<string, any> = {
+        [modelConfig.parameters.prompt]: job.prompt,
+      };
+      
+      // Add image URL(s) if it's an image-to-image model
+      if (modelConfig.type === 'image-to-image' && modelConfig.parameters.image_url && generationParams.image_url) {
+        payload[modelConfig.parameters.image_url] = generationParams.image_url;
+      } else if (modelConfig.type === 'image-to-image' && modelConfig.parameters.image_urls && generationParams.image_url) {
+        // For models that expect an array of image URLs, provide the single image URL as an array
+        payload[modelConfig.parameters.image_urls] = [generationParams.image_url];
+      }
+      
+      // Handle model-specific parameters
+      if (modelId === 'fal-ai/flux-kontext/dev') {
+        // Special handling for flux-kontext/dev
+        payload.resolution_mode = "match_input";
+      } else if (modelConfig.parameters.aspect_ratio) {
+        // Add aspect ratio for other models that support it
+        payload[modelConfig.parameters.aspect_ratio] = `${width}:${height}`;
+      } else if (modelConfig.parameters.image_size) {
+        // Add image_size as an object for models that require it
+        payload[modelConfig.parameters.image_size] = { width, height };
+      }
+      
+      // Add other generation parameters
+      payload.num_inference_steps = generationParams.num_inference_steps || 28;
+      payload.guidance_scale = generationParams.guidance_scale || 3.5;
+      payload.num_images = generationParams.num_images || 1;
+      payload.enable_safety_checker = generationParams.enable_safety_checker || true;
+      payload.output_format = generationParams.output_format || "jpeg";
+      payload.seed = generationParams.seed || Math.floor(Math.random() * 1000000);
+      
+      // Add max_images if the model configuration specifies it
+      if (modelConfig.parameters.max_images) {
+        payload[modelConfig.parameters.max_images] = 1; // Default to 1, can be made configurable
+      }
+      
+      // Debug logging to see the final payload
+      console.log('Worker: Final payload for model', modelId, ':', JSON.stringify(payload, null, 2));
+
       const result = await fal.subscribe(modelId, {
-        input: generationParams,
+        input: payload,
         logs: true,
         onQueueUpdate: (update) => {
           if (update.status === "IN_PROGRESS") {
@@ -252,7 +306,7 @@ async function handler(req: Request) {
       variation.status = 'completed';
       variation.imageRef = gcsUrl;
       variation.updatedAt = new Date();
-      variation.modelUsed = "fal-ai/flux-1/dev/redux";
+      variation.modelId = selectedModelId; // Use the selected model ID
       variation.seed = generationParams.seed;
       variation.generationParams = generationParams;
       
