@@ -79,7 +79,10 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <div className="px-1">
                         <Slider
                             value={[brightness]}
-                            onValueChange={([val]) => !disabled && onBrightnessChange(val)}
+                            onValueChange={([val]) => {
+                                console.log('Brightness changed:', val);
+                                !disabled && onBrightnessChange(val);
+                            }}
                             min={0}
                             max={200}
                             step={1}
@@ -112,7 +115,10 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <div className="px-1">
                         <Slider
                             value={[contrast]}
-                            onValueChange={([val]) => !disabled && onContrastChange(val)}
+                            onValueChange={([val]) => {
+                                console.log('Contrast changed:', val);
+                                !disabled && onContrastChange(val);
+                            }}
                             min={0}
                             max={200}
                             step={1}
@@ -145,7 +151,10 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <div className="px-1">
                         <Slider
                             value={[saturation]}
-                            onValueChange={([val]) => !disabled && onSaturationChange(val)}
+                            onValueChange={([val]) => {
+                                console.log('Saturation changed:', val);
+                                !disabled && onSaturationChange(val);
+                            }}
                             min={0}
                             max={200}
                             step={1}

@@ -119,6 +119,7 @@ export async function POST(
       variationId,
       prompt: validatedData.prompt,
       userId,
+      parentVariationId: validatedData.parentVariationId,
       fineTuning: validatedData.fineTuning,
       metadata: validatedData.metadata,
     });
@@ -136,6 +137,7 @@ export async function POST(
         variationId,
         prompt: validatedData.prompt,
         userId,
+        parentVariationId: validatedData.parentVariationId,
         fineTuning: validatedData.fineTuning,
         metadata: validatedData.metadata,
       });

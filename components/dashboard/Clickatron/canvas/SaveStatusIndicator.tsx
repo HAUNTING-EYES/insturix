@@ -7,7 +7,7 @@ import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 
 interface SaveStatusIndicatorProps {
   isSaving: boolean;
-  saveError: Error | null;
+  saveError: string | null;
   lastSaved: Date | null;
 }
 
@@ -17,27 +17,20 @@ export function SaveStatusIndicator({
   lastSaved,
 }: SaveStatusIndicatorProps) {
   const networkStatus = useNetworkStatus();
-  const getStatusContent = () => {
+  const getStatusContent = () => {    
     // Priority 1: Network status
     if (!networkStatus.isOnline) {
+      console.log('SaveStatusIndicator: Offline');
       return {
         icon: <WifiOff className="h-3 w-3" />,
-        text: networkStatus.queueLength > 0 ? `${networkStatus.queueLength} queued` : "Offline",
+        text: "Offline",
         className: "bg-orange-500/20 text-orange-300 border-orange-500/30",
-      };
-    }
-
-    // Priority 2: Queue processing
-    if (networkStatus.queueLength > 0) {
-      return {
-        icon: networkStatus.isProcessing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Clock className="h-3 w-3" />,
-        text: networkStatus.isProcessing ? "Syncing queue..." : `${networkStatus.queueLength} pending`,
-        className: "bg-yellow-500/20 text-yellow-300 border-yellow-500/30",
       };
     }
 
     // Priority 3: Current save status
     if (isSaving) {
+      console.log('SaveStatusIndicator: Saving...');
       return {
         icon: <Loader2 className="h-3 w-3 animate-spin" />,
         text: "Saving...",
@@ -46,6 +39,7 @@ export function SaveStatusIndicator({
     }
 
     if (saveError && !saveError.includes('Queued')) {
+      console.log('SaveStatusIndicator: Unable to save', saveError);
       return {
         icon: <AlertCircle className="h-3 w-3" />,
         text: "Unable to save",

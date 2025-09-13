@@ -151,6 +151,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const lastSyncedCanvasRef = useRef<string | null>(null);
   const isInitialMount = useRef(true);
   const renderCount = useRef(0);
+  const [localActiveVariation, setLocalActiveVariation] = useState(activeVariationId);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -159,6 +160,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   }
 
   const canvas = task?.details.canvas;
+  // Ref to store the current canvas to prevent unnecessary re-renders
+  const canvasRef = useRef(canvas);
   const variations = canvas?.variations || [];
 
   // Get aspect ratio from session
@@ -178,44 +181,63 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
 
 
+  // Update canvasRef when canvas changes
   useEffect(() => {
-    if (!activeVariationId && variations.length > 0) {
+    canvasRef.current = canvas;
+  }, [canvas]);
+
+  // Update local active variation when prop changes
+  useEffect(() => {
+    setLocalActiveVariation(activeVariationId);
+  }, [activeVariationId]);
+
+  // Update active variation if none is selected
+  useEffect(() => {
+    if (!localActiveVariation && variations.length > 0) {
+      setLocalActiveVariation(variations[0].id);
       setActiveVariationId(variations[0].id);
     }
-  }, [variations, activeVariationId]);
+  }, [variations, localActiveVariation, setActiveVariationId]);
 
-  // Autosave canvas - simplified approach
-  useEffect(() => {
-    // Skip on initial mount to prevent immediate sync
-    if (isInitialMount.current) {
-      isInitialMount.current = false;
-      if (debouncedCanvas) {
-        lastSyncedCanvasRef.current = JSON.stringify(debouncedCanvas);
-      }
-      return;
-    }
+   // Autosave canvas - simplified approach
+   useEffect(() => {
+     // Skip on initial mount to prevent immediate sync
+     if (isInitialMount.current) {
+       isInitialMount.current = false;
+       if (debouncedCanvas) {
+         lastSyncedCanvasRef.current = JSON.stringify(debouncedCanvas);
+       }
+       return;
+     }
+ 
+     if (!debouncedCanvas || !task?._id || isSaving) {
+       console.log(' Autosave skipped - missing data or already saving', {
+         hasCanvas: !!debouncedCanvas,
+         hasTaskId: !!task?._id,
+         isSaving: isSaving
+       });
+       return;
+     }
+ 
+     const currentCanvasString = JSON.stringify(debouncedCanvas);
+     const isDifferentFromLastSync = currentCanvasString !== lastSyncedCanvasRef.current;
+          
+     if (isDifferentFromLastSync) {
+       console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!", {
+         taskId: task._id,
+         variationsCount: debouncedCanvas.variations?.length
+       });
+       lastSyncedCanvasRef.current = currentCanvasString;
+       syncCanvas(task._id, debouncedCanvas);
+     }
+   }, [debouncedCanvas, task?._id, isSaving]);
 
-    if (!debouncedCanvas || !task?._id || isSaving) {
-      return;
-    }
-
-    const currentCanvasString = JSON.stringify(debouncedCanvas);
-    const isDifferentFromLastSync = currentCanvasString !== lastSyncedCanvasRef.current;
-    
-    if (isDifferentFromLastSync) {
-      if (process.env.NODE_ENV === 'development') {
-        console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!");
-      }
-      lastSyncedCanvasRef.current = currentCanvasString;
-      syncCanvas(task._id, debouncedCanvas);
-    }
-  }, [debouncedCanvas, task?._id, isSaving]);
-
-  const activeVariation = variations.find((v) => v.id === activeVariationId);
+  const activeVariation = variations.find((v) => v.id === localActiveVariation);
 
   const handleVariationSelect = useCallback((variationId: string) => {
+    setLocalActiveVariation(variationId);
     setActiveVariationId(variationId);
-  }, []);
+  }, [setActiveVariationId]);
 
   const handleAIGenerate = async (
     prompt: string,
@@ -254,14 +276,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const data = await response.json();
       console.log("Variation generation queued:", data);
 
-      // Instead of immediately inserting, reload session to get server state
-      // This prevents duplication and ensures we have the correct server state
-      await loadSession(task._id);
-      
-      // Set the new variation as active
+      // Immediately set the new variation as active to prevent race conditions
+      // The `loadSession` call will update its state in the background
       setActiveVariationId(data.variationId);
-      
-      // Start polling for completion using the utility function
+
+      // Start polling for completion, which will refresh the session state
+      // Use the new updateVariation function in the store
       await pollVariationCompletion(
         task._id,
         data.variationId,
@@ -355,13 +375,21 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     key: "brightness" | "contrast" | "saturation",
     value: number
   ) => {
-    if (!canvas) return;
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Fine-tuning change:', { variationId, key, value });
+    if (!canvasRef.current) {
+      console.log(' handleFinetuningChange - no canvas ref');
+      return;
     }
 
-    const newCanvas = produce(canvas, (draft) => {
+    // Only update if the value actually changed
+    const currentVariation = canvasRef.current.variations.find((v) => v.id === variationId);
+    if (currentVariation?.fineTuning?.[key] === value) {
+      console.log(' handleFinetuningChange - value unchanged, skipping update', { variationId, key, value });
+      return;
+    }
+
+    console.log(' handleFinetuningChange - updating', { variationId, key, value });
+
+    const newCanvas = produce(canvasRef.current, (draft) => {
       const variation = draft.variations.find((v) => v.id === variationId);
       if (variation) {
         if (!variation.fineTuning) {
@@ -375,7 +403,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       }
     });
     updateCanvas(newCanvas);
-  }, [canvas]); // Removed updateCanvas from deps
+  }, [updateCanvas]); // Removed canvas from deps since we're using ref
 
   const handleManualSync = useCallback(() => {
     if (canvas && task?._id) {
@@ -404,7 +432,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       <div className="relative z-10">
         <VariationsGallery
           variations={variations}
-          activeVariationId={activeVariation?.id || null}
+          activeVariationId={localActiveVariation}
           onVariationSelect={handleVariationSelect}
           onAddToCompare={() => {}}
           onNewVariation={handleNewVariation}
@@ -425,7 +453,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             </h2>
             <SaveStatusIndicator
               isSaving={isSaving}
-              saveError={saveError ? new Error(saveError) : null}
+              saveError={saveError}
               lastSaved={lastSaved}
             />
             {process.env.NODE_ENV === 'development' && (
@@ -492,10 +520,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 </div>
               ) : (
                 <ImageDisplay
+                  key={localActiveVariation}
                   ref={imageRef}
                   imageRef={activeVariation.imageRef}
                   status={activeVariation.status}
-                  variationId={activeVariation.id}
+                  variationId={localActiveVariation!}
                   fineTuning={activeVariation.fineTuning}
                   className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
                 />
@@ -511,13 +540,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 contrast={activeVariation.fineTuning.contrast}
                 saturation={activeVariation.fineTuning.saturation}
                 onBrightnessChange={(val) =>
-                  handleFinetuningChange(activeVariation.id, "brightness", val)
+                  handleFinetuningChange(localActiveVariation!, "brightness", val)
                 }
                 onContrastChange={(val) =>
-                  handleFinetuningChange(activeVariation.id, "contrast", val)
+                  handleFinetuningChange(localActiveVariation!, "contrast", val)
                 }
                 onSaturationChange={(val) =>
-                  handleFinetuningChange(activeVariation.id, "saturation", val)
+                  handleFinetuningChange(localActiveVariation!, "saturation", val)
                 }
                 disabled={!activeVariation}
               />

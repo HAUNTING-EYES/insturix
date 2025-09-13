@@ -29,6 +29,9 @@ importers:
       '@dnd-kit/sortable':
         specifier: ^10.0.0
         version: 10.0.0(@dnd-kit/core@6.3.1(react-dom@19.1.1(react@19.1.1))(react@19.1.1))(react@19.1.1)
+      '@fal-ai/client':
+        specifier: ^1.6.2
+        version: 1.6.2
       '@google-cloud/pubsub':
         specifier: ^5.1.0
         version: 5.2.0
@@ -451,6 +454,10 @@ packages:
   '@eslint/plugin-kit@0.3.5':
     resolution: {integrity: sha512-Z5kJ+wU3oA7MMIqVR9tyZRtjYPr4OC004Q4Rw7pgOKUOKkJfZ3O24nz3WYfGRpMDNmcOi3TwQOmgm7B7Tpii0w==}
     engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
+
+  '@fal-ai/client@1.6.2':
+    resolution: {integrity: sha512-y89jNGAZUpvt+IZfsIczULN95fGQlPxTt2c9bNFWkKe6OBnhOY+qHHH7IO4XgCsbmCwgfzzaSHUItx1nQ3ifHQ==}
+    engines: {node: '>=18.0.0'}
 
   '@firebase/ai@1.4.1':
     resolution: {integrity: sha512-bcusQfA/tHjUjBTnMx6jdoPMpDl3r8K15Z+snHz9wq0Foox0F/V+kNLXucEOHoTL2hTc9l+onZCyBJs2QoIC3g==}
@@ -922,6 +929,10 @@ packages:
 
   '@mongodb-js/saslprep@1.3.0':
     resolution: {integrity: sha512-zlayKCsIjYb7/IdfqxorK5+xUMyi4vOKcFy10wKJYc63NSdKI8mNME+uJqfatkPmOSMMUiojrL58IePKBm3gvQ==}
+
+  '@msgpack/msgpack@3.1.2':
+    resolution: {integrity: sha512-JEW4DEtBzfe8HvUYecLU9e6+XJnKDlUAIve8FvPzF3Kzs6Xo/KuZkZJsDH0wJXl/qEZbeeE7edxDNY3kMs39hQ==}
+    engines: {node: '>= 18'}
 
   '@napi-rs/wasm-runtime@0.2.12':
     resolution: {integrity: sha512-ZVWUcfwY4E/yPitQJl481FjFo3K22D6qF0DuFH6Y/nbnE11GY5uguDxZMGXPQ8WQ0128MXQD7TnfHyK4oWoIJQ==}
@@ -2865,6 +2876,10 @@ packages:
     resolution: {integrity: sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==}
     engines: {node: '>=6'}
 
+  eventsource-parser@1.1.2:
+    resolution: {integrity: sha512-v0eOBUbiaFojBu2s2NPBfYUoRR9GjcDNvCXVaqEf5vVfpIAh9f8RCo4vXTP8c63QRKCFwoLpMpTdPwwhEKVgzA==}
+    engines: {node: '>=14.18'}
+
   extend@3.0.0:
     resolution: {integrity: sha512-5mYyg57hpD+sFaJmgNL9BidQ5C7dmJE3U5vzlRWbuqG+8dytvYEoxvKs6Tj5cm3LpMsFvRt20qz1ckezmsOUgQ==}
 
@@ -4659,6 +4674,9 @@ packages:
     resolution: {integrity: sha512-g6QUff04oZpHs0eG5p83rFLhHeV00ug/Yf9nZM6fLeUrPguBTkTQOdpAWWspMh55TZfVQDPaN3NQJfbVRAxdIw==}
     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
 
+  robot3@0.4.1:
+    resolution: {integrity: sha512-hzjy826lrxzx8eRgv80idkf8ua1JAepRc9Efdtj03N3KNJuznQCPlyCJ7gnUmDFwZCLQjxy567mQVKmdv2BsXQ==}
+
   rope-sequence@1.3.4:
     resolution: {integrity: sha512-UT5EDe2cu2E/6O4igUr5PSFs23nvvukicWHx6GnOPlHAiiYbzNuCRQCuiUdHJQcqKalLKlrYJnjY0ySGsXNQXQ==}
 
@@ -5583,6 +5601,12 @@ snapshots:
       '@eslint/core': 0.15.2
       levn: 0.4.1
 
+  '@fal-ai/client@1.6.2':
+    dependencies:
+      '@msgpack/msgpack': 3.1.2
+      eventsource-parser: 1.1.2
+      robot3: 0.4.1
+
   '@firebase/ai@1.4.1(@firebase/app-types@0.9.3)(@firebase/app@0.13.2)':
     dependencies:
       '@firebase/app': 0.13.2
@@ -6162,6 +6186,8 @@ snapshots:
   '@mongodb-js/saslprep@1.3.0':
     dependencies:
       sparse-bitfield: 3.0.3
+
+  '@msgpack/msgpack@3.1.2': {}
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
@@ -8206,6 +8232,8 @@ snapshots:
   esutils@2.0.3: {}
 
   event-target-shim@5.0.1: {}
+
+  eventsource-parser@1.1.2: {}
 
   extend@3.0.0: {}
 
@@ -10416,6 +10444,8 @@ snapshots:
   retry@0.13.1: {}
 
   reusify@1.1.0: {}
+
+  robot3@0.4.1: {}
 
   rope-sequence@1.3.4: {}
 

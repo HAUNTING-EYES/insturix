@@ -13,11 +13,15 @@ export function useNetworkStatus(): NetworkStatus {
 
   useEffect(() => {
     const updateStatus = () => {
-      setStatus({
+      const newStatus = {
         isOnline: navigator.onLine,
-      });
+      };
+      console.log('Network status changed:', newStatus);
+      setStatus(newStatus);
     };
 
+    console.log('Initial network status:', status);
+    
     window.addEventListener('online', updateStatus);
     window.addEventListener('offline', updateStatus);
 

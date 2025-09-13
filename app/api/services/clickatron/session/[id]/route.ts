@@ -98,7 +98,7 @@ export async function PATCH(
     task.markModified('details');
     await task.save();
 
-    return NextResponse.json({ success: true, message: 'Canvas synced' });
+    return NextResponse.json({ success: true, session: task });
   } catch (error) {
     console.error('Error syncing canvas:', error);
     if (error instanceof z.ZodError) {

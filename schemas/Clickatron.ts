@@ -16,6 +16,10 @@ const VariationSchema = new Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   parentVariationId: { type: String },
+  // AI generation metadata
+  modelUsed: { type: String },
+  seed: { type: Number },
+  generationParams: { type: Schema.Types.Mixed },
 });
 
 const ChatMessageSchema = new Schema({

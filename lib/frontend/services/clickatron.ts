@@ -22,7 +22,7 @@ export const pollVariationCompletion = async (
         const variation = task?.details.canvas?.variations.find((v: any) => v.id === variationId);
         
         // Stop polling if generation is complete or we've reached max attempts
-        if (variation && variation.status !== 'generating' || pollCount >= maxPolls) {
+        if (variation && (variation.status !== 'generating' || pollCount >= maxPolls)) {
           clearInterval(poll);
           console.log('Polling stopped:', variation?.status || 'max attempts reached');
           resolve();

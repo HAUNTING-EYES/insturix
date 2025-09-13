@@ -76,6 +76,7 @@ export async function createJob(jobData: CreateJobRequest): Promise<string> {
       progress: 0,
       message: 'Job created and queued',
     }],
+    parentVariationId: jobData.parentVariationId,
     fineTuning: jobData.fineTuning,
     metadata: jobData.metadata,
   };
@@ -310,4 +311,52 @@ export async function getIdempotencyKey(key: string): Promise<string | null> {
 export async function validateJobOwnership(jobId: string, userId: string): Promise<boolean> {
   const job = await getJob(jobId);
   return job ? job.userId === userId : false;
+}
+
+/**
+ * Check for and fail expired jobs
+ */
+export async function failExpiredJobs(): Promise<{ failed: number }> {
+  const redis = getRedisClient();
+  const result = { failed: 0 };
+  
+  try {
+    // Get all active jobs
+    const activeJobIds = await redis.zrange(REDIS_KEYS.activeJobs, 0, -1) as string[];
+    
+    for (const jobId of activeJobIds) {
+      try {
+        const job = await getJob(jobId);
+        if (!job) continue;
+        
+        // Check if job has been active for too long (e.g., 10 minutes)
+        const timeSinceStart = Date.now() - job.startedAt;
+        const maxJobDuration = 10 * 60 * 1000; // 10 minutes in milliseconds
+        
+        if (timeSinceStart > maxJobDuration && job.status === 'running') {
+          // Mark job as failed due to timeout
+          await failJob(jobId, {
+            code: 'JOB_TIMEOUT',
+            message: 'Job timed out after 10 minutes',
+          });
+          result.failed++;
+          console.log(`Failed expired job ${jobId} due to timeout`);
+        } else if (timeSinceStart > maxJobDuration && job.status === 'queued') {
+          // Mark queued jobs as failed if they've been queued for too long
+          await failJob(jobId, {
+            code: 'JOB_QUEUE_TIMEOUT',
+            message: 'Job stayed in queue for too long',
+          });
+          result.failed++;
+          console.log(`Failed expired queued job ${jobId} due to queue timeout`);
+        }
+      } catch (error) {
+        console.error(`Error processing job ${jobId} for timeout check:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error in failExpiredJobs:', error);
+  }
+  
+  return result;
 }

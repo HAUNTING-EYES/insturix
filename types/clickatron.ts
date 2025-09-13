@@ -55,6 +55,10 @@ export interface Variation {
   createdAt: Date;
   updatedAt: Date;
   parentVariationId?: string; // For tracking edit relationships
+  // AI generation metadata
+  modelUsed?: string;
+  seed?: number;
+  generationParams?: Record<string, any>;
 }
 
 export interface FineTuningControls {
@@ -186,6 +190,7 @@ export interface ClickatronJob {
   resultRef?: string;
   error?: JobError;
   trace: JobTraceEntry[];
+  parentVariationId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
 }
@@ -195,6 +200,7 @@ export interface CreateJobRequest {
   variationId: string;
   prompt: string;
   userId: string;
+  parentVariationId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
 }
@@ -205,6 +211,7 @@ export interface WorkerPayload {
   variationId: string;
   prompt: string;
   userId: string;
+  parentVariationId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
 }
@@ -218,6 +225,7 @@ export interface ClickatronStore {
   setTask: (task: IClickatronTask) => void;
   updateCanvas: (canvas: Canvas) => void;
   setCanvasFromBackend: (canvas: Canvas) => void;
+  updateVariation: (variationId: string, newVariationData: Partial<Variation>) => void;
 
   // Actions
   createSession: (request: CreateSessionRequest) => Promise<string | null>; // Returns sessionId
