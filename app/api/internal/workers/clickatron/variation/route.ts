@@ -167,7 +167,22 @@ async function handler(req: Request) {
       if (body.parentVariationId) {
         const parentVariation = task.details.canvas.variations.find((v: Variation) => v.id === body.parentVariationId);
         if (parentVariation && parentVariation.imageRef) {
-          generationParams.image_url = parentVariation.imageRef;
+          // Check if the imageRef is a raw GCS URL or potentially expired signed URL
+          let imageUrl = parentVariation.imageRef;
+          
+          // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
+          if (imageUrl.includes('storage.googleapis.com') && !imageUrl.includes('GoogleAccessId') && !imageUrl.includes('Signature')) {
+            try {
+              console.log('Getting fresh signed URL for GCS image:', imageUrl);
+              imageUrl = await ClickatronGCSManager.getSignedUrl(imageUrl);
+              console.log('Got signed URL:', imageUrl);
+            } catch (error) {
+              console.error('Failed to get signed URL for parent image:', error);
+              // Continue with the original URL if signed URL generation fails
+            }
+          }
+          
+          generationParams.image_url = imageUrl;
         }
       }
 
@@ -176,11 +191,33 @@ async function handler(req: Request) {
       // Generate image using Fal AI
       // Use different models for text-to-image vs image-to-image
       const isImageToImage = !!generationParams.image_url;
-      const modelId = isImageToImage 
-        ? "fal-ai/flux-1/dev/redux" 
+      const modelId = isImageToImage
+        ? "fal-ai/flux-1/dev/redux"
         : "fal-ai/flux-1/dev";
       
       console.log('Worker: Using model:', modelId, 'for', isImageToImage ? 'image-to-image' : 'text-to-image');
+      
+      // Validate image URL accessibility before making the API call
+      if (isImageToImage && generationParams.image_url) {
+        try {
+          console.log('Worker: Testing image URL accessibility...');
+          const imageResponse = await fetch(generationParams.image_url, {
+            method: 'HEAD'
+          });
+          
+          if (!imageResponse.ok) {
+            console.error('Worker: Image URL returned non-200 status:', imageResponse.status, imageResponse.statusText);
+            throw new Error(`Image URL returned status ${imageResponse.status}: ${imageResponse.statusText}`);
+          }
+          
+          const contentType = imageResponse.headers.get('content-type');
+          console.log('Worker: Image URL accessible. Content-Type:', contentType);
+          
+        } catch (error) {
+          console.error('Worker: Failed to access image URL:', error);
+          throw new Error(`Cannot access reference image: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
       
       const result = await fal.subscribe(modelId, {
         input: generationParams,
@@ -233,9 +270,31 @@ async function handler(req: Request) {
       
       // Provide more specific error message based on error type
       let errorMessage = generationError.message || 'Image generation failed';
+      let errorCode = 'GENERATION_FAILED';
+      
       if (generationError.status === 422) {
-        errorMessage = 'Invalid generation parameters. This might be due to using the wrong model for text-to-image vs image-to-image generation.';
+        errorCode = 'INVALID_PARAMETERS';
+        
+        // Check for specific 422 error patterns
+        if (generationError.message?.includes('image') || generationError.message?.includes('url')) {
+          errorMessage = 'Image processing error. The reference image may be corrupted, too large, or inaccessible. Please try with a different image.';
+        } else if (generationError.message?.includes('size') || generationError.message?.includes('dimension')) {
+          errorMessage = 'Image size error. The image dimensions may be too small or too large for the model requirements.';
+        } else {
+          errorMessage = 'Invalid generation parameters. This might be due to using the wrong model for text-to-image vs image-to-image generation, or the reference image format is not supported.';
+        }
+      } else if (generationError.status === 401) {
+        errorCode = 'AUTHENTICATION_FAILED';
+        errorMessage = 'Authentication failed with the image generation service. Please check the API configuration.';
+      } else if (generationError.status === 403) {
+        errorCode = 'FORBIDDEN';
+        errorMessage = 'Access denied to the image generation service. The API key may be invalid or expired.';
+      } else if (generationError.status === 429) {
+        errorCode = 'RATE_LIMITED';
+        errorMessage = 'Rate limit exceeded. Please wait and try again later.';
       }
+      
+      console.error('Worker: Detailed error - Code:', errorCode, 'Message:', errorMessage);
       
       variation.status = 'failed';
       variation.updatedAt = new Date();
@@ -243,10 +302,10 @@ async function handler(req: Request) {
       task.markModified('details');
       await task.save();
       
-      await failJob(jobId, { 
-        code: 'GENERATION_FAILED', 
+      await failJob(jobId, {
+        code: errorCode,
         message: errorMessage,
-        details: generationError 
+        details: generationError
       });
       console.log('Worker: Failed job in QStash');
     }
