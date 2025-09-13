@@ -14,6 +14,7 @@ import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 import { Settings } from "lucide-react";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
+import { downloadImageWithFineTuning, getImageUrl } from "@/lib/frontend/services/clickatron-download";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -169,18 +170,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const [debouncedCanvas] = useDebounce(canvas, 1000);
 
-  // Debug: Log when debounced canvas changes (only in development)
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Debounced canvas changed:', {
-        hasCanvas: !!debouncedCanvas,
-        variationsCount: debouncedCanvas?.variations?.length || 0
-      });
-    }
-  }, [debouncedCanvas]);
-
-
-
   // Update canvasRef when canvas changes
   useEffect(() => {
     canvasRef.current = canvas;
@@ -211,11 +200,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
      }
  
      if (!debouncedCanvas || !task?._id || isSaving) {
-       console.log(' Autosave skipped - missing data or already saving', {
-         hasCanvas: !!debouncedCanvas,
-         hasTaskId: !!task?._id,
-         isSaving: isSaving
-       });
        return;
      }
  
@@ -412,6 +396,32 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, [canvas, task?._id]);
 
+  const handleDownload = useCallback(async () => {
+    if (!activeVariation || !activeVariation.imageRef) {
+      console.log("No active variation or image to download");
+      return;
+    }
+
+    try {
+      // Get the proper image URL (handling GCS signed URLs)
+      const imageUrl = await getImageUrl(activeVariation.imageRef);
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `clickatron-variation-${timestamp}.png`;
+      
+      // Download with fine-tuning applied
+      await downloadImageWithFineTuning(
+        imageUrl,
+        activeVariation.fineTuning,
+        filename
+      );
+    } catch (error) {
+      console.error("Error downloading image:", error);
+      // TODO: Show user-friendly error message
+    }
+  }, [activeVariation]);
+
   if (!canvas) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -478,7 +488,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 onZoomIn={() => imageRef.current?.zoomIn(0.3)}
                 onZoomOut={() => imageRef.current?.zoomOut(0.3)}
                 onResetZoom={() => imageRef.current?.resetTransform()}
-                onDownload={() => console.log("Download")}
+                onDownload={handleDownload}
                 onShare={() => console.log("Share")}
               />
             </div>

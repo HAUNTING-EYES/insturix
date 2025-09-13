@@ -15,8 +15,6 @@ export async function POST(req: NextRequest) {
 
     const signedUrl = await ClickatronGCSManager.getSignedUrl(gcsUrl);
     
-    console.log('Generated signed URL:', signedUrl);
-
     return NextResponse.json({ signedUrl });
   } catch (error) {
     console.error('Failed to get signed URL:', error);

@@ -162,7 +162,6 @@ export class ClickatronGCSManager {
         action: 'read',
         expires: Date.now() + 60 * 60 * 1000, // 1-hour expiration
       });
-      console.log('Generated signed URL:', signedUrl);
       return signedUrl;
     } catch (error) {
       console.error('Failed to get signed URL:', error);

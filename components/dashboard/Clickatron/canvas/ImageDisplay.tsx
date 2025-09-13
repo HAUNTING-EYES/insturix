@@ -7,6 +7,7 @@ import {
   TransformComponent,
   ReactZoomPanPinchRef,
 } from "react-zoom-pan-pinch";
+import { fetchImageWithCache } from "@/lib/frontend/services/clickatron-image-cache";
 
 interface ImageDisplayProps {
   imageRef?: string;
@@ -36,15 +37,35 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     ref
   ) => {
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
+    const [objectUrl, setObjectUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
       console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
+      
+      // Clean up previous object URL
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+        setObjectUrl(null);
+      }
+      
       const fetchSignedUrl = async () => {
         if (status === "completed" && imageRef && imageRef.startsWith("https://storage.googleapis.com")) {
           console.log('Fetching signed URL for', imageRef);
           setIsLoading(true);
           try {
+            // First check if we have a cached version of this image
+            const cachedResponse = await fetchImageWithCache(imageRef);
+            if (cachedResponse.ok) {
+              // If we have a cached version, create an object URL for it
+              const blob = await cachedResponse.blob();
+              const newObjectUrl = URL.createObjectURL(blob);
+              setObjectUrl(newObjectUrl);
+              setSignedUrl(newObjectUrl);
+              return;
+            }
+            
+            // If not in cache, fetch from the API as before
             const response = await fetch('/api/services/clickatron/utils/get-signed-url', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -62,8 +83,28 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             setIsLoading(false);
           }
         } else if (status === "completed" && imageRef) {
-          setSignedUrl(imageRef);
-          setIsLoading(false);
+          // For non-GCS URLs, check cache first
+          const loadImage = async () => {
+            setIsLoading(true);
+            try {
+              const cachedResponse = await fetchImageWithCache(imageRef);
+              if (cachedResponse.ok) {
+                const blob = await cachedResponse.blob();
+                const newObjectUrl = URL.createObjectURL(blob);
+                setObjectUrl(newObjectUrl);
+                setSignedUrl(newObjectUrl);
+                return;
+              }
+              // If not cached, use the direct URL
+              setSignedUrl(imageRef);
+            } catch (error) {
+              console.error('Error loading image:', error);
+              setSignedUrl(imageRef); // Fallback to direct URL
+            } finally {
+              setIsLoading(false);
+            }
+          };
+          loadImage();
         } else {
           setSignedUrl(null);
           setIsLoading(false);
@@ -71,6 +112,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       };
 
       fetchSignedUrl();
+      
+      // Clean up object URL when component unmounts
+      return () => {
+        if (objectUrl) {
+          URL.revokeObjectURL(objectUrl);
+        }
+      };
     }, [imageRef, status, variationId]);
 
     if (isLoading) {

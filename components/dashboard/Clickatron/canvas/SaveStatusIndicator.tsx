@@ -20,7 +20,6 @@ export function SaveStatusIndicator({
   const getStatusContent = () => {    
     // Priority 1: Network status
     if (!networkStatus.isOnline) {
-      console.log('SaveStatusIndicator: Offline');
       return {
         icon: <WifiOff className="h-3 w-3" />,
         text: "Offline",
@@ -30,7 +29,6 @@ export function SaveStatusIndicator({
 
     // Priority 3: Current save status
     if (isSaving) {
-      console.log('SaveStatusIndicator: Saving...');
       return {
         icon: <Loader2 className="h-3 w-3 animate-spin" />,
         text: "Saving...",
@@ -39,7 +37,6 @@ export function SaveStatusIndicator({
     }
 
     if (saveError && !saveError.includes('Queued')) {
-      console.log('SaveStatusIndicator: Unable to save', saveError);
       return {
         icon: <AlertCircle className="h-3 w-3" />,
         text: "Unable to save",

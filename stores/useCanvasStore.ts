@@ -152,8 +152,6 @@ const useClickatronStore = create<ClickatronStore>()(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ canvas }),
           });
-
-          console.log('📡 Sync response status:', response.status);
           
           if (!response.ok) {
             const errorText = await response.text();
@@ -162,7 +160,6 @@ const useClickatronStore = create<ClickatronStore>()(
           }
 
           const responseData = await response.json();
-          console.log('✅ Sync successful, response:', responseData);
           
           set(produce((state: ClickatronStore) => {
             if (state.task) {
