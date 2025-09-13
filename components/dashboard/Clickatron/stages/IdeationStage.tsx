@@ -28,7 +28,7 @@ const staggerChildren = {
 
 export function IdeationStage({ ideas, onSelectIdea }: IdeationStageProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined);
 
   const handleModelChange = (modelId: string) => {
     setSelectedModelId(modelId);
@@ -36,7 +36,7 @@ export function IdeationStage({ ideas, onSelectIdea }: IdeationStageProps) {
 
   const handleSelectIdea = (idea: Idea) => {
     setSelectedId(idea.id);
-    onSelectIdea(idea, selectedModelId || undefined);
+    onSelectIdea(idea, selectedModelId);
   };
 
   if (!ideas || ideas.length === 0) {
@@ -74,7 +74,7 @@ export function IdeationStage({ ideas, onSelectIdea }: IdeationStageProps) {
           <div className="flex justify-center mb-6">
             <ModelSelector
               stage="ideation"
-              selectedModelId={selectedModelId || undefined}
+              selectedModelId={selectedModelId}
               onModelChange={handleModelChange}
             />
           </div>

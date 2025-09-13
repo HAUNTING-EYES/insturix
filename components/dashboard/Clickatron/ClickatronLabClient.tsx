@@ -25,7 +25,7 @@ const stageTransition = {
 
 export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
   const router = useRouter();
-  const { task, loadSession, selectIdea } = useClickatronStore();
+  const { task, loadSession, selectIdea, ideationModelId } = useClickatronStore();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {

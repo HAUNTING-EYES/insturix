@@ -68,6 +68,27 @@ export async function POST(
     // Create new variation
     const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const now = new Date();
+    
+    // Determine the appropriate model based on reference images
+    let selectedModelId = validatedData.modelId;
+    
+    // If no model is provided, select based on whether we have reference images
+    if (!selectedModelId) {
+      const hasReferenceImages = validatedData.referenceImages && validatedData.referenceImages.length > 0;
+      
+      // Find an appropriate model based on context
+      const suitableModel = Object.values(CLICKATRON_MODELS).find(model => {
+        // For image-to-image generation, we need reference images and an image-to-image model
+        if (hasReferenceImages) {
+          return model.type === 'image-to-image' && model.stages.includes('edit');
+        }
+        // For text-to-image generation, we don't want reference images and need a text-to-image model
+        return model.type === 'text-to-image' && model.stages.includes('edit');
+      });
+      
+      selectedModelId = suitableModel?.id || 'fal-ai/flux-kontext/dev'; // Fallback
+    }
+    
     const newVariation = {
       id: variationId,
       prompt: validatedData.prompt,
@@ -84,7 +105,7 @@ export async function POST(
       parentVariationId: validatedData.parentVariationId,
       referenceImages: validatedData.referenceImages || [],
       metadata: validatedData.metadata || {},
-      modelId: validatedData.modelId, // Add modelId to variation
+      modelId: selectedModelId, // Add modelId to variation
     };
 
     // Add variation to canvas (capping at 50)

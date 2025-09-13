@@ -23,10 +23,15 @@ export function ModelSelector({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Filter models based on the stage
-    const filteredModels = Object.values(CLICKATRON_MODELS).filter(model => 
+    // Filter models based on the stage and other constraints
+    let filteredModels = Object.values(CLICKATRON_MODELS).filter(model =>
       model.stages.includes(stage)
     );
+    
+    // Additional filtering for ideation stage - only text-to-image models
+    if (stage === 'ideation') {
+      filteredModels = filteredModels.filter(model => model.type === 'text-to-image');
+    }
     
     setModels(filteredModels);
     

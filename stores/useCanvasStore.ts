@@ -17,11 +17,11 @@ const useClickatronStore = create<ClickatronStore>()(
       isSaving: false,
       saveError: null,
       lastSaved: null,
-      ideationModelId: null,
-      editModelId: null,
+      ideationModelId: undefined,
+      editModelId: undefined,
       setTask: (task) => set({ task }),
-      setIdeationModelId: (modelId: string | null) => set({ ideationModelId: modelId }),
-      setEditModelId: (modelId: string | null) => set({ editModelId: modelId }),
+      setIdeationModelId: (modelId: string | undefined) => set({ ideationModelId: modelId }),
+      setEditModelId: (modelId: string | undefined) => set({ editModelId: modelId }),
       
       updateCanvas: (canvas) => {
         set(
@@ -100,7 +100,7 @@ const useClickatronStore = create<ClickatronStore>()(
       selectIdea: async (sessionId, idea, modelId) => {
         try {
           const requestBody: any = { selectedIdea: idea };
-          if (modelId) {
+          if (modelId !== undefined) {
             requestBody.modelId = modelId;
           }
           

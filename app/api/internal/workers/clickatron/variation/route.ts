@@ -27,7 +27,7 @@ const workerRequestSchema = z.object({
 });
 
 // Parse aspect ratio string to width and height
-function parseAspectRatio(aspectRatio: string): { width: number; height: number } {
+function parseAspectRatio(aspectRatio: string): { width: number; height: number; ratio: string } {
   const [widthStr, heightStr] = aspectRatio.split(':');
   let width = parseFloat(widthStr);
   let height = parseFloat(heightStr);
@@ -47,33 +47,34 @@ function parseAspectRatio(aspectRatio: string): { width: number; height: number 
     height = Math.round(height * multiplier);
   }
   
-  // Standardize common aspect ratios to known sizes
+  // Standardize common aspect ratios to known sizes and supported ratios
   if (width === 16 && height === 9) {
-    return { width: 1024, height: 576 };
+    return { width: 1024, height: 576, ratio: "16:9" };
   } else if (width === 1 && height === 1) {
-    return { width: 1024, height: 1024 };
+    return { width: 1024, height: 1024, ratio: "1:1" };
   } else if (width === 9 && height === 16) {
-    return { width: 576, height: 1024 };
+    return { width: 576, height: 1024, ratio: "9:16" };
   } else if (width === 4 && height === 3) {
-    return { width: 1024, height: 768 };
+    return { width: 1024, height: 768, ratio: "4:3" };
   } else if (width === 3 && height === 4) {
-    return { width: 768, height: 1024 };
+    return { width: 768, height: 1024, ratio: "3:4" };
   } else if (width === 21 && height === 9) {
-    return { width: 1024, height: 439 };
+    return { width: 1024, height: 439, ratio: "21:9" };
   } else if (width === 9 && height === 21) {
-    return { width: 439, height: 1024 };
+    return { width: 439, height: 1024, ratio: "9:21" };
   }
   
   // For other ratios, maintain the aspect ratio but use reasonable dimensions
   const maxSize = 1024;
   const ratio = width / height;
   
+  // Return the original ratio as a string for models that support it
   if (ratio >= 1) {
     // Landscape or square
-    return { width: maxSize, height: Math.round(maxSize / ratio) };
+    return { width: maxSize, height: Math.round(maxSize / ratio), ratio: `${width}:${height}` };
   } else {
     // Portrait
-    return { width: Math.round(maxSize * ratio), height: maxSize };
+    return { width: Math.round(maxSize * ratio), height: maxSize, ratio: `${width}:${height}` };
   }
 }
 
@@ -146,7 +147,7 @@ async function handler(req: Request) {
 
     try {
       // Parse aspect ratio
-      const { width, height } = parseAspectRatio(variation.aspectRatio);
+      const { width, height, ratio } = parseAspectRatio(variation.aspectRatio);
       console.log('Worker: Parsed aspect ratio:', variation.aspectRatio, '->', width, 'x', height);
 
       // Prepare generation parameters
@@ -203,8 +204,8 @@ async function handler(req: Request) {
         return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
       }
       
-      // Use the model ID from the configuration and prepend 'fal-ai/'
-      const modelId = `fal-ai/${modelConfig.id}`;
+      // Use the model ID directly (already includes 'fal-ai/' prefix)
+      const modelId = modelConfig.id;
       console.log('Worker: Using model:', modelId, 'from configuration');
       
       // Determine if this is an image-to-image generation
@@ -234,41 +235,110 @@ async function handler(req: Request) {
       
       // Construct the payload dynamically based on the model configuration
       const payload: Record<string, any> = {
-        [modelConfig.parameters.prompt]: job.prompt,
+        [modelConfig.parameterMapping.prompt]: job.prompt,
       };
       
       // Add image URL(s) if it's an image-to-image model
-      if (modelConfig.type === 'image-to-image' && modelConfig.parameters.image_url && generationParams.image_url) {
-        payload[modelConfig.parameters.image_url] = generationParams.image_url;
-      } else if (modelConfig.type === 'image-to-image' && modelConfig.parameters.image_urls && generationParams.image_url) {
+      if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_url && generationParams.image_url) {
+        payload[modelConfig.parameterMapping.image_url] = generationParams.image_url;
+      } else if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_urls && generationParams.image_url) {
         // For models that expect an array of image URLs, provide the single image URL as an array
-        payload[modelConfig.parameters.image_urls] = [generationParams.image_url];
+        payload[modelConfig.parameterMapping.image_urls] = [generationParams.image_url];
       }
       
-      // Handle model-specific parameters
-      if (modelId === 'fal-ai/flux-kontext/dev') {
-        // Special handling for flux-kontext/dev
-        payload.resolution_mode = "match_input";
-      } else if (modelConfig.parameters.aspect_ratio) {
-        // Add aspect ratio for other models that support it
-        payload[modelConfig.parameters.aspect_ratio] = `${width}:${height}`;
-      } else if (modelConfig.parameters.image_size) {
+      // Helper function to find the closest supported aspect ratio
+      function findClosestSupportedRatio(currentRatio: string, supportedRatios: string[]): string {
+        // If the exact ratio is supported, return it
+        if (supportedRatios.includes(currentRatio)) {
+          return currentRatio;
+        }
+        
+        // Parse the current ratio
+        const [currentWidthStr, currentHeightStr] = currentRatio.split(':');
+        const currentWidth = parseFloat(currentWidthStr);
+        const currentHeight = parseFloat(currentHeightStr);
+        const currentRatioValue = currentWidth / currentHeight;
+        
+        // Find the closest ratio
+        let closestRatio = supportedRatios[0];
+        let closestDiff = Math.abs(
+          (parseFloat(supportedRatios[0].split(':')[0]) / parseFloat(supportedRatios[0].split(':')[1])) - currentRatioValue
+        );
+        
+        for (const supportedRatio of supportedRatios) {
+          const [supWidthStr, supHeightStr] = supportedRatio.split(':');
+          const supWidth = parseFloat(supWidthStr);
+          const supHeight = parseFloat(supHeightStr);
+          const supRatioValue = supWidth / supHeight;
+          const diff = Math.abs(supRatioValue - currentRatioValue);
+          if (diff < closestDiff) {
+            closestDiff = diff;
+            closestRatio = supportedRatio;
+          }
+       }
+        
+        return closestRatio;
+      }
+      
+      // Handle model-specific parameters based on the parameter mapping
+      if (modelConfig.parameterMapping.aspect_ratio) {
+        // Add aspect ratio for models that support it
+        // Validate that the aspect ratio is supported by the model
+        if (modelConfig.constraints?.allowedAspectRatios) {
+          payload[modelConfig.parameterMapping.aspect_ratio] = findClosestSupportedRatio(ratio, modelConfig.constraints.allowedAspectRatios);
+        } else {
+          payload[modelConfig.parameterMapping.aspect_ratio] = ratio;
+        }
+      }
+      
+      if (modelConfig.parameterMapping.image_size) {
         // Add image_size as an object for models that require it
-        payload[modelConfig.parameters.image_size] = { width, height };
+        payload[modelConfig.parameterMapping.image_size] = { width, height };
       }
       
-      // Add other generation parameters
-      payload.num_inference_steps = generationParams.num_inference_steps || 28;
-      payload.guidance_scale = generationParams.guidance_scale || 3.5;
-      payload.num_images = generationParams.num_images || 1;
-      payload.enable_safety_checker = generationParams.enable_safety_checker || true;
-      payload.output_format = generationParams.output_format || "jpeg";
-      payload.seed = generationParams.seed || Math.floor(Math.random() * 1000000);
+      if (modelConfig.parameterMapping.resolution) {
+        // Add resolution for models that support it
+        payload[modelConfig.parameterMapping.resolution] = "1K";
+      }
+      
+      if (modelConfig.parameterMapping.resolution_mode) {
+        // Add resolution_mode for models that support it
+        payload[modelConfig.parameterMapping.resolution_mode] = "match_input";
+      }
+      
+      // Add other generation parameters if they exist in the mapping
+      if (modelConfig.parameterMapping.num_inference_steps) {
+        payload[modelConfig.parameterMapping.num_inference_steps] = generationParams.num_inference_steps || 28;
+      }
+      
+      if (modelConfig.parameterMapping.guidance_scale) {
+        payload[modelConfig.parameterMapping.guidance_scale] = generationParams.guidance_scale || 3.5;
+      }
+      
+      if (modelConfig.parameterMapping.num_images) {
+        payload[modelConfig.parameterMapping.num_images] = generationParams.num_images || 1;
+      }
+      
+      if (modelConfig.parameterMapping.enable_safety_checker) {
+        payload[modelConfig.parameterMapping.enable_safety_checker] = generationParams.enable_safety_checker !== undefined ?
+          generationParams.enable_safety_checker : true;
+      }
+      
+      if (modelConfig.parameterMapping.output_format) {
+        payload[modelConfig.parameterMapping.output_format] = generationParams.output_format || "jpeg";
+      }
+      
+      if (modelConfig.parameterMapping.acceleration) {
+        payload[modelConfig.parameterMapping.acceleration] = generationParams.acceleration || "none";
+      }
       
       // Add max_images if the model configuration specifies it
-      if (modelConfig.parameters.max_images) {
-        payload[modelConfig.parameters.max_images] = 1; // Default to 1, can be made configurable
+      if (modelConfig.parameterMapping.max_images) {
+        payload[modelConfig.parameterMapping.max_images] = 1; // Default to 1, can be made configurable
       }
+      
+      // Add seed
+      payload.seed = generationParams.seed || Math.floor(Math.random() * 1000000);
       
       // Debug logging to see the final payload
       console.log('Worker: Final payload for model', modelId, ':', JSON.stringify(payload, null, 2));

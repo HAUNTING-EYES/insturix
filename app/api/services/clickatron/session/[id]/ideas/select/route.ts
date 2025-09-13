@@ -43,7 +43,15 @@ export async function POST(
     const now = new Date();
     
     // Get default model if none provided
-    const selectedModelId = modelId || Object.values(CLICKATRON_MODELS).find(model => model.isDefault)?.id || 'flux-kontext/dev';
+    let selectedModelId = modelId;
+    
+    // If no model is provided, find the default text-to-image model for ideation
+    if (!selectedModelId) {
+      const defaultModel = Object.values(CLICKATRON_MODELS).find(
+        model => model.isDefault && model.stages.includes('ideation') && model.type === 'text-to-image'
+      );
+      selectedModelId = defaultModel?.id || 'fal-ai/imagen4/preview'; // Fallback to a known text-to-image model
+    }
     
     task.details.canvas = {
       variations: [

@@ -25,13 +25,22 @@ export const ModelConfigSchema = z.object({
   stages: z.array(ModelStageSchema).min(1),
   type: ModelTypeSchema,
   isDefault: z.boolean().optional(),
-  parameters: z.object({
-    prompt: z.string().min(1),
+  // Simplified parameter mapping for common model parameters
+  parameterMapping: z.object({
+    prompt: z.string(),
     image_url: z.string().optional(),
     image_urls: z.string().optional(),
     aspect_ratio: z.string().optional(),
     image_size: z.string().optional(),
     max_images: z.string().optional(),
+    resolution: z.string().optional(),
+    num_images: z.string().optional(),
+    enable_safety_checker: z.string().optional(),
+    output_format: z.string().optional(),
+    resolution_mode: z.string().optional(),
+    guidance_scale: z.string().optional(),
+    num_inference_steps: z.string().optional(),
+    acceleration: z.string().optional(),
   }),
   constraints: z.object({
     promptMaxLength: z.number().optional(),
@@ -44,18 +53,41 @@ export type ModelConfig = z.infer<typeof ModelConfigSchema>;
 
 /**
  * A map of all available models, keyed by their unique ID.
+ * Simplified configuration with clear parameter mappings.
  */
 export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
-  'flux-kontext/dev': {
-    id: 'flux-kontext/dev',
+  'fal-ai/imagen4/preview': {
+    id: 'fal-ai/imagen4/preview',
+    name: 'Imagen4 Preview',
+    stages: ['ideation'],
+    type: 'text-to-image',
+    isDefault: true,
+    parameterMapping: {
+      prompt: 'prompt',
+      aspect_ratio: 'aspect_ratio',
+      num_images: 'num_images',
+      resolution: 'resolution'
+    },
+    constraints: {
+      promptMaxLength: 2048,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
+    },
+  },
+  'fal-ai/flux-kontext/dev': {
+    id: 'fal-ai/flux-kontext/dev',
     name: 'Flux Kontext Dev',
     stages: ['edit'],
     type: 'image-to-image',
-    isDefault: true,
-    parameters: {
+    parameterMapping: {
       prompt: 'prompt',
       image_url: 'image_url',
-      aspect_ratio: 'aspect_ratio',
+      num_inference_steps: 'num_inference_steps',
+      guidance_scale: 'guidance_scale',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format',
+      acceleration: 'acceleration',
+      resolution_mode: 'resolution_mode'
     },
     constraints: {
       promptMaxLength: 1024,
@@ -63,48 +95,39 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       maxImages: 1,
     },
   },
-  'bytedance/seedream/v4/edit': {
-    id: 'bytedance/seedream/v4/edit',
+  'fal-ai/bytedance/seedream/v4/edit': {
+    id: 'fal-ai/bytedance/seedream/v4/edit',
     name: 'Seedream V4 Edit',
     stages: ['edit'],
     type: 'image-to-image',
-    parameters: {
+    parameterMapping: {
       prompt: 'prompt',
-      image_urls: 'image_urls',
       image_size: 'image_size',
+      num_images: 'num_images',
       max_images: 'max_images',
+      enable_safety_checker: 'enable_safety_checker',
+      image_urls: 'image_urls'
     },
     constraints: {
       promptMaxLength: 512,
       maxImages: 4,
     },
   },
-  'bytedance/seedream/v4/text-to-image': {
-    id: 'bytedance/seedream/v4/text-to-image',
+  'fal-ai/bytedance/seedream/v4/text-to-image': {
+    id: 'fal-ai/bytedance/seedream/v4/text-to-image',
     name: 'Seedream V4 Text-to-Image',
     stages: ['ideation'],
     type: 'text-to-image',
-    parameters: {
+    parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
+      num_images: 'num_images',
       max_images: 'max_images',
+      enable_safety_checker: 'enable_safety_checker'
     },
     constraints: {
       promptMaxLength: 512,
-    },
-  },
-  'imagen4/preview': {
-    id: 'imagen4/preview',
-    name: 'Imagen4 Preview',
-    stages: ['ideation'],
-    type: 'text-to-image',
-    parameters: {
-      prompt: 'prompt',
-      aspect_ratio: 'aspect_ratio',
-    },
-    constraints: {
-      promptMaxLength: 2048,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '21:9', '9:21'],
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4'],
     },
   },
 };

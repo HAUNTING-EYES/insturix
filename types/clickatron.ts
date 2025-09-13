@@ -229,8 +229,8 @@ export interface ClickatronStore {
   isSaving: boolean;
   saveError: string | null;
   lastSaved: Date | null;
-  ideationModelId: string | null;
-  editModelId: string | null;
+  ideationModelId: string | undefined;
+  editModelId: string | undefined;
   setTask: (task: IClickatronTask) => void;
   updateCanvas: (canvas: Canvas) => void;
   setCanvasFromBackend: (canvas: Canvas) => void;
