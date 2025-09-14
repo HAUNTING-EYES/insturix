@@ -188,8 +188,50 @@ async function handler(req: Request) {
       console.log('Worker: Starting image generation with params:', generationParams);
 
       // Get the model configuration from the variation
-      const selectedModelId = variation.modelId;
-      const modelConfig = CLICKATRON_MODELS[selectedModelId];
+      let selectedModelId = variation.modelId;
+      let modelConfig = CLICKATRON_MODELS[selectedModelId];
+      
+      // Count the number of reference images
+      let referenceImageCount = 0;
+      if (generationParams.image_url) {
+        // For single image URL
+        referenceImageCount = 1;
+      } else if (Array.isArray(generationParams.image_urls)) {
+        // For array of image URLs
+        referenceImageCount = generationParams.image_urls.length;
+      }
+      
+      // Validate that the selected model supports the number of reference images
+      const minImages = modelConfig.constraints?.minImages ?? 0;
+      const maxImages = modelConfig.constraints?.maxImages ?? 0;
+      
+      if (referenceImageCount < minImages || referenceImageCount > maxImages) {
+        // Find an appropriate model that supports the number of reference images
+        const availableModels = Object.values(CLICKATRON_MODELS).filter(model => {
+          const modelMinImages = model.constraints?.minImages ?? 0;
+          const modelMaxImages = model.constraints?.maxImages ?? 0;
+          return referenceImageCount >= modelMinImages && referenceImageCount <= modelMaxImages;
+        });
+        
+        if (availableModels.length > 0) {
+          // Select the first available model
+          const newModel = availableModels[0];
+          selectedModelId = newModel.id;
+          modelConfig = newModel;
+          console.log(`Worker: Switching to model ${selectedModelId} that supports ${referenceImageCount} images`);
+        } else {
+          console.error('Worker: No model found that supports the number of reference images:', referenceImageCount);
+          await failJob(jobId, { code: 'INVALID_MODEL', message: `No model found that supports ${referenceImageCount} reference images` });
+          
+          variation.status = 'failed';
+          variation.updatedAt = new Date();
+          
+          task.markModified('details');
+          await task.save();
+          
+          return NextResponse.json({ error: 'No model found that supports the number of reference images' }, { status: 400 });
+        }
+      }
       
       if (!modelConfig) {
         console.error('Worker: Model configuration not found for modelId:', selectedModelId);
@@ -353,7 +395,7 @@ async function handler(req: Request) {
       
       if (modelConfig.parameterMapping.enable_safety_checker) {
         payload[modelConfig.parameterMapping.enable_safety_checker] = generationParams.enable_safety_checker !== undefined ?
-          generationParams.enable_safety_checker : true;
+          generationParams.enable_safety_checker : false;
       }
       
       if (modelConfig.parameterMapping.output_format) {

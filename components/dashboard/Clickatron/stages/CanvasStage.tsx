@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole, ReferenceImage } from "../canvas/AICommandConsole";
+import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
@@ -583,13 +584,24 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
         {/* Bottom AI Command Console */}
         <div className="relative z-30">
-          <AICommandConsole
-            onGenerate={handleAIGenerate}
-            isGenerating={false}
-            galleryCollapsed={galleryCollapsed}
-            className="border-t border-zinc-800/80"
-            chatHistory={canvas?.chatHistory ?? []}
-          />
+          {activeVariation?.status === "blank" ? (
+            <NewVariationConsole
+              onGenerate={handleAIGenerate}
+              isGenerating={false}
+              galleryCollapsed={galleryCollapsed}
+              className="border-t border-zinc-800/80"
+              chatHistory={canvas?.chatHistory ?? []}
+            />
+          ) : (
+            <AICommandConsole
+              onGenerate={handleAIGenerate}
+              isGenerating={false}
+              galleryCollapsed={galleryCollapsed}
+              className="border-t border-zinc-800/80"
+              chatHistory={canvas?.chatHistory ?? []}
+              referenceImageCount={0}
+            />
+          )}
         </div>
       </div>
     </motion.div>

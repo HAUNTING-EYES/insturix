@@ -316,4 +316,20 @@ Improved handling of expired signed URLs for reference images:
 - Fallback mechanism to ensure image accessibility
 - Better error handling for URL access issues
 
+### Dynamic Model Selection Based on Reference Images
+
+Enhanced model selection based on the number of reference images provided:
+- Models classified by reference image support rather than stage
+- Each model defines minImages and maxImages constraints
+- Context-aware model filtering (ideation, newVariation, edit)
+- Ideation and newVariation: 0 + user attached images
+- Edit: 1 (base image) + user attached images
+- Centralized model filtering handler
+- Automatic model switching in worker based on reference images
+- Validation to prevent invalid model invocations
+- All models available in all contexts
+- Different UI for new variation creation (NewVariationConsole)
+- Safety checkers disabled by default to reduce false positives
+- Reusable model routing logic for consistency
+
 This architecture provides a responsive, reliable creative workspace that feels instant to users while maintaining data integrity through robust background synchronization and comprehensive error handling.

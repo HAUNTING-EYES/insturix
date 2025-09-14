@@ -1,21 +1,22 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { CLICKATRON_MODELS, ModelConfig } from '@/lib/config/clickatron-models';
-import { ModelStage } from '@/lib/config/clickatron-models';
+import { CLICKATRON_MODELS, ModelConfig, getAvailableModels } from '@/lib/config/clickatron-models';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Bot } from 'lucide-react';
 
 interface ModelSelectorProps {
-  stage: ModelStage;
+  context: 'ideation' | 'newVariation' | 'edit';
+  userAttachedImages?: number;
   selectedModelId?: string;
   onModelChange: (modelId: string) => void;
   className?: string;
 }
 
-export function ModelSelector({ 
-  stage, 
-  selectedModelId, 
+export function ModelSelector({
+  context,
+  userAttachedImages = 0,
+  selectedModelId,
   onModelChange,
   className = ""
 }: ModelSelectorProps) {
@@ -23,19 +24,12 @@ export function ModelSelector({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Filter models based on the stage and other constraints
-    let filteredModels = Object.values(CLICKATRON_MODELS).filter(model =>
-      model.stages.includes(stage)
-    );
-    
-    // Additional filtering for ideation stage - only text-to-image models
-    if (stage === 'ideation') {
-      filteredModels = filteredModels.filter(model => model.type === 'text-to-image');
-    }
+  // Filter models based on the context and number of user attached images
+  const filteredModels = getAvailableModels(context, userAttachedImages);
     
     setModels(filteredModels);
     
-    // Find the default model for this stage
+    // Find the default model for this filter
     const defaultModel = filteredModels.find(model => model.isDefault) || filteredModels[0];
     if (defaultModel) {
       setDefaultModelId(defaultModel.id);
@@ -44,7 +38,7 @@ export function ModelSelector({
         onModelChange(defaultModel.id);
       }
     }
-  }, [stage, selectedModelId, onModelChange]);
+  }, [context, userAttachedImages, selectedModelId, onModelChange]);
 
   const handleModelChange = (modelId: string) => {
     onModelChange(modelId);

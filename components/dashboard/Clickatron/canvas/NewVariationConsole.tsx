@@ -2,22 +2,15 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Image, Loader2, X, Plus } from 'lucide-react';
+import { Send, Image, Loader2, X, Plus, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ChatHistory } from './ChatHistory';
 import { ChatMessage } from '@/types/clickatron';
 import { ModelSelector } from '../stages/ModelSelector';
+import { ReferenceImage } from './AICommandConsole';
 
-export interface ReferenceImage {
-  id: string;
-  name: string;
-  size: number;
-  type: string;
-  data: string;
-}
-
-interface AICommandConsoleProps {
+interface NewVariationConsoleProps {
   onGenerate: (prompt: string, referenceImages?: ReferenceImage[], modelId?: string) => void;
   isGenerating: boolean;
   galleryCollapsed?: boolean;
@@ -29,10 +22,9 @@ interface AICommandConsoleProps {
     trigger: number;
   };
   chatHistory?: ChatMessage[]; // Optional chat history
-  referenceImageCount?: number; // Number of reference images for model filtering
 }
 
-export function AICommandConsole({
+export function NewVariationConsole({
   onGenerate,
   isGenerating,
   galleryCollapsed = false,
@@ -40,8 +32,7 @@ export function AICommandConsole({
   clearTrigger,
   setPromptData,
   chatHistory = [],
-  referenceImageCount = 0,
-}: AICommandConsoleProps) {
+}: NewVariationConsoleProps) {
   const [prompt, setPrompt] = useState("");
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
   const [showChatHistory, setShowChatHistory] = useState(false);
@@ -148,11 +139,24 @@ export function AICommandConsole({
           />
         )}
         
-        {/* Model Selector */}
+        {/* Header for new variation creation */}
+        <div className="text-center mb-6">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <Sparkles className="h-5 w-5 text-purple-400" />
+            <h3 className="text-lg font-semibold text-zinc-10">Create New Variation</h3>
+          </div>
+          <p className="text-zinc-400 text-sm">
+            {referenceImages.length > 0 
+              ? "Describe how you want to modify the reference images" 
+              : "Describe what you want to create from scratch"}
+          </p>
+        </div>
+        
+        {/* Model Selector - dynamically filtered based on reference images */}
         <div className="flex justify-center mb-4">
           <ModelSelector
-            context="edit"
-            userAttachedImages={referenceImageCount}
+            context="newVariation"
+            userAttachedImages={referenceImages.length}
             selectedModelId={selectedModelId || undefined}
             onModelChange={handleModelChange}
           />
@@ -169,6 +173,7 @@ export function AICommandConsole({
                 exit={{ opacity: 0, height: 0 }}
                 className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-zinc-700/50"
               >
+                <div className="text-xs text-zinc-400 mb-1">Reference Images:</div>
                 {referenceImages.map((image) => (
                   <motion.div
                     key={image.id}
@@ -239,7 +244,11 @@ export function AICommandConsole({
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onPaste={handlePaste}
-                placeholder="Describe a change... (e.g., 'make background futuristic city', 'change chai to coffee', 'add steampunk style')"
+                placeholder={
+                  referenceImages.length > 0
+                    ? "Describe how you want to modify the reference images..."
+                    : "Describe what you want to create from scratch..."
+                }
                 disabled={isGenerating}
                 className="
                   min-h-[48px] max-h-[120px] resize-none border-0 bg-transparent
