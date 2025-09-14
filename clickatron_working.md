@@ -309,4 +309,11 @@ Improved aspect ratio handling to ensure compatibility with different models:
 - Automatic mapping to closest supported ratio when exact match is not available
 - Better error handling for unsupported aspect ratios
 
+### Expired Signed URL Handling
+
+Improved handling of expired signed URLs for reference images:
+- Automatic regeneration of expired GCS signed URLs
+- Fallback mechanism to ensure image accessibility
+- Better error handling for URL access issues
+
 This architecture provides a responsive, reliable creative workspace that feels instant to users while maintaining data integrity through robust background synchronization and comprehensive error handling.

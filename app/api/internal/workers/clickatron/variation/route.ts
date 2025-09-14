@@ -221,11 +221,43 @@ async function handler(req: Request) {
           
           if (!imageResponse.ok) {
             console.error('Worker: Image URL returned non-200 status:', imageResponse.status, imageResponse.statusText);
-            throw new Error(`Image URL returned status ${imageResponse.status}: ${imageResponse.statusText}`);
+            
+            // If this is a GCS URL that might have expired, try to regenerate the signed URL
+            if (generationParams.image_url.includes('storage.googleapis.com')) {
+              try {
+                console.log('Worker: Attempting to regenerate signed URL for expired image...');
+                // Extract the base GCS URL (without signature parameters)
+                const urlObj = new URL(generationParams.image_url);
+                const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
+                
+                // Get a fresh signed URL
+                const freshSignedUrl = await ClickatronGCSManager.getSignedUrl(baseUrl);
+                console.log('Worker: Got fresh signed URL:', freshSignedUrl);
+                
+                // Update the generation parameters with the fresh URL
+                generationParams.image_url = freshSignedUrl;
+                
+                // Test the fresh URL
+                console.log('Worker: Testing fresh signed URL...');
+                const freshResponse = await fetch(freshSignedUrl, { method: 'HEAD' });
+                
+                if (!freshResponse.ok) {
+                  throw new Error(`Fresh image URL also returned status ${freshResponse.status}: ${freshResponse.statusText}`);
+                }
+                
+                const contentType = freshResponse.headers.get('content-type');
+                console.log('Worker: Fresh image URL accessible. Content-Type:', contentType);
+              } catch (regenError) {
+                console.error('Worker: Failed to regenerate signed URL:', regenError);
+                throw new Error(`Cannot access reference image: ${regenError instanceof Error ? regenError.message : 'Unknown error'}`);
+              }
+            } else {
+              throw new Error(`Image URL returned status ${imageResponse.status}: ${imageResponse.statusText}`);
+            }
+          } else {
+            const contentType = imageResponse.headers.get('content-type');
+            console.log('Worker: Image URL accessible. Content-Type:', contentType);
           }
-          
-          const contentType = imageResponse.headers.get('content-type');
-          console.log('Worker: Image URL accessible. Content-Type:', contentType);
           
         } catch (error) {
           console.error('Worker: Failed to access image URL:', error);
