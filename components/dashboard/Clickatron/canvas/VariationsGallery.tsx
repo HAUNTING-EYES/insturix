@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, Plus, Copy, Trash2 } from "lucide-react";
+import { ChevronRight, Plus, Copy, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -219,6 +219,10 @@ export function VariationsGallery({
                   {variation.status === 'blank' || !variation.imageRef || variation.imageRef.trim() === '' ? (
                     <div className="w-full h-full bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center">
                       <Plus className="h-3 w-3 text-zinc-500" />
+                    </div>
+                  ) : variation.status === 'generating' ? (
+                    <div className="w-full h-full bg-zinc-80/50 flex items-center justify-center">
+                      <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
                     </div>
                   ) : (
                     <ImageDisplay

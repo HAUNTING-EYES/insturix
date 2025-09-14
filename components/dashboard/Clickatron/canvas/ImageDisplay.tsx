@@ -42,13 +42,21 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     useEffect(() => {
       console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
-      
+
+      // If we're currently generating, show the generating UI immediately
+      if (status === "generating") {
+        // clear any existing image while generating and show loader
+        setSignedUrl(null);
+        setIsLoading(true);
+        return;
+      }
+
       // Clean up previous object URL
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
         setObjectUrl(null);
       }
-      
+
       const fetchSignedUrl = async () => {
         if (status === "completed" && imageRef && imageRef.startsWith("https://storage.googleapis.com")) {
           console.log('Fetching signed URL for', imageRef);
@@ -131,6 +139,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <div className="text-zinc-400 text-sm">
               {status === "generating" ? "Generating..." : "Loading image..."}
             </div>
+            {status === "generating" && (
+              <div className="mt-2 w-32 h-1.5 bg-zinc-700 rounded-full overflow-hidden mx-auto">
+                <div className="h-full bg-purple-500 rounded-full animate-pulse" style={{ width: "60%" }}></div>
+              </div>
+            )}
           </div>
         </div>
       );

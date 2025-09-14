@@ -238,7 +238,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
     try {
       // Use the passed modelId, or fall back to the active variation's modelId, or use default
-      const selectedModelId = modelId || activeVariation?.modelId || "flux-kontext/dev";
+      const selectedModelId = modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
       
       const response = await fetch(
         `/api/services/clickatron/session/${task._id}/variation`,
@@ -297,7 +297,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       createdAt: now,
       updatedAt: now,
-      modelId: "flux-kontext/dev", // Default model for new variations
+      modelId: "fal-ai/flux-kontext/dev", // Default model for new variations
     };
     const newCanvas = produce(canvas, (draft) => {
       draft.variations.unshift(newVariation);

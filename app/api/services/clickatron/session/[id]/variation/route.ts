@@ -7,7 +7,7 @@ import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 import { enqueueQStashJob } from '@/lib/clickatron-qtask';
-import { CLICKATRON_MODELS } from '@/lib/config/clickatron-models';
+import { CLICKATRON_MODELS, getAvailableModels } from '@/lib/config/clickatron-models';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
@@ -76,15 +76,38 @@ export async function POST(
     if (!selectedModelId) {
       const hasReferenceImages = validatedData.referenceImages && validatedData.referenceImages.length > 0;
       
+      // Determine context based on whether we're editing an existing variation
+      const context = validatedData.parentVariationId ? 'edit' : 'newVariation';
+      
+      // Get available models for this context
+      const availableModels = getAvailableModels(context, hasReferenceImages && validatedData.referenceImages ? validatedData.referenceImages.length : 0);
+      
       // Find an appropriate model based on context
-      const suitableModel = Object.values(CLICKATRON_MODELS).find(model => {
-        // For image-to-image generation, we need reference images and an image-to-image model
-        if (hasReferenceImages) {
-          return model.type === 'image-to-image' && model.stages.includes('edit');
+      // First, try to find a default model that matches the requirements
+      let suitableModel = availableModels.find((model: any) => {
+        // Check if it's a default model and matches the type requirements
+        if (model.isDefault) {
+          // For image-to-image generation, we need reference images and an image-to-image model
+          if (hasReferenceImages) {
+            return model.type === 'image-to-image';
+          }
+          // For text-to-image generation, we don't want reference images and need a text-to-image model
+          return model.type === 'text-to-image';
         }
-        // For text-to-image generation, we don't want reference images and need a text-to-image model
-        return model.type === 'text-to-image' && model.stages.includes('edit');
+        return false;
       });
+      
+      // If no default model is found, fall back to any suitable model
+      if (!suitableModel) {
+        suitableModel = availableModels.find((model: any) => {
+          // For image-to-image generation, we need reference images and an image-to-image model
+          if (hasReferenceImages) {
+            return model.type === 'image-to-image';
+          }
+          // For text-to-image generation, we don't want reference images and need a text-to-image model
+          return model.type === 'text-to-image';
+        });
+      }
       
       selectedModelId = suitableModel?.id || 'fal-ai/flux-kontext/dev'; // Fallback
     }
@@ -149,7 +172,7 @@ export async function POST(
         saturation: 100,
       },
       metadata: validatedData.metadata,
-      modelId: validatedData.modelId, // Add modelId to job
+      modelId: selectedModelId, // Use the selected modelId
     });
 
     // Set idempotency key if provided
@@ -172,7 +195,7 @@ export async function POST(
           saturation: 100,
         },
         metadata: validatedData.metadata,
-        modelId: validatedData.modelId, // Add modelId to job
+        modelId: selectedModelId, // Use the selected modelId
       });
       console.log('QStash job enqueued successfully:', qstashResult);
     } catch (qstashError) {

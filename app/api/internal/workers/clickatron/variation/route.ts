@@ -136,11 +136,17 @@ async function handler(req: Request) {
       console.error('Worker: Fal AI API key not configured');
       await failJob(jobId, { code: 'FAL_AI_NOT_CONFIGURED', message: 'Fal AI API key not configured. Please set FAL_AI_API_KEY in environment variables.' });
       
-      variation.status = 'failed';
-      variation.updatedAt = new Date();
-      
-      task.markModified('details');
-      await task.save();
+      // Ensure variation is updated with failed status even if Fal AI is not configured
+      try {
+        variation.status = 'failed';
+        variation.updatedAt = new Date();
+        
+        task.markModified('details');
+        await task.save();
+        console.log('Worker: Updated variation status to failed due to missing API key');
+      } catch (saveError) {
+        console.error('Worker: Failed to save variation status:', saveError);
+      }
       
       return NextResponse.json({ error: 'Fal AI not configured' }, { status: 500 });
     }
@@ -223,11 +229,17 @@ async function handler(req: Request) {
           console.error('Worker: No model found that supports the number of reference images:', referenceImageCount);
           await failJob(jobId, { code: 'INVALID_MODEL', message: `No model found that supports ${referenceImageCount} reference images` });
           
-          variation.status = 'failed';
-          variation.updatedAt = new Date();
-          
-          task.markModified('details');
-          await task.save();
+          // Ensure variation is updated with failed status
+          try {
+            variation.status = 'failed';
+            variation.updatedAt = new Date();
+            
+            task.markModified('details');
+            await task.save();
+            console.log('Worker: Updated variation status to failed due to invalid model');
+          } catch (saveError) {
+            console.error('Worker: Failed to save variation status:', saveError);
+          }
           
           return NextResponse.json({ error: 'No model found that supports the number of reference images' }, { status: 400 });
         }
@@ -237,11 +249,17 @@ async function handler(req: Request) {
         console.error('Worker: Model configuration not found for modelId:', selectedModelId);
         await failJob(jobId, { code: 'MODEL_NOT_FOUND', message: `Model configuration not found for modelId: ${selectedModelId}` });
         
-        variation.status = 'failed';
-        variation.updatedAt = new Date();
-        
-        task.markModified('details');
-        await task.save();
+        // Ensure variation is updated with failed status
+        try {
+          variation.status = 'failed';
+          variation.updatedAt = new Date();
+          
+          task.markModified('details');
+          await task.save();
+          console.log('Worker: Updated variation status to failed due to missing model config');
+        } catch (saveError) {
+          console.error('Worker: Failed to save variation status:', saveError);
+        }
         
         return NextResponse.json({ error: 'Model configuration not found' }, { status: 400 });
       }
@@ -470,6 +488,7 @@ async function handler(req: Request) {
       let errorMessage = generationError.message || 'Image generation failed';
       let errorCode = 'GENERATION_FAILED';
       
+      // Handle different error types with specific messages
       if (generationError.status === 422) {
         errorCode = 'INVALID_PARAMETERS';
         
@@ -490,15 +509,28 @@ async function handler(req: Request) {
       } else if (generationError.status === 429) {
         errorCode = 'RATE_LIMITED';
         errorMessage = 'Rate limit exceeded. Please wait and try again later.';
+      } else if (generationError.code === 'ENOTFOUND' || generationError.code === 'ECONNREFUSED') {
+        errorCode = 'NETWORK_ERROR';
+        errorMessage = 'Network error connecting to the image generation service. Please check your internet connection and try again.';
+      } else if (generationError.name === 'TimeoutError') {
+        errorCode = 'TIMEOUT';
+        errorMessage = 'The image generation request timed out. Please try again.';
       }
       
       console.error('Worker: Detailed error - Code:', errorCode, 'Message:', errorMessage);
       
-      variation.status = 'failed';
-      variation.updatedAt = new Date();
-      
-      task.markModified('details');
-      await task.save();
+      // Ensure variation is updated with failed status
+      try {
+        variation.status = 'failed';
+        variation.updatedAt = new Date();
+        
+        task.markModified('details');
+        await task.save();
+        console.log('Worker: Updated variation status to failed');
+      } catch (saveError) {
+        console.error('Worker: Failed to save variation status:', saveError);
+        // Even if we can't save to the database, we still need to fail the job
+      }
       
       await failJob(jobId, {
         code: errorCode,
@@ -515,14 +547,40 @@ async function handler(req: Request) {
     // If we have a jobId, try to fail the job in the system
     if (jobId) {
       try {
-        await failJob(jobId, { 
-          code: 'WORKER_EXECUTION_FAILED', 
+        await failJob(jobId, {
+          code: 'WORKER_EXECUTION_FAILED',
           message: error instanceof Error ? error.message : 'Unknown error occurred in worker',
-          details: error 
+          details: error
         });
         console.log('Worker: Marked job as failed in system');
       } catch (failError) {
         console.error('Worker: Failed to mark job as failed:', failError);
+      }
+    }
+    
+    // Also try to update the variation status to failed if we have the necessary data
+    if (jobId) {
+      try {
+        const job = await getJob(jobId);
+        if (job) {
+          await getClickatronDb();
+          const objectId = new Types.ObjectId(job.sessionId);
+          const task = await ClickatronTask.findById(objectId);
+          
+          if (task && task.details.canvas) {
+            const variation = task.details.canvas.variations.find((v: Variation) => v.id === job.variationId);
+            if (variation) {
+              variation.status = 'failed';
+              variation.updatedAt = new Date();
+              
+              task.markModified('details');
+              await task.save();
+              console.log('Worker: Updated variation status to failed in outer catch block');
+            }
+          }
+        }
+      } catch (updateError) {
+        console.error('Worker: Failed to update variation status in outer catch block:', updateError);
       }
     }
     
