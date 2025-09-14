@@ -349,13 +349,22 @@ Clickatron measures success through:
 - **Batch Processing**: Multiple variation generation
 - **Mobile Optimization**: Responsive design for mobile creativity
 
-### Known Issues and Limitations
+### Resolved Issues
 
-1.  **Model Selection Logic**: The logic for selecting between text-to-image and image-to-image models based on the presence of reference images is not fully implemented. Currently, the system may not correctly switch models when a reference image is added or removed. Key files to examine: `lib/config/clickatron-models.ts`, `app/api/internal/workers/clickatron/variation/route.ts`.
-2.  **Payload Construction**: The current implementation for constructing API payloads for different AI models is complex and relies on numerous conditional checks. This makes it difficult to add new models or modify existing ones. Key files to examine: `app/api/internal/workers/clickatron/variation/route.ts`.
-3.  **Ideation Stage Model Filtering**: In the initial ideation stage, when no reference images are provided, the system should only show text-to-image models. However, image-to-image models like `flux-kontext/dev` are currently available for selection. Key files to examine: `components/dashboard/Clickatron/stages/ModelSelector.tsx`, `lib/config/clickatron-models.ts`.
-4.  **Model Selector Dropdown**: The model selector dropdown in the ideation stage may not be functioning correctly. User selections might not be properly propagated, causing the system to default to `flux-kontext/dev`. Key files to examine: `components/dashboard/Clickatron/stages/IdeationStage.tsx`, `components/dashboard/Clickatron/ClickatronLabClient.tsx`, `stores/useCanvasStore.ts`.
-5.  **Model Configuration**: The configuration for different AI models is not intuitive. Adding a new model with its specific API requirements should be simpler. Key files to examine: `lib/config/clickatron-models.ts`.
+The following issues have been successfully resolved:
+
+1.  **Model Selection Logic**: ✅ Implemented proper logic for selecting between text-to-image and image-to-image models based on the presence of reference images. The system now correctly switches models when a reference image is added or removed.
+2.  **Payload Construction**: ✅ Simplified the implementation for constructing API payloads for different AI models. Removed complex conditional checks and introduced a cleaner parameter mapping approach that makes it easier to add new models or modify existing ones.
+3.  **Ideation Stage Model Filtering**: ✅ Fixed the initial ideation stage to only show text-to-image models when no reference images are provided. Image-to-image models like `flux-kontext/dev` are no longer available for selection in the ideation stage.
+4.  **Model Selector Dropdown**: ✅ Fixed the model selector dropdown in the ideation stage. User selections are now properly propagated, and the system no longer defaults to `flux-kontext/dev`.
+5. **Model Configuration**: ✅ Made the configuration for different AI models more intuitive. Added a clear parameter mapping structure that simplifies adding new models with their specific API requirements.
+
+### Aspect Ratio Handling
+
+Improved aspect ratio handling to ensure compatibility with different models:
+- Models now properly validate and use supported aspect ratios
+- Automatic mapping to closest supported ratio when exact match is not available
+- Better error handling for unsupported aspect ratios
 
 ---
 
