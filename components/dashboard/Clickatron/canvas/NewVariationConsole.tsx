@@ -5,23 +5,21 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Image, Loader2, X, Plus, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ChatHistory } from './ChatHistory';
-import { ChatMessage } from '@/types/clickatron';
 import { ModelSelector } from '../stages/ModelSelector';
-import { ReferenceImage } from './AICommandConsole';
 
 interface NewVariationConsoleProps {
-  onGenerate: (prompt: string, referenceImages?: ReferenceImage[], modelId?: string) => void;
-  isGenerating: boolean;
-  galleryCollapsed?: boolean;
-  className?: string;
-  clearTrigger?: number; // When this changes, clear the console
-  setPromptData?: { // When this changes, populate the console
-    prompt: string;
-    referenceImages?: ReferenceImage[];
-    trigger: number;
-  };
-  chatHistory?: ChatMessage[]; // Optional chat history
+onGenerate: (prompt: string, referenceImages?: File[], modelId?: string) => void;
+isGenerating: boolean;
+galleryCollapsed?: boolean;
+className?: string;
+clearTrigger?: number; // When this changes, clear the console
+setPromptData?: { // When this changes, populate the console
+  prompt: string;
+  referenceImages?: string[]; // This will now be GCS URLs for display
+  trigger: number;
+};
+referenceImageCount?: number; // Number of reference images for model filtering
+onReferenceImageCountChange?: (count: number) => void; // Callback when reference image count changes
 }
 
 export function NewVariationConsole({
@@ -31,11 +29,12 @@ export function NewVariationConsole({
   className = "",
   clearTrigger,
   setPromptData,
-  chatHistory = [],
+  referenceImageCount = 0,
+  onReferenceImageCountChange,
 }: NewVariationConsoleProps) {
   const [prompt, setPrompt] = useState("");
-  const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([]);
-  const [showChatHistory, setShowChatHistory] = useState(false);
+  const [referenceImages, setReferenceImages] = useState<File[]>([]);
+  const [referenceImagePreviews, setReferenceImagePreviews] = useState<string[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -48,6 +47,7 @@ export function NewVariationConsole({
     if (clearTrigger !== undefined) {
       setPrompt("");
       setReferenceImages([]);
+      setReferenceImagePreviews([]);
     }
   }, [clearTrigger]);
 
@@ -55,7 +55,8 @@ export function NewVariationConsole({
   useEffect(() => {
     if (setPromptData) {
       setPrompt(setPromptData.prompt);
-      setReferenceImages(setPromptData.referenceImages || []);
+      // For display purposes, we'll use the GCS URLs provided
+      setReferenceImagePreviews(setPromptData.referenceImages || []);
     }
   }, [setPromptData]);
 
@@ -65,26 +66,20 @@ export function NewVariationConsole({
 
     onGenerate(prompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
     setPrompt("");
+    setReferenceImages([]);
+    setReferenceImagePreviews([]);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     
-    files.forEach(file => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const result = event.target?.result as string;
-        const newImage: ReferenceImage = {
-          id: `${Date.now()}_${Math.random()}`,
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          data: result,
-        };
-        setReferenceImages(prev => [...prev, newImage]);
-      };
-      reader.readAsDataURL(file);
-    });
+    // Store File objects
+    setReferenceImages(prev => [...prev, ...files]);
+    
+    // Generate preview URLs
+    const newPreviews = files.map(file => URL.createObjectURL(file));
+    setReferenceImagePreviews(prev => [...prev, ...newPreviews]);
+    onReferenceImageCountChange?.(referenceImagePreviews.length + files.length);
   };
 
   const handlePaste = (e: React.ClipboardEvent) => {
@@ -96,28 +91,35 @@ export function NewVariationConsole({
       if (item.type.indexOf('image') !== -1) {
         const file = item.getAsFile();
         if (file) {
-          const reader = new FileReader();
-          reader.onload = (event) => {
-            const result = event.target?.result as string;
-            const newImage: ReferenceImage = {
-              id: `${Date.now()}_${Math.random()}`,
-              name: file.name || 'pasted-image.png',
-              size: file.size,
-              type: file.type,
-              data: result,
-            };
-            setReferenceImages(prev => [...prev, newImage]);
-          };
-          reader.readAsDataURL(file);
+          // Store File object
+          setReferenceImages(prev => [...prev, file]);
+          
+          // Generate preview URL
+          const previewUrl = URL.createObjectURL(file);
+          setReferenceImagePreviews(prev => [...prev, previewUrl]);
+          onReferenceImageCountChange?.(referenceImagePreviews.length + 1);
         }
         break;
       }
     }
   };
 
-  const removeReferenceImage = (imageId: string) => {
-    setReferenceImages(prev => prev.filter(img => img.id !== imageId));
+  const removeReferenceImage = (index: number) => {
+    setReferenceImages(prev => prev.filter((_, i) => i !== index));
+    setReferenceImagePreviews(prev => {
+      const newPreviews = [...prev];
+      URL.revokeObjectURL(newPreviews[index]); // Clean up the object URL
+      newPreviews.splice(index, 1);
+      return newPreviews;
+    });
   };
+
+  // Clean up object URLs on unmount
+  useEffect(() => {
+    return () => {
+      referenceImagePreviews.forEach(url => URL.revokeObjectURL(url));
+    };
+  }, [referenceImagePreviews]);
 
   return (
     <motion.div
@@ -130,14 +132,6 @@ export function NewVariationConsole({
       `}
     >
       <div className="p-6 max-w-5xl mx-auto">
-        {/* Chat History */}
-        {chatHistory.length > 0 && (
-          <ChatHistory
-            messages={chatHistory}
-            isVisible={showChatHistory}
-            onToggle={() => setShowChatHistory(!showChatHistory)}
-          />
-        )}
         
         {/* Header for new variation creation */}
         <div className="text-center mb-6">
@@ -146,8 +140,8 @@ export function NewVariationConsole({
             <h3 className="text-lg font-semibold text-zinc-10">Create New Variation</h3>
           </div>
           <p className="text-zinc-400 text-sm">
-            {referenceImages.length > 0 
-              ? "Describe how you want to modify the reference images" 
+            {referenceImagePreviews.length > 0
+              ? "Describe how you want to modify the reference images"
               : "Describe what you want to create from scratch"}
           </p>
         </div>
@@ -156,7 +150,7 @@ export function NewVariationConsole({
         <div className="flex justify-center mb-4">
           <ModelSelector
             context="newVariation"
-            userAttachedImages={referenceImages.length}
+            userAttachedImages={referenceImageCount}
             selectedModelId={selectedModelId || undefined}
             onModelChange={handleModelChange}
           />
@@ -166,7 +160,7 @@ export function NewVariationConsole({
         <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-4 max-w-4xl mx-auto">
           {/* Reference Images - Inline with input */}
           <AnimatePresence>
-            {referenceImages.length > 0 && (
+            {referenceImagePreviews.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
@@ -174,9 +168,9 @@ export function NewVariationConsole({
                 className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-zinc-700/50"
               >
                 <div className="text-xs text-zinc-400 mb-1">Reference Images:</div>
-                {referenceImages.map((image) => (
+                {referenceImagePreviews.map((previewUrl, index) => (
                   <motion.div
-                    key={image.id}
+                    key={index}
                     initial={{ opacity: 0, scale: 0.8 }}
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.8 }}
@@ -184,13 +178,13 @@ export function NewVariationConsole({
                   >
                     <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-700 border border-zinc-600">
                       <img
-                        src={image.data}
-                        alt={image.name}
+                        src={previewUrl}
+                        alt={`Reference ${index + 1}`}
                         className="w-full h-full object-cover"
                       />
                     </div>
                     <button
-                      onClick={() => removeReferenceImage(image.id)}
+                      onClick={() => removeReferenceImage(index)}
                       className="
                         absolute -top-1 -right-1 w-5 h-5 bg-zinc-800 border border-zinc-600
                         rounded-full flex items-center justify-center
@@ -230,7 +224,7 @@ export function NewVariationConsole({
                   transition-colors
                 "
               >
-                {referenceImages.length > 0 ? (
+                {referenceImagePreviews.length > 0 ? (
                   <Plus className="h-4 w-4" />
                 ) : (
                   <Image className="h-4 w-4" />
@@ -245,7 +239,7 @@ export function NewVariationConsole({
                 onChange={(e) => setPrompt(e.target.value)}
                 onPaste={handlePaste}
                 placeholder={
-                  referenceImages.length > 0
+                  referenceImagePreviews.length > 0
                     ? "Describe how you want to modify the reference images..."
                     : "Describe what you want to create from scratch..."
                 }

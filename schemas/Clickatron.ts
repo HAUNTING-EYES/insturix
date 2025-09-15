@@ -16,6 +16,7 @@ const VariationSchema = new Schema({
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
   parentVariationId: { type: String },
+  referenceImageRefs: { type: [String], default: [] }, // GCS URIs of reference images
   // AI generation metadata
   modelId: { type: String, required: true }, // Renamed from modelUsed and now required
   seed: { type: Number },
@@ -28,7 +29,6 @@ const ChatMessageSchema = new Schema({
   content: { type: String, required: true },
   timestamp: { type: Date, default: Date.now },
   variationId: { type: String }, // Link to variation if this message generated one
-  referenceImages: { type: [String], default: [] }, // Store reference image data URLs
 }, { _id: false });
 
 const CanvasSchema = new Schema({

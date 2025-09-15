@@ -8,6 +8,7 @@ import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatro
 import { z } from 'zod';
 import { enqueueQStashJob } from '@/lib/clickatron-qtask';
 import { CLICKATRON_MODELS, getAvailableModels } from '@/lib/config/clickatron-models';
+import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
@@ -36,8 +37,19 @@ export async function POST(
       return NextResponse.json({ error: 'Session not found' }, { status: 404 });
     }
 
-    const body = await request.json();
-
+    // Parse multipart/form-data
+    const formData = await request.formData();
+    
+    // Extract fields from formData
+    const prompt = formData.get('prompt') as string;
+    const modelId = formData.get('modelId') as string || undefined;
+    const parentVariationId = formData.get('parentVariationId') as string || undefined;
+    const fineTuning = JSON.parse(formData.get('fineTuning') as string || '{}');
+    const metadata = JSON.parse(formData.get('metadata') as string || '{}');
+    
+    // Extract reference images
+    const referenceImages = formData.getAll('referenceImages') as File[];
+    
     // Check for idempotency key
     const idempotencyKey = request.headers.get('Idempotency-Key');
     if (idempotencyKey) {
@@ -53,17 +65,40 @@ export async function POST(
       }
     }
 
-    // Validate request body
+    // Upload reference images to GCS and get their URIs
+    const referenceImageRefs: string[] = [];
+    for (const file of referenceImages) {
+      if (file instanceof File) {
+        const arrayBuffer = await file.arrayBuffer();
+        const buffer = Buffer.from(arrayBuffer);
+        
+        // Upload to GCS
+        const gcsUri = await ClickatronGCSManager.uploadImageBuffer(
+          userId,
+          id,
+          `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+          buffer,
+          file.type
+        );
+        
+        referenceImageRefs.push(gcsUri);
+      }
+    }
+
+    // Validate request data (excluding referenceImages as they are now in referenceImageRefs)
     const validatedData = CreateVariationRequestSchema.parse({
-      ...body,
+      prompt,
+      modelId,
+      parentVariationId,
+      fineTuning,
+      metadata,
       sessionId: id,
     });
 
     // Initialize canvas if it doesn't exist
     if (!task.details?.canvas) {
-      task.details.canvas = { variations: [], chatHistory: [] };
+      task.details.canvas = { variations: [] };
     }
-
 
     // Create new variation
     const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
@@ -74,13 +109,13 @@ export async function POST(
     
     // If no model is provided, select based on whether we have reference images
     if (!selectedModelId) {
-      const hasReferenceImages = validatedData.referenceImages && validatedData.referenceImages.length > 0;
+      const hasReferenceImages = referenceImageRefs && referenceImageRefs.length > 0;
       
       // Determine context based on whether we're editing an existing variation
       const context = validatedData.parentVariationId ? 'edit' : 'newVariation';
       
       // Get available models for this context
-      const availableModels = getAvailableModels(context, hasReferenceImages && validatedData.referenceImages ? validatedData.referenceImages.length : 0);
+      const availableModels = getAvailableModels(context, hasReferenceImages ? referenceImageRefs.length : 0);
       
       // Find an appropriate model based on context
       // First, try to find a default model that matches the requirements
@@ -126,7 +161,7 @@ export async function POST(
       createdAt: now,
       updatedAt: now,
       parentVariationId: validatedData.parentVariationId,
-      referenceImages: validatedData.referenceImages || [],
+      referenceImageRefs: referenceImageRefs || [], // Use referenceImageRefs instead of referenceImages
       metadata: validatedData.metadata || {},
       modelId: selectedModelId, // Add modelId to variation
     };
@@ -137,23 +172,6 @@ export async function POST(
 
     // Keep only the 50 most recent variations
     task.details.canvas.variations = currentVariations.slice(0, 50);
-
-
-
-    // Add user message to chat history
-    const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-    const userMessage = {
-      id: messageId,
-      role: 'user' as const,
-      content: validatedData.prompt,
-      timestamp: now,
-      variationId: variationId,
-      referenceImages: validatedData.referenceImages || [],
-    };
-
-    task.details.canvas.chatHistory.unshift(userMessage);
-    // Keep last 100 messages
-    task.details.canvas.chatHistory = task.details.canvas.chatHistory.slice(0, 100);
 
     task.updatedAt = new Date();
     task.markModified('details');
@@ -173,6 +191,7 @@ export async function POST(
       },
       metadata: validatedData.metadata,
       modelId: selectedModelId, // Use the selected modelId
+      referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
     });
 
     // Set idempotency key if provided
@@ -196,6 +215,7 @@ export async function POST(
         },
         metadata: validatedData.metadata,
         modelId: selectedModelId, // Use the selected modelId
+        referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
       });
       console.log('QStash job enqueued successfully:', qstashResult);
     } catch (qstashError) {

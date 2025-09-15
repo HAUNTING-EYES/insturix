@@ -111,7 +111,7 @@ export interface CreateVariationRequest {
   modelId: string; // Now required
   parentVariationId?: string; // For editing existing variations
   fineTuning?: FineTuningControls;
-  referenceImages?: string[]; // Store as data URLs
+  referenceImages?: string[]; // Store as data URLs (deprecated, use referenceImageRefs in Variation)
   metadata?: Record<string, any>;
 }
 
@@ -209,6 +209,7 @@ export interface CreateJobRequest {
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
   modelId?: string;
+  referenceImageRefs?: string[]; // GCS URIs of reference images
 }
 
 export interface WorkerPayload {
@@ -221,6 +222,7 @@ export interface WorkerPayload {
   modelId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
+  referenceImageRefs?: string[]; // GCS URIs of reference images
 }
 
 // Zustand Store Types

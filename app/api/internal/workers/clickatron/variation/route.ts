@@ -24,6 +24,7 @@ const workerRequestSchema = z.object({
   prompt: z.string(),
   userId: z.string(),
   parentVariationId: z.string().optional(),
+  referenceImageRefs: z.array(z.string()).optional(), // GCS URIs of reference images
 });
 
 // Parse aspect ratio string to width and height
@@ -190,6 +191,45 @@ async function handler(req: Request) {
           generationParams.image_url = imageUrl;
         }
       }
+      
+      // Add reference images from job payload if they exist (for image-to-image)
+      if (body.referenceImageRefs && body.referenceImageRefs.length > 0) {
+        // Get fresh signed URLs for all reference images
+        const signedImageUrls = await Promise.all(
+          body.referenceImageRefs.map(async (gcsUri: string) => {
+            try {
+              // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
+              if (gcsUri.includes('storage.googleapis.com') && !gcsUri.includes('GoogleAccessId') && !gcsUri.includes('Signature')) {
+                console.log('Getting fresh signed URL for GCS image:', gcsUri);
+                const signedUrl = await ClickatronGCSManager.getSignedUrl(gcsUri);
+                console.log('Got signed URL:', signedUrl);
+                return signedUrl;
+              }
+              // If it's already a signed URL, use it as is
+              return gcsUri;
+            } catch (error) {
+              console.error('Failed to get signed URL for reference image:', error);
+              // Return the original URL if signed URL generation fails
+              return gcsUri;
+            }
+          })
+        );
+        
+        // If we already have an image_url from parent variation, add these as additional images
+        if (generationParams.image_url) {
+          generationParams.image_urls = [generationParams.image_url, ...signedImageUrls];
+          delete generationParams.image_url; // Remove single image_url in favor of image_urls
+        } else {
+          // If there's only one reference image, use image_url
+          if (signedImageUrls.length === 1) {
+            generationParams.image_url = signedImageUrls[0];
+          } else {
+            // If there are multiple reference images, use image_urls
+            generationParams.image_urls = signedImageUrls;
+          }
+        }
+      }
+      
 
       console.log('Worker: Starting image generation with params:', generationParams);
 
@@ -325,6 +365,64 @@ async function handler(req: Request) {
         }
       }
       
+      // Validate image URLs accessibility for models that use image_urls array
+      if (generationParams.image_urls && Array.isArray(generationParams.image_urls)) {
+        try {
+          console.log('Worker: Testing image URLs accessibility...');
+          for (let i = 0; i < generationParams.image_urls.length; i++) {
+            const imageUrl = generationParams.image_urls[i];
+            console.log(`Worker: Testing image URL ${i + 1}/${generationParams.image_urls.length}...`);
+            
+            const imageResponse = await fetch(imageUrl, {
+              method: 'HEAD'
+            });
+            
+            if (!imageResponse.ok) {
+              console.error(`Worker: Image URL ${i + 1} returned non-200 status:`, imageResponse.status, imageResponse.statusText);
+              
+              // If this is a GCS URL that might have expired, try to regenerate the signed URL
+              if (imageUrl.includes('storage.googleapis.com')) {
+                try {
+                  console.log(`Worker: Attempting to regenerate signed URL for expired image ${i + 1}...`);
+                  // Extract the base GCS URL (without signature parameters)
+                  const urlObj = new URL(imageUrl);
+                  const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
+                  
+                  // Get a fresh signed URL
+                  const freshSignedUrl = await ClickatronGCSManager.getSignedUrl(baseUrl);
+                  console.log(`Worker: Got fresh signed URL for image ${i + 1}:`, freshSignedUrl);
+                  
+                  // Update the generation parameters with the fresh URL
+                  generationParams.image_urls[i] = freshSignedUrl;
+                  
+                  // Test the fresh URL
+                  console.log(`Worker: Testing fresh signed URL for image ${i + 1}...`);
+                  const freshResponse = await fetch(freshSignedUrl, { method: 'HEAD' });
+                  
+                  if (!freshResponse.ok) {
+                    throw new Error(`Fresh image URL ${i + 1} also returned status ${freshResponse.status}: ${freshResponse.statusText}`);
+                  }
+                  
+                  const contentType = freshResponse.headers.get('content-type');
+                  console.log(`Worker: Fresh image URL ${i + 1} accessible. Content-Type:`, contentType);
+                } catch (regenError) {
+                  console.error(`Worker: Failed to regenerate signed URL for image ${i + 1}:`, regenError);
+                  throw new Error(`Cannot access reference image ${i + 1}: ${regenError instanceof Error ? regenError.message : 'Unknown error'}`);
+                }
+              } else {
+                throw new Error(`Image URL ${i + 1} returned status ${imageResponse.status}: ${imageResponse.statusText}`);
+              }
+            } else {
+              const contentType = imageResponse.headers.get('content-type');
+              console.log(`Worker: Image URL ${i + 1} accessible. Content-Type:`, contentType);
+            }
+          }
+        } catch (error) {
+          console.error('Worker: Failed to access image URLs:', error);
+          throw new Error(`Cannot access reference images: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+      }
+      
       // Construct the payload dynamically based on the model configuration
       const payload: Record<string, any> = {
         [modelConfig.parameterMapping.prompt]: job.prompt,
@@ -333,9 +431,9 @@ async function handler(req: Request) {
       // Add image URL(s) if it's an image-to-image model
       if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_url && generationParams.image_url) {
         payload[modelConfig.parameterMapping.image_url] = generationParams.image_url;
-      } else if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_urls && generationParams.image_url) {
-        // For models that expect an array of image URLs, provide the single image URL as an array
-        payload[modelConfig.parameterMapping.image_urls] = [generationParams.image_url];
+      } else if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_urls && generationParams.image_urls) {
+        // For models that expect an array of image URLs, use the image_urls array directly
+        payload[modelConfig.parameterMapping.image_urls] = generationParams.image_urls;
       }
       
       // Helper function to find the closest supported aspect ratio
@@ -429,8 +527,10 @@ async function handler(req: Request) {
         payload[modelConfig.parameterMapping.max_images] = 1; // Default to 1, can be made configurable
       }
       
-      // Add seed
-      payload.seed = generationParams.seed || Math.floor(Math.random() * 1000000);
+      // Add seed if the model supports it
+      if (modelConfig.parameterMapping.seed) {
+        payload[modelConfig.parameterMapping.seed] = generationParams.seed || Math.floor(Math.random() * 1000000);
+      }
       
       // Debug logging to see the final payload
       console.log('Worker: Final payload for model', modelId, ':', JSON.stringify(payload, null, 2));

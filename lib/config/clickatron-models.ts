@@ -32,6 +32,7 @@ export const ModelConfigSchema = z.object({
     guidance_scale: z.string().optional(),
     num_inference_steps: z.string().optional(),
     acceleration: z.string().optional(),
+    seed: z.string().optional(),
   }),
   constraints: z.object({
     promptMaxLength: z.number().optional(),

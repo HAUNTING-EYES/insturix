@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion } from "framer-motion";
 import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
-import { AICommandConsole, ReferenceImage } from "../canvas/AICommandConsole";
+import { AICommandConsole } from "../canvas/AICommandConsole";
 import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
@@ -154,6 +154,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const isInitialMount = useRef(true);
   const renderCount = useRef(0);
   const [localActiveVariation, setLocalActiveVariation] = useState(activeVariationId);
+  const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -226,13 +227,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const handleAIGenerate = async (
     prompt: string,
-    referenceImages?: ReferenceImage[],
+    referenceImages?: File[],
     modelId?: string
   ) => {
     if (!canvas || !task?._id) return;
 
-    const imageDataUrls = referenceImages?.map((img) => img.data) || [];
-    
     // Generate idempotency key to prevent duplicate requests
     const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
 
@@ -240,22 +239,27 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       // Use the passed modelId, or fall back to the active variation's modelId, or use default
       const selectedModelId = modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
       
+      // Create FormData
+      const formData = new FormData();
+      formData.append("prompt", prompt);
+      formData.append("modelId", selectedModelId);
+      formData.append("parentVariationId", activeVariationId || "");
+      formData.append("fineTuning", JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
+      formData.append("metadata", JSON.stringify({ aspectRatio: currentAspectRatio }));
+      
+      // Append reference images
+      referenceImages?.forEach((file, index) => {
+        formData.append(`referenceImages`, file);
+      });
+
       const response = await fetch(
         `/api/services/clickatron/session/${task._id}/variation`,
         {
           method: "POST",
           headers: {
-            "Content-Type": "application/json",
             "Idempotency-Key": idempotencyKey
           },
-          body: JSON.stringify({
-            prompt,
-            modelId: selectedModelId, // Include modelId in the request
-            parentVariationId: activeVariationId, // Include parent for edit context
-            fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
-            referenceImages: imageDataUrls,
-            metadata: { aspectRatio: currentAspectRatio },
-          }),
+          body: formData,
         }
       );
 
@@ -590,7 +594,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               isGenerating={false}
               galleryCollapsed={galleryCollapsed}
               className="border-t border-zinc-800/80"
-              chatHistory={canvas?.chatHistory ?? []}
+              referenceImageCount={referenceImageCount}
+              onReferenceImageCountChange={setReferenceImageCount}
             />
           ) : (
             <AICommandConsole
@@ -598,8 +603,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               isGenerating={false}
               galleryCollapsed={galleryCollapsed}
               className="border-t border-zinc-800/80"
-              chatHistory={canvas?.chatHistory ?? []}
-              referenceImageCount={0}
+              referenceImageCount={referenceImageCount}
+              onReferenceImageCountChange={setReferenceImageCount}
             />
           )}
         </div>
