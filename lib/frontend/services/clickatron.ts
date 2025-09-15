@@ -7,24 +7,25 @@ export const pollVariationCompletion = async (
   variationId: string,
   loadSession: (sessionId: string) => Promise<void>,
   getTask: () => any,
-  maxPolls: number = 15,
   pollInterval: number = 2000
 ): Promise<void> => {
   return new Promise((resolve) => {
-    let pollCount = 0;
-    
     const poll = setInterval(async () => {
-      pollCount++;
-      
       try {
         await loadSession(sessionId);
         const task = getTask();
         const variation = task?.details.canvas?.variations.find((v: any) => v.id === variationId);
         
-        // Stop polling if generation is complete or we've reached max attempts
-        if (variation && (variation.status !== 'generating' || pollCount >= maxPolls)) {
+        console.log('Polling: Checking variation status', {
+          variationId,
+          variationStatus: variation?.status,
+          shouldStop: variation && variation.status !== 'generating'
+        });
+        
+        // Stop polling if generation is complete
+        if (variation && variation.status !== 'generating') {
           clearInterval(poll);
-          console.log('Polling stopped:', variation?.status || 'max attempts reached');
+          console.log('Polling stopped:', variation?.status);
           resolve();
         }
       } catch (error) {

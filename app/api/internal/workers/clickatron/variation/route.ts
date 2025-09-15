@@ -164,7 +164,7 @@ async function handler(req: Request) {
         num_inference_steps: 28,
         guidance_scale: 3.5,
         num_images: 1,
-        enable_safety_checker: true,
+        enable_safety_checker: false,
         output_format: "jpeg",
         seed: Math.floor(Math.random() * 1000000),
       };
@@ -218,7 +218,7 @@ async function handler(req: Request) {
         // If we already have an image_url from parent variation, add these as additional images
         if (generationParams.image_url) {
           generationParams.image_urls = [generationParams.image_url, ...signedImageUrls];
-          delete generationParams.image_url; // Remove single image_url in favor of image_urls
+          generationParams.image_url = undefined; // Remove single image_url in favor of image_urls
         } else {
           // If there's only one reference image, use image_url
           if (signedImageUrls.length === 1) {
@@ -429,11 +429,41 @@ async function handler(req: Request) {
       };
       
       // Add image URL(s) if it's an image-to-image model
-      if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_url && generationParams.image_url) {
-        payload[modelConfig.parameterMapping.image_url] = generationParams.image_url;
-      } else if (modelConfig.type === 'image-to-image' && modelConfig.parameterMapping.image_urls && generationParams.image_urls) {
-        // For models that expect an array of image URLs, use the image_urls array directly
-        payload[modelConfig.parameterMapping.image_urls] = generationParams.image_urls;
+      console.log('Worker: Checking payload conditions:', {
+        isImageToImage: modelConfig.type === 'image-to-image',
+        hasImageUrlMapping: !!modelConfig.parameterMapping.image_url,
+        hasImageUrlsMapping: !!modelConfig.parameterMapping.image_urls,
+        hasImageUrlParam: !!generationParams.image_url,
+        hasImageUrlsParam: !!generationParams.image_urls,
+        imageUrlMapping: modelConfig.parameterMapping.image_url,
+        imageUrlsMapping: modelConfig.parameterMapping.image_urls
+      });
+      
+      if (modelConfig.type === 'image-to-image') {
+        // Handle models that expect a single image URL
+        if (modelConfig.parameterMapping.image_url && generationParams.image_url) {
+          console.log('Worker: Adding single image_url to payload');
+          payload[modelConfig.parameterMapping.image_url] = generationParams.image_url;
+        }
+        // Handle models that expect an array of image URLs
+        else if (modelConfig.parameterMapping.image_urls && generationParams.image_urls) {
+          console.log('Worker: Adding image_urls to payload');
+          payload[modelConfig.parameterMapping.image_urls] = generationParams.image_urls;
+        }
+        // Handle models that expect an array of image URLs but only have a single image URL
+        else if (modelConfig.parameterMapping.image_urls && generationParams.image_url) {
+          console.log('Worker: Adding single image_url as array to image_urls payload');
+          payload[modelConfig.parameterMapping.image_urls] = [generationParams.image_url];
+        }
+        // Handle models that expect a single image URL but have an array of image URLs (use first image)
+        else if (modelConfig.parameterMapping.image_url && generationParams.image_urls && generationParams.image_urls.length > 0) {
+          console.log('Worker: Adding first image from image_urls array to single image_url payload');
+          payload[modelConfig.parameterMapping.image_url] = generationParams.image_urls[0];
+        } else {
+          console.log('Worker: No image URL(s) added to payload');
+        }
+      } else {
+        console.log('Worker: Not an image-to-image model, skipping image URL mapping');
       }
       
       // Helper function to find the closest supported aspect ratio

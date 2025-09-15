@@ -14,8 +14,8 @@ import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 import { Settings } from "lucide-react";
-import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
 import { downloadImageWithFineTuning, getImageUrl } from "@/lib/frontend/services/clickatron-download";
+import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -177,10 +177,23 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     canvasRef.current = canvas;
   }, [canvas]);
 
-  // Update local active variation when prop changes
+  // Check for generating variations on component mount and start polling
   useEffect(() => {
-    setLocalActiveVariation(activeVariationId);
-  }, [activeVariationId]);
+    if (task?._id && variations.length > 0) {
+      const generatingVariations = variations.filter(v => v.status === 'generating');
+      if (generatingVariations.length > 0) {
+        console.log('Found generating variations on mount, starting polling:', generatingVariations.map(v => v.id));
+        generatingVariations.forEach(variation => {
+          pollVariationCompletion(
+            task._id!,
+            variation.id,
+            loadSession,
+            () => useClickatronStore.getState().task
+          );
+        });
+      }
+    }
+  }, []); // Empty dependency array to run only once on mount
 
   // Update active variation if none is selected
   useEffect(() => {
@@ -189,6 +202,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       setActiveVariationId(variations[0].id);
     }
   }, [variations, localActiveVariation, setActiveVariationId]);
+
 
    // Autosave canvas - simplified approach
    useEffect(() => {
