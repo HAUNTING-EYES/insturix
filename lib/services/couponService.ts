@@ -32,16 +32,27 @@ export interface CouponValidationResult {
 // TODO: Replace these offer IDs with your actual Razorpay offer IDs
 const COUPON_CONFIGS: CouponConfig[] = [
     {
-        code: 'IGNITEROOM',
-        offerId: 'offer_R8i1ltygEw146K', // Updated with the actual Razorpay offer ID
+        code: 'REELCODE',
+        offerId: 'offer_RHY3raI0mQ2SJy',
         type: 'percentage',
         value: 10,
         description: 'Special 10% off!',
-        minAmount: 800,
+        minAmount: 0,
         maxDiscount: 150,
         currency: 'INR',
         isActive: true,
     },
+    {
+        code: 'REELCODEWIN',
+        offerId: 'offer_RHZmYHgoea4G88',
+        type: 'percentage',
+        value: 100,
+        description: 'Special 100% off!',
+        minAmount: 0,
+        maxDiscount: 800,
+        currency: 'INR',
+        isActive: true,
+    }
 ];
 
 export function validateCoupon(
