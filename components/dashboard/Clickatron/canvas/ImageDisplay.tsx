@@ -21,6 +21,11 @@ interface ImageDisplayProps {
     contrast: number;
     saturation: number;
   };
+  /**
+   * When false, disables zoom/pan controls and renders a plain image.
+   * Useful for small thumbnails in galleries.
+   */
+  interactive?: boolean;
 }
 
 export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
@@ -33,6 +38,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       status = "completed",
       variationId,
       fineTuning = { brightness: 100, contrast: 100, saturation: 100 },
+      interactive = true,
     },
     ref
   ) => {
@@ -184,24 +190,37 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     };
 
     return (
-      <TransformWrapper
-        ref={ref}
-        initialScale={1}
-        minScale={0.1}
-        maxScale={5}
-        centerOnInit={true}
-        limitToBounds={false}
-        panning={{ disabled: false }}
-        wheel={{ step: 0.1 }}
-        doubleClick={{ disabled: false, mode: "zoomIn", step: 0.3 }}
-        onInit={(r) => {
-          setTimeout(() => r.resetTransform(), 100);
-        }}
-      >
-        <TransformComponent
-          wrapperClass="w-full h-full flex items-center justify-center"
-          contentClass="flex items-center justify-center"
+      // If interactive is disabled, render a plain img to avoid zoom/pan controls
+      (interactive ? (
+        <TransformWrapper
+          ref={ref}
+          initialScale={1}
+          minScale={0.1}
+          maxScale={5}
+          centerOnInit={true}
+          limitToBounds={false}
+          panning={{ disabled: false }}
+          wheel={{ step: 0.1 }}
+          doubleClick={{ disabled: false, mode: "zoomIn", step: 0.3 }}
+          onInit={(r) => {
+            setTimeout(() => r.resetTransform(), 100);
+          }}
         >
+          <TransformComponent
+            wrapperClass="w-full h-full flex items-center justify-center"
+            contentClass="flex items-center justify-center"
+          >
+            <img
+              src={signedUrl}
+              alt={alt}
+              className={`${className} select-none`}
+              style={imageStyle}
+              draggable={false}
+            />
+          </TransformComponent>
+        </TransformWrapper>
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
           <img
             src={signedUrl}
             alt={alt}
@@ -209,8 +228,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             style={imageStyle}
             draggable={false}
           />
-        </TransformComponent>
-      </TransformWrapper>
+        </div>
+      ))
     );
   }
 );

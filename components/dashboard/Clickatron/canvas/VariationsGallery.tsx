@@ -229,6 +229,7 @@ export function VariationsGallery({
                       imageRef={variation.imageRef}
                       status={variation.status}
                       className="w-full h-full object-cover"
+                      interactive={false}
                       fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}
                       fineTuning={variation.fineTuning}
                     />
