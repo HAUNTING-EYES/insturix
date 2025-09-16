@@ -6,7 +6,7 @@ import { Types } from 'mongoose';
 import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
-import { enqueueQStashJob } from '@/lib/clickatron-qtask';
+import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { CLICKATRON_MODELS, getAvailableModels } from '@/lib/config/clickatron-models';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
 
@@ -192,6 +192,7 @@ export async function POST(
       metadata: validatedData.metadata,
       modelId: selectedModelId, // Use the selected modelId
       referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
+      aspectRatio: task.details.aspectRatio, // Pass aspectRatio from task details
     });
 
     // Set idempotency key if provided
@@ -201,7 +202,7 @@ export async function POST(
 
     // Enqueue job with QStash
     try {
-      const qstashResult = await enqueueQStashJob({
+      const qstashResult = await enqueueClickatronJob({
         jobId,
         sessionId: id,
         variationId,

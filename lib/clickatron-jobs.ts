@@ -79,6 +79,7 @@ export async function createJob(jobData: CreateJobRequest): Promise<string> {
     parentVariationId: jobData.parentVariationId,
     fineTuning: jobData.fineTuning,
     metadata: jobData.metadata,
+    referenceImageRefs: jobData.referenceImageRefs,
   };
 
   const jobKey = REDIS_KEYS.job(jobId);

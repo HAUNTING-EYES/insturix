@@ -9,8 +9,6 @@ export interface IClickatronTask {
   details: {
     videoIdea: string;
     aspectRatio: string;
-    ideas?: Idea[];
-    selectedIdea?: Idea;
     canvas?: Canvas;
     workflow?: {
       stage: 'ideation' | 'canvas';
@@ -24,13 +22,6 @@ export interface IClickatronTask {
 }
 
 // Data Structures
-export interface Idea {
-  id: string;
-  title: string;
-  description: string;
-  prompt: string;
-}
-
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -59,6 +50,7 @@ export interface Variation {
   modelId: string; // Renamed from modelUsed and now required
   seed?: number;
   generationParams?: Record<string, any>;
+  referenceImageRefs?: string[];
 }
 
 export interface FineTuningControls {
@@ -71,39 +63,21 @@ export interface FineTuningControls {
 // API Request/Response Types
 
 // POST /api/services/clickatron/session
-export interface CreateSessionRequest {
-  videoIdea: string;
-  aspectRatio: string;
-}
-
 export const CreateSessionRequestSchema = z.object({
-  videoIdea: z.string().min(1, "Idea cannot be empty"),
-  // Accept integers or decimals for width and height, e.g. '16:9' or '1.85:1'
+  prompt: z.string().min(1, "Prompt cannot be empty"),
   aspectRatio: z
     .string()
     .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'"),
+  modelId: z.string().min(1, "Model ID is required"),
 });
+
+export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;
 
 export interface CreateSessionResponse {
   sessionId: string;
-  ideas: Idea[];
+  variation: Variation;
 }
 
-// POST /api/services/clickatron/session/[id]/ideas/select
-export interface SelectIdeaRequest {
-  selectedIdea: Idea;
-  modelId?: string; // Optional: If not provided, the default model is used
-}
-
-export const SelectIdeaRequestSchema = z.object({
-  selectedIdea: z.object({
-    id: z.string(),
-    title: z.string(),
-    description: z.string(),
-    prompt: z.string(),
-  }),
-  modelId: z.string().optional(),
-});
 
 // POST /api/services/clickatron/session/[id]/variation
 export interface CreateVariationRequest {
@@ -198,6 +172,7 @@ export interface ClickatronJob {
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
   modelId?: string;
+  referenceImageRefs?: string[];
 }
 
 export interface CreateJobRequest {
@@ -209,6 +184,7 @@ export interface CreateJobRequest {
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
   modelId?: string;
+  aspectRatio: string;
   referenceImageRefs?: string[]; // GCS URIs of reference images
 }
 
@@ -231,18 +207,15 @@ export interface ClickatronStore {
   isSaving: boolean;
   saveError: string | null;
   lastSaved: Date | null;
-  ideationModelId: string | undefined;
   editModelId: string | undefined;
   setTask: (task: IClickatronTask) => void;
   updateCanvas: (canvas: Canvas) => void;
   setCanvasFromBackend: (canvas: Canvas) => void;
   updateVariation: (variationId: string, newVariationData: Partial<Variation>) => void;
-  setIdeationModelId: (modelId: string | null) => void;
   setEditModelId: (modelId: string | null) => void;
 
   // Actions
-  createSession: (request: CreateSessionRequest) => Promise<string | null>; // Returns sessionId
-  selectIdea: (sessionId: string, idea: Idea, modelId?: string) => Promise<boolean>;
+  createSession: (formData: FormData) => Promise<{ sessionId: string, variation: Variation } | null>;
  syncCanvas: (sessionId: string, canvas: Canvas) => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
 }

@@ -2,20 +2,14 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
-import { CreateSessionRequestSchema } from '@/types/clickatron';
+import { CreateSessionRequest, CreateSessionRequestSchema } from '@/types/clickatron';
 import { z } from 'zod';
+import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { createJob } from '@/lib/clickatron-jobs';
+import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
+import { nanoid } from 'nanoid';
 
-// A simple mock idea generator
-const generateMockIdeas = (videoIdea: string) => {
-  return [
-    { id: 'idea_1', title: `Exploring ${videoIdea}`, description: 'A deep dive into the world of your topic.', prompt: `An epic cinematic shot of ${videoIdea}` },
-    { id: 'idea_2', title: `The Ultimate Guide to ${videoIdea}`, description: 'Everything you need to know, all in one place.', prompt: `A clean, professional graphic for a guide about ${videoIdea}` },
-    { id: 'idea_3', title: `${videoIdea}: A New Perspective`, description: 'A fresh take on a classic subject.', prompt: `An abstract, artistic representation of ${videoIdea}` },
-    { id: 'idea_4', title: `The Surprising Secrets of ${videoIdea}`, description: 'Uncovering the hidden truths.', prompt: `A mysterious, intriguing image related to ${videoIdea}` },
-  ];
-};
-
-// POST /api/services/clickatron/session - Create new session and generate ideas
+// POST /api/services/clickatron/session - Create new session and generate the first variation
 export async function POST(request: Request) {
   try {
     const { userId } = await auth();
@@ -23,35 +17,94 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
-    
-    // Validate request body
-    const validatedData = CreateSessionRequestSchema.parse(body);
+    const contentType = request.headers.get('content-type') || '';
+    if (!contentType.includes('multipart/form-data')) {
+      return NextResponse.json({ error: 'Invalid content type. Must be multipart/form-data.' }, { status: 400 });
+    }
+
+    const formData = await request.formData();
+    const validatedData = CreateSessionRequestSchema.parse({
+      prompt: formData.get('prompt'),
+      aspectRatio: formData.get('aspectRatio'),
+      modelId: formData.get('modelId'),
+    });
+
+    const referenceImage = formData.get('referenceImage') as File | null;
+    let referenceImageRefs: string[] = [];
 
     await getClickatronDb();
 
-    const ideas = generateMockIdeas(validatedData.videoIdea);
-
-    // Create new ClickatronTask document
+    // 1. Create the new Task (Session)
     const newTask = new ClickatronTask({
       clerkUserId: userId,
-      title: validatedData.videoIdea,
+      title: validatedData.prompt, // Use the prompt as the initial title
       details: {
-        videoIdea: validatedData.videoIdea,
+        // The videoIdea field is now repurposed to store the initial prompt
+        videoIdea: validatedData.prompt,
         aspectRatio: validatedData.aspectRatio,
-        ideas: ideas,
+        canvas: {
+          variations: [],
+          chatHistory: [],
+        },
       },
-      createdAt: new Date(),
-      updatedAt: new Date(),
     });
 
+    // 2. Create the first Variation
+    const newVariationId = nanoid();
+    const newVariation: any = {
+      id: newVariationId,
+      prompt: validatedData.prompt,
+      status: 'generating',
+      aspectRatio: validatedData.aspectRatio,
+      modelId: validatedData.modelId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+      imageRef: '',
+      referenceImageRefs: [],
+    };
+
+    // 3. Upload reference image if it exists
+    if (referenceImage) {
+      const buffer = Buffer.from(await referenceImage.arrayBuffer());
+      const imageUrl = await ClickatronGCSManager.uploadImageBuffer(
+      userId,
+      newTask._id.toString(),
+      newVariationId, // Associate with the new variation
+      buffer,
+      referenceImage.type
+    );
+      referenceImageRefs.push(imageUrl);
+      newVariation.referenceImageRefs = referenceImageRefs;
+    }
+    
+    // 4. Add the variation to the canvas and save
+    newTask.details.canvas.variations.push(newVariation);
     await newTask.save();
+
+    // 5. Create and Enqueue the Generation Job
+    const jobData = {
+      userId,
+      sessionId: newTask._id.toString(),
+      variationId: newVariationId,
+      prompt: validatedData.prompt,
+      modelId: validatedData.modelId,
+      aspectRatio: validatedData.aspectRatio,
+      referenceImageRefs,
+    };
+    
+    console.log('Creating job with data:', jobData);
+    const jobId = await createJob(jobData);
+
+    console.log('Enqueuing job with ID:', jobId);
+    await enqueueClickatronJob({ jobId, ...jobData });
 
     return NextResponse.json({
       success: true,
       sessionId: newTask._id.toString(),
-      ideas: ideas,
+      variation: newVariation,
     });
+
   } catch (error) {
     console.error('Error creating session:', error);
     

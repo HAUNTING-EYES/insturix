@@ -24,6 +24,13 @@ const workerRequestSchema = z.object({
   prompt: z.string(),
   userId: z.string(),
   parentVariationId: z.string().optional(),
+  modelId: z.string().optional(),
+  fineTuning: z.object({
+    brightness: z.number(),
+    contrast: z.number(),
+    saturation: z.number(),
+  }).optional(),
+  metadata: z.record(z.any()).optional(),
   referenceImageRefs: z.array(z.string()).optional(), // GCS URIs of reference images
 });
 
@@ -90,7 +97,10 @@ async function handler(req: Request) {
     // Extract jobId early for error handling
     jobId = body.jobId;
     
+    console.log('Worker: Parsing request body with schema');
     const { jobId: parsedJobId, sessionId, variationId } = workerRequestSchema.parse(body);
+    jobId = parsedJobId; // Update jobId with parsed value
+    console.log('Worker: Parsed data - jobId:', jobId, 'sessionId:', sessionId, 'variationId:', variationId);
     jobId = parsedJobId; // Update jobId with parsed value
     console.log('Worker: Parsed data - jobId:', jobId, 'sessionId:', sessionId, 'variationId:', variationId);
 
@@ -673,6 +683,7 @@ async function handler(req: Request) {
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Worker error:', error);
+    console.error('Worker error details - jobId:', jobId, 'error type:', (error as Error).constructor.name);
     
     // If we have a jobId, try to fail the job in the system
     if (jobId) {

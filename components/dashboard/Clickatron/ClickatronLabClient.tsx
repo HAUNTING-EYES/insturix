@@ -1,14 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { IdeationStage } from "./stages/IdeationStage";
 import { CanvasStage } from "./stages/CanvasStage";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { useRouter } from "next/navigation";
-import { Idea } from "@/types/clickatron";
 
 interface ClickatronLabClientProps {
   initialData: {
@@ -25,7 +23,7 @@ const stageTransition = {
 
 export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
   const router = useRouter();
-  const { task, loadSession, selectIdea, ideationModelId } = useClickatronStore();
+  const { task, loadSession } = useClickatronStore();
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -35,14 +33,9 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     }
   }, [initialData?.sessionId, loadSession]);
 
-  const handleIdeationComplete = useCallback(async (idea: Idea, modelId?: string) => {
-    if (!task?._id) return;
-    await selectIdea(task._id, idea, modelId);
-  }, [task?._id, selectIdea]);
-
-  const handleCanvasComplete = useCallback(() => {
+  const handleCanvasComplete = () => {
     router.push('/dashboard/clickatron');
-  }, [router]);
+  };
 
   if (isLoading) {
     return (
@@ -69,7 +62,8 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
     );
   }
   
-  const currentStage = task.details.canvas ? 'canvas' : 'ideation';
+  // With ideation removed, we always go directly to the canvas stage
+  const currentStage = 'canvas';
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -90,26 +84,13 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
         </div>
       </div>
 
-      <AnimatePresence mode="wait">
-        {currentStage === "ideation" && (
-            <motion.div key="ideation" {...stageTransition}>
-            <IdeationStage
-              ideas={task.details.ideas || []}
-              onSelectIdea={handleIdeationComplete}
-            />
-          </motion.div>
-        )}
-
-        {currentStage === "canvas" && (
-          <motion.div key="canvas" {...stageTransition}>
-            <CanvasStage
-              videoIdea={task.details.videoIdea}
-              onComplete={handleCanvasComplete}
-              isGenerating={false}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <motion.div key="canvas" {...stageTransition}>
+        <CanvasStage
+          videoIdea={task.details.videoIdea}
+          onComplete={handleCanvasComplete}
+          isGenerating={false}
+        />
+      </motion.div>
     </div>
   );
 }

@@ -3,7 +3,6 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { Types } from 'mongoose';
-import { CommitVariationRequest } from '@/types/clickatron';
 import { z } from 'zod';
 
 // Enhanced commit request schema
@@ -18,7 +17,7 @@ const CommitVariationRequestSchema = z.object({
   }).optional(),
 });
 
-// POST /api/services/clickatron/session/:id/commit - Mark final variation → populate results.thumbnail
+// POST /api/services/clickatron/session/:id/commit - Mark final variation
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -83,36 +82,6 @@ export async function POST(
     };
     variation.updatedAt = new Date();
 
-    // Store committed variation in workflow
-    if (!task.details.workflow) {
-      task.details.workflow = {
-        videoIdea: task.title || 'Untitled Session',
-        stage: 'canvas',
-        workflowVersion: 1,
-      };
-    }
-    task.details.workflow.committedVariation = variation;
-    // Keep stage as 'canvas' since users can continue working
-
-    // Update canvas with committed variation ID
-    task.details.canvas.committedVariationId = variation.id;
-
-    // Update task with final results (legacy compatibility)
-    task.results = {
-      thumbnail: {
-        prompt: variation.prompt,
-        gcs_url: validatedData.gcsPath,
-      },
-      details: JSON.stringify({
-        variationId: variation.id,
-        timestamp: variation.timestamp,
-        fineTuning: variation.fineTuning,
-        metadata: variation.metadata,
-        gcsPath: validatedData.gcsPath,
-        fileSize: validatedData.metadata?.fileSize,
-        contentType: validatedData.metadata?.contentType,
-      }),
-    };
 
     // Update task timestamps (keep status as is for ongoing canvas work)
     task.updatedAt = new Date();
@@ -122,7 +91,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      thumbnailUrl: task.results.thumbnail.gcs_url,
+      thumbnailUrl: validatedData.gcsPath,
       taskId: id,
       committedVariation: {
         id: variation.id,

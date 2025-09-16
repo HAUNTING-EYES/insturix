@@ -4,11 +4,14 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, Send, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { EnhancedInput } from './EnhancedInput';
 import useClickatronStore from '@/stores/useCanvasStore';
 import { CanvasPresetSelector } from './CanvasPresetSelector';
+import { ImageUpload } from './ImageUpload';
+import { ModelSelector } from './stages/ModelSelector';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -22,8 +25,10 @@ export function VideoIdeaInput() {
   const { toast } = useToast();
   const createSession = useClickatronStore((state) => state.createSession);
 
-  const [videoIdea, setVideoIdea] = useState('');
+  const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState('16:9');
+  const [referenceImage, setReferenceImage] = useState<File | null>(null);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -32,24 +37,39 @@ export function VideoIdeaInput() {
   };
 
   const handleSubmit = async () => {
-    if (!videoIdea.trim()) {
+    if (!prompt.trim()) {
       toast({
-        title: "Video idea required",
-        description: "Please describe your video idea to get started.",
+        title: "Prompt is required",
+        description: "Please describe what you want to create.",
         variant: "destructive",
       });
       return;
     }
 
+    if (!selectedModelId) {
+        toast({
+            title: "Model not selected",
+            description: "Please select a model to generate the image.",
+            variant: "destructive",
+        });
+        return;
+    }
+
     setIsLoading(true);
     
     try {
-      const sessionId = await createSession({
-        videoIdea: videoIdea.trim(),
-        aspectRatio: aspectRatio,
-      });
-      if (sessionId) {
-        router.push(`/dashboard/clickatron/lab/${sessionId}`);
+        const formData = new FormData();
+        formData.append('prompt', prompt.trim());
+        formData.append('aspectRatio', aspectRatio);
+        formData.append('modelId', selectedModelId);
+        if (referenceImage) {
+            formData.append('referenceImage', referenceImage);
+        }
+
+      const result = await createSession(formData);
+      
+      if (result && result.sessionId) {
+        router.push(`/dashboard/clickatron/lab/${result.sessionId}`);
       } else {
         throw new Error('Session ID not returned');
       }
@@ -79,25 +99,50 @@ export function VideoIdeaInput() {
               </div>
             
               <h2 className="text-lg sm:text-xl font-semibold text-zinc-100 mb-2">
-                What's your video about?
+                Start a new creation
               </h2>
                 
                 <p className="text-zinc-400 text-sm mb-4 max-w-2xl mx-auto">
-                  Describe your video idea and we'll help you create the perfect thumbnail.
+                  Describe what you want to create. You can also upload a reference image.
                 </p>
 
                 <form onSubmit={handleFormSubmit} className="w-full max-w-2xl mx-auto">
-                  <EnhancedInput
-                    value={videoIdea}
-                    onChange={setVideoIdea}
-                    placeholder="e.g., A review of the new MacBook Pro"
-                    onSubmit={handleSubmit}
-                    isLoading={isLoading}
+                  <Textarea
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="e.g., A futuristic city skyline at sunset, cinematic and detailed..."
                     disabled={isLoading}
+                    className="min-h-[80px] bg-zinc-900/50 border-zinc-700/50 rounded-lg"
                   />
                   <div className="mt-6 w-full max-w-md mx-auto">
                     <CanvasPresetSelector value={aspectRatio} onChange={setAspectRatio} />
                   </div>
+                  <ImageUpload onFileChange={setReferenceImage} isLoading={isLoading} />
+                  <div className="flex justify-center mt-6">
+                    <ModelSelector
+                        context="newVariation"
+                        userAttachedImages={referenceImage ? 1 : 0}
+                        selectedModelId={selectedModelId || undefined}
+                        onModelChange={setSelectedModelId}
+                    />
+                  </div>
+                  <Button 
+                    type="submit" 
+                    disabled={isLoading} 
+                    className="mt-6 w-full max-w-xs mx-auto flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="h-4 w-4" />
+                        Start Generating
+                      </>
+                    )}
+                  </Button>
                 </form>
             </div>
           </div>

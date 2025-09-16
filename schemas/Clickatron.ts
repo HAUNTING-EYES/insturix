@@ -43,8 +43,7 @@ export interface IClickatronTask extends Document {
   details: {
     videoIdea: string;
     aspectRatio: string;
-    ideas?: any[];
-    selectedIdea?: any;
+    referenceImage?: string;
     canvas?: any;
   };
   error_message?: string;
@@ -60,8 +59,7 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
     details: {
       videoIdea: { type: String, required: true },
       aspectRatio: { type: String, required: true },
-      ideas: { type: Array },
-      selectedIdea: { type: Object },
+      referenceImage: { type: String },
       canvas: { type: CanvasSchema },
     },
     error_message: { type: String },
