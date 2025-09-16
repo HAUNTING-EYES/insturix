@@ -169,6 +169,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   // Get aspect ratio from session
   const currentAspectRatio = task?.details.aspectRatio || "16:9";
+  const [aspectRatio, setAspectRatio] = useState<string>(currentAspectRatio);
 
   const [debouncedCanvas] = useDebounce(canvas, 1000);
 
@@ -195,13 +196,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, []); // Empty dependency array to run only once on mount
 
-  // Update active variation if none is selected
-  useEffect(() => {
-    if (!localActiveVariation && variations.length > 0) {
-      setLocalActiveVariation(variations[0].id);
-      setActiveVariationId(variations[0].id);
-    }
-  }, [variations, localActiveVariation, setActiveVariationId]);
+ // Update active variation if none is selected
+useEffect(() => {
+  if (!localActiveVariation && variations.length > 0) {
+    setLocalActiveVariation(variations[0].id);
+    setActiveVariationId(variations[0].id);
+  }
+}, [variations, localActiveVariation, setActiveVariationId]);
 
 
    // Autosave canvas - simplified approach
@@ -234,6 +235,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const activeVariation = variations.find((v) => v.id === localActiveVariation);
 
+  // Update aspect ratio when active variation changes (only for blank variations)
+  useEffect(() => {
+    if (activeVariation && activeVariation.status === "blank") {
+      setAspectRatio(activeVariation.aspectRatio);
+    }
+  }, [activeVariation]);
+
   const handleVariationSelect = useCallback((variationId: string) => {
     setLocalActiveVariation(variationId);
     setActiveVariationId(variationId);
@@ -245,6 +253,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     modelId?: string
   ) => {
     if (!canvas || !task?._id) return;
+
+    // Check if the active variation is blank
+    const isBlank = activeVariation?.status === "blank";
 
     // Generate idempotency key to prevent duplicate requests
     const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
@@ -259,7 +270,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       formData.append("modelId", selectedModelId);
       formData.append("parentVariationId", activeVariationId || "");
       formData.append("fineTuning", JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
-      formData.append("metadata", JSON.stringify({ aspectRatio: currentAspectRatio }));
+      formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
+      formData.append("aspectRatio", aspectRatio);
+      
+      // If the active variation is blank, indicate that we want to update it
+      if (isBlank && activeVariationId) {
+        formData.append("updateExistingBlank", "true");
+      }
       
       // Append reference images
       referenceImages?.forEach((file, index) => {
@@ -284,9 +301,17 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const data = await response.json();
       console.log("Variation generation queued:", data);
 
-      // Immediately set the new variation as active to prevent race conditions
-      // The `loadSession` call will update its state in the background
-      setActiveVariationId(data.variationId);
+      // If the active variation was blank, we want to update it instead of creating a new one
+      // The backend will handle this, so we just need to update the active variation ID
+      if (isBlank && activeVariationId) {
+        // The backend will update the existing variation, so we just need to set the active variation ID
+        // to the same ID as the blank variation
+        setActiveVariationId(activeVariationId);
+      } else {
+        // Immediately set the new variation as active to prevent race conditions
+        // The `loadSession` call will update its state in the background
+        setActiveVariationId(data.variationId);
+      }
 
       // Start polling for completion, which will refresh the session state
       // Use the new updateVariation function in the store
@@ -311,7 +336,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       prompt: "",
       status: "blank" as const,
       imageRef: "",
-      aspectRatio: currentAspectRatio,
+      aspectRatio: aspectRatio,
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       createdAt: now,
       updatedAt: now,
@@ -413,6 +438,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     });
     updateCanvas(newCanvas);
   }, [updateCanvas]); // Removed canvas from deps since we're using ref
+
+  const handleAspectRatioChange = useCallback((newAspectRatio: string) => {
+    // Only update aspect ratio for blank variations
+    if (activeVariation && activeVariation.status === "blank") {
+      setAspectRatio(newAspectRatio);
+    }
+ }, [activeVariation, setAspectRatio]);
 
   const handleManualSync = useCallback(() => {
     if (canvas && task?._id) {
@@ -574,6 +606,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 brightness={activeVariation.fineTuning.brightness}
                 contrast={activeVariation.fineTuning.contrast}
                 saturation={activeVariation.fineTuning.saturation}
+                aspectRatio={aspectRatio}
+                isBlankVariation={activeVariation.status === "blank"}
                 onBrightnessChange={(val) =>
                   handleFinetuningChange(localActiveVariation!, "brightness", val)
                 }
@@ -583,6 +617,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                 onSaturationChange={(val) =>
                   handleFinetuningChange(localActiveVariation!, "saturation", val)
                 }
+                onAspectRatioChange={setAspectRatio}
                 disabled={!activeVariation}
               />
             ) : (

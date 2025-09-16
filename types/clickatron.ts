@@ -84,6 +84,7 @@ export interface CreateVariationRequest {
   prompt: string;
   modelId: string; // Now required
   parentVariationId?: string; // For editing existing variations
+  updateExistingBlank?: boolean; // For generating on an existing blank variation
   fineTuning?: FineTuningControls;
   referenceImages?: string[]; // Store as data URLs (deprecated, use referenceImageRefs in Variation)
   metadata?: Record<string, any>;
@@ -92,7 +93,12 @@ export interface CreateVariationRequest {
 export const CreateVariationRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt is required"),
   modelId: z.string().min(1, "Model ID is required"),
+  aspectRatio: z
+    .string()
+    .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'")
+    .optional(),
   parentVariationId: z.string().optional(), // For editing existing variations
+  updateExistingBlank: z.boolean().optional(), // For generating on an existing blank variation
   fineTuning: z.object({
     brightness: z.number().min(0).max(200).default(100),
     contrast: z.number().min(0).max(200).default(100),
@@ -194,10 +200,11 @@ export interface WorkerPayload {
   variationId: string;
   prompt: string;
   userId: string;
-  parentVariationId?: string;
+ parentVariationId?: string;
   modelId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
+  aspectRatio: string;
   referenceImageRefs?: string[]; // GCS URIs of reference images
 }
 

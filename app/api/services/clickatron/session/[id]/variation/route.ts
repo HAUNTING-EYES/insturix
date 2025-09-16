@@ -43,7 +43,9 @@ export async function POST(
     // Extract fields from formData
     const prompt = formData.get('prompt') as string;
     const modelId = formData.get('modelId') as string || undefined;
+    const aspectRatio = formData.get('aspectRatio') as string || undefined;
     const parentVariationId = formData.get('parentVariationId') as string || undefined;
+    const updateExistingBlank = formData.get('updateExistingBlank') === 'true';
     const fineTuning = JSON.parse(formData.get('fineTuning') as string || '{}');
     const metadata = JSON.parse(formData.get('metadata') as string || '{}');
     
@@ -89,7 +91,9 @@ export async function POST(
     const validatedData = CreateVariationRequestSchema.parse({
       prompt,
       modelId,
+      aspectRatio,
       parentVariationId,
+      updateExistingBlank,
       fineTuning,
       metadata,
       sessionId: id,
@@ -101,7 +105,10 @@ export async function POST(
     }
 
     // Create new variation
-    const variationId = `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    // If we're updating an existing blank variation, use its ID
+    const variationId = validatedData.updateExistingBlank && validatedData.parentVariationId
+      ? validatedData.parentVariationId
+      : `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const now = new Date();
     
     // Determine the appropriate model based on reference images
@@ -152,7 +159,7 @@ export async function POST(
       prompt: validatedData.prompt,
       status: 'generating' as const,
       imageRef: '',
-      aspectRatio: validatedData.metadata?.aspectRatio || '16:9',
+      aspectRatio: validatedData.aspectRatio || task.details.aspectRatio,
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
         contrast: 100,
@@ -168,7 +175,21 @@ export async function POST(
 
     // Add variation to canvas (capping at 50)
     const currentVariations = task.details.canvas?.variations || [];
-    currentVariations.unshift(newVariation); // Add to beginning
+    
+    // If we're updating an existing blank variation, find and update it
+    if (validatedData.updateExistingBlank && validatedData.parentVariationId) {
+      const existingVariationIndex = currentVariations.findIndex((v: any) => v.id === validatedData.parentVariationId);
+      if (existingVariationIndex !== -1) {
+        // Update the existing variation
+        currentVariations[existingVariationIndex] = newVariation;
+      } else {
+        // If not found, add as new variation
+        currentVariations.unshift(newVariation);
+      }
+    } else {
+      // Add new variation to the beginning
+      currentVariations.unshift(newVariation);
+    }
 
     // Keep only the 50 most recent variations
     task.details.canvas.variations = currentVariations.slice(0, 50);
@@ -180,7 +201,7 @@ export async function POST(
     // Use QStash for async processing
     const jobId = await createJob({
       sessionId: id,
-      variationId,
+      variationId: variationId,
       prompt: validatedData.prompt,
       userId,
       parentVariationId: validatedData.parentVariationId,
@@ -192,7 +213,7 @@ export async function POST(
       metadata: validatedData.metadata,
       modelId: selectedModelId, // Use the selected modelId
       referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
-      aspectRatio: task.details.aspectRatio, // Pass aspectRatio from task details
+      aspectRatio: validatedData.aspectRatio || task.details.aspectRatio, // Use per-variation aspect ratio or fall back to global
     });
 
     // Set idempotency key if provided
@@ -205,7 +226,7 @@ export async function POST(
       const qstashResult = await enqueueClickatronJob({
         jobId,
         sessionId: id,
-        variationId,
+        variationId: variationId,
         prompt: validatedData.prompt,
         userId,
         parentVariationId: validatedData.parentVariationId,
@@ -217,6 +238,7 @@ export async function POST(
         metadata: validatedData.metadata,
         modelId: selectedModelId, // Use the selected modelId
         referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
+        aspectRatio: validatedData.aspectRatio || task.details.aspectRatio, // Use per-variation aspect ratio or fall back to global
       });
       console.log('QStash job enqueued successfully:', qstashResult);
     } catch (qstashError) {
@@ -227,7 +249,7 @@ export async function POST(
 
     return NextResponse.json({
       success: true,
-      variationId,
+      variationId: variationId,
       jobId,
       status: 'queued',
       estimatedTime: 30, // seconds

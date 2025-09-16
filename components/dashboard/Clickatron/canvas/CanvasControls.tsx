@@ -7,14 +7,18 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface CanvasControlsProps {
     brightness: number;
     contrast: number;
     saturation: number;
+    aspectRatio: string;
+    isBlankVariation: boolean;
     onBrightnessChange: (value: number) => void;
     onContrastChange: (value: number) => void;
     onSaturationChange: (value: number) => void;
+    onAspectRatioChange: (value: string) => void;
     disabled?: boolean;
 }
 
@@ -22,9 +26,12 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
     brightness,
     contrast,
     saturation,
+    aspectRatio,
+    isBlankVariation,
     onBrightnessChange,
     onContrastChange,
     onSaturationChange,
+    onAspectRatioChange,
     disabled = false
 }) => {
     const handleReset = () => {
@@ -169,6 +176,32 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     </div>
                 </div>
             </div>
+
+            <Separator className="bg-zinc-700/50" />
+
+            {/* Aspect Ratio - Only show for blank variations */}
+            {isBlankVariation && (
+                <div className="space-y-4">
+                    <Label className="flex items-center text-sm font-medium text-zinc-300">
+                        <Settings className="w-4 h-4 mr-2 text-purple-400" />
+                        Aspect Ratio
+                    </Label>
+                    <Select value={aspectRatio} onValueChange={onAspectRatioChange}>
+                        <SelectTrigger className="w-full bg-zinc-800 border-zinc-700 text-zinc-200">
+                            <SelectValue placeholder="Select aspect ratio" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-900 border-zinc-700">
+                            <SelectItem value="1:1">1:1 (Square)</SelectItem>
+                            <SelectItem value="4:3">4:3 (Standard)</SelectItem>
+                            <SelectItem value="3:2">3:2 (Classic)</SelectItem>
+                            <SelectItem value="16:9">16:9 (Widescreen)</SelectItem>
+                            <SelectItem value="21:9">21:9 (Ultrawide)</SelectItem>
+                            <SelectItem value="9:16">9:16 (Portrait)</SelectItem>
+                            <SelectItem value="2:3">2:3 (Tall)</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
 
             {/* Footer Info */}
             <div className="p-4 border-t border-zinc-700/50 bg-zinc-800/30">

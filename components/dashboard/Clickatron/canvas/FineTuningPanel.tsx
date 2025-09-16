@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Palette, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CustomColorGrading } from './CustomColorGrading';
 
 interface FineTuningControls {
@@ -24,6 +25,8 @@ interface FineTuningPanelProps {
   onControlChange: (key: keyof FineTuningControls, value: number) => void;
   onReset: () => void;
   onColorLookApply: (lookId: string) => void;
+  aspectRatio: string;
+  onAspectRatioChange: (value: string) => void;
   isDisabled?: boolean;
 }
 
@@ -81,6 +84,8 @@ export function FineTuningPanel({
   onControlChange,
   onReset,
   onColorLookApply,
+  aspectRatio,
+  onAspectRatioChange,
   isDisabled = false,
 }: FineTuningPanelProps) {
   const [showCustomGrading, setShowCustomGrading] = useState(false);
@@ -171,6 +176,28 @@ export function FineTuningPanel({
               />
             </div>
           </div>
+        </div>
+
+        {/* Aspect Ratio */}
+        <div className="space-y-4">
+          <h4 className="text-xs font-medium text-zinc-400 uppercase tracking-wide">
+            Aspect Ratio
+          </h4>
+          
+          <Select value={aspectRatio} onValueChange={onAspectRatioChange}>
+            <SelectTrigger className="w-full bg-zinc-800 border-zinc-700 text-zinc-200">
+              <SelectValue placeholder="Select aspect ratio" />
+            </SelectTrigger>
+            <SelectContent className="bg-zinc-900 border-zinc-700">
+              <SelectItem value="1:1">1:1 (Square)</SelectItem>
+              <SelectItem value="4:3">4:3 (Standard)</SelectItem>
+              <SelectItem value="3:2">3:2 (Classic)</SelectItem>
+              <SelectItem value="16:9">16:9 (Widescreen)</SelectItem>
+              <SelectItem value="21:9">21:9 (Ultrawide)</SelectItem>
+              <SelectItem value="9:16">9:16 (Portrait)</SelectItem>
+              <SelectItem value="2:3">2:3 (Tall)</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Color Styles - Changed to pills */}
