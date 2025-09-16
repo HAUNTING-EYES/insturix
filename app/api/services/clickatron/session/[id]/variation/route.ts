@@ -83,7 +83,9 @@ export async function POST(
           file.type
         );
         
-        referenceImageRefs.push(gcsUri);
+        // Store the raw GCS URL without query parameters for long-term storage
+        const rawGcsUri = gcsUri.split('?')[0];
+        referenceImageRefs.push(rawGcsUri);
       }
     }
 

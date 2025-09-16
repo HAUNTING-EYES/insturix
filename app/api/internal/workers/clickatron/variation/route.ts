@@ -606,7 +606,9 @@ async function handler(req: Request) {
 
       // Update variation with generated image
       variation.status = 'completed';
-      variation.imageRef = gcsUrl;
+      // Store the raw GCS URL without query parameters for long-term storage
+      const rawGcsUrl = gcsUrl.split('?')[0];
+      variation.imageRef = rawGcsUrl;
       variation.updatedAt = new Date();
       variation.modelId = selectedModelId; // Use the selected model ID
       variation.seed = generationParams.seed;

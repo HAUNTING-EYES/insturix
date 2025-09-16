@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       modelId: formData.get('modelId'),
     });
 
-    const referenceImage = formData.get('referenceImage') as File | null;
+    const referenceImages = formData.getAll('referenceImage') as File[];
     let referenceImageRefs: string[] = [];
 
     await getClickatronDb();
@@ -64,19 +64,21 @@ export async function POST(request: Request) {
       referenceImageRefs: [],
     };
 
-    // 3. Upload reference image if it exists
-    if (referenceImage) {
+    // 3. Upload reference images if they exist
+    for (const referenceImage of referenceImages) {
       const buffer = Buffer.from(await referenceImage.arrayBuffer());
       const imageUrl = await ClickatronGCSManager.uploadImageBuffer(
-      userId,
-      newTask._id.toString(),
-      newVariationId, // Associate with the new variation
-      buffer,
-      referenceImage.type
-    );
-      referenceImageRefs.push(imageUrl);
-      newVariation.referenceImageRefs = referenceImageRefs;
+        userId,
+        newTask._id.toString(),
+        newVariationId, // Associate with the new variation
+        buffer,
+        referenceImage.type
+      );
+      // Store the raw GCS URL without query parameters for long-term storage
+      const rawImageUrl = imageUrl.split('?')[0];
+      referenceImageRefs.push(rawImageUrl);
     }
+    newVariation.referenceImageRefs = referenceImageRefs;
     
     // 4. Add the variation to the canvas and save
     newTask.details.canvas.variations.push(newVariation);

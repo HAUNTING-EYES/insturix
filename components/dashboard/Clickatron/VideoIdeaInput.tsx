@@ -27,7 +27,7 @@ export function VideoIdeaInput() {
 
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [referenceImage, setReferenceImage] = useState<File | null>(null);
+  const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -62,9 +62,9 @@ export function VideoIdeaInput() {
         formData.append('prompt', prompt.trim());
         formData.append('aspectRatio', aspectRatio);
         formData.append('modelId', selectedModelId);
-        if (referenceImage) {
-            formData.append('referenceImage', referenceImage);
-        }
+        referenceImages.forEach((image) => {
+            formData.append('referenceImage', image);
+        });
 
       const result = await createSession(formData);
       
@@ -117,11 +117,11 @@ export function VideoIdeaInput() {
                   <div className="mt-6 w-full max-w-md mx-auto">
                     <CanvasPresetSelector value={aspectRatio} onChange={setAspectRatio} />
                   </div>
-                  <ImageUpload onFileChange={setReferenceImage} isLoading={isLoading} />
+                  <ImageUpload onFileChange={setReferenceImages} isLoading={isLoading} multiple={true} />
                   <div className="flex justify-center mt-6">
                     <ModelSelector
                         context="newVariation"
-                        userAttachedImages={referenceImage ? 1 : 0}
+                        userAttachedImages={referenceImages.length}
                         selectedModelId={selectedModelId || undefined}
                         onModelChange={setSelectedModelId}
                     />

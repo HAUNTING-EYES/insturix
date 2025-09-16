@@ -7,8 +7,9 @@ import { UploadCloud, File, X, Image as ImageIcon } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 interface ImageUploadProps {
-  onFileChange: (file: File | null) => void;
-  isLoading: boolean;
+  onFileChange: (files: File[]) => void;
+ isLoading: boolean;
+ multiple?: boolean;
 }
 
 const dropzoneVariants = {
@@ -25,44 +26,70 @@ const filePreviewVariants: Variants = {
   exit: { opacity: 0, y: -10, transition: { duration: 0.2, ease: "easeIn" } },
 };
 
-export function ImageUpload({ onFileChange, isLoading }: ImageUploadProps) {
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+export function ImageUpload({ onFileChange, isLoading, multiple = false }: ImageUploadProps) {
+  const [files, setFiles] = useState<File[]>([]);
+  const [previews, setPreviews] = useState<string[]>([]);
   const { toast } = useToast();
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      const selectedFile = acceptedFiles[0];
-      if (selectedFile.size > 5 * 1024 * 1024) { // 5MB limit
-        toast({
-          title: "File too large",
-          description: "Please upload an image smaller than 5MB.",
-          variant: "destructive",
-        });
-        return;
+      // If not multiple, only take the first file
+      const filesToProcess = multiple ? acceptedFiles : [acceptedFiles[0]];
+      
+      // Check file sizes
+      for (const file of filesToProcess) {
+        if (file.size > 5 * 1024 * 1024) { // 5MB limit
+          toast({
+            title: "File too large",
+            description: "Please upload an image smaller than 5MB.",
+            variant: "destructive",
+          });
+          return;
+        }
       }
-      setFile(selectedFile);
-      onFileChange(selectedFile);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPreview(reader.result as string);
-      };
-      reader.readAsDataURL(selectedFile);
+      
+      setFiles(filesToProcess);
+      onFileChange(filesToProcess);
+      
+      // Generate previews
+      const newPreviews: string[] = [];
+      filesToProcess.forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          newPreviews.push(reader.result as string);
+          if (newPreviews.length === filesToProcess.length) {
+            setPreviews(newPreviews);
+          }
+        };
+        reader.readAsDataURL(file);
+      });
     }
-  }, [onFileChange, toast]);
+  }, [onFileChange, toast, multiple]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
     accept: { 'image/*': ['.jpeg', '.png', '.jpg', '.gif', '.webp'] },
-    multiple: false,
+    multiple: multiple,
     disabled: isLoading,
   });
 
-  const removeFile = (e: React.MouseEvent) => {
+  const removeFile = (e: React.MouseEvent, index?: number) => {
     e.stopPropagation();
-    setFile(null);
-    setPreview(null);
-    onFileChange(null);
+    if (index !== undefined) {
+      // Remove specific file
+      const newFiles = [...files];
+      const newPreviews = [...previews];
+      newFiles.splice(index, 1);
+      newPreviews.splice(index, 1);
+      setFiles(newFiles);
+      setPreviews(newPreviews);
+      onFileChange(newFiles);
+    } else {
+      // Remove all files
+      setFiles([]);
+      setPreviews([]);
+      onFileChange([]);
+    }
   };
 
   const dropzoneStateStyles = useMemo(() => {
@@ -81,26 +108,30 @@ export function ImageUpload({ onFileChange, isLoading }: ImageUploadProps) {
         <div {...getRootProps()} className="p-6">
           <input {...getInputProps()} />
           <AnimatePresence>
-          {preview && file ? (
-            <motion.div
-              key="preview"
-              variants={filePreviewVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              className="relative"
-            >
-              <img src={preview} alt="Preview" className="mx-auto max-h-32 rounded-lg" />
-              <p className="text-xs text-zinc-400 mt-2 truncate">{file.name}</p>
-              <button
-                onClick={removeFile}
-                className="absolute -top-2 -right-2 bg-zinc-800 rounded-full p-1 text-zinc-400 hover:text-white hover:bg-red-500/80 transition-all"
-                aria-label="Remove image"
-                disabled={isLoading}
-              >
-                <X size={16} />
-              </button>
-            </motion.div>
+          {previews.length > 0 ? (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {previews.map((preview, index) => (
+                <motion.div
+                  key={index}
+                  variants={filePreviewVariants}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="relative"
+                >
+                  <img src={preview} alt={`Preview ${index + 1}`} className="mx-auto max-h-32 rounded-lg" />
+                  <p className="text-xs text-zinc-400 mt-2 truncate">{files[index].name}</p>
+                  <button
+                    onClick={(e) => removeFile(e, index)}
+                    className="absolute -top-2 -right-2 bg-zinc-800 rounded-full p-1 text-zinc-400 hover:text-white hover:bg-red-500/80 transition-all"
+                    aria-label="Remove image"
+                    disabled={isLoading}
+                  >
+                    <X size={16} />
+                  </button>
+                </motion.div>
+              ))}
+            </div>
           ) : (
             <motion.div
               key="placeholder"
@@ -115,9 +146,9 @@ export function ImageUpload({ onFileChange, isLoading }: ImageUploadProps) {
                 <UploadCloud className="h-8 w-8 text-purple-400/80 relative z-10 transition-colors duration-300 group-hover:text-purple-400" />
               </div>
               <p className="text-sm font-semibold text-zinc-300">
-                {isDragActive ? "Drop the image here..." : "Add a reference image (optional)"}
+                {isDragActive ? "Drop the images here..." : multiple ? "Add reference images (optional)" : "Add a reference image (optional)"}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">Drag & drop or click to upload. Max 5MB.</p>
+              <p className="text-xs text-zinc-500 mt-1">Drag & drop or click to upload. Max 5MB per image.</p>
             </motion.div>
           )}
           </AnimatePresence>

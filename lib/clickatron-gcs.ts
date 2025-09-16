@@ -153,7 +153,18 @@ export class ClickatronGCSManager {
     try {
       console.log('Getting signed URL for GCS URL:', gcsUrl);
       // Extract the file path from the GCS URL
-      const filePath = gcsUrl.replace(`https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/`, '');
+      let filePath = gcsUrl;
+      
+      // If it's a full GCS URL, extract the file path
+      if (gcsUrl.startsWith(`https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/`)) {
+        filePath = gcsUrl.replace(`https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/`, '');
+      }
+      
+      // If it's a signed URL, extract the file path by removing query parameters
+      if (filePath.includes('?')) {
+        filePath = filePath.split('?')[0];
+      }
+      
       console.log('Extracted file path:', filePath);
       const file = bucket.file(filePath);
 
