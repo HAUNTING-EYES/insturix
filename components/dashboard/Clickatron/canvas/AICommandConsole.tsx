@@ -52,7 +52,7 @@ export function AICommandConsole({
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ prompt: currentPrompt }),
+        body: JSON.stringify({ prompt: currentPrompt, taskType: 'imageEditing' }),
       });
 
       if (!response.ok) {
