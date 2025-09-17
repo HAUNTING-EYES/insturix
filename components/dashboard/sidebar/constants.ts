@@ -7,6 +7,7 @@ import {
   Sparkles,
   CreditCard,
   Users,
+  Upload,
 } from "lucide-react"
 import type { Product } from "./types"
 
@@ -46,6 +47,15 @@ export const coreCreationTools: Product[] = [
     description: "AI Analysis Tool",
     color: "#3b82f6",
     hoverColor: "#60a5fa",
+    isPro: false,
+  },
+  {
+    name: "UploaderX",
+    path: "/dashboard/uploaderx",
+    icon: Upload,
+    description: "Multi-platform content uploader",
+    color: "#22c55e",
+    hoverColor: "#4ade80",
     isPro: false,
   },
 ]

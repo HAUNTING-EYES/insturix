@@ -93,6 +93,7 @@
     "@tailwindcss/line-clamp": "^0.4.4",
     "@tanstack/react-query": "^5.90.10",
     "@tanstack/react-table": "^8.21.3",
+<<<<<<< HEAD
     "@tiptap/core": "^3.11.0",
     "@tiptap/extension-highlight": "^3.11.0",
     "@tiptap/extension-link": "^3.11.0",
@@ -110,6 +111,9 @@
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.35.6",
     "@upstash/vector": "^1.2.2",
+=======
+    "@types/uuid": "^10.0.0",
+>>>>>>> c108fe45 (Added UploaderX)
     "@vercel/analytics": "^1.5.0",
     "@vercel/edge": "^1.2.2",
     "@vercel/kv": "^3.0.0",
@@ -149,6 +153,7 @@
     "ogl": "^1.0.11",
     "pnpm": "^10.22.0",
     "razorpay": "^2.9.6",
+<<<<<<< HEAD
     "react": "^19.1.2",
     "react-best-gradient-color-picker": "^3.0.14",
     "react-colorful": "^5.6.1",
@@ -158,6 +163,13 @@
     "react-hook-form": "^7.66.1",
     "react-hot-toast": "^2.6.0",
     "react-hotkeys-hook": "^5.2.1",
+=======
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-dropzone": "^14.3.8",
+    "react-hook-form": "^7.59.0",
+    "react-hot-toast": "^2.5.2",
+>>>>>>> c108fe45 (Added UploaderX)
     "react-icons": "^5.5.0",
     "react-markdown": "^10.1.0",
     "react-phone-number-input": "^3.4.14",
