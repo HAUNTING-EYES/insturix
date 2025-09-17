@@ -21,8 +21,8 @@ Clickatron provides instant UI feedback through optimistic updates with intellig
 1. **Immediate UI Update**: Changes appear instantly in the interface
 2. **Background Sync**: API call happens in the background with intelligent merging
 3. **Conflict Resolution**: Frontend and backend changes are merged intelligently:
-   - **Frontend-controlled fields**: User modifications (fineTuning, prompt edits) take precedence
-   - **Backend-controlled fields**: Generation status and image URLs are preserved when completed
+  - **Frontend-controlled fields**: User modifications (fineTuning, prompt edits) take precedence
+  - **Backend-controlled fields**: Generation status and image URLs are preserved when completed
 4. **Error Recovery**: If the API call fails, the UI automatically reverts to the previous state
 5. **State Synchronization**: After successful sync, latest state is fetched to ensure consistency
 
@@ -30,12 +30,12 @@ This pattern ensures the interface feels responsive while preventing conflicts b
 
 ### Auto-save with Debouncing and Intelligent Merging
 
-Changes are automatically saved to prevent data loss with intelligent conflict resolution. The system uses a 1-second debounce delay, meaning it waits for users to stop making changes before syncing to the backend. 
+Changes are automatically saved to prevent data loss with intelligent conflict resolution. The system uses a 1-second debounce delay, meaning it waits for users to stop making changes before syncing to the backend.
 
 **Key Features:**
 - **Debounced Sync**: Prevents excessive API calls while ensuring no work is lost
 - **Intelligent Merging**: Resolves conflicts between frontend user edits and backend generation updates
-- **Field Separation**: 
+- **Field Separation**:
   - Frontend controls: fineTuning parameters, user prompt modifications
   - Backend controls: variation status, generated image URLs
 - **State Consistency**: Post-sync state refresh ensures UI reflects latest backend state
@@ -61,6 +61,9 @@ The API follows RESTful patterns with comprehensive endpoint coverage:
 #### **Chat & Messages**
 - `POST /api/services/clickatron/session/:id/chat` - Add chat message
 - `GET /api/services/clickatron/session/:id/chat` - Get chat history
+
+#### **Prompt Enhancement**
+- `POST /api/services/clickatron/enhance-prompt` - Enhance user prompts with AI
 
 #### **Features**
 - **Idempotency**: All mutation endpoints support `Idempotency-Key` headers
@@ -89,6 +92,7 @@ The interface is built with a three-panel layout:
 - **Center Panel**: Main canvas with zoom/pan controls and image display for the active variation
 - **Right Panel**: Fine-tuning controls for brightness, contrast, and saturation
 - **Bottom Panel**: AI command console for natural language editing with chat history
+- **Magic Prompt Enhancer**: AI-powered prompt enhancement buttons throughout the interface
 
 **Terminology Clarification:**
 - **Canvas**: The editing interface/workspace (the stage where you work)
@@ -146,7 +150,7 @@ The image generation process is designed to be asynchronous, using QStash for ba
 
 - **File**: `/api/internal/workers/clickatron/variation/route.ts`
 - **Behavior**: This endpoint is called by QStash to process the generation job.
-- **Implementation**: 
+- **Implementation**:
   1. Validates job ownership (`job.userId === task.clerkUserId`)
   2. Simulates processing with 10% failure rate for testing
   3. Updates variation status to `completed` or `failed`
@@ -264,6 +268,7 @@ The application requires:
 - **QStash**: Background job processing
 - **Clerk**: Authentication service for user management
 - **Next.js**: Framework with serverless API routes
+- **Google Generative AI**: API key for prompt enhancement feature
 
 Configuration is handled through environment variables for database connections, authentication keys, and application URLs.
 
@@ -276,6 +281,7 @@ Configuration is handled through environment variables for database connections,
 3. **Canvas Editing**: User creates variations, applies fine-tuning, with automatic background saving
 4. **Variation Management**: Users can create, duplicate, delete, and switch between image variations
 5. **Chat History**: Complete conversation tracking with reference image support
+6. **Prompt Enhancement**: Users can enhance prompts with AI for better results
 
 ### Data Flow
 
@@ -291,16 +297,17 @@ Configuration is handled through environment variables for database connections,
 - **MongoDB + Mongoose**: Stores session data with proper indexing and validation
 - **Redis + QStash**: Handles background job processing and caching
 - **Clerk**: Handles authentication and user management across all components
+- **Vercel AI SDK**: Integrates Google Generative AI for prompt enhancement
 
 ### Resolved Issues
 
 The following issues have been successfully resolved:
 
-1.  **Model Selection Logic**: ✅ Implemented proper logic for selecting between text-to-image and image-to-image models based on the presence of reference images. The system now correctly switches models when a reference image is added or removed.
-2.  **Payload Construction**: ✅ Simplified the implementation for constructing API payloads for different AI models. Removed complex conditional checks and introduced a cleaner parameter mapping approach that makes it easier to add new models or modify existing ones.
-3.  **Ideation Stage Model Filtering**: ✅ Fixed the initial ideation stage to only show text-to-image models when no reference images are provided. Image-to-image models like `flux-kontext/dev` are no longer available for selection in the ideation stage.
-4.  **Model Selector Dropdown**: ✅ Fixed the model selector dropdown in the ideation stage. User selections are now properly propagated, and the system no longer defaults to `flux-kontext/dev`.
-5.  **Model Configuration**: ✅ Made the configuration for different AI models more intuitive. Added a clear parameter mapping structure that simplifies adding new models with their specific API requirements.
+1. **Model Selection Logic**: ✅ Implemented proper logic for selecting between text-to-image and image-to-image models based on the presence of reference images. The system now correctly switches models when a reference image is added or removed.
+2. **Payload Construction**: ✅ Simplified the implementation for constructing API payloads for different AI models. Removed complex conditional checks and introduced a cleaner parameter mapping approach that makes it easier to add new models or modify existing ones.
+3. **Ideation Stage Model Filtering**: ✅ Fixed the initial ideation stage to only show text-to-image models when no reference images are provided. Image-to-image models like `flux-kontext/dev` are no longer available for selection in the ideation stage.
+4. **Model Selector Dropdown**: ✅ Fixed the model selector dropdown in the ideation stage. User selections are now properly propagated, and the system no longer defaults to `flux-kontext/dev`.
+5. **Model Configuration**: ✅ Made the configuration for different AI models more intuitive. Added a clear parameter mapping structure that simplifies adding new models with their specific API requirements.
 
 ### Aspect Ratio Handling
 
@@ -332,4 +339,32 @@ Enhanced model selection based on the number of reference images provided:
 - Safety checkers disabled by default to reduce false positives
 - Reusable model routing logic for consistency
 
+### Magic Prompt Enhancer
+
+Added AI-powered prompt enhancement feature:
+- **API Endpoint**: `/api/services/clickatron/enhance-prompt` for prompt enhancement
+- **Task Differentiation**: Separate system prompts for image generation and image editing tasks
+- **Integration Points**: Added to VideoIdeaInput, AICommandConsole, and NewVariationConsole
+- **Rate Limiting**: Configurable usage limits based on user plan
+- **System Prompts**: Specialized prompts for different task types:
+  - **Image Generation**: "Maestro" prompt engineer for creating detailed, artistic prompts
+  - **Image Editing**: "Precision" prompt engineer for clear, concise editing instructions
+- **Task Type Assignment**:
+  - **VideoIdeaInput.tsx**: Uses `taskType: 'imageGeneration'` for initial prompt creation
+  - **AICommandConsole.tsx**: Uses `taskType: 'imageEditing'` for editing existing images
+  - **NewVariationConsole.tsx**: Uses `taskType: 'imageGeneration'` for creating new variations
+
 This architecture provides a responsive, reliable creative workspace that feels instant to users while maintaining data integrity through robust background synchronization and comprehensive error handling.
+
+## Future Enhancements
+
+### Planned Improvements
+
+1. **Enhanced Prompt Enhancement Options**: Provide users with different enhancement styles (e.g., "more detailed", "more creative", "shorter")
+2. **Prompt Enhancement History**: Track and display previous prompt enhancements for user reference
+3. **Advanced Rate Limiting**: Implement more sophisticated rate limiting algorithms for better user experience
+4. **Analytics Dashboard**: Track prompt enhancement usage and effectiveness metrics
+
+### Technical Improvements
+
+1. **Prompt Caching**: Implement caching for frequently used prompts to reduce API calls

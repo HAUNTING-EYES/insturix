@@ -13,6 +13,7 @@ Clickatron bridges the gap between creative vision and professional execution by
 - **Variation Management**: Complete creative session history with instant switching between concepts
 - **Conversational Editing**: Natural language prompts with full chat history and reference image support
 - **Optimistic Updates**: Seamless user experience with intelligent conflict resolution and automatic background synchronization
+- **Magic Prompt Enhancer**: AI-powered prompt enhancement for both image generation and editing tasks
 
 ## How It Works
 
@@ -36,10 +37,11 @@ Each idea includes a title, description, and AI-optimized prompt for image gener
 
 #### 3. **Canvas Stage** 🎨 (Ongoing Workspace)
 Professional editing environment featuring:
-- **Variation Gallery**: Left sidebar with all generated image variations
+- **Variation Gallery**: Left sidebar with thumbnail previews
 - **Main Canvas**: Center workspace with zoom/pan controls for viewing the active variation
 - **Fine-Tuning Panel**: Right sidebar with professional adjustment controls
 - **AI Command Console**: Bottom interface for natural language editing with chat history
+- **Magic Prompt Enhancer**: AI-powered prompt enhancement buttons throughout the interface
 
 **Key Terminology:**
 - **Canvas**: The editing interface/stage where you work with variations
@@ -65,6 +67,7 @@ Professional editing environment featuring:
 - **Auto-save**: Debounced synchronization prevents data loss with idempotency protection
 - **Error Recovery**: Failed generations show retry options with graceful error handling
 - **Professional Zoom Controls**: Zoom in/out/reset with smooth pan functionality
+- **Magic Prompt Enhancer**: AI-powered prompt enhancement for both image generation and editing tasks
 
 ### Understanding Canvas vs Variations
 
@@ -98,6 +101,7 @@ To avoid confusion in the codebase and user interface:
 - **Job Queue**: Redis + QStash for background processing
 - **Authentication**: Clerk for user management
 - **Schema Validation**: Zod for type-safe API validation
+- **AI Integration**: Vercel AI SDK with Google Generative AI for prompt enhancement
 
 ### Data Flow
 1. **User Interaction** → Frontend components update Zustand store
@@ -118,6 +122,7 @@ To avoid confusion in the codebase and user interface:
 - **Idempotency**: Client-side idempotency keys prevent duplicate generation requests
 - **State Reconciliation**: Proper server-client state synchronization without duplication
 - **Polling**: Consistent polling utilities for both idea selection and generative edits
+- **Magic Prompt Enhancer**: AI-powered prompt enhancement for both image generation and editing tasks
 
 #### **Chat & Message Persistence**
 - **Chat History**: Full conversation history with prompts and reference images
@@ -155,6 +160,9 @@ PATCH  /api/services/clickatron/session/:id/variation/:varId // Update variation
 // Chat Management  
 POST   /api/services/clickatron/session/:id/chat          // Add chat message
 GET    /api/services/clickatron/session/:id/chat          // Get chat history
+
+// Prompt Enhancement
+POST   /api/services/clickatron/enhance-prompt            // Enhance user prompts
 ```
 
 #### **Production-Ready Schema**
@@ -218,6 +226,7 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
 - **Professional Tools**: Advanced controls without overwhelming complexity
 - **Complete History**: Never lose creative decisions or variations
 - **Seamless Experience**: Intelligent optimistic updates with reliable persistence and conflict resolution
+- **Enhanced Prompts**: AI-powered prompt enhancement for better results
 
 ## Getting Started
 
@@ -227,6 +236,7 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
 - Clerk authentication account
 - Redis (Upstash) for job management
 - QStash for background processing
+- Google Generative AI API key for prompt enhancement
 
 ### Quick Start
 
@@ -240,7 +250,7 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
 2. **Environment Setup**
    ```bash
    cp .env.example .env.local
-   # Configure MongoDB URI, Clerk keys, Redis, and QStash
+   # Configure MongoDB URI, Clerk keys, Redis, QStash, and Google Generative AI API key
    ```
 
 3. **Start Development**
@@ -257,6 +267,7 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
 4. **Generate Variations**: Create multiple versions with different approaches
 5. **Fine-tune**: Adjust brightness, contrast, and saturation in real-time
 6. **Chat History**: View conversation history and reference images
+7. **Enhance Prompts**: Use the Magic Prompt Enhancer for better results
 
 ## API Overview
 
@@ -277,6 +288,9 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
 #### **Chat & Messages**
 - `POST /api/services/clickatron/session/:id/chat` - Add chat message
 - `GET /api/services/clickatron/session/:id/chat` - Get chat history
+
+#### **Prompt Enhancement**
+- `POST /api/services/clickatron/enhance-prompt` - Enhance user prompts with AI
 
 ### Data Structure
 
@@ -342,6 +356,7 @@ Clickatron measures success through:
 - **Collaboration Features**: Shared sessions and team workspaces
 - **Export Options**: Multiple format support and direct platform integration
 - **Analytics Dashboard**: Usage insights and creative performance metrics
+- **Enhanced Prompt Enhancement**: More sophisticated prompt enhancement options
 
 ### Technical Improvements
 - **Real-time Updates**: WebSocket-based live updates instead of polling
@@ -353,10 +368,10 @@ Clickatron measures success through:
 
 The following issues have been successfully resolved:
 
-1.  **Model Selection Logic**: ✅ Implemented proper logic for selecting between text-to-image and image-to-image models based on the presence of reference images. The system now correctly switches models when a reference image is added or removed.
-2.  **Payload Construction**: ✅ Simplified the implementation for constructing API payloads for different AI models. Removed complex conditional checks and introduced a cleaner parameter mapping approach that makes it easier to add new models or modify existing ones.
-3.  **Ideation Stage Model Filtering**: ✅ Fixed the initial ideation stage to only show text-to-image models when no reference images are provided. Image-to-image models like `flux-kontext/dev` are no longer available for selection in the ideation stage.
-4.  **Model Selector Dropdown**: ✅ Fixed the model selector dropdown in the ideation stage. User selections are now properly propagated, and the system no longer defaults to `flux-kontext/dev`.
+1. **Model Selection Logic**: ✅ Implemented proper logic for selecting between text-to-image and image-to-image models based on the presence of reference images. The system now correctly switches models when a reference image is added or removed.
+2. **Payload Construction**: ✅ Simplified the implementation for constructing API payloads for different AI models. Removed complex conditional checks and introduced a cleaner parameter mapping approach that makes it easier to add new models or modify existing ones.
+3. **Ideation Stage Model Filtering**: ✅ Fixed the initial ideation stage to only show text-to-image models when no reference images are provided. Image-to-image models like `flux-kontext/dev` are no longer available for selection in the ideation stage.
+4. **Model Selector Dropdown**: ✅ Fixed the model selector dropdown in the ideation stage. User selections are now properly propagated, and the system no longer defaults to `flux-kontext/dev`.
 5. **Model Configuration**: ✅ Made the configuration for different AI models more intuitive. Added a clear parameter mapping structure that simplifies adding new models with their specific API requirements.
 
 ### Aspect Ratio Handling
@@ -388,6 +403,17 @@ Enhanced model selection based on the number of reference images provided:
 - Different UI for new variation creation (NewVariationConsole)
 - Safety checkers disabled by default to reduce false positives
 - Reusable model routing logic for consistency
+
+### Magic Prompt Enhancer
+
+Added AI-powered prompt enhancement feature:
+- **API Endpoint**: `/api/services/clickatron/enhance-prompt` for prompt enhancement
+- **Task Differentiation**: Separate system prompts for image generation and image editing tasks
+- **Integration Points**: Added to VideoIdeaInput, AICommandConsole, and NewVariationConsole
+- **Rate Limiting**: Configurable usage limits based on user plan
+- **System Prompts**: Specialized prompts for different task types:
+  - **Image Generation**: "Maestro" prompt engineer for creating detailed, artistic prompts
+  - **Image Editing**: "Precision" prompt engineer for clear, concise editing instructions
 
 ---
 
