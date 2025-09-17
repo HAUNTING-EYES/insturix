@@ -1,7 +1,11 @@
 // lib/frontend/services/clickatron-image-cache.ts
 // Client-side image caching utility for Clickatron
 
-const CACHE_NAME = 'clickatron-image-cache-v1';
+const CACHE_NAME = 'clickatron-image-cache-v2'; // Updated version
+const MEMORY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+// In-memory cache for faster access
+const memoryCache = new Map<string, { data: string; timestamp: number }>();
 
 /**
  * Opens the cache for image storage
@@ -22,11 +26,46 @@ async function openImageCache(): Promise<Cache | null> {
 }
 
 /**
+ * Checks if an image is cached in memory and returns it if found and not expired
+ * @param url The image URL to check in memory cache
+ * @returns The cached data or null if not found or expired
+ */
+function getMemoryCachedImage(url: string): string | null {
+  const cached = memoryCache.get(url);
+  if (!cached) return null;
+  
+  // Check if cache is expired
+  if (Date.now() - cached.timestamp > MEMORY_CACHE_TTL) {
+    memoryCache.delete(url);
+    return null;
+  }
+  
+  return cached.data;
+}
+
+/**
+ * Stores an image in memory cache
+ * @param url The image URL to cache
+ * @param data The base64 data to cache
+ */
+function cacheImageInMemory(url: string, data: string): void {
+  memoryCache.set(url, { data, timestamp: Date.now() });
+}
+
+/**
  * Checks if an image is cached and returns it if found
  * @param url The image URL to check in cache
  * @returns The cached response or null if not found
  */
 export async function getCachedImage(url: string): Promise<Response | null> {
+  // First check memory cache
+  const memoryCached = getMemoryCachedImage(url);
+  if (memoryCached) {
+    console.log(`Image loaded from memory cache: ${url}`);
+    const blob = await (await fetch(memoryCached)).blob();
+    return new Response(blob);
+  }
+  
   const cache = await openImageCache();
   if (!cache) return null;
 
@@ -52,6 +91,16 @@ export async function cacheImage(url: string, response: Response): Promise<void>
     // Clone the response as it can only be consumed once
     const clonedResponse = response.clone();
     await cache.put(url, clonedResponse);
+    
+    // Also cache in memory for faster access
+    const blob = await response.clone().blob();
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        cacheImageInMemory(url, reader.result);
+      }
+    };
+    reader.readAsDataURL(blob);
   } catch (error) {
     console.error('Error caching image:', error);
   }
@@ -91,7 +140,8 @@ export async function clearImageCache(): Promise<void> {
   
   try {
     await caches.delete(CACHE_NAME);
- } catch (error) {
+    memoryCache.clear(); // Clear memory cache as well
+  } catch (error) {
     console.error('Error clearing image cache:', error);
   }
 }
@@ -111,4 +161,15 @@ export async function getCacheSize(): Promise<number | null> {
     console.error('Error getting cache size:', error);
     return null;
   }
+}
+
+/**
+ * Gets cache statistics for debugging
+ * @returns Object containing cache statistics
+ */
+export function getCacheStats(): { memoryCacheSize: number; memoryCacheKeys: string[] } {
+  return {
+    memoryCacheSize: memoryCache.size,
+    memoryCacheKeys: Array.from(memoryCache.keys())
+  };
 }

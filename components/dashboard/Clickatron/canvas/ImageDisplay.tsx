@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, forwardRef } from "react";
+import React, { useState, useEffect, forwardRef, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import {
   TransformWrapper,
@@ -13,7 +13,7 @@ interface ImageDisplayProps {
   imageRef?: string;
   alt?: string;
   className?: string;
-  fallback?: React.ReactNode;
+ fallback?: React.ReactNode;
   status?: "generating" | "completed" | "failed" | "blank";
   variationId?: string;
   fineTuning?: {
@@ -26,6 +26,20 @@ interface ImageDisplayProps {
    * Useful for small thumbnails in galleries.
    */
   interactive?: boolean;
+}
+
+// Cache for storing object URLs to prevent unnecessary re-fetching
+const urlCache = new Map<string, string>();
+
+// Function to clear the URL cache (useful for testing or when needed)
+export function clearUrlCache(): void {
+  // Revoke all object URLs to prevent memory leaks
+  urlCache.forEach((url) => {
+    if (url.startsWith('blob:')) {
+      URL.revokeObjectURL(url);
+    }
+  });
+  urlCache.clear();
 }
 
 export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
@@ -45,6 +59,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
     const [objectUrl, setObjectUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const currentImageRef = useRef<string | null>(null);
 
     useEffect(() => {
       console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
@@ -63,6 +78,29 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         setObjectUrl(null);
       }
 
+      // If we don't have an imageRef, nothing to load
+      if (!imageRef) {
+        setSignedUrl(null);
+        setIsLoading(false);
+        return;
+      }
+
+      // If we're already loading or have loaded this image, don't fetch again
+      if (currentImageRef.current === imageRef && signedUrl) {
+        setIsLoading(false);
+        return;
+      }
+
+      // Check if we have this image in our URL cache
+      const cachedUrl = urlCache.get(imageRef);
+      if (cachedUrl) {
+        console.log('Using cached URL for', imageRef);
+        setSignedUrl(cachedUrl);
+        setIsLoading(false);
+        currentImageRef.current = imageRef;
+        return;
+      }
+
       const fetchSignedUrl = async () => {
         if (status === "completed" && imageRef && imageRef.startsWith("https://storage.googleapis.com")) {
           console.log('Fetching signed URL for', imageRef);
@@ -76,6 +114,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               const newObjectUrl = URL.createObjectURL(blob);
               setObjectUrl(newObjectUrl);
               setSignedUrl(newObjectUrl);
+              urlCache.set(imageRef, newObjectUrl); // Cache the URL
+              currentImageRef.current = imageRef;
               return;
             }
             
@@ -90,6 +130,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             const data = await response.json();
             console.log('Signed URL received:', data.signedUrl);
             setSignedUrl(data.signedUrl);
+            urlCache.set(imageRef, data.signedUrl); // Cache the URL
+            currentImageRef.current = imageRef;
           } catch (error) {
             console.error('Error fetching signed URL:', error);
             setSignedUrl(null);
@@ -107,13 +149,19 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                 const newObjectUrl = URL.createObjectURL(blob);
                 setObjectUrl(newObjectUrl);
                 setSignedUrl(newObjectUrl);
+                urlCache.set(imageRef, newObjectUrl); // Cache the URL
+                currentImageRef.current = imageRef;
                 return;
               }
               // If not cached, use the direct URL
               setSignedUrl(imageRef);
+              urlCache.set(imageRef, imageRef); // Cache the URL
+              currentImageRef.current = imageRef;
             } catch (error) {
               console.error('Error loading image:', error);
               setSignedUrl(imageRef); // Fallback to direct URL
+              urlCache.set(imageRef, imageRef); // Cache the URL
+              currentImageRef.current = imageRef;
             } finally {
               setIsLoading(false);
             }
@@ -133,7 +181,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           URL.revokeObjectURL(objectUrl);
         }
       };
-    }, [imageRef, status, variationId]);
+    }, [imageRef, status]); // Removed variationId from dependencies
 
     if (isLoading) {
       return (
