@@ -8,7 +8,7 @@ import { verifySignatureAppRouter } from '@upstash/qstash/nextjs';
 import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
-import { CLICKATRON_MODELS } from '@/lib/config/clickatron-models';
+import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
 
 // Configure Fal AI client
 if (process.env.FAL_AI_API_KEY) {
@@ -179,65 +179,22 @@ async function handler(req: Request) {
         seed: Math.floor(Math.random() * 1000000),
       };
 
-      // Add parent variation as reference image if it exists (for image-to-image)
-      if (body.parentVariationId) {
-        const parentVariation = task.details.canvas.variations.find((v: Variation) => v.id === body.parentVariationId);
-        if (parentVariation && parentVariation.imageRef) {
-          // Check if the imageRef is a raw GCS URL or potentially expired signed URL
-          let imageUrl = parentVariation.imageRef;
-          
-          // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
-          if (imageUrl.includes('storage.googleapis.com') && !imageUrl.includes('GoogleAccessId') && !imageUrl.includes('Signature')) {
-            try {
-              console.log('Getting fresh signed URL for GCS image:', imageUrl);
-              imageUrl = await ClickatronGCSManager.getSignedUrl(imageUrl);
-              console.log('Got signed URL:', imageUrl);
-            } catch (error) {
-              console.error('Failed to get signed URL for parent image:', error);
-              // Continue with the original URL if signed URL generation fails
-            }
-          }
-          
-          generationParams.image_url = imageUrl;
-        }
-      }
+      // Process parent variation image if it exists (for image-to-image)
+      const parentImageUrl = await processParentVariationImage(body.parentVariationId, task.details.canvas.variations, ClickatronGCSManager);
+      // Process reference images from job payload if they exist (for image-to-image)
+      const referenceImageUrls = await processReferenceImages(body.referenceImageRefs, ClickatronGCSManager);
       
-      // Add reference images from job payload if they exist (for image-to-image)
-      if (body.referenceImageRefs && body.referenceImageRefs.length > 0) {
-        // Get fresh signed URLs for all reference images
-        const signedImageUrls = await Promise.all(
-          body.referenceImageRefs.map(async (gcsUri: string) => {
-            try {
-              // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
-              if (gcsUri.includes('storage.googleapis.com') && !gcsUri.includes('GoogleAccessId') && !gcsUri.includes('Signature')) {
-                console.log('Getting fresh signed URL for GCS image:', gcsUri);
-                const signedUrl = await ClickatronGCSManager.getSignedUrl(gcsUri);
-                console.log('Got signed URL:', signedUrl);
-                return signedUrl;
-              }
-              // If it's already a signed URL, use it as is
-              return gcsUri;
-            } catch (error) {
-              console.error('Failed to get signed URL for reference image:', error);
-              // Return the original URL if signed URL generation fails
-              return gcsUri;
-            }
-          })
-        );
-        
-        // If we already have an image_url from parent variation, add these as additional images
-        if (generationParams.image_url) {
-          generationParams.image_urls = [generationParams.image_url, ...signedImageUrls];
-          generationParams.image_url = undefined; // Remove single image_url in favor of image_urls
-        } else {
-          // If there's only one reference image, use image_url
-          if (signedImageUrls.length === 1) {
-            generationParams.image_url = signedImageUrls[0];
-          } else {
-            // If there are multiple reference images, use image_urls
-            generationParams.image_urls = signedImageUrls;
-          }
-        }
+      // Combine parent image and reference images into generation parameters
+      // Always use image_urls internally for consistency
+      const imageUrls: string[] = [];
+      if (parentImageUrl) {
+        imageUrls.push(parentImageUrl);
+      }
+      imageUrls.push(...referenceImageUrls);
+      
+      // Only add image_urls to generationParams if we have images
+      if (imageUrls.length > 0) {
+        generationParams.image_urls = imageUrls;
       }
       
 
@@ -262,37 +219,22 @@ async function handler(req: Request) {
       const maxImages = modelConfig.constraints?.maxImages ?? 0;
       
       if (referenceImageCount < minImages || referenceImageCount > maxImages) {
-        // Find an appropriate model that supports the number of reference images
-        const availableModels = Object.values(CLICKATRON_MODELS).filter(model => {
-          const modelMinImages = model.constraints?.minImages ?? 0;
-          const modelMaxImages = model.constraints?.maxImages ?? 0;
-          return referenceImageCount >= modelMinImages && referenceImageCount <= modelMaxImages;
-        });
+        console.error('Worker: Selected model does not support the number of reference images:', referenceImageCount);
+        await failJob(jobId, { code: 'INVALID_MODEL', message: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` });
         
-        if (availableModels.length > 0) {
-          // Select the first available model
-          const newModel = availableModels[0];
-          selectedModelId = newModel.id;
-          modelConfig = newModel;
-          console.log(`Worker: Switching to model ${selectedModelId} that supports ${referenceImageCount} images`);
-        } else {
-          console.error('Worker: No model found that supports the number of reference images:', referenceImageCount);
-          await failJob(jobId, { code: 'INVALID_MODEL', message: `No model found that supports ${referenceImageCount} reference images` });
+        // Ensure variation is updated with failed status
+        try {
+          variation.status = 'failed';
+          variation.updatedAt = new Date();
           
-          // Ensure variation is updated with failed status
-          try {
-            variation.status = 'failed';
-            variation.updatedAt = new Date();
-            
-            task.markModified('details');
-            await task.save();
-            console.log('Worker: Updated variation status to failed due to invalid model');
-          } catch (saveError) {
-            console.error('Worker: Failed to save variation status:', saveError);
-          }
-          
-          return NextResponse.json({ error: 'No model found that supports the number of reference images' }, { status: 400 });
+          task.markModified('details');
+          await task.save();
+          console.log('Worker: Updated variation status to failed due to invalid model');
+        } catch (saveError) {
+          console.error('Worker: Failed to save variation status:', saveError);
         }
+        
+        return NextResponse.json({ error: `Selected model ${selectedModelId} does not support ${referenceImageCount} reference images` }, { status: 400 });
       }
       
       if (!modelConfig) {
@@ -434,143 +376,7 @@ async function handler(req: Request) {
       }
       
       // Construct the payload dynamically based on the model configuration
-      const payload: Record<string, any> = {
-        [modelConfig.parameterMapping.prompt]: job.prompt,
-      };
-      
-      // Add image URL(s) if it's an image-to-image model
-      console.log('Worker: Checking payload conditions:', {
-        isImageToImage: modelConfig.type === 'image-to-image',
-        hasImageUrlMapping: !!modelConfig.parameterMapping.image_url,
-        hasImageUrlsMapping: !!modelConfig.parameterMapping.image_urls,
-        hasImageUrlParam: !!generationParams.image_url,
-        hasImageUrlsParam: !!generationParams.image_urls,
-        imageUrlMapping: modelConfig.parameterMapping.image_url,
-        imageUrlsMapping: modelConfig.parameterMapping.image_urls
-      });
-      
-      if (modelConfig.type === 'image-to-image') {
-        // Handle models that expect a single image URL
-        if (modelConfig.parameterMapping.image_url && generationParams.image_url) {
-          console.log('Worker: Adding single image_url to payload');
-          payload[modelConfig.parameterMapping.image_url] = generationParams.image_url;
-        }
-        // Handle models that expect an array of image URLs
-        else if (modelConfig.parameterMapping.image_urls && generationParams.image_urls) {
-          console.log('Worker: Adding image_urls to payload');
-          payload[modelConfig.parameterMapping.image_urls] = generationParams.image_urls;
-        }
-        // Handle models that expect an array of image URLs but only have a single image URL
-        else if (modelConfig.parameterMapping.image_urls && generationParams.image_url) {
-          console.log('Worker: Adding single image_url as array to image_urls payload');
-          payload[modelConfig.parameterMapping.image_urls] = [generationParams.image_url];
-        }
-        // Handle models that expect a single image URL but have an array of image URLs (use first image)
-        else if (modelConfig.parameterMapping.image_url && generationParams.image_urls && generationParams.image_urls.length > 0) {
-          console.log('Worker: Adding first image from image_urls array to single image_url payload');
-          payload[modelConfig.parameterMapping.image_url] = generationParams.image_urls[0];
-        } else {
-          console.log('Worker: No image URL(s) added to payload');
-        }
-      } else {
-        console.log('Worker: Not an image-to-image model, skipping image URL mapping');
-      }
-      
-      // Helper function to find the closest supported aspect ratio
-      function findClosestSupportedRatio(currentRatio: string, supportedRatios: string[]): string {
-        // If the exact ratio is supported, return it
-        if (supportedRatios.includes(currentRatio)) {
-          return currentRatio;
-        }
-        
-        // Parse the current ratio
-        const [currentWidthStr, currentHeightStr] = currentRatio.split(':');
-        const currentWidth = parseFloat(currentWidthStr);
-        const currentHeight = parseFloat(currentHeightStr);
-        const currentRatioValue = currentWidth / currentHeight;
-        
-        // Find the closest ratio
-        let closestRatio = supportedRatios[0];
-        let closestDiff = Math.abs(
-          (parseFloat(supportedRatios[0].split(':')[0]) / parseFloat(supportedRatios[0].split(':')[1])) - currentRatioValue
-        );
-        
-        for (const supportedRatio of supportedRatios) {
-          const [supWidthStr, supHeightStr] = supportedRatio.split(':');
-          const supWidth = parseFloat(supWidthStr);
-          const supHeight = parseFloat(supHeightStr);
-          const supRatioValue = supWidth / supHeight;
-          const diff = Math.abs(supRatioValue - currentRatioValue);
-          if (diff < closestDiff) {
-            closestDiff = diff;
-            closestRatio = supportedRatio;
-          }
-       }
-        
-        return closestRatio;
-      }
-      
-      // Handle model-specific parameters based on the parameter mapping
-      if (modelConfig.parameterMapping.aspect_ratio) {
-        // Add aspect ratio for models that support it
-        // Validate that the aspect ratio is supported by the model
-        if (modelConfig.constraints?.allowedAspectRatios) {
-          payload[modelConfig.parameterMapping.aspect_ratio] = findClosestSupportedRatio(ratio, modelConfig.constraints.allowedAspectRatios);
-        } else {
-          payload[modelConfig.parameterMapping.aspect_ratio] = ratio;
-        }
-      }
-      
-      if (modelConfig.parameterMapping.image_size) {
-        // Add image_size as an object for models that require it
-        payload[modelConfig.parameterMapping.image_size] = { width, height };
-      }
-      
-      if (modelConfig.parameterMapping.resolution) {
-        // Add resolution for models that support it
-        payload[modelConfig.parameterMapping.resolution] = "1K";
-      }
-      
-      if (modelConfig.parameterMapping.resolution_mode) {
-        // Add resolution_mode for models that support it
-        payload[modelConfig.parameterMapping.resolution_mode] = "match_input";
-      }
-      
-      // Add other generation parameters if they exist in the mapping
-      if (modelConfig.parameterMapping.num_inference_steps) {
-        payload[modelConfig.parameterMapping.num_inference_steps] = generationParams.num_inference_steps || 28;
-      }
-      
-      if (modelConfig.parameterMapping.guidance_scale) {
-        payload[modelConfig.parameterMapping.guidance_scale] = generationParams.guidance_scale || 3.5;
-      }
-      
-      if (modelConfig.parameterMapping.num_images) {
-        payload[modelConfig.parameterMapping.num_images] = generationParams.num_images || 1;
-      }
-      
-      if (modelConfig.parameterMapping.enable_safety_checker) {
-        payload[modelConfig.parameterMapping.enable_safety_checker] = generationParams.enable_safety_checker !== undefined ?
-          generationParams.enable_safety_checker : false;
-      }
-      
-      if (modelConfig.parameterMapping.output_format) {
-        payload[modelConfig.parameterMapping.output_format] = generationParams.output_format || "jpeg";
-      }
-      
-      if (modelConfig.parameterMapping.acceleration) {
-        payload[modelConfig.parameterMapping.acceleration] = generationParams.acceleration || "none";
-      }
-      
-      // Add max_images if the model configuration specifies it
-      if (modelConfig.parameterMapping.max_images) {
-        payload[modelConfig.parameterMapping.max_images] = 1; // Default to 1, can be made configurable
-      }
-      
-      // Add seed if the model supports it
-      if (modelConfig.parameterMapping.seed) {
-        payload[modelConfig.parameterMapping.seed] = generationParams.seed || Math.floor(Math.random() * 1000000);
-      }
+      const payload = generateModelPayload(modelConfig.id, generationParams, job, ratio, width, height);
       
       // Debug logging to see the final payload
       console.log('Worker: Final payload for model', modelId, ':', JSON.stringify(payload, null, 2));
@@ -611,7 +417,10 @@ async function handler(req: Request) {
       variation.imageRef = rawGcsUrl;
       variation.updatedAt = new Date();
       variation.modelId = selectedModelId; // Use the selected model ID
-      variation.seed = generationParams.seed;
+      // Only store seed for models that support it
+      if (modelSupportsSeed(selectedModelId)) {
+        variation.seed = generationParams.seed;
+      }
       variation.generationParams = generationParams;
       
       console.log('Worker: Updated variation status, imageRef, and metadata');

@@ -1,13 +1,13 @@
 "use client";
 
 import React from 'react';
-import { VideoIdeaInput } from './VideoIdeaInput';
+import { CanvasIdeaInput } from './CanvasIdeaInput';
 import { ClickatronHistory } from './ClickatronHistory';
 
 export function ClickatronLayout() {
   return (
     <div className="space-y-8">
-      <VideoIdeaInput />
+      <CanvasIdeaInput />
       <ClickatronHistory />
     </div>
   );

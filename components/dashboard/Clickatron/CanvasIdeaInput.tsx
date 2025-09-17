@@ -21,7 +21,7 @@ const fadeIn = {
   transition: { duration: 0.28, ease: "easeOut" } as any
 };
 
-export function VideoIdeaInput() {
+export function CanvasIdeaInput() {
   const router = useRouter();
   const { toast } = useToast();
   const createSession = useClickatronStore((state) => state.createSession);

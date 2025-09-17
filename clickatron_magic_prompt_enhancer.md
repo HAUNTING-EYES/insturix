@@ -7,7 +7,7 @@ This document outlines the implementation plan for adding a "Magic Prompt Enhanc
 ## Feature Requirements
 
 1. A single toggle button labeled "Magic Prompt Enhancer" should be available in the following locations:
-    - `/dashboard/clickatron` in `components/dashboard/Clickatron/VideoIdeaInput.tsx`
+    - `/dashboard/clickatron` in `components/dashboard/Clickatron/CanvasIdeaInput.tsx`
     - `components/dashboard/Clickatron/canvas/AICommandConsole.tsx`
     - `components/dashboard/Clickatron/canvas/NewVariationConsole.tsx`
 2. When clicked, the button should:
@@ -59,10 +59,10 @@ This document outlines the implementation plan for adding a "Magic Prompt Enhanc
   - Handle potential errors from the `onEnhance` function (e.g., display a toast notification).
 - **Status**: Created the reusable button component.
 
-#### 2.2. Integrate Button into `VideoIdeaInput.tsx`
+#### 2.2. Integrate Button into `CanvasIdeaInput.tsx`
 
 - Add the `MagicPromptEnhancerButton` component to the UI, likely next to the "Start Generating" button.
-- Manage the `isEnhancing` state within `VideoIdeaInput.tsx`.
+- Manage the `isEnhancing` state within `CanvasIdeaInput.tsx`.
 - Implement the `onEnhance` function to:
   1. Set `isEnhancing` to `true`.
   2. Disable the main prompt input and "Start Generating" button.
@@ -76,14 +76,14 @@ This document outlines the implementation plan for adding a "Magic Prompt Enhanc
 
 - Add the `MagicPromptEnhancerButton` component to the UI, likely next to the send button.
 - Manage the `isEnhancing` state within `AICommandConsole.tsx`.
-- Implement the `onEnhance` function similarly to `VideoIdeaInput.tsx`, but updating the `prompt` state local to the console component.
+- Implement the `onEnhance` function similarly to `CanvasIdeaInput.tsx`, but updating the `prompt` state local to the console component.
 - **Status**: Integrated the button into the component with all required functionality.
 
 #### 2.4. Integrate Button into `NewVariationConsole.tsx`
 
 - Add the `MagicPromptEnhancerButton` component to the UI, likely next to the send button.
 - Manage the `isEnhancing` state within `NewVariationConsole.tsx`.
-- Implement the `onEnhance` function similarly to `VideoIdeaInput.tsx`, but updating the `prompt` state local to the console component.
+- Implement the `onEnhance` function similarly to `CanvasIdeaInput.tsx`, but updating the `prompt` state local to the console component.
 - **Status**: Integrated the button into the component with all required functionality.
 
 ### 3. Rate Limiting Implementation

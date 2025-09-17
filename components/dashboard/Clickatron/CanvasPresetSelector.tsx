@@ -12,20 +12,47 @@ interface Preset {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-const LandscapeIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="10" rx="2" ry="2"></rect></svg>
+// Content Creator Platform Icons
+const YouTubeThumbnailIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="6" width="20" height="12" rx="2" ry="2"></rect>
+    <polygon points="10,9 15,12 10,15"></polygon>
+  </svg>
 );
-const PortraitIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="7" y="2" width="10" height="20" rx="2" ry="2"></rect></svg>
+const ReelsIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="6" y="2" width="12" height="20" rx="2" ry="2"></rect>
+    <circle cx="12" cy="8" r="2"></circle>
+    <path d="M12 14v6"></path>
+  </svg>
 );
-const SquareIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
+const InstagramPostIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="4" y="4" width="16" height="16" rx="3" ry="3"></rect>
+    <circle cx="12" cy="12" r="3"></circle>
+    <circle cx="17.5" cy="6.5" r="0.5" fill="currentColor"></circle>
+  </svg>
+);
+const InstagramStoryIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="7" y="2" width="10" height="20" rx="3" ry="3"></rect>
+    <path d="M12 7v10"></path>
+    <circle cx="12" cy="7" r="1" fill="currentColor"></circle>
+  </svg>
+);
+const TwitterPostIcon = ({ className }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="8" width="18" height="10" rx="2" ry="2"></rect>
+    <path d="M8 12h8"></path>
+  </svg>
 );
 
 const presets: Preset[] = [
-  { name: 'Landscape', ratio: '16:9', icon: LandscapeIcon },
-  { name: 'Portrait', ratio: '9:16', icon: PortraitIcon },
-  { name: 'Square', ratio: '1:1', icon: SquareIcon },
+  { name: 'YouTube Thumbnail', ratio: '16:9', icon: YouTubeThumbnailIcon },
+  { name: 'Reels/TikTok', ratio: '9:16', icon: ReelsIcon },
+  { name: 'Instagram Post', ratio: '1:1', icon: InstagramPostIcon },
+  { name: 'Instagram Story', ratio: '9:16', icon: InstagramStoryIcon },
+  { name: 'Twitter Post', ratio: '16:9', icon: TwitterPostIcon },
 ];
 
 const fadeIn: {
@@ -74,7 +101,7 @@ export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ valu
 
   return (
     <motion.div {...fadeIn} className="w-full">
-      <div className="grid grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
         {presets.map(preset => (
           <PresetCard
             key={preset.name}
@@ -83,6 +110,10 @@ export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ valu
             onSelect={() => onChange(preset.ratio)}
           />
         ))}
+      </div>
+      
+      {/* Custom Preset - Full width below main presets */}
+      <div className="mt-4">
         <CustomPresetCard
           isSelected={!isPreset}
           width={customWidth}
@@ -157,12 +188,12 @@ const CustomPresetCard = ({
     <div
       onClick={onSelect}
       className={cn(
-        'col-span-2 relative rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center',
+        'relative rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center',
         isSelected
           ? 'border-purple-500 shadow-lg shadow-purple-500/10'
           : 'border-zinc-700 hover:border-zinc-500'
       )}
-      style={{ minHeight: '120px' }}
+      style={{ minHeight: '100px' }}
     >
       <AnimatePresence>
         {isSelected && (
@@ -195,7 +226,7 @@ const CustomPresetCard = ({
                 : 'text-zinc-300 group-hover:text-zinc-100'
             )}
             >
-            Custom
+            Custom Ratio
             </p>
         </div>
 
@@ -250,7 +281,7 @@ const CustomPresetCard = ({
               />
             </motion.div>
           ) : (
-            <p className="text-xs text-zinc-500 group-hover:text-zinc-400">Enter ratio</p>
+            <p className="text-xs text-zinc-500 group-hover:text-zinc-400">Enter custom ratio</p>
           )}
         </div>
       </div>

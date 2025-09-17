@@ -344,13 +344,13 @@ Enhanced model selection based on the number of reference images provided:
 Added AI-powered prompt enhancement feature:
 - **API Endpoint**: `/api/services/clickatron/enhance-prompt` for prompt enhancement
 - **Task Differentiation**: Separate system prompts for image generation and image editing tasks
-- **Integration Points**: Added to VideoIdeaInput, AICommandConsole, and NewVariationConsole
+- **Integration Points**: Added to CanvasIdeaInput, AICommandConsole, and NewVariationConsole
 - **Rate Limiting**: Configurable usage limits based on user plan
 - **System Prompts**: Specialized prompts for different task types:
   - **Image Generation**: "Maestro" prompt engineer for creating detailed, artistic prompts
   - **Image Editing**: "Precision" prompt engineer for clear, concise editing instructions
 - **Task Type Assignment**:
-  - **VideoIdeaInput.tsx**: Uses `taskType: 'imageGeneration'` for initial prompt creation
+  - **CanvasIdeaInput.tsx**: Uses `taskType: 'imageGeneration'` for initial prompt creation
   - **AICommandConsole.tsx**: Uses `taskType: 'imageEditing'` for editing existing images
   - **NewVariationConsole.tsx**: Uses `taskType: 'imageGeneration'` for creating new variations
 

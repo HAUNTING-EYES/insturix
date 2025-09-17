@@ -85,7 +85,7 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
           Create Variation to Start
         </div>
         <div className="text-zinc-500/70 text-sm">
-          Use the AI console below to generate your first image
+          Use the AI console below to generate an image
         </div>
         <div className="text-zinc-600 text-xs mt-2">
           {aspectRatio} aspect ratio

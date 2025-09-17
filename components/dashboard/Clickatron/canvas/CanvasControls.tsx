@@ -191,13 +191,13 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                             <SelectValue placeholder="Select aspect ratio" />
                         </SelectTrigger>
                         <SelectContent className="bg-zinc-900 border-zinc-700">
-                            <SelectItem value="1:1">1:1 (Square)</SelectItem>
-                            <SelectItem value="4:3">4:3 (Standard)</SelectItem>
-                            <SelectItem value="3:2">3:2 (Classic)</SelectItem>
-                            <SelectItem value="16:9">16:9 (Widescreen)</SelectItem>
-                            <SelectItem value="21:9">21:9 (Ultrawide)</SelectItem>
-                            <SelectItem value="9:16">9:16 (Portrait)</SelectItem>
-                            <SelectItem value="2:3">2:3 (Tall)</SelectItem>
+                            <SelectItem value="16:9">YouTube Thumbnail (16:9)</SelectItem>
+                            <SelectItem value="9:16">Reels/TikTok (9:16)</SelectItem>
+                            <SelectItem value="1:1">Instagram Post (1:1)</SelectItem>
+                            <SelectItem value="4:5">Instagram Portrait (4:5)</SelectItem>
+                            <SelectItem value="21:9">Ultrawide Banner (21:9)</SelectItem>
+                            <SelectItem value="4:3">Standard Photo (4:3)</SelectItem>
+                            <SelectItem value="3:2">Print Photo (3:2)</SelectItem>
                         </SelectContent>
                     </Select>
                 </div>
