@@ -12,6 +12,7 @@ import { ImageUpload } from './ImageUpload';
 import { ModelSelector } from './stages/ModelSelector';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
+import { MagicPromptEnhancerButton } from './MagicPromptEnhancerButton';
 
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
@@ -30,10 +31,34 @@ export function VideoIdeaInput() {
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isEnhancing, setIsEnhancing] = useState(false);
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await handleSubmit();
+  };
+
+  const enhancePrompt = async (currentPrompt: string): Promise<string> => {
+    setIsEnhancing(true);
+    try {
+      const response = await fetch('/api/services/clickatron/enhance-prompt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: currentPrompt }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to enhance prompt');
+      }
+
+      const data = await response.json();
+      return data.enhancedPrompt;
+    } finally {
+      setIsEnhancing(false);
+    }
   };
 
   const handleSubmit = async () => {
@@ -107,13 +132,24 @@ export function VideoIdeaInput() {
                 </p>
 
                 <form onSubmit={handleFormSubmit} className="w-full max-w-2xl mx-auto">
-                  <Textarea
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="e.g., A futuristic city skyline at sunset, cinematic and detailed..."
-                    disabled={isLoading}
-                    className="min-h-[80px] bg-zinc-900/50 border-zinc-700/50 rounded-lg"
-                  />
+                  <div className="relative">
+                    <Textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder="e.g., A futuristic city skyline at sunset, cinematic and detailed..."
+                      disabled={isLoading || isEnhancing}
+                      className="min-h-[80px] bg-zinc-900/50 border-zinc-700/50 rounded-lg pr-12"
+                    />
+                    <div className="absolute right-2 top-2">
+                      <MagicPromptEnhancerButton
+                        onEnhance={enhancePrompt}
+                        isEnhancing={isEnhancing}
+                        disabled={isLoading}
+                        prompt={prompt}
+                        onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+                      />
+                    </div>
+                  </div>
                   <div className="mt-6 w-full max-w-md mx-auto">
                     <CanvasPresetSelector value={aspectRatio} onChange={setAspectRatio} />
                   </div>

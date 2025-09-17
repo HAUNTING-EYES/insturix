@@ -6,6 +6,7 @@ import { Send, Image, Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { ModelSelector } from '../stages/ModelSelector';
+import { MagicPromptEnhancerButton } from '../MagicPromptEnhancerButton';
 
 interface AICommandConsoleProps {
 onGenerate: (prompt: string, referenceImages?: File[], modelId?: string) => void;
@@ -36,10 +37,34 @@ export function AICommandConsole({
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [referenceImagePreviews, setReferenceImagePreviews] = useState<string[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
+  const [isEnhancing, setIsEnhancing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleModelChange = (modelId: string) => {
     setSelectedModelId(modelId);
+  };
+
+  const enhancePrompt = async (currentPrompt: string): Promise<string> => {
+    setIsEnhancing(true);
+    try {
+      const response = await fetch('/api/services/clickatron/enhance-prompt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ prompt: currentPrompt }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to enhance prompt');
+      }
+
+      const data = await response.json();
+      return data.enhancedPrompt;
+    } finally {
+      setIsEnhancing(false);
+    }
   };
 
   // Clear console when clearTrigger changes
@@ -218,7 +243,7 @@ export function AICommandConsole({
             </div>
 
             {/* Prompt Input */}
-            <div className="flex-1">
+            <div className="flex-1 relative">
               <Textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
@@ -228,10 +253,10 @@ export function AICommandConsole({
                     ? "Describe how you want to modify the reference images..."
                     : "Describe a change... (e.g., 'make background futuristic city', 'change chai to coffee', 'add steampunk style')"
                 }
-                disabled={isGenerating}
+                disabled={isGenerating || isEnhancing}
                 className="
                   min-h-[48px] max-h-[120px] resize-none border-0 bg-transparent
-                  text-zinc-100 placeholder-zinc-500 p-0
+                  text-zinc-100 placeholder-zinc-500 p-0 pr-12
                   focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none
                   [&:focus]:ring-0 [&:focus]:outline-none [&:focus]:border-transparent
                 "
@@ -242,6 +267,15 @@ export function AICommandConsole({
                   }
                 }}
               />
+              <div className="absolute right-2 top-2">
+                <MagicPromptEnhancerButton
+                  onEnhance={enhancePrompt}
+                  isEnhancing={isEnhancing}
+                  disabled={isGenerating}
+                  prompt={prompt}
+                  onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+                />
+              </div>
             </div>
 
             {/* Send Button */}
