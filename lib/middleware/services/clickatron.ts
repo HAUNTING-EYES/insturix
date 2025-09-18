@@ -4,8 +4,7 @@ export const CLICKATRON_LIMIT_CONFIG: LimitConfig = {
   serviceName: 'clickatron',
   limitMappings: {
     'variation': 'maxVariationGeneration',
-    'prompt': 'maxPromptEnhancements',
-  },
+ },
   defaultLimitType: 'maxVariationGeneration'
 };
 

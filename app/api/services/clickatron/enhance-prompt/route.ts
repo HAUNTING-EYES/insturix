@@ -4,6 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
 import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
+import { promptEnhancementRateLimiter } from '@/lib/utils/promptEnhancementRateLimiter';
 
 // Define the schema for the enhanced prompt response
 const EnhancedPromptSchema = z.object({
@@ -18,13 +19,22 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Check usage limits before processing
-    const limitCheck = await clickatronLimitMiddleware.checkLimits({
-      limitType: 'prompt'
-    });
-
-    if (!limitCheck.hasAccess) {
-      return clickatronLimitMiddleware.createLimitExceededResponse(limitCheck);
+    // Check rate limit for prompt enhancement
+    const { success, limit, remaining, reset } = await promptEnhancementRateLimiter.limit(userId);
+    
+    // If rate limit exceeded, return error
+    if (!success) {
+      return NextResponse.json(
+        {
+          error: "Rate limit exceeded. Please try again within a minute.",
+          limitInfo: {
+            limit,
+            remaining,
+            resetTime: reset
+          }
+        },
+        { status: 429 }
+      );
     }
 
     const body = await request.json();
@@ -39,9 +49,27 @@ export async function POST(request: Request) {
     const validTaskTypes = ["imageGeneration", "imageEditing"] as const;
     type TaskType = (typeof validTaskTypes)[number];
 
+    // Validate prompt
     if (!prompt || typeof prompt !== "string") {
       return NextResponse.json(
         { error: "Prompt is required and must be a string" },
+        { status: 400 }
+      );
+    }
+
+    // Check prompt length (max 5000 characters)
+    if (prompt.length > 5000) {
+      return NextResponse.json(
+        { error: "Prompt is too long. Maximum 5000 characters allowed." },
+        { status: 400 }
+      );
+    }
+
+    // Check for excessive special characters (more than 50% of the prompt)
+    const specialCharCount = (prompt.match(/[^a-zA-Z0-9\s]/g) || []).length;
+    if (specialCharCount > prompt.length * 0.5) {
+      return NextResponse.json(
+        { error: "Prompt contains too many special characters." },
         { status: 400 }
       );
     }
@@ -83,7 +111,7 @@ Your process is as follows:
     *   **Color Palette:** Suggest a specific color scheme to guide the mood (e.g., "A palette of deep crimsons, golds, and shadowy blacks").
     *   **Technical Details:** Add keywords that push the AI for the highest quality output (e.g., "4K," "8K," "hyper-detailed," "intricate," "sharp focus," "physically-based rendering").
 
-3.  **Final Output:** Your only output will be a single, optimized prompt inside a code block. Do not add any conversational text, explanations, or introductions. 
+3.  **Final Output:** Your only output will be a single, optimized prompt inside a code block. Do not add any conversational text, explanations, or introductions.
 
 **Example User Input:** "a knight in a forest"
 
@@ -142,16 +170,6 @@ Your operational protocol is as follows:
     // Log the enhanced prompt for debugging
     console.log(`[Prompt Enhancer] Enhanced prompt: ${object.enhancedPrompt}`);
 
-    // Increment usage after successful enhancement
-    try {
-      await clickatronLimitMiddleware.incrementUsage({
-        limitType: 'prompt'
-      });
-    } catch (usageError) {
-      console.error('Failed to increment usage:', usageError);
-      // Don't fail the entire operation if usage increment fails
-    }
-
     return NextResponse.json({
       enhancedPrompt: object.enhancedPrompt,
     });
@@ -172,6 +190,14 @@ Your operational protocol is as follows:
       error.message.includes("operation was aborted")
     ) {
       return NextResponse.json({ error: "Request timeout" }, { status: 408 });
+    }
+
+    // Handle rate limit errors specifically
+    if (error instanceof Error && error.message.includes("Rate limit")) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please try again later." },
+        { status: 429 }
+      );
     }
 
     return NextResponse.json(

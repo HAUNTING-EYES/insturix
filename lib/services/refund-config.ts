@@ -7,7 +7,6 @@ export interface RefundMapping {
 export const REFUND_MAPPING: RefundMapping = {
   clickatron: {
     variation_gen: ['maxVariationGeneration'],
-    prompt_enhance: ['maxPromptEnhancements'],
   },
   alyzitron: {
     analysis: ['AnalysisMinutes'],

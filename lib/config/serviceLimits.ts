@@ -61,20 +61,6 @@ export const UNIFIED_SERVICE_LIMITS: Record<string, Record<string, ServiceLimitC
         pro: 300,
         premium: -1
       }
-    },
-    maxPromptEnhancements: {
-      name: 'Prompt Enhancements',
-      description: 'Number of prompts you can enhance per week using the Magic Prompt Enhancer feature.',
-      icon: 'Wand2',
-      defaultResetPeriod: 'weekly',
-      category: 'count',
-      unit: 'enhancements',
-      planLimits: {
-        free: 5,
-        plus: 20,
-        pro: 50,
-        premium: -1
-      }
     }
   },
   editron: {
