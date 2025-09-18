@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
+import { processRefund } from '@/lib/services/tasks/simple-refund';
 
 // Configure Fal AI client
 if (process.env.FAL_AI_API_KEY) {
@@ -489,6 +490,14 @@ async function handler(req: Request) {
         details: generationError
       });
       console.log('Worker: Failed job in QStash');
+      
+      // Process refund for failed image generation
+      try {
+        await processRefund('clickatron', 'variation_gen', job.userId, 1);
+        console.log('Refund processed successfully for user:', job.userId);
+      } catch (refundError) {
+        console.error('Failed to process refund for user:', job.userId, refundError);
+      }
     }
 
     return NextResponse.json({ success: true });
@@ -529,6 +538,14 @@ async function handler(req: Request) {
               await task.save();
               console.log('Worker: Updated variation status to failed in outer catch block');
             }
+            
+            // Process refund for failed image generation
+            try {
+              await processRefund('clickatron', 'variation_gen', job.userId, 1);
+              console.log('Refund processed successfully for user:', job.userId);
+            } catch (refundError) {
+              console.error('Failed to process refund for user:', job.userId, refundError);
+            }
           }
         }
       } catch (updateError) {
@@ -561,12 +578,27 @@ export const POST = async (req: Request) => {
     // If we have a jobId, try to fail the job
     if (jobId) {
       try {
-        await failJob(jobId, { 
-          code: 'SIGNATURE_VERIFICATION_FAILED', 
+        await failJob(jobId, {
+          code: 'SIGNATURE_VERIFICATION_FAILED',
           message: 'Failed to verify QStash signature. Check your UPSTASH_QSTASH keys.',
-          details: error 
+          details: error
         });
         console.log('Worker: Marked job as failed due to signature verification failure');
+        
+        // Try to get job info for refund
+        try {
+          const job = await getJob(jobId);
+          if (job) {
+            try {
+              await processRefund('clickatron', 'variation_gen', job.userId, 1);
+              console.log('Refund processed successfully for user:', job.userId);
+            } catch (refundError) {
+              console.error('Failed to process refund for user:', job.userId, refundError);
+            }
+          }
+        } catch (jobError) {
+          console.error('Worker: Failed to get job info for refund:', jobError);
+        }
       } catch (failError) {
         console.error('Worker: Failed to mark job as failed after signature verification:', failError);
       }

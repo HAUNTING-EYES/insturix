@@ -147,6 +147,24 @@ export class ServiceUsageService {
           };
           
           user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
+          
+          // For Clickatron service, also clean up any obsolete limits
+          if (serviceName === 'clickatron') {
+            // Get the current valid limit types for Clickatron
+            const validLimitTypes = planLimits.map(limit => limit.limitType);
+            
+            // Filter out any limits that are not in the valid list
+            const filteredLimits = user.currentPlan.serviceLimits[serviceName].filter(
+              (limit: IServiceLimit) => validLimitTypes.includes(limit.limitType)
+            );
+            
+            // If we removed any limits, update the user's limits
+            if (filteredLimits.length !== user.currentPlan.serviceLimits[serviceName].length) {
+              console.log(`[ServiceUsageService] Cleaning up obsolete limits for Clickatron user ${userId}`);
+              user.currentPlan.serviceLimits[serviceName] = filteredLimits;
+            }
+          }
+          
           user.markModified('currentPlan.serviceLimits');
           await user.save();
           

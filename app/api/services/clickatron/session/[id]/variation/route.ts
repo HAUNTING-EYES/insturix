@@ -9,6 +9,7 @@ import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { CLICKATRON_MODELS, getAvailableModels } from '@/lib/config/clickatron-models';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
+import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
@@ -19,6 +20,15 @@ export async function POST(
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check usage limits before processing
+    const limitCheck = await clickatronLimitMiddleware.checkLimits({
+      limitType: 'variation'
+    });
+
+    if (!limitCheck.hasAccess) {
+      return clickatronLimitMiddleware.createLimitExceededResponse(limitCheck);
     }
 
     const { id } = await params;
@@ -247,6 +257,16 @@ export async function POST(
       console.error('Failed to enqueue QStash job:', qstashError);
       // Continue with the response even if QStash fails
       // The job will be created in Redis but won't be processed
+    }
+
+    // Increment usage after successful job creation
+    try {
+      await clickatronLimitMiddleware.incrementUsage({
+        limitType: 'variation'
+      });
+    } catch (usageError) {
+      console.error('Failed to increment usage:', usageError);
+      // Don't fail the entire operation if usage increment fails
     }
 
     return NextResponse.json({

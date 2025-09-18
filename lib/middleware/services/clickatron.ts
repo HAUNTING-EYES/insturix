@@ -3,9 +3,10 @@ import { createLimitMiddleware, LimitConfig } from '../limitMiddleware';
 export const CLICKATRON_LIMIT_CONFIG: LimitConfig = {
   serviceName: 'clickatron',
   limitMappings: {
-    'general': 'maxThumbnailGeneration',
+    'variation': 'maxVariationGeneration',
+    'prompt': 'maxPromptEnhancements',
   },
-  defaultLimitType: 'maxThumbnailGeneration'
+  defaultLimitType: 'maxVariationGeneration'
 };
 
 export const clickatronLimitMiddleware = createLimitMiddleware(CLICKATRON_LIMIT_CONFIG);
@@ -17,12 +18,12 @@ type ClickatronRequest = {
 
 export const checkClickatronLimits = async (requestData: ClickatronRequest) => {
   const middleware = clickatronLimitMiddleware;
-  return await middleware.checkLimits({ ...requestData, limitType: 'general' });
+  return await middleware.checkLimits({ ...requestData, limitType: requestData.type || 'variation' });
 };
 
 export const incrementClickatronUsage = async (requestData: ClickatronRequest, amount?: number) => {
   const middleware = clickatronLimitMiddleware;
-  return await middleware.incrementUsage({ ...requestData, limitType: 'general' }, amount);
+  return await middleware.incrementUsage({ ...requestData, limitType: requestData.type || 'variation' }, amount);
 };
 
 import type { LimitCheckResult } from '../limitMiddleware';

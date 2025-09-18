@@ -3,6 +3,7 @@ import { auth } from "@clerk/nextjs/server";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
+import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
 
 // Define the schema for the enhanced prompt response
 const EnhancedPromptSchema = z.object({
@@ -15,6 +16,15 @@ export async function POST(request: Request) {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Check usage limits before processing
+    const limitCheck = await clickatronLimitMiddleware.checkLimits({
+      limitType: 'prompt'
+    });
+
+    if (!limitCheck.hasAccess) {
+      return clickatronLimitMiddleware.createLimitExceededResponse(limitCheck);
     }
 
     const body = await request.json();
@@ -131,6 +141,16 @@ Your operational protocol is as follows:
 
     // Log the enhanced prompt for debugging
     console.log(`[Prompt Enhancer] Enhanced prompt: ${object.enhancedPrompt}`);
+
+    // Increment usage after successful enhancement
+    try {
+      await clickatronLimitMiddleware.incrementUsage({
+        limitType: 'prompt'
+      });
+    } catch (usageError) {
+      console.error('Failed to increment usage:', usageError);
+      // Don't fail the entire operation if usage increment fails
+    }
 
     return NextResponse.json({
       enhancedPrompt: object.enhancedPrompt,

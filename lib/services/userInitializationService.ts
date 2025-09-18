@@ -221,7 +221,7 @@ export class UserInitializationService {
   }
 
   /**
-   * Sync user data from Clerk (email updates, etc.)
+   * Sync user data from Clerk (email updates, username renames, etc.)
    */
   static async syncUserFromClerk(
     clerkUserId: string,
@@ -240,7 +240,9 @@ export class UserInitializationService {
         return false;
       }
 
-      let hasChanges = false;
+      let hasUserChanges = false;
+      let hasSocializeChanges = false;
+      const oldUsername = user.username;
       
       // Update email if it has changed
       const newEmail = clerkUserData.email ||
@@ -248,27 +250,51 @@ export class UserInitializationService {
       
       if (newEmail && newEmail.toLowerCase().trim() !== user.email) {
         user.email = newEmail.toLowerCase().trim();
-        hasChanges = true;
+        hasUserChanges = true;
       }
       
       // Update username if it has changed
       if (clerkUserData.username && clerkUserData.username !== user.username) {
         user.username = clerkUserData.username;
-        hasChanges = true;
+        hasUserChanges = true;
       }
 
-      if (hasChanges) {
+      if (hasUserChanges) {
         await user.save();
         console.log(`Updated user data for: ${clerkUserId}`);
       }
 
-      // Update Socialize profile image if it has changed
-      if (clerkUserData.imageUrl) {
-        const socializeProfile = await Socialize.findOne({ clerkUserId });
-        if (socializeProfile && socializeProfile.profileImage !== clerkUserData.imageUrl) {
+      // Get socialize profile for updates
+      const socializeProfile = await Socialize.findOne({ clerkUserId });
+      
+      if (socializeProfile) {
+        // Update Socialize profile username if it has changed
+        if (clerkUserData.username && clerkUserData.username !== socializeProfile.username) {
+          socializeProfile.username = clerkUserData.username;
+          hasSocializeChanges = true;
+          console.log(`Username renamed from "${oldUsername}" to "${clerkUserData.username}" for user: ${clerkUserId}`);
+        }
+        
+        // Update Socialize profile image if it has changed
+        if (clerkUserData.imageUrl && socializeProfile.profileImage !== clerkUserData.imageUrl) {
           socializeProfile.profileImage = clerkUserData.imageUrl;
+          hasSocializeChanges = true;
+        }
+        
+        if (hasSocializeChanges) {
           await socializeProfile.save();
-          console.log(`Updated Socialize profile image for: ${clerkUserId}`);
+          console.log(`Updated Socialize profile for: ${clerkUserId}`);
+        }
+      } else {
+        // If socialize profile doesn't exist, create it
+        if (clerkUserData.username) {
+          const newSocializeProfile = new Socialize({
+            clerkUserId,
+            username: clerkUserData.username,
+            profileImage: clerkUserData.imageUrl || "",
+          });
+          await newSocializeProfile.save();
+          console.log(`Created missing Socialize profile for user: ${clerkUserId}`);
         }
       }
 
@@ -286,10 +312,21 @@ export class UserInitializationService {
     try {
       await connectToDatabase();
       
-      const result = await User.deleteOne({ clerkUserId });
+      // Delete user from User collection
+      const userResult = await User.deleteOne({ clerkUserId });
       
-      if (result.deletedCount > 0) {
+      // Delete user from Socialize collection
+      const socializeResult = await Socialize.deleteOne({ clerkUserId });
+      
+      if (userResult.deletedCount > 0) {
         console.log(`Deleted user account for Clerk ID: ${clerkUserId}`);
+        
+        if (socializeResult.deletedCount > 0) {
+          console.log(`Deleted Socialize profile for Clerk ID: ${clerkUserId}`);
+        } else {
+          console.log(`No Socialize profile found to delete for Clerk ID: ${clerkUserId}`);
+        }
+        
         return true;
       }
       
