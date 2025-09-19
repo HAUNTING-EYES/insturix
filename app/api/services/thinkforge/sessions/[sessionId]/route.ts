@@ -9,13 +9,14 @@ import {
 const serviceConfig = getServiceConfig('thinkforge');
 import { sanitizeErrorForUser, logSecurely } from '@/lib/utils/secureErrorHandler';
 
-const THINKFORGE_BACKEND_URL = process.env.THINKFORGE_BACKEND_URL || 'http://localhost:8080';
+const MONOLITHIC_BACKEND_URL = process.env.MONOLITHIC_BACKEND_URL || 'http://localhost:8080';
+const MONOLITHIC_BACKEND_SECRET = process.env.MONOLITHIC_BACKEND_SECRET;
 
 // Enhanced recovery endpoint for session validation
 
 export async function GET(
   request: Request,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
     const session = await auth();
@@ -26,7 +27,7 @@ export async function GET(
       );
     }
 
-    const { sessionId } = params;
+    const { sessionId } = await params;
 
     // Check service limits using enhanced middleware
     const requestData = {
@@ -48,12 +49,12 @@ export async function GET(
       return createThinkForgeLimitResponse(limitCheck);
     }
 
-    // Call ThinkForge backend to get session
-    const backendResponse = await fetch(`${THINKFORGE_BACKEND_URL}/api/thinkforge/sessions/${sessionId}?user_id=${session.userId}`, {
+    // Call monolith backend to get session (align with sessions/list proxy)
+    const backendResponse = await fetch(`${MONOLITHIC_BACKEND_URL.replace(/\/$/, '')}/thinkforge/sessions/${sessionId}?userId=${encodeURIComponent(session.userId)}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.userId}` // Pass user ID as auth
+        ...(MONOLITHIC_BACKEND_SECRET ? { 'Authorization': `Bearer ${MONOLITHIC_BACKEND_SECRET}` } : {})
       }
     });
 
@@ -120,7 +121,7 @@ export async function GET(
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { sessionId: string } }
+  { params }: { params: Promise<{ sessionId: string }> }
 ) {
   try {
     const session = await auth();
@@ -131,7 +132,7 @@ export async function DELETE(
       );
     }
 
-    const { sessionId } = params;
+    const { sessionId } = await params;
 
     // Check service limits using enhanced middleware
     const requestData = {
@@ -153,12 +154,12 @@ export async function DELETE(
       return createThinkForgeLimitResponse(limitCheck);
     }
 
-    // Call ThinkForge backend to delete session
-    const backendResponse = await fetch(`${THINKFORGE_BACKEND_URL}/api/thinkforge/sessions/${sessionId}?user_id=${session.userId}`, {
+    // Call monolith backend to delete session (align with sessions/list proxy)
+    const backendResponse = await fetch(`${MONOLITHIC_BACKEND_URL.replace(/\/$/, '')}/thinkforge/sessions/${sessionId}?userId=${encodeURIComponent(session.userId)}`, {
       method: 'DELETE',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.userId}` // Pass user ID as auth
+        ...(MONOLITHIC_BACKEND_SECRET ? { 'Authorization': `Bearer ${MONOLITHIC_BACKEND_SECRET}` } : {})
       }
     });
 

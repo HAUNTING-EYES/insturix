@@ -2,27 +2,27 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import clsx from 'clsx';
-import { ChevronDown, Bot, Sparkles, Square, Pencil, X, Check } from 'lucide-react';
-import { Idea } from '@/app/dashboard/thinkforge/types';
+import { ChevronDown, Bot, Square, Pencil, X, Check } from 'lucide-react';
+import { Idea, Script } from '@/app/dashboard/thinkforge/types';
 
 export interface ChatMessage { id: string; role: 'user' | 'assistant'; content: string; ts: number }
 
 interface ChatPanelProps {
   selectedIdea: Idea;
+  script: Script | null;
+  onApplyEdit: (updated: Script) => void;
+  onRunEdit?: (instruction: string) => Promise<any>;
+  sessionId?: string | null;
 }
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
+export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onApplyEdit, onRunEdit, sessionId }) => {
   // Use internal API route proxy; no secret exposed client-side
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
-  const [chatMode, setChatMode] = useState<'agent'|'ask'|'edit'>('agent');
-  const [chatModel, setChatModel] = useState<'gpt-4o'|'sonnet'|'claude-3-5'|'local'>('gpt-4o');
+  const [chatMode, setChatMode] = useState<'ask'|'edit'>('ask');
   const [showModeMenu, setShowModeMenu] = useState(false);
-  const [showModelMenu, setShowModelMenu] = useState(false);
   const modeBtnRef = useRef<HTMLButtonElement | null>(null);
-  const modelBtnRef = useRef<HTMLButtonElement | null>(null);
   const modeMenuRef = useRef<HTMLDivElement | null>(null);
-  const modelMenuRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const suggestionsRef = useRef<HTMLDivElement | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -51,15 +51,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
       const target = e.target as Node;
       // If click is inside any open menu, ignore
       if (modeMenuRef.current && modeMenuRef.current.contains(target)) return;
-      if (modelMenuRef.current && modelMenuRef.current.contains(target)) return;
       // Outside clicks for mode menu
       if (showModeMenu && modeBtnRef.current && !modeBtnRef.current.contains(target)) setShowModeMenu(false);
-      // Outside clicks for model menu
-      if (showModelMenu && modelBtnRef.current && !modelBtnRef.current.contains(target)) setShowModelMenu(false);
     };
     window.addEventListener('mousedown', handler);
     return () => window.removeEventListener('mousedown', handler);
-  }, [showModeMenu, showModelMenu]);
+  }, [showModeMenu]);
 
   useEffect(() => {
     if (stickToBottom && chatScrollRef.current) {
@@ -109,9 +106,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
     step();
   };
 
-  const streamAssistantForPrompt = useCallback(async (prompt: string, userMsg: ChatMessage) => {
+  // Include sessionId in dependency array so a newly created session is respected for persistence
+  const streamAssistantForPrompt = useCallback(async (prompt: string, userMsg: ChatMessage, opts?: { appendUser?: boolean; skipPersistUser?: boolean }) => {
     const assistantId = crypto.randomUUID();
-    setChatMessages(prev => [...prev, userMsg, { id: assistantId, role: 'assistant', content: '', ts: Date.now() }]);
+    if (opts?.appendUser !== false) {
+      setChatMessages(prev => [...prev, userMsg, { id: assistantId, role: 'assistant', content: '', ts: Date.now() }]);
+    } else {
+      // Only append assistant placeholder; user already placed in UI
+      setChatMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '', ts: Date.now() }]);
+    }
     setIsStreaming(true);
     setStreamingAssistantId(assistantId);
     typingRef.current.queue = [];
@@ -123,7 +126,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
       const res = await fetch('/api/services/thinkforge/ask', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ prompt, sessionId, skipPersistUser: opts?.skipPersistUser === true }),
         signal: controller.signal
       });
       if (!res.body) throw new Error('No response body');
@@ -155,15 +158,92 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
       setIsStreaming(false);
       setStreamingAssistantId(null);
     }
-  }, []);
+  }, [sessionId]);
 
   const sendChat = useCallback(async () => {
     const text = chatInput.trim();
     if (!text) return;
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: text, ts: Date.now() };
     setChatInput('');
+    // If in edit mode, run inspector -> editor and update script instead of streaming chat
+    if (chatMode === 'edit') {
+      // Echo user's instruction into chat first
+      setChatMessages(prev => [...prev, userMsg]);
+      try {
+        let assistantText = '';
+        if (onRunEdit) {
+          await onRunEdit(text);
+          assistantText = 'Applied your edit to the script.';
+          setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: assistantText, ts: Date.now() }]);
+          // Persist both messages if sessionId available
+          if (sessionId) {
+            void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'user', content: text }) });
+            void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'assistant', content: assistantText }) });
+          }
+          return;
+        }
+        // Fallback local-only edit flow (legacy)
+        // Prepare payloads from current script and selected idea
+        const scriptPayload = {
+          title: script?.title || 'Untitled Script',
+          content: script?.content || ''
+        };
+        const projectPayload = {
+          idea: selectedIdea?.idea,
+          purpose: (selectedIdea as any)?.purpose,
+          style: (selectedIdea as any)?.style,
+          format: (selectedIdea as any)?.format,
+          platform: (selectedIdea as any)?.platform,
+          tone: selectedIdea?.tone
+        };
+        // Inspect the request to confirm it's an edit
+        const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: text, script: scriptPayload, project: projectPayload })
+        });
+        if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
+        const inspect = await inspectRes.json();
+        if (inspect?.action !== 'edit') {
+          assistantText = 'That looks like a question, not an edit. Use Ask mode for Q&A. I did not change the script.';
+          setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: assistantText, ts: Date.now() }]);
+          return;
+        }
+        // Apply the edit
+        const editRes = await fetch('/api/services/thinkforge/script/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ instruction: text, script: scriptPayload, project: projectPayload })
+        });
+        if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
+        const edited = await editRes.json();
+        const newTitle: string = edited?.title || scriptPayload.title;
+        const newContent: string = edited?.content || scriptPayload.content || '';
+        // Build a simple HTML body so the editor can load it; ScriptEditor will replace blocks accordingly
+        const paras = newContent.split(/\n{2,}/).map((p: string) => p.trim()).filter(Boolean);
+        const htmlBody = [`<h1>${newTitle}</h1>`, ...paras.map((p: string) => `<p>${p}</p>`)].join('\n');
+        const updated: Script = {
+          ...(script || {}),
+          title: newTitle,
+          content: newContent,
+          body: htmlBody,
+          // Drop blocks so ScriptEditor re-parses HTML and updates the live editor
+          blocks: undefined
+        } as Script;
+        onApplyEdit(updated);
+        assistantText = 'Applied your edit to the script.';
+        setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: assistantText, ts: Date.now() }]);
+        if (sessionId) {
+          void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'user', content: text }) });
+          void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'assistant', content: assistantText }) });
+        }
+      } catch (e) {
+        setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: '[Failed to apply edit]', ts: Date.now() }]);
+      }
+      return;
+    }
     await streamAssistantForPrompt(text, userMsg);
-  }, [chatInput, streamAssistantForPrompt]);
+  }, [chatInput, chatMode, script, selectedIdea, streamAssistantForPrompt, onApplyEdit]);
 
   // Editing logic
   const beginEditMessage = (id: string, existing: string) => {
@@ -172,33 +252,33 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
     setEditingContent(existing);
   };
   const cancelEdit = () => { setEditingMessageId(null); setEditingContent(''); };
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!editingMessageId) return;
     const trimmed = editingContent.trim();
     if (!trimmed) { cancelEdit(); return; }
-    setChatMessages(prev => {
-      const idx = prev.findIndex(m => m.id === editingMessageId);
-      if (idx === -1) return prev;
-      const prior = prev.slice(0, idx); // everything before the edited user message
-      // Build new user message (new id) appended at end of truncated conversation
-      const newUser: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: trimmed, ts: Date.now() };
-      return [...prior, newUser];
-    });
-    const promptText = trimmed; // capture before clearing
+    // Find index of the message to edit (chronological index in current view)
+    const current = [...chatMessages];
+    const editIdx = current.findIndex(m => m.id === editingMessageId);
+    if (editIdx === -1) { cancelEdit(); return; }
+
+  // Update UI: truncate to just before editIdx, then place the edited user message
+    const prior = current.slice(0, editIdx);
+    const editedUser: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: trimmed, ts: Date.now() };
+    setChatMessages([...prior, editedUser]);
     setEditingMessageId(null); setEditingContent('');
-    // Kick off fresh assistant stream after state commit (microtask)
-    queueMicrotask(() => {
-      const newUserMsg: ChatMessage | undefined = undefined; // placeholder (we'll create inside stream function)
-      // We need the last user message we just inserted
-      setChatMessages(prev => {
-        const last = prev[prev.length - 1];
-        if (last && last.role === 'user' && last.content === promptText) {
-          // Start streaming referencing this last message
-          streamAssistantForPrompt(promptText, last);
-        }
-        return prev;
-      });
-    });
+
+    // Persist branch edit in DB if we have a session
+    if (sessionId) {
+      try {
+        await fetch('/api/services/thinkforge/chat/branch-edit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sessionId, editIndex: editIdx, newRole: 'user', newContent: trimmed })
+        });
+      } catch {}
+    }
+
+    // Start new assistant stream from the edited message; backend will include prior context
+    await streamAssistantForPrompt(trimmed, editedUser, { appendUser: false, skipPersistUser: true });
   };
 
   // Rich formatting renderer
@@ -310,7 +390,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
   const seedSuggestions = () => {
     const baseCommon = ["Add hook","Stronger CTA","Expand section","Shorter version","More data","Story angle","Add humor","Sharpen tone","Cut fluff","Improve flow","Alt headline","Platform tweak"];    
     const modeAdds: Record<typeof chatMode, string[]> = {
-      agent: ["List beats","Re-sequence flow","Suggest B-roll","Add tension","Audience tweak"],
       ask: ["What next?","Is pacing ok?","Better opening?","Tone check","Fact check"],
       edit: ["Tighten copy","Condense to 60s","Punchier verbs","Clarify benefit","Remove jargon"],
     };
@@ -389,10 +468,30 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
               value={chatInput}
               onChange={(e)=> setChatInput(e.target.value)}
               onKeyDown={handleChatKey}
-              placeholder={chatMode==='edit' ? 'Describe the edit you want...' : chatMode==='ask' ? 'Ask about structure, tone, or audience...' : 'Direct the agent to refine, expand, or orchestrate.'}
+              placeholder={chatMode==='edit' ? 'Describe the edit you want...' : 'Ask about structure, tone, or audience...'}
               rows={2}
               className="w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-3 py-3 pr-16 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/30 backdrop-blur-md scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"/>
             <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-white/10" />
+            {/* Mode selector placed below the textarea to avoid overlap */}
+            <div className="mt-1">
+              <button
+                ref={modeBtnRef}
+                type="button"
+                onClick={()=>{setShowModeMenu(v=>!v);}}
+                className="flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[10px] font-medium text-white/80 hover:bg-white/20 hover:text-white transition"
+              >
+                <Bot className="h-3 w-3 text-red-300"/> {chatMode} <ChevronDown className="h-3 w-3"/>
+              </button>
+              {showModeMenu && (createPortal(
+                <div ref={modeMenuRef} className="fixed z-[110]" style={{left: modeBtnRef.current?.getBoundingClientRect().left, top: (modeBtnRef.current?.getBoundingClientRect().bottom||0)+4}}>
+                  <div className="w-36 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/95 backdrop-blur-2xl shadow-lg shadow-black/50" onMouseDown={(e)=>e.stopPropagation()}>
+                    {(['ask','edit'] as const).map(m => (
+                      <button key={m} type="button" onClick={()=>{setChatMode(m); setShowModeMenu(false); seedSuggestions();}} className={clsx('w-full px-3 py-2 text-left text-[11px] font-medium capitalize transition', m===chatMode ? 'bg-red-500/30 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{m}</button>
+                    ))}
+                  </div>
+                </div>, document.body)
+              )}
+            </div>
           </div>
           <button type="submit" disabled={!chatInput.trim() || isStreaming} aria-label="Send message" className="relative h-[48px] w-[56px] rounded-2xl overflow-hidden bg-gradient-to-br from-red-600 via-red-500 to-rose-500 text-white shadow-lg shadow-red-900/30 transition-all duration-200 hover:from-red-500 hover:via-rose-500 hover:to-rose-400 hover:shadow-red-800/40 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
             <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.25),transparent_60%)]" />
@@ -404,32 +503,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea }) => {
             </button>
           )}
         </div>
-  <div className="flex items-center gap-3 pt-1">
-          <div className="relative">
-            <button ref={modeBtnRef} type="button" onClick={()=>{setShowModeMenu(v=>!v); setShowModelMenu(false);}} className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition"><Bot className="h-3.5 w-3.5 text-red-400"/> {chatMode} <ChevronDown className="h-3 w-3"/></button>
-            {showModeMenu && (createPortal(
-              <div ref={modeMenuRef} className="fixed z-[110]" style={{left: modeBtnRef.current?.getBoundingClientRect().left, top: (modeBtnRef.current?.getBoundingClientRect().bottom||0)+4}}>
-                <div className="w-40 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/95 backdrop-blur-2xl shadow-lg shadow-black/50" onMouseDown={(e)=>e.stopPropagation()}>
-                  {(['agent','ask','edit'] as const).map(m => (
-                    <button key={m} type="button" onClick={()=>{setChatMode(m); setShowModeMenu(false); seedSuggestions();}} className={clsx('w-full px-3 py-2 text-left text-[11px] font-medium capitalize transition', m===chatMode ? 'bg-red-500/30 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{m}</button>
-                  ))}
-                </div>
-              </div>, document.body)
-            )}
-          </div>
-          <div className="relative">
-            <button ref={modelBtnRef} type="button" onClick={()=>{setShowModelMenu(v=>!v); setShowModeMenu(false);}} className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-medium text-white/70 hover:bg-white/10 hover:text-white transition"><Sparkles className="h-3.5 w-3.5 text-rose-400"/> {chatModel} <ChevronDown className="h-3 w-3"/></button>
-            {showModelMenu && (createPortal(
-              <div ref={modelMenuRef} className="fixed z-[110]" style={{left: modelBtnRef.current?.getBoundingClientRect().left, top: (modelBtnRef.current?.getBoundingClientRect().bottom||0)+4}}>
-                <div className="w-44 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/95 backdrop-blur-2xl shadow-lg shadow-black/50" onMouseDown={(e)=>e.stopPropagation()}>
-                  {(['gpt-4o','sonnet','claude-3-5','local'] as const).map(m => (
-                    <button key={m} type="button" onClick={()=>{setChatModel(m); setShowModelMenu(false);}} className={clsx('w-full px-3 py-2 text-left text-[11px] font-medium transition uppercase', m===chatModel ? 'bg-red-500/30 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{m}</button>
-                  ))}
-                </div>
-              </div>, document.body)
-            )}
-          </div>
-        </div>
+        {/* removed bottom bar with mode/model selectors; mode moved into input */}
       </form>
     </div>
   );

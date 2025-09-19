@@ -69,31 +69,18 @@ export default function ScriptEditor({
 
   // Convert HTML content to default initial blocks for BlockNote
   const getInitialContent = useCallback((script: Script | null | undefined) => {
-    // If script has saved blocks, use those for perfect round-trip editing
-    if (script?.blocks && Array.isArray(script.blocks)) {
-      return script.blocks;
-    }
-
-    // Simple fallback content - let BlockNote handle HTML parsing through its built-in methods
-    if (script?.body) {
-      // For HTML content, we'll let BlockNote parse it naturally
-      // This is simpler and more reliable than manual parsing
-      return undefined; // Will use default content, then we'll convert HTML separately
-    }
-
-    // Default content for new scripts
-    const title = script?.title || "Your Script Title";
-    const defaultContent = script?.content || "Start writing your script here. Use the toolbar to format your content with headings, lists, and more.";
-
-    return [
+    // Helper: safe default non-empty content
+    const defaultBlocks = [
       {
         type: "heading",
         props: { level: 1 },
-        content: title,
+        content: script?.title || "Your Script Title",
       },
       {
-        type: "paragraph", 
-        content: defaultContent,
+        type: "paragraph",
+        content:
+          script?.content ||
+          "Start writing your script here. Use the toolbar to format your content with headings, lists, and more.",
       },
       {
         type: "paragraph",
@@ -106,6 +93,20 @@ export default function ScriptEditor({
         ],
       },
     ];
+
+    // If script has saved blocks and they are non-empty, use them for perfect round-trip editing
+    if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
+      return script.blocks;
+    }
+
+    // If script contains HTML body, still provide a safe default for initialContent
+    // We'll parse and replace with HTML content asynchronously after editor mounts
+    if (script?.body) {
+      return defaultBlocks;
+    }
+
+    // Default content for new or empty scripts
+    return defaultBlocks;
   }, []);
 
   // Create BlockNote editor with initial content
@@ -131,49 +132,120 @@ export default function ScriptEditor({
     }
   }, [script?.body, script?.blocks, editor]);
 
+  // React to external script prop changes (e.g., ChatPanel edit-mode applied update)
+  useEffect(() => {
+    if (!script) return;
+    // If blocks are provided, prefer them; otherwise parse HTML/body
+    if (Array.isArray(script.blocks) && script.blocks.length > 0) {
+      try {
+        editor.replaceBlocks(editor.document, script.blocks as any);
+      } catch (e) {
+        console.warn('Failed to load provided blocks, falling back to HTML/body');
+      }
+      return;
+    }
+    if (script.body) {
+      editor.tryParseHTMLToBlocks(script.body).then(blocks => {
+        editor.replaceBlocks(editor.document, blocks);
+      }).catch(() => {
+        // As a last resort, reconstruct simple blocks from content/title
+        const title = script.title || 'Untitled Script';
+        const text = script.content || '';
+        const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+        const newBlocks: any[] = [
+          { type: 'heading', props: { level: 1 }, content: title },
+          ...paras.map(p => ({ type: 'paragraph', content: p }))
+        ];
+        editor.replaceBlocks(editor.document, newBlocks as any);
+      });
+      return;
+    }
+    // No body or blocks; try with content
+    if (script.content) {
+      const title = script.title || 'Untitled Script';
+      const paras = script.content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+      const newBlocks: any[] = [
+        { type: 'heading', props: { level: 1 }, content: title },
+        ...paras.map(p => ({ type: 'paragraph', content: p }))
+      ];
+      editor.replaceBlocks(editor.document, newBlocks as any);
+    }
+  }, [script, editor]);
+
   // Handle content changes
   const handleContentChange = useCallback(() => {
     setHasUnsavedChanges(true);
   }, []);
 
-  // Handle AI improvement
+  // Handle AI improvement: inspector -> (answer | editor)
   const handleAIImprovement = async () => {
-    if (!selectedText || !aiPrompt.trim()) return;
-    
+    if (!aiPrompt.trim()) return;
     setIsProcessingAI(true);
     setAiPromptDialog(false);
-    
     try {
-      const response = await fetch('/api/services/thinkforge/scripts/edit', {
+      // Gather current full script text for context
+      const fullText = await editor.blocksToMarkdownLossy(editor.document);
+      const scriptPayload = {
+        title: script?.title || 'Untitled Script',
+        content: fullText
+      };
+      const projectPayload = {
+        idea: selectedIdea?.idea,
+        purpose: (selectedIdea as any)?.purpose,
+        style: (selectedIdea as any)?.style,
+        format: (selectedIdea as any)?.format,
+        platform: (selectedIdea as any)?.platform,
+        tone: selectedIdea?.tone
+      };
+
+      // Build prompt for inspector, include selection if present
+      const prompt = selectedText
+        ? `Edit the following selection within the script:\n---\n${selectedText}\n---\nInstruction: ${aiPrompt}`
+        : aiPrompt;
+
+      const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: sessionId || 'current_session',
-          scriptDraft: selectedText,
-          editRequest: aiPrompt,
-          preferences: {
-            tone: selectedIdea.tone,
-            targetAudience: script?.targetAudience || 'General audience'
-          }
-        })
+        body: JSON.stringify({ prompt, script: scriptPayload, project: projectPayload })
       });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
+      const inspect = await inspectRes.json();
+
+      if (inspect?.action !== 'edit') {
+        // Not an edit; provide quick answer via alert for now
+        alert('This request was classified as an answer, not an edit. Please use chat mode for answers.');
+        return;
       }
-      
-      const data = await response.json();
-      
-      if (data.success && data.script?.body) {
-        // For now, show success message - we can implement block replacement later
-        alert('Text improved successfully! The updated content will be applied.');
-        handleContentChange();
-      } else {
-        throw new Error(data.error || 'Failed to improve text');
-      }
-    } catch (error) {
-      console.error('AI improvement failed:', error);
-      alert('Failed to improve text. Please try again.');
+
+      const instruction = selectedText
+        ? `Apply this change to the selected part:\nSelection:\n${selectedText}\nChange:\n${aiPrompt}`
+        : aiPrompt;
+
+      const editRes = await fetch('/api/services/thinkforge/script/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, script: scriptPayload, project: projectPayload })
+      });
+      if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
+      const edited = await editRes.json();
+
+      const newTitle: string = edited?.title || script?.title || 'Untitled Script';
+      const newContent: string = edited?.content || fullText;
+      // Build minimal blocks from returned text
+      const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+      const newBlocks: any[] = [
+        { type: 'heading', props: { level: 1 }, content: newTitle },
+        ...paras.map(p => ({ type: 'paragraph', content: p }))
+      ];
+      editor.replaceBlocks(editor.document, newBlocks as any);
+
+      // Persist to parent via onEditScript
+      const updatedScript = await convertBlocksToScript();
+      onEditScript(updatedScript);
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      console.error('AI improvement failed:', err);
+      alert('Failed to apply AI edit. Please try again.');
     } finally {
       setIsProcessingAI(false);
       setAiPrompt('');

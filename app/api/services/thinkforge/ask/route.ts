@@ -3,15 +3,19 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { auth } from '@clerk/nextjs/server';
 
-// Simple streaming proxy to monolith thinkforge ask endpoint
+// Streaming proxy to monolith thinkforge /ask endpoint with sessionId forwarding for chat persistence
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
   let prompt: string | undefined;
+  let sessionId: string | undefined;
+  let skipPersistUser: boolean | undefined;
   try {
     const body = await req.json();
     prompt = (body?.prompt ?? '').toString();
+    if (body?.sessionId) sessionId = String(body.sessionId);
+    if (typeof body?.skipPersistUser === 'boolean') skipPersistUser = body.skipPersistUser;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -26,6 +30,7 @@ export async function POST(req: Request) {
   }
 
   try {
+  const upstreamBody = { prompt, sessionId, userId, skipPersistUser };
     const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/ask`, {
       method: 'POST',
       cache: 'no-store',
@@ -35,7 +40,7 @@ export async function POST(req: Request) {
         // Ask upstream to avoid compression that can buffer
         'Accept-Encoding': 'identity'
       },
-      body: JSON.stringify({ prompt })
+      body: JSON.stringify(upstreamBody)
     });
 
     if (!upstream.ok || !upstream.body) {

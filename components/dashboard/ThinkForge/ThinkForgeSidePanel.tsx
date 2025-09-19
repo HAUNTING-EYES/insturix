@@ -40,7 +40,11 @@ export default function ThinkForgeSidePanel({ loadSession }: ThinkForgeSidePanel
     },
     enabled: !!user?.id,
     staleTime: 5 * 60 * 1000,
-    refetchInterval: 30 * 1000, // Refetch every 30 seconds
+    // Avoid aggressive refetches that can cause loops on focus/reconnect
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    // Optional: poll occasionally; can be tuned or disabled entirely
+    refetchInterval: 60 * 1000,
   });
 
   // Merge and sync local and remote sessions
@@ -55,11 +59,12 @@ export default function ThinkForgeSidePanel({ loadSession }: ThinkForgeSidePanel
       let mergedSessions = [...localSessions];
       
       // Merge with remote sessions if available
-      if (remoteSessions?.sessions) {
+      const rs = remoteSessions as unknown as { sessions?: any[] } | undefined;
+      if (rs?.sessions) {
         const remoteSessionsMap = new Map<string, SessionMetadata>();
         
         // Convert remote sessions to our format
-        remoteSessions.sessions.forEach((remoteSession) => {
+        rs.sessions.forEach((remoteSession: any) => {
           const prompt = remoteSession.state?.prompt ?? '';
           let tone = remoteSession.state?.selectedIdea?.tone as string | undefined;
           

@@ -1,5 +1,5 @@
 "use client";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { BookOpen } from "lucide-react";
 import clsx from "clsx";
@@ -11,6 +11,7 @@ import SelectedIdeaDisplay from "@/components/dashboard/ThinkForge/SelectedIdeaD
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { Script } from "@/app/dashboard/thinkforge/types";
+import { useThinkForgeClient, ScriptModel } from "./hooks/useThinkForgeClient";
 
 const hats = ["white","red","black","yellow","green","blue"] as const;
 const skeletonIdeas = (prompt: string): IdeaCardData[] => {
@@ -40,6 +41,9 @@ export default function ThinkForgeLanding() {
 	const [phase, setPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED' | 'SCRIPT'>('PROMPT');
 	const [script, setScript] = useState<Script | null>(null);
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
+
+  // Hook: hydration, autosave, persistence
+  const tf = useThinkForgeClient();
 
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -116,6 +120,65 @@ export default function ThinkForgeLanding() {
 		}
 	}, [phase, selectedIdea]);
 
+	// Hydrate backend session when entering SCRIPT phase
+	const hasHydratedRef = useRef(false);
+	useEffect(() => {
+		if (phase !== 'SCRIPT' || !selectedIdea) return;
+		// Only hydrate once per entry into script phase until idea changes
+		if (hasHydratedRef.current) return;
+		hasHydratedRef.current = true;
+		void tf.hydrate({ projectMeta: {
+			idea: selectedIdea.idea,
+			purpose: (selectedIdea as any)?.purpose,
+			style: (selectedIdea as any)?.style,
+			format: (selectedIdea as any)?.format,
+			platform: (selectedIdea as any)?.platform,
+			tone: selectedIdea.tone
+		}});
+	}, [phase, selectedIdea]);
+
+	// Reset hydrate flag if idea changes or we exit script
+	useEffect(() => { hasHydratedRef.current = false; }, [selectedIdea?.id, phase !== 'SCRIPT']);
+
+	// Map between hook ScriptModel and UI Script
+	const modelToScript = useCallback((m: ScriptModel | null): Script | null => {
+		if (!m) return null;
+		const title = m.title || 'Untitled Script';
+		const content = m.content || '';
+		const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+		const htmlBody = [`<h1>${title}</h1>`, ...paras.map(p => `<p>${p}</p>`)].join('\n');
+		return {
+			title,
+			content,
+			body: htmlBody,
+			blocks: (m.blocks as any) || undefined,
+			sections: [], tips: [], duration: undefined, targetAudience: undefined, tone: undefined
+		} as Script;
+	}, []);
+
+	const scriptFromHook: Script | null = useMemo(() => modelToScript(tf.script), [tf.script, modelToScript]);
+
+	const scriptToModel = useCallback((s: Script): ScriptModel => ({
+		title: s.title,
+		content: s.content || '',
+		blocks: (s as any).blocks || null,
+	}), []);
+
+	// Handlers using autosave hook
+	const handleApplyEdit = useCallback((updated: Script) => {
+		tf.setScriptAndQueueSave(scriptToModel(updated));
+	}, [tf, scriptToModel]);
+
+	const handleUpdateScript = useCallback((updated: Script | null) => {
+		if (!updated) return;
+		tf.setScriptAndQueueSave(scriptToModel(updated));
+	}, [tf, scriptToModel]);
+
+	const handleRunEdit = useCallback(async (instruction: string) => {
+		const res = await tf.runEdit(instruction);
+		// tf.runEdit already updates the script via setScriptAndQueueSave internally
+		return res;
+	}, [tf]);
 	const handleRenameSession = (id: string, name: string) => {
 		setSessions(prev => prev.map(s => s.id === id ? { ...s, name, lastEdited: Date.now() } : s));
 	};
@@ -134,9 +197,7 @@ export default function ThinkForgeLanding() {
 				open={libraryOpen}
 				onClose={() => setLibraryOpen(false)}
 				panelRef={panelRef}
-				sessions={sessions}
-				onRenameSession={handleRenameSession}
-				onDeleteSession={handleDeleteSession}
+				// When sessions prop is omitted, component fetches via hook
 			/>
 			<AnimatePresence>
 				{libraryOpen && (
@@ -204,7 +265,7 @@ export default function ThinkForgeLanding() {
 			{phase === 'SCRIPT' && selectedIdea && (
 				<div className="relative mx-auto w-full max-w-[1600px] px-4 pb-10 pt-10">
 					<div className="flex flex-col gap-6 lg:flex-row">
-						<ChatPanel selectedIdea={{
+												<ChatPanel selectedIdea={{
 							id: Number(selectedIdea.id),
 							idea: selectedIdea.idea,
 							purpose: selectedIdea.purpose,
@@ -212,7 +273,13 @@ export default function ThinkForgeLanding() {
 							format: selectedIdea.format,
 							platform: selectedIdea.platform,
 							tone: selectedIdea.tone as any
-						}} />
+												}}
+												script={scriptFromHook}
+												onApplyEdit={handleApplyEdit}
+												// Prefer running edits via backend + persistence
+												onRunEdit={handleRunEdit}
+												sessionId={tf.sessionId}
+												/>
 						<ScriptPanel
 							selectedIdea={{
 								id: Number(selectedIdea.id),
@@ -223,8 +290,8 @@ export default function ThinkForgeLanding() {
 								platform: selectedIdea.platform,
 								tone: selectedIdea.tone as any
 							}}
-							script={script}
-							onUpdate={(updated) => setScript(updated)}
+								script={scriptFromHook}
+								onUpdate={handleUpdateScript}
 							onBack={() => setPhase('SELECTED')}
 						/>
 					</div>
