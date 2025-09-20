@@ -3,13 +3,37 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowRight, Users } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
+import ICS25Popup from "@/components/ICS25Popup";
+import ICS25Banner from "@/components/ICS25Banner";
 
 export default function HeroSection() {
   const [isHovering, setIsHovering] = useState(false);
+  const [showICS25Popup, setShowICS25Popup] = useState(false);
+
+  // ICS25 Popup logic
+  useEffect(() => {
+    // Check if user has seen the popup before
+    const hasSeenPopup = localStorage.getItem('ics25-popup-seen');
+    
+    if (!hasSeenPopup) {
+      // Show popup after a shorter delay
+      const timer = setTimeout(() => {
+        setShowICS25Popup(true);
+      }, 800); // Reduced from 2000ms to 800ms
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleCloseICS25Popup = () => {
+    setShowICS25Popup(false);
+    // Mark as seen for this session
+    localStorage.setItem('ics25-popup-seen', 'true');
+  };
 
   // Fetch user count using TanStack React Query
   // const { data: userCountData, isLoading } = useQuery({
@@ -207,6 +231,15 @@ export default function HeroSection() {
           </motion.div>
         </div>
       </div>
+
+      {/* ICS25 Banner */}
+      <ICS25Banner />
+      
+      {/* ICS25 Popup */}
+      <ICS25Popup 
+        isOpen={showICS25Popup} 
+        onClose={handleCloseICS25Popup} 
+      />
     </div>
   );
 }
