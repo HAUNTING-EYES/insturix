@@ -42,7 +42,7 @@ export default function ICS25ClientContent() {
               className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-white/80 dark:bg-zinc-800/80 backdrop-blur-sm border border-zinc-200 dark:border-zinc-700 mb-8"
             >
               <Calendar className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-              <span className="text-zinc-700 dark:text-zinc-300 font-semibold">15 November 2025</span>
+              <span className="text-zinc-700 dark:text-zinc-300 font-semibold">Mid November (TBA)</span>
             </motion.div>
 
             <motion.h1

@@ -79,7 +79,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 mb-6"
               >
                 <Calendar className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">15 November 2025</span>
+                <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">Mid November (TBA)</span>
               </motion.div>
 
               {/* Main Title */}
