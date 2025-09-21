@@ -226,9 +226,9 @@ export default function ThinkForgeLanding() {
 		tf.setScriptAndQueueSave(scriptToModel(updated));
 	}, [tf, scriptToModel]);
 
-	const handleRunEdit = useCallback(async (instruction: string) => {
-		const res = await tf.runEdit(instruction);
-		// tf.runEdit already updates the script via setScriptAndQueueSave internally
+		const handleRunEdit = useCallback(async (instruction: string, selection?: string) => {
+		// Prefer block-targeted edits with optional selection mapping
+		const res = await tf.runEditBlocks(instruction, selection);
 		return res;
 	}, [tf]);
 	const handleRenameSession = (id: string, name: string) => {
@@ -391,7 +391,7 @@ export default function ThinkForgeLanding() {
 													sessionId={pendingSessionId || tf.sessionId}
 													initialMessages={Array.isArray(tf.chat) ? tf.chat : undefined}
 						/>
-						<ScriptPanel
+												<ScriptPanel
 							selectedIdea={{
 								id: Number(selectedIdea.id),
 								idea: selectedIdea.idea,
@@ -402,6 +402,7 @@ export default function ThinkForgeLanding() {
 								tone: selectedIdea.tone as any
 							}}
 							script={scriptFromHook}
+													sessionId={pendingSessionId || tf.sessionId}
 							onUpdate={handleUpdateScript}
 							onBack={async () => {
 								// Close the active session and return to ThinkForge home (prompt)

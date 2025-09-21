@@ -8,14 +8,16 @@ interface ScriptPanelProps {
   script: Script | null;
   onUpdate: (s: Script | null) => void;
   onBack: () => void;
+  sessionId?: string | null;
 }
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId }) => {
   return (
     <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4">
       <ScriptEditor
         script={script}
         selectedIdea={selectedIdea}
+        sessionId={sessionId || undefined}
         onBackToChat={onBack}
         onEditScript={onUpdate}
         onExportScript={()=>{}}

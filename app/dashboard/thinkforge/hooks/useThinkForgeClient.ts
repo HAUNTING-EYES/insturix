@@ -212,6 +212,33 @@ export function useThinkForgeClient() {
     return data;
   }, [script, sessionId, setScriptAndQueueSave]);
 
+  const runEditBlocks = useCallback(async (instruction: string, selection?: string, indices?: number[]) => {
+    const payload = {
+      instruction,
+      script,
+      sessionId,
+      // Prefer selection; backend maps to indices; indices optional override
+      selection: selection && selection.trim().length > 0 ? selection : undefined,
+      indices: Array.isArray(indices) && indices.length > 0 ? indices : undefined,
+    } as any;
+    const res = await fetch("/api/services/thinkforge/script/edit-blocks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(`Edit-blocks failed: ${res.status}`);
+    const data = await res.json();
+    const updated: ScriptModel = {
+      title: data?.title ?? script?.title ?? null,
+      outline: data?.outline ?? script?.outline ?? null,
+      content: data?.content ?? script?.content ?? null,
+      blocks: data?.blocks ?? script?.blocks ?? null,
+    };
+    setScriptAndQueueSave(updated);
+    return data;
+  }, [script, sessionId, setScriptAndQueueSave]);
+
   const refreshChat = useCallback(async () => {
     if (!sessionId) return [] as any[];
     const res = await fetch(`/api/services/thinkforge/chat/list?sessionId=${encodeURIComponent(sessionId)}&limit=100`, { cache: "no-store" });
@@ -267,6 +294,7 @@ export function useThinkForgeClient() {
     isHydrating, isSaving, saveError,
     // actions
     hydrate, setScriptAndQueueSave, autosave, runEdit, refreshChat,
+  runEditBlocks,
     getSessionsCount, getSessionsList, listChats, closeSession,
   } as const;
 }

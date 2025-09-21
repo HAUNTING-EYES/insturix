@@ -12,7 +12,7 @@ interface ChatPanelProps {
   selectedIdea: Idea;
   script: Script | null;
   onApplyEdit: (updated: Script) => void;
-  onRunEdit?: (instruction: string) => Promise<any>;
+  onRunEdit?: (instruction: string, selection?: string) => Promise<any>;
   sessionId?: string | null;
   // Seed messages from hydrate to avoid empty chat while list loads
   initialMessages?: any[];
@@ -40,129 +40,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
   const [loadedCount, setLoadedCount] = useState(0);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+  const [pendingSelection, setPendingSelection] = useState<string | null>(null);
 
-  // Compose a rich HTML body from various content formats (markdown-ish, JSON-ish blocks, plain text)
-  const smartComposeHtml = useCallback((title: string, content: string, existingHtml?: string): string => {
-    const escapeHtml = (s: string) => s
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-
-    if (existingHtml && existingHtml.trim().length > 0) return existingHtml;
+  // Minimal HTML composer for export/preview fallbacks only (favor blocks elsewhere)
+  const composeHtml = useCallback((title: string, content: string, existingHtml?: string): string => {
+    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (existingHtml && existingHtml.trim()) return existingHtml;
     const head = `<h1>${escapeHtml(title || 'Untitled')}</h1>`;
-    if (!content || content.trim().length === 0) return head;
-
-    // 1) Try to parse as JSON/JSON-ish first
-    const tryJsonParse = (raw: string): any | null => {
-      try { return JSON.parse(raw); } catch {}
-      try {
-        let s = raw.trim();
-        // Convert single quotes to double quotes conservatively
-        s = s.replace(/'(\.|[^'])*'/g, (m) => '"' + m.slice(1, -1).replace(/\\"/g, '"').replace(/\"/g, '"') + '"');
-        // Quote unquoted keys: { type: "paragraph" } => { "type": "paragraph" }
-        s = s.replace(/([\{,\s])(\w+)\s*:/g, '$1"$2":');
-        // Remove trailing commas
-        s = s.replace(/,\s*([}\]])/g, '$1');
-        return JSON.parse(s);
-      } catch {}
-      return null;
-    };
-
-    const blocksToHtml = (blocks: any): string => {
-      const out: string[] = [];
-      const pushText = (txt?: string) => { if (txt && txt.trim()) out.push(`<p>${escapeHtml(txt.trim())}</p>`); };
-      const renderBlock = (b: any) => {
-        if (!b) return;
-        const t = (b.type || b.kind || '').toLowerCase();
-        const text = b.text ?? b.content ?? (typeof b.children === 'string' ? b.children : undefined);
-        if (t === 'heading' || t === 'header' || /^h[1-6]$/.test(t)) {
-          const lvl = Math.min(6, Math.max(1, Number(b.level) || (t.startsWith('h') ? Number(t.slice(1)) || 2 : 2)));
-          const titleText = text || (Array.isArray(b.children) ? b.children.map((c: any)=> c.text || c.content || '').join(' ') : '');
-          out.push(`<h${lvl}>${escapeHtml(String(titleText || '').trim() || title)}</h${lvl}>`);
-          return;
-        }
-        if (t === 'list' || t === 'bullet_list' || t === 'ordered_list' || t === 'ul' || t === 'ol') {
-          const ordered = t === 'ordered_list' || t === 'ol' || b.ordered === true;
-          const items = (b.items || b.children || []) as any[];
-          const lis = items.map((it, i) => `<li>${escapeHtml((it.text || it.content || (Array.isArray(it.children)? it.children.map((c:any)=> c.text || c.content || '').join(' ') : '') || '').toString())}</li>`).join('');
-          out.push(ordered ? `<ol>${lis}</ol>` : `<ul>${lis}</ul>`);
-          return;
-        }
-        if (t === 'code' || t === 'code_block' || t === 'pre') {
-          const code = (text || (Array.isArray(b.children)? b.children.map((c:any)=> c.text || c.content || '').join('\n') : '') || '').toString();
-          out.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
-          return;
-        }
-        if (t === 'blockquote' || t === 'quote') {
-          const q = (text || (Array.isArray(b.children)? b.children.map((c:any)=> c.text || c.content || '').join(' ') : '') || '').toString();
-          out.push(`<blockquote>${escapeHtml(q)}</blockquote>`);
-          return;
-        }
-        // paragraph or unknown -> paragraph
-        const para = (text || (Array.isArray(b.children)? b.children.map((c:any)=> c.text || c.content || '').join(' ') : '') || '').toString();
-        pushText(para);
-      };
-
-      if (Array.isArray(blocks)) {
-        blocks.forEach(renderBlock);
-      } else if (blocks && typeof blocks === 'object') {
-        if (Array.isArray(blocks.blocks)) blocks.blocks.forEach(renderBlock);
-        else if (Array.isArray(blocks.children)) blocks.children.forEach(renderBlock);
-        else renderBlock(blocks);
-      } else {
-        pushText(String(blocks || ''));
-      }
-      return out.join('\n');
-    };
-
-    const parsed = tryJsonParse(content);
-    if (parsed) {
-      return [head, blocksToHtml(parsed)].join('\n');
-    }
-
-    // 2) Not JSON: handle markdown-ish headings, lists, and code fences
-    // Split into segments by code fences
-    const segments: { type: 'code' | 'text'; lang?: string; body: string }[] = [];
-    const fenceRegex = /```(\w+)?\n([\s\S]*?)```/g;
-    let lastIdx = 0; let m: RegExpExecArray | null;
-    while ((m = fenceRegex.exec(content)) !== null) {
-      if (m.index > lastIdx) segments.push({ type: 'text', body: content.slice(lastIdx, m.index) });
-      segments.push({ type: 'code', lang: m[1], body: m[2] });
-      lastIdx = m.index + m[0].length;
-    }
-    if (lastIdx < content.length) segments.push({ type: 'text', body: content.slice(lastIdx) });
-
-    const htmlParts: string[] = [head];
-    segments.forEach((seg) => {
-      if (seg.type === 'code') {
-        htmlParts.push(`<pre><code>${escapeHtml(seg.body)}</code></pre>`);
-        return;
-      }
-      const lines = seg.body.split(/\r?\n/);
-      let listBuf: string[] = []; let ordered = false;
-      const flushList = () => {
-        if (listBuf.length === 0) return;
-        const items = listBuf.map(li => `<li>${escapeHtml(li)}</li>`).join('');
-        htmlParts.push(ordered ? `<ol>${items}</ol>` : `<ul>${items}</ul>`);
-        listBuf = []; ordered = false;
-      };
-      for (const ln of lines) {
-        const t = ln.trim();
-        if (!t) { flushList(); continue; }
-        if (/^\d+\.\s+/.test(t)) { ordered = true; listBuf.push(t.replace(/^\d+\.\s+/, '')); continue; }
-        if (/^[-*•]\s+/.test(t)) { if (!ordered) ordered = false; listBuf.push(t.replace(/^[-*•]\s+/, '')); continue; }
-        flushList();
-        if (/^#{1,6}\s+/.test(t)) {
-          const lvl = Math.min(6, Math.max(1, t.match(/^#+/g)?.[0].length || 1));
-          const textOnly = t.replace(/^#{1,6}\s+/, '');
-          htmlParts.push(`<h${lvl}>${escapeHtml(textOnly)}</h${lvl}>`);
-        } else {
-          htmlParts.push(`<p>${escapeHtml(t)}</p>`);
-        }
-      }
-      flushList();
-    });
-    return htmlParts.join('\n');
+    if (!content || !content.trim()) return head;
+    const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    return [head, ...paras.map(p => `<p>${escapeHtml(p)}</p>`)].join('\n');
   }, []);
 
   // Initial load: use provided initialMessages if available, else fetch last 10 chats
@@ -215,6 +102,30 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
     void loadInitial();
     return () => { cancelled = true; };
   }, [sessionId, selectedIdea?.idea, initialMessages]);
+
+  // Receive selection from ScriptEditor and prefill chat input for edit
+  useEffect(() => {
+    const handler = (e: any) => {
+      const text = (e?.detail?.text || '').toString();
+      if (!text) return;
+      setPendingSelection(text);
+      const template = `Selected:
+---
+${text}
+---
+Describe the change you want:`;
+      setChatMode('edit');
+      setChatInput(template);
+      // focus textarea if possible
+      setTimeout(() => {
+        const el = document.querySelector('textarea[placeholder*="Describe the edit"], textarea') as HTMLTextAreaElement | null;
+        el?.focus();
+        el?.setSelectionRange(template.length, template.length);
+      }, 0);
+    };
+    window.addEventListener('tf-selection-to-chat' as any, handler);
+    return () => window.removeEventListener('tf-selection-to-chat' as any, handler);
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -449,23 +360,26 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
             platform: (selectedIdea as any)?.platform,
             tone: selectedIdea?.tone
           };
-          const enrichedRunEdit = buildInstructionWithContext(text);
+          // If a selection was sent from the editor, keep it in the instruction context
+          const enrichedRunEdit = pendingSelection ? `Apply this change ONLY to the selected text:
+Selected:
+---
+${pendingSelection}
+---
+Change:
+${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithContext(text);
           // Immediately proceed to run the edit; placeholder ensures the user sees progress
 
           // Run the actual edit via provided handler and use its returned data to apply immediately
           try {
-            const result = await onRunEdit(enrichedRunEdit);
+            const result = await onRunEdit(enrichedRunEdit, pendingSelection || undefined);
             if (result && typeof onApplyEdit === 'function') {
               const newTitle: string = result?.title || script?.title || 'Untitled Script';
               const newContent: string = result?.content || script?.content || '';
-              const htmlBody = smartComposeHtml(newTitle, newContent, result?.html);
-              onApplyEdit({
-                ...(script || {}),
-                title: newTitle,
-                content: newContent,
-                body: htmlBody,
-                blocks: result?.blocks || undefined,
-              } as any);
+              const htmlBody = composeHtml(newTitle, newContent, result?.html);
+              // Prefer server-returned blocks directly
+              onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: result?.blocks || undefined } as any);
+              setPendingSelection(null);
             }
           } catch {}
           // Start summary streaming into the same bubble
@@ -559,8 +473,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
         // Prepare payloads from current script and selected idea
         const scriptPayload = {
           title: script?.title || 'Untitled Script',
-          content: script?.content || ''
-        };
+          content: script?.content || '',
+          // Include blocks so server can resolve indices when selection provided
+          blocks: (script as any)?.blocks || undefined,
+        } as any;
         const projectPayload = {
           idea: selectedIdea?.idea,
           purpose: (selectedIdea as any)?.purpose,
@@ -578,7 +494,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
         const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: enrichedLocal, script: scriptPayload, project: projectPayload, sessionId })
+          body: JSON.stringify({
+            prompt: pendingSelection ? `Edit the selection only.\nSelection:\n${pendingSelection}\nInstruction:\n${text}` : enrichedLocal,
+            script: scriptPayload, project: projectPayload, sessionId
+          })
         });
         if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
         const inspect = await inspectRes.json();
@@ -588,28 +507,34 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
           setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: assistantText, streaming: false } : m));
           return;
         }
-        // 3) Apply the edit
-        const editRes = await fetch('/api/services/thinkforge/script/edit', {
+        // 3) Apply the edit using block-targeted endpoint
+        const editRes = await fetch('/api/services/thinkforge/script/edit-blocks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ instruction: enrichedLocal, script: scriptPayload, project: projectPayload, sessionId })
+          body: JSON.stringify({
+            instruction: pendingSelection ? `Replace only the selected text with your improved version.\nSelected:\n${pendingSelection}\nChange:\n${text}` : enrichedLocal,
+            script: scriptPayload, project: projectPayload, sessionId, selection: pendingSelection || undefined
+          })
         });
         if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
-  const edited = await editRes.json();
-  const newTitle: string = edited?.title || scriptPayload.title;
-  const newContent: string = edited?.content || scriptPayload.content || '';
-  const newHtml: string | undefined = edited?.html;
-        // Build a rich HTML body so the editor can load it; ScriptEditor will replace blocks accordingly
-        const htmlBody = smartComposeHtml(newTitle, newContent, newHtml);
-        const updated: Script = {
-          ...(script || {}),
-          title: newTitle,
-          content: newContent,
-          body: htmlBody,
-          // Drop blocks so ScriptEditor re-parses HTML and updates the live editor
-          blocks: undefined
-        } as Script;
-        onApplyEdit(updated);
+        const edited = await editRes.json();
+        const newTitle: string = edited?.title || scriptPayload.title;
+        let appliedAfterContent: string = scriptPayload.content || '';
+        const serverBlocks: any[] | undefined = Array.isArray(edited?.blocks) ? edited.blocks : undefined;
+        // Prefer applying server-returned blocks directly
+        if (serverBlocks && serverBlocks.length > 0) {
+          const combinedContent: string = (edited?.content || scriptPayload.content || '').toString();
+          const htmlBody = composeHtml(newTitle, combinedContent, edited?.html);
+          onApplyEdit({ ...(script || {}), title: newTitle, content: combinedContent, body: htmlBody, blocks: serverBlocks } as any);
+          appliedAfterContent = combinedContent;
+        } else {
+          // Fallback to content replacement
+          const newContent: string = (edited?.content || scriptPayload.content || '').toString();
+          const htmlBody = composeHtml(newTitle, newContent, edited?.html);
+          onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: undefined } as any);
+          appliedAfterContent = newContent;
+        }
+        setPendingSelection(null);
         // 4) Stream a concise summary into the same bubble
         setIsStreaming(true);
         setStreamingAssistantId(thinkingId);
@@ -622,7 +547,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
             body: JSON.stringify({
               instruction: enrichedLocal,
               scriptBefore: { title: scriptPayload.title, content: scriptPayload.content || '' },
-              scriptAfter: { title: newTitle, content: newContent },
+              scriptAfter: { title: newTitle, content: appliedAfterContent },
               project: { idea: selectedIdea?.idea, platform: (selectedIdea as any)?.platform, tone: selectedIdea?.tone, style: (selectedIdea as any)?.style, format: (selectedIdea as any)?.format, purpose: (selectedIdea as any)?.purpose },
               sessionId
             }),
@@ -674,7 +599,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
             // Fallback to a computed single-line summary
             const oldTitle = scriptPayload.title?.trim() || '';
             const oldText = scriptPayload.content?.trim() || '';
-            const newText = newContent.trim();
+            const newText = appliedAfterContent.trim();
             const oldWords = oldText.split(/\s+/).filter(Boolean).length;
             const newWords = newText.split(/\s+/).filter(Boolean).length;
             const delta = newWords - oldWords;
@@ -749,6 +674,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
 
   // Rich formatting renderer
   const renderMessage = (text: string) => {
+    // If the entire message is JSON, pretty print it as a code block
+    const whole = (text || '').trim();
+    if ((whole.startsWith('{') && whole.endsWith('}')) || (whole.startsWith('[') && whole.endsWith(']'))) {
+      try {
+        const obj = JSON.parse(whole);
+        return (
+          <pre className="mt-2 mb-2 rounded-lg bg-black/60 border border-white/10 p-2 overflow-x-auto text-[11px] leading-snug font-mono text-white/90">
+            <code>{JSON.stringify(obj, null, 2)}</code>
+          </pre>
+        );
+      } catch {}
+    }
     // Handle code blocks ``` ``` first
     interface Segment { type: 'code' | 'text'; content: string }
     const segments: Segment[] = [];
