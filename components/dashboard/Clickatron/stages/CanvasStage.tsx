@@ -253,13 +253,13 @@ useEffect(() => {
     modelId?: string
   ) => {
     if (!canvas || !task?._id) return;
-
+  
     // Check if the active variation is blank
     const isBlank = activeVariation?.status === "blank";
-
+  
     // Generate idempotency key to prevent duplicate requests
     const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-
+  
     try {
       // Use the passed modelId, or fall back to the active variation's modelId, or use default
       const selectedModelId = modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
@@ -282,7 +282,7 @@ useEffect(() => {
       referenceImages?.forEach((file, index) => {
         formData.append(`referenceImages`, file);
       });
-
+  
       const response = await fetch(
         `/api/services/clickatron/session/${task._id}/variation`,
         {
@@ -293,14 +293,14 @@ useEffect(() => {
           body: formData,
         }
       );
-
+  
       if (!response.ok) {
         throw new Error("Failed to generate variation");
       }
-
+  
       const data = await response.json();
       console.log("Variation generation queued:", data);
-
+  
       // If the active variation was blank, we want to update it instead of creating a new one
       // The backend will handle this, so we just need to update the active variation ID
       if (isBlank && activeVariationId) {
@@ -308,11 +308,35 @@ useEffect(() => {
         // to the same ID as the blank variation
         setActiveVariationId(activeVariationId);
       } else {
-        // Immediately set the new variation as active to prevent race conditions
-        // The `loadSession` call will update its state in the background
+        // For non-blank (edits or new from completed), add optimistic local variation with placeholder
+        const now = new Date();
+        const parentVariation = activeVariation; // For edits, use current active as parent
+        const isEdit = !!activeVariationId && activeVariation?.status === 'completed';
+        
+        const optimisticVariation = {
+          id: data.variationId,
+          prompt: prompt,
+          status: 'generating' as const,
+          imageRef: isEdit ? parentVariation?.imageRef || '' : '', // Placeholder: parent image for edits only
+          aspectRatio: aspectRatio,
+          fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+          createdAt: now,
+          updatedAt: now,
+          parentVariationId: activeVariationId || undefined,
+          modelId: selectedModelId,
+          metadata: {},
+        };
+  
+        // Add to local canvas immediately for instant UI
+        const newCanvas = produce(canvas, (draft) => {
+          draft.variations.unshift(optimisticVariation);
+        });
+        updateCanvas(newCanvas);
+  
+        // Immediately set the new variation as active
         setActiveVariationId(data.variationId);
       }
-
+  
       // Start polling for completion, which will refresh the session state
       // Use the new updateVariation function in the store
       await pollVariationCompletion(
@@ -326,7 +350,7 @@ useEffect(() => {
           window.dispatchEvent(new CustomEvent('clickatron-usage-updated'));
         }
       );
-
+  
     } catch (error) {
       console.error("Error generating variation:", error);
       // Handle error appropriately in UI
@@ -381,32 +405,64 @@ useEffect(() => {
   );
 
   const handleDeleteVariation = useCallback(
-    (variationId: string) => {
-      if (!canvas) return;
-
-      const newCanvas = produce(canvas, (draft) => {
-        const variationIndex = draft.variations.findIndex(
-          (v) => v.id === variationId
-        );
-        if (variationIndex !== -1) {
-          draft.variations.splice(variationIndex, 1);
+    async (variationId: string) => {
+      if (!canvas || !task?._id) return;
+  
+      try {
+        const response = await fetch(`/api/services/clickatron/session/${task._id}/variation/${variationId}`, {
+          method: 'DELETE',
+        });
+  
+        if (!response.ok) {
+          throw new Error('Failed to delete variation');
         }
-      });
-
-      updateCanvas(newCanvas);
-
-      // If we deleted the active variation, select another one
-      if (activeVariationId === variationId) {
-        const remainingVariations = newCanvas.variations;
-        if (remainingVariations.length > 0) {
-          setActiveVariationId(remainingVariations[0].id);
-        } else {
-          // No variations left, set to null
-          setActiveVariationId(null);
+  
+        // Local update after successful API call
+        const newCanvas = produce(canvas, (draft) => {
+          const variationIndex = draft.variations.findIndex(
+            (v) => v.id === variationId
+          );
+          if (variationIndex !== -1) {
+            draft.variations.splice(variationIndex, 1);
+          }
+        });
+  
+        updateCanvas(newCanvas);
+  
+        // If we deleted the active variation, select another one
+        if (activeVariationId === variationId) {
+          const remainingVariations = newCanvas.variations;
+          if (remainingVariations.length > 0) {
+            setActiveVariationId(remainingVariations[0].id);
+          } else {
+            // No variations left, set to null
+            setActiveVariationId(null);
+          }
+        }
+      } catch (error) {
+        console.error('Error deleting variation:', error);
+        // Optionally, still do local delete or show error toast
+        // For now, local delete to maintain optimistic UI
+        const newCanvas = produce(canvas, (draft) => {
+          const variationIndex = draft.variations.findIndex(
+            (v) => v.id === variationId
+          );
+          if (variationIndex !== -1) {
+            draft.variations.splice(variationIndex, 1);
+          }
+        });
+        updateCanvas(newCanvas);
+        if (activeVariationId === variationId) {
+          const remainingVariations = newCanvas.variations;
+          if (remainingVariations.length > 0) {
+            setActiveVariationId(remainingVariations[0].id);
+          } else {
+            setActiveVariationId(null);
+          }
         }
       }
     },
-    [canvas, activeVariationId] // Removed updateCanvas from deps
+    [canvas, activeVariationId, task?._id] // Removed updateCanvas from deps
   );
 
   const handleFinetuningChange = useCallback((

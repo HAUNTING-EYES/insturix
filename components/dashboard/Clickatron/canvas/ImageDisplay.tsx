@@ -307,7 +307,10 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     }
 
     const imageStyle: React.CSSProperties = {
-      filter: `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`,
+      filter: [
+        status === 'generating' && imageRef ? 'blur(8px)' : '',
+        `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`
+      ].filter(Boolean).join(' '),
     };
 
     return (
@@ -333,7 +336,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           >
             <img
               src={signedUrl}
-              alt={alt}
+              alt=""
               className={`${className} select-none`}
               style={imageStyle}
               draggable={false}
@@ -344,7 +347,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         <div className="w-full h-full flex items-center justify-center">
           <img
             src={signedUrl}
-            alt={alt}
+            alt=""
             className={`${className} select-none`}
             style={imageStyle}
             draggable={false}

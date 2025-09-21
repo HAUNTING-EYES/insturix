@@ -125,17 +125,42 @@ export class ClickatronGCSManager {
         message: 'GCS is not configured for image storage',
       } as JobError;
     }
-
+  
     try {
-      const file = bucket.file(gcsPath);
+      // Extract relative path from full GCS URL or signed URL
+      let relativePath = gcsPath;
+  
+      // Remove query parameters first
+      if (relativePath.includes('?')) {
+        relativePath = relativePath.split('?')[0];
+      }
+  
+      // If it's a full HTTPS URL, extract the path after the bucket
+      if (relativePath.startsWith(`https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/`)) {
+        relativePath = relativePath.replace(`https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/`, '');
+      } else if (relativePath.startsWith('https://storage.googleapis.com/')) {
+        // General case: remove protocol and bucket part
+        const url = new URL(relativePath);
+        relativePath = url.pathname.substring(1); // Remove leading '/'
+      }
+  
+      console.log('Deleting GCS file with relative path:', relativePath);
+  
+      const file = bucket.file(relativePath);
       await file.delete();
+      console.log(`Successfully deleted GCS file: ${relativePath}`);
     } catch (error) {
       console.error('Failed to delete image from GCS:', error);
-      throw {
-        code: 'GCS_DELETE_ERROR',
-        message: 'Failed to delete image',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      } as JobError;
+      // Log but don't throw if file doesn't exist (already deleted)
+      if (error instanceof Error && error.message.includes('No such object')) {
+        console.log('GCS file already deleted or not found:', gcsPath);
+      } else {
+        throw {
+          code: 'GCS_DELETE_ERROR',
+          message: 'Failed to delete image',
+          details: error instanceof Error ? error.message : 'Unknown error',
+        } as JobError;
+      }
     }
   }
 

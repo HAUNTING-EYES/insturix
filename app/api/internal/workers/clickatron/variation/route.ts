@@ -138,8 +138,8 @@ async function handler(req: Request) {
     console.log('Worker: Found variation:', variation);
     
     if (!variation) {
-      console.error('Worker: Variation not found');
-      await failJob(jobId, { code: 'VARIATION_NOT_FOUND', message: 'Variation not found in task' });
+      console.error('Worker: Variation not found - likely deleted');
+      await failJob(jobId, { code: 'VARIATION_DELETED', message: 'Variation was deleted before processing' });
       return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
     }
 
