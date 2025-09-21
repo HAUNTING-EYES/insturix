@@ -1,6 +1,5 @@
 import { createLimitMiddleware, LimitConfig } from '../limitMiddleware';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
-import { ThinkForgeRTDBManager } from '@/app/api/services/thinkforge/utils/rtdb';
 import { auth } from '@clerk/nextjs/server';
 
 // ThinkForge service configuration - Weekly sessions for consistency with other services
@@ -42,22 +41,44 @@ export const checkThinkForgeLimits = async (requestData: any) => {
     const sessionId = requestData.sessionId || 'default_session';
     const action = requestData.type || requestData.taskType || 'chat';
 
-    // Use MongoDB-based limits only (backend no longer handles limits)
-    console.log('Using MongoDB-based limits for ThinkForge limit checking');
-    
+    // Determine limit type
+    const limitType = action === 'concurrent' ? 'maxConcurrentTasks' : 'maxSessions';
+
     try {
-      const limitType = action === 'concurrent' ? 'maxConcurrentTasks' : 'maxSessions';
+      // 1) Read plan limits
       const canUse = await ServiceUsageService.canUseService(session.userId, 'thinkforge', limitType);
+
+      // 2) Fetch actual sessions count from backend (server-to-server) and use it as the current usage (weekly)
+      let sessionsCount = 0;
+      try {
+        const base = process.env.MONOLITHIC_BACKEND_URL;
+        const secret = process.env.MONOLITHIC_BACKEND_SECRET;
+        if (base && secret) {
+          const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/sessions/count?userId=${encodeURIComponent(session.userId)}&period=weekly`, {
+            method: 'GET', cache: 'no-store', headers: {
+              'Authorization': `Bearer ${secret}`, 'Accept': 'application/json', 'Accept-Encoding': 'identity'
+            }
+          });
+          if (upstream.ok) {
+            const data = await upstream.json();
+            sessionsCount = typeof data?.count === 'number' ? data.count : 0;
+          }
+        }
+      } catch {}
+      const effectiveCurrent = (sessionsCount ?? 0) > 0 ? sessionsCount : canUse.currentUsage;
+      const maxAllowed = canUse.maxUsage;
+      const remaining = maxAllowed === -1 ? -1 : Math.max(0, maxAllowed - effectiveCurrent);
+      const hasAccess = canUse.isUnlimited || remaining > 0;
       
-      if (canUse.hasAccess) {
+      if (hasAccess) {
         return {
           success: true,
           hasAccess: true,
           limitInfo: {
             serviceLimits: {
-              current_usage: canUse.currentUsage,
-              limit: canUse.maxUsage,
-              remaining: canUse.remaining,
+              current_usage: effectiveCurrent,
+              limit: maxAllowed,
+              remaining: remaining,
               reset_period: canUse.resetPeriod,
               is_unlimited: canUse.isUnlimited
             },
@@ -75,14 +96,14 @@ export const checkThinkForgeLimits = async (requestData: any) => {
         if (canUse.isUnlimited) {
           errorMessage = 'Service temporarily unavailable';
         } else {
-          errorMessage = `${limitDisplayName} limit exceeded. You have used ${canUse.currentUsage} of ${canUse.maxUsage} allowed ${isSessionsLimit ? 'sessions this week' : 'concurrent tasks'}. ${isSessionsLimit ? 'Your limit will reset weekly.' : 'Wait for current tasks to complete.'}`;
+          errorMessage = `${limitDisplayName} limit exceeded. You have used ${effectiveCurrent} of ${maxAllowed} allowed ${isSessionsLimit ? 'sessions this week' : 'concurrent tasks'}. ${isSessionsLimit ? 'Your limit will reset weekly.' : 'Wait for current tasks to complete.'}`;
         }
         
         console.warn(`ThinkForge service limit exceeded for user:`, {
           limitType,
-          currentUsage: canUse.currentUsage,
-          maxUsage: canUse.maxUsage,
-          remaining: canUse.remaining,
+          currentUsage: effectiveCurrent,
+          maxUsage: maxAllowed,
+          remaining: remaining,
           resetPeriod: canUse.resetPeriod,
           isUnlimited: canUse.isUnlimited
         });
@@ -96,9 +117,9 @@ export const checkThinkForgeLimits = async (requestData: any) => {
             limitInfo: {
               blockingReason: 'service_limit_exceeded',
               serviceLimits: {
-                current_usage: canUse.currentUsage,
-                limit: canUse.maxUsage,
-                remaining: canUse.remaining,
+                current_usage: effectiveCurrent,
+                limit: maxAllowed,
+                remaining: remaining,
                 reset_period: canUse.resetPeriod,
                 is_unlimited: canUse.isUnlimited
               },

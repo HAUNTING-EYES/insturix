@@ -128,14 +128,11 @@ export const FeatureUsageOverview: React.FC<{ initialData: ServiceUsageData; isL
     try {
       setLoading(true);
       setError(null);
-      
-      const response = await fetch('/api/user/feature-usage'); // This is a fallback/refresh mechanism
+      const response = await fetch('/api/user/feature-usage', { cache: 'no-store' });
       const result = await response.json();
-
       if (!response.ok) {
         throw new Error(result.error || 'Failed to fetch service usage');
       }
-
       setServiceUsage(result.data || {});
     } catch (err) {
       console.error('Error fetching service usage:', err);

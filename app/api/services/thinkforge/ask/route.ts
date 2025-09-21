@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { auth } from '@clerk/nextjs/server';
+import { getUserData } from '@/lib/services/getUserData';
 
 // Streaming proxy to monolith thinkforge /ask endpoint with sessionId forwarding for chat persistence
 export async function POST(req: Request) {
@@ -30,7 +31,9 @@ export async function POST(req: Request) {
   }
 
   try {
-  const upstreamBody = { prompt, sessionId, userId, skipPersistUser };
+  const user = await getUserData();
+  const planName = (user?.currentPlan?.name || 'Free');
+  const upstreamBody = { prompt, sessionId, userId, skipPersistUser, planName };
     const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/ask`, {
       method: 'POST',
       cache: 'no-store',
@@ -42,6 +45,12 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify(upstreamBody)
     });
+
+    if (upstream.status === 429) {
+      let body: any = null;
+      try { body = await upstream.json(); } catch { body = { error: 'Rate limit' }; }
+      return NextResponse.json(body, { status: 429 });
+    }
 
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text().catch(()=> '');

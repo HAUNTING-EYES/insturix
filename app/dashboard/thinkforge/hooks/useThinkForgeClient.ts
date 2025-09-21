@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "@/hooks/use-toast";
 
 // Lightweight script model
 export type Block = any;
@@ -47,6 +49,7 @@ function getLocal(sessionId: string): Partial<HydrateResponse & { script: Script
 }
 
 export function useThinkForgeClient() {
+  const router = useRouter();
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [script, setScript] = useState<ScriptModel | null>(null);
   const [chat, setChat] = useState<any[]>([]);
@@ -87,7 +90,24 @@ export function useThinkForgeClient() {
         cache: "no-store",
         body: JSON.stringify(payload || {}),
       });
-      if (!res.ok) throw new Error(`Hydrate failed: ${res.status}`);
+      if (!res.ok) {
+        // Handle limit reached (429) gracefully for create-new flows
+        if (isCreateNew && res.status === 429) {
+          try {
+            const data = await res.json();
+            const message = data?.error || "Max ThinkForge sessions reached. Please upgrade your plan.";
+            toast({
+              title: "Limit reached",
+              description: message,
+              variant: "destructive",
+            });
+          } catch {}
+          // Soft navigate to dashboard to preserve toast
+          router.push('/dashboard');
+          return null;
+        }
+        throw new Error(`Hydrate failed: ${res.status}`);
+      }
       const data: HydrateResponse = await res.json();
       setSessionId(data.sessionId);
       setScript(data.script || null);

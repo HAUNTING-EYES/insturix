@@ -4,11 +4,9 @@ import { auth } from '@clerk/nextjs/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function DELETE(_req: Request, ctx: { params: { sessionId: string } } | Promise<{ params: { sessionId: string } }>) {
+export async function DELETE(_req: Request, { params }: { params: { sessionId: string } }) {
   const { userId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
-
-  const { params } = await ctx as { params: { sessionId: string } };
   const sessionId = params?.sessionId;
   if (!sessionId) return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
 

@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { BookOpen } from "lucide-react";
 import clsx from "clsx";
 import { PromptPanel } from "@/components/dashboard/ThinkForge/PromptPanel";
+import { toast } from '@/hooks/use-toast';
 import { IdeaGrid, IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { LibraryPanel, SessionMeta } from "@/components/dashboard/ThinkForge/LibraryPanel";
 import { BackgroundDecor } from "@/components/dashboard/ThinkForge/BackgroundDecor";
@@ -60,19 +61,25 @@ export default function ThinkForgeLanding() {
 		if (!prompt.trim()) return;
 		setLoading(true);
 		setHasSubmitted(true);
-		setPhase('IDEAS');
 		try {
 			const res = await fetch('/api/services/thinkforge/ideas', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ prompt })
 			});
+			if (res.status === 429) {
+				toast({ title: 'Idea limit reached', description: 'Please wait until the limit resets or upgrade your plan.' });
+				return; // do not proceed to IDEAS phase
+			}
 			if (!res.ok) throw new Error('bad');
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
 			setIdeas(list.length === 4 ? list : skeletonIdeas(prompt));
+			setPhase('IDEAS');
 		} catch {
+			// generic failure: show skeletons and allow progression
 			setIdeas(skeletonIdeas(prompt));
+			setPhase('IDEAS');
 		} finally {
 			setLoading(false);
 		}
@@ -107,12 +114,12 @@ export default function ThinkForgeLanding() {
 		setPhase('SELECTED');
 		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase
 	};
-	const handleProceedToScript = async () => {
-		// Ensure any previous session is fully closed before entering SCRIPT
-		try { await tf.closeSession(); } catch {}
-		setPendingSessionId(null);
-		setPhase('SCRIPT');
-	};
+			const handleProceedToScript = async () => {
+			// Ensure any previous session is fully closed before entering SCRIPT
+			try { await tf.closeSession(); } catch {}
+			setPendingSessionId(null);
+			setPhase('SCRIPT');
+		};
 	const handleUpdateIdea = (updated: any) => {
 		setSelectedIdea(updated);
 		setIdeas((prev: IdeaCardData[]) => prev.map(i => i.id === updated.id ? updated : i));

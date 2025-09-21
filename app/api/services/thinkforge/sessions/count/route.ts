@@ -10,7 +10,7 @@ export async function GET() {
   const base = process.env.MONOLITHIC_BACKEND_URL;
   const secret = process.env.MONOLITHIC_BACKEND_SECRET;
   if (!base || !secret) return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
-  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/sessions/count?userId=${encodeURIComponent(userId)}`, {
+  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/sessions/count?userId=${encodeURIComponent(userId)}&period=weekly`, {
     method: 'GET', cache: 'no-store', headers: {
       'Authorization': `Bearer ${secret}`, 'Accept': 'application/json', 'Accept-Encoding': 'identity',
     }

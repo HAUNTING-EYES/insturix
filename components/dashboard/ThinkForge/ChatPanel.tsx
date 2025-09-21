@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import clsx from 'clsx';
 import { ChevronDown, Bot, Square, Pencil, X, Check } from 'lucide-react';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
+import { toast } from '@/hooks/use-toast';
 
 export interface ChatMessage { id: string; role: 'user' | 'assistant'; content: string; ts: number; streaming?: boolean }
 
@@ -364,6 +365,15 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
         body: JSON.stringify({ prompt, sessionId, skipPersistUser: opts?.skipPersistUser === true }),
         signal: controller.signal
       });
+      if (res.status === 429) {
+        // Rate limited: surface toast and stop
+        try { const data = await res.json(); } catch {}
+        setChatMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: 'Chat limit reached for this session. Please wait for reset or upgrade your plan.', streaming: false } : m));
+        setIsStreaming(false);
+        setStreamingAssistantId(null);
+        toast({ title: 'Chat limit reached', description: 'Please wait until the limit resets or upgrade your plan.', icon: <Bot className="h-4 w-4" /> });
+        return;
+      }
       if (!res.body) throw new Error('No response body');
       const reader = res.body.getReader();
       const decoder = new TextDecoder('utf-8');
