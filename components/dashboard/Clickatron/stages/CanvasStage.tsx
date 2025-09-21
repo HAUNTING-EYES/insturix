@@ -653,14 +653,14 @@ useEffect(() => {
                       </div>
                       
                       {/* Retry button */}
-                      <div className="mt-6">
+                      {/* <div className="mt-6">
                         <button
                           onClick={() => handleAIGenerate(activeVariation.prompt)}
                           className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg"
                         >
                           Try Again
                         </button>
-                      </div>
+                      </div> */}
                       
                       <div className="mt-4 text-xs text-red-500/60">
                         Consider adjusting your prompt or trying different settings
