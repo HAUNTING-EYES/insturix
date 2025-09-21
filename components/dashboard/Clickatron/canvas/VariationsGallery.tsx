@@ -288,21 +288,24 @@ export function VariationsGallery({
                       transition={{ duration: 0.15 }}
                       className="absolute top-1.5 right-1.5 flex gap-1 z-10"
                     >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={(e) => handleDuplicateClick(variation.id, e)}
-                            className="bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white p-1 h-auto w-auto border border-zinc-600/50"
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>
-                          <p>Duplicate Variation</p>
-                        </TooltipContent>
-                      </Tooltip>
+                      {/* Only show duplicate button for completed and blank variations */}
+                      {variation.status !== 'generating' && variation.status !== 'failed' && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              onClick={(e) => handleDuplicateClick(variation.id, e)}
+                              className="bg-zinc-800/90 hover:bg-zinc-700 text-zinc-300 hover:text-white p-1 h-auto w-auto border border-zinc-600/50"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Duplicate Variation</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
