@@ -403,6 +403,7 @@ export default function ThinkForgeLanding() {
 							}}
 							script={scriptFromHook}
 													sessionId={pendingSessionId || tf.sessionId}
+																			isSaving={tf.isSaving}
 							onUpdate={handleUpdateScript}
 							onBack={async () => {
 								// Close the active session and return to ThinkForge home (prompt)

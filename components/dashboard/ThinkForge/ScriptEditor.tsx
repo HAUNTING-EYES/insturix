@@ -10,7 +10,6 @@ import {
   Check,
   Loader2,
   Sparkles,
-  Save,
   Eye,
   Edit,
   FileText
@@ -48,6 +47,8 @@ interface ScriptEditorProps {
   onExportScript: () => void;
   loading?: boolean;
   generatingScript?: boolean;
+  // Show autosaving state from the ThinkForge client hook
+  isSaving?: boolean;
 }
 
 export default function ScriptEditor({
@@ -58,7 +59,8 @@ export default function ScriptEditor({
   onEditScript,
   onExportScript,
   loading = false,
-  generatingScript = false
+  generatingScript = false,
+  isSaving = false
 }: ScriptEditorProps) {
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
@@ -70,6 +72,9 @@ export default function ScriptEditor({
   const [copied, setCopied] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const prevIsSavingRef = useRef<boolean>(false);
 
   // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
 
@@ -117,7 +122,38 @@ export default function ScriptEditor({
   // Handle content changes
   const handleContentChange = useCallback(() => {
     setHasUnsavedChanges(true);
+    // Debounce autosave by 2s of idle typing
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(async () => {
+      try {
+        const updatedScript = await convertBlocksToScript();
+        onEditScript(updatedScript);
+        setHasUnsavedChanges(false);
+      } catch (e) {
+        // Keep unsaved state so user can retry
+        console.error('Autosave failed to prepare script:', e);
+      }
+    }, 2000);
+  }, [onEditScript]);
+
+  // Cleanup autosave timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
   }, []);
+
+  // When external saving completes, flash a Saved check and clear unsaved flag
+  useEffect(() => {
+    const prev = prevIsSavingRef.current;
+    if (prev && !isSaving) {
+      setHasUnsavedChanges(false);
+      setJustSaved(true);
+      const t = setTimeout(() => setJustSaved(false), 1500);
+      return () => clearTimeout(t);
+    }
+    prevIsSavingRef.current = isSaving;
+  }, [isSaving]);
 
   // Handle AI improvement: inspector -> (answer | editor)
   const handleAIImprovement = async () => {
@@ -398,15 +434,21 @@ export default function ScriptEditor({
             Export PDF
           </Button>
 
-          {hasUnsavedChanges && (
-            <Button
-              onClick={handleSave}
-              size="sm"
-              className="bg-red-600 hover:bg-red-700"
-            >
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
+          {/* Autosave indicator */}
+          {isSaving ? (
+            <div className="flex items-center gap-2 text-xs text-zinc-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Autosaving...
+            </div>
+          ) : justSaved ? (
+            <div className="flex items-center gap-2 text-xs text-green-400">
+              <Check className="h-4 w-4" />
+              Saved
+            </div>
+          ) : hasUnsavedChanges ? (
+            <div className="text-xs text-amber-400">Unsaved changes</div>
+          ) : (
+            <div className="text-xs text-zinc-500">All changes saved</div>
           )}
         </div>
       </div>
@@ -452,10 +494,21 @@ export default function ScriptEditor({
                           const crect = container.getBoundingClientRect();
                           const scrollTop = container.scrollTop || 0;
                           const scrollLeft = container.scrollLeft || 0;
-                          // Position button slightly above selection start
-                          const top = (rect.top - crect.top) + scrollTop - 32;
-                          const left = (rect.left - crect.left) + scrollLeft;
-                          setSelectionPos({ top: Math.max(4, top), left: Math.max(4, left) });
+                          // Prefer positioning BELOW selection; flip above if not enough space
+                          const offset = 8;
+                          const approxBtnH = 32; // px
+                          const spaceBelow = crect.bottom - rect.bottom;
+                          const preferBelow = spaceBelow > (approxBtnH + offset + 8);
+                          const top = preferBelow
+                            ? (rect.bottom - crect.top) + scrollTop + offset
+                            : (rect.top - crect.top) + scrollTop - (approxBtnH + offset);
+                          // Center horizontally relative to the selection
+                          let left = (rect.left + (rect.width / 2) - crect.left) + scrollLeft;
+                          // Clamp within container bounds with small padding
+                          const pad = 12;
+                          const maxLeft = (crect.width || container.clientWidth) - pad;
+                          left = Math.min(Math.max(left, pad), maxLeft);
+                          setSelectionPos({ top: Math.max(4, top), left });
                         } else {
                           setSelectionPos(null);
                         }
@@ -482,8 +535,8 @@ export default function ScriptEditor({
                       }
                     } catch {}
                   }}
-                  className="absolute z-20 px-2 py-1 rounded-md text-[11px] font-medium bg-red-600 hover:bg-red-700 text-white shadow-lg border border-white/10"
-                  style={{ top: selectionPos.top, left: selectionPos.left }}
+                  className="absolute z-50 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-red-600/95 hover:bg-red-700 text-white shadow-xl border border-white/10 backdrop-blur-sm"
+                  style={{ top: selectionPos.top, left: selectionPos.left, transform: 'translateX(-50%)' }}
                   aria-label="Improve selected text with ForgeAI"
                 >
                   <span className="inline-flex items-center gap-1"><Sparkles className="h-3.5 w-3.5" /> Edit in Chat</span>
