@@ -101,7 +101,7 @@ export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ valu
 
   return (
     <motion.div {...fadeIn} className="w-full">
-      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
         {presets.map(preset => (
           <PresetCard
             key={preset.name}
@@ -110,10 +110,7 @@ export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ valu
             onSelect={() => onChange(preset.ratio)}
           />
         ))}
-      </div>
-      
-      {/* Custom Preset - Full width below main presets */}
-      <div className="mt-4">
+        {/* Custom Preset - Takes remaining space */}
         <CustomPresetCard
           isSelected={!isPreset}
           width={customWidth}
@@ -136,10 +133,10 @@ const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelect
   <div
     onClick={onSelect}
     className={cn(
-      "relative rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70",
-      isSelected ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-zinc-700 hover:border-zinc-500'
+      "relative rounded-lg border p-3 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center",
+      isSelected ? 'border-purple-500/60 bg-purple-500/10' : 'border-zinc-700/50 hover:border-zinc-600'
     )}
-    style={{ minHeight: '120px' }}
+    style={{ minHeight: '90px' }}
   >
     <AnimatePresence>
       {isSelected && (
@@ -147,17 +144,15 @@ const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelect
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.5 }}
-          className="absolute top-2 right-2 bg-purple-500 rounded-full p-1"
+          className="absolute top-1 right-1 bg-purple-500 rounded-full p-0.5"
         >
-          <Check className="w-3 h-3 text-white" />
+          <Check className="w-2.5 h-2.5 text-white" />
         </motion.div>
       )}
     </AnimatePresence>
-    <div className="flex flex-col items-center justify-center h-full text-center">
-      <preset.icon className={cn("w-10 h-10 sm:w-12 sm:h-12 mb-2 transition-colors", isSelected ? "text-purple-400" : "text-zinc-400 group-hover:text-zinc-300")} />
-      <p className={cn("text-sm font-medium transition-colors", isSelected ? "text-zinc-100" : "text-zinc-300 group-hover:text-zinc-100")}>{preset.name}</p>
-      <p className={cn("text-xs transition-colors", isSelected ? "text-zinc-400" : "text-zinc-500 group-hover:text-zinc-400")}>{preset.ratio}</p>
-    </div>
+    <preset.icon className={cn("w-6 h-6 mb-2 transition-colors", isSelected ? "text-purple-400" : "text-zinc-400 group-hover:text-zinc-300")} />
+    <p className={cn("text-xs font-medium transition-colors text-center leading-tight mb-1", isSelected ? "text-zinc-100" : "text-zinc-300 group-hover:text-zinc-100")}>{preset.name}</p>
+    <p className={cn("text-xs transition-colors", isSelected ? "text-purple-300" : "text-zinc-500 group-hover:text-zinc-400")}>{preset.ratio}</p>
   </div>
 );
 
@@ -178,22 +173,16 @@ const CustomPresetCard = ({
   onHeightChange: (e: ChangeEvent<HTMLInputElement>) => void;
   onBlur: () => void;
 }) => {
-  const aspectRatio = useMemo(() => {
-    const w = parseFloat(width) || 1;
-    const h = parseFloat(height) || 1;
-    return w / h;
-  }, [width, height]);
-
   return (
     <div
       onClick={onSelect}
       className={cn(
-        'relative rounded-lg border-2 p-3 sm:p-4 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center',
+        'relative rounded-lg border p-3 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center',
         isSelected
-          ? 'border-purple-500 shadow-lg shadow-purple-500/10'
-          : 'border-zinc-700 hover:border-zinc-500'
+          ? 'border-purple-500/60 bg-purple-500/10'
+          : 'border-zinc-700/50 hover:border-zinc-600'
       )}
-      style={{ minHeight: '100px' }}
+      style={{ minHeight: '90px' }}
     >
       <AnimatePresence>
         {isSelected && (
@@ -201,90 +190,50 @@ const CustomPresetCard = ({
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.5 }}
-            className="absolute top-2 right-2 bg-purple-500 rounded-full p-1 z-10"
+            className="absolute top-1 right-1 bg-purple-500 rounded-full p-0.5 z-10"
           >
-            <Check className="w-3 h-3 text-white" />
+            <Check className="w-2.5 h-2.5 text-white" />
           </motion.div>
         )}
       </AnimatePresence>
 
-      <div className="flex flex-col items-center justify-between h-full text-center w-full">
-        <div className="w-full flex justify-center items-center">
-            <Edit3
-                className={cn(
-                    'w-6 h-6 mr-2 transition-colors',
-                    isSelected
-                    ? 'text-purple-400'
-                    : 'text-zinc-400 group-hover:text-zinc-300'
-                )}
-                />
-            <p
-            className={cn(
-                'text-sm font-medium transition-colors',
-                isSelected
-                ? 'text-zinc-100'
-                : 'text-zinc-300 group-hover:text-zinc-100'
-            )}
-            >
-            Custom Ratio
-            </p>
-        </div>
-
-        <div className="w-full h-10 flex items-center justify-center my-2 overflow-hidden">
-            {isSelected && (
-                <motion.div
-                    initial={{opacity: 0, scale: 0.8}}
-                    animate={{opacity: 1, scale: 1}}
-                    className="h-full w-full max-w-[80px] max-h-[40px] flex items-center justify-center"
-                >
-                     <div
-                        className="bg-purple-500/20 rounded-sm transition-all duration-300"
-                        style={{
-                            width: aspectRatio >= 1 ? '100%' : `${aspectRatio * 100}%`,
-                            height: aspectRatio < 1 ? '100%' : `${(1 / aspectRatio) * 100}%`,
-                        }}
-                    />
-                </motion.div>
-            )}
-        </div>
-
-        <div className="h-8 w-full">
-          {isSelected ? (
-            <motion.div
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-center gap-1"
-            >
-              <Input
-                type="number"
-                placeholder="W"
-                value={width}
-                onChange={onWidthChange}
-                onBlur={onBlur}
-                onClick={(e) => e.stopPropagation()}
-                className="w-16 h-full text-center bg-zinc-950/50 border-zinc-700 rounded-md text-sm"
-                min="0.1"
-                step="0.1"
-                autoFocus
-              />
-              <span className="text-zinc-500">:</span>
-              <Input
-                type="number"
-                placeholder="H"
-                value={height}
-                onChange={onHeightChange}
-                onBlur={onBlur}
-                onClick={(e) => e.stopPropagation()}
-                className="w-16 h-full text-center bg-zinc-950/50 border-zinc-700 rounded-md text-sm"
-                min="0.1"
-                step="0.1"
-              />
-            </motion.div>
-          ) : (
-            <p className="text-xs text-zinc-500 group-hover:text-zinc-400">Enter custom ratio</p>
-          )}
-        </div>
-      </div>
+      <Edit3 className={cn('w-6 h-6 mb-2 transition-colors', isSelected ? 'text-purple-400' : 'text-zinc-400 group-hover:text-zinc-300')} />
+      <p className={cn('text-xs font-medium transition-colors text-center leading-tight mb-1', isSelected ? 'text-zinc-100' : 'text-zinc-300 group-hover:text-zinc-100')}>Custom</p>
+      
+      {isSelected ? (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex items-center justify-center gap-1"
+        >
+          <Input
+            type="number"
+            placeholder="W"
+            value={width}
+            onChange={onWidthChange}
+            onBlur={onBlur}
+            onClick={(e) => e.stopPropagation()}
+            className="w-10 h-6 text-center bg-zinc-950/50 border-zinc-700 rounded text-xs p-1"
+            min="0.1"
+            step="0.1"
+            autoFocus
+          />
+          <span className="text-zinc-500 text-xs">:</span>
+          <Input
+            type="number"
+            placeholder="H"
+            value={height}
+            onChange={onHeightChange}
+            onBlur={onBlur}
+            onClick={(e) => e.stopPropagation()}
+            className="w-10 h-6 text-center bg-zinc-950/50 border-zinc-700 rounded text-xs p-1"
+            min="0.1"
+            step="0.1"
+          />
+        </motion.div>
+      ) : (
+        <p className="text-xs text-purple-300">Ratio</p>
+      )}
     </div>
   );
 };

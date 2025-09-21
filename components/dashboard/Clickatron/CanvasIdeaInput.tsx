@@ -110,78 +110,108 @@ export function CanvasIdeaInput() {
   };
 
   return (
-    <Card className="relative bg-gradient-to-b from-zinc-950/60 to-zinc-900/30 border-zinc-800/80 backdrop-blur-xl shadow-elevated">
-      <CardContent className="relative p-4 sm:p-6 overflow-hidden">
+    <Card className="relative bg-gradient-to-b from-zinc-950/80 to-zinc-900/40 border-zinc-800/80 backdrop-blur-xl overflow-hidden">
+      <CardContent className="relative p-6 overflow-hidden">
+        {/* Ambient background gradient */}
+        <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-blue-500/5 opacity-40" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-purple-500/10 blur-3xl rounded-full" />
+        
         <motion.div
-          className="group relative rounded-2xl border border-dashed border-zinc-800/70 bg-zinc-950/40 p-4 sm:p-6 overflow-hidden"
+          className="relative z-10"
           {...fadeIn}
         >
-          <div className="w-full">
-            <div className="flex flex-col items-center text-center p-3 mt-6">
-              <div className="mb-4 relative">
-                <div className="absolute inset-0 rounded-full bg-purple-500/40 blur-2xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
-                <Sparkles className="h-10 w-10 text-purple-400 relative z-10 transition-colors duration-300 group-hover:text-purple-300" />
-              </div>
-            
-              <h2 className="text-lg sm:text-xl font-semibold text-zinc-100 mb-2">
-                Start a new creation
-              </h2>
-                
-                <p className="text-zinc-400 text-sm mb-4 max-w-2xl mx-auto">
-                  Describe what you want to create. You can also upload a reference image.
-                </p>
-
-                <form onSubmit={handleFormSubmit} className="w-full max-w-2xl mx-auto">
-                  <div className="relative">
-                    <Textarea
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      placeholder="e.g., A futuristic city skyline at sunset, cinematic and detailed..."
-                      disabled={isLoading || isEnhancing}
-                      className="min-h-[80px] bg-zinc-900/50 border-zinc-700/50 rounded-lg pr-12"
-                    />
-                    <div className="absolute right-2 top-2">
-                      <MagicPromptEnhancerButton
-                        onEnhance={enhancePrompt}
-                        isEnhancing={isEnhancing}
-                        disabled={isLoading}
-                        prompt={prompt}
-                        onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-6 w-full max-w-md mx-auto">
-                    <CanvasPresetSelector value={aspectRatio} onChange={setAspectRatio} />
-                  </div>
-                  <ImageUpload onFileChange={setReferenceImages} isLoading={isLoading} multiple={true} />
-                  <div className="flex justify-center mt-6">
-                    <ModelSelector
-                        context="newVariation"
-                        userAttachedImages={referenceImages.length}
-                        selectedModelId={selectedModelId || undefined}
-                        onModelChange={setSelectedModelId}
-                    />
-                  </div>
-                  <Button 
-                    type="submit" 
-                    disabled={isLoading} 
-                    className="mt-6 w-full max-w-xs mx-auto flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg"
-                  >
-                    {isLoading ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Send className="h-4 w-4" />
-                        Start Generating
-                      </>
-                    )}
-                  </Button>
-                </form>
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-purple-500/10 ring-1 ring-purple-400/20 mb-4">
+              <Sparkles className="h-6 w-6 text-purple-400" />
             </div>
+            
+            <h2 className="text-xl font-semibold text-zinc-100 mb-2 tracking-tight">
+              Create New Thumbnail
+            </h2>
+                
+            <p className="text-zinc-400 text-sm max-w-md mx-auto">
+              Describe your vision and let AI bring it to life. Upload reference images for better results.
+            </p>
           </div>
+
+          <form onSubmit={handleFormSubmit} className="w-full max-w-2xl mx-auto space-y-4">
+            {/* Prompt Input */}
+            <div className="relative">
+              <div className="relative">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="e.g., A futuristic city skyline at sunset, cinematic lighting, 4K quality..."
+                  disabled={isLoading || isEnhancing}
+                  className="min-h-[80px] bg-zinc-900/60 border-zinc-700/60 rounded-xl pr-12 text-zinc-100 placeholder:text-zinc-500 focus:ring-2 focus:ring-purple-400/50 focus:border-purple-400/50 transition-all resize-none"
+                />
+                <div className="absolute right-3 top-3">
+                  <MagicPromptEnhancerButton
+                    onEnhance={enhancePrompt}
+                    isEnhancing={isEnhancing}
+                    disabled={isLoading}
+                    prompt={prompt}
+                    onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+                  />
+                </div>
+              </div>
+            </div>
+            
+            {/* Aspect Ratio, Reference Images, and Model - Improved Responsive Grid */}
+            <div className="space-y-4">
+              {/* Aspect Ratio Selector - Full Width */}
+              <div>
+                <label className="text-sm font-medium text-zinc-300 mb-3 block">Canvas Size</label>
+                <CanvasPresetSelector value={aspectRatio} onChange={setAspectRatio} />
+              </div>
+              
+              {/* Reference Images and Model - Side by Side on larger screens */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Reference Images */}
+                <div>
+                  <label className="text-sm font-medium text-zinc-300 mb-3 block">Reference Images (Optional)</label>
+                  <div className="bg-zinc-900/40 border border-zinc-700/50 rounded-lg p-4 min-h-[100px] flex items-center justify-center">
+                    <ImageUpload onFileChange={setReferenceImages} isLoading={isLoading} multiple={true} />
+                  </div>
+                </div>
+                
+                {/* Model Selector */}
+                <div>
+                  <label className="text-sm font-medium text-zinc-300 mb-3 block">AI Model</label>
+                  <div className="bg-zinc-900/40 border border-zinc-700/50 rounded-lg p-4 min-h-[100px] flex items-center justify-center">
+                    <ModelSelector
+                      context="newVariation"
+                      userAttachedImages={referenceImages.length}
+                      selectedModelId={selectedModelId || undefined}
+                      onModelChange={setSelectedModelId}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Submit Button */}
+            <div className="pt-2">
+              <Button 
+                type="submit" 
+                disabled={isLoading || !prompt.trim() || !selectedModelId} 
+                className="w-full h-12 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white font-medium rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                    Creating Canvas...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-5 w-5 mr-2" />
+                    Create Canvas
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
         </motion.div>
       </CardContent>
     </Card>

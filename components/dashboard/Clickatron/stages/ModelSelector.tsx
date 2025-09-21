@@ -50,21 +50,21 @@ export function ModelSelector({
   }
 
   return (
-    <div className={`flex items-center gap-2 ${className}`}>
-      <Bot className="h-4 w-4 text-zinc-400" />
+    <div className={`w-full ${className}`}>
       <Select 
         value={selectedModelId || defaultModelId || ""} 
         onValueChange={handleModelChange}
       >
-        <SelectTrigger className="w-[180px] bg-zinc-800/50 border-zinc-700/50 text-zinc-200">
-          <SelectValue placeholder="Select model" />
+        <SelectTrigger className="w-full h-10 bg-zinc-800/50 border-zinc-700/50 text-zinc-200 text-sm flex items-center gap-2">
+          <Bot className="h-4 w-4 text-zinc-400 flex-shrink-0" />
+          <SelectValue placeholder="Select AI model" />
         </SelectTrigger>
         <SelectContent className="bg-zinc-800 border-zinc-700">
           {models.map((model) => (
             <SelectItem 
               key={model.id} 
               value={model.id}
-              className="text-zinc-200 hover:bg-zinc-700/50 focus:bg-zinc-70/50"
+              className="text-zinc-200 hover:bg-zinc-700/50 focus:bg-zinc-70/50 text-sm"
             >
               {model.name}
             </SelectItem>

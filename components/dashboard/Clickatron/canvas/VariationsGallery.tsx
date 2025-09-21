@@ -222,8 +222,38 @@ export function VariationsGallery({
                       <Plus className="h-3 w-3 text-zinc-500" />
                     </div>
                   ) : variation.status === 'generating' ? (
-                    <div className="w-full h-full bg-zinc-80/50 flex items-center justify-center">
-                      <Loader2 className="h-4 w-4 animate-spin text-purple-400" />
+                    <div className="w-full h-full bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-lg border border-zinc-600/50 relative overflow-hidden">
+                      {/* Ambient background */}
+                      <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60" />
+                      
+                      {/* Loading indicator */}
+                      <div className="relative z-10">
+                        <div className="w-6 h-6 relative">
+                          <svg className="w-6 h-6 animate-spin" viewBox="0 0 24 24">
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              fill="none"
+                              className="text-zinc-600/30"
+                            />
+                            <circle
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              fill="none"
+                              strokeLinecap="round"
+                              className="text-purple-400"
+                              strokeDasharray="63"
+                              strokeDashoffset="16"
+                            />
+                          </svg>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <ImageDisplay

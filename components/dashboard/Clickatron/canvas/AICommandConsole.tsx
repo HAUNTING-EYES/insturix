@@ -147,18 +147,18 @@ export function AICommandConsole({
 
   return (
     <motion.div
-      initial={{ y: 100, opacity: 0 }}
+      initial={{ y: 20, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
-      transition={{ duration: 0.4, ease: "easeOut" }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
       className={`
-        bg-zinc-900/95 backdrop-blur-xl border-t border-zinc-800/80
+        bg-gradient-to-t from-zinc-900/95 to-zinc-900/80 backdrop-blur-xl 
+        border-t border-zinc-800/60
         ${className}
       `}
     >
-      <div className="p-6 max-w-5xl mx-auto">
-        
+      <div className="p-3 max-w-4xl mx-auto mr-80">
         {/* Model Selector */}
-        <div className="flex justify-center mb-4">
+        <div className="mb-2">
           <ModelSelector
             context="edit"
             userAttachedImages={referenceImageCount}
@@ -168,52 +168,49 @@ export function AICommandConsole({
         </div>
         
         {/* Main Input Container */}
-        <div className="relative bg-zinc-800/50 rounded-2xl border border-zinc-700/50 p-4 max-w-4xl mx-auto">
-          {/* Reference Images - Inline with input */}
+        <div className="relative bg-zinc-800/40 rounded-xl border border-zinc-700/50 p-2">
+          {/* Reference Images */}
           <AnimatePresence>
             {referenceImagePreviews.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: 'auto' }}
                 exit={{ opacity: 0, height: 0 }}
-                className="flex flex-wrap gap-2 mb-3 pb-3 border-b border-zinc-700/50"
+                className="mb-2 pb-2 border-b border-zinc-700/30"
               >
-                {referenceImagePreviews.map((previewUrl, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    className="relative group"
-                  >
-                    <div className="w-12 h-12 rounded-lg overflow-hidden bg-zinc-700 border border-zinc-600">
-                      <img
-                        src={previewUrl}
-                        alt={`Reference ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <button
-                      onClick={() => removeReferenceImage(index)}
-                      className="
-                        absolute -top-1 -right-1 w-5 h-5 bg-zinc-800 border border-zinc-600
-                        rounded-full flex items-center justify-center
-                        opacity-0 group-hover:opacity-100 transition-opacity
-                        hover:bg-red-600 hover:border-red-500
-                      "
+                <div className="flex flex-wrap gap-1.5">
+                  {referenceImagePreviews.map((previewUrl, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.8 }}
+                      className="relative group"
                     >
-                      <X className="h-3 w-3 text-zinc-300" />
-                    </button>
-                  </motion.div>
-                ))}
+                      <div className="w-8 h-8 rounded-lg overflow-hidden bg-zinc-700/50 border border-zinc-600/50">
+                        <img
+                          src={previewUrl}
+                          alt={`Reference ${index + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                      </div>
+                      <button
+                        onClick={() => removeReferenceImage(index)}
+                        className="absolute -top-1 -right-1 w-3 h-3 bg-zinc-900 border border-zinc-600 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200 hover:bg-red-600 hover:border-red-500"
+                      >
+                        <X className="h-1.5 w-1.5 text-zinc-300" />
+                      </button>
+                    </motion.div>
+                  ))}
+                </div>
               </motion.div>
             )}
           </AnimatePresence>
 
           {/* Input Row */}
-          <form onSubmit={handleSubmit} className="flex items-end gap-3">
-            {/* Image Upload Button */}
-            <div className="flex-shrink-0">
+          <form onSubmit={handleSubmit}>
+            <div className="flex items-center gap-2">
+              {/* Image Upload Button */}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -228,71 +225,52 @@ export function AICommandConsole({
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isGenerating}
-                className="
-                  h-10 w-10 p-0 rounded-xl
-                  text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50
-                  transition-colors
-                "
+                className="h-8 w-8 p-0 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 hover:border-zinc-600/50 transition-all duration-200"
               >
                 {referenceImagePreviews.length > 0 ? (
-                  <Plus className="h-4 w-4" />
+                  <Plus className="h-3.5 w-3.5" />
                 ) : (
-                  <Image className="h-4 w-4" />
+                  <Image className="h-3.5 w-3.5" />
                 )}
               </Button>
-            </div>
 
-            {/* Prompt Input */}
-            <div className="flex-1 relative">
-              <Textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                onPaste={handlePaste}
-                placeholder={
-                  referenceImagePreviews.length > 0
-                    ? "Describe how you want to modify the reference images..."
-                    : "Describe a change... (e.g., 'make background futuristic city', 'change chai to coffee', 'add steampunk style')"
-                }
-                disabled={isGenerating || isEnhancing}
-                className="
-                  min-h-[48px] max-h-[120px] resize-none border-0 bg-transparent
-                  text-zinc-100 placeholder-zinc-500 p-0 pr-12
-                  focus:ring-0 focus:outline-none focus-visible:ring-0 focus-visible:outline-none
-                  [&:focus]:ring-0 [&:focus]:outline-none [&:focus]:border-transparent
-                "
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmit(e);
-                  }
-                }}
-              />
-              <div className="absolute right-2 top-2">
-                <MagicPromptEnhancerButton
-                  onEnhance={enhancePrompt}
-                  isEnhancing={isEnhancing}
-                  disabled={isGenerating}
-                  prompt={prompt}
-                  onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+              {/* Prompt Input */}
+              <div className="flex-1 relative">
+                <Textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  onPaste={handlePaste}
+                  placeholder="Describe changes..."
+                  disabled={isGenerating || isEnhancing}
+                  className="min-h-[32px] max-h-[80px] resize-none border-0 bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 px-2.5 py-1.5 pr-8 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSubmit(e);
+                    }
+                  }}
                 />
+                <div className="absolute right-1.5 top-1.5">
+                  <MagicPromptEnhancerButton
+                    onEnhance={enhancePrompt}
+                    isEnhancing={isEnhancing}
+                    disabled={isGenerating}
+                    prompt={prompt}
+                    onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+                  />
+                </div>
               </div>
-            </div>
 
-            {/* Send Button */}
-            <div className="flex-shrink-0">
+              {/* Send Button */}
               <Button
                 type="submit"
                 disabled={!prompt.trim() || isGenerating}
-                className="
-                  h-10 w-10 p-0 rounded-xl
-                  bg-purple-600 hover:bg-purple-700 disabled:bg-zinc-700
-                  transition-colors
-                "
+                className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 disabled:from-zinc-700 disabled:to-zinc-700 transition-all duration-200"
               >
                 {isGenerating ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <Send className="h-3.5 w-3.5" />
                 )}
               </Button>
             </div>

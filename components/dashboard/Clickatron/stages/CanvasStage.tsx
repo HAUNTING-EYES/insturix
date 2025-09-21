@@ -13,7 +13,7 @@ import { useDebounce } from "use-debounce";
 import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
-import { Settings } from "lucide-react";
+import { Settings, AlertTriangle } from "lucide-react";
 import { downloadImageWithFineTuning, getImageUrl } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
 
@@ -518,7 +518,7 @@ useEffect(() => {
       {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col min-w-0 relative">
         {/* Top Header */}
-        <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10">
+        <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 mr-80">
           <div className="text-center">
             <h2 className="text-lg font-semibold text-zinc-100 truncate">
               {videoIdea}
@@ -541,7 +541,7 @@ useEffect(() => {
         </div>
 
         {/* Canvas Display Area */}
-        <div className="flex-1 flex overflow-hidden relative bg-zinc-900/20">
+        <div className="flex-1 flex overflow-hidden relative bg-zinc-900/20 pr-80">
           {/* Main Canvas Container */}
           <div className="flex-1 flex items-center justify-center p-8 overflow-hidden relative">
             {/* Canvas Actions - Top Center */}
@@ -565,9 +565,9 @@ useEffect(() => {
                 // Blank canvas with proper aspect ratio
                 <BlankCanvas aspectRatio={currentAspectRatio} />
               ) : activeVariation.status === "failed" ? (
-                // Failed variation - show error state with retry option
+                // Failed variation - Enhanced error state with retry option
                 <div
-                  className="bg-red-900/20 border-2 border-dashed border-red-600/50 flex items-center justify-center rounded-lg transition-all duration-300"
+                  className="bg-gradient-to-br from-red-900/20 to-red-800/10 border-2 border-dashed border-red-600/40 flex items-center justify-center rounded-xl transition-all duration-300 relative overflow-hidden"
                   style={{
                     width: `${800}px`,
                     height: `${450}px`,
@@ -575,19 +575,40 @@ useEffect(() => {
                     minHeight: "200px",
                   }}
                 >
-                  <div className="text-center">
-                    <div className="text-red-400 text-lg mb-2">
-                      Generation Failed
+                  {/* Ambient background gradient */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-orange-500/5 opacity-40" />
+                  
+                  <div className="text-center relative z-10 p-8">
+                    {/* Error icon with enhanced styling */}
+                    <div className="relative mb-6">
+                      <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-red-500/20 blur-xl" />
+                      <div className="relative w-16 h-16 mx-auto rounded-full bg-red-500/10 flex items-center justify-center ring-2 ring-red-400/30">
+                        <AlertTriangle className="h-8 w-8 text-red-400" />
+                      </div>
                     </div>
-                    <div className="text-red-500/70 text-sm mb-4">
-                      Something went wrong while generating this variation
+                    
+                    <div className="space-y-4">
+                      <div className="text-red-300 text-xl font-semibold">
+                        Generation Failed
+                      </div>
+                      <div className="text-red-400/70 text-sm max-w-md mx-auto">
+                        Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues.
+                      </div>
+                      
+                      {/* Retry button */}
+                      <div className="mt-6">
+                        <button
+                          onClick={() => handleAIGenerate(activeVariation.prompt)}
+                          className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg"
+                        >
+                          Try Again
+                        </button>
+                      </div>
+                      
+                      <div className="mt-4 text-xs text-red-500/60">
+                        Consider adjusting your prompt or trying different settings
+                      </div>
                     </div>
-                    <button
-                      onClick={() => handleAIGenerate(activeVariation.prompt)}
-                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors"
-                    >
-                      Retry Generation
-                    </button>
                   </div>
                 </div>
               ) : (
@@ -605,7 +626,7 @@ useEffect(() => {
           </div>
 
           {/* Right Sidebar - Fine-tuning Controls */}
-          <div className="w-80 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-700/80 flex flex-col shadow-2xl">
+          <div className="w-80 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-700/80 shadow-2xl fixed right-0 top-0 bottom-0 z-30">
             {activeVariation?.fineTuning ? (
               <CanvasControls
                 brightness={activeVariation.fineTuning.brightness}
@@ -628,8 +649,8 @@ useEffect(() => {
             ) : (
               <div className="flex-1 flex items-center justify-center p-6">
                 <div className="text-center text-zinc-500">
-                  <Settings className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">
+                  <Settings className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                  <p className="text-xs">
                     {!activeVariation
                       ? "Select a variation to adjust"
                       : "No adjustments available"}
@@ -640,28 +661,30 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Bottom AI Command Console */}
-        <div className="relative z-30">
-          {activeVariation?.status === "blank" ? (
-            <NewVariationConsole
-              onGenerate={handleAIGenerate}
-              isGenerating={false}
-              galleryCollapsed={galleryCollapsed}
-              className="border-t border-zinc-800/80"
-              referenceImageCount={referenceImageCount}
-              onReferenceImageCountChange={setReferenceImageCount}
-            />
-          ) : (
-            <AICommandConsole
-              onGenerate={handleAIGenerate}
-              isGenerating={false}
-              galleryCollapsed={galleryCollapsed}
-              className="border-t border-zinc-800/80"
-              referenceImageCount={referenceImageCount}
-              onReferenceImageCountChange={setReferenceImageCount}
-            />
-          )}
-        </div>
+        {/* Bottom AI Command Console - Hide for generating and failed variations */}
+        {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
+          <div className="relative z-20">
+            {activeVariation?.status === "blank" ? (
+              <NewVariationConsole
+                onGenerate={handleAIGenerate}
+                isGenerating={false}
+                galleryCollapsed={galleryCollapsed}
+                className="border-t border-zinc-800/80"
+                referenceImageCount={referenceImageCount}
+                onReferenceImageCountChange={setReferenceImageCount}
+              />
+            ) : (
+              <AICommandConsole
+                onGenerate={handleAIGenerate}
+                isGenerating={false}
+                galleryCollapsed={galleryCollapsed}
+                className="border-t border-zinc-800/80"
+                referenceImageCount={referenceImageCount}
+                onReferenceImageCountChange={setReferenceImageCount}
+              />
+            )}
+          </div>
+        )}
       </div>
     </motion.div>
   );

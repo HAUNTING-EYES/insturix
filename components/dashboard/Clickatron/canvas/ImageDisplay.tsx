@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, forwardRef, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertTriangle, Sparkles } from "lucide-react";
 import {
   TransformWrapper,
   TransformComponent,
@@ -186,18 +186,71 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     if (isLoading) {
       return (
         <div
-          className={`bg-zinc-800/50 flex items-center justify-center ${className}`}
+          className={`bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-xl border border-zinc-700/50 ${className}`}
         >
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin text-purple-400 mx-auto mb-2" />
-            <div className="text-zinc-400 text-sm">
-              {status === "generating" ? "Generating..." : "Loading image..."}
-            </div>
-            {status === "generating" && (
-              <div className="mt-2 w-32 h-1.5 bg-zinc-700 rounded-full overflow-hidden mx-auto">
-                <div className="h-full bg-purple-500 rounded-full animate-pulse" style={{ width: "60%" }}></div>
+          {/* Ambient background gradient */}
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60 rounded-xl" />
+          
+          <div className="text-center relative z-10">
+            {/* Enhanced loading animation */}
+            <div className="relative mb-4">
+              {/* Outer glow ring */}
+              <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-purple-500/20 blur-lg animate-pulse" />
+              
+              {/* Main spinner */}
+              <div className="relative w-16 h-16 mx-auto">
+                <svg className="w-16 h-16 animate-spin" viewBox="0 0 64 64">
+                  {/* Background circle */}
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                    className="text-zinc-700/30"
+                  />
+                  {/* Progress circle */}
+                  <circle
+                    cx="32"
+                    cy="32"
+                    r="28"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    fill="none"
+                    strokeLinecap="round"
+                    className="text-purple-400"
+                    strokeDasharray="176"
+                    strokeDashoffset="44"
+                  />
+                </svg>
+                
+                {/* Center icon */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Sparkles className="h-6 w-6 text-purple-400 animate-pulse" />
+                </div>
               </div>
-            )}
+            </div>
+            
+            <div className="space-y-2">
+              <div className="text-zinc-300 font-medium">
+                {status === "generating" ? "Creating your thumbnail..." : "Loading image..."}
+              </div>
+              
+              {status === "generating" && (
+                <div className="text-zinc-500 text-sm">
+                  AI is working its magic
+                </div>
+              )}
+              
+              {/* Progress bar for generation */}
+              {status === "generating" && (
+                <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
+                  <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full animate-pulse" 
+                       style={{ width: "60%", animation: 'pulse 2s infinite' }} />
+                </div>
+              )}
+            </div>
           </div>
         </div>
       );
@@ -206,11 +259,31 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     if (status === "failed") {
       return (
         <div
-          className={`bg-red-900/20 border-2 border-red-500/30 flex items-center justify-center ${className}`}
+          className={`bg-gradient-to-br from-red-900/20 to-red-800/10 border border-red-500/30 flex items-center justify-center rounded-xl ${className}`}
         >
-          <div className="text-center">
-            <div className="text-red-400 text-sm mb-2">Generation failed</div>
-            <div className="text-red-300/70 text-xs">Try generating again</div>
+          {/* Ambient background gradient */}
+          <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-orange-500/5 opacity-40 rounded-xl" />
+          
+          <div className="text-center relative z-10 p-6">
+            {/* Error icon with glow */}
+            <div className="relative mb-4">
+              <div className="absolute inset-0 w-12 h-12 mx-auto rounded-full bg-red-500/20 blur-lg" />
+              <div className="relative w-12 h-12 mx-auto rounded-full bg-red-500/10 flex items-center justify-center ring-1 ring-red-400/30">
+                <AlertTriangle className="h-6 w-6 text-red-400" />
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="text-red-300 font-medium">Generation Failed</div>
+              <div className="text-red-400/70 text-sm max-w-xs mx-auto">
+                Something went wrong while creating your thumbnail
+              </div>
+              
+              {/* Retry hint */}
+              <div className="mt-4 text-xs text-red-500/60">
+                Try adjusting your prompt or generating again
+              </div>
+            </div>
           </div>
         </div>
       );

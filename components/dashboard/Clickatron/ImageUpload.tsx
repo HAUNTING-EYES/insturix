@@ -99,17 +99,17 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
   }, [isDragActive, isLoading]);
 
   return (
-    <div className="w-full max-w-2xl mx-auto mt-4">
+    <div className="w-full">
       <motion.div
-        className={`relative rounded-xl border border-dashed text-center transition-all duration-300 cursor-pointer group ${dropzoneStateStyles}`}
+        className={`relative rounded-lg border border-dashed text-center transition-all duration-300 cursor-pointer group ${dropzoneStateStyles}`}
         variants={dropzoneVariants}
         whileHover="hover"
       >
-        <div {...getRootProps()} className="p-6">
+        <div {...getRootProps()} className="p-4">
           <input {...getInputProps()} />
           <AnimatePresence>
           {previews.length > 0 ? (
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            <div className="flex flex-wrap gap-2 justify-center">
               {previews.map((preview, index) => (
                 <motion.div
                   key={index}
@@ -119,15 +119,14 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
                   exit="exit"
                   className="relative"
                 >
-                  <img src={preview} alt={`Preview ${index + 1}`} className="mx-auto max-h-32 rounded-lg" />
-                  <p className="text-xs text-zinc-400 mt-2 truncate">{files[index].name}</p>
+                  <img src={preview} alt={`Preview ${index + 1}`} className="w-12 h-12 rounded object-cover" />
                   <button
                     onClick={(e) => removeFile(e, index)}
-                    className="absolute -top-2 -right-2 bg-zinc-800 rounded-full p-1 text-zinc-400 hover:text-white hover:bg-red-500/80 transition-all"
+                    className="absolute -top-1 -right-1 bg-zinc-800 rounded-full p-0.5 text-zinc-400 hover:text-white hover:bg-red-500/80 transition-all"
                     aria-label="Remove image"
                     disabled={isLoading}
                   >
-                    <X size={16} />
+                    <X size={12} />
                   </button>
                 </motion.div>
               ))}
@@ -141,14 +140,15 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
               exit="exit"
               className="flex flex-col items-center justify-center text-zinc-400"
             >
-              <div className="mb-3 relative">
-                <div className="absolute inset-0 rounded-full bg-purple-500/20 blur-xl scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
-                <UploadCloud className="h-8 w-8 text-purple-400/80 relative z-10 transition-colors duration-300 group-hover:text-purple-400" />
+              <div className="relative mb-2">
+                <div className="absolute inset-0 rounded-full bg-purple-500/20 blur-lg scale-90 opacity-60 transition-all duration-300 group-hover:opacity-80 group-hover:scale-100"></div>
+                <ImageIcon className="h-8 w-8 text-purple-400/80 relative z-10 transition-colors duration-300 group-hover:text-purple-400" />
               </div>
-              <p className="text-sm font-semibold text-zinc-300">
-                {isDragActive ? "Drop the images here..." : multiple ? "Add reference images (optional)" : "Add a reference image (optional)"}
+              <p className="text-sm font-medium text-zinc-300 mb-1">
+                {isDragActive ? "Drop here..." : "Upload Images"}
               </p>
-              <p className="text-xs text-zinc-500 mt-1">Drag & drop or click to upload. Max 5MB per image.</p>
+              <p className="text-xs text-zinc-500 leading-tight">Drag & drop or click to upload</p>
+              <p className="text-xs text-zinc-600 mt-1">Max 5MB per image</p>
             </motion.div>
           )}
           </AnimatePresence>
