@@ -13,7 +13,7 @@ import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeClient, ScriptModel } from "./hooks/useThinkForgeClient";
 
-const hats = ["white","red","black","yellow","green","blue"] as const;
+const hats = ["white", "red", "black", "yellow", "green", "blue"] as const;
 const skeletonIdeas = (prompt: string): IdeaCardData[] => {
 	const base = (prompt.trim() || "Idea").replace(/\.$/, "");
 	const intents = ["awareness", "conversion", "engagement", "retention", "education", "community"];
@@ -35,41 +35,47 @@ export default function ThinkForgeLanding() {
 	const [prompt, setPrompt] = useState("");
 	const [ideas, setIdeas] = useState<IdeaCardData[]>([]);
 	const [loading, setLoading] = useState(false);
+	// Overlay while opening an existing session from Library
+	const [openingSession, setOpeningSession] = useState(false);
+	// Bridge potential hydrate->state race by retaining the just-opened session id locally
+	const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
 	const [hasSubmitted, setHasSubmitted] = useState(false);
 	const [libraryOpen, setLibraryOpen] = useState(false);
 	const [selectedIdea, setSelectedIdea] = useState<IdeaCardData | null>(null);
 	const [phase, setPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED' | 'SCRIPT'>('PROMPT');
-	const [script, setScript] = useState<Script | null>(null);
+	// Session is now created upon idea selection; no explicit new-session gating needed here
+	// Deprecated local script; rely on hook's script instead (scriptFromHook)
+	// const [script, setScript] = useState<Script | null>(null);
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
 
-  // Hook: hydration, autosave, persistence
-  const tf = useThinkForgeClient();
+	// Hook: hydration, autosave, persistence
+	const tf = useThinkForgeClient();
 
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
 
-// use top-level skeletonIdeas constant
+	// use top-level skeletonIdeas constant
 
 	const generateIdeas = useCallback(async () => {
 		if (!prompt.trim()) return;
 		setLoading(true);
 		setHasSubmitted(true);
 		setPhase('IDEAS');
-			try {
-				const res = await fetch('/api/services/thinkforge/ideas', {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ prompt })
-				});
-				if (!res.ok) throw new Error('bad');
-				const data = await res.json();
-				const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
-				setIdeas(list.length === 4 ? list : skeletonIdeas(prompt));
-			} catch {
-				setIdeas(skeletonIdeas(prompt));
-			} finally {
-				setLoading(false);
-			}
+		try {
+			const res = await fetch('/api/services/thinkforge/ideas', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ prompt })
+			});
+			if (!res.ok) throw new Error('bad');
+			const data = await res.json();
+			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
+			setIdeas(list.length === 4 ? list : skeletonIdeas(prompt));
+		} catch {
+			setIdeas(skeletonIdeas(prompt));
+		} finally {
+			setLoading(false);
+		}
 	}, [prompt, skeletonIdeas]);
 
 	const onSubmit = (e: React.FormEvent) => {
@@ -96,11 +102,17 @@ export default function ThinkForgeLanding() {
 		return () => window.removeEventListener('mousemove', handleMouseMove);
 	}, [libraryOpen]);
 
-	const handleSelectIdea = (idea: IdeaCardData) => {
+	const handleSelectIdea = async (idea: IdeaCardData) => {
 		setSelectedIdea(idea);
 		setPhase('SELECTED');
+		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase
 	};
-	const handleProceedToScript = () => setPhase('SCRIPT');
+	const handleProceedToScript = async () => {
+		// Ensure any previous session is fully closed before entering SCRIPT
+		try { await tf.closeSession(); } catch {}
+		setPendingSessionId(null);
+		setPhase('SCRIPT');
+	};
 	const handleUpdateIdea = (updated: any) => {
 		setSelectedIdea(updated);
 		setIdeas((prev: IdeaCardData[]) => prev.map(i => i.id === updated.id ? updated : i));
@@ -114,7 +126,7 @@ export default function ThinkForgeLanding() {
 				if (existing) return prev.map(s => s.id === existing.id ? { ...s, lastEdited: Date.now() } : s);
 				// AI-generate a placeholder name (simple heuristic)
 				const base = selectedIdea.idea.split('–')[0].trim();
-				const name = base.length > 40 ? base.slice(0,40) + '…' : base || 'New Session';
+				const name = base.length > 40 ? base.slice(0, 40) + '…' : base || 'New Session';
 				return [...prev, { id: selectedIdea.id, name, tone: selectedIdea.tone, lastEdited: Date.now() }];
 			});
 		}
@@ -122,23 +134,56 @@ export default function ThinkForgeLanding() {
 
 	// Hydrate backend session when entering SCRIPT phase
 	const hasHydratedRef = useRef(false);
+	const creationTimerRef = useRef<NodeJS.Timeout | null>(null);
 	useEffect(() => {
 		if (phase !== 'SCRIPT' || !selectedIdea) return;
+		// If opening an existing session from Library, or a session already exists, do not create a new one
+		if (tf.sessionId || pendingSessionId) return;
 		// Only hydrate once per entry into script phase until idea changes
 		if (hasHydratedRef.current) return;
-		hasHydratedRef.current = true;
-		void tf.hydrate({ projectMeta: {
-			idea: selectedIdea.idea,
-			purpose: (selectedIdea as any)?.purpose,
-			style: (selectedIdea as any)?.style,
-			format: (selectedIdea as any)?.format,
-			platform: (selectedIdea as any)?.platform,
-			tone: selectedIdea.tone
-		}});
-	}, [phase, selectedIdea]);
+		// Debounce creation slightly and cancel if user navigates away
+		if (creationTimerRef.current) clearTimeout(creationTimerRef.current);
+		creationTimerRef.current = setTimeout(async () => {
+			// Re-check conditions at execution time
+			if (phase !== 'SCRIPT' || !selectedIdea) return;
+			if (tf.sessionId || pendingSessionId) return;
+			if (hasHydratedRef.current) return;
+			hasHydratedRef.current = true;
+			try {
+				setOpeningSession(true);
+				await tf.closeSession();
+				const created = await tf.hydrate({
+					projectMeta: {
+						idea: selectedIdea.idea,
+						purpose: (selectedIdea as any)?.purpose,
+						style: (selectedIdea as any)?.style,
+						format: (selectedIdea as any)?.format,
+						platform: (selectedIdea as any)?.platform,
+						tone: selectedIdea.tone
+					}
+				});
+				if (created?.sessionId) setPendingSessionId(created.sessionId);
+				if (created?.script) (tf.setScriptAndQueueSave as any)(created.script);
+			} catch {}
+			finally {
+				setTimeout(() => setOpeningSession(false), 250);
+			}
+		}, 220);
+	}, [phase, selectedIdea, tf.sessionId, pendingSessionId]);
 
-	// Reset hydrate flag if idea changes or we exit script
-	useEffect(() => { hasHydratedRef.current = false; }, [selectedIdea?.id, phase !== 'SCRIPT']);
+	// Clear temporary pendingSessionId once the hook has the active sessionId
+	useEffect(() => {
+		if (!openingSession && pendingSessionId && tf.sessionId === pendingSessionId) {
+			setPendingSessionId(null);
+		}
+	}, [openingSession, pendingSessionId, tf.sessionId]);
+
+	// Reset hydrate flag when idea changes
+	useEffect(() => { hasHydratedRef.current = false; }, [selectedIdea?.id]);
+	// Reset hydrate flag when leaving SCRIPT
+	useEffect(() => { if (phase !== 'SCRIPT') { hasHydratedRef.current = false; if (creationTimerRef.current) { clearTimeout(creationTimerRef.current); creationTimerRef.current = null; } } }, [phase]);
+
+	// No allowNewSession resets required
 
 	// Map between hook ScriptModel and UI Script
 	const modelToScript = useCallback((m: ScriptModel | null): Script | null => {
@@ -197,7 +242,65 @@ export default function ThinkForgeLanding() {
 				open={libraryOpen}
 				onClose={() => setLibraryOpen(false)}
 				panelRef={panelRef}
+				activeSessionId={phase === 'SCRIPT' ? (pendingSessionId || tf.sessionId) : null}
+				onDeleteSession={async (id) => {
+					const active = (pendingSessionId || tf.sessionId);
+					if (active && id === active) {
+						// If the deleted session is currently active, close it and reset UI
+						await tf.closeSession();
+						setPendingSessionId(null);
+						setSelectedIdea(null);
+						setIdeas([]);
+						setHasSubmitted(false);
+						setPrompt("");
+						setPhase('PROMPT');
+					}
+				}}
 				// When sessions prop is omitted, component fetches via hook
+				onOpenSession={async (id) => {
+					try {
+						setLibraryOpen(false);
+						setOpeningSession(true);
+						// Hydrate backend with target session and immediately use returned data
+						const data = await tf.hydrate({ sessionId: id });
+						if (!data) { setOpeningSession(false); return; }
+						const sid = data.sessionId;
+						setPendingSessionId(sid);
+						// Ensure hook script state is set promptly to avoid UI race
+						if (data.script) {
+							// Apply script model directly to hook state and queue persistence
+							// Note: setScriptAndQueueSave accepts ScriptModel
+							(tf.setScriptAndQueueSave as any)(data.script);
+						}
+						// Reconstruct selected idea from project meta
+						const pm = data.projectMeta || {};
+						// Derive a stable numeric id from the session id to keep UI keys stable
+						const stableId = (() => {
+							let h = 0;
+							for (let i = 0; i < String(id).length; i++) {
+								h = (h * 31 + String(id).charCodeAt(i)) >>> 0;
+							}
+							return h || Date.now();
+						})();
+						const ideaObj = {
+							id: stableId,
+							idea: pm.idea || 'Untitled',
+							purpose: pm.purpose || '',
+							style: pm.style || '',
+							format: pm.format || '',
+							platform: pm.platform || '',
+							tone: (pm.tone || 'blue') as any,
+						} as any;
+						setSelectedIdea(ideaObj);
+						// Switch to Script phase so ChatPanel mounts and loads recent chats
+						setPhase('SCRIPT');
+					} catch {
+						// leave overlay to close below
+					} finally {
+						// Slight delay to let initial ChatPanel fetch complete before removing overlay
+						setTimeout(() => setOpeningSession(false), 250);
+					}
+				}}
 			/>
 			<AnimatePresence>
 				{libraryOpen && (
@@ -265,7 +368,7 @@ export default function ThinkForgeLanding() {
 			{phase === 'SCRIPT' && selectedIdea && (
 				<div className="relative mx-auto w-full max-w-[1600px] px-4 pb-10 pt-10">
 					<div className="flex flex-col gap-6 lg:flex-row">
-												<ChatPanel selectedIdea={{
+														<ChatPanel key={(pendingSessionId || tf.sessionId || 'no-session')} selectedIdea={{
 							id: Number(selectedIdea.id),
 							idea: selectedIdea.idea,
 							purpose: selectedIdea.purpose,
@@ -273,13 +376,14 @@ export default function ThinkForgeLanding() {
 							format: selectedIdea.format,
 							platform: selectedIdea.platform,
 							tone: selectedIdea.tone as any
-												}}
-												script={scriptFromHook}
-												onApplyEdit={handleApplyEdit}
-												// Prefer running edits via backend + persistence
-												onRunEdit={handleRunEdit}
-												sessionId={tf.sessionId}
-												/>
+						}}
+													script={scriptFromHook}
+							onApplyEdit={handleApplyEdit}
+							// Prefer running edits via backend + persistence
+							onRunEdit={handleRunEdit}
+													sessionId={pendingSessionId || tf.sessionId}
+													initialMessages={Array.isArray(tf.chat) ? tf.chat : undefined}
+						/>
 						<ScriptPanel
 							selectedIdea={{
 								id: Number(selectedIdea.id),
@@ -290,10 +394,31 @@ export default function ThinkForgeLanding() {
 								platform: selectedIdea.platform,
 								tone: selectedIdea.tone as any
 							}}
-								script={scriptFromHook}
-								onUpdate={handleUpdateScript}
-							onBack={() => setPhase('SELECTED')}
+							script={scriptFromHook}
+							onUpdate={handleUpdateScript}
+							onBack={async () => {
+								// Close the active session and return to ThinkForge home (prompt)
+								await tf.closeSession();
+								// Clear local pending/session id bridge
+								setPendingSessionId(null);
+								setSelectedIdea(null);
+								setIdeas([]);
+								// Reset prompt state so it appears in its initial position
+								setHasSubmitted(false);
+								setPrompt("");
+								setPhase('PROMPT');
+							}}
 						/>
+					</div>
+				</div>
+			)}
+
+			{/* Full-screen loading overlay while opening a session from Library */}
+			{openingSession && (
+				<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
+					<div className="flex flex-col items-center gap-4 text-white">
+						<div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+						<p className="text-sm tracking-wide text-white/80">ThinkForge is loading...</p>
 					</div>
 				</div>
 			)}

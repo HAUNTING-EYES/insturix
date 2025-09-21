@@ -1,223 +1,37 @@
-import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
-import { getServiceConfig } from '@/lib/config/services';
-import {
-  checkThinkForgeLimits,
-  createThinkForgeLimitResponse
-} from '@/lib/middleware/services/thinkforge';
+import { NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 
-const serviceConfig = getServiceConfig('thinkforge');
-import { sanitizeErrorForUser, logSecurely } from '@/lib/utils/secureErrorHandler';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
-const MONOLITHIC_BACKEND_URL = process.env.MONOLITHIC_BACKEND_URL || 'http://localhost:8080';
-const MONOLITHIC_BACKEND_SECRET = process.env.MONOLITHIC_BACKEND_SECRET;
+export async function DELETE(_req: Request, ctx: { params: { sessionId: string } } | Promise<{ params: { sessionId: string } }>) {
+  const { userId } = await auth();
+  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
 
-// Enhanced recovery endpoint for session validation
+  const { params } = await ctx as { params: { sessionId: string } };
+  const sessionId = params?.sessionId;
+  if (!sessionId) return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ sessionId: string }> }
-) {
-  try {
-    const session = await auth();
-    if (!session?.userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+  const base = process.env.MONOLITHIC_BACKEND_URL;
+  const secret = process.env.MONOLITHIC_BACKEND_SECRET;
+  if (!base || !secret) return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
 
-    const { sessionId } = await params;
+  const upstreamUrl = `${base.replace(/\/$/, '')}/thinkforge/sessions/${encodeURIComponent(sessionId)}?userId=${encodeURIComponent(userId)}`;
+  const upstream = await fetch(upstreamUrl, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: {
+      'Authorization': `Bearer ${secret}`,
+      'Accept': 'application/json',
+      'Accept-Encoding': 'identity',
+    },
+  });
 
-    // Check service limits using enhanced middleware
-    const requestData = {
-      sessionId,
-      userId: session.userId
-    };
-    
-    const limitCheck = await checkThinkForgeLimits(requestData);
-    
-    if (!limitCheck.success || !limitCheck.hasAccess) {
-      console.warn('Service limit check failed', {
-        data: {
-          userId: session.userId,
-          limitInfo: limitCheck.limitInfo,
-          error: limitCheck.error
-        }
-      });
-
-      return createThinkForgeLimitResponse(limitCheck);
-    }
-
-    // Call monolith backend to get session (align with sessions/list proxy)
-    const backendResponse = await fetch(`${MONOLITHIC_BACKEND_URL.replace(/\/$/, '')}/thinkforge/sessions/${sessionId}?userId=${encodeURIComponent(session.userId)}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(MONOLITHIC_BACKEND_SECRET ? { 'Authorization': `Bearer ${MONOLITHIC_BACKEND_SECRET}` } : {})
-      }
-    });
-
-    if (!backendResponse.ok) {
-      const errorData = await backendResponse.json().catch(() => ({}));
-      console.error('ThinkForge backend error', {
-        data: {
-          userId: session.userId,
-          sessionId,
-          status: backendResponse.status,
-          error: errorData
-        }
-      });
-
-      return NextResponse.json(
-        { 
-          success: false,
-          error: {
-            type: 'BACKEND_ERROR',
-            message: errorData.detail || 'Failed to get session',
-            action: 'Please try again later'
-          }
-        },
-        { status: backendResponse.status }
-      );
-    }
-
-    const result = await backendResponse.json();
-
-    console.info('Session retrieved successfully', {
-      data: {
-        userId: session.userId,
-        sessionId
-      }
-    });
-
-    return NextResponse.json({
-      success: true,
-      session_id: sessionId,
-      state: result.state || {},
-      events: result.events || []
-    });
-
-  } catch (error) {
-    console.error('Request processing failed', {
-      data: {
-        error: error instanceof Error ? error.message : String(error)
-      }
-    });
-
-    return NextResponse.json(
-      { 
-        success: false,
-        error: {
-          type: 'REQUEST_PROCESSING_ERROR',
-          message: 'Failed to process request',
-          action: 'Please try again later'
-        }
-      },
-      { status: 500 }
-    );
+  if (!upstream.ok) {
+    const text = await upstream.text().catch(() => '');
+    // Preserve upstream status to surface 404 vs 500 correctly
+    return NextResponse.json({ error: 'Upstream error', status: upstream.status, body: text.slice(0, 800) }, { status: upstream.status });
   }
+  const data = await upstream.json().catch(() => ({ ok: true }));
+  return NextResponse.json(data);
 }
-
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ sessionId: string }> }
-) {
-  try {
-    const session = await auth();
-    if (!session?.userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const { sessionId } = await params;
-
-    // Check service limits using enhanced middleware
-    const requestData = {
-      sessionId,
-      userId: session.userId
-    };
-    
-    const limitCheck = await checkThinkForgeLimits(requestData);
-    
-    if (!limitCheck.success || !limitCheck.hasAccess) {
-      console.warn('Service limit check failed', {
-        data: {
-          userId: session.userId,
-          limitInfo: limitCheck.limitInfo,
-          error: limitCheck.error
-        }
-      });
-
-      return createThinkForgeLimitResponse(limitCheck);
-    }
-
-    // Call monolith backend to delete session (align with sessions/list proxy)
-    const backendResponse = await fetch(`${MONOLITHIC_BACKEND_URL.replace(/\/$/, '')}/thinkforge/sessions/${sessionId}?userId=${encodeURIComponent(session.userId)}`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(MONOLITHIC_BACKEND_SECRET ? { 'Authorization': `Bearer ${MONOLITHIC_BACKEND_SECRET}` } : {})
-      }
-    });
-
-    if (!backendResponse.ok) {
-      const errorData = await backendResponse.json().catch(() => ({}));
-      console.error('ThinkForge backend error', {
-        data: {
-          userId: session.userId,
-          sessionId,
-          status: backendResponse.status,
-          error: errorData
-        }
-      });
-
-      return NextResponse.json(
-        { 
-          success: false,
-          error: {
-            type: 'BACKEND_ERROR',
-            message: errorData.detail || 'Failed to delete session',
-            action: 'Please try again later'
-          }
-        },
-        { status: backendResponse.status }
-      );
-    }
-
-    const result = await backendResponse.json();
-
-    console.info('Session deleted successfully', {
-      data: {
-        userId: session.userId,
-        sessionId
-      }
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: 'Session deleted successfully'
-    });
-
-  } catch (error) {
-    console.error('Request processing failed', {
-      data: {
-        error: error instanceof Error ? error.message : String(error)
-      }
-    });
-
-    return NextResponse.json(
-      { 
-        success: false,
-        error: {
-          type: 'REQUEST_PROCESSING_ERROR',
-          message: 'Failed to process request',
-          action: 'Please try again later'
-        }
-      },
-      { status: 500 }
-    );
-  }
-} 

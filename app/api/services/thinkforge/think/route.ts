@@ -10,15 +10,11 @@ export async function POST(req: Request) {
 
   let payload: any;
   try { payload = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-
-  // Ensure userId is set from auth if missing
-  payload.userId = payload.userId || userId;
-
   const base = process.env.MONOLITHIC_BACKEND_URL;
   const secret = process.env.MONOLITHIC_BACKEND_SECRET;
   if (!base || !secret) return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
 
-  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/hydrate`, {
+  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/think`, {
     method: 'POST',
     cache: 'no-store',
     headers: {
@@ -31,8 +27,7 @@ export async function POST(req: Request) {
   });
   if (!upstream.ok) {
     const text = await upstream.text().catch(()=> '');
-    // Preserve upstream status (e.g., 404 for session not found)
-    return NextResponse.json({ error: 'Upstream error', status: upstream.status, body: text.slice(0, 800) }, { status: upstream.status });
+    return NextResponse.json({ error: 'Upstream error', status: upstream.status, body: text.slice(0, 800) }, { status: 502 });
   }
   const data = await upstream.json();
   return NextResponse.json(data);

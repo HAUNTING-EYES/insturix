@@ -79,6 +79,7 @@ export function useThinkForgeClient() {
 
   const hydrate = useCallback(async (payload?: HydratePayload) => {
     setIsHydrating(true);
+    const isCreateNew = !!(payload && !payload.sessionId && payload.projectMeta);
     try {
       const res = await fetch("/api/services/thinkforge/hydrate", {
         method: "POST",
@@ -103,7 +104,17 @@ export function useThinkForgeClient() {
       saveLocal(data.sessionId, cachePayload);
       return data;
     } catch (e) {
-      // Fallback to local cache if present
+      // If this was a brand-new session creation attempt, do NOT fallback to old cached session; start clean
+      if (isCreateNew) {
+        try { localStorage.removeItem(LS_CURRENT_SESSION); } catch {}
+        setSessionId(null);
+        setScript(null);
+        setChat([]);
+        setPreferences({});
+        setProjectMeta({});
+        return null;
+      }
+      // Otherwise, fallback to local cache if present for the requested/last session
       const sid = payload?.sessionId || localStorage.getItem(LS_CURRENT_SESSION) || null;
       if (sid) {
         const cached = getLocal(sid);
@@ -204,6 +215,29 @@ export function useThinkForgeClient() {
     return res.json();
   }, []);
 
+  // Paginated chat listing for infinite scroll
+  const listChats = useCallback(async (limit = 10, offset = 0) => {
+    if (!sessionId) return { items: [] as any[], total: 0 };
+    const res = await fetch(`/api/services/thinkforge/chat/list?sessionId=${encodeURIComponent(sessionId)}&limit=${limit}&offset=${offset}`, { cache: "no-store" });
+    if (!res.ok) return { items: chat, total: chat.length } as any;
+    return res.json();
+  }, [sessionId, chat]);
+
+  // Close session locally (frontend-only cleanup)
+  const closeSession = useCallback(async () => {
+    try {
+      if (sessionId) {
+        localStorage.removeItem(LS_CURRENT_SESSION);
+        // Keep cached data in LS_SESSION_PREFIX for future re-open
+      }
+      setSessionId(null);
+      setScript(null);
+      setChat([]);
+      setPreferences({});
+      setProjectMeta({});
+    } catch {}
+  }, [sessionId]);
+
   // Cleanup timer on unmount
   useEffect(() => () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); }, []);
 
@@ -213,6 +247,6 @@ export function useThinkForgeClient() {
     isHydrating, isSaving, saveError,
     // actions
     hydrate, setScriptAndQueueSave, autosave, runEdit, refreshChat,
-    getSessionsCount, getSessionsList,
+    getSessionsCount, getSessionsList, listChats, closeSession,
   } as const;
 }

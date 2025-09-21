@@ -6,7 +6,7 @@ export default function Loading() {
       <div className="flex flex-col items-center gap-4">
         <Loader className="h-8 w-8 animate-spin text-zinc0" />
         <p className="text-sm text-muted-foreground animate-pulse">
-          Alyzitron is loading...
+          ThinkForge is loading...
         </p>
       </div>
     </div>

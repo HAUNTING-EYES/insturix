@@ -10,30 +10,30 @@ export async function POST(req: Request) {
 
   let payload: any;
   try { payload = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
-
-  // Ensure userId is set from auth if missing
-  payload.userId = payload.userId || userId;
-
   const base = process.env.MONOLITHIC_BACKEND_URL;
   const secret = process.env.MONOLITHIC_BACKEND_SECRET;
   if (!base || !secret) return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
 
-  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/hydrate`, {
+  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/think/summary/stream`, {
     method: 'POST',
     cache: 'no-store',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${secret}`,
-      'Accept': 'application/json',
+      'Accept': 'text/plain',
       'Accept-Encoding': 'identity',
     },
     body: JSON.stringify(payload)
   });
-  if (!upstream.ok) {
+
+  if (!upstream.ok || !upstream.body) {
     const text = await upstream.text().catch(()=> '');
-    // Preserve upstream status (e.g., 404 for session not found)
-    return NextResponse.json({ error: 'Upstream error', status: upstream.status, body: text.slice(0, 800) }, { status: upstream.status });
+    return NextResponse.json({ error: 'Upstream error', status: upstream.status, body: text.slice(0, 800) }, { status: 502 });
   }
-  const data = await upstream.json();
-  return NextResponse.json(data);
+
+  return new Response(upstream.body, { headers: {
+    'Content-Type': 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    'X-Accel-Buffering': 'no'
+  }});
 }

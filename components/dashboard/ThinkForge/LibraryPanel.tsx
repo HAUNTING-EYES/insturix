@@ -16,11 +16,13 @@ interface LibraryPanelProps {
   onClose: () => void;
   panelRef?: React.Ref<HTMLElement>;
   sessions?: SessionMeta[];
+  activeSessionId?: string | null;
   onRenameSession?: (id: string, name: string) => void;
   onDeleteSession?: (id: string) => void;
+  onOpenSession?: (id: string) => void;
 }
 
-export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panelRef, sessions, onRenameSession, onDeleteSession }) => {
+export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panelRef, sessions, activeSessionId, onRenameSession, onDeleteSession, onOpenSession }) => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftName, setDraftName] = useState("");
   const [loaded, setLoaded] = useState<SessionMeta[]>([]);
@@ -151,7 +153,24 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
           )}
           <ul className="space-y-2">
             {displaySessions.map(s => (
-              <li key={s.id} className="group relative rounded-xl border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10 transition flex flex-col gap-1">
+              <li
+                key={s.id}
+                className={[
+                  "group relative rounded-xl border px-3 py-2 transition flex flex-col gap-1 cursor-pointer",
+                  s.id === activeSessionId
+                    ? "border-white/10 bg-red-600/20 hover:bg-red-600/25"
+                    : "border-white/10 bg-white/5 hover:bg-white/10"
+                ].join(' ')}
+                onClick={(e) => {
+                  // Avoid triggering when clicking action buttons
+                  const target = e.target as HTMLElement;
+                  if (target.closest('button')) return;
+                  // If already active, do nothing
+                  if (s.id === activeSessionId) return;
+                  onOpenSession?.(s.id);
+                }}
+                title="Open session"
+              >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2 flex-1 min-w-0">
                     <span
@@ -169,7 +188,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                         className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-500/40"
                         placeholder="Session name"/>
                     ) : (
-                      <span className="truncate text-[12px] font-medium text-white/80">{s.name}</span>
+                      <span className="truncate text-[12px] font-medium text-white/80 flex items-center gap-2">{s.name}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
