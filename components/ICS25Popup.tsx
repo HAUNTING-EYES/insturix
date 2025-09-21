@@ -52,17 +52,6 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-purple-100/20 via-transparent to-transparent dark:from-purple-900/10 rounded-full blur-3xl" />
           </div>
 
-          {/* Close Button */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            onClick={onClose}
-            className="absolute top-6 right-6 z-10 p-2 rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-200"
-          >
-            <X className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-          </motion.button>
-
           <div className="relative z-10 p-8 md:p-12 overflow-y-auto max-h-[80vh]">
             {/* Header */}
             <motion.div
