@@ -63,120 +63,250 @@ export default function ScriptEditor({
   const [aiPromptDialog, setAiPromptDialog] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  // Thinking/summary are now shown in Chat; avoid duplication here
   const [copied, setCopied] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
-  // Convert HTML content to default initial blocks for BlockNote
-  const getInitialContent = useCallback((script: Script | null | undefined) => {
-    // If script has saved blocks, use those for perfect round-trip editing
-    if (script?.blocks && Array.isArray(script.blocks)) {
-      return script.blocks;
+  // Compose a rich HTML body from various content formats (markdown-ish, JSON-ish blocks, plain text)
+  const smartComposeHtml = useCallback((title: string, content: string, existingHtml?: string): string => {
+    const escapeHtml = (s: string) => s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    if (existingHtml && existingHtml.trim().length > 0) return existingHtml;
+    const head = `<h1>${escapeHtml(title || 'Untitled')}</h1>`;
+    if (!content || content.trim().length === 0) return head;
+
+    const tryJsonParse = (raw: string): any | null => {
+      try { return JSON.parse(raw); } catch {}
+      try {
+        let s = raw.trim();
+        s = s.replace(/'(\\.|[^'])*'/g, (m) => '"' + m.slice(1, -1).replace(/\\\\"/g, '"').replace(/\\\"/g, '"') + '"');
+        s = s.replace(/([\{,\s])(\w+)\s*:/g, '$1"$2":');
+        s = s.replace(/,\s*([}\]])/g, '$1');
+        return JSON.parse(s);
+      } catch {}
+      return null;
+    };
+
+    const blocksToHtml = (blocks: any): string => {
+      const out: string[] = [];
+      const pushText = (txt?: string) => { if (txt && txt.trim()) out.push(`<p>${escapeHtml(txt.trim())}</p>`); };
+      const renderBlock = (b: any) => {
+        if (!b) return;
+        const t = (b.type || b.kind || '').toLowerCase();
+        const text = b.text ?? b.content ?? (typeof b.children === 'string' ? b.children : undefined);
+        if (t === 'heading' || t === 'header' || /^h[1-6]$/.test(t)) {
+          const lvl = Math.min(6, Math.max(1, Number(b.level) || (t.startsWith('h') ? Number(t.slice(1)) || 2 : 2)));
+          const titleText = text || (Array.isArray(b.children) ? b.children.map((c: any)=> c.text || c.content || '').join(' ') : '');
+          out.push(`<h${lvl}>${escapeHtml(String(titleText || '').trim() || title)}</h${lvl}>`);
+          return;
+        }
+        if (t === 'list' || t === 'bullet_list' || t === 'ordered_list' || t === 'ul' || t === 'ol') {
+          const ordered = t === 'ordered_list' || t === 'ol' || b.ordered === true;
+          const items = (b.items || b.children || []) as any[];
+          const lis = items.map((it) => `<li>${escapeHtml((it.text || it.content || (Array.isArray(it.children)? it.children.map((c:any)=> c.text || c.content || '').join(' ') : '') || '').toString())}</li>`).join('');
+          out.push(ordered ? `<ol>${lis}</ol>` : `<ul>${lis}</ul>`);
+          return;
+        }
+        if (t === 'code' || t === 'code_block' || t === 'pre') {
+          const code = (text || (Array.isArray(b.children)? b.children.map((c:any)=> c.text || c.content || '').join('\n') : '') || '').toString();
+          out.push(`<pre><code>${escapeHtml(code)}</code></pre>`);
+          return;
+        }
+        if (t === 'blockquote' || t === 'quote') {
+          const q = (text || (Array.isArray(b.children)? b.children.map((c:any)=> c.text || c.content || '').join(' ') : '') || '').toString();
+          out.push(`<blockquote>${escapeHtml(q)}</blockquote>`);
+          return;
+        }
+        const para = (text || (Array.isArray(b.children)? b.children.map((c:any)=> c.text || c.content || '').join(' ') : '') || '').toString();
+        pushText(para);
+      };
+
+      if (Array.isArray(blocks)) {
+        blocks.forEach(renderBlock);
+      } else if (blocks && typeof blocks === 'object') {
+        if (Array.isArray(blocks.blocks)) blocks.blocks.forEach(renderBlock);
+        else if (Array.isArray(blocks.children)) blocks.children.forEach(renderBlock);
+        else renderBlock(blocks);
+      } else {
+        pushText(String(blocks || ''));
+      }
+      return out.join('\n');
+    };
+
+    const parsed = tryJsonParse(content);
+    if (parsed) {
+      return [head, blocksToHtml(parsed)].join('\n');
     }
 
-    // Simple fallback content - let BlockNote handle HTML parsing through its built-in methods
-    if (script?.body) {
-      // For HTML content, we'll let BlockNote parse it naturally
-      // This is simpler and more reliable than manual parsing
-      return undefined; // Will use default content, then we'll convert HTML separately
+    // Markdown-ish parsing with code fences, headings, and lists
+    const segments: { type: 'code' | 'text'; lang?: string; body: string }[] = [];
+    const fenceRegex = /```(\w+)?\n([\s\S]*?)```/g;
+    let lastIdx = 0; let m: RegExpExecArray | null;
+    while ((m = fenceRegex.exec(content)) !== null) {
+      if (m.index > lastIdx) segments.push({ type: 'text', body: content.slice(lastIdx, m.index) });
+      segments.push({ type: 'code', lang: m[1], body: m[2] });
+      lastIdx = m.index + m[0].length;
     }
+    if (lastIdx < content.length) segments.push({ type: 'text', body: content.slice(lastIdx) });
 
-    // Default content for new scripts
-    const title = script?.title || "Your Script Title";
-    const defaultContent = script?.content || "Start writing your script here. Use the toolbar to format your content with headings, lists, and more.";
-
-    return [
-      {
-        type: "heading",
-        props: { level: 1 },
-        content: title,
-      },
-      {
-        type: "paragraph", 
-        content: defaultContent,
-      },
-      {
-        type: "paragraph",
-        content: [
-          {
-            type: "text",
-            text: "💡 Pro tip: Use the / command to insert different types of blocks.",
-            styles: { italic: true },
-          },
-        ],
-      },
-    ];
+    const htmlParts: string[] = [head];
+    segments.forEach((seg) => {
+      if (seg.type === 'code') {
+        htmlParts.push(`<pre><code>${escapeHtml(seg.body)}</code></pre>`);
+        return;
+      }
+      const lines = seg.body.split(/\r?\n/);
+      let listBuf: string[] = []; let ordered = false;
+      const flushList = () => {
+        if (listBuf.length === 0) return;
+        const items = listBuf.map(li => `<li>${escapeHtml(li)}</li>`).join('');
+        htmlParts.push(ordered ? `<ol>${items}</ol>` : `<ul>${items}</ul>`);
+        listBuf = []; ordered = false;
+      };
+      for (const ln of lines) {
+        const t = ln.trim();
+        if (!t) { flushList(); continue; }
+        if (/^\d+\.\s+/.test(t)) { ordered = true; listBuf.push(t.replace(/^\d+\.\s+/, '')); continue; }
+        if (/^[-*•]\s+/.test(t)) { if (!ordered) ordered = false; listBuf.push(t.replace(/^[-*•]\s+/, '')); continue; }
+        flushList();
+        if (/^#{1,6}\s+/.test(t)) {
+          const lvl = Math.min(6, Math.max(1, t.match(/^#+/g)?.[0].length || 1));
+          const textOnly = t.replace(/^#{1,6}\s+/, '');
+          htmlParts.push(`<h${lvl}>${escapeHtml(textOnly)}</h${lvl}>`);
+        } else {
+          htmlParts.push(`<p>${escapeHtml(t)}</p>`);
+        }
+      }
+      flushList();
+    });
+    return htmlParts.join('\n');
   }, []);
+
+  // Build safe default HTML for initial load and fallbacks (uses smart composer)
+  const buildSafeHTML = useCallback((s?: Script | null) => {
+    const title = s?.title || 'Your Script Title';
+    const content = (s?.content || '').trim();
+    return smartComposeHtml(title, content, s?.body);
+  }, [smartComposeHtml]);
 
   // Create BlockNote editor with initial content
   const editor = useCreateBlockNote({
-    initialContent: getInitialContent(script),
+    // Do not pass initialContent to avoid BlockNote crashing on malformed blocks
     defaultStyles: true,
     trailingBlock: true,
     animations: true,
   });
 
-  // Load HTML content into editor after creation
+  // Load content into editor after creation and whenever script changes
   useEffect(() => {
-    if (script?.body && !script?.blocks) {
+    const load = async () => {
       try {
-        editor.tryParseHTMLToBlocks(script.body).then(blocks => {
-          editor.replaceBlocks(editor.document, blocks);
-        }).catch(error => {
-          console.error('Failed to parse HTML:', error);
-        });
+        const html = script?.body || buildSafeHTML(script);
+        const blocks = await editor.tryParseHTMLToBlocks(html);
+        editor.replaceBlocks(editor.document, blocks);
       } catch (error) {
-        console.error('Error loading script content:', error);
+        console.error('Failed to load content into BlockNote, using content-based fallback.', error);
+        // Content-based fallback to reflect latest script instead of a static placeholder
+        try {
+          const safeHTML = buildSafeHTML(script);
+          const blocks = await editor.tryParseHTMLToBlocks(safeHTML);
+          editor.replaceBlocks(editor.document, blocks);
+        } catch {}
       }
-    }
-  }, [script?.body, script?.blocks, editor]);
+    };
+    // Defer load slightly to ensure editor is ready
+    load();
+  }, [editor, script, buildSafeHTML]);
+
+  // Note: We intentionally avoid injecting script.blocks directly to prevent malformed data from crashing BlockNote
 
   // Handle content changes
   const handleContentChange = useCallback(() => {
     setHasUnsavedChanges(true);
   }, []);
 
-  // Handle AI improvement
+  // Handle AI improvement: inspector -> (answer | editor)
   const handleAIImprovement = async () => {
-    if (!selectedText || !aiPrompt.trim()) return;
-    
+    if (!aiPrompt.trim()) return;
     setIsProcessingAI(true);
     setAiPromptDialog(false);
-    
+  // Chat shows thinking and summary; no local duplication
     try {
-      const response = await fetch('/api/services/thinkforge/scripts/edit', {
+      // Gather current full script text for context
+      const fullText = await editor.blocksToMarkdownLossy(editor.document);
+      const scriptPayload = {
+        title: script?.title || 'Untitled Script',
+        content: fullText
+      };
+      const projectPayload = {
+        idea: selectedIdea?.idea,
+        purpose: (selectedIdea as any)?.purpose,
+        style: (selectedIdea as any)?.style,
+        format: (selectedIdea as any)?.format,
+        platform: (selectedIdea as any)?.platform,
+        tone: selectedIdea?.tone
+      };
+
+      // Build prompt for inspector, include selection if present
+      const prompt = selectedText
+        ? `Edit the following selection within the script:\n---\n${selectedText}\n---\nInstruction: ${aiPrompt}`
+        : aiPrompt;
+
+      const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: sessionId || 'current_session',
-          scriptDraft: selectedText,
-          editRequest: aiPrompt,
-          preferences: {
-            tone: selectedIdea.tone,
-            targetAudience: script?.targetAudience || 'General audience'
-          }
-        })
+        body: JSON.stringify({ prompt, script: scriptPayload, project: projectPayload, sessionId })
       });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
+      const inspect = await inspectRes.json();
+
+      if (inspect?.action !== 'edit') {
+        // Not an edit; provide quick answer via alert for now
+        alert('This request was classified as an answer, not an edit. Please use chat mode for answers.');
+        return;
       }
-      
-      const data = await response.json();
-      
-      if (data.success && data.script?.body) {
-        // For now, show success message - we can implement block replacement later
-        alert('Text improved successfully! The updated content will be applied.');
-        handleContentChange();
-      } else {
-        throw new Error(data.error || 'Failed to improve text');
-      }
-    } catch (error) {
-      console.error('AI improvement failed:', error);
-      alert('Failed to improve text. Please try again.');
+
+      // Kick off a quick 'think' to show reasoning while editing
+      // Thinking streamed in Chat; skip here
+
+      const instruction = selectedText
+        ? `Apply this change to the selected part:\nSelection:\n${selectedText}\nChange:\n${aiPrompt}`
+        : aiPrompt;
+
+      const editRes = await fetch('/api/services/thinkforge/script/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, script: scriptPayload, project: projectPayload, sessionId })
+      });
+      if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
+      const edited = await editRes.json();
+
+  const newTitle: string = edited?.title || script?.title || 'Untitled Script';
+      const newContent: string = edited?.content || fullText;
+  // Summary is shown in Chat; we still apply edits here
+      // Build minimal blocks from returned text
+      const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+      const newBlocks: any[] = [
+        { type: 'heading', props: { level: 1 }, content: newTitle },
+        ...paras.map(p => ({ type: 'paragraph', content: p }))
+      ];
+      editor.replaceBlocks(editor.document, newBlocks as any);
+
+      // Persist to parent via onEditScript
+      const updatedScript = await convertBlocksToScript();
+      onEditScript(updatedScript);
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      console.error('AI improvement failed:', err);
+      alert('Failed to apply AI edit. Please try again.');
     } finally {
       setIsProcessingAI(false);
       setAiPrompt('');
+  // no-op; thinking is in Chat
     }
   };
 
@@ -287,7 +417,7 @@ export default function ScriptEditor({
             className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Chat
+            Back to Home
           </Button>
           <div className="flex items-center gap-3">
             <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
@@ -386,6 +516,7 @@ export default function ScriptEditor({
                 theme="dark"
                 className="blocknote-editor-dark"
               />
+              {/* Thinking and summary are now displayed in Chat */}
             </div>
           </CardContent>
         </Card>

@@ -35,7 +35,6 @@ interface ThinkForgeUsage {
 }
 
 const serviceConfig = getServiceConfig('thinkforge');
-const THINKFORGE_BACKEND_URL = process.env.THINKFORGE_BACKEND_URL || 'http://localhost:8080';
 
 export async function GET(request: Request) {
   try {
@@ -46,73 +45,37 @@ export async function GET(request: Request) {
         { status: 401 }
       );
     }
+    const allServiceUsage = await ServiceUsageService.getServiceUsageForAllServices(session.userId);
+    const thinkforgeLimits = allServiceUsage.thinkforge || {};
+    const sessionsLimit = thinkforgeLimits.maxSessions || { currentUsage: 0, maxUsage: 5, remaining: 5, resetPeriod: 'weekly' };
 
-    // Use MongoDB-based limits only (backend no longer handles limits)
-    console.log('Using MongoDB-based limits for ThinkForge usage data');
-    
-    try {
-      const allServiceUsage = await ServiceUsageService.getServiceUsageForAllServices(session.userId);
-      const thinkforgeLimits = allServiceUsage.thinkforge || {};
-      
-      // Transform MongoDB limits to frontend usage format
-      const sessionsLimit = thinkforgeLimits.maxSessions || { currentUsage: 0, maxUsage: 5, remaining: 5, resetPeriod: 'weekly' };
-      
-      const usage: ThinkForgeUsage = {
-        sessionsThisWeek: sessionsLimit.currentUsage,
-        ideasReshufflesInSession: 0, // Session-based limits not tracked in MongoDB
-        chatRepliesInSession: 0,
-        scriptRegenerationsInSession: 0,
-        askAIFixScriptInSession: 0,
-        lastWeekReset: sessionsLimit.lastReset?.toISOString() || new Date().toISOString(),
-        
-        // Transform MongoDB data to planLimits format
-        planLimits: {
-          sessions: {
-            used: sessionsLimit.currentUsage,
-            limit: sessionsLimit.maxUsage,
-            remaining: sessionsLimit.remaining,
-            reset_period: sessionsLimit.resetPeriod,
-            reset_date: sessionsLimit.lastReset?.toISOString()
-          },
-          ideaReshuffles: { used: 0, limit: -1, remaining: -1 }, // These are session-based, not tracked in MongoDB
-          chatReplies: { used: 0, limit: -1, remaining: -1 },
-          scriptRegens: { used: 0, limit: -1, remaining: -1 },
-          aiFixes: { used: 0, limit: -1, remaining: -1 },
-          maxConcurrentTasks: { used: 0, limit: 1, remaining: 1 }
+    const usage: ThinkForgeUsage = {
+      sessionsThisWeek: sessionsLimit.currentUsage,
+      ideasReshufflesInSession: 0,
+      chatRepliesInSession: 0,
+      scriptRegenerationsInSession: 0,
+      askAIFixScriptInSession: 0,
+      lastWeekReset: sessionsLimit.lastReset?.toISOString() || new Date().toISOString(),
+      planLimits: {
+        sessions: {
+          used: sessionsLimit.currentUsage,
+          limit: sessionsLimit.maxUsage,
+          remaining: sessionsLimit.remaining ?? (sessionsLimit.maxUsage === -1 ? -1 : Math.max(0, sessionsLimit.maxUsage - sessionsLimit.currentUsage)),
+          reset_period: sessionsLimit.resetPeriod,
+          reset_date: sessionsLimit.lastReset?.toISOString()
         },
-        serviceUsage: thinkforgeLimits,
-        concurrentUsage: {},
-        plan: 'free' // TODO: Get actual plan from user data
-      };
-      
-      return NextResponse.json(usage);
-      
-    } catch (mongoError) {
-      console.error('Failed to fetch ThinkForge limits from MongoDB:', mongoError);
-      
-      // Final fallback to default values
-      const defaultUsage: ThinkForgeUsage = {
-        sessionsThisWeek: 0,
-        ideasReshufflesInSession: 0,
-        chatRepliesInSession: 0,
-        scriptRegenerationsInSession: 0,
-        askAIFixScriptInSession: 0,
-        lastWeekReset: new Date().toISOString(),
-        planLimits: {
-          sessions: { used: 0, limit: 5, remaining: 5, reset_period: 'weekly' },
-          ideaReshuffles: { used: 0, limit: 5, remaining: 5 },
-          chatReplies: { used: 0, limit: 10, remaining: 10 },
-          scriptRegens: { used: 0, limit: 1, remaining: 1 },
-          aiFixes: { used: 0, limit: 5, remaining: 5 },
-          maxConcurrentTasks: { used: 0, limit: 1, remaining: 1 }
-        },
-        serviceUsage: {},
-        concurrentUsage: {},
-        plan: 'free'
-      };
-      
-      return NextResponse.json(defaultUsage);
-    }
+        ideaReshuffles: { used: 0, limit: -1, remaining: -1 },
+        chatReplies: { used: 0, limit: -1, remaining: -1 },
+        scriptRegens: { used: 0, limit: -1, remaining: -1 },
+        aiFixes: { used: 0, limit: -1, remaining: -1 },
+        maxConcurrentTasks: { used: 0, limit: 1, remaining: 1 }
+      },
+      serviceUsage: thinkforgeLimits,
+      concurrentUsage: {},
+      plan: 'free'
+    };
+
+    return NextResponse.json(usage);
 
   } catch (error) {
     console.error('Error in ThinkForge usage API:', error);
@@ -132,49 +95,22 @@ export async function POST(request: Request) {
         { status: 401 }
       );
     }
-
-    const usage: ThinkForgeUsage = await request.json();
-
-    // Try backend first, but fall back to MongoDB on any failure
+    let amount = 1;
     try {
-      const backendResponse = await fetch(
-        `${THINKFORGE_BACKEND_URL}/api/thinkforge/usage`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.userId}`
-          },
-          body: JSON.stringify({
-            user_id: session.userId,
-            ...usage
-          }),
-          signal: AbortSignal.timeout(5000)
-        }
-      );
+      const body = await request.json().catch(() => null);
+      if (body && typeof body.amount === 'number') amount = body.amount;
+    } catch {}
 
-      if (backendResponse.ok) {
-        const result = await backendResponse.json();
-        return NextResponse.json(result);
-      }
-    } catch (backendError) {
-      console.warn('ThinkForge backend unavailable for usage update, falling back to MongoDB');
-    }
-
-    // Fallback to MongoDB-based usage update
     try {
-      // Use ServiceUsageService to update usage
-      if (usage.sessionsThisWeek > 0) {
-        await ServiceUsageService.useService(session.userId, 'thinkforge', 'maxSessions', 1);
-      }
-      
-      return NextResponse.json({ success: true, message: 'Usage updated via MongoDB' });
-      
-    } catch (mongoError) {
-      console.error('Failed to update ThinkForge usage in MongoDB:', mongoError);
+      // Increment ThinkForge weekly sessions usage in MongoDB
+      const updated = await ServiceUsageService.useService(session.userId, 'thinkforge' as any, 'maxSessions', amount);
+      return NextResponse.json({ success: true, updated });
+    } catch (mongoError: any) {
+      const msg = mongoError?.message || 'Failed to update usage data';
+      const status = msg.includes('limit exceeded') ? 429 : 500;
       return NextResponse.json(
-        { error: 'Failed to update usage data' },
-        { status: 500 }
+        { success: false, error: msg },
+        { status }
       );
     }
 

@@ -1,19 +1,16 @@
-import { auth } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-export async function GET(req: Request) {
+export async function GET() {
   const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!userId) return new NextResponse('Unauthorized', { status: 401 });
   const base = process.env.MONOLITHIC_BACKEND_URL;
   const secret = process.env.MONOLITHIC_BACKEND_SECRET;
   if (!base || !secret) return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
-  const url = new URL(req.url);
-  const limit = url.searchParams.get('limit') || '50';
-  const offset = url.searchParams.get('offset') || '0';
-  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/sessions/list?userId=${encodeURIComponent(userId)}&limit=${encodeURIComponent(limit)}&offset=${encodeURIComponent(offset)}`, {
+  const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/sessions/count?userId=${encodeURIComponent(userId)}&period=weekly`, {
     method: 'GET', cache: 'no-store', headers: {
       'Authorization': `Bearer ${secret}`, 'Accept': 'application/json', 'Accept-Encoding': 'identity',
     }

@@ -46,6 +46,15 @@ export default function ChatInterface({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [showScrollFab, setShowScrollFab] = useState(false);
   const [isInitialized, setIsInitialized] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(10); // lazy window size
+
+  // Expand visible window when new messages arrive so latest are always shown
+  useEffect(() => {
+    setVisibleCount((prev) => {
+      const nextCount = Math.max(10, Math.min(messages.length, prev));
+      return nextCount > messages.length ? messages.length : nextCount;
+    });
+  }, [messages.length]);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -81,6 +90,14 @@ export default function ChatInterface({
     const target = e.currentTarget;
     const nearBottom = target.scrollHeight - target.scrollTop - target.clientHeight < 120;
     setShowScrollFab(!nearBottom);
+
+    // Load older messages when reaching close to top
+    if (target.scrollTop < 40) {
+      setVisibleCount((prev) => {
+        const next = Math.min(messages.length, prev + 10);
+        return next;
+      });
+    }
   };
 
   const handleSendMessage = () => {
@@ -159,7 +176,7 @@ export default function ChatInterface({
           onScroll={onScroll}
           ref={scrollContainerRef}
         >
-          {isInitialized && Array.isArray(messages) && messages.map((m, idx) => (
+          {isInitialized && Array.isArray(messages) && messages.slice(Math.max(0, messages.length - visibleCount)).map((m, idx) => (
             <ChatBubble
               key={`${m.id}-${idx}`}
               role={m.role}
