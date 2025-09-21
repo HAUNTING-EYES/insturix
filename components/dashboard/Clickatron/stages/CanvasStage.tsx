@@ -333,7 +333,8 @@ useEffect(() => {
         });
         updateCanvas(newCanvas);
   
-        // Immediately set the new variation as active
+        // Immediately set the new variation as active (both local and global)
+        setLocalActiveVariation(data.variationId);
         setActiveVariationId(data.variationId);
       }
   

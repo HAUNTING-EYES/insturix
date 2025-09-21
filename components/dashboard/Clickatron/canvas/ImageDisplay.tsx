@@ -64,11 +64,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     useEffect(() => {
       console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
 
-      // If we're currently generating, show the generating UI immediately
-      if (status === "generating") {
-        // clear any existing image while generating and show loader
+      // For generating placeholders, still fetch signedUrl if imageRef is set
+      const shouldFetch = imageRef && (status !== "generating" || (status === "generating" && imageRef)); // Fetch for placeholders too
+      if (!shouldFetch) {
         setSignedUrl(null);
-        setIsLoading(true);
+        setIsLoading(false);
         return;
       }
 
@@ -87,7 +87,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
       // If we're already loading or have loaded this image, don't fetch again
       if (currentImageRef.current === imageRef && signedUrl) {
-        setIsLoading(false);
+        if (status === "generating") {
+          setIsLoading(false); // Don't show loading for placeholders
+        }
         return;
       }
 
@@ -102,74 +104,41 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       }
 
       const fetchSignedUrl = async () => {
-        if (status === "completed" && imageRef && imageRef.startsWith("https://storage.googleapis.com")) {
-          console.log('Fetching signed URL for', imageRef);
-          setIsLoading(true);
-          try {
-            // First check if we have a cached version of this image
-            const cachedResponse = await fetchImageWithCache(imageRef);
-            if (cachedResponse.ok) {
-              // If we have a cached version, create an object URL for it
-              const blob = await cachedResponse.blob();
-              const newObjectUrl = URL.createObjectURL(blob);
-              setObjectUrl(newObjectUrl);
-              setSignedUrl(newObjectUrl);
-              urlCache.set(imageRef, newObjectUrl); // Cache the URL
-              currentImageRef.current = imageRef;
-              return;
-            }
-            
-            // If not in cache, fetch from the API as before
-            const response = await fetch('/api/services/clickatron/utils/get-signed-url', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ gcsUrl: imageRef }),
-            });
-            console.log('Signed URL response status:', response.status);
-            if (!response.ok) throw new Error('Failed to get signed URL');
-            const data = await response.json();
-            console.log('Signed URL received:', data.signedUrl);
-            setSignedUrl(data.signedUrl);
-            urlCache.set(imageRef, data.signedUrl); // Cache the URL
+        setIsLoading(status !== "generating"); // Don't show loading spinner for generating placeholders
+        try {
+          // First check if we have a cached version of this image
+          const cachedResponse = await fetchImageWithCache(imageRef);
+          if (cachedResponse.ok) {
+            // If we have a cached version, create an object URL for it
+            const blob = await cachedResponse.blob();
+            const newObjectUrl = URL.createObjectURL(blob);
+            setObjectUrl(newObjectUrl);
+            setSignedUrl(newObjectUrl);
+            urlCache.set(imageRef, newObjectUrl); // Cache the URL
             currentImageRef.current = imageRef;
-          } catch (error) {
-            console.error('Error fetching signed URL:', error);
-            setSignedUrl(null);
-          } finally {
+            return;
+          }
+          
+          // If not in cache, fetch from the API as before
+          const response = await fetch('/api/services/clickatron/utils/get-signed-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ gcsUrl: imageRef }),
+          });
+          console.log('Signed URL response status:', response.status);
+          if (!response.ok) throw new Error('Failed to get signed URL');
+          const data = await response.json();
+          console.log('Signed URL received:', data.signedUrl);
+          setSignedUrl(data.signedUrl);
+          urlCache.set(imageRef, data.signedUrl); // Cache the URL
+          currentImageRef.current = imageRef;
+        } catch (error) {
+          console.error('Error fetching signed URL:', error);
+          setSignedUrl(null);
+        } finally {
+          if (status !== "generating") {
             setIsLoading(false);
           }
-        } else if (status === "completed" && imageRef) {
-          // For non-GCS URLs, check cache first
-          const loadImage = async () => {
-            setIsLoading(true);
-            try {
-              const cachedResponse = await fetchImageWithCache(imageRef);
-              if (cachedResponse.ok) {
-                const blob = await cachedResponse.blob();
-                const newObjectUrl = URL.createObjectURL(blob);
-                setObjectUrl(newObjectUrl);
-                setSignedUrl(newObjectUrl);
-                urlCache.set(imageRef, newObjectUrl); // Cache the URL
-                currentImageRef.current = imageRef;
-                return;
-              }
-              // If not cached, use the direct URL
-              setSignedUrl(imageRef);
-              urlCache.set(imageRef, imageRef); // Cache the URL
-              currentImageRef.current = imageRef;
-            } catch (error) {
-              console.error('Error loading image:', error);
-              setSignedUrl(imageRef); // Fallback to direct URL
-              urlCache.set(imageRef, imageRef); // Cache the URL
-              currentImageRef.current = imageRef;
-            } finally {
-              setIsLoading(false);
-            }
-          };
-          loadImage();
-        } else {
-          setSignedUrl(null);
-          setIsLoading(false);
         }
       };
 
@@ -314,46 +283,69 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     };
 
     return (
-      // If interactive is disabled, render a plain img to avoid zoom/pan controls
-      (interactive ? (
-        <TransformWrapper
-          ref={ref}
-          initialScale={1}
-          minScale={0.1}
-          maxScale={5}
-          centerOnInit={true}
-          limitToBounds={false}
-          panning={{ disabled: false }}
-          wheel={{ step: 0.1 }}
-          doubleClick={{ disabled: false, mode: "zoomIn", step: 0.3 }}
-          onInit={(r) => {
-            setTimeout(() => r.resetTransform(), 100);
-          }}
-        >
-          <TransformComponent
-            wrapperClass="w-full h-full flex items-center justify-center"
-            contentClass="flex items-center justify-center"
-          >
-            <img
-              src={signedUrl}
-              alt=""
-              className={`${className} select-none`}
-              style={imageStyle}
-              draggable={false}
-            />
-          </TransformComponent>
-        </TransformWrapper>
-      ) : (
-        <div className="w-full h-full flex items-center justify-center">
-          <img
-            src={signedUrl}
-            alt=""
-            className={`${className} select-none`}
-            style={imageStyle}
-            draggable={false}
-          />
+      <>
+        {/* Generating overlay for edits */}
+        {status === 'generating' && imageRef && (
+          <div className="absolute inset-0 pointer-events-none">
+            {/* Animated blurred gradient mesh */}
+            <div className="absolute inset-0 bg-[linear-gradient(45deg,#80808012,#80808033,#80808012)] animate-shimmer bg-[length:200%_200%] bg-center"></div>
+            <div className="absolute inset-0 bg-[linear-gradient(90deg,#80808012,#80808033,#80808012)] animate-shimmer bg-[length:200%_200%] bg-center delay-100"></div>
+            <div className="absolute inset-0 bg-[linear-gradient(135deg,#80808012,#80808033,#80808012)] animate-shimmer bg-[length:200%_200%] bg-center delay-200"></div>
+            
+            {/* Generating text overlay */}
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="text-center bg-black/40 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl">
+                <div className="text-white font-semibold text-xl mb-1">Generating...</div>
+                <div className="text-white/70 text-sm">Creating your enhanced edit</div>
+              </div>
+            </div>
+          </div>
+        )}
+        
+        {/* Main image container */}
+        <div className="relative w-full h-full">
+          {/* If interactive is disabled, render a plain img to avoid zoom/pan controls */}
+          {interactive ? (
+            <TransformWrapper
+              ref={ref}
+              initialScale={1}
+              minScale={0.1}
+              maxScale={5}
+              centerOnInit={true}
+              limitToBounds={false}
+              panning={{ disabled: false }}
+              wheel={{ step: 0.1 }}
+              doubleClick={{ disabled: false, mode: "zoomIn", step: 0.3 }}
+              onInit={(r) => {
+                setTimeout(() => r.resetTransform(), 100);
+              }}
+            >
+              <TransformComponent
+                wrapperClass="w-full h-full flex items-center justify-center"
+                contentClass="flex items-center justify-center"
+              >
+                <img
+                  src={signedUrl}
+                  alt=""
+                  className={`${className} select-none`}
+                  style={imageStyle}
+                  draggable={false}
+                />
+              </TransformComponent>
+            </TransformWrapper>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <img
+                src={signedUrl}
+                alt=""
+                className={`${className} select-none`}
+                style={imageStyle}
+                draggable={false}
+              />
+            </div>
+          )}
         </div>
-      ))
+      </>
     );
   }
 );
