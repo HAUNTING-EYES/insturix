@@ -23,6 +23,7 @@ import {
 
 import { Variation } from "@/types/clickatron";
 import { ImageDisplay } from "./ImageDisplay";
+import { LimitDisplay } from "../LimitDisplay";
 
 interface VariationsGalleryProps {
   variations: Variation[];
@@ -76,7 +77,7 @@ export function VariationsGallery({
         initial={false}
         animate={{ width: isCollapsed ? 60 : 280 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
-        className="bg-zinc-900/50 border-r border-zinc-800/80 flex flex-col h-full pb-32"
+        className="bg-zinc-900/50 border-r border-zinc-800/80 flex flex-col h-full"
         style={{ marginLeft: "64px" }} // Account for website sidebar
       >
       {/* Header */}
@@ -333,6 +334,11 @@ export function VariationsGallery({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      
+      {/* Usage Limits Display at the bottom */}
+      <div className="p-4 border-t border-zinc-800/80 w-full h-auto">
+        <LimitDisplay compact />
+      </div>
     </motion.div>
     </TooltipProvider>
   );

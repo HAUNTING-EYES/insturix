@@ -16,13 +16,7 @@ export default async function ClickatronDashboard() {
             Turn ideas into thumbnails. <br className="hidden sm:block" />
             Your creative lab awaits.
           </h1>
-
-          <p className="mt-4 text-lg text-zinc-400 max-w-2xl">
-            From video concept to stunning thumbnail in seconds. Let AI guide
-            your creative process.
-          </p>
         </div>
-
         {/* Main Interface */}
         <div className="mt-6 sm:mt-8">
           <ClickatronLayout />

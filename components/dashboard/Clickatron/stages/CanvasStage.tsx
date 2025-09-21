@@ -319,7 +319,12 @@ useEffect(() => {
         task._id,
         data.variationId,
         loadSession,
-        () => useClickatronStore.getState().task
+        () => useClickatronStore.getState().task,
+        () => {
+          // Trigger a re-render of LimitDisplay components by updating a dummy state
+          // This is a simple way to force components to re-fetch their data
+          window.dispatchEvent(new CustomEvent('clickatron-usage-updated'));
+        }
       );
 
     } catch (error) {

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CreateVariationRequest, ChatMessage } from '@/types/clickatron';
+export * from './clickatron-limits';
 
 // Polling utility for variation completion
 export const pollVariationCompletion = async (
@@ -7,6 +8,7 @@ export const pollVariationCompletion = async (
   variationId: string,
   loadSession: (sessionId: string) => Promise<void>,
   getTask: () => any,
+  refreshUsageLimits?: () => void,
   pollInterval: number = 2000
 ): Promise<void> => {
   return new Promise((resolve) => {
@@ -26,6 +28,10 @@ export const pollVariationCompletion = async (
         if (variation && variation.status !== 'generating') {
           clearInterval(poll);
           console.log('Polling stopped:', variation?.status);
+          // Refresh usage limits if callback is provided
+          if (refreshUsageLimits) {
+            refreshUsageLimits();
+          }
           resolve();
         }
       } catch (error) {

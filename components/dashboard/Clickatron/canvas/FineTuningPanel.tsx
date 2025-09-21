@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CustomColorGrading } from './CustomColorGrading';
+import { LimitDisplay } from '../LimitDisplay';
 
 interface FineTuningControls {
   brightness: number;
@@ -97,7 +98,7 @@ export function FineTuningPanel({
   return (
     <motion.div
       {...fadeIn}
-      className="w-80 bg-zinc-900/50 border-l border-zinc-800/80 flex flex-col h-full pb-32"
+      className="w-80 bg-zinc-900/50 border-l border-zinc-800/80 flex flex-col h-full"
     >
       {/* Header */}
       <div className="p-4 border-b border-zinc-800/80 flex items-center justify-between">
@@ -275,6 +276,11 @@ export function FineTuningPanel({
         onClose={() => setShowCustomGrading(false)}
         onApply={handleCustomGradingApply}
       />
+      
+      {/* Usage Limits Display */}
+      <div className="p-4 border-t border-zinc-800/80">
+        <LimitDisplay compact />
+      </div>
     </motion.div>
   );
 }
