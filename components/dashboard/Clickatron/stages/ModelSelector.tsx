@@ -24,19 +24,27 @@ export function ModelSelector({
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
 
   useEffect(() => {
-  // Filter models based on the context and number of user attached images
-  const filteredModels = getAvailableModels(context, userAttachedImages);
-    
+    // Filter models based on the context and number of user attached images
+    const filteredModels = getAvailableModels(context, userAttachedImages);
+      
     setModels(filteredModels);
-    
+      
     // Find the default model for this filter
     const defaultModel = filteredModels.find(model => model.isDefault) || filteredModels[0];
     if (defaultModel) {
       setDefaultModelId(defaultModel.id);
-      // If no model is selected, select the default one
-      if (!selectedModelId) {
+    }
+
+    // Validate current selection and reset if invalid
+    if (selectedModelId && !filteredModels.some(model => model.id === selectedModelId)) {
+      if (defaultModel) {
         onModelChange(defaultModel.id);
+      } else {
+        onModelChange("");
       }
+    } else if (!selectedModelId && defaultModel) {
+      // If no model is selected, select the default one
+      onModelChange(defaultModel.id);
     }
   }, [context, userAttachedImages, selectedModelId, onModelChange]);
 
