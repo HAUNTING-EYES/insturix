@@ -7,7 +7,7 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { CanvasPresetSelector } from '../CanvasPresetSelector';
 
 interface CanvasControlsProps {
     brightness: number;
@@ -152,20 +152,7 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                             <div className="w-2 h-2 rounded-full bg-purple-400/60" />
                             Canvas Size
                         </Label>
-                        <Select value={aspectRatio} onValueChange={onAspectRatioChange}>
-                            <SelectTrigger className="w-full bg-zinc-800/40 border-zinc-700/50 text-zinc-200 hover:bg-zinc-800/60 transition-colors h-8 text-xs">
-                                <SelectValue placeholder="Select aspect ratio" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-zinc-900 border-zinc-700">
-                                <SelectItem value="16:9">YouTube (16:9)</SelectItem>
-                                <SelectItem value="9:16">TikTok (9:16)</SelectItem>
-                                <SelectItem value="1:1">Instagram (1:1)</SelectItem>
-                                <SelectItem value="4:5">Portrait (4:5)</SelectItem>
-                                <SelectItem value="21:9">Ultrawide (21:9)</SelectItem>
-                                <SelectItem value="4:3">Standard (4:3)</SelectItem>
-                                <SelectItem value="3:2">Photo (3:2)</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        <CanvasPresetSelector value={aspectRatio} onChange={onAspectRatioChange} />
                     </div>
                 </>
             )}

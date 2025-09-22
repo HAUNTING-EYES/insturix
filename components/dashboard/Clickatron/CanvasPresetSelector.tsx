@@ -52,7 +52,8 @@ const presets: Preset[] = [
   { name: 'Reels/TikTok', ratio: '9:16', icon: ReelsIcon },
   { name: 'Instagram Post', ratio: '1:1', icon: InstagramPostIcon },
   { name: 'Instagram Story', ratio: '9:16', icon: InstagramStoryIcon },
-  { name: 'Twitter Post', ratio: '16:9', icon: TwitterPostIcon },
+  { name: 'Standard', ratio: '4:3', icon: YouTubeThumbnailIcon },
+  { name: 'Portrait', ratio: '3:4', icon: ReelsIcon },
 ];
 
 const fadeIn: {
@@ -73,35 +74,9 @@ interface CanvasPresetSelectorProps {
 }
 
 export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ value, onChange }) => {
-  const isPreset = useMemo(() => presets.some(p => p.ratio === value), [value]);
-  const [customWidth, setCustomWidth] = useState<string>('');
-  const [customHeight, setCustomHeight] = useState<string>('');
-
-  useEffect(() => {
-    if (!isPreset) {
-      const [w, h] = value.split(':');
-      setCustomWidth(w || '');
-      setCustomHeight(h || '');
-    }
-  }, [isPreset, value]);
-
-  const handleBlur = () => {
-    let w = parseFloat(customWidth);
-    let h = parseFloat(customHeight);
-
-    if (isNaN(w) || w <= 0) w = 1;
-    if (isNaN(h) || h <= 0) h = 1;
-
-    const commonDivisor = gcd(w * 100, h * 100);
-    const simplifiedWidth = (w * 100) / commonDivisor;
-    const simplifiedHeight = (h * 100) / commonDivisor;
-
-    onChange(`${simplifiedWidth}:${simplifiedHeight}`);
-  };
-
   return (
     <motion.div {...fadeIn} className="w-full">
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
         {presets.map(preset => (
           <PresetCard
             key={preset.name}
@@ -110,20 +85,6 @@ export const CanvasPresetSelector: React.FC<CanvasPresetSelectorProps> = ({ valu
             onSelect={() => onChange(preset.ratio)}
           />
         ))}
-        {/* Custom Preset - Takes remaining space */}
-        <CustomPresetCard
-          isSelected={!isPreset}
-          width={customWidth}
-          height={customHeight}
-          onSelect={() => {
-            if (isPreset) {
-              onChange('4:3');
-            }
-          }}
-          onWidthChange={(e) => setCustomWidth(e.target.value)}
-          onHeightChange={(e) => setCustomHeight(e.target.value)}
-          onBlur={handleBlur}
-        />
       </div>
     </motion.div>
   );
@@ -156,84 +117,3 @@ const PresetCard = ({ preset, isSelected, onSelect }: { preset: Preset, isSelect
   </div>
 );
 
-const CustomPresetCard = ({
-  isSelected,
-  width,
-  height,
-  onSelect,
-  onWidthChange,
-  onHeightChange,
-  onBlur,
-}: {
-  isSelected: boolean;
-  width: string;
-  height: string;
-  onSelect: () => void;
-  onWidthChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  onHeightChange: (e: ChangeEvent<HTMLInputElement>) => void;
-  onBlur: () => void;
-}) => {
-  return (
-    <div
-      onClick={onSelect}
-      className={cn(
-        'relative rounded-lg border p-3 cursor-pointer transition-all duration-200 group bg-zinc-900/50 hover:bg-zinc-800/70 flex flex-col items-center justify-center',
-        isSelected
-          ? 'border-purple-500/60 bg-purple-500/10'
-          : 'border-zinc-700/50 hover:border-zinc-600'
-      )}
-      style={{ minHeight: '90px' }}
-    >
-      <AnimatePresence>
-        {isSelected && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.5 }}
-            className="absolute top-1 right-1 bg-purple-500 rounded-full p-0.5 z-10"
-          >
-            <Check className="w-2.5 h-2.5 text-white" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <Edit3 className={cn('w-6 h-6 mb-2 transition-colors', isSelected ? 'text-purple-400' : 'text-zinc-400 group-hover:text-zinc-300')} />
-      <p className={cn('text-xs font-medium transition-colors text-center leading-tight mb-1', isSelected ? 'text-zinc-100' : 'text-zinc-300 group-hover:text-zinc-100')}>Custom</p>
-      
-      {isSelected ? (
-        <motion.div
-          initial={{ opacity: 0, y: 5 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-center gap-1"
-        >
-          <Input
-            type="number"
-            placeholder="W"
-            value={width}
-            onChange={onWidthChange}
-            onBlur={onBlur}
-            onClick={(e) => e.stopPropagation()}
-            className="w-10 h-6 text-center bg-zinc-950/50 border-zinc-700 rounded text-xs p-1"
-            min="0.1"
-            step="0.1"
-            autoFocus
-          />
-          <span className="text-zinc-500 text-xs">:</span>
-          <Input
-            type="number"
-            placeholder="H"
-            value={height}
-            onChange={onHeightChange}
-            onBlur={onBlur}
-            onClick={(e) => e.stopPropagation()}
-            className="w-10 h-6 text-center bg-zinc-950/50 border-zinc-700 rounded text-xs p-1"
-            min="0.1"
-            step="0.1"
-          />
-        </motion.div>
-      ) : (
-        <p className="text-xs text-purple-300">Ratio</p>
-      )}
-    </div>
-  );
-};
