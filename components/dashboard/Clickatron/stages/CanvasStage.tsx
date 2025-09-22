@@ -155,6 +155,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const renderCount = useRef(0);
   const [localActiveVariation, setLocalActiveVariation] = useState(activeVariationId);
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -184,17 +185,35 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const generatingVariations = variations.filter(v => v.status === 'generating');
       if (generatingVariations.length > 0) {
         console.log('Found generating variations on mount, starting polling:', generatingVariations.map(v => v.id));
+        abortControllerRef.current = new AbortController();
         generatingVariations.forEach(variation => {
           pollVariationCompletion(
             task._id!,
             variation.id,
             loadSession,
-            () => useClickatronStore.getState().task
-          );
+            () => useClickatronStore.getState().task,
+            undefined,
+            2000,
+            abortControllerRef.current!.signal
+          ).catch(err => {
+            if (err.message !== 'Polling aborted') {
+              console.error('Polling error:', err);
+            }
+          });
         });
       }
     }
   }, []); // Empty dependency array to run only once on mount
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        console.log('Aborting polling on unmount');
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
 
  // Update active variation if none is selected
 useEffect(() => {
@@ -349,8 +368,14 @@ useEffect(() => {
           // Trigger a re-render of LimitDisplay components by updating a dummy state
           // This is a simple way to force components to re-fetch their data
           window.dispatchEvent(new CustomEvent('clickatron-usage-updated'));
+        },
+        2000,
+        abortControllerRef.current?.signal
+      ).catch(err => {
+        if (err.message !== 'Polling aborted') {
+          console.error('Polling error in handleAIGenerate:', err);
         }
-      );
+      });
   
     } catch (error) {
       console.error("Error generating variation:", error);

@@ -9,10 +9,16 @@ export const pollVariationCompletion = async (
   loadSession: (sessionId: string) => Promise<void>,
   getTask: () => any,
   refreshUsageLimits?: () => void,
-  pollInterval: number = 2000
+  pollInterval: number = 2000,
+  signal?: AbortSignal
 ): Promise<void> => {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const poll = setInterval(async () => {
+      if (signal?.aborted) {
+        clearInterval(poll);
+        reject(new Error('Polling aborted'));
+        return;
+      }
       try {
         await loadSession(sessionId);
         const task = getTask();
@@ -37,9 +43,15 @@ export const pollVariationCompletion = async (
       } catch (error) {
         console.error('Polling error:', error);
         clearInterval(poll);
-        resolve();
+        reject(error);
       }
     }, pollInterval);
+
+    // Cleanup on abort
+    signal?.addEventListener('abort', () => {
+      clearInterval(poll);
+      reject(new Error('Polling aborted'));
+    });
   });
 };
 
