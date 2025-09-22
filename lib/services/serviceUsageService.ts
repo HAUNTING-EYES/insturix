@@ -239,18 +239,18 @@ export class ServiceUsageService {
    */
   static async getServiceUsageForAllServices(userId: string): Promise<Record<string, Record<string, ServiceUsageInfo>>> {
     await connectToDatabase();
-    
-    // Auto-reset services that need to be reset (lazy reset)
-    const resetServices = await this.autoResetServices(userId);
-    if (resetServices.length > 0) {
-      console.log(`[ServiceUsageService] Auto-reset completed. Reset services:`, resetServices);
-    }
-    
-    // Select only needed fields for better performance
+
+    // Select only needed fields for better performance - fetch user once
     const user = await User.findOne({ clerkUserId: userId }).select('currentPlan.serviceLimits');
     if (!user) {
       console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
       throw new Error(`User not found: ${userId}`);
+    }
+
+    // Auto-reset services that need to be reset (lazy reset) - pass the fetched user to avoid another DB read
+    const resetServices = await this.autoResetServices(user);
+    if (resetServices.length > 0) {
+      console.log(`[ServiceUsageService] Auto-reset completed. Reset services:`, resetServices);
     }
 
     const result: Record<string, Record<string, ServiceUsageInfo>> = {};
@@ -485,20 +485,29 @@ export class ServiceUsageService {
    * - Reset if current date exceeds (lastResetDate + resetPeriod) AND limit isn't 0
    * - Only applies to limits with resetPeriod that's not "none"
    */
-  static async autoResetServices(userId: string): Promise<string[]> {
+  // Accept either a userId or a Mongoose user document to avoid duplicate DB reads
+  static async autoResetServices(userOrId: string | any): Promise<string[]> {
     await connectToDatabase();
-    
-    const user = await User.findOne({ clerkUserId: userId });
+
+    let user: any;
+    if (typeof userOrId === 'string') {
+      user = await User.findOne({ clerkUserId: userOrId });
+    } else {
+      user = userOrId;
+    }
+
     if (!user) {
-      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
-      throw new Error(`User not found: ${userId}`);
+      console.error(`[UserNotFound] userOrId: '${userOrId}' | Query result:`, user);
+      throw new Error(`User not found: ${userOrId}`);
     }
 
     const resetServices: string[] = [];
 
+    const idForMsg = typeof userOrId === 'string' ? userOrId : (user?.clerkUserId ?? '<unknown>');
     // Fail fast if serviceLimits is not properly structured
     if (!user.currentPlan.serviceLimits || typeof user.currentPlan.serviceLimits !== 'object') {
-      throw new Error(`User ${userId} has invalid serviceLimits structure. This indicates a data corruption issue.`);
+      console.error(`User ${idForMsg} has invalid serviceLimits:`, user.currentPlan.serviceLimits);
+      throw new Error(`User ${idForMsg} has invalid serviceLimits structure. This indicates a data corruption issue.`);
     }
 
     // Convert Mongoose document to plain object to avoid metadata properties
@@ -523,7 +532,7 @@ export class ServiceUsageService {
       }
     });
 
-    if (resetServices.length > 0) {
+  if (resetServices.length > 0) {
       console.log(`[autoResetServices] Saving changes for reset services:`, resetServices);
       
       // Use direct MongoDB update instead of Mongoose save for nested arrays
@@ -547,8 +556,9 @@ export class ServiceUsageService {
       
       try {
         // Use findOneAndUpdate with $set and $unset operations
+        const query = typeof userOrId === 'string' ? { clerkUserId: userOrId } : { clerkUserId: user.clerkUserId };
         const updateResult = await User.findOneAndUpdate(
-          { clerkUserId: userId },
+          query,
           {
             $set: Object.fromEntries(
               Object.entries(updateOperations).filter(([key]) => key !== '$unset')

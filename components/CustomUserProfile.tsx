@@ -18,6 +18,11 @@ export default function CustomUserProfile() {
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteSuccess, setDeleteSuccess] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
   // Removed unused emailList state to satisfy @typescript-eslint/no-unused-vars
   // const [emailList, setEmailList] = useState(user?.emailAddresses || []);
 
@@ -61,6 +66,28 @@ export default function CustomUserProfile() {
       setIsSaving(false);
     }
   };
+
+
+  const handleDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDeleteError("");
+    setDeleteSuccess("");
+    setDeleting(true);
+    if (deleteConfirm !== "DELETE") {
+      setDeleteError('Type DELETE to confirm.');
+      setDeleting(false);
+      return;
+    }
+    try {
+      await user.delete();
+      setDeleteSuccess("Account deleted. You will be signed out.");
+    } catch (err) {
+      setDeleteError("Failed to delete account.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
 
   const handleAddEmail = async () => {
     if (!newEmail) return;
@@ -346,7 +373,7 @@ export default function CustomUserProfile() {
               {signOutError && <div className="text-red-400 text-sm mt-2">{signOutError}</div>} */}
             </div>
             {/* Delete Account */}
-            {/*<form onSubmit={handleDeleteAccount} className="max-w-md">
+            <form onSubmit={handleDeleteAccount} className="max-w-md">
               <div className="font-semibold mb-2 text-red-400">Delete account</div>
               <div className="text-zinc-400 text-xs mb-2">This action is irreversible. Type <span className="font-bold text-red-400">DELETE</span> to confirm.</div>
               <Input
@@ -360,7 +387,7 @@ export default function CustomUserProfile() {
               </Button>
               {deleteSuccess && <div className="text-green-400 text-sm mt-2">{deleteSuccess}</div>}
               {deleteError && <div className="text-red-400 text-sm mt-2">{deleteError}</div>}
-            </form>*/}
+            </form>
           </>
         )}
       </div>

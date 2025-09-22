@@ -1,22 +1,11 @@
 import SocializeClientWrapper from "@/components/dashboard/Socialize/SocializeDashboard";
 import { Share2 } from "lucide-react";
 import { currentUser } from "@clerk/nextjs/server";
-import mongoose from "mongoose";
-import Socialize from "@/schemas/Socialize";
 import { redirect } from "next/navigation";
 import React, { Suspense } from "react";
 import { UniversalLoader } from "@/components/Loader/UniversalLoader";
 
 export const revalidate = 60;
-
-async function connectToDatabase() {
-  if (mongoose.connection.readyState !== 1) {
-    // Avoid long default Mongoose timeouts by setting a short serverSelectionTimeout
-    await mongoose.connect(process.env.MONGODB_URI as string, {
-      serverSelectionTimeoutMS: 2500,
-    });
-  }
-}
 
 export default async function SocializePage() {
   const user = await currentUser();
@@ -24,25 +13,7 @@ export default async function SocializePage() {
     redirect("/sign-in");
   }
 
-  await connectToDatabase();
-
-  // Fetch with lean and minimal projection to reduce payload + serialization
-  const socializeData = await Socialize.findOne(
-    { username: user.username },
-    { __v: 0 }
-  )
-    .lean()
-    .exec();
-
-  // Safely stringify without heavy Date objects
-  const serialized = socializeData
-    ? JSON.parse(
-        JSON.stringify(socializeData, (_, v) =>
-          v instanceof Date ? v.toISOString() : v
-        )
-      )
-    : null;
-
+  // Remove blocking database call - let client handle data fetching
   return (
     <div className="container mx-auto p-8">
       {/* Page Header */}
@@ -58,7 +29,7 @@ export default async function SocializePage() {
 
       {/* Dashboard Content */}
       <Suspense fallback={<UniversalLoader />}>
-        <SocializeClientWrapper initialData={serialized} />
+        <SocializeClientWrapper initialData={null} />
       </Suspense>
     </div>
   );

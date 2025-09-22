@@ -10,10 +10,17 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const userData = await getUserData();
+  // Fetch user data but don't block on errors - let client handle gracefully
+  let userData = null;
+  try {
+    userData = await getUserData();
+  } catch (error) {
+    console.error("Failed to fetch user data in layout:", error);
+    // Continue with null userData - client will handle initialization
+  }
 
   return (
-    <DashboardClientLayout initialUserData={JSON.parse(JSON.stringify(userData))}>
+    <DashboardClientLayout initialUserData={userData ? JSON.parse(JSON.stringify(userData)) : null}>
       <Suspense fallback={<UniversalLoader />}>
         {children}
       </Suspense>

@@ -40,7 +40,7 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
     let isMounted = true;
 
     const initializeUser = async () => {
-      if (!isLoaded || !user || isInitialized) {
+      if (!isLoaded || !user) {
         return;
       }
 
@@ -70,10 +70,28 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
       }
     };
 
-    // Only trigger initialization if initialData is missing and not already loading/initialized
-    if (!initialData && !isInitialized && !isLoading) {
-      // Run initialization in background, do not block UI
-      initializeUser();
+    // If we have initialData, use it immediately
+    if (initialData && !isInitialized) {
+      setUserData(initialData);
+      setUserExists(true);
+      setIsInitialized(true);
+      setIsLoading(false);
+      return;
+    }
+
+    // Only trigger initialization if no initialData and user is loaded
+    if (!initialData && !isInitialized && !isLoading && isLoaded && user) {
+      // Small delay to not block critical rendering
+      const timer = setTimeout(() => {
+        if (isMounted) {
+          initializeUser();
+        }
+      }, 50);
+      
+      return () => {
+        clearTimeout(timer);
+        isMounted = false;
+      };
     }
 
     return () => {

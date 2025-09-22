@@ -101,6 +101,9 @@
     "react-swipeable": "^7.0.2",
     "react-syntax-highlighter": "^15.6.1",
     "react-zoom-pan-pinch": "^3.7.0",
+    "rehype-highlight": "^7.0.2",
+    "rehype-raw": "^7.0.0",
+    "remark-gfm": "^4.0.1",
     "sonner": "^2.0.3",
     "svix": "^1.68.0",
     "tailwind-merge": "^3.2.0",
@@ -113,6 +116,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.1",
+    "@svgr/webpack": "^8.1.0",
     "@tailwindcss/postcss": "^4.1.11",
     "@tanstack/react-query-devtools": "^5.81.5",
     "@types/node": "^24.0.8",

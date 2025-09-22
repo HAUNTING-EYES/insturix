@@ -10,7 +10,6 @@ import {
   Check,
   Loader2,
   Sparkles,
-  Save,
   Eye,
   Edit,
   FileText
@@ -37,6 +36,7 @@ import "@blocknote/mantine/style.css";
 // Import BlockNote hooks and types
 import { useCreateBlockNote } from "@blocknote/react";
 import { Block, BlockNoteEditor } from "@blocknote/core";
+import ScriptRenderer from "./ScriptRenderer";
 
 interface ScriptEditorProps {
   script?: Script | null;
@@ -47,6 +47,8 @@ interface ScriptEditorProps {
   onExportScript: () => void;
   loading?: boolean;
   generatingScript?: boolean;
+  // Show autosaving state from the ThinkForge client hook
+  isSaving?: boolean;
 }
 
 export default function ScriptEditor({
@@ -57,126 +59,210 @@ export default function ScriptEditor({
   onEditScript,
   onExportScript,
   loading = false,
-  generatingScript = false
+  generatingScript = false,
+  isSaving = false
 }: ScriptEditorProps) {
   const [selectedText, setSelectedText] = useState<string>('');
+  const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [aiPromptDialog, setAiPromptDialog] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [isProcessingAI, setIsProcessingAI] = useState(false);
+  // Thinking/summary are now shown in Chat; avoid duplication here
   const [copied, setCopied] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
+  const prevIsSavingRef = useRef<boolean>(false);
 
-  // Convert HTML content to default initial blocks for BlockNote
-  const getInitialContent = useCallback((script: Script | null | undefined) => {
-    // If script has saved blocks, use those for perfect round-trip editing
-    if (script?.blocks && Array.isArray(script.blocks)) {
-      return script.blocks;
-    }
-
-    // Simple fallback content - let BlockNote handle HTML parsing through its built-in methods
-    if (script?.body) {
-      // For HTML content, we'll let BlockNote parse it naturally
-      // This is simpler and more reliable than manual parsing
-      return undefined; // Will use default content, then we'll convert HTML separately
-    }
-
-    // Default content for new scripts
-    const title = script?.title || "Your Script Title";
-    const defaultContent = script?.content || "Start writing your script here. Use the toolbar to format your content with headings, lists, and more.";
-
-    return [
-      {
-        type: "heading",
-        props: { level: 1 },
-        content: title,
-      },
-      {
-        type: "paragraph", 
-        content: defaultContent,
-      },
-      {
-        type: "paragraph",
-        content: [
-          {
-            type: "text",
-            text: "💡 Pro tip: Use the / command to insert different types of blocks.",
-            styles: { italic: true },
-          },
-        ],
-      },
-    ];
-  }, []);
+  // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
 
   // Create BlockNote editor with initial content
   const editor = useCreateBlockNote({
-    initialContent: getInitialContent(script),
+    // Do not pass initialContent to avoid BlockNote crashing on malformed blocks
     defaultStyles: true,
     trailingBlock: true,
     animations: true,
   });
 
-  // Load HTML content into editor after creation
+  // Load content into editor after creation and whenever script changes
   useEffect(() => {
-    if (script?.body && !script?.blocks) {
+    const load = async () => {
       try {
-        editor.tryParseHTMLToBlocks(script.body).then(blocks => {
+        // Prefer server-provided blocks
+        if (script?.blocks && Array.isArray(script.blocks) && (script.blocks as any[]).length > 0) {
+          editor.replaceBlocks(editor.document, script.blocks as any);
+          return;
+        }
+        // Next, try parsing existing body HTML if available
+        if (script?.body && script.body.trim().length > 0) {
+          const blocks = await editor.tryParseHTMLToBlocks(script.body);
           editor.replaceBlocks(editor.document, blocks);
-        }).catch(error => {
-          console.error('Failed to parse HTML:', error);
-        });
+          return;
+        }
+        // Fallback: synthesize blocks from title + plain content
+        const fallbackTitle = script?.title || 'Untitled Script';
+        const text = (script?.content || '').toString();
+        const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+        const newBlocks: any[] = [
+          { type: 'heading', props: { level: 1 }, content: fallbackTitle },
+          ...paras.map(p => ({ type: 'paragraph', content: p }))
+        ];
+        editor.replaceBlocks(editor.document, newBlocks as any);
       } catch (error) {
-        console.error('Error loading script content:', error);
+        console.error('Failed to load content into BlockNote.', error);
       }
-    }
-  }, [script?.body, script?.blocks, editor]);
+    };
+    load();
+  }, [editor, script]);
+
+  // Note: We intentionally avoid injecting script.blocks directly to prevent malformed data from crashing BlockNote
 
   // Handle content changes
   const handleContentChange = useCallback(() => {
     setHasUnsavedChanges(true);
+    // Debounce autosave by 2s of idle typing
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(async () => {
+      try {
+        const updatedScript = await convertBlocksToScript();
+        onEditScript(updatedScript);
+        setHasUnsavedChanges(false);
+      } catch (e) {
+        // Keep unsaved state so user can retry
+        console.error('Autosave failed to prepare script:', e);
+      }
+    }, 2000);
+  }, [onEditScript]);
+
+  // Cleanup autosave timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    };
   }, []);
 
-  // Handle AI improvement
+  // When external saving completes, flash a Saved check and clear unsaved flag
+  useEffect(() => {
+    const prev = prevIsSavingRef.current;
+    if (prev && !isSaving) {
+      setHasUnsavedChanges(false);
+      setJustSaved(true);
+      const t = setTimeout(() => setJustSaved(false), 1500);
+      return () => clearTimeout(t);
+    }
+    prevIsSavingRef.current = isSaving;
+  }, [isSaving]);
+
+  // Handle AI improvement: inspector -> (answer | editor)
   const handleAIImprovement = async () => {
-    if (!selectedText || !aiPrompt.trim()) return;
-    
+    if (!aiPrompt.trim()) return;
     setIsProcessingAI(true);
     setAiPromptDialog(false);
-    
+  // Chat shows thinking and summary; no local duplication
     try {
-      const response = await fetch('/api/services/thinkforge/scripts/edit', {
+      // Gather current full script text for context
+      const fullText = await editor.blocksToMarkdownLossy(editor.document);
+      const scriptPayload = {
+        title: script?.title || 'Untitled Script',
+        content: fullText,
+        // Provide blocks so server can resolve selection → indices accurately
+        blocks: editor.document as any
+      } as any;
+      const projectPayload = {
+        idea: selectedIdea?.idea,
+        purpose: (selectedIdea as any)?.purpose,
+        style: (selectedIdea as any)?.style,
+        format: (selectedIdea as any)?.format,
+        platform: (selectedIdea as any)?.platform,
+        tone: selectedIdea?.tone
+      };
+
+      // Build prompt for inspector, include selection if present
+      const prompt = selectedText
+        ? `Edit the following selection within the script:\n---\n${selectedText}\n---\nInstruction: ${aiPrompt}`
+        : aiPrompt;
+
+      const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionId: sessionId || 'current_session',
-          scriptDraft: selectedText,
-          editRequest: aiPrompt,
-          preferences: {
-            tone: selectedIdea.tone,
-            targetAudience: script?.targetAudience || 'General audience'
-          }
-        })
+        body: JSON.stringify({ prompt, script: scriptPayload, project: projectPayload, sessionId })
       });
-      
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
+      if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
+      const inspect = await inspectRes.json();
+
+      if (inspect?.action !== 'edit') {
+        // Not an edit; provide quick answer via alert for now
+        alert('This request was classified as an answer, not an edit. Please use chat mode for answers.');
+        return;
       }
-      
-      const data = await response.json();
-      
-      if (data.success && data.script?.body) {
-        // For now, show success message - we can implement block replacement later
-        alert('Text improved successfully! The updated content will be applied.');
-        handleContentChange();
+
+      // Kick off a quick 'think' to show reasoning while editing
+      // Thinking streamed in Chat; skip here
+
+      const instruction = selectedText
+        ? `Apply this change ONLY to the selected part. Selection is below, then the change.\nSelection:\n${selectedText}\nChange:\n${aiPrompt}`
+        : aiPrompt;
+
+      // Use block-targeted edit endpoint; pass selection to resolve indices server-side
+      const editRes = await fetch('/api/services/thinkforge/script/edit-blocks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction, script: scriptPayload, project: projectPayload, sessionId, selection: selectedText || undefined })
+      });
+      if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
+      const edited = await editRes.json();
+      const newTitle: string = edited?.title || script?.title || 'Untitled Script';
+      const newContent: string = (edited?.content || fullText || '').toString();
+      const serverBlocks: any[] | undefined = edited?.blocks;
+      if (Array.isArray(serverBlocks) && serverBlocks.length > 0) {
+        // Trust server-provided blocks directly
+        editor.replaceBlocks(editor.document, serverBlocks as any);
       } else {
-        throw new Error(data.error || 'Failed to improve text');
+        // Fallback to composing from content
+        const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+        const newBlocks: any[] = [
+          { type: 'heading', props: { level: 1 }, content: newTitle },
+          ...paras.map(p => ({ type: 'paragraph', content: p }))
+        ];
+        editor.replaceBlocks(editor.document, newBlocks as any);
       }
-    } catch (error) {
-      console.error('AI improvement failed:', error);
-      alert('Failed to improve text. Please try again.');
+
+      const updatedScript = await convertBlocksToScript();
+      onEditScript(updatedScript);
+      // Append a concise summary to chat to reflect analyze → edit → patch
+      try {
+        if (sessionId) {
+          const sumRes = await fetch('/api/services/thinkforge/think/summary', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              instruction,
+              scriptBefore: { title: scriptPayload.title, content: fullText },
+              scriptAfter: { title: newTitle, content: newContent },
+              project: projectPayload,
+              sessionId
+            })
+          });
+          if (sumRes.ok) {
+            const summaryText = await sumRes.text();
+            if (summaryText) {
+              void fetch('/api/services/thinkforge/chat/append', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sessionId, role: 'assistant', content: 'Summary: ' + summaryText })
+              });
+            }
+          }
+        }
+      } catch {}
+      setHasUnsavedChanges(false);
+    } catch (err) {
+      console.error('AI improvement failed:', err);
+      alert('Failed to apply AI edit. Please try again.');
     } finally {
       setIsProcessingAI(false);
       setAiPrompt('');
+  // no-op; thinking is in Chat
     }
   };
 
@@ -287,7 +373,7 @@ export default function ScriptEditor({
             className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Chat
+            Back to Home
           </Button>
           <div className="flex items-center gap-3">
             <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
@@ -348,15 +434,21 @@ export default function ScriptEditor({
             Export PDF
           </Button>
 
-          {hasUnsavedChanges && (
-            <Button
-              onClick={handleSave}
-              size="sm"
-              className="bg-red-600 hover:bg-red-700"
-            >
-              <Save className="h-4 w-4 mr-2" />
-              Save
-            </Button>
+          {/* Autosave indicator */}
+          {isSaving ? (
+            <div className="flex items-center gap-2 text-xs text-zinc-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Autosaving...
+            </div>
+          ) : justSaved ? (
+            <div className="flex items-center gap-2 text-xs text-green-400">
+              <Check className="h-4 w-4" />
+              Saved
+            </div>
+          ) : hasUnsavedChanges ? (
+            <div className="text-xs text-amber-400">Unsaved changes</div>
+          ) : (
+            <div className="text-xs text-zinc-500">All changes saved</div>
           )}
         </div>
       </div>
@@ -374,18 +466,83 @@ export default function ScriptEditor({
         </div>
       )}
 
-      {/* BlockNote Editor */}
+      {/* Editor or Preview */}
       {!generatingScript || script ? (
         <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
           <CardContent className="p-0">
-            <div className="min-h-[600px] overflow-hidden rounded-lg">
-              <BlockNoteView 
-                editor={editor as any}
-                editable={!isPreviewMode}
-                onChange={handleContentChange}
-                theme="dark"
-                className="blocknote-editor-dark"
-              />
+            <div ref={containerRef} className="relative min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+              {isPreviewMode ? (
+                <div className="p-6">
+                  <ScriptRenderer title={script?.title} blocks={(script as any)?.blocks || []} />
+                </div>
+              ) : (
+                <BlockNoteView 
+                  editor={editor as any}
+                  editable={true}
+                  onChange={handleContentChange}
+                  onSelectionChange={() => {
+                  try {
+                    const txt = (editor as any)?.getSelectedText?.() || '';
+                    setSelectedText(txt);
+                    if (txt && typeof window !== 'undefined') {
+                      const sel = window.getSelection?.();
+                      if (sel && sel.rangeCount > 0) {
+                        const range = sel.getRangeAt(0);
+                        const rect = range.getBoundingClientRect();
+                        const container = containerRef.current;
+                        if (container) {
+                          const crect = container.getBoundingClientRect();
+                          const scrollTop = container.scrollTop || 0;
+                          const scrollLeft = container.scrollLeft || 0;
+                          // Prefer positioning BELOW selection; flip above if not enough space
+                          const offset = 8;
+                          const approxBtnH = 32; // px
+                          const spaceBelow = crect.bottom - rect.bottom;
+                          const preferBelow = spaceBelow > (approxBtnH + offset + 8);
+                          const top = preferBelow
+                            ? (rect.bottom - crect.top) + scrollTop + offset
+                            : (rect.top - crect.top) + scrollTop - (approxBtnH + offset);
+                          // Center horizontally relative to the selection
+                          let left = (rect.left + (rect.width / 2) - crect.left) + scrollLeft;
+                          // Clamp within container bounds with small padding
+                          const pad = 12;
+                          const maxLeft = (crect.width || container.clientWidth) - pad;
+                          left = Math.min(Math.max(left, pad), maxLeft);
+                          setSelectionPos({ top: Math.max(4, top), left });
+                        } else {
+                          setSelectionPos(null);
+                        }
+                      } else {
+                        setSelectionPos(null);
+                      }
+                    } else {
+                      setSelectionPos(null);
+                    }
+                  } catch {}
+                }}
+                  theme="dark"
+                  className="blocknote-editor-dark"
+                />
+              )}
+              {selectedText && selectedText.trim().length > 0 && selectionPos ? (
+                <button
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); }}
+                  onClick={() => {
+                    try {
+                      if (typeof window !== 'undefined') {
+                        window.dispatchEvent(new CustomEvent('tf-selection-to-chat', { detail: { text: selectedText } } as any));
+                      }
+                    } catch {}
+                  }}
+                  className="absolute z-50 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-red-600/95 hover:bg-red-700 text-white shadow-xl border border-white/10 backdrop-blur-sm"
+                  style={{ top: selectionPos.top, left: selectionPos.left, transform: 'translateX(-50%)' }}
+                  aria-label="Improve selected text with ForgeAI"
+                >
+                  <span className="inline-flex items-center gap-1"><Sparkles className="h-3.5 w-3.5" /> Edit in Chat</span>
+                </button>
+              ) : null}
+              {/* Thinking and summary are now displayed in Chat */}
             </div>
           </CardContent>
         </Card>
