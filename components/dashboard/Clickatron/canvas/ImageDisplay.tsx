@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, forwardRef, useRef } from "react";
-import { Loader2, AlertTriangle, Sparkles } from "lucide-react";
+import { Loader2, AlertTriangle, Sparkles, Plus } from "lucide-react";
 import {
   TransformWrapper,
   TransformComponent,
@@ -9,11 +9,31 @@ import {
 } from "react-zoom-pan-pinch";
 import { fetchImageWithCache } from "@/lib/frontend/services/clickatron-image-cache";
 
+// Helper function to get aspect ratio dimensions
+const getAspectRatioDimensions = (
+  aspectRatio: string,
+  maxWidth: number,
+  maxHeight: number
+) => {
+  const [widthRatio, heightRatio] = aspectRatio.split(":").map(Number);
+  const ratio = widthRatio / heightRatio;
+
+  let width = maxWidth;
+  let height = width / ratio;
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * ratio;
+  }
+
+  return { width, height };
+};
+
 interface ImageDisplayProps {
   imageRef?: string;
   alt?: string;
   className?: string;
- fallback?: React.ReactNode;
+  fallback?: React.ReactNode;
   status?: "generating" | "completed" | "failed" | "blank";
   variationId?: string;
   fineTuning?: {
@@ -21,6 +41,7 @@ interface ImageDisplayProps {
     contrast: number;
     saturation: number;
   };
+  aspectRatio?: string;
   /**
    * When false, disables zoom/pan controls and renders a plain image.
    * Useful for small thumbnails in galleries.
@@ -47,6 +68,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     {
       imageRef,
       alt = "Generated image",
+      aspectRatio,
       className = "",
       fallback,
       status = "completed",
@@ -59,7 +81,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
     const [objectUrl, setObjectUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const [aspectRatio, setAspectRatio] = useState<string | null>(null);
+    const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
     const currentImageRef = useRef<string | null>(null);
 
     // Inject custom styles for flow animations (single hook, placed early)
@@ -90,12 +112,35 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                 background-position: 0% 0%;
               }
             }
+            .react-transform-wrapper {
+              height: 100% !important;
+            }
           `;
           styleSheet.textContent = animationStyles;
           document.head.appendChild(styleSheet);
         }
       }
     }, []);
+  
+    // Calculate dimensions based on aspectRatio
+    useEffect(() => {
+      if (aspectRatio) {
+        const updateDimensions = () => {
+          const containerWidth = Math.min(window.innerWidth - 400, 1200); // Account for sidebars
+          const containerHeight = Math.min(window.innerHeight - 200, 800); // Account for header/footer
+          const { width, height } = getAspectRatioDimensions(
+            aspectRatio,
+            containerWidth * 0.8,
+            containerHeight * 0.8
+          );
+          setDimensions({ width, height });
+        };
+  
+        updateDimensions();
+        window.addEventListener("resize", updateDimensions);
+        return () => window.removeEventListener("resize", updateDimensions);
+      }
+    }, [aspectRatio]);
 
     useEffect(() => {
       console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
@@ -188,23 +233,6 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       };
     }, [imageRef, status]); // Removed variationId from dependencies
 
-    // Fetch aspect ratio for generating preview
-    useEffect(() => {
-      if (status === 'generating' && variationId && !aspectRatio) {
-        const fetchAspectRatio = async () => {
-          try {
-            const response = await fetch(`/api/services/clickatron/variation/${variationId}`);
-            if (response.ok) {
-              const data = await response.json();
-              setAspectRatio(data.aspectRatio || '1'); // Assume field exists, default to square
-            }
-          } catch (error) {
-            console.error('Error fetching variation aspect ratio:', error);
-          }
-        };
-        fetchAspectRatio();
-      }
-    }, [status, variationId, aspectRatio]);
 
     if (isLoading) {
       return (
@@ -312,17 +340,26 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       );
     }
 
-    if (status === "blank" || !signedUrl) {
+    if (status === "blank" && !signedUrl) {
       return (
         <div
-          className={`bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center ${className}`}
+          className={`bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300 ${className}`}
+          style={{
+            width: `${dimensions.width}px`,
+            height: `${dimensions.height}px`,
+            minWidth: "300px",
+            minHeight: "200px",
+          }}
         >
           <div className="text-center">
-            <div className="text-zinc-400 text-sm mb-2">
-              Create Image to Start
+            <div className="text-zinc-400 text-lg mb-2">
+              Create Variation to Start
             </div>
-            <div className="text-zinc-500/70 text-xs">
-              Use the AI console to generate your first image
+            <div className="text-zinc-500/70 text-sm">
+              Use the AI console below to generate an image
+            </div>
+            <div className="text-zinc-600 text-xs mt-2">
+              {aspectRatio} aspect ratio
             </div>
           </div>
         </div>
@@ -335,9 +372,60 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`
       ].filter(Boolean).join(' '),
     };
+  
+    // For generating without imageRef (new variation), show generating placeholder
+    if (status === 'generating' && !imageRef) {
+      return (
+        <div
+          className={`relative bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-lg border border-zinc-600/50 overflow-hidden ${className}`}
+          style={{
+            width: `${dimensions.width}px`,
+            height: `${dimensions.height}px`,
+            minWidth: "300px",
+            minHeight: "200px",
+          }}
+        >
+          {/* Ambient background */}
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60" />
+          
+          {/* Loading indicator - centered */}
+          <div className="relative z-10 flex flex-col items-center justify-center space-y-4">
+            <div className="w-16 h-16 flex items-center justify-center">
+              <svg className="w-16 h-16 animate-spin" viewBox="0 0 24 24">
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  fill="none"
+                  className="text-zinc-600/30"
+                />
+                <circle
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  fill="none"
+                  strokeLinecap="round"
+                  className="text-purple-400"
+                  strokeDasharray="63"
+                  strokeDashoffset="16"
+                />
+              </svg>
+            </div>
+            <div className="text-center space-y-1">
+              <div className="text-zinc-300 font-medium">Creating your thumbnail...</div>
+              <div className="text-zinc-500 text-sm">AI is working its magic</div>
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     return (
-      <div className="relative w-full h-full" style={status === 'generating' && aspectRatio ? { aspectRatio } : {}}>
+      <div className="relative w-full h-full">
         {/* Main image container with overlay inside for proper positioning */}
         {/* If interactive is disabled, render a plain img to avoid zoom/pan controls */}
         {interactive ? (
@@ -360,7 +448,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               contentClass="flex items-center justify-center"
             >
               <img
-                src={signedUrl}
+                src={signedUrl ?? undefined}
                 alt=""
                 className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
                 style={imageStyle}
@@ -371,7 +459,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         ) : (
           <div className="relative w-full h-full flex items-center justify-center">
             <img
-              src={signedUrl}
+              src={signedUrl ?? undefined}
               alt=""
               className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
               style={imageStyle}
@@ -380,8 +468,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           </div>
         )}
 
-        {/* Generating overlay for edits - now inside relative container */}
-        {status === 'generating' && imageRef && (
+        {/* Generating overlay - show for both new and edits */}
+        {status === 'generating' && (
           <div className="absolute inset-0 pointer-events-none">
             {/* Base subtle tint for better visibility */}
             <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 via-cyan-500/5 to-yellow-500/5"></div>
@@ -412,7 +500,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               <div className="text-center bg-black/50 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-pink-400/20 via-cyan-400/20 to-yellow-400/20 rounded-2xl blur animate-pulse"></div>
                 <div className="relative text-white font-semibold text-xl mb-1">Generating...</div>
-                <div className="relative text-white/90 text-sm">AI weaving magic into your edit</div>
+                <div className="relative text-white/90 text-sm">
+                  {imageRef ? "AI weaving magic into your edit" : "Creating your thumbnail..."}
+                </div>
               </div>
             </div>
           </div>

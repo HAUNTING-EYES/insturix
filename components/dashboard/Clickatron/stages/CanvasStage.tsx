@@ -143,7 +143,7 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
 
 export function CanvasStage({ videoIdea }: CanvasStageProps) {
   // All hooks must be called at the top level, before any early returns
-  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved, loadSession } =
+  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved, loadSession, updateVariation } =
     useClickatronStore();
   const [activeVariationId, setActiveVariationId] = useState<string | null>(
     null
@@ -319,12 +319,9 @@ useEffect(() => {
   
       const data = await response.json();
       console.log("Variation generation queued:", data);
-  
-      // If the active variation was blank, we want to update it instead of creating a new one
-      // The backend will handle this, so we just need to update the active variation ID
+
       if (isBlank && activeVariationId) {
-        // The backend will update the existing variation, so we just need to set the active variation ID
-        // to the same ID as the blank variation
+        updateVariation(activeVariationId, { status: 'generating' });
         setActiveVariationId(activeVariationId);
       } else {
         // For non-blank (edits or new from completed), add optimistic local variation with placeholder
@@ -345,13 +342,13 @@ useEffect(() => {
           modelId: selectedModelId,
           metadata: {},
         };
-  
+
         // Add to local canvas immediately for instant UI
         const newCanvas = produce(canvas, (draft) => {
           draft.variations.unshift(optimisticVariation);
         });
         updateCanvas(newCanvas);
-  
+
         // Immediately set the new variation as active (both local and global)
         setLocalActiveVariation(data.variationId);
         setActiveVariationId(data.variationId);
@@ -646,7 +643,7 @@ useEffect(() => {
         {/* Canvas Display Area */}
         <div className="flex-1 flex overflow-hidden relative bg-zinc-900/20 pr-80">
           {/* Main Canvas Container */}
-          <div className="flex-1 flex items-center justify-center p-8 overflow-hidden relative">
+          <div className="flex-1 flex items-center justify-center overflow-hidden relative">
             {/* Canvas Actions - Top Center - Only show for completed variations */}
             {activeVariation?.status === "completed" && (
               <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20">
@@ -724,6 +721,7 @@ useEffect(() => {
                   status={activeVariation.status}
                   variationId={localActiveVariation!}
                   fineTuning={activeVariation.fineTuning}
+                  aspectRatio={aspectRatio}
                   className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
                 />
               )}
