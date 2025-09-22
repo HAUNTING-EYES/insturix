@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React from 'react';
+import { motion } from 'framer-motion';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { 
   X, 
   Calendar, 
@@ -89,7 +88,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 transition={{ delay: 0.3, duration: 0.4 }}
                 className="text-4xl md:text-5xl font-bold mb-4 text-zinc-900 dark:text-zinc-100"
               >
-                ICS'25
+                ICS&apos;25
               </motion.h1>
 
               <motion.h2
@@ -98,7 +97,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 transition={{ delay: 0.4, duration: 0.4 }}
                 className="text-xl md:text-2xl font-semibold text-zinc-700 dark:text-zinc-300 mb-2"
               >
-                Insturix Creator's Summit 2025
+                Insturix Creator&apos;s Summit 2025
               </motion.h2>
 
               <motion.p

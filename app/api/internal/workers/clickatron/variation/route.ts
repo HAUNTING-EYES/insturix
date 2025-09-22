@@ -202,8 +202,8 @@ async function handler(req: Request) {
       console.log('Worker: Starting image generation with params:', generationParams);
 
       // Get the model configuration from the variation
-      let selectedModelId = variation.modelId;
-      let modelConfig = CLICKATRON_MODELS[selectedModelId];
+      const selectedModelId = variation.modelId;
+      const modelConfig = CLICKATRON_MODELS[selectedModelId];
       
       // Count the number of reference images
       let referenceImageCount = 0;

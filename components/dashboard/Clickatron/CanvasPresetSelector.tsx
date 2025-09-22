@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, ChangeEvent } from 'react';
+import React from 'react';
 import { motion, AnimatePresence, Easing } from 'framer-motion';
-import { Check, Edit3 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Input } from '@/components/ui/input';
 
 interface Preset {
   name: string;
@@ -40,12 +39,6 @@ const InstagramStoryIcon = ({ className }: { className?: string }) => (
     <circle cx="12" cy="7" r="1" fill="currentColor"></circle>
   </svg>
 );
-const TwitterPostIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="8" width="18" height="10" rx="2" ry="2"></rect>
-    <path d="M8 12h8"></path>
-  </svg>
-);
 
 const presets: Preset[] = [
   { name: 'YouTube Thumbnail', ratio: '16:9', icon: YouTubeThumbnailIcon },
@@ -66,7 +59,6 @@ const fadeIn: {
     transition: { duration: 0.3, ease: 'easeOut' },
 };
 
-const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a;
 
 interface CanvasPresetSelectorProps {
   value: string;

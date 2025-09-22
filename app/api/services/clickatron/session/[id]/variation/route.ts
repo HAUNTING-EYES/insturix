@@ -7,7 +7,7 @@ import { CreateVariationRequestSchema } from '@/types/clickatron';
 import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatron-jobs';
 import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
-import { CLICKATRON_MODELS, getAvailableModels } from '@/lib/config/clickatron-models';
+import { getAvailableModels } from '@/lib/config/clickatron-models';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
 import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
 

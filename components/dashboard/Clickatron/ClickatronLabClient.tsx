@@ -61,9 +61,6 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
       </div>
     );
   }
-  
-  // With ideation removed, we always go directly to the canvas stage
-  const currentStage = 'canvas';
 
   return (
     <div className="space-y-6 p-4 sm:p-6">

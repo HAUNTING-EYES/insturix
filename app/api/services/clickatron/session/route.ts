@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
-import { CreateSessionRequest, CreateSessionRequestSchema } from '@/types/clickatron';
+import { CreateSessionRequestSchema } from '@/types/clickatron';
 import { z } from 'zod';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
 import { createJob } from '@/lib/clickatron-jobs';
@@ -40,7 +40,7 @@ export async function POST(request: Request) {
     });
 
     const referenceImages = formData.getAll('referenceImage') as File[];
-    let referenceImageRefs: string[] = [];
+    const referenceImageRefs: string[] = [];
 
     await getClickatronDb();
 

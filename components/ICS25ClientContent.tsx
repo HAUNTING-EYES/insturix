@@ -4,13 +4,12 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { 
-  Calendar, 
-  MapPin, 
-  Users, 
+import {
+  Calendar,
+  MapPin,
+  Users,
   Gift,
-  Play,
-  ExternalLink
+  Play
 } from 'lucide-react';
 import CursorEffect from '@/components/ui/CursorEffect';
 
@@ -51,7 +50,7 @@ export default function ICS25ClientContent() {
               transition={{ delay: 0.4, duration: 0.8 }}
               className="text-6xl md:text-8xl font-bold mb-6 text-zinc-900 dark:text-zinc-100"
             >
-              ICS'25
+              ICS&APOS;25
             </motion.h1>
 
             <motion.h2
@@ -60,7 +59,7 @@ export default function ICS25ClientContent() {
               transition={{ delay: 0.6, duration: 0.8 }}
               className="text-2xl md:text-4xl font-semibold text-zinc-700 dark:text-zinc-300 mb-4"
             >
-              Insturix Creator's Summit 2025
+              Insturix Creator&apos;s Summit 2025
             </motion.h2>
 
             <motion.p
@@ -103,7 +102,7 @@ export default function ICS25ClientContent() {
             className="max-w-3xl mx-auto"
           >
             <h2 className="text-4xl md:text-5xl font-bold text-zinc-900 dark:text-zinc-100 mb-6">
-              Ready to Join ICS'25?
+              Ready to Join ICS&APOS;25?
             </h2>
             <p className="text-xl text-zinc-600 dark:text-zinc-400 mb-8">
               Don't miss out on the biggest creator event of 2025. Registration opens soon!
@@ -117,7 +116,7 @@ export default function ICS25ClientContent() {
                   <h3 className="text-2xl font-bold text-blue-700 dark:text-blue-300">Special Discount Offer</h3>
                 </div>
                 <p className="text-zinc-800 dark:text-zinc-200 mb-4 text-lg">
-                  Create a promotional reel for ICS'25 and get exclusive discounts!
+                  Create a promotional reel for ICS&APOS;25 and get exclusive discounts!
                 </p>
                 <div className="flex flex-wrap justify-center gap-3 mb-6">
                   <Badge className="bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-300 dark:border-zinc-600 px-4 py-2 text-sm">

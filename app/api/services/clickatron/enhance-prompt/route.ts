@@ -3,7 +3,6 @@ import { auth } from "@clerk/nextjs/server";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateObject } from "ai";
 import { z } from "zod";
-import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
 import { promptEnhancementRateLimiter } from '@/lib/utils/promptEnhancementRateLimiter';
 
 // Define the schema for the enhanced prompt response

@@ -51,11 +51,11 @@ export default function ICS25Banner() {
                   <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Nov 15, 2025</span>
                 </div>
                 <div className="hidden sm:block">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mr-2">ICS'25 - Insturix Creator's Summit</span>
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mr-2">ICS&APOS;25 - Insturix Creator&APOS;s Summit</span>
                   <span className="text-sm text-zinc-600 dark:text-zinc-400">Registration opening soon</span>
                 </div>
                 <div className="block sm:hidden">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">ICS'25 Summit</span>
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">ICS&APOS;25 Summit</span>
                 </div>
               </div>
               
