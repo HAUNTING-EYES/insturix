@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,32 +40,43 @@ interface HistoryItem {
     sessionId: string;
     title: string;
     updatedAt: string;
+    variationsCount: number;
 }
 
 export function ClickatronHistory() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const pageSize = 10;
+
+
+
+  const fetchHistory = async (page: number) => {
+    try {
+      setIsLoading(true);
+      const offset = (page - 1) * pageSize;
+      const response = await fetch(`/api/services/clickatron/history?limit=${pageSize}&offset=${offset}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch history');
+      }
+      const data = await response.json();
+      setHistory(data.history);
+      setTotal(data.total);
+      setTotalPages(Math.ceil(data.total / pageSize));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An unknown error occurred');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetchHistory = async () => {
-      try {
-        const response = await fetch('/api/services/clickatron/history');
-        if (!response.ok) {
-          throw new Error('Failed to fetch history');
-        }
-        const data = await response.json();
-        setHistory(data.history);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An unknown error occurred');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchHistory();
-  }, []);
+    fetchHistory(currentPage);
+  }, [currentPage]);
 
   if (isLoading) {
     return (
@@ -106,7 +117,7 @@ export function ClickatronHistory() {
           Past Sessions
         </h2>
         {history && history.length > 0 && (
-          <span className="text-xs text-zinc-500">Showing {history.length} session{history.length>1?'s':''}</span>
+          <span className="text-xs text-zinc-500">Showing {history.length} of {total} sessions</span>
         )}
       </div>
 
@@ -114,45 +125,71 @@ export function ClickatronHistory() {
         variants={staggerChildren}
         initial="initial"
         animate="animate"
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        className="grid gap-4 grid-cols-1"
       >
-        {history && history.map((item) => (
+        {history.map((item) => (
           <motion.div key={item.sessionId} variants={fadeIn}>
-            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 transition-all duration-200 cursor-pointer" onClick={() => router.push(`/dashboard/clickatron/lab/${item.sessionId}`)}>
-              <CardContent className="p-4">
-                <div className="aspect-video bg-zinc-800/50 rounded-lg mb-3 overflow-hidden flex items-center justify-center text-xs text-zinc-500">
-                  Past Sessions
-                </div>
-
+            <Card className="group bg-zinc-900/40 border-zinc-800/60 hover:border-purple-600/50 hover:bg-zinc-900/60 transition-all duration-300 cursor-pointer h-full flex flex-col relative overflow-hidden" onClick={() => router.push(`/dashboard/clickatron/lab/${item.sessionId}`)}>
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+              <CardContent className="p-4 flex flex-col flex-1 justify-between relative z-10">
                 <div className="space-y-2">
-                  <h3 className="font-medium text-zinc-200 text-sm line-clamp-2 group-hover:text-zinc-100 transition-colors">
+                  <h3 className="font-semibold text-zinc-100 text-sm line-clamp-2 group-hover:text-white transition-colors">
                     {item.title}
                   </h3>
-
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-zinc-500">
-                      {formatTimeAgo(item.updatedAt)}
-                    </span>
+                  <div className="flex items-center justify-between text-xs text-zinc-400">
+                    <div className="flex items-center gap-1.5">
+                      <div className="p-0.5 bg-purple-900/20 rounded-full">
+                        <Image className="h-3 w-3 text-purple-400" />
+                      </div>
+                      <span>{item.variationsCount} variations</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <div className="p-0.5 bg-zinc-700/50 rounded-full">
+                        <Clock className="h-3 w-3 text-zinc-500" />
+                      </div>
+                      <span>{formatTimeAgo(item.updatedAt)}</span>
+                    </div>
                   </div>
                 </div>
-
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full mt-3 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    router.push(`/dashboard/clickatron/lab/${item.sessionId}`);
-                  }}
-                >
-                  Open Session
-                  <ArrowRight className="h-3 w-3 ml-1" />
-                </Button>
               </CardContent>
             </Card>
           </motion.div>
         ))}
       </motion.div>
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center space-x-2 mt-8">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+            disabled={currentPage === 1}
+            className="h-8 w-8 p-0"
+          >
+            <ArrowRight className="h-4 w-4 rotate-180" />
+          </Button>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+            <Button
+              key={page}
+              variant={currentPage === page ? "default" : "outline"}
+              size="sm"
+              onClick={() => setCurrentPage(page)}
+              className="h-8 w-8"
+            >
+              {page}
+            </Button>
+          ))}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+            disabled={currentPage === totalPages}
+            className="h-8 w-8 p-0"
+          >
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
     </motion.div>
   );
 }
