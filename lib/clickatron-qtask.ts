@@ -9,7 +9,8 @@ export async function enqueueClickatronJob(jobData: any) {
     baseUrl: process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined,
   });
 
-  const workerUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/internal/workers/clickatron/variation`;
+  const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
+  const workerUrl = `${baseUrl}/api/internal/workers/clickatron/variation`;
 
   const result = await qstashClient.publishJSON({
     url: workerUrl,
