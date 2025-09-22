@@ -59,7 +59,43 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     const [signedUrl, setSignedUrl] = useState<string | null>(null);
     const [objectUrl, setObjectUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [aspectRatio, setAspectRatio] = useState<string | null>(null);
     const currentImageRef = useRef<string | null>(null);
+
+    // Inject custom styles for flow animations (single hook, placed early)
+    useEffect(() => {
+      if (typeof document !== 'undefined') {
+        let styleSheet = document.getElementById('flow-animations');
+        if (!styleSheet) {
+          styleSheet = document.createElement('style');
+          styleSheet.id = 'flow-animations';
+          const animationStyles = `
+            @keyframes gentle-flow {
+              0%, 100% {
+                transform: translate(0, 0) scale(1);
+                background-position: 0% 0%;
+              }
+              50% {
+                transform: translate(15px, -15px) scale(1.1);
+                background-position: 100% 100%;
+              }
+            }
+            @keyframes gentle-flow-reverse {
+              0%, 100% {
+                transform: translate(0, 0) scale(1);
+                background-position: 100% 100%;
+              }
+              50% {
+                transform: translate(-15px, 15px) scale(1.1);
+                background-position: 0% 0%;
+              }
+            }
+          `;
+          styleSheet.textContent = animationStyles;
+          document.head.appendChild(styleSheet);
+        }
+      }
+    }, []);
 
     useEffect(() => {
       console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
@@ -151,6 +187,24 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         }
       };
     }, [imageRef, status]); // Removed variationId from dependencies
+
+    // Fetch aspect ratio for generating preview
+    useEffect(() => {
+      if (status === 'generating' && variationId && !aspectRatio) {
+        const fetchAspectRatio = async () => {
+          try {
+            const response = await fetch(`/api/services/clickatron/variation/${variationId}`);
+            if (response.ok) {
+              const data = await response.json();
+              setAspectRatio(data.aspectRatio || '1'); // Assume field exists, default to square
+            }
+          } catch (error) {
+            console.error('Error fetching variation aspect ratio:', error);
+          }
+        };
+        fetchAspectRatio();
+      }
+    }, [status, variationId, aspectRatio]);
 
     if (isLoading) {
       return (
@@ -277,75 +331,93 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     const imageStyle: React.CSSProperties = {
       filter: [
-        status === 'generating' && imageRef ? 'blur(8px)' : '',
+        status === 'generating' && imageRef ? 'blur(16px)' : '',
         `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`
       ].filter(Boolean).join(' '),
     };
 
     return (
-      <>
-        {/* Generating overlay for edits */}
+      <div className="relative w-full h-full" style={status === 'generating' && aspectRatio ? { aspectRatio } : {}}>
+        {/* Main image container with overlay inside for proper positioning */}
+        {/* If interactive is disabled, render a plain img to avoid zoom/pan controls */}
+        {interactive ? (
+          <TransformWrapper
+            ref={ref}
+            initialScale={1}
+            minScale={0.1}
+            maxScale={5}
+            centerOnInit={true}
+            limitToBounds={false}
+            panning={{ disabled: status === 'generating' }}
+            wheel={{ disabled: status === 'generating', step: 0.1 }}
+            doubleClick={{ disabled: status === 'generating', mode: "zoomIn", step: 0.3 }}
+            onInit={(r) => {
+              setTimeout(() => r.resetTransform(), 100);
+            }}
+          >
+            <TransformComponent
+              wrapperClass="relative w-full h-full flex items-center justify-center"
+              contentClass="flex items-center justify-center"
+            >
+              <img
+                src={signedUrl}
+                alt=""
+                className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
+                style={imageStyle}
+                draggable={false}
+              />
+            </TransformComponent>
+          </TransformWrapper>
+        ) : (
+          <div className="relative w-full h-full flex items-center justify-center">
+            <img
+              src={signedUrl}
+              alt=""
+              className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
+              style={imageStyle}
+              draggable={false}
+            />
+          </div>
+        )}
+
+        {/* Generating overlay for edits - now inside relative container */}
         {status === 'generating' && imageRef && (
           <div className="absolute inset-0 pointer-events-none">
-            {/* Animated blurred gradient mesh */}
-            <div className="absolute inset-0 bg-[linear-gradient(45deg,#80808012,#80808033,#80808012)] animate-shimmer bg-[length:200%_200%] bg-center"></div>
-            <div className="absolute inset-0 bg-[linear-gradient(90deg,#80808012,#80808033,#80808012)] animate-shimmer bg-[length:200%_200%] bg-center delay-100"></div>
-            <div className="absolute inset-0 bg-[linear-gradient(135deg,#80808012,#80808033,#80808012)] animate-shimmer bg-[length:200%_200%] bg-center delay-200"></div>
+            {/* Base subtle tint for better visibility */}
+            <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 via-cyan-500/5 to-yellow-500/5"></div>
             
-            {/* Generating text overlay */}
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center bg-black/40 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl">
-                <div className="text-white font-semibold text-xl mb-1">Generating...</div>
-                <div className="text-white/70 text-sm">Creating your enhanced edit</div>
+            {/* Animated pastel mesh gradient overlay - increased opacity for visibility */}
+            {/* Layer 1: Pink to turquoise flow */}
+            <div
+              className="absolute inset-0 opacity-20 bg-[length:200%_200%] bg-[radial-gradient(circle_at_20%_80%,#ffb3ba40_0%,#a7e6ff40_50%,transparent_100%)] animate-[gentle-flow_4s_ease-in-out_infinite]"
+              style={{ animationDelay: '0s', backgroundPosition: '0% 0%' }}
+            ></div>
+            {/* Layer 2: Cyan to yellow mesh */}
+            <div
+              className="absolute inset-0 opacity-25 bg-[length:250%_250%] bg-[radial-gradient(circle_at_80%_20%,#b5f2ff50_0%,#fff3cd50_50%,transparent_100%)] animate-[gentle-flow-reverse_5s_ease-in-out_infinite]"
+              style={{ animationDelay: '1s', backgroundPosition: '100% 100%' }}
+            ></div>
+            {/* Layer 3: Lavender to pink blend */}
+            <div
+              className="absolute inset-0 opacity-15 bg-[length:180%_180%] bg-[radial-gradient(ellipse_at_40%_60%,#e6e6fa30_0%,#ffb3ba30_50%,#a7e6ff30_100%)] animate-[gentle-flow_3s_ease-in-out_infinite]"
+              style={{ animationDelay: '2s', backgroundPosition: '50% 50%' }}
+            ></div>
+            {/* Layer 4: Turquoise to cyan wave */}
+            <div className="absolute inset-0 opacity-20 bg-[linear-gradient(135deg,#a7e6ff40_0%,#b5f2ff40_30%,#fff3cd40_60%,transparent_100%)] animate-shimmer bg-[length:300%_300%]"></div>
+            {/* Subtle noise for AI texture */}
+            <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg width=%2260%22 height=%2260%22 viewBox=%220 0 60 60%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cg fill=%22none%22 fill-rule=%22evenodd%22%3E%3Cg fill=%22%23ffffff%22 fill-opacity=%220.1%22%3E%3Ccircle cx=%2230%22 cy=%2230%22 r=%221%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] animate-pulse"></div>
+            
+            {/* Generating text overlay with enhanced visibility */}
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="text-center bg-black/50 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl relative">
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-400/20 via-cyan-400/20 to-yellow-400/20 rounded-2xl blur animate-pulse"></div>
+                <div className="relative text-white font-semibold text-xl mb-1">Generating...</div>
+                <div className="relative text-white/90 text-sm">AI weaving magic into your edit</div>
               </div>
             </div>
           </div>
         )}
-        
-        {/* Main image container */}
-        <div className="relative w-full h-full">
-          {/* If interactive is disabled, render a plain img to avoid zoom/pan controls */}
-          {interactive ? (
-            <TransformWrapper
-              ref={ref}
-              initialScale={1}
-              minScale={0.1}
-              maxScale={5}
-              centerOnInit={true}
-              limitToBounds={false}
-              panning={{ disabled: false }}
-              wheel={{ step: 0.1 }}
-              doubleClick={{ disabled: false, mode: "zoomIn", step: 0.3 }}
-              onInit={(r) => {
-                setTimeout(() => r.resetTransform(), 100);
-              }}
-            >
-              <TransformComponent
-                wrapperClass="w-full h-full flex items-center justify-center"
-                contentClass="flex items-center justify-center"
-              >
-                <img
-                  src={signedUrl}
-                  alt=""
-                  className={`${className} select-none`}
-                  style={imageStyle}
-                  draggable={false}
-                />
-              </TransformComponent>
-            </TransformWrapper>
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <img
-                src={signedUrl}
-                alt=""
-                className={`${className} select-none`}
-                style={imageStyle}
-                draggable={false}
-              />
-            </div>
-          )}
-        </div>
-      </>
+      </div>
     );
   }
 );

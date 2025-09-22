@@ -501,6 +501,27 @@ useEffect(() => {
     updateCanvas(newCanvas);
   }, [updateCanvas]); // Removed canvas from deps since we're using ref
 
+  const handleResetFinetuning = useCallback(() => {
+    if (!localActiveVariation || !canvasRef.current) {
+      console.log('handleResetFinetuning - no active variation or canvas ref');
+      return;
+    }
+
+    console.log('handleResetFinetuning - resetting to defaults', { localActiveVariation });
+
+    const newCanvas = produce(canvasRef.current, (draft) => {
+      const variation = draft.variations.find((v) => v.id === localActiveVariation);
+      if (variation) {
+        variation.fineTuning = {
+          brightness: 100,
+          contrast: 100,
+          saturation: 100,
+        };
+      }
+    });
+    updateCanvas(newCanvas);
+  }, [localActiveVariation, updateCanvas]);
+
   const handleAspectRatioChange = useCallback((newAspectRatio: string) => {
     // Only update aspect ratio for blank variations
     if (activeVariation && activeVariation.status === "blank") {
@@ -601,16 +622,18 @@ useEffect(() => {
         <div className="flex-1 flex overflow-hidden relative bg-zinc-900/20 pr-80">
           {/* Main Canvas Container */}
           <div className="flex-1 flex items-center justify-center p-8 overflow-hidden relative">
-            {/* Canvas Actions - Top Center */}
-            <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20">
-              <CanvasActions
-                onZoomIn={() => imageRef.current?.zoomIn(0.3)}
-                onZoomOut={() => imageRef.current?.zoomOut(0.3)}
-                onResetZoom={() => imageRef.current?.resetTransform()}
-                onDownload={handleDownload}
-                onShare={() => console.log("Share")}
-              />
-            </div>
+            {/* Canvas Actions - Top Center - Only show for completed variations */}
+            {activeVariation?.status === "completed" && (
+              <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20">
+                <CanvasActions
+                  onZoomIn={() => imageRef.current?.zoomIn(0.3)}
+                  onZoomOut={() => imageRef.current?.zoomOut(0.3)}
+                  onResetZoom={() => imageRef.current?.resetTransform()}
+                  onDownload={handleDownload}
+                  // onShare={() => console.log("Share")}
+                />
+              </div>
+            )}
 
             {/* Image Display with proper sizing */}
             <div className="relative w-full h-full flex items-center justify-center">
@@ -701,7 +724,8 @@ useEffect(() => {
                   handleFinetuningChange(localActiveVariation!, "saturation", val)
                 }
                 onAspectRatioChange={setAspectRatio}
-                disabled={!activeVariation}
+                onReset={handleResetFinetuning}
+                disabled={activeVariation?.status !== "completed"}
               />
             ) : (
               <div className="flex-1 flex items-center justify-center p-6">

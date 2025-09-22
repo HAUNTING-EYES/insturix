@@ -19,6 +19,7 @@ interface CanvasControlsProps {
     onContrastChange: (value: number) => void;
     onSaturationChange: (value: number) => void;
     onAspectRatioChange: (value: string) => void;
+    onReset?: () => void;
     disabled?: boolean;
 }
 
@@ -32,12 +33,11 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
     onContrastChange,
     onSaturationChange,
     onAspectRatioChange,
+    onReset,
     disabled = false
 }) => {
     const handleReset = () => {
-        onBrightnessChange(100);
-        onContrastChange(100);
-        onSaturationChange(100);
+        onReset?.();
     };
 
     return (

@@ -10,7 +10,7 @@ interface CanvasActionsProps {
     onZoomIn: () => void;
     onZoomOut: () => void;
     onDownload: () => void;
-    onShare: () => void;
+    // onShare: () => void;
     onResetZoom?: () => void;
 }
 
@@ -18,7 +18,7 @@ export const CanvasActions: React.FC<CanvasActionsProps> = ({
     onZoomIn,
     onZoomOut,
     onDownload,
-    onShare,
+    // onShare,
     onResetZoom
 }) => {
     return (
@@ -97,7 +97,7 @@ export const CanvasActions: React.FC<CanvasActionsProps> = ({
                     </TooltipContent>
                 </Tooltip>
 
-                <Tooltip>
+                {/* <Tooltip>
                     <TooltipTrigger asChild>
                         <Button 
                             variant="ghost" 
@@ -111,7 +111,7 @@ export const CanvasActions: React.FC<CanvasActionsProps> = ({
                     <TooltipContent>
                         <p>Share</p>
                     </TooltipContent>
-                </Tooltip>
+                </Tooltip> */}
             </motion.div>
         </TooltipProvider>
     );
