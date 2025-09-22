@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Sun, Contrast, Droplets, Settings, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -80,7 +80,9 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <Slider
                         value={[brightness]}
                         onValueChange={([val]) => {
-                            !disabled && onBrightnessChange(val);
+                            if (!disabled) {
+                                onBrightnessChange(val);
+                            }
                         }}
                         min={0}
                         max={200}
@@ -106,7 +108,9 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <Slider
                         value={[contrast]}
                         onValueChange={([val]) => {
-                            !disabled && onContrastChange(val);
+                            if (!disabled) {
+                                onContrastChange(val);
+                            }
                         }}
                         min={0}
                         max={200}
@@ -132,7 +136,9 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                     <Slider
                         value={[saturation]}
                         onValueChange={([val]) => {
-                            !disabled && onSaturationChange(val);
+                            if (!disabled) {
+                                onSaturationChange(val);
+                            }
                         }}
                         min={0}
                         max={200}
