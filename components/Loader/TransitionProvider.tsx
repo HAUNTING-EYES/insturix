@@ -42,18 +42,9 @@ export function TransitionProvider({ children }: { children: React.ReactNode }) 
       {isInitialLoading || isPageLoading ? (
         <LoadingScreen key="loading" />
       ) : (
-        pathname && pathname.startsWith('/dashboard/') ? (
-          <div
-            key={pathname}
-            id="dashboard-content-area-motion"
-          >
-            <div id="dashboard-content-area-inner">{children}</div>
-          </div>
-        ) : (
-          <div key={pathname}>
-            {children}
-          </div>
-        )
+        <div key={pathname}>
+          {children}
+        </div>
       )}
     </AnimatePresence>
   );
