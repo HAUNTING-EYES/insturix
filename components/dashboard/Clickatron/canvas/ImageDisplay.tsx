@@ -50,18 +50,6 @@ interface ImageDisplayProps {
 }
 
 // Cache for storing object URLs to prevent unnecessary re-fetching
-const urlCache = new Map<string, string>();
-
-// Function to clear the URL cache (useful for testing or when needed)
-export function clearUrlCache(): void {
-  // Revoke all object URLs to prevent memory leaks
-  urlCache.forEach((url) => {
-    if (url.startsWith('blob:')) {
-      URL.revokeObjectURL(url);
-    }
-  });
-  urlCache.clear();
-}
 
 export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
   (
@@ -78,8 +66,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     },
     ref
   ) => {
-    const [signedUrl, setSignedUrl] = useState<string | null>(null);
-    const [objectUrl, setObjectUrl] = useState<string | null>(null);
+    const [proxyUrl, setProxyUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
     const currentImageRef = useRef<string | null>(null);
@@ -142,92 +129,26 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       }
     }, [aspectRatio]);
 
+    // Construct proxy URL for imageRef
     useEffect(() => {
-
-      // For generating placeholders, still fetch signedUrl if imageRef is set
-      const shouldFetch = imageRef && (status !== "generating" || (status === "generating" && imageRef)); // Fetch for placeholders too
-      if (!shouldFetch) {
-        setSignedUrl(null);
-        setIsLoading(false);
-        return;
-      }
-
-      // Clean up previous object URL
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
-        setObjectUrl(null);
-      }
-
-      // If we don't have an imageRef, nothing to load
-      if (!imageRef) {
-        setSignedUrl(null);
-        setIsLoading(false);
-        return;
-      }
-
-      // If we're already loading or have loaded this image, don't fetch again
-      if (currentImageRef.current === imageRef && signedUrl) {
-        if (status === "generating") {
-          setIsLoading(false); // Don't show loading for placeholders
+      if (imageRef) {
+        let proxyUrlPath = imageRef;
+        if (imageRef.startsWith("https://storage.googleapis.com/")) {
+          // Extract path within bucket for proxy
+          const pathAfterDomain = imageRef.substring("https://storage.googleapis.com/".length);
+          const pathSegments = pathAfterDomain.split('/');
+          const pathWithinBucket = pathSegments.slice(1).join('/');
+          proxyUrlPath = pathWithinBucket.split('?')[0]; // Remove query params
         }
-        return;
-      }
-
-      // Check if we have this image in our URL cache
-      const cachedUrl = urlCache.get(imageRef);
-      if (cachedUrl) {
-        setSignedUrl(cachedUrl);
-        setIsLoading(false);
+        const encodedPath = encodeURIComponent(proxyUrlPath);
+        setProxyUrl(`/api/proxy/image?path=${encodedPath}`);
         currentImageRef.current = imageRef;
-        return;
+        setIsLoading(status === "generating"); // Show loading for generating, hide for completed
+      } else {
+        setProxyUrl(null);
+        setIsLoading(false);
       }
-
-      const fetchSignedUrl = async () => {
-        setIsLoading(status !== "generating"); // Don't show loading spinner for generating placeholders
-        try {
-          // First check if we have a cached version of this image
-          const cachedResponse = await fetchImageWithCache(imageRef);
-          if (cachedResponse.ok) {
-            // If we have a cached version, create an object URL for it
-            const blob = await cachedResponse.blob();
-            const newObjectUrl = URL.createObjectURL(blob);
-            setObjectUrl(newObjectUrl);
-            setSignedUrl(newObjectUrl);
-            urlCache.set(imageRef, newObjectUrl); // Cache the URL
-            currentImageRef.current = imageRef;
-            return;
-          }
-          
-          // If not in cache, fetch from the API as before
-          const response = await fetch('/api/services/clickatron/utils/get-signed-url', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ gcsUrl: imageRef }),
-          });
-          if (!response.ok) throw new Error('Failed to get signed URL');
-          const data = await response.json();
-          setSignedUrl(data.signedUrl);
-          urlCache.set(imageRef, data.signedUrl); // Cache the URL
-          currentImageRef.current = imageRef;
-        } catch (error) {
-          console.error('Error fetching signed URL:', error);
-          setSignedUrl(null);
-        } finally {
-          if (status !== "generating") {
-            setIsLoading(false);
-          }
-        }
-      };
-
-      fetchSignedUrl();
-      
-      // Clean up object URL when component unmounts
-      return () => {
-        if (objectUrl) {
-          URL.revokeObjectURL(objectUrl);
-        }
-      };
-    }, [imageRef, status]); // Removed variationId from dependencies
+    }, [imageRef, status]);
 
 
     if (isLoading) {
@@ -336,7 +257,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       );
     }
 
-    if (status === "blank" && !signedUrl) {
+    if (status === "blank" && !proxyUrl) {
       return (
         <div
           className={`bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300 ${className}`}
@@ -444,7 +365,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               contentClass="flex items-center justify-center"
             >
               <img
-                src={signedUrl ?? undefined}
+                src={proxyUrl ?? undefined}
                 alt=""
                 className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
                 style={imageStyle}
@@ -455,7 +376,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         ) : (
           <div className="relative w-full h-full flex items-center justify-center">
             <img
-              src={signedUrl ?? undefined}
+              src={proxyUrl ?? undefined}
               alt=""
               className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
               style={imageStyle}

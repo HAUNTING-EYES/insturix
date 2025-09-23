@@ -1,4 +1,24 @@
 /**
+ * Convert a GCS URL to a proxy URL to bypass CORS
+ * @param url - The URL to convert
+ * @returns The proxy URL if it's a GCS URL, otherwise the original URL
+ */
+function toProxyUrl(url: string): string {
+  if (url.startsWith("https://storage.googleapis.com/")) {
+    // Remove the protocol and domain
+    const pathAfterDomain = url.substring("https://storage.googleapis.com/".length);
+    // Split by '/' to get bucket name and path
+    const pathSegments = pathAfterDomain.split('/');
+    // Remove the first segment (bucket name) and join the rest
+    const pathWithinBucket = pathSegments.slice(1).join('/');
+    // Remove any query parameters and encode the path
+    const cleanPath = pathWithinBucket.split('?')[0];
+    return `/api/proxy/image?path=${encodeURIComponent(cleanPath)}`;
+  }
+  return url;
+}
+
+/**
  * Download an image with applied fine-tuning parameters
  * @param imageUrl - The URL of the image to download
  * @param fineTuning - The fine-tuning parameters to apply
@@ -10,8 +30,11 @@ export async function downloadImageWithFineTuning(
   filename: string = "clickatron-variation.png"
 ): Promise<void> {
   try {
+    // Convert to proxy URL if it's a GCS URL to bypass CORS
+    const proxyUrl = toProxyUrl(imageUrl);
+    
     // Fetch the image
-    const response = await fetch(imageUrl);
+    const response = await fetch(proxyUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch image: ${response.status} ${response.statusText}`);
     }
