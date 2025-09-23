@@ -263,7 +263,7 @@ WEBHOOK_SECRET=your_webhook_secret
 1. **Install Dependencies**
 
 ```bash
-yarn install
+pnpm install
 ```
 
 2 **Set Up Environment Variables**
@@ -276,19 +276,19 @@ cp .env.example .env.local
 3 **Run Development Server**
 
 ```bash
-yarn dev
+pnpm dev
 ```
 
 4 **Build for Production**
 
 ```bash
-yarn build
+pnpm build
 ```
 
 5 **Start Production Server**
 
 ```bash
-yarn start
+pnpm start
 ```
 
 ## 📝 Development Guidelines
@@ -339,16 +339,16 @@ yarn start
 
 ```bash
 # Run tests
-yarn test
+pnpm test
 
 # Run tests in watch mode
-yarn test:watch
+pnpm test:watch
 
 # Run E2E tests
-yarn test:e2e
+pnpm test:e2e
 
 # Run performance tests
-yarn test:performance
+pnpm test:performance
 ```
 
 ## 📈 Performance Optimization

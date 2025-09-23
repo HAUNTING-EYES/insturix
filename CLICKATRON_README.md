@@ -244,7 +244,7 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
    ```bash
    git clone <repository>
    cd <project>
-   yarn install
+   pnpm install
    ```
 
 2. **Environment Setup**
@@ -255,7 +255,7 @@ See `CLICKATRON_PROD_MIGRATION_GUIDE.md` for detailed migration steps.
 
 3. **Start Development**
    ```bash
-   yarn dev
+   pnpm dev
    # Navigate to http://localhost:3000/dashboard/clickatron
    ```
 
