@@ -4,8 +4,25 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Clock, Image, ArrowRight, Loader2 } from 'lucide-react';
+import { Clock, Image, ArrowRight, Loader2, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
 
 const fadeIn = {
   initial: { opacity: 0, y: 20 },
@@ -43,13 +60,21 @@ interface HistoryItem {
     variationsCount: number;
 }
 
-export function ClickatronHistory() {
+interface ClickatronHistoryProps {
+    onSessionDeleted?: () => void;
+}
+
+export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string>("");
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const router = useRouter();
   const pageSize = 10;
 
@@ -71,6 +96,86 @@ export function ClickatronHistory() {
       setError(err instanceof Error ? err.message : 'An unknown error occurred');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleRename = (sessionId: string, currentTitle: string) => {
+    setEditingSessionId(sessionId);
+    setEditingTitle(currentTitle);
+  };
+
+  const saveRename = async (sessionId: string) => {
+    if (!editingTitle.trim()) return;
+    
+    try {
+      const response = await fetch(`/api/services/clickatron/session/${sessionId}/rename`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: editingTitle.trim() }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to rename session');
+      }
+      
+      const data = await response.json();
+      
+      // Update the history list with the new title
+      setHistory(prev => prev.map(item =>
+        item.sessionId === sessionId
+          ? { ...item, title: data.session.title }
+          : item
+      ));
+      
+      setEditingSessionId(null);
+      setEditingTitle("");
+    } catch (err) {
+      console.error('Error renaming session:', err);
+      setError(err instanceof Error ? err.message : 'Failed to rename session');
+    }
+  };
+
+  const handleDeleteClick = (sessionId: string) => {
+    setDeletingSessionId(sessionId);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!deletingSessionId) return;
+    
+    try {
+      const response = await fetch(`/api/services/clickatron/session/${deletingSessionId}/delete`, {
+        method: 'DELETE',
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete session');
+      }
+      
+      // Remove the deleted session from the history list
+      setHistory(prev => prev.filter(item => item.sessionId !== deletingSessionId));
+      setTotal(prev => prev - 1);
+      
+      // If we're on the last page and it's now empty, go to the previous page
+      if (history.length === 1 && currentPage > 1) {
+        setCurrentPage(prev => prev - 1);
+      } else {
+        // Refresh the current page
+        fetchHistory(currentPage);
+      }
+      
+      // Notify parent component if needed
+      if (onSessionDeleted) {
+        onSessionDeleted();
+      }
+    } catch (err) {
+      console.error('Error deleting session:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete session');
+    } finally {
+      setIsDeleteDialogOpen(false);
+      setDeletingSessionId(null);
     }
   };
 
@@ -133,9 +238,72 @@ export function ClickatronHistory() {
               <div className="absolute inset-0 bg-gradient-to-br from-purple-900/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
               <CardContent className="p-4 flex flex-col flex-1 justify-between relative z-10">
                 <div className="space-y-2">
-                  <h3 className="font-semibold text-zinc-100 text-sm line-clamp-2 group-hover:text-white transition-colors">
-                    {item.title}
-                  </h3>
+                  {editingSessionId === item.sessionId ? (
+                    <div className="flex items-center gap-2">
+                      <Input
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            saveRename(item.sessionId);
+                          } else if (e.key === 'Escape') {
+                            setEditingSessionId(null);
+                            setEditingTitle("");
+                          }
+                        }}
+                        className="flex-1 h-8 text-sm"
+                        autoFocus
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => saveRename(item.sessionId)}
+                        className="h-8 px-2"
+                      >
+                        Save
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-start justify-between">
+                      <h3 className="font-semibold text-zinc-100 text-sm line-clamp-2 group-hover:text-white transition-colors flex-1">
+                        {item.title}
+                      </h3>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 hover:bg-zinc-700"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <MoreHorizontal className="h-4 w-4 text-zinc-400" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="bg-zinc-800 border-zinc-700">
+                          <DropdownMenuItem
+                            className="text-zinc-200 hover:bg-zinc-700 cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleRename(item.sessionId, item.title);
+                            }}
+                          >
+                            <Pencil className="h-4 w-4 mr-2" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            className="text-red-400 hover:bg-red-900/30 cursor-pointer"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteClick(item.sessionId);
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 mr-2" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-xs text-zinc-400">
                     <div className="flex items-center gap-1.5">
                       <div className="p-0.5 bg-purple-900/20 rounded-full">
@@ -190,6 +358,29 @@ export function ClickatronHistory() {
           </Button>
         </div>
       )}
+      
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent className="bg-zinc-900 border-zinc-800">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="text-zinc-100">Delete Session</AlertDialogTitle>
+            <AlertDialogDescription className="text-zinc-400">
+              Are you sure you want to delete this session? This action is permanent and you will lose this project and all {history.find(item => item.sessionId === deletingSessionId)?.variationsCount || 0} variations.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:text-zinc-100">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 }

@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     // 1. Create the new Task (Session)
     const newTask = new ClickatronTask({
       clerkUserId: userId,
-      title: validatedData.prompt, // Use the prompt as the initial title
+      title: `project ${validatedData.aspectRatio} #${Date.now()}`, // Use a generic title
       details: {
         // The videoIdea field is now repurposed to store the initial prompt
         videoIdea: validatedData.prompt,

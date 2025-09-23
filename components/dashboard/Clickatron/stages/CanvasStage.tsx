@@ -6,6 +6,7 @@ import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole } from "../canvas/AICommandConsole";
 import { NewVariationConsole } from "../canvas/NewVariationConsole";
+import { Input } from "@/components/ui/input";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
@@ -148,6 +149,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const [activeVariationId, setActiveVariationId] = useState<string | null>(
     null
   );
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
   const [galleryCollapsed, setGalleryCollapsed] = useState(false);
   const imageRef = useRef<ReactZoomPanPinchRef>(null);
   const lastSyncedCanvasRef = useRef<string | null>(null);
@@ -401,6 +404,40 @@ useEffect(() => {
     }
   };
 
+  const saveTitle = async (newTitle: string) => {
+    if (!task?._id || !newTitle.trim()) return;
+    
+    try {
+      const response = await fetch(`/api/services/clickatron/session/${task._id}/rename`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to rename session');
+      }
+      
+      const data = await response.json();
+      
+      // Update the task in the store with the new title
+      if (task && task.details) {
+        const updatedTask = {
+          ...task,
+          title: data.session.title
+        };
+        // We need to update the task in the store
+        // Since we don't have a direct method to update just the title,
+        // we'll reload the session to get the updated data
+        await loadSession(task._id);
+      }
+    } catch (error) {
+      console.error('Error saving title:', error);
+    }
+  };
+
   const handleNewVariation = useCallback(() => {
     if (!canvas) return;
     const now = new Date();
@@ -641,9 +678,38 @@ useEffect(() => {
         {/* Top Header */}
         <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 mr-80">
           <div className="text-center">
-            <h2 className="text-lg font-semibold text-zinc-100 truncate">
-              {videoIdea}
-            </h2>
+            {isEditingTitle ? (
+              <Input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onBlur={() => {
+                  saveTitle(editedTitle);
+                  setIsEditingTitle(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    saveTitle(editedTitle);
+                    setIsEditingTitle(false);
+                  } else if (e.key === 'Escape') {
+                    setEditedTitle(task?.title || videoIdea);
+                    setIsEditingTitle(false);
+                  }
+                }}
+                className="text-lg font-semibold text-zinc-100 w-full"
+                autoFocus
+              />
+            ) : (
+              <h2
+                className="text-lg font-semibold text-zinc-100 truncate cursor-pointer hover:bg-zinc-800/50 rounded px-2 py-1"
+                onClick={() => {
+                  setEditedTitle(task?.title || videoIdea);
+                  setIsEditingTitle(true);
+                }}
+              >
+                {task?.title || videoIdea}
+              </h2>
+            )}
             <SaveStatusIndicator
               isSaving={isSaving}
               saveError={saveError}
