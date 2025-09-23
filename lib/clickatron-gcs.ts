@@ -23,7 +23,9 @@ if (gcsCredentials && process.env.GCS_BUCKET_NAME) {
     });
     
     bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
-    console.log('Clickatron GCS client initialized successfully');
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Clickatron GCS client initialized successfully');
+    }
   } catch (error) {
     console.error('Failed to initialize Clickatron GCS client:', error);
   }

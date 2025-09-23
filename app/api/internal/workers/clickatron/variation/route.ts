@@ -91,22 +91,17 @@ async function handler(req: Request) {
   let jobId: string | undefined;
   
   try {
-    console.log('Worker: Received request');
     const body = await req.json();
-    console.log('Worker: Request body:', body);
     
     // Extract jobId early for error handling
     jobId = body.jobId;
     
-    console.log('Worker: Parsing request body with schema');
     const { jobId: parsedJobId, sessionId, variationId } = workerRequestSchema.parse(body);
     jobId = parsedJobId; // Update jobId with parsed value
-    console.log('Worker: Parsed data - jobId:', jobId, 'sessionId:', sessionId, 'variationId:', variationId);
     jobId = parsedJobId; // Update jobId with parsed value
     console.log('Worker: Parsed data - jobId:', jobId, 'sessionId:', sessionId, 'variationId:', variationId);
 
     const job = await getJob(jobId);
-    console.log('Worker: Found job:', job);
     if (!job) {
       console.error('Worker: Job not found for jobId:', jobId);
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
@@ -166,7 +161,6 @@ async function handler(req: Request) {
     try {
       // Parse aspect ratio
       const { width, height, ratio } = parseAspectRatio(variation.aspectRatio);
-      console.log('Worker: Parsed aspect ratio:', variation.aspectRatio, '->', width, 'x', height);
 
       // Prepare generation parameters
       const generationParams: any = {
@@ -259,7 +253,6 @@ async function handler(req: Request) {
       
       // Use the model ID directly (already includes 'fal-ai/' prefix)
       const modelId = modelConfig.id;
-      console.log('Worker: Using model:', modelId, 'from configuration');
       
       // Determine if this is an image-to-image generation
       const isImageToImage = !!generationParams.image_url;
@@ -267,7 +260,6 @@ async function handler(req: Request) {
       // Validate image URL accessibility before making the API call
       if (isImageToImage && generationParams.image_url) {
         try {
-          console.log('Worker: Testing image URL accessibility...');
           const imageResponse = await fetch(generationParams.image_url, {
             method: 'HEAD'
           });
@@ -278,20 +270,17 @@ async function handler(req: Request) {
             // If this is a GCS URL that might have expired, try to regenerate the signed URL
             if (generationParams.image_url.includes('storage.googleapis.com')) {
               try {
-                console.log('Worker: Attempting to regenerate signed URL for expired image...');
                 // Extract the base GCS URL (without signature parameters)
                 const urlObj = new URL(generationParams.image_url);
                 const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
                 
                 // Get a fresh signed URL
                 const freshSignedUrl = await ClickatronGCSManager.getSignedUrl(baseUrl);
-                console.log('Worker: Got fresh signed URL:', freshSignedUrl);
                 
                 // Update the generation parameters with the fresh URL
                 generationParams.image_url = freshSignedUrl;
                 
                 // Test the fresh URL
-                console.log('Worker: Testing fresh signed URL...');
                 const freshResponse = await fetch(freshSignedUrl, { method: 'HEAD' });
                 
                 if (!freshResponse.ok) {
@@ -299,7 +288,6 @@ async function handler(req: Request) {
                 }
                 
                 const contentType = freshResponse.headers.get('content-type');
-                console.log('Worker: Fresh image URL accessible. Content-Type:', contentType);
               } catch (regenError) {
                 console.error('Worker: Failed to regenerate signed URL:', regenError);
                 throw new Error(`Cannot access reference image: ${regenError instanceof Error ? regenError.message : 'Unknown error'}`);
@@ -309,7 +297,6 @@ async function handler(req: Request) {
             }
           } else {
             const contentType = imageResponse.headers.get('content-type');
-            console.log('Worker: Image URL accessible. Content-Type:', contentType);
           }
           
         } catch (error) {
@@ -321,11 +308,8 @@ async function handler(req: Request) {
       // Validate image URLs accessibility for models that use image_urls array
       if (generationParams.image_urls && Array.isArray(generationParams.image_urls)) {
         try {
-          console.log('Worker: Testing image URLs accessibility...');
           for (let i = 0; i < generationParams.image_urls.length; i++) {
             const imageUrl = generationParams.image_urls[i];
-            console.log(`Worker: Testing image URL ${i + 1}/${generationParams.image_urls.length}...`);
-            
             const imageResponse = await fetch(imageUrl, {
               method: 'HEAD'
             });
@@ -336,20 +320,17 @@ async function handler(req: Request) {
               // If this is a GCS URL that might have expired, try to regenerate the signed URL
               if (imageUrl.includes('storage.googleapis.com')) {
                 try {
-                  console.log(`Worker: Attempting to regenerate signed URL for expired image ${i + 1}...`);
                   // Extract the base GCS URL (without signature parameters)
                   const urlObj = new URL(imageUrl);
                   const baseUrl = `${urlObj.origin}${urlObj.pathname}`;
                   
                   // Get a fresh signed URL
                   const freshSignedUrl = await ClickatronGCSManager.getSignedUrl(baseUrl);
-                  console.log(`Worker: Got fresh signed URL for image ${i + 1}:`, freshSignedUrl);
                   
                   // Update the generation parameters with the fresh URL
                   generationParams.image_urls[i] = freshSignedUrl;
                   
                   // Test the fresh URL
-                  console.log(`Worker: Testing fresh signed URL for image ${i + 1}...`);
                   const freshResponse = await fetch(freshSignedUrl, { method: 'HEAD' });
                   
                   if (!freshResponse.ok) {
@@ -357,7 +338,6 @@ async function handler(req: Request) {
                   }
                   
                   const contentType = freshResponse.headers.get('content-type');
-                  console.log(`Worker: Fresh image URL ${i + 1} accessible. Content-Type:`, contentType);
                 } catch (regenError) {
                   console.error(`Worker: Failed to regenerate signed URL for image ${i + 1}:`, regenError);
                   throw new Error(`Cannot access reference image ${i + 1}: ${regenError instanceof Error ? regenError.message : 'Unknown error'}`);
@@ -367,7 +347,6 @@ async function handler(req: Request) {
               }
             } else {
               const contentType = imageResponse.headers.get('content-type');
-              console.log(`Worker: Image URL ${i + 1} accessible. Content-Type:`, contentType);
             }
           }
         } catch (error) {
@@ -392,24 +371,21 @@ async function handler(req: Request) {
         },
       });
 
-      console.log('Worker: Image generation complete. Result:', result);
+      console.log('Worker: Image generation complete.');
 
       if (!result.data || !result.data.images || result.data.images.length === 0) {
         throw new Error('No image generated');
       }
 
       const generatedImageUrl = result.data.images[0].url;
-      console.log('Worker: Generated image URL:', generatedImageUrl);
 
       // Upload image to GCS
-      console.log('Worker: Uploading image to GCS...');
       const gcsUrl = await ClickatronGCSManager.uploadImageFromUrl(
         job.userId,
         job.sessionId,
         job.variationId,
         generatedImageUrl
       );
-      console.log('Worker: Image uploaded to GCS. URL:', gcsUrl);
 
       // Update variation with generated image
       variation.status = 'completed';
@@ -424,15 +400,11 @@ async function handler(req: Request) {
       }
       variation.generationParams = generationParams;
       
-      console.log('Worker: Updated variation status, imageRef, and metadata');
 
       task.markModified('details');
-      console.log('Worker: Marked task as modified');
       await task.save();
-      console.log('Worker: Saved task to database');
 
       await completeJob(jobId, gcsUrl);
-      console.log('Worker: Completed job in QStash');
     } catch (generationError: any) {
       console.error('Worker: Image generation failed:', generationError);
       

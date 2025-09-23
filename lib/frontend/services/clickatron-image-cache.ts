@@ -61,7 +61,6 @@ export async function getCachedImage(url: string): Promise<Response | null> {
   // First check memory cache
   const memoryCached = getMemoryCachedImage(url);
   if (memoryCached) {
-    console.log(`Image loaded from memory cache: ${url}`);
     const blob = await (await fetch(memoryCached)).blob();
     return new Response(blob);
   }
@@ -116,12 +115,10 @@ export async function fetchImageWithCache(url: string): Promise<Response> {
   // First check if we have the image in cache
   const cachedResponse = await getCachedImage(url);
   if (cachedResponse) {
-    console.log(`Image loaded from cache: ${url}`);
     return cachedResponse;
   }
 
   // If not in cache, fetch from network
-  console.log(`Fetching image from network: ${url}`);
   const networkResponse = await fetch(url);
   
   // Cache the response for future use

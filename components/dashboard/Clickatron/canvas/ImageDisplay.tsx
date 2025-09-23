@@ -143,7 +143,6 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     }, [aspectRatio]);
 
     useEffect(() => {
-      console.log('ImageDisplay useEffect triggered', { status, imageRef, variationId });
 
       // For generating placeholders, still fetch signedUrl if imageRef is set
       const shouldFetch = imageRef && (status !== "generating" || (status === "generating" && imageRef)); // Fetch for placeholders too
@@ -177,7 +176,6 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       // Check if we have this image in our URL cache
       const cachedUrl = urlCache.get(imageRef);
       if (cachedUrl) {
-        console.log('Using cached URL for', imageRef);
         setSignedUrl(cachedUrl);
         setIsLoading(false);
         currentImageRef.current = imageRef;
@@ -206,10 +204,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ gcsUrl: imageRef }),
           });
-          console.log('Signed URL response status:', response.status);
           if (!response.ok) throw new Error('Failed to get signed URL');
           const data = await response.json();
-          console.log('Signed URL received:', data.signedUrl);
           setSignedUrl(data.signedUrl);
           urlCache.set(imageRef, data.signedUrl); // Cache the URL
           currentImageRef.current = imageRef;
