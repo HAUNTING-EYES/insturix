@@ -1,5 +1,4 @@
 {
-  "packageManager": "pnpm",
   "crons": [
     {
       "path": "/api/cron/check-task-timeouts",
