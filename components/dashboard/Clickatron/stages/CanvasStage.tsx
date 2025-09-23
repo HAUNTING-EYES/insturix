@@ -320,10 +320,31 @@ useEffect(() => {
       const data = await response.json();
       console.log("Variation generation queued:", data);
 
-      if (isBlank && activeVariationId) {
+      // Use the variation object returned from the backend
+      if (data.variation) {
+        // Add the returned variation to local canvas immediately for instant UI
+        const newCanvas = produce(canvas, (draft) => {
+          // Check if variation already exists (e.g., for blank variations being updated)
+          const existingIndex = draft.variations.findIndex(v => v.id === data.variation.id);
+          if (existingIndex !== -1) {
+            // Update existing variation
+            draft.variations[existingIndex] = data.variation;
+          } else {
+            // Add new variation
+            draft.variations.unshift(data.variation);
+          }
+        });
+        updateCanvas(newCanvas);
+
+        // Immediately set the new variation as active (both local and global)
+        setLocalActiveVariation(data.variationId);
+        setActiveVariationId(data.variationId);
+      } else if (isBlank && activeVariationId) {
+        // Fallback for blank variations if no variation object is returned
         updateVariation(activeVariationId, { status: 'generating' });
         setActiveVariationId(activeVariationId);
       } else {
+        // Fallback for non-blank variations if no variation object is returned
         // For non-blank (edits or new from completed), add optimistic local variation with placeholder
         const now = new Date();
         const parentVariation = activeVariation; // For edits, use current active as parent

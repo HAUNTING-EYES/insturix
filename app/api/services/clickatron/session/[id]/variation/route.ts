@@ -166,11 +166,22 @@ export async function POST(
       selectedModelId = suitableModel?.id || 'fal-ai/flux-kontext/dev'; // Fallback
     }
     
+    // If this is an edit (has parent variation), use the parent's imageRef as placeholder
+    let imageRef = '';
+    if (validatedData.parentVariationId) {
+      const parentVariation = task.details.canvas?.variations.find(
+        (v: any) => v.id === validatedData.parentVariationId
+      );
+      if (parentVariation) {
+        imageRef = parentVariation.imageRef || '';
+      }
+    }
+
     const newVariation = {
       id: variationId,
       prompt: validatedData.prompt,
       status: 'generating' as const,
-      imageRef: '',
+      imageRef: imageRef,
       aspectRatio: validatedData.aspectRatio || task.details.aspectRatio,
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
@@ -269,12 +280,16 @@ export async function POST(
       // Don't fail the entire operation if usage increment fails
     }
 
+    // Find the created/updated variation in the task
+    const createdVariation = task.details.canvas.variations.find((v: any) => v.id === variationId);
+
     return NextResponse.json({
       success: true,
       variationId: variationId,
       jobId,
       status: 'queued',
       estimatedTime: 30, // seconds
+      variation: createdVariation, // Return the full variation object
     });
   } catch (error) {
     console.error('Error creating variation:', error);
