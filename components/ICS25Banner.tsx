@@ -12,18 +12,24 @@ export default function ICS25Banner() {
   const router = useRouter();
 
   useEffect(() => {
-    // Check if user has seen the popup and hasn't dismissed the banner
-    const hasSeenPopup = localStorage.getItem('ics25-popup-seen');
-    const hasDismissedBanner = localStorage.getItem('ics25-banner-dismissed');
-    
-    if (hasSeenPopup && !hasDismissedBanner) {
+    // Always show banner on each page load. If you still want to gate it
+    // behind the popup being seen first, uncomment the hasSeenPopup logic below.
+    try {
+      // const hasSeenPopup = localStorage.getItem('ics25-popup-seen');
+      // if (hasSeenPopup) {
+      //   setShowBanner(true);
+      // } else {
+      //   setShowBanner(true); // fallback: show anyway
+      // }
+      setShowBanner(true);
+    } catch {
       setShowBanner(true);
     }
   }, []);
 
   const handleDismiss = () => {
+    // Only hide for the current visit; don't persist dismissal so it reappears after reload
     setIsVisible(false);
-    localStorage.setItem('ics25-banner-dismissed', 'true');
     setTimeout(() => setShowBanner(false), 300);
   };
 

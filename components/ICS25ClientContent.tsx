@@ -10,24 +10,64 @@ import {
   Users, 
   Gift,
   Play,
-  ExternalLink
+  ExternalLink,
+  Check
 } from 'lucide-react';
+import { useUser } from '@clerk/nextjs';
+import { useEffect, useState, useCallback } from 'react';
 import CursorEffect from '@/components/ui/CursorEffect';
+import DotGrid from '@/components/DotGrid';
 
 export default function ICS25ClientContent() {
+  const { isSignedIn } = useUser();
+  const [optedIn, setOptedIn] = useState(false);
+  const LS_KEY = 'ics25_updates_optin';
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isSignedIn) {
+      try { setOptedIn(!!localStorage.getItem(LS_KEY)); } catch {}
+    }
+  }, [isSignedIn]);
+
+  const handleOptIn = useCallback(() => {
+    if (!isSignedIn) return; // fallback safety
+    try { localStorage.setItem(LS_KEY, '1'); } catch {}
+    setOptedIn(true);
+  }, [isSignedIn]);
+
   return (
-    <div className="relative min-h-screen bg-white dark:bg-zinc-900">
-      <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.1)" size={800} blur={150} />
+    <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950">
+      {/* Unified soft gradient backdrop */}
+      <div className="pointer-events-none absolute inset-0">
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-900" />
+        <div className="absolute top-[10%] right-[-10%] w-[650px] h-[650px] bg-gradient-to-bl from-cyan-300/25 via-transparent to-transparent dark:from-cyan-700/15 rounded-full blur-3xl" />
+        <div className="absolute bottom-[-10%] left-[-10%] w-[650px] h-[650px] bg-gradient-to-tr from-purple-300/25 via-transparent to-transparent dark:from-purple-700/15 rounded-full blur-3xl" />
+        <div className="absolute inset-0 bg-gradient-radial from-white/40 via-transparent to-transparent dark:from-zinc-800/40" />
+      </div>
+      <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.09)" size={900} blur={180} />
       
       {/* Hero Section */}
       <section className="relative pt-20 pb-16 overflow-hidden">
-        {/* Subtle mesh background */}
-        <div className="absolute inset-0">
-          <div className="absolute inset-0 bg-gradient-to-br from-blue-50/60 via-white to-purple-50/60 dark:from-blue-950/30 dark:via-zinc-900 dark:to-purple-950/30" />
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-bl from-cyan-200/30 via-transparent to-transparent dark:from-cyan-800/20 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-gradient-to-tr from-purple-200/30 via-transparent to-transparent dark:from-purple-800/20 rounded-full blur-3xl" />
+        {/* Animated Dot Grid Background */}
+        <div className="absolute inset-0 -z-0 pointer-events-none">
+          {/* Respect prefers-reduced-motion: hide intensive animation */}
+          <DotGrid
+            dotSize={10}
+            gap={15}
+            baseColor="#5227FF"
+            activeColor="#5227FF"
+            proximity={170}
+            speedTrigger={110}
+            shockRadius={260}
+            shockStrength={5.5}
+            maxSpeed={4200}
+            resistance={680}
+            returnDuration={1.6}
+            className="opacity-[0.55] md:opacity-60 mix-blend-plus-lighter [mask-image:radial-gradient(circle_at_center,#000_55%,transparent_95%)]" 
+          />
+          {/* Soft vignette overlay for text readability */}
+          <div className="absolute inset-0 bg-gradient-to-b from-white/70 via-white/40 to-white/70 dark:from-zinc-950/80 dark:via-zinc-950/40 dark:to-zinc-950/80" />
         </div>
-
         <div className="relative z-10 container mx-auto px-4 text-center">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -93,7 +133,7 @@ export default function ICS25ClientContent() {
       </section>
 
       {/* Registration CTA */}
-      <section className="py-20 bg-zinc-50/50 dark:bg-zinc-800/20">
+      <section className="py-20 relative">
         <div className="container mx-auto px-4 text-center">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
@@ -146,12 +186,55 @@ export default function ICS25ClientContent() {
               </Button>
             </div> */}
 
-            <div className="mt-8 text-zinc-500 dark:text-zinc-400">
+            <div className="mt-6 text-zinc-500 dark:text-zinc-400">
               <div className="flex items-center justify-center gap-2 text-sm">
                 <MapPin className="w-4 h-4" />
                 <span>Venue TBD • Pricing TBD • More details coming soon</span>
               </div>
             </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Stay Updated CTA */}
+  <section className="pt-16 pb-20 relative">
+        <div className="relative z-10 container mx-auto px-4">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="max-w-2xl mx-auto text-center"
+          >
+            <h2 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100 mb-8">
+              Don&apos;t wanna miss updates?
+            </h2>
+            <p className="text-lg md:text-xl text-zinc-600 dark:text-zinc-400 mb-8 font-light">
+              Be first to know when registration opens, speaker lineup drops & exclusive creator promos go live.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center min-h-[64px]">
+              {!isSignedIn && (
+                <a href="/signup" className="inline-flex">
+                  <Button className="px-10 py-5 bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 text-lg group">
+                    <ExternalLink className="w-5 h-5 mr-2 transition-transform group-hover:-translate-y-0.5" />
+                    Sign Up for Updates
+                  </Button>
+                </a>
+              )}
+              {isSignedIn && !optedIn && (
+                <Button onClick={handleOptIn} className="px-10 py-5 bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 text-lg group">
+                  <ExternalLink className="w-5 h-5 mr-2 transition-transform group-hover:-translate-y-0.5" />
+                  Notify Me
+                </Button>
+              )}
+              {isSignedIn && optedIn && (
+                <Button disabled className="px-10 py-5 bg-green-600 dark:bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl shadow-lg text-lg inline-flex items-center gap-2">
+                  <Check className="w-5 h-5" />
+                  Signed Up for Updates
+                </Button>
+              )}
+            </div>
+            <p className="mt-6 text-xs text-zinc-500 dark:text-zinc-500">No spam. Just high-signal creator intel.</p>
           </motion.div>
         </div>
       </section>
