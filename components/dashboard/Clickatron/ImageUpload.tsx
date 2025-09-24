@@ -52,13 +52,13 @@ export function ImageUpload({ onFileChange, isLoading, multiple = false }: Image
       onFileChange(filesToProcess);
       
       // Generate previews
-      const newPreviews: string[] = [];
-      filesToProcess.forEach(file => {
+      const newPreviews: (string | null)[] = new Array(filesToProcess.length).fill(null);
+      filesToProcess.forEach((file, fileIndex) => {
         const reader = new FileReader();
         reader.onloadend = () => {
-          newPreviews.push(reader.result as string);
-          if (newPreviews.length === filesToProcess.length) {
-            setPreviews(newPreviews);
+          newPreviews[fileIndex] = reader.result as string;
+          if (newPreviews.every(preview => preview !== null)) {
+            setPreviews(newPreviews as string[]);
           }
         };
         reader.readAsDataURL(file);
