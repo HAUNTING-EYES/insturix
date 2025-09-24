@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import type { Document } from "mongoose";
+import { getUserData } from "@/lib/services/getUserData";
 
 export async function POST() {
   try {
@@ -27,7 +28,8 @@ export async function POST() {
     const initResult = await UserInitializationService.ensureUserExists(
       userId,
       clerkUser.emailAddresses[0]?.emailAddress || "",
-      clerkUser.username || clerkUser.firstName || clerkUser.lastName || "default-username"
+      clerkUser.username || clerkUser.firstName || clerkUser.lastName || "default-username",
+      clerkUser.imageUrl
     );
 
     if (initResult.error) {
@@ -40,20 +42,25 @@ export async function POST() {
     // Sync any updated data from Clerk
     await UserInitializationService.syncUserFromClerk(userId, {
       email: clerkUser.emailAddresses[0]?.emailAddress,
+      username: clerkUser.username,
+      imageUrl: clerkUser.imageUrl,
       emailAddresses: clerkUser.emailAddresses
     });
+
+    // Get full user data after initialization
+    const fullUserData = await getUserData();
+
+    if (!fullUserData) {
+      return NextResponse.json(
+        { error: "Failed to retrieve user data after initialization" },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       isNewUser: initResult.isNewUser,
-      user: initResult.user ? {
-        id: (initResult.user as Document & { _id?: any; clerkUserId: string; email: string; currentPlan: any; signUpDate: Date; trialUsed: boolean })._id || (initResult.user as any).id,
-        clerkUserId: (initResult.user as Document & { clerkUserId: string }).clerkUserId,
-        email: (initResult.user as Document & { email: string }).email,
-        currentPlan: (initResult.user as Document & { currentPlan: any }).currentPlan,
-        signUpDate: (initResult.user as Document & { signUpDate: Date }).signUpDate,
-        trialUsed: (initResult.user as Document & { trialUsed: boolean }).trialUsed,
-      } : null,
+      user: fullUserData,
       message: initResult.isNewUser
         ? "User account created successfully"
         : "User account verified"
