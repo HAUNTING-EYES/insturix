@@ -872,6 +872,7 @@ useEffect(() => {
                 className="border-t border-zinc-800/80"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
+                currentImageUrl={activeVariation?.imageRef || ''}
               />
             )}
           </div>

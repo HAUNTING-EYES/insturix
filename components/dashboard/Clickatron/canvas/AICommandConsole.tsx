@@ -1,10 +1,13 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import { Node } from '@tiptap/pm/model';
+import StarterKit from '@tiptap/starter-kit';
+import { Mention } from '@tiptap/extension-mention';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Image, Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { ModelSelector } from '../stages/ModelSelector';
 import { MagicPromptEnhancerButton } from '../MagicPromptEnhancerButton';
 
@@ -21,6 +24,7 @@ setPromptData?: { // When this changes, populate the console
 };
 referenceImageCount?: number; // Number of reference images for model filtering
 onReferenceImageCountChange?: (count: number) => void; // Callback when reference image count changes
+currentImageUrl?: string; // GCS signed URL of the active variation's imageRef
 }
 
 export function AICommandConsole({
@@ -32,13 +36,359 @@ export function AICommandConsole({
   setPromptData,
   referenceImageCount = 0,
   onReferenceImageCountChange,
+  currentImageUrl,
 }: AICommandConsoleProps) {
-  const [prompt, setPrompt] = useState("");
+  console.log('AICommandConsole rendering with currentImageUrl:', currentImageUrl);
+  
+  useEffect(() => {
+    console.log('AICommandConsole currentImageUrl changed:', currentImageUrl);
+  }, [currentImageUrl]);
+  
+  useEffect(() => {
+    currentImageUrlRef.current = currentImageUrl || '';
+    console.log('Updated currentImageUrlRef:', currentImageUrlRef.current);
+  }, [currentImageUrl]);
+  
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [referenceImagePreviews, setReferenceImagePreviews] = useState<string[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const referenceImagesRef = useRef<File[]>([]);
+  const referenceImagePreviewsRef = useRef<string[]>([]);
+  const currentImageUrlRef = useRef<string>('');
+
+  const handleImagesChange = useCallback((files: File[]) => {
+    referenceImagesRef.current = files;
+    setReferenceImages(files);
+  }, []);
+
+  const handleReferencePreviewsChange = useCallback((previews: string[]) => {
+    referenceImagePreviewsRef.current = previews;
+    setReferenceImagePreviews(previews);
+  }, []);
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Mention.configure({
+        HTMLAttributes: {
+          class: 'mention inline bg-blue-500 text-white px-1 py-0.5 rounded font-semibold cursor-pointer mx-px',
+        },
+        suggestion: {
+          char: '@',
+          items: ({ query }) => {
+            console.log('Building mention items. currentImageUrlRef.current:', currentImageUrlRef.current, 'referenceImagePreviews.length:', referenceImagePreviewsRef.current.length);
+            
+            let items = [];
+            
+            if (currentImageUrlRef.current) {
+              // If currentImageUrl exists, add it as @img1, then add uploads as @img2+
+              items.push({
+                id: '@img1',
+                label: '@img1',
+                previewUrl: '',
+              });
+              
+              // Add uploaded reference images as @img2, @img3, etc.
+              for (let i = 0; i < referenceImagePreviewsRef.current.length; i++) {
+                items.push({
+                  id: `@img${i + 2}`,
+                  label: `@img${i + 2}`,
+                  previewUrl: referenceImagePreviewsRef.current[i] || '',
+                });
+              }
+            } else {
+              // If no currentImageUrl, start uploads from @img1
+              for (let i = 0; i < referenceImagePreviewsRef.current.length; i++) {
+                items.push({
+                  id: `@img${i + 1}`,
+                  label: `@img${i + 1}`,
+                  previewUrl: referenceImagePreviewsRef.current[i] || '',
+                });
+              }
+            }
+            
+            if (items.length === 0) {
+              return [{ id: 'no reference images', label: 'no reference images' }];
+            }
+            
+            console.log('Full items:', items);
+            
+            return items.filter(item =>
+              item.label.toLowerCase().includes(query.toLowerCase())
+            );
+          },
+          render: () => {
+            let component: any;
+            let popup: any;
+            let selectedIndex = 0;
+
+            let filteredItems: any[] = []; // Store the filtered items to be used by onKeyDown
+
+            let commandFunction: any; // Store the command function
+            let rect: any;
+            let editorDom: HTMLElement | null = null;
+            let inputContainer: HTMLElement | null = null;
+
+            return {
+              onStart: (props: any) => {
+                const { editor, clientRect, command } = props;
+                commandFunction = command; // Store the command function
+                editorDom = editor.view.dom as HTMLElement;
+                inputContainer = editorDom.parentElement as HTMLElement;
+                const dom = editorDom;
+                rect = clientRect ? clientRect() : { left: 0, top: 0, width: 0, height: 0 };
+                
+                popup = document.createElement('div');
+                popup.className = 'suggestions-popup absolute z-50 bg-zinc-800 border border-zinc-700 rounded-xl shadow-lg max-h-60 overflow-y-auto w-64';
+                const triggerRect = clientRect ? clientRect() : { left: 0, top: 0, width: 0, height: 0 };
+                const inputRect = inputContainer.getBoundingClientRect();
+                const relativeLeft = triggerRect.left - inputRect.left;
+                const relativeTop = triggerRect.top - inputRect.top;
+                popup.style.left = `${relativeLeft}px`;
+                popup.style.top = `${relativeTop + triggerRect.height}px`; // Initial position below trigger
+                inputContainer.appendChild(popup);
+
+                component = {
+                  dom: popup,
+                  update: (props: any) => {
+                    const { query, items, clientRect } = props;
+                    // Store the filtered items for use in onKeyDown
+                    filteredItems = items;
+                    popup.innerHTML = '';
+                    if (items.length === 0) {
+                      const noItems = document.createElement('div');
+                      noItems.className = 'p-3 text-zinc-400 text-sm cursor-default';
+                      noItems.textContent = 'no reference images';
+                      popup.appendChild(noItems);
+                    } else {
+                      items.forEach((item: any, index: number) => {
+                        const div = document.createElement('div');
+                        div.className = `flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-zinc-700 ${selectedIndex === index ? 'bg-zinc-700' : ''}`;
+                        
+                        if (item.previewUrl) {
+                          const img = document.createElement('img');
+                          img.src = item.previewUrl;
+                          img.alt = 'Preview';
+                          img.className = 'w-8 h-8 rounded object-cover flex-shrink-0';
+                          
+                          img.onerror = (e) => {
+                            console.error('Popup preview load error:', item.previewUrl, e);
+                          };
+                          img.onload = () => {
+                            if (item.id !== '@img1') {
+                              console.log('Popup preview loaded for', item.previewUrl);
+                            }
+                          };
+                          
+                          // Set loading to eager to load immediately
+                          img.loading = 'eager';
+                          
+                          div.appendChild(img);
+                        }
+                        
+                        const labelSpan = document.createElement('span');
+                        labelSpan.className = 'text-zinc-200 font-medium';
+                        labelSpan.textContent = item.id === '@img1' ? '@img1 - Original Image' : item.label;
+                        div.appendChild(labelSpan);
+                        
+                        console.log('Popup span text for', item.id, ':', item.id === '@img1' ? '@img1 - Original Image' : item.label);
+                        
+                        div.addEventListener('mousedown', (e) => {
+                          e.preventDefault();
+                          commandFunction({ id: item.id, label: item.label });
+                          popup.remove();
+                        });
+                        div.addEventListener('mouseenter', () => {
+                          selectedIndex = index;
+                          component.update(props);
+                        });
+                        popup.appendChild(div);
+                      });
+                    }
+                    setTimeout(() => {
+                      if (popup && popup.parentNode && inputContainer && clientRect) {
+                        const currentTriggerRect = clientRect();
+                        const inputRect = inputContainer.getBoundingClientRect();
+                        const relativeLeft = currentTriggerRect.left - inputRect.left;
+                        const relativeTop = currentTriggerRect.top - inputRect.top;
+                        const popupHeight = popup.offsetHeight;
+                        if (popupHeight > 0) {
+                          // Position popup just above the trigger relative to the input container
+                          popup.style.left = `${relativeLeft}px`;
+                          popup.style.top = `${relativeTop - popupHeight}px`;
+                        }
+                      }
+                    }, 0);
+                  },
+                  onKeyDown: (props: any) => {
+                    const { event } = props;
+                    if (event.key === 'Escape') {
+                      popup?.remove();
+                      return true;
+                    }
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      if (filteredItems.length > 0) {
+                        selectedIndex = (selectedIndex - 1 + filteredItems.length) % filteredItems.length;
+                        component.update({ query: '', items: filteredItems });
+                      }
+                      return true;
+                    }
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      if (filteredItems.length > 0) {
+                        selectedIndex = (selectedIndex + 1) % filteredItems.length;
+                        component.update({ query: '', items: filteredItems });
+                      }
+                      return true;
+                    }
+                    if (event.key === 'Enter' || event.key === 'Tab') {
+                      event.preventDefault();
+                      if (filteredItems.length > 0 && selectedIndex >= 0 && selectedIndex < filteredItems.length) {
+                        const selectedItem = filteredItems[selectedIndex];
+                        commandFunction({ id: selectedItem.id, label: selectedItem.label });
+                      }
+                      popup?.remove();
+                      return true;
+                    }
+                    return false;
+                  },
+                  onExit: () => {
+                    if (popup && popup.parentNode) {
+                      popup.parentNode.removeChild(popup);
+                    }
+                  },
+                };
+                component.update(props);
+              },
+              onUpdate(props: any) {
+                component?.update(props);
+              },
+              onKeyDown(props: any) {
+                return component?.onKeyDown(props) || false;
+              },
+              onExit() {
+                component?.onExit();
+                component = null;
+              },
+            };
+          },
+          command: ({ editor, props }) => {
+            const { state } = editor;
+            const { from: cursorPos } = state.selection;
+            const fullText = editor.getText();
+            
+            // Traverse backwards to find the actual text trigger '@', skipping mention nodes
+            let pos = cursorPos;
+            let triggerPos = -1;
+            let foundTrigger = false;
+            
+            while (pos > 0 && !foundTrigger) {
+              const resolvedPos = state.doc.resolve(pos);
+              const parent = resolvedPos.parent;
+              
+              if (parent.type.name === 'mention') {
+                // Skip the entire mention node
+                pos -= parent.nodeSize;
+              } else {
+                // In a text-containing node, search backwards for '@'
+                const textContent = parent.textContent;
+                const localOffset = resolvedPos.parentOffset;
+                const textBeforeLocal = textContent.substring(0, localOffset);
+                const localTriggerIndex = textBeforeLocal.lastIndexOf('@');
+                
+                if (localTriggerIndex !== -1) {
+                  triggerPos = resolvedPos.start() + localTriggerIndex;
+                  foundTrigger = true;
+                } else {
+                  // Move to start of this node and continue
+                  pos = resolvedPos.before();
+                }
+              }
+            }
+            
+            if (triggerPos === -1) {
+              // Fallback: insert at cursor without deletion
+              editor.chain().focus().insertContent([
+                 {
+                   type: 'text',
+                   text: ' ',
+                 },
+                 {
+                   type: 'mention',
+                   attrs: {
+                     id: props.id,
+                     label: props.label ? props.label.replace('@', '') : '', // Pass label without '@'
+                   },
+                 },
+                 {
+                   type: 'text',
+                   text: ' ',
+                }
+             ]).run();
+              return;
+            }
+            
+            // Calculate deletion range: from trigger to cursor
+            let deleteFrom = triggerPos;
+            let deleteTo = cursorPos;
+            
+            // Check for whitespace after cursor and extend if needed
+            const whitespaceRegex = /\s/;
+            if (cursorPos < fullText.length && whitespaceRegex.test(fullText[cursorPos])) {
+              deleteTo += 1;
+            }
+            
+            // Perform deletion first
+            editor.chain().focus()
+              .deleteRange({ from: deleteFrom, to: deleteTo })
+              .run();
+            
+            // Then insert space, mention, space
+            editor.chain().focus()
+              .insertContent([
+                 {
+                   type: 'text',
+                   text: ' ',
+                 },
+                 {
+                   type: 'mention',
+                   attrs: {
+                     id: props.id,
+                     label: props.label ? props.label.replace('@', '') : '', // Pass label without '@'
+                   },
+                 },
+                 {
+                   type: 'text',
+                   text: ' ',
+                 }
+              ])
+              .run();
+          },
+        },
+      }),
+    ],
+    editorProps: {
+      attributes: {
+        class: 'min-h-[32px] max-h-[80px] w-full p-2.5 pr-8 text-zinc-100 outline-none prose prose-sm prose-headings:text-zinc-100 prose-p:text-zinc-100 prose-li:text-zinc-100',
+      },
+    },
+    content: '<p></p>',
+    onUpdate: ({ editor }) => {
+      // The mention will be rendered with custom styling
+      console.log('Applied mention styles in AICommandConsole');
+    },
+  });
+
+  const getPlainPrompt = () => {
+    if (!editor) return '';
+    let plain = editor.getText().replace(/\s+/g, ' ').trim();
+    return plain;
+  };
 
   const handleModelChange = (modelId: string) => {
     setSelectedModelId(modelId);
@@ -67,30 +417,45 @@ export function AICommandConsole({
     }
   };
 
+  const handleEnhanceComplete = useCallback((enhancedPrompt: string) => {
+    if (editor) {
+      editor.commands.setContent(enhancedPrompt);
+    }
+  }, [editor]);
+
   // Clear console when clearTrigger changes
   useEffect(() => {
     if (clearTrigger !== undefined) {
-      setPrompt("");
+      if (editor) {
+        editor.commands.setContent('<p></p>');
+      }
       setReferenceImages([]);
       setReferenceImagePreviews([]);
     }
-  }, [clearTrigger]);
+  }, [clearTrigger, editor]);
 
   // Set prompt data when setPromptData changes
   useEffect(() => {
     if (setPromptData) {
-      setPrompt(setPromptData.prompt);
+      if (editor) {
+        editor.commands.setContent(setPromptData.prompt);
+      }
       // For display purposes, we'll use the GCS URLs provided
       setReferenceImagePreviews(setPromptData.referenceImages || []);
     }
-  }, [setPromptData]);
+  }, [setPromptData, editor]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
+  const handleSubmit = (e?: React.FormEvent | React.KeyboardEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
+    const plainPrompt = getPlainPrompt();
+    if (!plainPrompt.trim() || isGenerating) return;
 
-    onGenerate(prompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
-    setPrompt("");
+    onGenerate(plainPrompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
+    if (editor) {
+      editor.commands.setContent('<p></p>');
+    }
     setReferenceImages([]);
     setReferenceImagePreviews([]);
   };
@@ -143,6 +508,17 @@ export function AICommandConsole({
     return () => {
       referenceImagePreviews.forEach(url => URL.revokeObjectURL(url));
     };
+  }, [referenceImagePreviews]);
+
+
+
+
+  useEffect(() => {
+    referenceImagesRef.current = referenceImages;
+  }, [referenceImages]);
+
+  useEffect(() => {
+    referenceImagePreviewsRef.current = referenceImagePreviews;
   }, [referenceImagePreviews]);
 
   return (
@@ -236,27 +612,27 @@ export function AICommandConsole({
 
               {/* Prompt Input */}
               <div className="flex-1 relative">
-                <Textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                <div
+                  className="min-h-[32px] max-h-[80px] bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm border-zinc-700/50"
                   onPaste={handlePaste}
-                  placeholder="Describe changes..."
-                  disabled={isGenerating || isEnhancing}
-                  className="min-h-[32px] max-h-[80px] resize-none border-0 bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 px-2.5 py-1.5 pr-8 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSubmit(e);
                     }
                   }}
-                />
+                >
+                  <EditorContent
+                    editor={editor}
+                  />
+                </div>
                 <div className="absolute right-1.5 top-1.5">
                   <MagicPromptEnhancerButton
                     onEnhance={enhancePrompt}
                     isEnhancing={isEnhancing}
                     disabled={isGenerating}
-                    prompt={prompt}
-                    onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+                    prompt={getPlainPrompt()}
+                    onPromptEnhanced={handleEnhanceComplete}
                   />
                 </div>
               </div>
@@ -264,7 +640,7 @@ export function AICommandConsole({
               {/* Send Button */}
               <Button
                 type="submit"
-                disabled={!prompt.trim() || isGenerating}
+                disabled={!getPlainPrompt().trim() || isGenerating}
                 className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 disabled:from-zinc-700 disabled:to-zinc-700 transition-all duration-200"
               >
                 {isGenerating ? (

@@ -1,26 +1,29 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useEditor, EditorContent } from '@tiptap/react';
+import { Node } from '@tiptap/pm/model';
+import StarterKit from '@tiptap/starter-kit';
+import { Mention } from '@tiptap/extension-mention';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Image, Loader2, X, Plus, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
 import { ModelSelector } from '../stages/ModelSelector';
 import { MagicPromptEnhancerButton } from '../MagicPromptEnhancerButton';
 
 interface NewVariationConsoleProps {
-onGenerate: (prompt: string, referenceImages?: File[], modelId?: string) => void;
-isGenerating: boolean;
-galleryCollapsed?: boolean;
-className?: string;
-clearTrigger?: number; // When this changes, clear the console
-setPromptData?: { // When this changes, populate the console
-  prompt: string;
-  referenceImages?: string[]; // This will now be GCS URLs for display
-  trigger: number;
-};
-referenceImageCount?: number; // Number of reference images for model filtering
-onReferenceImageCountChange?: (count: number) => void; // Callback when reference image count changes
+  onGenerate: (prompt: string, referenceImages?: File[], modelId?: string) => void;
+  isGenerating: boolean;
+  galleryCollapsed?: boolean;
+  className?: string;
+  clearTrigger?: number; // When this changes, clear the console
+  setPromptData?: { // When this changes, populate the console
+    prompt: string;
+    referenceImages?: string[]; // This will now be GCS URLs for display
+    trigger: number;
+  };
+  referenceImageCount?: number; // Number of reference images for model filtering
+  onReferenceImageCountChange?: (count: number) => void; // Callback when reference image count changes
 }
 
 export function NewVariationConsole({
@@ -33,12 +36,327 @@ export function NewVariationConsole({
   referenceImageCount = 0,
   onReferenceImageCountChange,
 }: NewVariationConsoleProps) {
-  const [prompt, setPrompt] = useState("");
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
   const [referenceImagePreviews, setReferenceImagePreviews] = useState<string[]>([]);
   const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
   const [isEnhancing, setIsEnhancing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const referenceImagesRef = useRef<File[]>([]);
+  const referenceImagePreviewsRef = useRef<string[]>([]);
+
+  const handleImagesChange = useCallback((files: File[]) => {
+    referenceImagesRef.current = files;
+    setReferenceImages(files);
+  }, []);
+
+  const handleReferencePreviewsChange = useCallback((previews: string[]) => {
+    referenceImagePreviewsRef.current = previews;
+    setReferenceImagePreviews(previews);
+  }, []);
+
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Mention.configure({
+        HTMLAttributes: {
+          class: 'mention inline bg-blue-500 text-white px-1 py-0.5 rounded font-semibold cursor-pointer mx-px',
+        },
+        suggestion: {
+          char: '@',
+          items: ({ query }) => {
+            const currentImages = referenceImagesRef.current;
+            if (currentImages.length === 0) {
+              return [{ id: 'no reference images', label: 'no reference images' }];
+            }
+            return currentImages.map((_, index) => ({
+              id: `@img${index + 1}`,
+              label: `@img${index + 1}`,
+              previewUrl: referenceImagePreviewsRef.current[index] || '',
+            })).filter(item =>
+              item.label.toLowerCase().includes(query.toLowerCase())
+            );
+          },
+          render: () => {
+            let component: any;
+            let popup: any;
+            let selectedIndex = 0;
+
+            let filteredItems: any[] = []; // Store the filtered items to be used by onKeyDown
+
+            let commandFunction: any; // Store the command function
+            let rect: any;
+            let editorDom: HTMLElement | null = null;
+            let inputContainer: HTMLElement | null = null;
+
+            return {
+              onStart: (props: any) => {
+                const { editor, clientRect, command } = props;
+                commandFunction = command; // Store the command function
+                editorDom = editor.view.dom as HTMLElement;
+                inputContainer = editorDom.parentElement as HTMLElement;
+                const dom = editorDom;
+                rect = clientRect ? clientRect() : { left: 0, top: 0, width: 0, height: 0 };
+                
+                popup = document.createElement('div');
+                popup.className = 'suggestions-popup absolute z-50 bg-zinc-800 border border-zinc-700 rounded-xl shadow-lg max-h-60 overflow-y-auto w-64';
+                const triggerRect = clientRect ? clientRect() : { left: 0, top: 0, width: 0, height: 0 };
+                const inputRect = inputContainer.getBoundingClientRect();
+                const relativeLeft = triggerRect.left - inputRect.left;
+                const relativeTop = triggerRect.top - inputRect.top;
+                popup.style.left = `${relativeLeft}px`;
+                popup.style.top = `${relativeTop + triggerRect.height}px`; // Initial position below trigger
+                inputContainer.appendChild(popup);
+
+                component = {
+                  dom: popup,
+                  update: (props: any) => {
+                    const { query, items, clientRect } = props;
+                    // Store the filtered items for use in onKeyDown
+                    filteredItems = items;
+                    popup.innerHTML = '';
+                    if (items.length === 0) {
+                      const noItems = document.createElement('div');
+                      noItems.className = 'p-3 text-zinc-400 text-sm cursor-default';
+                      noItems.textContent = 'no reference images';
+                      popup.appendChild(noItems);
+                    } else {
+                      items.forEach((item: any, index: number) => {
+                        const div = document.createElement('div');
+                        div.className = `flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-zinc-700 ${selectedIndex === index ? 'bg-zinc-70' : ''}`;
+                        div.innerHTML = `
+                          ${item.previewUrl ? `<img src="${item.previewUrl}" alt="Preview" class="w-8 h-8 rounded object-cover flex-shrink-0" />` : ''}
+                          <span class="text-zinc-200 font-medium">${item.label}</span>
+                        `;
+                        div.addEventListener('mousedown', (e) => {
+                          e.preventDefault();
+                          commandFunction({ id: item.id, label: item.label });
+                          popup.remove();
+                        });
+                        div.addEventListener('mouseenter', () => {
+                          selectedIndex = index;
+                          component.update(props);
+                        });
+                        popup.appendChild(div);
+                      });
+                    }
+                    setTimeout(() => {
+                      if (popup && popup.parentNode && inputContainer && clientRect) {
+                        const currentTriggerRect = clientRect();
+                        const inputRect = inputContainer.getBoundingClientRect();
+                        const relativeLeft = currentTriggerRect.left - inputRect.left;
+                        const relativeTop = currentTriggerRect.top - inputRect.top;
+                        const popupHeight = popup.offsetHeight;
+                        if (popupHeight > 0) {
+                          // Position popup just above the trigger relative to the input container
+                          popup.style.left = `${relativeLeft}px`;
+                          popup.style.top = `${relativeTop - popupHeight}px`;
+                        }
+                      }
+                    }, 0);
+                  },
+                  onKeyDown: (props: any) => {
+                    const { event } = props;
+                    if (event.key === 'Escape') {
+                      popup?.remove();
+                      return true;
+                    }
+                    if (event.key === 'ArrowUp') {
+                      event.preventDefault();
+                      if (filteredItems.length > 0) {
+                        selectedIndex = (selectedIndex - 1 + filteredItems.length) % filteredItems.length;
+                        component.update({ query: '', items: filteredItems });
+                      }
+                      return true;
+                    }
+                    if (event.key === 'ArrowDown') {
+                      event.preventDefault();
+                      if (filteredItems.length > 0) {
+                        selectedIndex = (selectedIndex + 1) % filteredItems.length;
+                        component.update({ query: '', items: filteredItems });
+                      }
+                      return true;
+                    }
+                    if (event.key === 'Enter' || event.key === 'Tab') {
+                      event.preventDefault();
+                      if (filteredItems.length > 0 && selectedIndex >= 0 && selectedIndex < filteredItems.length) {
+                        const selectedItem = filteredItems[selectedIndex];
+                        commandFunction({ id: selectedItem.id, label: selectedItem.label });
+                      }
+                      popup?.remove();
+                      return true;
+                    }
+                    return false;
+                  },
+                  onExit: () => {
+                    if (popup && popup.parentNode) {
+                      popup.parentNode.removeChild(popup);
+                    }
+                  },
+                };
+                component.update(props);
+              },
+              onUpdate(props: any) {
+                component?.update(props);
+              },
+              onKeyDown(props: any) {
+                return component?.onKeyDown(props) || false;
+              },
+              onExit() {
+                component?.onExit();
+                component = null;
+              },
+            };
+          },
+          command: ({ editor, props }) => {
+            const { state } = editor;
+            const { from: cursorPos } = state.selection;
+            const fullText = editor.getText();
+            
+            console.log('Full text length:', fullText.length);
+            console.log('Full text:', JSON.stringify(fullText));
+            console.log('Cursor pos:', cursorPos);
+            
+            // Traverse backwards to find the actual text trigger '@', skipping mention nodes
+            let pos = cursorPos;
+            let triggerPos = -1;
+            let foundTrigger = false;
+            
+            while (pos > 0 && !foundTrigger) {
+              const resolvedPos = state.doc.resolve(pos);
+              const parent = resolvedPos.parent;
+              
+              if (parent.type.name === 'mention') {
+                // Skip the entire mention node
+                pos -= parent.nodeSize;
+              } else {
+                // In a text-containing node, search backwards for '@'
+                const textContent = parent.textContent;
+                const localOffset = resolvedPos.parentOffset;
+                const textBeforeLocal = textContent.substring(0, localOffset);
+                const localTriggerIndex = textBeforeLocal.lastIndexOf('@');
+                
+                if (localTriggerIndex !== -1) {
+                  triggerPos = resolvedPos.start() + localTriggerIndex;
+                  foundTrigger = true;
+                  console.log('Found text trigger at document position:', triggerPos);
+                } else {
+                  // Move to start of this node and continue
+                  pos = resolvedPos.before();
+                }
+              }
+            }
+            
+            const textBeforeCursor = fullText.substring(0, cursorPos);
+            console.log('Text before cursor:', JSON.stringify(textBeforeCursor));
+            console.log('Trigger index (document pos):', triggerPos);
+            
+            // Log the actual characters at specific positions
+            for (let i = Math.max(0, cursorPos - 3); i < Math.min(fullText.length, cursorPos + 3); i++) {
+              console.log(`Character at pos ${i}:`, JSON.stringify(fullText[i]), `(code: ${fullText[i]?.charCodeAt(0)})`);
+            }
+            
+            console.log('Full editor text before:', fullText);
+            console.log('cursorPos:', cursorPos);
+            console.log('props.label:', props.label);
+            console.log('props.id:', props.id);
+            console.log('Document structure before deletion:', JSON.stringify(editor.state.doc.toJSON(), null, 2));
+            
+            if (triggerPos === -1) {
+              // Fallback: insert at cursor without deletion
+              console.log('No trigger found, using fallback insertion');
+              editor.chain().focus().insertContent([
+                 {
+                   type: 'text',
+                   text: ' ',
+                 },
+                 {
+                   type: 'mention',
+                   attrs: {
+                     id: props.id,
+                     label: props.label ? props.label.replace('@', '') : '', // Pass label without '@'
+                   },
+                 },
+                 {
+                   type: 'text',
+                   text: ' ',
+                 }
+              ]).run();
+              console.log('Full editor text after (fallback):', editor.getText());
+              return;
+            }
+            
+            // Calculate deletion range: from trigger to cursor
+            let deleteFrom = triggerPos;
+            let deleteTo = cursorPos;
+            
+            // Check for whitespace after cursor and extend if needed
+            const whitespaceRegex = /\s/;
+            if (cursorPos < fullText.length && whitespaceRegex.test(fullText[cursorPos])) {
+              deleteTo += 1;
+              console.log('Extended deletion to include trailing whitespace');
+            }
+            
+            const deletingSubstring = fullText.substring(deleteFrom, deleteTo);
+            console.log('Deleting substring:', `"${deletingSubstring}"`);
+            const simulatedTextAfterDelete = fullText.substring(0, deleteFrom) + fullText.substring(deleteTo);
+            console.log('Simulated text after deletion:', simulatedTextAfterDelete);
+            const expectedAfterInsert = simulatedTextAfterDelete + ' ' + props.label + ' ';
+            console.log('Expected text after insert:', expectedAfterInsert);
+            
+            console.log('Calculated delete range:', { from: deleteFrom, to: deleteTo });
+            
+            // Perform deletion first and log state
+            editor.chain().focus()
+              .deleteRange({ from: deleteFrom, to: deleteTo })
+              .run();
+            console.log('Text after deletion:', editor.getText());
+            console.log('Cursor position after deletion:', editor.state.selection.from);
+            
+            // Then insert space, mention, space
+            editor.chain().focus()
+              .insertContent([
+                 {
+                   type: 'text',
+                   text: ' ',
+                 },
+                 {
+                   type: 'mention',
+                   attrs: {
+                     id: props.id,
+                     label: props.label ? props.label.replace('@', '') : '', // Pass label without '@'
+                   },
+                 },
+                 {
+                   type: 'text',
+                   text: ' ',
+                 }
+              ])
+              .run();
+            
+            console.log('Full editor text after insertion:', editor.getText());
+            console.log('Document structure after insertion:', JSON.stringify(editor.state.doc.toJSON(), null, 2));
+          },
+        },
+      }),
+    ],
+    editorProps: {
+      attributes: {
+        class: 'min-h-[32px] max-h-[80px] w-full p-2.5 pr-8 text-zinc-100 outline-none prose prose-sm prose-headings:text-zinc-100 prose-p:text-zinc-100 prose-li:text-zinc-100',
+      },
+    },
+    content: '<p></p>',
+    onUpdate: ({ editor }) => {
+      // The mention will be rendered with custom styling
+    },
+  });
+
+  const getPlainPrompt = () => {
+    if (!editor) return '';
+    let plain = editor.getText().replace(/\s+/g, ' ').trim();
+    return plain;
+  };
 
   const handleModelChange = (modelId: string) => {
     setSelectedModelId(modelId);
@@ -67,35 +385,58 @@ export function NewVariationConsole({
     }
   };
 
+  const handleEnhanceComplete = useCallback((enhancedPrompt: string) => {
+    if (editor) {
+      editor.commands.setContent(enhancedPrompt);
+    }
+  }, [editor]);
+
   // Clear console when clearTrigger changes
   useEffect(() => {
     if (clearTrigger !== undefined) {
-      setPrompt("");
+      if (editor) {
+        editor.commands.setContent('<p></p>');
+      }
       setReferenceImages([]);
       setReferenceImagePreviews([]);
     }
-  }, [clearTrigger]);
+  }, [clearTrigger, editor]);
 
   // Set prompt data when setPromptData changes
   useEffect(() => {
     if (setPromptData) {
-      setPrompt(setPromptData.prompt);
+      if (editor) {
+        editor.commands.setContent(setPromptData.prompt);
+      }
       // For display purposes, we'll use the GCS URLs provided
       setReferenceImagePreviews(setPromptData.referenceImages || []);
     }
-  }, [setPromptData]);
+  }, [setPromptData, editor]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!prompt.trim() || isGenerating) return;
+  useEffect(() => {
+    referenceImagesRef.current = referenceImages;
+  }, [referenceImages]);
 
-    onGenerate(prompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
-    setPrompt("");
+  useEffect(() => {
+    referenceImagePreviewsRef.current = referenceImagePreviews;
+  }, [referenceImagePreviews]);
+
+  const handleSubmit = (e?: React.FormEvent | React.KeyboardEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
+    const plainPrompt = getPlainPrompt();
+    if (!plainPrompt.trim() || isGenerating) return;
+
+    onGenerate(plainPrompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
+    if (editor) {
+      editor.commands.setContent('<p></p>');
+    }
     setReferenceImages([]);
     setReferenceImagePreviews([]);
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+ const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     
     // Store File objects
@@ -209,7 +550,7 @@ export function NewVariationConsole({
           </AnimatePresence>
 
           {/* Input Row */}
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={(e) => handleSubmit(e)}>
             <div className="flex items-center gap-2">
               {/* Image Upload Button */}
               <input
@@ -226,7 +567,7 @@ export function NewVariationConsole({
                 size="sm"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isGenerating}
-                className="h-8 w-8 p-0 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border border-zinc-700/50 hover:border-zinc-600/50 transition-all duration-200"
+                className="h-8 w-8 p-0 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/50 border-zinc-700/50 hover:border-zinc-600/50 transition-all duration-200"
               >
                 {referenceImagePreviews.length > 0 ? (
                   <Plus className="h-3.5 w-3.5" />
@@ -237,27 +578,27 @@ export function NewVariationConsole({
 
               {/* Prompt Input */}
               <div className="flex-1 relative">
-                <Textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
+                <div
+                  className="min-h-[32px] max-h-[80px] bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm border-zinc-700/50"
                   onPaste={handlePaste}
-                  placeholder="Create new thumbnail..."
-                  disabled={isGenerating || isEnhancing}
-                  className="min-h-[32px] max-h-[80px] resize-none border-0 bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 px-2.5 py-1.5 pr-8 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm"
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSubmit(e);
                     }
                   }}
-                />
+                >
+                  <EditorContent
+                    editor={editor}
+                  />
+                </div>
                 <div className="absolute right-1.5 top-1.5">
                   <MagicPromptEnhancerButton
                     onEnhance={enhancePrompt}
                     isEnhancing={isEnhancing}
                     disabled={isGenerating}
-                    prompt={prompt}
-                    onPromptEnhanced={(enhancedPrompt) => setPrompt(enhancedPrompt)}
+                    prompt={getPlainPrompt()}
+                    onPromptEnhanced={handleEnhanceComplete}
                   />
                 </div>
               </div>
@@ -265,7 +606,7 @@ export function NewVariationConsole({
               {/* Send Button */}
               <Button
                 type="submit"
-                disabled={!prompt.trim() || isGenerating}
+                disabled={!getPlainPrompt().trim() || isGenerating}
                 className="h-8 w-8 p-0 rounded-lg bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 disabled:from-zinc-700 disabled:to-zinc-700 transition-all duration-200"
               >
                 {isGenerating ? (
