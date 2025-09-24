@@ -120,15 +120,22 @@ export function CanvasIdeaInput() {
                           ${item.previewUrl ? `<img src="${item.previewUrl}" alt="Preview" class="w-8 h-8 rounded object-cover flex-shrink-0" />` : ''}
                           <span class="text-zinc-200 font-medium">${item.label}</span>
                         `;
-                        div.addEventListener('mousedown', (e) => {
-                          e.preventDefault();
-                          commandFunction({ id: item.id, label: item.label });
-                          popup.remove();
-                        });
-                        div.addEventListener('mouseenter', () => {
-                          selectedIndex = index;
-                          component.update(props);
-                        });
+                        // Only add click handlers if the item is not "no reference images"
+                        if (item.id !== 'no reference images') {
+                          div.addEventListener('mousedown', (e) => {
+                            e.preventDefault();
+                            commandFunction({ id: item.id, label: item.label });
+                            popup.remove();
+                          });
+                          div.addEventListener('mouseenter', () => {
+                            selectedIndex = index;
+                            component.update(props);
+                          });
+                        } else {
+                          // Make the "no reference images" option unclickable
+                          div.className = div.className.replace('cursor-pointer', 'cursor-default');
+                          div.classList.add('opacity-50');
+                        }
                         popup.appendChild(div);
                       });
                     }
@@ -153,10 +160,46 @@ export function CanvasIdeaInput() {
                       popup?.remove();
                       return true;
                     }
+                    
+                    // Helper function to find next selectable index when navigating down
+                    const findNextSelectableIndex = (currentIndex: number) => {
+                      let nextIndex = (currentIndex + 1) % filteredItems.length;
+                      let count = 0; // Prevent infinite loop
+                      
+                      while (count < filteredItems.length) {
+                        if (filteredItems[nextIndex]?.id !== 'no reference images') {
+                          return nextIndex;
+                        }
+                        nextIndex = (nextIndex + 1) % filteredItems.length;
+                        count++;
+                      }
+                      return currentIndex; // Return current if no selectable item found
+                    };
+                    
+                    // Helper function to find previous selectable index when navigating up
+                    const findPrevSelectableIndex = (currentIndex: number) => {
+                      let prevIndex = (currentIndex - 1 + filteredItems.length) % filteredItems.length;
+                      let count = 0; // Prevent infinite loop
+                      
+                      while (count < filteredItems.length) {
+                        if (filteredItems[prevIndex]?.id !== 'no reference images') {
+                          return prevIndex;
+                        }
+                        prevIndex = (prevIndex - 1 + filteredItems.length) % filteredItems.length;
+                        count++;
+                      }
+                      return currentIndex; // Return current if no selectable item found
+                    };
+                    
                     if (event.key === 'ArrowUp') {
                       event.preventDefault();
                       if (filteredItems.length > 0) {
-                        selectedIndex = (selectedIndex - 1 + filteredItems.length) % filteredItems.length;
+                        // If current index is on "no reference images", move to previous
+                        if (filteredItems[selectedIndex]?.id === 'no reference images') {
+                          selectedIndex = findPrevSelectableIndex(selectedIndex);
+                        } else {
+                          selectedIndex = findPrevSelectableIndex(selectedIndex);
+                        }
                         component.update({ query: '', items: filteredItems });
                       }
                       return true;
@@ -164,7 +207,12 @@ export function CanvasIdeaInput() {
                     if (event.key === 'ArrowDown') {
                       event.preventDefault();
                       if (filteredItems.length > 0) {
-                        selectedIndex = (selectedIndex + 1) % filteredItems.length;
+                        // If current index is on "no reference images", move to next
+                        if (filteredItems[selectedIndex]?.id === 'no reference images') {
+                          selectedIndex = findNextSelectableIndex(selectedIndex);
+                        } else {
+                          selectedIndex = findNextSelectableIndex(selectedIndex);
+                        }
                         component.update({ query: '', items: filteredItems });
                       }
                       return true;
@@ -173,6 +221,12 @@ export function CanvasIdeaInput() {
                       event.preventDefault();
                       if (filteredItems.length > 0 && selectedIndex >= 0 && selectedIndex < filteredItems.length) {
                         const selectedItem = filteredItems[selectedIndex];
+                        // Skip "no reference images" option for keyboard selection
+                        if (selectedItem.id === 'no reference images') {
+                          // Do nothing for "no reference images" - don't execute command
+                          popup?.remove();
+                          return true;
+                        }
                         commandFunction({ id: selectedItem.id, label: selectedItem.label });
                       }
                       popup?.remove();
