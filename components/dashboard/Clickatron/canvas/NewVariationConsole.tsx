@@ -343,7 +343,7 @@ export function NewVariationConsole({
     ],
     editorProps: {
       attributes: {
-        class: 'min-h-[32px] max-h-[80px] w-full p-2.5 pr-8 text-zinc-100 outline-none prose prose-sm prose-headings:text-zinc-100 prose-p:text-zinc-100 prose-li:text-zinc-100',
+        class: 'min-h-[32px] max-h-[80px] w-full p-2.5 pr-8 text-zinc-10 outline-none prose-sm prose-headings:text-zinc-100 prose-p:text-zinc-100 prose-li:text-zinc-100 overflow-y-auto break-words overflow-x-hidden',
       },
     },
     content: '<p></p>',
@@ -577,9 +577,9 @@ export function NewVariationConsole({
               </Button>
 
               {/* Prompt Input */}
-              <div className="flex-1 relative">
+              <div className="flex-1 min-w-0">
                 <div
-                  className="min-h-[32px] max-h-[80px] bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm border-zinc-700/50"
+                  className="min-h-[32px] max-h-[80px] bg-zinc-900/40 text-zinc-100 placeholder-zinc-500 rounded-lg focus:ring-1 focus:ring-purple-400/50 focus:bg-zinc-900/60 transition-all duration-200 text-sm border-zinc-700/50 overflow-y-auto break-all overflow-x-hidden p-2.5"
                   onPaste={handlePaste}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -592,16 +592,15 @@ export function NewVariationConsole({
                     editor={editor}
                   />
                 </div>
-                <div className="absolute right-1.5 top-1.5">
-                  <MagicPromptEnhancerButton
-                    onEnhance={enhancePrompt}
-                    isEnhancing={isEnhancing}
-                    disabled={isGenerating}
-                    prompt={getPlainPrompt()}
-                    onPromptEnhanced={handleEnhanceComplete}
-                  />
-                </div>
               </div>
+
+              <MagicPromptEnhancerButton
+                onEnhance={enhancePrompt}
+                isEnhancing={isEnhancing}
+                disabled={isGenerating}
+                getPrompt={getPlainPrompt}
+                onPromptEnhanced={handleEnhanceComplete}
+              />
 
               {/* Send Button */}
               <Button

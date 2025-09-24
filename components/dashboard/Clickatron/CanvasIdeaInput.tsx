@@ -484,7 +484,7 @@ export function CanvasIdeaInput() {
                     onEnhance={enhancePrompt}
                     isEnhancing={isEnhancing}
                     disabled={isLoading}
-                    prompt={getPlainPrompt()}
+                    getPrompt={getPlainPrompt}
                     onPromptEnhanced={handleEnhanceComplete}
                   />
                 </div>

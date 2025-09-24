@@ -7,7 +7,7 @@ interface MagicPromptEnhancerButtonProps {
   onEnhance: (prompt: string) => Promise<string>;
   isEnhancing: boolean;
   disabled: boolean;
-  prompt: string;
+  getPrompt: () => string;
   onPromptEnhanced: (enhancedPrompt: string) => void;
 }
 
@@ -15,11 +15,12 @@ export function MagicPromptEnhancerButton({
   onEnhance,
   isEnhancing,
   disabled,
-  prompt,
+  getPrompt,
   onPromptEnhanced,
 }: MagicPromptEnhancerButtonProps) {
   const handleEnhance = async () => {
-    if (!prompt.trim()) {
+    const currentPrompt = getPrompt();
+    if (!currentPrompt.trim()) {
       toast({
         title: "Prompt is required",
         description: "Please enter a prompt to enhance.",
@@ -29,7 +30,7 @@ export function MagicPromptEnhancerButton({
     }
 
     try {
-      const enhancedPrompt = await onEnhance(prompt);
+      const enhancedPrompt = await onEnhance(currentPrompt);
       onPromptEnhanced(enhancedPrompt);
       toast({
         title: "Prompt Enhanced",
