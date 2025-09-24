@@ -87,7 +87,7 @@ export function LimitDisplay({ showAll = false, compact = false }: LimitDisplayP
   }, [showAll, getUsage, getAllUsage]);
 
   if (loading) {
-    return <div className="animate-pulse h-20 bg-gray-200 rounded-md" />;
+    return <div className="animate-pulse w-30 h-4 bg-gray-100/20 rounded" />;
   }
 
   if (showAll) {
