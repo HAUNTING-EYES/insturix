@@ -5,6 +5,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { Node } from '@tiptap/pm/model';
 import StarterKit from '@tiptap/starter-kit';
 import { Mention } from '@tiptap/extension-mention';
+import Placeholder from '@tiptap/extension-placeholder';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
@@ -50,6 +51,9 @@ export function CanvasIdeaInput() {
     immediatelyRender: false,
     extensions: [
       StarterKit,
+      Placeholder.configure({
+        placeholder: 'e.g. A thumbnail for a YouTube video about AI art generation with the man in @img1 looking amazed',
+      }),
       Mention.configure({
         HTMLAttributes: {
           class: 'mention inline bg-blue-500 text-white px-1 py-0.5 rounded font-semibold cursor-pointer mx-px',
@@ -388,11 +392,10 @@ export function CanvasIdeaInput() {
     ],
     editorProps: {
       attributes: {
-        class: 'min-h-[80px] w-full p-3 text-zinc-100 outline-none prose prose-sm prose-headings:text-zinc-100 prose-p:text-zinc-100 prose-li:text-zinc-100',
-        placeholder: 'e.g., A futuristic city skyline at sunset, cinematic lighting, 4K quality...',
+        class: 'min-h-[80px] w-full p-3 text-zinc-100 outline-none',
       },
     },
-    content: '<p></p>',
+    content: '',
     onUpdate: ({ editor }) => {
       // The mention will be rendered with custom styling
     },

@@ -122,6 +122,9 @@ importers:
       '@tiptap/extension-mention':
         specifier: ^3.5.1
         version: 3.5.1(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))(@tiptap/pm@3.5.1)(@tiptap/suggestion@3.5.1(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))(@tiptap/pm@3.5.1))
+      '@tiptap/extension-placeholder':
+        specifier: ^3.5.1
+        version: 3.5.1(@tiptap/extensions@3.5.1(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))(@tiptap/pm@3.5.1))
       '@tiptap/react':
         specifier: ^3.5.1
         version: 3.5.1(@floating-ui/dom@1.7.4)(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))(@tiptap/pm@3.5.1)(@types/react-dom@19.1.9(@types/react@19.1.13))(@types/react@19.1.13)(react-dom@19.1.1(react@19.1.1))(react@19.1.1)
@@ -2647,6 +2650,11 @@ packages:
     resolution: {integrity: sha512-iAV9pa52V4AEZh16o8MJ7GamLS9hiEGlvIVHUUxy4SGVuq/HAQcLpsjTkc4wv4XPPQImgcTO639XxHnViZvVUQ==}
     peerDependencies:
       '@tiptap/core': ^3.5.1
+
+  '@tiptap/extension-placeholder@3.5.1':
+    resolution: {integrity: sha512-9bWfrP3LiNqHG2gCYPdNaJrlUeiLHgIOFa9QNjVsAjqPN/n7Aaa320dNu1yQGcnLGgnHH91pFs7BD53w/AcyRQ==}
+    peerDependencies:
+      '@tiptap/extensions': ^3.5.1
 
   '@tiptap/extension-strike@2.26.1':
     resolution: {integrity: sha512-CkoRH+pAi6MgdCh7K0cVZl4N2uR4pZdabXAnFSoLZRSg6imLvEUmWHfSi1dl3Z7JOvd3a4yZ4NxerQn5MWbJ7g==}
@@ -9106,6 +9114,10 @@ snapshots:
   '@tiptap/extension-paragraph@3.5.1(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))':
     dependencies:
       '@tiptap/core': 3.5.1(@tiptap/pm@3.5.1)
+
+  '@tiptap/extension-placeholder@3.5.1(@tiptap/extensions@3.5.1(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))(@tiptap/pm@3.5.1))':
+    dependencies:
+      '@tiptap/extensions': 3.5.1(@tiptap/core@3.5.1(@tiptap/pm@3.5.1))(@tiptap/pm@3.5.1)
 
   '@tiptap/extension-strike@2.26.1(@tiptap/core@2.26.1(@tiptap/pm@2.26.1))':
     dependencies:

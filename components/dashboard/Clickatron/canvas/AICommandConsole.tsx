@@ -5,6 +5,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import { Node } from '@tiptap/pm/model';
 import StarterKit from '@tiptap/starter-kit';
 import { Mention } from '@tiptap/extension-mention';
+import Placeholder from '@tiptap/extension-placeholder';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Send, Image, Loader2, X, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -70,6 +71,9 @@ export function AICommandConsole({
     immediatelyRender: false,
     extensions: [
       StarterKit,
+      Placeholder.configure({
+        placeholder: 'e.g. Add the dog from @img2 to @img1',
+      }),
       Mention.configure({
         HTMLAttributes: {
           class: 'mention inline bg-blue-500 text-white px-1 py-0.5 rounded font-semibold cursor-pointer mx-px',
@@ -415,10 +419,10 @@ export function AICommandConsole({
     ],
     editorProps: {
       attributes: {
-        class: 'min-h-[32px] max-h-[80px] w-full p-2.5 text-zinc-100 outline-none prose-sm prose-headings:text-zinc-100 prose-p:text-zinc-100 prose-li:text-zinc-100 overflow-y-auto break-all overflow-x-hidden',
+        class: 'min-h-[32px] max-h-[80px] w-full p-2.5 text-zinc-100 outline-none overflow-y-auto break-all overflow-x-hidden',
       },
     },
-    content: '<p></p>',
+    content: '',
   });
 
   const getPlainPrompt = () => {
@@ -464,7 +468,7 @@ export function AICommandConsole({
   useEffect(() => {
     if (clearTrigger !== undefined) {
       if (editor) {
-        editor.commands.setContent('<p></p>');
+        editor.commands.setContent('');
       }
       setReferenceImages([]);
       setReferenceImagePreviews([]);
@@ -491,7 +495,7 @@ export function AICommandConsole({
 
     onGenerate(plainPrompt, referenceImages.length > 0 ? referenceImages : undefined, selectedModelId || undefined);
     if (editor) {
-      editor.commands.setContent('<p></p>');
+      editor.commands.setContent('');
     }
     setReferenceImages([]);
     setReferenceImagePreviews([]);
