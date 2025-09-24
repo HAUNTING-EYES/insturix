@@ -38,15 +38,12 @@ export function AICommandConsole({
   onReferenceImageCountChange,
   currentImageUrl,
 }: AICommandConsoleProps) {
-  console.log('AICommandConsole rendering with currentImageUrl:', currentImageUrl);
   
   useEffect(() => {
-    console.log('AICommandConsole currentImageUrl changed:', currentImageUrl);
   }, [currentImageUrl]);
   
   useEffect(() => {
     currentImageUrlRef.current = currentImageUrl || '';
-    console.log('Updated currentImageUrlRef:', currentImageUrlRef.current);
   }, [currentImageUrl]);
   
   const [referenceImages, setReferenceImages] = useState<File[]>([]);
@@ -80,7 +77,6 @@ export function AICommandConsole({
         suggestion: {
           char: '@',
           items: ({ query }) => {
-            console.log('Building mention items. currentImageUrlRef.current:', currentImageUrlRef.current, 'referenceImagePreviews.length:', referenceImagePreviewsRef.current.length);
             
             let items = [];
             
@@ -114,8 +110,6 @@ export function AICommandConsole({
             if (items.length === 0) {
               return [{ id: 'no reference images', label: 'no reference images' }];
             }
-            
-            console.log('Full items:', items);
             
             return items.filter(item =>
               item.label.toLowerCase().includes(query.toLowerCase())
@@ -178,11 +172,6 @@ export function AICommandConsole({
                           img.onerror = (e) => {
                             console.error('Popup preview load error:', item.previewUrl, e);
                           };
-                          img.onload = () => {
-                            if (item.id !== '@img1') {
-                              console.log('Popup preview loaded for', item.previewUrl);
-                            }
-                          };
                           
                           // Set loading to eager to load immediately
                           img.loading = 'eager';
@@ -194,8 +183,6 @@ export function AICommandConsole({
                         labelSpan.className = 'text-zinc-200 font-medium';
                         labelSpan.textContent = item.id === '@img1' ? '@img1 - Original Image' : item.label;
                         div.appendChild(labelSpan);
-                        
-                        console.log('Popup span text for', item.id, ':', item.id === '@img1' ? '@img1 - Original Image' : item.label);
                         
                         div.addEventListener('mousedown', (e) => {
                           e.preventDefault();
@@ -378,10 +365,6 @@ export function AICommandConsole({
       },
     },
     content: '<p></p>',
-    onUpdate: ({ editor }) => {
-      // The mention will be rendered with custom styling
-      console.log('Applied mention styles in AICommandConsole');
-    },
   });
 
   const getPlainPrompt = () => {
@@ -520,6 +503,11 @@ export function AICommandConsole({
   useEffect(() => {
     referenceImagePreviewsRef.current = referenceImagePreviews;
   }, [referenceImagePreviews]);
+
+  // Update reference image count when reference images change
+  useEffect(() => {
+    onReferenceImageCountChange?.(referenceImages.length);
+  }, [referenceImages.length, onReferenceImageCountChange]);
 
   return (
     <motion.div

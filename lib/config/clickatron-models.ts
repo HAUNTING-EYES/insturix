@@ -72,6 +72,25 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       maxImages: 0,
     },
   },
+  'fal-ai/bytedance/seedream/v4/edit': {
+    id: 'fal-ai/bytedance/seedream/v4/edit',
+    name: 'Seedream V4 Edit',
+    type: 'image-to-image',
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      max_images: 'max_images',
+      enable_safety_checker: 'enable_safety_checker',
+      image_urls: 'image_urls'
+    },
+    constraints: {
+      promptMaxLength: 512,
+      minImages: 1,
+      maxImages: 4,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+    },
+  },
   'fal-ai/flux-kontext/dev': {
     id: 'fal-ai/flux-kontext/dev',
     name: 'Flux Kontext Dev',
@@ -92,25 +111,6 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 1,
       maxImages: 1,
-    },
-  },
-  'fal-ai/bytedance/seedream/v4/edit': {
-    id: 'fal-ai/bytedance/seedream/v4/edit',
-    name: 'Seedream V4 Edit',
-    type: 'image-to-image',
-    parameterMapping: {
-      prompt: 'prompt',
-      image_size: 'image_size',
-      num_images: 'num_images',
-      max_images: 'max_images',
-      enable_safety_checker: 'enable_safety_checker',
-      image_urls: 'image_urls'
-    },
-    constraints: {
-      promptMaxLength: 512,
-      minImages: 1,
-      maxImages: 4,
-      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
     },
   },
   'fal-ai/bytedance/seedream/v4/text-to-image': {
