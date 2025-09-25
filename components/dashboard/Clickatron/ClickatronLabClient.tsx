@@ -15,9 +15,9 @@ interface ClickatronLabClientProps {
 }
 
 const stageTransition = {
-  initial: { opacity: 0, x: 20 },
+  initial: { opacity: 0, x: 0 },
   animate: { opacity: 1, x: 0 },
-  exit: { opacity: 0, x: -20 },
+  exit: { opacity: 0, x: 0 },
   transition: { duration: 0.5, ease: "easeOut" } as any,
 };
 
@@ -64,23 +64,6 @@ export function ClickatronLabClient({ initialData }: ClickatronLabClientProps) {
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
-      <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.push('/dashboard/clickatron')}
-          className="text-zinc-400 hover:text-zinc-200"
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
-        </Button>
-        <div className="flex-1">
-          <h1 className="text-lg font-medium text-zinc-200 truncate">
-            {task.details.videoIdea}
-          </h1>
-        </div>
-      </div>
-
       <motion.div key="canvas" {...stageTransition}>
         <CanvasStage
           videoIdea={task.details.videoIdea}

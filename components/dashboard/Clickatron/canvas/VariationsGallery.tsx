@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronRight, Plus, Copy, Trash2, Loader2 } from "lucide-react";
+import { ChevronRight, Plus, Copy, Trash2, Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -35,6 +35,9 @@ interface VariationsGalleryProps {
   onDeleteVariation: (variationId: string) => void;
   isCollapsed?: boolean;
   onToggleCollapse: () => void;
+  mobile?: boolean;
+  className?: string;
+  onClose?: () => void;
 }
 
 export function VariationsGallery({
@@ -47,10 +50,27 @@ export function VariationsGallery({
   onDeleteVariation,
   isCollapsed = false,
   onToggleCollapse,
+  mobile = false,
+  className = "",
+  onClose,
 }: VariationsGalleryProps) {
   const [hoveredVariation, setHoveredVariation] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [variationToDelete, setVariationToDelete] = useState<string | null>(null);
+
+  const outsideRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (mobile && onClose && outsideRef.current) {
+      const handleOutsideClick = (e: MouseEvent) => {
+        if (outsideRef.current && !outsideRef.current.contains(e.target as Node)) {
+          onClose();
+        }
+      };
+      document.addEventListener('mousedown', handleOutsideClick);
+      return () => document.removeEventListener('mousedown', handleOutsideClick);
+    }
+  }, [mobile, onClose]);
 
   const handleDeleteClick = (variationId: string, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -75,14 +95,13 @@ export function VariationsGallery({
     <TooltipProvider>
       <motion.div
         initial={false}
-        animate={{ width: isCollapsed ? 60 : 280 }}
-        transition={{ duration: 0.3, ease: "easeOut" }}
-        className="bg-zinc-900/50 border-r border-zinc-800/80 flex flex-col h-full"
-        style={{ marginLeft: "64px" }} // Account for website sidebar
+        className={`bg-zinc-900 border-r border-zinc-800/80 flex flex-col h-full w-full ${className} ${mobile ? 'w-full fixed inset-0 z-50 md:relative md:w-auto pt-16' : ''}`}
+        style={mobile ? {} : {}}
+        ref={outsideRef}
       >
       {/* Header */}
       <div
-        className={`p-4 border-b border-zinc-800/80 flex items-center ${isCollapsed ? "justify-center" : "justify-between"} min-h-[72px]`}
+        className={`p-4 border-b border-zinc-800/80 flex items-center justify-between min-h-[72px]`}
       >
         <AnimatePresence>
           {!isCollapsed && (
@@ -100,27 +119,39 @@ export function VariationsGallery({
           )}
         </AnimatePresence>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
+        <div className="flex items-center gap-2">
+          {mobile && onClose && (
             <Button
               variant="ghost"
               size="sm"
-              onClick={onToggleCollapse}
-              className="text-zinc-400 hover:text-zinc-200 p-1 relative z-10 flex-shrink-0"
+              onClick={onClose}
+              className="text-zinc-400 hover:text-zinc-200 p-1 h-6 w-6"
             >
-              <motion.div
-                initial={false}
-                animate={{ rotate: isCollapsed ? 0 : 180 }}
-                transition={{ duration: 0.3, ease: "easeOut" }}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </motion.div>
+              <X className="h-3 w-3" />
             </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            <p>{isCollapsed ? "Expand Gallery" : "Collapse Gallery"}</p>
-          </TooltipContent>
-        </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onToggleCollapse}
+                className="text-zinc-400 hover:text-zinc-200 p-1 relative z-10 flex-shrink-0"
+              >
+                <motion.div
+                  initial={false}
+                  animate={{ rotate: isCollapsed ? 0 : 180 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </motion.div>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>{isCollapsed ? "Expand Gallery" : "Collapse Gallery"}</p>
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {/* New Variation Button */}
@@ -131,7 +162,7 @@ export function VariationsGallery({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="p-2 border-b border-zinc-800/50"
+            className="p-2 border-b border-zinc-800/50 hidden"
           >
             <Tooltip>
               <TooltipTrigger asChild>
@@ -163,13 +194,11 @@ export function VariationsGallery({
             x: 0,
           }}
           transition={{ duration: 0.3, ease: "easeOut" }}
-          className={
-            isCollapsed ? "flex flex-col items-center gap-2 pt-4" : "space-y-2"
-          }
+          className="space-y-2"
         >
           {/* Show first 3 variations in collapsed state, all in expanded */}
           <AnimatePresence mode="popLayout">
-            {(isCollapsed ? variations.slice(0, 3) : variations).map(
+            {variations.map(
               (variation, index) => (
                 <motion.div
                   key={variation.id}
@@ -183,7 +212,7 @@ export function VariationsGallery({
                   exit={{ opacity: 0, y: -20, scale: 0.9 }}
                   transition={{
                     duration: 0.3,
-                    delay: isCollapsed ? index * 0.05 : 0,
+                    delay: index * 0.05,
                     layout: { duration: 0.3, ease: "easeOut" },
                   }}
                   className="relative group"
@@ -201,7 +230,7 @@ export function VariationsGallery({
                   relative overflow-hidden cursor-pointer border
                   transition-all duration-200
                   ${
-                    isCollapsed ? "w-10 h-6 rounded" : "aspect-video rounded-lg"
+                    "aspect-video rounded-lg"
                   }
                   ${
                     activeVariationId === variation.id
@@ -332,7 +361,7 @@ export function VariationsGallery({
           </AnimatePresence>
 
           {/* Show count indicator in collapsed state */}
-          {isCollapsed && variations.length > 3 && (
+          {false && variations.length > 3 && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}

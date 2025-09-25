@@ -21,6 +21,7 @@ interface CanvasControlsProps {
     onAspectRatioChange: (value: string) => void;
     onReset?: () => void;
     disabled?: boolean;
+    className?: string;
 }
 
 export const CanvasControls: React.FC<CanvasControlsProps> = ({
@@ -34,7 +35,8 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
     onSaturationChange,
     onAspectRatioChange,
     onReset,
-    disabled = false
+    disabled = false,
+    className = "",
 }) => {
     const handleReset = () => {
         onReset?.();
@@ -45,7 +47,7 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.3, ease: "easeOut" }}
-            className="h-full flex flex-col bg-gradient-to-b from-zinc-900/90 to-zinc-900/70 backdrop-blur-xl"
+            className={`h-full flex flex-col bg-zinc-900 md:bg-gradient-to-b md:from-zinc-900/90 md:to-zinc-900/70 backdrop-blur-xl ${className}`}
         >
             {/* Header */}
             <div className="p-3 border-b border-zinc-700/30">

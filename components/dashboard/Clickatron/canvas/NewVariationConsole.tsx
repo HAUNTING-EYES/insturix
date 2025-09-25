@@ -556,7 +556,7 @@ export function NewVariationConsole({
         ${className}
       `}
     >
-      <div className="p-3 max-w-4xl mx-auto mr-80">
+      <div className="p-3 max-w-4xl mx-auto mr-0">
         {/* Model Selector */}
         <div className="mb-2">
           <ModelSelector
