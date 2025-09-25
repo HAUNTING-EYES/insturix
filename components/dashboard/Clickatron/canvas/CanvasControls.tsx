@@ -22,7 +22,8 @@ interface CanvasControlsProps {
     onReset?: () => void;
     disabled?: boolean;
     className?: string;
-}
+    mobile?: boolean;
+  }
 
 export const CanvasControls: React.FC<CanvasControlsProps> = ({
     brightness,
@@ -37,34 +38,39 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
     onReset,
     disabled = false,
     className = "",
-}) => {
+    mobile = false,
+  }) => {
     const handleReset = () => {
         onReset?.();
     };
 
     return (
-        <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className={`h-full flex flex-col bg-zinc-900 md:bg-gradient-to-b md:from-zinc-900/90 md:to-zinc-900/70 backdrop-blur-xl ${className}`}
-        >
+      <motion.div
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className={`h-full flex flex-col bg-zinc-900 md:bg-gradient-to-b md:from-zinc-900/90 md:to-zinc-900/70 backdrop-blur-xl ${className}`}
+      >
+        {!mobile && (
+          <>
             {/* Header */}
             <div className="p-3 border-b border-zinc-700/30">
-                <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-medium text-zinc-200 tracking-tight">Fine Tuning</h3>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={handleReset}
-                        disabled={disabled}
-                        className="text-zinc-500 hover:text-zinc-300 h-6 px-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-800/50 transition-all text-xs"
-                    >
-                        <RotateCcw className="w-3 h-3 mr-1" />
-                        Reset
-                    </Button>
-                </div>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-medium text-zinc-200 tracking-tight">Fine Tuning</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleReset}
+                  disabled={disabled}
+                  className="text-zinc-500 hover:text-zinc-300 h-6 px-2 rounded-md disabled:opacity-50 disabled:cursor-not-allowed hover:bg-zinc-800/50 transition-all text-xs"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" />
+                  Reset
+                </Button>
+              </div>
             </div>
+          </>
+        )}
 
             {/* Controls */}
             <div className="flex-1 p-3 space-y-4 overflow-y-auto">

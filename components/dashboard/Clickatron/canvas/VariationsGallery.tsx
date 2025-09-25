@@ -33,8 +33,6 @@ interface VariationsGalleryProps {
   onNewVariation: () => void;
   onDuplicateVariation: (variationId: string) => void;
   onDeleteVariation: (variationId: string) => void;
-  isCollapsed?: boolean;
-  onToggleCollapse: () => void;
   mobile?: boolean;
   className?: string;
   onClose?: () => void;
@@ -48,8 +46,6 @@ export function VariationsGallery({
   onNewVariation,
   onDuplicateVariation,
   onDeleteVariation,
-  isCollapsed = false,
-  onToggleCollapse,
   mobile = false,
   className = "",
   onClose,
@@ -95,7 +91,7 @@ export function VariationsGallery({
     <TooltipProvider>
       <motion.div
         initial={false}
-        className={`bg-zinc-900 border-r border-zinc-800/80 flex flex-col h-full w-full ${className} ${mobile ? 'w-full fixed inset-0 z-50 md:relative md:w-auto pt-16' : ''}`}
+        className={`bg-zinc-900 border-r border-zinc-800/80 flex flex-col h-full w-full ${className} ${mobile ? 'w-[90vw] fixed inset-y-0 left-0 z-50 md:relative md:w-80 pt-16' : ''}`}
         style={mobile ? {} : {}}
         ref={outsideRef}
       >
@@ -103,21 +99,12 @@ export function VariationsGallery({
       <div
         className={`p-4 border-b border-zinc-800/80 flex items-center justify-between min-h-[72px]`}
       >
-        <AnimatePresence>
-          {!isCollapsed && (
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              transition={{ duration: 0.3, ease: "easeOut" }}
-            >
-              <h3 className="text-sm font-medium text-zinc-200">Variations</h3>
-              <p className="text-xs text-zinc-500">
-                {variations.length} generated
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="text-sm font-medium text-zinc-200">
+          <h3>Variations</h3>
+          <p className="text-xs text-zinc-500">
+            {variations.length} generated
+          </p>
+        </div>
 
         <div className="flex items-center gap-2">
           {mobile && onClose && (
@@ -130,59 +117,28 @@ export function VariationsGallery({
               <X className="h-3 w-3" />
             </Button>
           )}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onToggleCollapse}
-                className="text-zinc-400 hover:text-zinc-200 p-1 relative z-10 flex-shrink-0"
-              >
-                <motion.div
-                  initial={false}
-                  animate={{ rotate: isCollapsed ? 0 : 180 }}
-                  transition={{ duration: 0.3, ease: "easeOut" }}
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </motion.div>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>{isCollapsed ? "Expand Gallery" : "Collapse Gallery"}</p>
-            </TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
       {/* New Variation Button */}
-      <AnimatePresence>
-        {!isCollapsed && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
-            className="p-2 border-b border-zinc-800/50 hidden"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={onNewVariation}
-                  variant="outline"
-                  size="sm"
-                  className="w-full bg-zinc-800/50 border-zinc-700 hover:bg-zinc-700/50 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-all duration-200"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  New Variation
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>New Variation</p>
-              </TooltipContent>
-            </Tooltip>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <div className="p-2 border-b border-zinc-800/50">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              onClick={onNewVariation}
+              variant="outline"
+              size="sm"
+              className="w-full bg-zinc-800/50 border-zinc-700 hover:bg-zinc-700/50 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 transition-all duration-200"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              New Variation
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
+            <p>New Variation</p>
+          </TooltipContent>
+        </Tooltip>
+      </div>
 
       {/* Variations Grid */}
       <div className="flex-1 overflow-y-auto p-2 relative">
@@ -225,7 +181,10 @@ export function VariationsGallery({
                 {/* Variation Thumbnail */}
                 <motion.div
                   layout
-                  onClick={() => onVariationSelect(variation.id)}
+                  onClick={() => {
+                    onVariationSelect(variation.id);
+                    if (mobile && onClose) onClose();
+                  }}
                   className={`
                   relative overflow-hidden cursor-pointer border
                   transition-all duration-200
@@ -309,7 +268,7 @@ export function VariationsGallery({
 
                 {/* Variation Management Actions - Top-right corner on hover */}
                 <AnimatePresence>
-                  {hoveredVariation === variation.id && !isCollapsed && (
+                  {hoveredVariation === variation.id && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.8 }}
                       animate={{ opacity: 1, scale: 1 }}

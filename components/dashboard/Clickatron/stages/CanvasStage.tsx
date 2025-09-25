@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { CanvasActions } from "../canvas/CanvasActions";
 import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole } from "../canvas/AICommandConsole";
 import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import { Input } from "@/components/ui/input";
-import { Image, Grid, Sliders, X } from "lucide-react";
+import { Grid, Sliders, X } from "lucide-react";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
@@ -153,8 +153,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   );
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
-  const [galleryCollapsed, setGalleryCollapsed] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<'none' | 'gallery' | 'fine-tune'>('none');
+
+  const panelVariants = {
+    hidden: { y: '100%', opacity: 0 },
+    visible: { y: 0, opacity: 1 },
+    exit: { y: '100%', opacity: 0 }
+  };
   const imageRef = useRef<ReactZoomPanPinchRef>(null);
   const lastSyncedCanvasRef = useRef<string | null>(null);
   const isInitialMount = useRef(true);
@@ -671,8 +676,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           onNewVariation={handleNewVariation}
           onDuplicateVariation={handleDuplicateVariation}
           onDeleteVariation={handleDeleteVariation}
-          isCollapsed={galleryCollapsed}
-          onToggleCollapse={() => setGalleryCollapsed(!galleryCollapsed)}
           className="flex-1"
         />
       </div>
@@ -681,7 +684,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       <div className="flex-1 flex flex-col h-full min-w-0 relative w-full">
           {/* Top Header */}
           <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 flex flex-col items-center gap-2">
-            <div className="flex flex-col items-center">
+            <div className="flex flex-col items-center pb-6 md:pb-0">
               {isEditingTitle ? (
                 <Input
                   type="text"
@@ -729,20 +732,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               </button>
             )}
         {/* Mobile Bottom Navigation */}
-        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/80 p-2 flex justify-around items-center h-16">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMobilePanel('none')}
-            className={`h-12 w-12 p-0 rounded-full flex items-center justify-center ${mobilePanel === 'none' ? 'bg-zinc-70 text-white shadow-lg' : 'text-zinc-400 hover:bg-zinc-800/50'}`}
-          >
-            <Image className="h-5 w-5" />
-          </Button>
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/80 p-3 flex justify-between items-center h-16 gap-4">
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setMobilePanel('gallery')}
-            className={`h-12 w-12 p-0 rounded-full flex items-center justify-center ${mobilePanel === 'gallery' ? 'bg-zinc-70 text-white shadow-lg' : 'text-zinc-400 hover:bg-zinc-800/50'}`}
+            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
           >
             <Grid className="h-5 w-5" />
           </Button>
@@ -750,7 +745,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             variant="ghost"
             size="sm"
             onClick={() => setMobilePanel('fine-tune')}
-            className={`h-12 w-12 p-0 rounded-full flex items-center justify-center ${mobilePanel === 'fine-tune' ? 'bg-zinc-70 text-white shadow-lg' : 'text-zinc-400 hover:bg-zinc-800/50'}`}
+            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
           >
             <Sliders className="h-5 w-5" />
           </Button>
@@ -859,49 +854,60 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               onNewVariation={handleNewVariation}
               onDuplicateVariation={handleDuplicateVariation}
               onDeleteVariation={handleDeleteVariation}
-              isCollapsed={false}
-              onToggleCollapse={() => {}}
               mobile={true}
               onClose={() => setMobilePanel('none')}
-              className="h-full"
+              className="w-[90vw]"
             />
           </div>
         )}
-        {mobilePanel === 'fine-tune' && activeVariation?.fineTuning && (
-          <div className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-y-auto pt-4">
-            <div className="flex items-center justify-between mb-4 px-4">
-              <h3 className="text-sm font-medium text-zinc-200">Fine Tuning</h3>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setMobilePanel('none')}
-                className="text-zinc-400 hover:text-zinc-200 p-1 h-6 w-6"
-              >
-                <X className="h-3 w-3" />
-              </Button>
-            </div>
-            <CanvasControls
-              brightness={activeVariation.fineTuning.brightness}
-              contrast={activeVariation.fineTuning.contrast}
-              saturation={activeVariation.fineTuning.saturation}
-              aspectRatio={aspectRatio}
-              isBlankVariation={activeVariation.status === "blank"}
-              onBrightnessChange={(val) =>
-                handleFinetuningChange(localActiveVariation!, "brightness", val)
-              }
-              onContrastChange={(val) =>
-                handleFinetuningChange(localActiveVariation!, "contrast", val)
-              }
-              onSaturationChange={(val) =>
-                handleFinetuningChange(localActiveVariation!, "saturation", val)
-              }
-              onAspectRatioChange={handleAspectRatioChange}
-              onReset={handleResetFinetuning}
-              disabled={activeVariation?.status !== "completed"}
-              className="h-full"
-            />
-          </div>
-        )}
+        <AnimatePresence mode="wait">
+          {mobilePanel === 'fine-tune' && activeVariation?.fineTuning && (
+            <motion.div
+              key="controls"
+              variants={panelVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-hidden flex flex-col h-full"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-zinc-800/80 bg-zinc-900/50">
+                <h3 className="text-sm font-medium text-zinc-200">Fine Tuning</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMobilePanel('none')}
+                  className="p-1 h-6 w-6 text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-0">
+                <CanvasControls
+                  brightness={activeVariation.fineTuning.brightness}
+                  contrast={activeVariation.fineTuning.contrast}
+                  saturation={activeVariation.fineTuning.saturation}
+                  aspectRatio={aspectRatio}
+                  isBlankVariation={activeVariation.status === "blank"}
+                  onBrightnessChange={(val) =>
+                    handleFinetuningChange(localActiveVariation!, "brightness", val)
+                  }
+                  onContrastChange={(val) =>
+                    handleFinetuningChange(localActiveVariation!, "contrast", val)
+                  }
+                  onSaturationChange={(val) =>
+                    handleFinetuningChange(localActiveVariation!, "saturation", val)
+                  }
+                  onAspectRatioChange={handleAspectRatioChange}
+                  onReset={handleResetFinetuning}
+                  disabled={activeVariation?.status !== "completed"}
+                  className="h-full flex-1"
+                  mobile
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Bottom AI Command Console - Hide for generating and failed variations */}
         {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
@@ -910,7 +916,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={false}
-                galleryCollapsed={galleryCollapsed}
                 className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
@@ -919,7 +924,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               <AICommandConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={false}
-                galleryCollapsed={galleryCollapsed}
                 className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
