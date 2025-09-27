@@ -36,7 +36,8 @@ import "@blocknote/mantine/style.css";
 // Import BlockNote hooks and types
 import { useCreateBlockNote } from "@blocknote/react";
 import { Block, BlockNoteEditor } from "@blocknote/core";
-import ScriptViewer from "./ScriptViewer";
+import ScriptRenderer from "./ScriptRenderer";
+import { looksLikeJSON } from "@/lib/thinkforge/json";
 
 interface ScriptEditorProps {
   script?: Script | null;
@@ -49,6 +50,7 @@ interface ScriptEditorProps {
   generatingScript?: boolean;
   // Show autosaving state from the ThinkForge client hook
   isSaving?: boolean;
+  onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
 }
 
 export default function ScriptEditor({
@@ -60,7 +62,8 @@ export default function ScriptEditor({
   onExportScript,
   loading = false,
   generatingScript = false,
-  isSaving = false
+  isSaving = false,
+  onImportScript
 }: ScriptEditorProps) {
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
@@ -75,53 +78,11 @@ export default function ScriptEditor({
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const prevIsSavingRef = useRef<boolean>(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importErr, setImportErr] = useState<string | null>(null);
 
   // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
-
-  // Helpers to safely handle potentially incomplete JSON
-  const clampString = (s: any, max = 10000) => {
-    const str = typeof s === 'string' ? s : String(s ?? '');
-    return str.length > max ? str.slice(0, max) : str;
-  };
-  const healJSON = (value: any): any => {
-    if (typeof value === 'string') {
-      const t = value.trim();
-      const startsObj = t.startsWith('{'); const endsObj = t.endsWith('}');
-      const startsArr = t.startsWith('['); const endsArr = t.endsWith(']');
-      let candidate = t;
-      if ((startsObj && !endsObj) || (startsArr && !endsArr)) {
-        try { return JSON.parse(candidate); } catch {}
-        candidate = candidate.replace(/,\s*$/g, '');
-        if (startsObj && !endsObj) candidate += '}';
-        if (startsArr && !endsArr) candidate += ']';
-        try { return JSON.parse(candidate); } catch {}
-      }
-      return value;
-    }
-    return value;
-  };
-  const sanitizeBlocks = (input: any, maxBlocks = 300): any[] => {
-    const arr = Array.isArray(input) ? input : [];
-    const out: any[] = [];
-    for (let i = 0; i < arr.length && out.length < maxBlocks; i++) {
-      const b = arr[i] || {};
-      const type = String(b.type || b.kind || 'paragraph');
-      const props = typeof b.props === 'object' && b.props ? b.props : {};
-      const content = b.content ?? b.children ?? b.text ?? '';
-      const safe: any = { type, props: {}, content: '' };
-      for (const k of Object.keys(props)) {
-        const v = (props as any)[k];
-        if (typeof v === 'string') safe.props[k] = clampString(v, 1000);
-        else if (typeof v === 'number' || typeof v === 'boolean') safe.props[k] = v;
-      }
-      if (typeof content === 'string') safe.content = clampString(content, 10000);
-      else if (Array.isArray(content)) safe.content = content.slice(0, 200);
-      else if (content && typeof content === 'object') safe.content = content;
-      else safe.content = '';
-      out.push(safe);
-    }
-    return out;
-  };
 
   // Create BlockNote editor with initial content
   const editor = useCreateBlockNote({
@@ -136,21 +97,19 @@ export default function ScriptEditor({
     const load = async () => {
       try {
         // Prefer server-provided blocks
-        const healed = healJSON(script?.blocks);
-        if (Array.isArray(healed) && healed.length > 0) {
-          const safe = sanitizeBlocks(healed);
-          editor.replaceBlocks(editor.document, safe as any);
+        if (script?.blocks && Array.isArray(script.blocks) && (script.blocks as any[]).length > 0) {
+          editor.replaceBlocks(editor.document, script.blocks as any);
           return;
         }
         // Next, try parsing existing body HTML if available
-        if (script?.body && script.body.trim().length > 0) {
+        if (script?.body && script.body.trim().length > 0 && !looksLikeJSON(script.body)) {
           const blocks = await editor.tryParseHTMLToBlocks(script.body);
           editor.replaceBlocks(editor.document, blocks);
           return;
         }
         // Fallback: synthesize blocks from title + plain content
         const fallbackTitle = script?.title || 'Untitled Script';
-        const text = (script?.content || '').toString();
+  const text = looksLikeJSON((script?.content || '').toString()) ? '' : (script?.content || '').toString();
         const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
         const newBlocks: any[] = [
           { type: 'heading', props: { level: 1 }, content: fallbackTitle },
@@ -265,8 +224,7 @@ export default function ScriptEditor({
       const serverBlocks: any[] | undefined = edited?.blocks;
       if (Array.isArray(serverBlocks) && serverBlocks.length > 0) {
         // Trust server-provided blocks directly
-        const safe = sanitizeBlocks(healJSON(serverBlocks));
-        editor.replaceBlocks(editor.document, safe as any);
+        editor.replaceBlocks(editor.document, serverBlocks as any);
       } else {
         // Fallback to composing from content
         const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
@@ -441,6 +399,17 @@ export default function ScriptEditor({
         </div>
         
         <div className="flex items-center gap-3">
+          {/* Import JSON */}
+          {typeof onImportScript === 'function' && (
+            <Button
+              onClick={() => { setImportErr(null); setImportText(''); setImportOpen(true); }}
+              variant="outline"
+              size="sm"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              Import JSON
+            </Button>
+          )}
           {/* Preview/Edit Toggle */}
           <div className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-zinc-400" />
@@ -521,7 +490,7 @@ export default function ScriptEditor({
             <div ref={containerRef} className="relative min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
               {isPreviewMode ? (
                 <div className="p-6">
-                  <ScriptViewer script={script || undefined} theme="dark" />
+                  <ScriptRenderer title={script?.title} blocks={(script as any)?.blocks || []} />
                 </div>
               ) : (
                 <BlockNoteView 
@@ -641,6 +610,57 @@ export default function ScriptEditor({
                   <Sparkles className="h-4 w-4 mr-2" />
                 )}
                 Improve Text
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import JSON Dialog */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="bg-black/95 border-zinc-800 text-zinc-100 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-red-500" />
+              Import Script JSON (title + blocks)
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-zinc-400">Paste the JSON object containing a title and blocks array. This will replace the current editor content.</p>
+            <Textarea
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+              rows={10}
+              placeholder='{"title":"My Script","blocks":[...]}'
+              className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
+            />
+            {importErr && <div className="text-xs text-red-400">{importErr}</div>}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setImportOpen(false)} className="border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancel</Button>
+              <Button
+                className="bg-red-600 hover:bg-red-700"
+                onClick={async () => {
+                  setImportErr(null);
+                  try {
+                    const raw = importText.trim();
+                    if (!raw) { setImportErr('Please paste JSON'); return; }
+                    let obj: any;
+                    try { obj = JSON.parse(raw); } catch (e) { setImportErr('Invalid JSON'); return; }
+                    if (!obj || (typeof obj !== 'object')) { setImportErr('JSON must be an object'); return; }
+                    const res = await (onImportScript as any)?.(obj);
+                    if (!res || res.ok !== true) {
+                      setImportErr(res?.error || 'Failed to import');
+                      return;
+                    }
+                    // Close and reset; editor content will refresh via props/state
+                    setImportOpen(false);
+                    setImportText('');
+                  } catch (err: any) {
+                    setImportErr(err?.message || 'Import failed');
+                  }
+                }}
+              >
+                Apply Import
               </Button>
             </div>
           </div>

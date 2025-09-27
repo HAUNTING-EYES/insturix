@@ -10,9 +10,10 @@ interface ScriptPanelProps {
   onBack: () => void;
   sessionId?: string | null;
   isSaving?: boolean;
+  onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
 }
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving, onImportScript }) => {
   return (
     <div className="flex-1 rounded-2xl border border-white/10 bg-white/5 backdrop-blur-xl p-4">
       <ScriptEditor
@@ -23,6 +24,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
         onEditScript={onUpdate}
         onExportScript={()=>{}}
         isSaving={isSaving}
+        onImportScript={onImportScript}
       />
     </div>
   );

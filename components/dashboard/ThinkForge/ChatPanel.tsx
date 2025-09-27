@@ -5,6 +5,7 @@ import clsx from 'clsx';
 import { ChevronDown, Bot, Square, Pencil, X, Check } from 'lucide-react';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
 import { toast } from '@/hooks/use-toast';
+import { looksLikeJSON, parseJsonLenient, sanitizeServerScript, extractBalancedJson } from '@/lib/thinkforge/json';
 
 export interface ChatMessage { id: string; role: 'user' | 'assistant'; content: string; ts: number; streaming?: boolean }
 
@@ -55,7 +56,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
   // Initial load: use provided initialMessages if available, else fetch last 10 chats
   useEffect(() => {
     let cancelled = false;
-    const mapItems = (items: any[]): ChatMessage[] => items.map((m: any) => ({ id: m._id || m.id || crypto.randomUUID(), role: (m.role === 'assistant' ? 'assistant' : 'user'), content: m.content || '', ts: m.ts || Date.parse(m.createdAt || '') || Date.now() }));
+    const normalizeContent = (c: any) => {
+      const s = (c || '').toString();
+      if (looksLikeJSON(s)) {
+        const parsed = parseJsonLenient(s);
+        // If it parses, re-stringify pretty; else return a friendly message to avoid leaking partial JSON
+        return parsed ? JSON.stringify(parsed, null, 2) : '[response contained invalid JSON; hidden]';
+      }
+      return s;
+    };
+    const mapItems = (items: any[]): ChatMessage[] => items.map((m: any) => ({ id: m._id || m.id || crypto.randomUUID(), role: (m.role === 'assistant' ? 'assistant' : 'user'), content: normalizeContent(m.content), ts: m.ts || Date.parse(m.createdAt || '') || Date.now() }));
     const loadInitial = async () => {
       if (!sessionId) {
         // Fallback greeting if no session yet
@@ -267,6 +277,9 @@ Describe the change you want:`;
   typingRef.current.batchChars = 2;
     // Accumulate assistant content so we can persist it even if backend fails to
     let assistantAccum = '';
+    // Streaming JSON suppression: if the model starts emitting JSON, buffer until balanced
+    let jsonBuffer = '';
+    let isJsonBuffering = false;
     try {
       const controller = new AbortController();
       abortRef.current = controller;
@@ -295,6 +308,33 @@ Describe the change you want:`;
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
           assistantAccum += chunk;
+          // Detect potential JSON start early and buffer instead of streaming partial JSON
+          if (!isJsonBuffering) {
+            const head = assistantAccum.slice(0, 32).trim().toLowerCase();
+            if (/^(```json|```|\{|\[)/.test(head)) {
+              isJsonBuffering = true;
+              jsonBuffer = assistantAccum;
+              // Clear any queued chars that might have been enqueued before detection
+              typingRef.current.queue = [];
+              continue;
+            }
+          }
+          if (isJsonBuffering) {
+            jsonBuffer += chunk;
+            const balanced = extractBalancedJson(jsonBuffer);
+            if (balanced) {
+              const parsed = parseJsonLenient(balanced);
+              const pretty = parsed ? JSON.stringify(parsed, null, 2) : '[invalid JSON omitted]';
+              // Replace the assistant bubble content immediately with pretty JSON
+              setChatMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: pretty } : m));
+              // Stop buffering mode; suppress further streaming (we'll keep replacing content on subsequent detections if needed)
+              isJsonBuffering = false;
+              jsonBuffer = '';
+            }
+            // While buffering and not yet balanced, do not stream
+            continue;
+          }
+          // Normal streaming for non-JSON content
           const chars = chunk.replace(/\r\n/g, '\n').split('');
           typingRef.current.queue.push(...chars);
           startTypingLoop(assistantId);
@@ -310,9 +350,13 @@ Describe the change you want:`;
       flushQueueInstant(assistantId);
       setIsStreaming(false);
       setStreamingAssistantId(null);
-      // Best-effort persistence of assistant message to chat history
+      // Before persisting, normalize content to avoid storing half-JSON in chat
       try {
-        const content = assistantAccum.trim();
+        let content = assistantAccum.trim();
+        if (looksLikeJSON(content)) {
+          const parsed = parseJsonLenient(content);
+          content = parsed ? JSON.stringify(parsed) : '[invalid JSON omitted]';
+        }
         if (sessionId && content) {
           void fetch('/api/services/thinkforge/chat/append', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -361,25 +405,24 @@ Describe the change you want:`;
             tone: selectedIdea?.tone
           };
           // If a selection was sent from the editor, keep it in the instruction context
-          const guard = `\n\nConstraints (MANDATORY):\n- Return a complete, well-formed JSON object with fields: title (string), content (string), blocks (array).\n- Never output partial/half JSON. If needed, shorten text but keep JSON complete.\n- Do not include explanations outside the JSON.`;
           const enrichedRunEdit = pendingSelection ? `Apply this change ONLY to the selected text:
 Selected:
 ---
 ${pendingSelection}
 ---
 Change:
-${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}${guard}` : (buildInstructionWithContext(text) + guard);
+${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithContext(text);
           // Immediately proceed to run the edit; placeholder ensures the user sees progress
 
           // Run the actual edit via provided handler and use its returned data to apply immediately
           try {
             const result = await onRunEdit(enrichedRunEdit, pendingSelection || undefined);
             if (result && typeof onApplyEdit === 'function') {
-              const newTitle: string = result?.title || script?.title || 'Untitled Script';
-              const newContent: string = result?.content || script?.content || '';
-              const htmlBody = composeHtml(newTitle, newContent, result?.html);
-              // Prefer server-returned blocks directly
-              onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: result?.blocks || undefined } as any);
+              const sanitized = sanitizeServerScript(result, script || {});
+              const newTitle: string = sanitized?.title || script?.title || 'Untitled Script';
+              const newContent: string = sanitized?.content || script?.content || '';
+              const htmlBody = composeHtml(newTitle, newContent, (sanitized as any)?.html);
+              onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: (sanitized as any)?.blocks || undefined } as any);
               setPendingSelection(null);
             }
           } catch {}
@@ -513,25 +556,36 @@ ${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}${guard}` : (buildInstruc
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            instruction: pendingSelection ? `Replace only the selected text with your improved version.\nSelected:\n${pendingSelection}\nChange:\n${text}\n\nConstraints (MANDATORY):\n- Return a complete JSON object: { title: string, content: string, blocks: Block[] }.\n- Do not output partial JSON; keep it syntactically valid even if shortened.` : (enrichedLocal + `\n\nConstraints (MANDATORY):\n- Return a complete JSON object: { title: string, content: string, blocks: Block[] }.\n- Do not output partial JSON; keep it syntactically valid even if shortened.`),
+            instruction: pendingSelection ? `Replace only the selected text with your improved version.\nSelected:\n${pendingSelection}\nChange:\n${text}` : enrichedLocal,
             script: scriptPayload, project: projectPayload, sessionId, selection: pendingSelection || undefined
           })
         });
         if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
-        const edited = await editRes.json();
-        const newTitle: string = edited?.title || scriptPayload.title;
+        const editedText = await editRes.text();
+        const edited = parseJsonLenient<any>(editedText);
+        if (!edited) {
+          // Do not display broken JSON; surface a friendly failure and stop
+          setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: 'Applied a large edit, but the response was invalid. Please try again.', streaming: false } : m));
+          return;
+        }
+        const sanitizedEdited = sanitizeServerScript(edited, script || {});
+        // Clamp extremely large content to avoid UI hiccups; rely on blocks for rendering
+        if (sanitizedEdited && typeof sanitizedEdited.content === 'string' && sanitizedEdited.content.length > 200000) {
+          sanitizedEdited.content = sanitizedEdited.content.slice(0, 200000);
+        }
+        const newTitle: string = sanitizedEdited?.title || scriptPayload.title;
         let appliedAfterContent: string = scriptPayload.content || '';
-        const serverBlocks: any[] | undefined = Array.isArray(edited?.blocks) ? edited.blocks : undefined;
+        const serverBlocks: any[] | undefined = Array.isArray((sanitizedEdited as any)?.blocks) ? (sanitizedEdited as any).blocks : undefined;
         // Prefer applying server-returned blocks directly
         if (serverBlocks && serverBlocks.length > 0) {
-          const combinedContent: string = (edited?.content || scriptPayload.content || '').toString();
-          const htmlBody = composeHtml(newTitle, combinedContent, edited?.html);
+          const combinedContent: string = ((sanitizedEdited as any)?.content || scriptPayload.content || '').toString();
+          const htmlBody = composeHtml(newTitle, combinedContent, (sanitizedEdited as any)?.html);
           onApplyEdit({ ...(script || {}), title: newTitle, content: combinedContent, body: htmlBody, blocks: serverBlocks } as any);
           appliedAfterContent = combinedContent;
         } else {
           // Fallback to content replacement
-          const newContent: string = (edited?.content || scriptPayload.content || '').toString();
-          const htmlBody = composeHtml(newTitle, newContent, edited?.html);
+          const newContent: string = ((sanitizedEdited as any)?.content || scriptPayload.content || '').toString();
+          const htmlBody = composeHtml(newTitle, newContent, (sanitizedEdited as any)?.html);
           onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: undefined } as any);
           appliedAfterContent = newContent;
         }
