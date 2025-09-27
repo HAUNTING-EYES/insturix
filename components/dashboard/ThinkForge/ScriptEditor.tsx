@@ -36,7 +36,7 @@ import "@blocknote/mantine/style.css";
 // Import BlockNote hooks and types
 import { useCreateBlockNote } from "@blocknote/react";
 import { Block, BlockNoteEditor } from "@blocknote/core";
-import ScriptRenderer from "./ScriptRenderer";
+import ScriptViewer from "./ScriptViewer";
 
 interface ScriptEditorProps {
   script?: Script | null;
@@ -78,6 +78,51 @@ export default function ScriptEditor({
 
   // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
 
+  // Helpers to safely handle potentially incomplete JSON
+  const clampString = (s: any, max = 10000) => {
+    const str = typeof s === 'string' ? s : String(s ?? '');
+    return str.length > max ? str.slice(0, max) : str;
+  };
+  const healJSON = (value: any): any => {
+    if (typeof value === 'string') {
+      const t = value.trim();
+      const startsObj = t.startsWith('{'); const endsObj = t.endsWith('}');
+      const startsArr = t.startsWith('['); const endsArr = t.endsWith(']');
+      let candidate = t;
+      if ((startsObj && !endsObj) || (startsArr && !endsArr)) {
+        try { return JSON.parse(candidate); } catch {}
+        candidate = candidate.replace(/,\s*$/g, '');
+        if (startsObj && !endsObj) candidate += '}';
+        if (startsArr && !endsArr) candidate += ']';
+        try { return JSON.parse(candidate); } catch {}
+      }
+      return value;
+    }
+    return value;
+  };
+  const sanitizeBlocks = (input: any, maxBlocks = 300): any[] => {
+    const arr = Array.isArray(input) ? input : [];
+    const out: any[] = [];
+    for (let i = 0; i < arr.length && out.length < maxBlocks; i++) {
+      const b = arr[i] || {};
+      const type = String(b.type || b.kind || 'paragraph');
+      const props = typeof b.props === 'object' && b.props ? b.props : {};
+      const content = b.content ?? b.children ?? b.text ?? '';
+      const safe: any = { type, props: {}, content: '' };
+      for (const k of Object.keys(props)) {
+        const v = (props as any)[k];
+        if (typeof v === 'string') safe.props[k] = clampString(v, 1000);
+        else if (typeof v === 'number' || typeof v === 'boolean') safe.props[k] = v;
+      }
+      if (typeof content === 'string') safe.content = clampString(content, 10000);
+      else if (Array.isArray(content)) safe.content = content.slice(0, 200);
+      else if (content && typeof content === 'object') safe.content = content;
+      else safe.content = '';
+      out.push(safe);
+    }
+    return out;
+  };
+
   // Create BlockNote editor with initial content
   const editor = useCreateBlockNote({
     // Do not pass initialContent to avoid BlockNote crashing on malformed blocks
@@ -91,8 +136,10 @@ export default function ScriptEditor({
     const load = async () => {
       try {
         // Prefer server-provided blocks
-        if (script?.blocks && Array.isArray(script.blocks) && (script.blocks as any[]).length > 0) {
-          editor.replaceBlocks(editor.document, script.blocks as any);
+        const healed = healJSON(script?.blocks);
+        if (Array.isArray(healed) && healed.length > 0) {
+          const safe = sanitizeBlocks(healed);
+          editor.replaceBlocks(editor.document, safe as any);
           return;
         }
         // Next, try parsing existing body HTML if available
@@ -218,7 +265,8 @@ export default function ScriptEditor({
       const serverBlocks: any[] | undefined = edited?.blocks;
       if (Array.isArray(serverBlocks) && serverBlocks.length > 0) {
         // Trust server-provided blocks directly
-        editor.replaceBlocks(editor.document, serverBlocks as any);
+        const safe = sanitizeBlocks(healJSON(serverBlocks));
+        editor.replaceBlocks(editor.document, safe as any);
       } else {
         // Fallback to composing from content
         const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
@@ -473,7 +521,7 @@ export default function ScriptEditor({
             <div ref={containerRef} className="relative min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
               {isPreviewMode ? (
                 <div className="p-6">
-                  <ScriptRenderer title={script?.title} blocks={(script as any)?.blocks || []} />
+                  <ScriptViewer script={script || undefined} theme="dark" />
                 </div>
               ) : (
                 <BlockNoteView 

@@ -361,13 +361,14 @@ Describe the change you want:`;
             tone: selectedIdea?.tone
           };
           // If a selection was sent from the editor, keep it in the instruction context
+          const guard = `\n\nConstraints (MANDATORY):\n- Return a complete, well-formed JSON object with fields: title (string), content (string), blocks (array).\n- Never output partial/half JSON. If needed, shorten text but keep JSON complete.\n- Do not include explanations outside the JSON.`;
           const enrichedRunEdit = pendingSelection ? `Apply this change ONLY to the selected text:
 Selected:
 ---
 ${pendingSelection}
 ---
 Change:
-${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithContext(text);
+${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}${guard}` : (buildInstructionWithContext(text) + guard);
           // Immediately proceed to run the edit; placeholder ensures the user sees progress
 
           // Run the actual edit via provided handler and use its returned data to apply immediately
@@ -512,7 +513,7 @@ ${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithC
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            instruction: pendingSelection ? `Replace only the selected text with your improved version.\nSelected:\n${pendingSelection}\nChange:\n${text}` : enrichedLocal,
+            instruction: pendingSelection ? `Replace only the selected text with your improved version.\nSelected:\n${pendingSelection}\nChange:\n${text}\n\nConstraints (MANDATORY):\n- Return a complete JSON object: { title: string, content: string, blocks: Block[] }.\n- Do not output partial JSON; keep it syntactically valid even if shortened.` : (enrichedLocal + `\n\nConstraints (MANDATORY):\n- Return a complete JSON object: { title: string, content: string, blocks: Block[] }.\n- Do not output partial JSON; keep it syntactically valid even if shortened.`),
             script: scriptPayload, project: projectPayload, sessionId, selection: pendingSelection || undefined
           })
         });
