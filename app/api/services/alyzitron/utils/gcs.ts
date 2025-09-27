@@ -1,21 +1,22 @@
 import { Storage } from '@google-cloud/storage';
 import { ServiceError } from '../types';
 
-const gcsCredentials = process.env.GOOGLE_CLOUD_CREDENTIALS
-  ? JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString())
-  : null;
+// Lazy initialization to avoid throwing during Next.js build/import
+let storage: Storage | null = null;
+let bucket: ReturnType<Storage['bucket']> | null = null;
 
-if (!gcsCredentials || !process.env.GCS_BUCKET_NAME) {
-  throw new Error('Missing required GCS environment variables: GOOGLE_CLOUD_CREDENTIALS and GCS_BUCKET_NAME');
+function initIfNeeded() {
+  if (storage && bucket) return;
+  const encoded = process.env.GOOGLE_CLOUD_CREDENTIALS;
+  const bucketName = process.env.GCS_BUCKET_NAME;
+  if (!encoded || !bucketName) {
+    // Do not throw at import time; throw when a method is actually invoked
+    throw new Error('Missing required GCS environment variables: GOOGLE_CLOUD_CREDENTIALS and GCS_BUCKET_NAME');
+  }
+  const creds = JSON.parse(Buffer.from(encoded, 'base64').toString());
+  storage = new Storage({ projectId: creds.project_id, credentials: creds });
+  bucket = storage.bucket(bucketName);
 }
-
-// Initialize GCS
-const storage = new Storage({
-  projectId: gcsCredentials.project_id,
-  credentials: gcsCredentials,
-});
-
-const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
 
 export class GCSManager {
   /**
@@ -27,6 +28,8 @@ export class GCSManager {
     contentType: string
   ): Promise<{ url: string; gcsPath: string }> {
     try {
+      initIfNeeded();
+      if (!bucket) throw new Error('GCS not initialized');
       // Create GCS path following service convention
       const gcsPath = `user_${userId}/alyzitron-uploads/${Date.now()}_${filename}`;
       const file = bucket.file(gcsPath);
@@ -55,6 +58,8 @@ export class GCSManager {
    */
   static async getSignedReadUrl(gcsPath: string): Promise<string> {
     try {
+      initIfNeeded();
+      if (!bucket) throw new Error('GCS not initialized');
       const file = bucket.file(gcsPath);
       
       // Check if file exists
@@ -86,6 +91,8 @@ export class GCSManager {
    */
   static async deleteFile(gcsPath: string): Promise<void> {
     try {
+      initIfNeeded();
+      if (!bucket) throw new Error('GCS not initialized');
       const file = bucket.file(gcsPath);
       await file.delete();
     } catch (error) {
@@ -103,6 +110,8 @@ export class GCSManager {
    */
   static async getFileMetadata(gcsPath: string) {
     try {
+      initIfNeeded();
+      if (!bucket) throw new Error('GCS not initialized');
       const file = bucket.file(gcsPath);
       const [metadata] = await file.getMetadata();
       

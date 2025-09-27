@@ -17,10 +17,10 @@ export function extractBalancedJson(s: string): string | null {
   if (!s) return null;
   const t = stripCodeFences(s.trim());
   let start = t.indexOf('{');
-  let altStart = t.indexOf('[');
+    const altStart = t.indexOf('[');
   if (start === -1 || (altStart !== -1 && altStart < start)) start = altStart; // pick earlier of { or [
   if (start === -1) return null;
-  let stack = [] as string[];
+    const stack = [] as string[];
   let end = -1;
   for (let i = start; i < t.length; i++) {
     const ch = t[i];
