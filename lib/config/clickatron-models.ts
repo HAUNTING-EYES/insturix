@@ -56,7 +56,7 @@ export interface ModelConfig {
 export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/imagen4/preview': {
     id: 'fal-ai/imagen4/preview',
-    name: 'Imagen4 Preview',
+    name: 'Google Imagen4',
     type: 'text-to-image',
     isDefault: true,
     parameterMapping: {

@@ -90,8 +90,8 @@ export async function POST(request: Request) {
       apiKey: geminiApiKey,
     });
 
-    // Use the gemini-2.0-flash model for prompt enhancement
-    const model = google("gemini-2.0-flash");
+    // Use the gemini-2.5-flash model for prompt enhancement
+    const model = google("gemini-2.5-flash");
 
     // Define system prompts for different task types
     const systemPrompts = {
@@ -145,6 +145,14 @@ export async function POST(request: Request) {
       schema: EnhancedPromptSchema,
       system: systemPrompt,
       prompt: userPrompt,
+      temperature: 0.5,
+      providerOptions: {
+        google: {
+          thinkingConfig: {
+            thinkingBudget: 500
+          }
+        }
+      }
     });
 
     // Log the enhanced prompt for debugging
