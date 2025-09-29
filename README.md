@@ -2,7 +2,7 @@
 
 A modern full-stack web application built with Next.js 15.3, React 19.1, and TypeScript 5.7, featuring innovative AI-powered tools, creator services, and robust data management with MongoDB.
 
-## 🚀 Features
+## 🚀 Features 
 
 - **Multiple AI-Powered Products**:
   - Alyzitron: Content analysis and moderation
