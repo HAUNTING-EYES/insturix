@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import { toast } from "@/hooks/use-toast";
+import { sanitizeServerScript, applyBlockPatches, ensureBlockIds } from "@/lib/thinkforge/json";
 
 // Lightweight script model
 export type Block = any;
@@ -109,23 +110,24 @@ export function useThinkForgeClient() {
         }
         throw new Error(`Hydrate failed: ${res.status}`);
       }
-  const data: HydrateResponse = await res.json();
+      const data: HydrateResponse = await res.json();
+      const sanitized = data?.script ? sanitizeServerScript(data.script) : null;
+      if (sanitized && Array.isArray(sanitized.blocks)) {
+        sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
+      }
       setSessionId(data.sessionId);
-  // Sanitize server-provided script to avoid JSON leak and malformed structures
-  const sanitized = data.script ? sanitizeServerScript(data.script) : null;
-  setScript(sanitized || null);
+      setScript(sanitized);
       setChat(data.chat || []);
       setPreferences(data.preferences || {});
       setProjectMeta(data.projectMeta || {});
       // Cache
       localStorage.setItem(LS_CURRENT_SESSION, data.sessionId);
-      // Normalize null script to undefined for typing
       const cachePayload: Partial<HydrateResponse & { script: ScriptModel }> = {
         ...data,
         script: (sanitized ?? undefined) as any,
       };
       saveLocal(data.sessionId, cachePayload);
-      return data;
+      return { ...data, script: sanitized } as HydrateResponse;
     } catch (e) {
       // If this was a brand-new session creation attempt, do NOT fallback to old cached session; start clean
       if (isCreateNew) {
@@ -204,15 +206,15 @@ export function useThinkForgeClient() {
     });
     if (!res.ok) throw new Error(`Edit failed: ${res.status}`);
     const data = await res.json();
-    // Apply returned script and queue autosave
+    const sanitized = sanitizeServerScript(data);
     const updated: ScriptModel = {
-      title: data?.title ?? script?.title ?? null,
-      outline: data?.outline ?? script?.outline ?? null,
-      content: data?.content ?? script?.content ?? null,
-      blocks: data?.blocks ?? script?.blocks ?? null,
+      title: sanitized?.title ?? script?.title ?? null,
+      outline: sanitized?.outline ?? script?.outline ?? null,
+      content: sanitized?.content ?? script?.content ?? null,
+      blocks: sanitized?.blocks ?? script?.blocks ?? null,
     };
     setScriptAndQueueSave(updated);
-    return data;
+    return sanitized;
   }, [script, sessionId, setScriptAndQueueSave]);
 
   const runEditBlocks = useCallback(async (instruction: string, selection?: string, indices?: number[]) => {
@@ -220,7 +222,6 @@ export function useThinkForgeClient() {
       instruction,
       script,
       sessionId,
-      // Prefer selection; backend maps to indices; indices optional override
       selection: selection && selection.trim().length > 0 ? selection : undefined,
       indices: Array.isArray(indices) && indices.length > 0 ? indices : undefined,
     } as any;
@@ -232,14 +233,23 @@ export function useThinkForgeClient() {
     });
     if (!res.ok) throw new Error(`Edit-blocks failed: ${res.status}`);
     const data = await res.json();
+    // Minimal patch via ids; fall back to sanitized full replace
+    const sanitized = sanitizeServerScript(data);
+    const nextBlocks = applyBlockPatches((script?.blocks as any[]) || [], {
+      title: sanitized?.title ?? undefined,
+      outline: sanitized?.outline ?? undefined,
+      content: sanitized?.content ?? undefined,
+      blocks: sanitized?.blocks as any[] | undefined,
+      replacements: Array.isArray((data as any)?.replacements) ? (data as any).replacements : undefined,
+    });
     const updated: ScriptModel = {
-      title: data?.title ?? script?.title ?? null,
-      outline: data?.outline ?? script?.outline ?? null,
-      content: data?.content ?? script?.content ?? null,
-      blocks: data?.blocks ?? script?.blocks ?? null,
+      title: sanitized?.title ?? script?.title ?? null,
+      outline: sanitized?.outline ?? script?.outline ?? null,
+      content: sanitized?.content ?? script?.content ?? null,
+      blocks: nextBlocks,
     };
     setScriptAndQueueSave(updated);
-    return data;
+    return sanitized;
   }, [script, sessionId, setScriptAndQueueSave]);
 
   const refreshChat = useCallback(async () => {
@@ -319,7 +329,7 @@ export function useThinkForgeClient() {
     isHydrating, isSaving, saveError,
     // actions
     hydrate, setScriptAndQueueSave, autosave, runEdit, refreshChat,
-  runEditBlocks,
+    runEditBlocks,
     getSessionsCount, getSessionsList, listChats, closeSession,
     // importers
     importScript, replaceBlocks,
