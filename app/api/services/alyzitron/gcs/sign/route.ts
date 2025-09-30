@@ -28,7 +28,7 @@ async function configureBucketCors() {
         origin: [
           'http://localhost:3000',
           'https://localhost:3000',
-          process.env.NEXT_PUBLIC_APP_URL || 'https://www.insturix.com',
+          process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.insturix.com',
         ],
         responseHeader: [
           'Content-Type',

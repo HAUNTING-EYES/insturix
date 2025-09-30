@@ -4,9 +4,7 @@ export { type ClientPlan as Plan } from "@/schemas/plans";
 export type { PlansResponse };
 
 export const fetchPlans = async (currency: string = "USD"): Promise<PlansResponse> => {
-  const baseUrl = process.env.NODE_ENV === 'development'
-    ? process.env.NEXT_PUBLIC_VERCEL_URL || 'http://localhost:3000'
-    : process.env.NEXT_PUBLIC_APP_URL;
+  const baseUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000';
 
   const response = await fetch(`${baseUrl}/api/plans?currency=${currency}`, {
     method: 'GET',

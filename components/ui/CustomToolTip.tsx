@@ -108,7 +108,7 @@ export default function UserDropdown({
   };
 
   if (!clerkUser) return <NotSignedIn />;
-  if (isLoading) return null; // Or a loading spinner component
+  if (isLoading || !userData) return null; // Return null if still loading or userData is null
 
   const planName = getPlanDisplayName(userData.currentPlan?.name) || "Free";
   const isPremium = planName.toLowerCase().includes("premium");
@@ -356,7 +356,7 @@ export default function UserDropdown({
       <PlanCancellationDialog
         open={planCancellationOpen}
         onOpenChange={setPlanCancellationOpen}
-        currentPlan={userData.currentPlan?.name || "free"}
+        currentPlan={userData?.currentPlan?.name || "free"}
         currentPlanPrice={userData?.currentPlan?.price || 0}
       />
 

@@ -88,7 +88,13 @@ export async function POST(req: NextRequest) {
           }))
         };
 
-        await UserInitializationService.syncUserFromClerk(clerkUserId, clerkUserData);
+        const syncResult = await UserInitializationService.syncUserFromClerk(clerkUserId, clerkUserData);
+        
+        if (!syncResult) {
+          console.error(`Failed to sync user data for Clerk ID: ${clerkUserId}`);
+          return new Response("Failed to sync user data", { status: 500 });
+        }
+        
         console.log("User updated successfully:", clerkUserId);
       } catch (error) {
         console.error("Error in user.updated handler:", error);
@@ -100,7 +106,13 @@ export async function POST(req: NextRequest) {
       try {
         const clerkUserId = payload.data.id;
         
-        await UserInitializationService.handleUserDeletion(clerkUserId);
+        const deletionResult = await UserInitializationService.handleUserDeletion(clerkUserId);
+        
+        if (!deletionResult) {
+          console.error(`Failed to delete user data for Clerk ID: ${clerkUserId}`);
+          return new Response("Failed to delete user data", { status: 500 });
+        }
+        
         console.log("User deleted successfully:", clerkUserId);
       } catch (error) {
         console.error("Error in user.deleted handler:", error);

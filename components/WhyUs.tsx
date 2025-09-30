@@ -51,8 +51,8 @@ const reasons = [
 
 export function WhyUs() {
   return (
-    <div className="py-8 sm:py-16 bg-[rgb(var(--surface-0))]">
-      <section className="container mx-auto px-4 sm:px-6 space-y-8">
+    <div className="py-6 sm:py-12 md:py-16 bg-[rgb(var(--surface-0))]">
+      <section className="container mx-auto px-4 sm:px-6 space-y-6 sm:space-y-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -70,7 +70,7 @@ export function WhyUs() {
             </div>
           </div>
           <motion.p
-            className="text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto px-4 sm:px-0"
+            className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto px-6 sm:px-4 md:px-0"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1, delay: 0.2 }}
@@ -79,7 +79,7 @@ export function WhyUs() {
           </motion.p>
         </motion.div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 pb-20 overflow-visible">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6 pb-12 sm:pb-16 md:pb-20 overflow-visible">
           {reasons.map((reason, index) => (
             <motion.div
               key={index}
@@ -97,19 +97,19 @@ export function WhyUs() {
               className="h-full touch-hover"
             >
               <HoverCard className="h-full relative overflow-hidden">
-                <div className="relative z-10 h-full flex flex-col">
-                  <div className="flex items-center gap-3 mb-4">
+                <div className="relative z-10 h-full flex flex-col p-1 sm:p-0">
+                  <div className="flex items-start sm:items-center gap-3 mb-3 sm:mb-4">
                     <motion.div
-                      className="p-2 rounded-lg bg-primary/10 touch-feedback"
+                      className="p-2 rounded-lg bg-primary/10 touch-feedback flex-shrink-0"
                       whileHover={{ scale: 1.1, rotate: 5 }}
                       whileTap={{ scale: 0.95 }}
                       transition={{ duration: 0.2 }}
                     >
-                      <reason.icon className="w-6 h-6 text-primary" />
+                      <reason.icon className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
                     </motion.div>
-                    <h3 className="text-xl font-semibold">{reason.title}</h3>
+                    <h3 className="text-lg sm:text-xl font-semibold leading-tight">{reason.title}</h3>
                   </div>
-                  <p className="text-muted-foreground grow">
+                  <p className="text-sm sm:text-base text-muted-foreground grow leading-relaxed">
                     {reason.description}
                   </p>
                 </div>

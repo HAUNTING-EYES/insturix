@@ -41,17 +41,31 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
 
   // No conditional refunds - taskType determines usage type directly
 
-  // Update RTDB status (simplified - direct implementation)
+  // Update database status
   try {
     if (serviceName === 'clickatron') {
-      const { ClickatronRTDBManager } = await import('@/lib/services/rtdb/clickatron-rtdb');
-      await ClickatronRTDBManager.updateTaskStatus(userId, taskId, 'failed');
+      // Update Clickatron task status in MongoDB
+      const { ClickatronTask } = await import('@/schemas/Clickatron');
+      const { getClickatronDb } = await import('@/lib/clickatron-mongo');
+      const { Types } = await import('mongoose');
+
+      await getClickatronDb();
+      const objectId = new Types.ObjectId(taskId);
+
+      await ClickatronTask.findOneAndUpdate(
+        { _id: objectId, clerkUserId: userId },
+        {
+          status: 'failed',
+          updatedAt: new Date(),
+          error_message: 'Task processing failed'
+        }
+      );
     } else if (serviceName === 'alyzitron') {
       const { AlyzitronRTDBManager } = await import('@/lib/services/rtdb/alyzitron-rtdb');
       await AlyzitronRTDBManager.updateTaskStatus(userId, taskId, 'failed');
     }
-  } catch (rtdbError) {
-    console.warn('Failed to update RTDB task status', { userId, taskId, serviceName, rtdbError });
+  } catch (dbError) {
+    console.warn('Failed to update task status', { userId, taskId, serviceName, dbError });
   }
 }
 

@@ -48,17 +48,17 @@ export const UNIFIED_SERVICE_LIMITS: Record<string, Record<string, ServiceLimitC
     }
   },
   clickatron: {
-    maxThumbnailGeneration: {
-      name: 'Thumbnail Generations',
-      description: 'Number of thumbnails you can generate per week.',
+    maxVariationGeneration: {
+      name: 'Variation Generations',
+      description: 'Number of image variations you can generate per week.',
       icon: 'ImageIcon',
       defaultResetPeriod: 'weekly',
       category: 'count',
-      unit: 'thumbnails',
+      unit: 'variations',
       planLimits: {
-        free: 12,
-        plus: 45,
-        pro: 120,
+        free: 20,
+        plus: 100,
+        pro: 300,
         premium: -1
       }
     }
