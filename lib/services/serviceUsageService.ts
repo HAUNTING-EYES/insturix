@@ -42,7 +42,8 @@ export class ServiceUsageService {
     // If not found, get from unified configuration and add to user's plan
     if (!serviceLimit) {
       try {
-        const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+        const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+        const planLimits = getPlanLimits(serviceName, normalizedPlanType);
         const configLimit = planLimits.find(limit => limit.limitType === limitType);
         
         if (configLimit) {
@@ -131,7 +132,8 @@ export class ServiceUsageService {
     // If not found, get from unified configuration and add to user's plan
     if (!serviceLimit) {
       try {
-        const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+        const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+        const planLimits = getPlanLimits(serviceName, normalizedPlanType);
         const configLimit = planLimits.find(limit => limit.limitType === limitType);
         
         if (configLimit) {
@@ -147,23 +149,7 @@ export class ServiceUsageService {
           };
           
           user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
-          
-          // For Clickatron service, also clean up any obsolete limits
-          if (serviceName === 'clickatron') {
-            // Get the current valid limit types for Clickatron
-            const validLimitTypes = planLimits.map(limit => limit.limitType);
-            
-            // Filter out any limits that are not in the valid list
-            const filteredLimits = user.currentPlan.serviceLimits[serviceName].filter(
-              (limit: IServiceLimit) => validLimitTypes.includes(limit.limitType)
-            );
-            
-            // If we removed any limits, update the user's limits
-            if (filteredLimits.length !== user.currentPlan.serviceLimits[serviceName].length) {
-              console.log(`[ServiceUsageService] Cleaning up obsolete limits for Clickatron user ${userId}`);
-              user.currentPlan.serviceLimits[serviceName] = filteredLimits;
-            }
-          }
+          ServiceUsageService.cleanupObsoleteLimits(user, serviceName, planLimits);
           
           user.markModified('currentPlan.serviceLimits');
           await user.save();
@@ -337,7 +323,8 @@ export class ServiceUsageService {
       // If not found, get from unified configuration and add to user's plan
       if (!serviceLimit) {
         try {
-          const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+          const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+          const planLimits = getPlanLimits(serviceName, normalizedPlanType);
           const configLimit = planLimits.find(limit => limit.limitType === limitType);
           
           if (configLimit) {
@@ -353,6 +340,7 @@ export class ServiceUsageService {
             };
             
             user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
+            ServiceUsageService.cleanupObsoleteLimits(user, serviceName, planLimits);
             user.markModified('currentPlan.serviceLimits');
             await user.save();
             
@@ -478,6 +466,39 @@ export class ServiceUsageService {
     const minutes = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
 
     return { days, hours, minutes, totalMs: timeLeft };
+  }
+
+  private static normalizePlanType(planName: string): "free" | "plus" | "pro" | "premium" {
+    const planTypeMap: Record<string, "free" | "plus" | "pro" | "premium"> = {
+      'free': 'free',
+      'plus': 'plus',
+      'pro': 'pro',
+      'premium': 'premium',
+      'Free Plan': 'free',
+      'Plus Plan': 'plus',
+      'Pro Plan': 'pro',
+      'Premium Plan': 'premium'
+    };
+    
+    return planTypeMap[planName] || planTypeMap[planName.toLowerCase()] || 'free';
+  }
+
+  private static cleanupObsoleteLimits(user: any, serviceName: keyof IServiceLimits, planLimits: any[]): boolean {
+    const validLimitTypes = planLimits.map(limit => limit.limitType);
+    const currentLimits = user.currentPlan.serviceLimits[serviceName];
+    
+    if (Array.isArray(currentLimits)) {
+      const filteredLimits = currentLimits.filter(
+        (limit: IServiceLimit) => validLimitTypes.includes(limit.limitType)
+      );
+      
+      if (filteredLimits.length !== currentLimits.length) {
+        console.log(`[ServiceUsageService] Cleaning up obsolete limits for ${String(serviceName)} user ${user.clerkUserId}`);
+        user.currentPlan.serviceLimits[serviceName] = filteredLimits;
+        return true; // Changes made
+      }
+    }
+    return false;
   }
 
   /**
