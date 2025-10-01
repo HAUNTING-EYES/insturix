@@ -92,29 +92,42 @@ export function UpgradePageContent({
   const [dynamicPlans, setDynamicPlans] = useState(serverPlans);
   const [plansLoading, setPlansLoading] = useState(false);
 
-  useEffect(() => {
-    async function fetchPlansForCurrency() {
-      setPlansLoading(true);
-      try {
-        const response = await fetch(`/api/plans?currency=${selectedCurrency}`, { cache: "no-store" });
-        if (response.ok) {
+  // Only fetch plans client-side if server plans are not available or if currency changes
+ useEffect(() => {
+    const fetchPlansForCurrency = async () => {
+      if (!serverPlans || serverPlans.length === 0) {
+        setPlansLoading(true);
+        try {
+          const response = await fetch(`/api/plans?currency=${selectedCurrency}`, { cache: "no-store" });
+          if (!response.ok) {
+            // Handle non-200 responses to prevent processing HTML error pages
+            const errorText = await response.text();
+            console.error('[UpgradePageContent] fetch error:', response.status, errorText);
+            // Optionally set an error state or show a message
+            return;
+          }
           const data = await response.json();
           setDynamicPlans(data.plans);
+        } catch (error) {
+          console.error('[UpgradePageContent] fetch error:', error);
+          // Optionally set an error state or show a message
+        } finally {
+          setPlansLoading(false);
         }
-      } catch {
-        // Optionally handle error
-      } finally {
-        setPlansLoading(false);
+      } else {
+        // If server plans are available, use them directly and only refetch on currency change
+        setDynamicPlans(serverPlans);
       }
-    }
+    };
+
     fetchPlansForCurrency();
-  }, [selectedCurrency]);
+  }, [serverPlans, selectedCurrency]);
 
 
   const convertedPlans: Plan[] = useMemo(() => {
     if (!dynamicPlans) return [];
 
-    return dynamicPlans.map((clientPlan: ClientPlan): Plan => {
+    const plansArray = dynamicPlans.map((clientPlan: ClientPlan): Plan => {
       const cyclePricing = billingCycle === "monthly" ? clientPlan.pricing.monthly : clientPlan.pricing.yearly;
       const monthlyPrice = clientPlan.pricing.monthly.amount;
       const yearlyPrice = clientPlan.pricing.yearly.amount;
@@ -168,21 +181,41 @@ export function UpgradePageContent({
         }
       })();
 
-      return {
+      const convertedPlan = {
         id: clientPlan.type,
-        name: clientPlan.name,
-        description: clientPlan.description,
-        price: basePrice,
+        name: clientPlan.name || '',
+        description: clientPlan.description || '',
+        price: Number(basePrice) || 0,
         billingPeriod: billingCycle,
         features: features,
         popularPlan: clientPlan.type === "plus",
-        color: PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors],
-        gradient: `from-${PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors]}-500 to-${PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors]}-600`,
+        color: PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors] || 'gray',
+        gradient: `from-${(PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors] || 'gray')}-500 to-${(PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors] || 'gray')}-600`,
         userType: clientPlan.type as UserType,
         savings: billingCycle === "yearly" ? (monthlyPrice * 12) - yearlyPrice : undefined,
         paymentProvider: provider ? { provider, planId } : undefined,
       };
+
+      try {
+        const singleStr = JSON.stringify(convertedPlan);
+        console.log('[DEBUG] Converted single plan', clientPlan.type, 'serializes OK');
+      } catch (err) {
+        console.error('[DEBUG] Cannot serialize converted plan', clientPlan.type, ':', err);
+      }
+
+      return convertedPlan;
     });
+
+    try {
+      const allStr = JSON.stringify(plansArray);
+      console.log('[DEBUG] Full convertedPlans array serializes OK');
+    } catch (err) {
+      console.error('[DEBUG] Cannot serialize full convertedPlans:', err);
+    }
+
+    console.log('[DEBUG] Completed convertedPlans computation');
+
+    return plansArray;
   }, [dynamicPlans, billingCycle]);
 
   // Removed useEffect for fetching user plan
@@ -382,21 +415,11 @@ export function UpgradePageContent({
   return (
     <div className="w-full max-w-7xl mx-auto">
       {mode === "page" && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-          className="text-center mb-12"
-        >
+        <div className="text-center mb-12">
           <div className="flex items-center justify-center mb-4">
-            <motion.div
-              initial={{ rotate: 0 }}
-              animate={{ rotate: 360 }}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-              className="mr-3"
-            >
+            <div className="mr-3">
               <Crown className="h-8 w-8 text-amber-500" />
-            </motion.div>
+            </div>
             <h1 className="text-4xl md:text-6xl font-bold text-white">
               Upgrade Your Experience
             </h1>
@@ -412,54 +435,50 @@ export function UpgradePageContent({
           </div>
           )}
 
-         </motion.div>
+         </div>
       )}
 
       {currentStep < 3 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.5 }}
-          className="mb-8"
-        >
+        <div className="mb-8">
           <StepIndicator currentStep={currentStep} totalSteps={2} />
-        </motion.div>
+        </div>
       )}
 
       <Card className="backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl overflow-hidden">
         <CardContent className="p-8">
-          <AnimatePresence mode="wait" custom={animationDirection}>
-            <motion.div
-              key={currentStep}
-              custom={animationDirection}
-              initial={{ opacity: 0, x: animationDirection === "forward" ? 50 : -50 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: animationDirection === "forward" ? -50 : 50 }}
-              transition={{ duration: 0.3 }}
-            >
-              {currentStep === 1 && (
-                <PlanSelection
-                  plans={convertedPlans}
-                  selectedPlan={selectedPlan}
-                  onSelectPlan={handlePlanSelect}
-                  billingCycle={billingCycle}
-                  onBillingCycleChange={handleBillingCycleChange}
-                  currentUserPlan={currentUserPlan}
-                  currentPlanData={currentPlanData}
-                />
-              )}
+          <div>
+            {currentStep === 1 && (
+              (() => {
+                try {
+                  console.log('[DEBUG] Attempting to render PlanSelection');
+                  return (
+                    <PlanSelection
+                      plans={convertedPlans.map(p => ({ ...p }))}
+                      selectedPlan={selectedPlan}
+                      onSelectPlan={handlePlanSelect}
+                      billingCycle={billingCycle}
+                      onBillingCycleChange={handleBillingCycleChange}
+                      currentUserPlan={currentUserPlan}
+                      currentPlanData={currentPlanData}
+                    />
+                  );
+                } catch (err) {
+                  console.error('[DEBUG] Error rendering PlanSelection:', err);
+                  return <div>Error rendering plan selection</div>;
+                }
+              })()
+            )}
 
-              {currentStep === 2 && selectedPlan && (
-                <PaymentForm
-                  plan={selectedPlan}
-                  billingCycle={billingCycle}
-                  totalAmount={calculateTotal(selectedPlan.price)}
-                  onPaymentSuccess={handlePaymentSuccess}
-                  onPaymentError={handlePaymentError}
-                />
-              )}
-            </motion.div>
-          </AnimatePresence>
+            {currentStep === 2 && selectedPlan && (
+              <PaymentForm
+                plan={selectedPlan}
+                billingCycle={billingCycle}
+                totalAmount={calculateTotal(selectedPlan.price)}
+                onPaymentSuccess={handlePaymentSuccess}
+                onPaymentError={handlePaymentError}
+              />
+            )}
+          </div>
 
           {showNavigation && currentStep < 2 && ( // Navigation only for step 1
             <>

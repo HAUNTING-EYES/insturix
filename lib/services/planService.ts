@@ -47,16 +47,19 @@ export async function getPlanServiceLimits(planType: UserType) {
 export async function getPlansForCurrency(currency: string = "USD") {
   await connectToDatabase();
   
-  const plans = await Plan.find({ isActive: true }).sort({ sortOrder: 1 });
-  
-  return plans.map(plan => ({
-    id: plan._id.toString(),
-    name: plan.name,
-    type: plan.type,
-    description: plan.description,
-    pricing: plan.pricing[currency] || plan.pricing.USD,
-    serviceLimits: plan.serviceLimits,
-  }));
+  const plans = await Plan.find({ isActive: true }).sort({ sortOrder: 1 }).lean();
+
+  return plans.map((plan: any) => {
+    const formattedPlan = {
+      id: plan._id.toString(),
+      name: plan.name,
+      type: plan.type,
+      description: plan.description,
+      pricing: plan.pricing[currency] || plan.pricing.USD,
+      serviceLimits: plan.serviceLimits,
+    };
+    return formattedPlan;
+  });
 }
 
 // Initiates the cancellation process.
@@ -398,12 +401,21 @@ export async function getUserPlanWithServiceLimits(clerkUserId: string) {
     throw new Error("User not found");
   }
 
-  const serviceLimits = await user.getCurrentPlanServiceLimits();
+  let serviceLimits;
+  try {
+    serviceLimits = await user.getCurrentPlanServiceLimits();
+  } catch (err) {
+    console.error('[DEBUG] Error in getCurrentPlanServiceLimits or cannot serialize serviceLimits:', err);
+    // Fallback to empty limits to prevent crash
+    serviceLimits = {};
+  }
   
-  return {
+  const result = {
     ...user.currentPlan,
     serviceLimits,
   };
+
+  return result;
 }
 
 // Check if user has specific service access
