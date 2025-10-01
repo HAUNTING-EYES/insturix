@@ -10,7 +10,6 @@ import AlyzitronFeatures from "@/components/products/alyzitron/AlyzitronFeatures
 import AlyzitronDemo from "@/components/products/alyzitron/AlyzitronDemo";
 import AlyzitronAnalytics from "@/components/products/alyzitron/AlyzitronAnalytics";
 import AlyzitronCTA from "@/components/products/alyzitron/AlyzitronCTA";
-import AlyzitronPricing from "@/components/products/alyzitron/AlyzitronPricing";
 
 export default function AlyzitronPage() {
   return (
@@ -29,7 +28,6 @@ export default function AlyzitronPage() {
           <AlyzitronFeatures />
           <AlyzitronDemo />
           <AlyzitronAnalytics />
-          <AlyzitronPricing />
           <AlyzitronCTA />
         </motion.main>
         
