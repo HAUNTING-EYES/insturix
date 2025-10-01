@@ -88,7 +88,23 @@ export default async function UpgradePage({ searchParams }: any) {
     currency = currencyInfo.currency;
   }
 
-  const { plans, success } = await fetchPlans(currency);
+  let plans: any = null;
+  let success = false;
+  try {
+    // Log server-side currency context to aid production debugging
+    console.log('[upgrade] server - fetching plans', { currency, currencyCookie: currencyCookie?.value ?? null });
+    const result = await fetchPlans(currency);
+    plans = result.plans;
+    success = result.success;
+  } catch (err) {
+    // Capture context before rethrowing so production logs show useful debug info
+    console.error('[upgrade] fetchPlans failed', {
+      currency,
+      currencyCookie: currencyCookie?.value ?? null,
+      error: err instanceof Error ? err.message : err,
+    });
+    throw err;
+  }
 
   const { userType: currentUserPlan, currentPlan: currentPlanData } = await fetchUserPlanServerSide(userId);
 

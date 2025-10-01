@@ -23,6 +23,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const currency = searchParams.get("currency")?.toUpperCase() || "USD";
+    console.log('[plans API] GET - requested currency:', currency, 'url:', request.url);
     const includeInactive = searchParams.get("includeInactive") === "true";
 
     const filter = includeInactive ? {} : { isActive: true };
@@ -33,8 +34,11 @@ export async function GET(request: NextRequest) {
 
     const formattedPlans: ClientPlan[] = plans.map((plan) => {
       const currencyPricing = plan.pricing[currency as keyof typeof plan.pricing];
-      
+
       if (!currencyPricing) {
+        // Log plan pricing keys to help debug missing currency mappings in production
+        const available = Object.keys(plan.pricing || {}).join(',');
+        console.error('[plans API] missing pricing', { plan: plan.name, requestedCurrency: currency, available });
         throw new Error(`Pricing for currency ${currency} not found for plan ${plan.name}`);
       }
 
