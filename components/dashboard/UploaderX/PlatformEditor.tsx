@@ -1,123 +1,377 @@
 "use client";
 
-import { useState } from "react";
-import { Card, CardContent } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useState, useEffect } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { Youtube, Instagram, Facebook, Save, Eye, EyeOff } from "lucide-react";
 
 type Platform = { key: string; label: string };
 
 interface PlatformEditorProps {
   platforms: Platform[];
+  videoUuid?: string;
+  defaultTitle?: string;
+  defaultDescription?: string;
+  defaultTags?: string;
+  onSave?: (platformData: Record<string, any>) => void;
 }
 
-type PlatformMeta = {
+interface PlatformData {
   title: string;
   description: string;
-  tags: string;
-  visibility: "public" | "unlisted" | "private";
-};
+  tags: string[];
+  isPublic: boolean;
+  thumbnail?: string;
+  category?: string;
+  language?: string;
+  // Platform-specific fields
+  youtube?: {
+    categoryId?: string;
+    privacyStatus?: 'private' | 'unlisted' | 'public';
+    scheduledTime?: string;
+  };
+  instagram?: {
+    caption?: string;
+    location?: string;
+    altText?: string;
+  };
+  facebook?: {
+    message?: string;
+    privacy?: 'everyone' | 'friends' | 'only_me';
+    scheduledTime?: string;
+  };
+}
 
-export function PlatformEditor({ platforms }: PlatformEditorProps) {
+export function PlatformEditor({ 
+  platforms, 
+  videoUuid, 
+  defaultTitle = "", 
+  defaultDescription = "", 
+  defaultTags = "",
+  onSave 
+}: PlatformEditorProps) {
   const { toast } = useToast();
-  const [active, setActive] = useState<string>(platforms[0]?.key ?? "youtube");
-  const [meta, setMeta] = useState<Record<string, PlatformMeta>>(() => {
-    const init: Record<string, PlatformMeta> = {};
-    for (const p of platforms) {
-      init[p.key] = { title: "", description: "", tags: "", visibility: "public" };
-    }
-    return init;
-  });
+  const [activePlatform, setActivePlatform] = useState<string>(platforms[0]?.key || '');
+  const [platformData, setPlatformData] = useState<Record<string, PlatformData>>({});
+  const [isPreviewMode, setIsPreviewMode] = useState(false);
 
-  const setField = (platformKey: string, field: keyof PlatformMeta, value: string) => {
-    setMeta((m) => ({ ...m, [platformKey]: { ...m[platformKey], [field]: value } }));
+  // Initialize platform data
+  useEffect(() => {
+    const initialData: Record<string, PlatformData> = {};
+    platforms.forEach(platform => {
+      initialData[platform.key] = {
+        title: defaultTitle,
+        description: defaultDescription,
+        tags: defaultTags.split(',').map(tag => tag.trim()).filter(Boolean),
+        isPublic: true,
+        youtube: {
+          categoryId: '22', // People & Blogs
+          privacyStatus: 'private',
+        },
+        instagram: {
+          caption: defaultDescription,
+          altText: '',
+        },
+        facebook: {
+          message: defaultDescription,
+          privacy: 'everyone',
+        },
+      };
+    });
+    setPlatformData(initialData);
+  }, [platforms, defaultTitle, defaultDescription, defaultTags]);
+
+  const updatePlatformData = (platform: string, field: string, value: any) => {
+    setPlatformData(prev => ({
+      ...prev,
+      [platform]: {
+        ...prev[platform],
+        [field]: value,
+      },
+    }));
   };
 
-  const handleApplyAll = () => {
-    const source = meta[active];
-    setMeta((m) => {
-      const next = { ...m };
-      for (const p of platforms) next[p.key] = { ...source };
-      return next;
+  const updateNestedData = (platform: string, parentField: string, field: string, value: any) => {
+    setPlatformData(prev => {
+      const currentPlatform = prev[platform] || {};
+      const currentNested = currentPlatform[parentField as keyof PlatformData];
+      const nestedObject = typeof currentNested === 'object' && currentNested !== null ? currentNested : {};
+      
+      return {
+        ...prev,
+        [platform]: {
+          ...currentPlatform,
+          [parentField]: {
+            ...nestedObject,
+            [field]: value,
+          },
+        },
+      };
     });
-    toast({ title: "Applied defaults", description: "Copied current platform metadata to all platforms." });
+  };
+
+  const handleSave = () => {
+    if (onSave) {
+      onSave(platformData);
+    }
+    toast({
+      title: "Platform settings saved",
+      description: "Your platform-specific settings have been saved.",
+    });
+  };
+
+  const getPlatformIcon = (platformKey: string) => {
+    switch (platformKey) {
+      case 'youtube': return <Youtube className="h-4 w-4" />;
+      case 'instagram': return <Instagram className="h-4 w-4" />;
+      case 'facebook': return <Facebook className="h-4 w-4" />;
+      default: return null;
+    }
+  };
+
+  const getPlatformColor = (platformKey: string) => {
+    switch (platformKey) {
+      case 'youtube': return 'text-red-500';
+      case 'instagram': return 'text-pink-500';
+      case 'facebook': return 'text-blue-500';
+      default: return 'text-zinc-500';
+    }
+  };
+
+  const renderPlatformContent = (platform: string) => {
+    const data = platformData[platform];
+    if (!data) return null;
+
+    return (
+      <div className="space-y-6">
+        {/* Basic Information */}
+        <div className="space-y-4">
+          <h3 className="text-lg font-medium text-zinc-200">Basic Information</h3>
+          
+          <div>
+            <Label className="text-zinc-200">Title</Label>
+            <Input
+              value={data.title}
+              onChange={(e) => updatePlatformData(platform, 'title', e.target.value)}
+              placeholder="Enter video title"
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label className="text-zinc-200">Description</Label>
+            <Textarea
+              value={data.description}
+              onChange={(e) => updatePlatformData(platform, 'description', e.target.value)}
+              placeholder="Enter video description"
+              rows={4}
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label className="text-zinc-200">Tags</Label>
+            <Input
+              value={data.tags.join(', ')}
+              onChange={(e) => updatePlatformData(platform, 'tags', e.target.value.split(',').map(tag => tag.trim()).filter(Boolean))}
+              placeholder="Enter tags separated by commas"
+              className="mt-1"
+            />
+          </div>
+
+          <div className="flex items-center justify-between">
+            <Label className="text-zinc-200">Make Public</Label>
+            <Switch
+              checked={data.isPublic}
+              onCheckedChange={(checked) => updatePlatformData(platform, 'isPublic', checked)}
+            />
+          </div>
+        </div>
+
+        <Separator className="bg-zinc-800" />
+
+        {/* Platform-Specific Settings */}
+        {platform === 'youtube' && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-zinc-200">YouTube Settings</h3>
+            
+            <div>
+              <Label className="text-zinc-200">Privacy Status</Label>
+              <select
+                value={data.youtube?.privacyStatus || 'private'}
+                onChange={(e) => updateNestedData(platform, 'youtube', 'privacyStatus', e.target.value)}
+                className="mt-1 w-full p-2 bg-zinc-900 border border-zinc-800 rounded-md text-zinc-200"
+              >
+                <option value="private">Private</option>
+                <option value="unlisted">Unlisted</option>
+                <option value="public">Public</option>
+              </select>
+            </div>
+
+            <div>
+              <Label className="text-zinc-200">Category</Label>
+              <select
+                value={data.youtube?.categoryId || '22'}
+                onChange={(e) => updateNestedData(platform, 'youtube', 'categoryId', e.target.value)}
+                className="mt-1 w-full p-2 bg-zinc-900 border border-zinc-800 rounded-md text-zinc-200"
+              >
+                <option value="22">People & Blogs</option>
+                <option value="24">Entertainment</option>
+                <option value="25">News & Politics</option>
+                <option value="26">Howto & Style</option>
+                <option value="27">Education</option>
+                <option value="28">Science & Technology</option>
+              </select>
+            </div>
+
+            <div>
+              <Label className="text-zinc-200">Schedule Upload (Optional)</Label>
+              <Input
+                type="datetime-local"
+                value={data.youtube?.scheduledTime || ''}
+                onChange={(e) => updateNestedData(platform, 'youtube', 'scheduledTime', e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          </div>
+        )}
+
+        {platform === 'instagram' && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-zinc-200">Instagram Settings</h3>
+            
+            <div>
+              <Label className="text-zinc-200">Caption</Label>
+              <Textarea
+                value={data.instagram?.caption || ''}
+                onChange={(e) => updateNestedData(platform, 'instagram', 'caption', e.target.value)}
+                placeholder="Instagram caption with hashtags"
+                rows={3}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label className="text-zinc-200">Location (Optional)</Label>
+              <Input
+                value={data.instagram?.location || ''}
+                onChange={(e) => updateNestedData(platform, 'instagram', 'location', e.target.value)}
+                placeholder="Add location"
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label className="text-zinc-200">Alt Text</Label>
+              <Input
+                value={data.instagram?.altText || ''}
+                onChange={(e) => updateNestedData(platform, 'instagram', 'altText', e.target.value)}
+                placeholder="Describe the video for accessibility"
+                className="mt-1"
+              />
+            </div>
+          </div>
+        )}
+
+        {platform === 'facebook' && (
+          <div className="space-y-4">
+            <h3 className="text-lg font-medium text-zinc-200">Facebook Settings</h3>
+            
+            <div>
+              <Label className="text-zinc-200">Message</Label>
+              <Textarea
+                value={data.facebook?.message || ''}
+                onChange={(e) => updateNestedData(platform, 'facebook', 'message', e.target.value)}
+                placeholder="What's on your mind?"
+                rows={3}
+                className="mt-1"
+              />
+            </div>
+
+            <div>
+              <Label className="text-zinc-200">Privacy</Label>
+              <select
+                value={data.facebook?.privacy || 'everyone'}
+                onChange={(e) => updateNestedData(platform, 'facebook', 'privacy', e.target.value)}
+                className="mt-1 w-full p-2 bg-zinc-900 border border-zinc-800 rounded-md text-zinc-200"
+              >
+                <option value="everyone">Public</option>
+                <option value="friends">Friends</option>
+                <option value="only_me">Only Me</option>
+              </select>
+            </div>
+
+            <div>
+              <Label className="text-zinc-200">Schedule Post (Optional)</Label>
+              <Input
+                type="datetime-local"
+                value={data.facebook?.scheduledTime || ''}
+                onChange={(e) => updateNestedData(platform, 'facebook', 'scheduledTime', e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
-    <Card className="bg-zinc-950/60 border-zinc-800">
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <Tabs value={active} onValueChange={setActive} className="w-full">
-            <div className="flex items-center justify-between">
-              <TabsList className="bg-zinc-900/60 border border-zinc-800">
-                {platforms.map((p) => (
-                  <TabsTrigger key={p.key} value={p.key}>{p.label}</TabsTrigger>
-                ))}
-              </TabsList>
-              <Button variant="outline" className="border-zinc-800 ml-3" onClick={handleApplyAll}>
-                Apply current to all
-              </Button>
-            </div>
-
-            {platforms.map((p) => (
-              <TabsContent key={p.key} value={p.key} className="mt-4">
-                <div className="grid gap-4">
-                  <div>
-                    <Label className="text-zinc-200">{p.label} title</Label>
-                    <Input
-                      value={meta[p.key].title}
-                      onChange={(e) => setField(p.key, "title", e.target.value)}
-                      placeholder={`Title for ${p.label}`}
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-zinc-200">{p.label} description/caption</Label>
-                    <Textarea
-                      value={meta[p.key].description}
-                      onChange={(e) => setField(p.key, "description", e.target.value)}
-                      placeholder={`Description for ${p.label}`}
-                      className="mt-2"
-                      rows={6}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-zinc-200">{p.label} tags/hashtags (comma separated)</Label>
-                    <Input
-                      value={meta[p.key].tags}
-                      onChange={(e) => setField(p.key, "tags", e.target.value)}
-                      placeholder="e.g. shorts, tutorial, ai"
-                      className="mt-2"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-zinc-200">Visibility</Label>
-                    <Select value={meta[p.key].visibility} onValueChange={(v) => setField(p.key, "visibility", v as PlatformMeta["visibility"]) }>
-                      <SelectTrigger className="mt-2">
-                        <SelectValue placeholder="Select visibility" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="public">Public</SelectItem>
-                        <SelectItem value="unlisted">Unlisted</SelectItem>
-                        <SelectItem value="private">Private</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              </TabsContent>
-            ))}
-          </Tabs>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-zinc-200">Platform-Specific Settings</h2>
+          <p className="text-sm text-zinc-400">Customize your video for each platform</p>
         </div>
-      </CardContent>
-    </Card>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsPreviewMode(!isPreviewMode)}
+            className="border-zinc-800 text-zinc-200"
+          >
+            {isPreviewMode ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            {isPreviewMode ? 'Edit' : 'Preview'}
+          </Button>
+          <Button onClick={handleSave} className="bg-emerald-600 hover:bg-emerald-500">
+            <Save className="h-4 w-4 mr-2" />
+            Save Settings
+          </Button>
+        </div>
+      </div>
+
+      {/* Platform Tabs */}
+      <Tabs value={activePlatform} onValueChange={setActivePlatform}>
+        <TabsList className="bg-zinc-900/60 border border-zinc-800">
+          {platforms.map((platform) => (
+            <TabsTrigger key={platform.key} value={platform.key} className="flex items-center gap-2">
+              {getPlatformIcon(platform.key)}
+              <span>{platform.label}</span>
+            </TabsTrigger>
+          ))}
+        </TabsList>
+
+        {platforms.map((platform) => (
+          <TabsContent key={platform.key} value={platform.key} className="mt-6">
+            <Card className="bg-zinc-950/60 border-zinc-800">
+              <CardContent className="p-6">
+                {renderPlatformContent(platform.key)}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
   );
 }
 
 export default PlatformEditor;
-
-

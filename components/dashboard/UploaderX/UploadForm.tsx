@@ -9,17 +9,22 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook } from "lucide-react";
+import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
+import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, CheckCircle, AlertCircle } from "lucide-react";
 
 type Platform = { key: string; label: string };
 
 interface UploadFormProps {
   platforms: Platform[];
+  onUploadSuccess?: (videoUuid: string) => void;
 }
 
-export function UploadForm({ platforms }: UploadFormProps) {
+export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
+  const { uploadWithProgress, isUploading, uploadProgress } = useUploaderXUpload();
+  
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
     instagram: true,
@@ -32,14 +37,45 @@ export function UploadForm({ platforms }: UploadFormProps) {
   const [defaultTitle, setDefaultTitle] = useState("");
   const [defaultDescription, setDefaultDescription] = useState("");
   const [defaultTags, setDefaultTags] = useState("");
+  const [uploadResult, setUploadResult] = useState<{ success: boolean; videoUuid?: string; error?: string } | null>(null);
 
   const isReady = useMemo(() => !!videoFile && Object.values(selectedPlatforms).some(Boolean), [videoFile, selectedPlatforms]);
 
-  const handleSubmit = () => {
-    toast({
-      title: "Simulated upload",
-      description: `Queued for ${Object.entries(selectedPlatforms).filter(([_, v]) => v).length} platform(s).`
-    });
+  const handleSubmit = async () => {
+    if (!videoFile) {
+      toast({
+        title: "No video selected",
+        description: "Please select a video file to upload.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const result = await uploadWithProgress(videoFile, (progress) => {
+        // Progress is handled by the hook
+      });
+
+      setUploadResult(result);
+
+      if (result.success) {
+        toast({
+          title: "Upload successful",
+          description: `Video uploaded successfully. Queued for ${Object.entries(selectedPlatforms).filter(([_, v]) => v).length} platform(s).`
+        });
+        
+        // Call success callback if provided
+        if (onUploadSuccess && result.videoUuid) {
+          onUploadSuccess(result.videoUuid);
+        }
+      }
+    } catch (error) {
+      toast({
+        title: "Upload failed",
+        description: "An error occurred during upload. Please try again.",
+        variant: "destructive"
+      });
+    }
   };
 
   return (
@@ -59,15 +95,69 @@ export function UploadForm({ platforms }: UploadFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label className="text-zinc-200">Video</Label>
-              <label className="mt-2 flex flex-col items-center justify-center gap-3 h-40 border-2 border-dashed border-zinc-800 rounded-lg bg-zinc-900/40 hover:bg-zinc-900/60 transition cursor-pointer">
-                <UploadCloud className="h-6 w-6 text-emerald-400" />
-                <div className="text-center">
-                  <div className="text-zinc-200 text-sm font-medium">Drag & drop your video</div>
-                  <div className="text-zinc-400 text-xs">or click to choose a file</div>
-                </div>
-                <Input type="file" accept="video/*" className="hidden" onChange={(e) => setVideoFile(e.target.files?.[0] || null)} />
+              <label className={`mt-2 flex flex-col items-center justify-center gap-3 h-40 border-2 border-dashed rounded-lg transition cursor-pointer ${
+                isUploading 
+                  ? 'border-blue-500 bg-blue-900/20 cursor-not-allowed' 
+                  : uploadResult?.success 
+                    ? 'border-green-500 bg-green-900/20' 
+                    : uploadResult?.error 
+                      ? 'border-red-500 bg-red-900/20' 
+                      : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'
+              }`}>
+                {isUploading ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
+                    <div className="text-center">
+                      <div className="text-blue-200 text-sm font-medium">Uploading...</div>
+                      <div className="text-blue-400 text-xs">{uploadProgress?.percentage || 0}% complete</div>
+                    </div>
+                    {uploadProgress && (
+                      <div className="w-full max-w-xs">
+                        <Progress value={uploadProgress.percentage} className="h-2" />
+                      </div>
+                    )}
+                  </div>
+                ) : uploadResult?.success ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <CheckCircle className="h-6 w-6 text-green-400" />
+                    <div className="text-center">
+                      <div className="text-green-200 text-sm font-medium">Upload successful</div>
+                      <div className="text-green-400 text-xs">Video ID: {uploadResult.videoUuid}</div>
+                    </div>
+                  </div>
+                ) : uploadResult?.error ? (
+                  <div className="flex flex-col items-center gap-2">
+                    <AlertCircle className="h-6 w-6 text-red-400" />
+                    <div className="text-center">
+                      <div className="text-red-200 text-sm font-medium">Upload failed</div>
+                      <div className="text-red-400 text-xs">{uploadResult.error}</div>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <UploadCloud className="h-6 w-6 text-emerald-400" />
+                    <div className="text-center">
+                      <div className="text-zinc-200 text-sm font-medium">Drag & drop your video</div>
+                      <div className="text-zinc-400 text-xs">or click to choose a file</div>
+                    </div>
+                  </>
+                )}
+                <Input 
+                  type="file" 
+                  accept="video/*" 
+                  className="hidden" 
+                  disabled={isUploading}
+                  onChange={(e) => {
+                    setVideoFile(e.target.files?.[0] || null);
+                    setUploadResult(null);
+                  }} 
+                />
               </label>
-              {videoFile && <div className="mt-2 text-xs text-zinc-400">Selected: {videoFile.name}</div>}
+              {videoFile && !isUploading && (
+                <div className="mt-2 text-xs text-zinc-400">
+                  Selected: {videoFile.name} ({(videoFile.size / (1024 * 1024)).toFixed(2)} MB)
+                </div>
+              )}
             </div>
             <div>
               <div className="flex items-center justify-between">
@@ -143,14 +233,40 @@ export function UploadForm({ platforms }: UploadFormProps) {
 
           <div className="flex items-center justify-between">
             <div className="text-sm text-zinc-400">
-              {videoFile ? videoFile.name : "No video selected"}
+              {videoFile ? `${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)` : "No video selected"}
             </div>
-            <Button disabled={!isReady} onClick={handleSubmit} className="bg-emerald-600 hover:bg-emerald-500">
-              Simulate Upload
+            <Button 
+              disabled={!isReady || isUploading} 
+              onClick={handleSubmit} 
+              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {isUploading ? "Uploading..." : "Upload Video"}
             </Button>
           </div>
 
-          <p className="text-xs text-zinc-500">Frontend only: no files are uploaded. This simulates the flow.</p>
+          {uploadResult?.success && (
+            <div className="p-3 bg-green-900/20 border border-green-500/30 rounded-lg">
+              <div className="flex items-center gap-2 text-green-200 text-sm">
+                <CheckCircle className="h-4 w-4" />
+                <span>Video uploaded successfully to GCS</span>
+              </div>
+              <div className="text-xs text-green-400 mt-1">
+                Video ID: {uploadResult.videoUuid}
+              </div>
+            </div>
+          )}
+
+          {uploadResult?.error && (
+            <div className="p-3 bg-red-900/20 border border-red-500/30 rounded-lg">
+              <div className="flex items-center gap-2 text-red-200 text-sm">
+                <AlertCircle className="h-4 w-4" />
+                <span>Upload failed</span>
+              </div>
+              <div className="text-xs text-red-400 mt-1">
+                {uploadResult.error}
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
