@@ -65,10 +65,16 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.2 }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 mb-6"
+                className="inline-flex items-center gap-3 mb-6"
               >
-                <Calendar className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">Mid November (TBA)</span>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+                  <Calendar className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                  <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">22 Nov 2025</span>
+                </div>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+                  <MapPin className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                  <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">IIIT Delhi</span>
+                </div>
               </motion.div>
 
               {/* Main Title */}
@@ -224,7 +230,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
             >
               <div className="inline-flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-sm">
                 <MapPin className="w-4 h-4" />
-                <span>Venue TBD • More details coming soon</span>
+                <span>IIIT Delhi • More details coming soon</span>
               </div>
             </motion.div>
           </div>
