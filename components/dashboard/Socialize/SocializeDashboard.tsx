@@ -33,7 +33,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import type { SocializeLink } from "@/schemas/Socialize";
+import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
+import { BannerCustomizer } from "./BannerCustomizer";
 
 interface ISocialize {
   clerkUserId: string;
@@ -91,6 +92,14 @@ export default function SocializeDashboard({
   const [bio, setBio] = useState("");
   const [showEditBioModal, setShowEditBioModal] = useState(false);
   const [links, setLinks] = useState<SocializeLink[]>(initialData?.links || []);
+  const [banner, setBanner] = useState<BannerConfig>(
+    initialData?.banner || {
+      type: 'color',
+      value: '#0e6b9c',
+      gradientType: 'linear',
+      gradientColors: []
+    }
+  );
 
   // Queries and mutations remain unchanged...
 
@@ -342,8 +351,19 @@ export default function SocializeDashboard({
       setBio(userData.bio || "");
       setMessage(userData.notifications?.[0]?.message || "");
       setDuration(userData.notifications?.[0]?.duration ?? 1);
+      setBanner(userData.banner || {
+        type: 'color',
+        value: '#0e6b9c',
+        gradientType: 'linear',
+        gradientColors: []
+      });
     }
   }, [userData]);
+
+  const handleBannerChange = (newBanner: BannerConfig) => {
+    setBanner(newBanner);
+    updateUserDataMutation.mutate({ banner: newBanner });
+  };
 
   return (
     <div className="relative">
@@ -356,13 +376,18 @@ export default function SocializeDashboard({
         <div className="grid lg:grid-cols-3 gap-8">
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-6">
+            <BannerCustomizer
+              banner={banner}
+              onBannerChange={handleBannerChange}
+              isUploading={updateUserDataMutation.isPending}
+            />
             <SocializeHeader
               user={
                 user
                   ? {
-                      username: user.username ?? undefined,
-                      imageUrl: user.imageUrl ?? undefined,
-                    }
+                    username: user.username ?? undefined,
+                    imageUrl: user.imageUrl ?? undefined,
+                  }
                   : null
               }
               bio={bio}
@@ -426,6 +451,7 @@ export default function SocializeDashboard({
                   ? (user.username ?? undefined)
                   : undefined
               }
+              userBanner={banner}
             />
           </div>
         </div>
@@ -508,11 +534,10 @@ export default function SocializeDashboard({
             <Button
               onClick={handleAddLink}
               disabled={!newLink.url.trim()}
-              className={`${
-                newLink.url.trim()
-                  ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
-                  : "bg-gray-800 text-gray-400 cursor-not-allowed"
-              }`}
+              className={`${newLink.url.trim()
+                ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+                : "bg-gray-800 text-gray-400 cursor-not-allowed"
+                }`}
             >
               Add Link
             </Button>
@@ -627,14 +652,13 @@ export default function SocializeDashboard({
                 Number(duration) < 1 ||
                 Number(duration) > 24
               }
-              className={`${
-                message &&
+              className={`${message &&
                 duration !== "" &&
                 Number(duration) >= 1 &&
                 Number(duration) <= 24
-                  ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
-                  : "bg-gray-800 text-gray-400 cursor-not-allowed"
-              }`}
+                ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+                : "bg-gray-800 text-gray-400 cursor-not-allowed"
+                }`}
             >
               Save Notification
             </Button>
@@ -726,11 +750,10 @@ export default function SocializeDashboard({
             <Button
               onClick={handleUpdateLink}
               disabled={!editingLink?.url.trim()}
-              className={`${
-                editingLink?.url.trim()
-                  ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
-                  : "bg-gray-800 text-gray-400 cursor-not-allowed"
-              }`}
+              className={`${editingLink?.url.trim()
+                ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
+                : "bg-gray-800 text-gray-400 cursor-not-allowed"
+                }`}
             >
               Save Changes
             </Button>

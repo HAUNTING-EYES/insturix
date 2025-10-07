@@ -1,7 +1,7 @@
 import axios from "axios"
 
 // Import interfaces from Socialize schema
-import type { SocializeLink } from "@/schemas/Socialize";
+import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
 
 export interface SocializeNotification {
   message: string
@@ -16,6 +16,7 @@ export interface SocializeUser {
   profileImage: string
   bio: string
   links: SocializeLink[]
+  banner?: BannerConfig
   notifications?: SocializeNotification[]
   createdAt: Date
   updatedAt: Date

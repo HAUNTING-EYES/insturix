@@ -9,6 +9,15 @@ interface UserData {
   username?: string;
   bio?: string;
   profileImage?: string;
+  banner?: {
+    type: 'image' | 'color' | 'gradient';
+    value: string;
+    gradientType?: 'linear' | 'radial';
+    gradientColors?: Array<{
+      color: string;
+      position: number;
+    }>;
+  };
   // Add other properties that might be returned by getSocializeUserData
 }
 
@@ -38,7 +47,7 @@ export async function generateMetadata({
   }
 
   // Extract user profile data with proper type safety
-  const { username, bio, profileImage } = userData;
+  const { username, bio, profileImage, banner } = userData;
   const displayName = username || uniqueUsername;
   const userBio = bio || "Socialize profile.";
   const title = `${displayName} Socialize Profile `;
@@ -55,31 +64,56 @@ export async function generateMetadata({
       description,
       type: "profile",
       url: `${process.env.SITE_URL || "https://insturix.com"}/socialize/${uniqueUsername}`,
-      images: profileImage
-        ? [
+      images: (() => {
+        // Prioritize banner image if it's an image type
+        if (banner?.type === 'image' && banner.value) {
+          return [
+            {
+              url: banner.value,
+              width: 1200,
+              height: 400,
+              alt: `${displayName}'s Socialize profile banner`,
+            },
+          ];
+        }
+        // Fall back to profile image
+        if (profileImage) {
+          return [
             {
               url: profileImage,
               width: 800,
               height: 800,
               alt: `${displayName}'s Socialize profile`,
             },
-          ]
-        : [
-            {
-              url: "/icons/products/socialize-og-image.jpg", // Default image if no profile image
-              width: 1200,
-              height: 630,
-              alt: `${displayName}'s Socialize profile`,
-            },
-          ],
+          ];
+        }
+        // Default image
+        return [
+          {
+            url: "/icons/products/socialize-og-image.jpg",
+            width: 1200,
+            height: 630,
+            alt: `${displayName}'s Socialize profile`,
+          },
+        ];
+      })(),
     },
     twitter: {
       card: "summary_large_image",
       title,
       description,
-      images: profileImage
-        ? [profileImage]
-        : ["/icons/products/socialize-og-image.jpg"],
+      images: (() => {
+        // Prioritize banner image if it's an image type
+        if (banner?.type === 'image' && banner.value) {
+          return [banner.value];
+        }
+        // Fall back to profile image
+        if (profileImage) {
+          return [profileImage];
+        }
+        // Default image
+        return ["/icons/products/socialize-og-image.jpg"];
+      })(),
       site: "@insturix",
       creator: displayName,
     },

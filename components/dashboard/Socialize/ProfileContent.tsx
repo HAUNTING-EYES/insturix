@@ -5,6 +5,7 @@ import { Bell, ExternalLink } from "lucide-react";
 import { getPlatformIcon } from "@/components/dashboard/Socialize/SocializeIcons";
 import { NotificationPanel } from "@/components/dashboard/Socialize/NotificationPanel";
 import { SocializeUser } from "@/lib/socialize/main";
+import type { BannerConfig } from "@/schemas/Socialize";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,10 +43,67 @@ export function ProfileContent({
     links = [],
     notifications = [],
     profileImage,
+    banner,
   } = socializeData;
   const displayName = username || uniqueUsername;
   const hasNotifications = notifications && notifications.length > 0;
   const hasBio = bio && bio.length > 0;
+
+  // Create default banner if none exists
+  const defaultBanner: BannerConfig = {
+    type: 'color',
+    value: '#0e6b9c',
+    gradientType: 'linear',
+    gradientColors: []
+  };
+
+  const bannerConfig = banner || defaultBanner;
+
+  // Function to create gradient CSS
+  const createGradientCSS = (colors: Array<{ color: string, position: number }>, type: string) => {
+    if (type === 'radial') {
+      return `radial-gradient(circle, ${colors.map(c => `${c.color} ${c.position}%`).join(', ')})`;
+    }
+    return `linear-gradient(135deg, ${colors.map(c => `${c.color} ${c.position}%`).join(', ')})`;
+  };
+
+  // Function to render banner
+  const renderBanner = () => {
+    switch (bannerConfig.type) {
+      case 'image':
+        return (
+          <div className={cn("w-full h-24 bg-cover bg-center bg-no-repeat", isPreview && "h-16")}>
+            <img
+              src={bannerConfig.value}
+              alt="Profile banner"
+              className="w-full h-full object-cover"
+            />
+          </div>
+        );
+      case 'color':
+        return (
+          <div
+            className={cn("w-full h-24", isPreview && "h-16")}
+            style={{ backgroundColor: bannerConfig.value }}
+          />
+        );
+      case 'gradient':
+        return (
+          <div
+            className={cn("w-full h-24", isPreview && "h-16")}
+            style={{
+              background: bannerConfig.gradientColors && bannerConfig.gradientColors.length > 0
+                ? createGradientCSS(bannerConfig.gradientColors, bannerConfig.gradientType || 'linear')
+                : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+            }}
+          />
+        );
+      default:
+        return (
+          <div className={cn("w-full h-24 bg-[#23232a]", isPreview && "h-16")} />
+        );
+    }
+  };
 
   return (
     <div
@@ -61,7 +119,7 @@ export function ProfileContent({
           isPreview && "shadow-none border-none"
         )}
       >
-        <div className={cn("h-24 bg-[#23232a]", isPreview && "h-16")}></div>
+        {renderBanner()}
         <CardContent className={cn("p-6 relative", isPreview && "p-3")}>
           <Avatar
             className={cn(
@@ -168,7 +226,7 @@ export function ProfileContent({
                   {link.title && link.title.trim() !== ""
                     ? link.title
                     : link.platform.charAt(0).toUpperCase() +
-                      link.platform.slice(1)}
+                    link.platform.slice(1)}
                 </span>
                 <p
                   className={cn(

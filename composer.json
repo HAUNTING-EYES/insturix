@@ -1,0 +1,5 @@
+{
+    "require": {
+        "superbalist/laravel-google-cloud-storage": "^2.2"
+    }
+}
