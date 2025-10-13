@@ -2,8 +2,8 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Shield, CreditCard } from "lucide-react";
+// Avoid importing SVG as module to prevent svgr loader requirement
 import Image from "next/image";
-import R from "@/public/razorpay.svg";
 import { useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import { toast } from "@/hooks/use-toast";
@@ -273,11 +273,7 @@ export function PaymentForm({ plan, billingCycle, totalAmount, onPaymentSuccess,
 
         <div className="flex items-center text-sm text-white/70 mt-4">
           {plan.paymentProvider?.provider === 'razorpay' && (
-            <Image
-              src={R}
-              alt="Razorpay"
-              className="h-5 mr-2 bg-white rounded px-1"
-            />
+            <img src="/razorpay.svg" alt="Razorpay" className="h-5 mr-2 bg-white rounded px-1" />
           )}
           Payments are powered by {plan.paymentProvider?.provider === 'razorpay' ? 'Razorpay' : 'Lemon Squeezy'}
         </div>

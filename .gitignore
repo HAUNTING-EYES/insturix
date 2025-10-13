@@ -23,4 +23,5 @@ app/dashboard/musitron/task/[id]/reference_ui
 .vscode/settings.json
 
 *.env
+react-video-editor-main
 tsconfig.tsbuildinfo

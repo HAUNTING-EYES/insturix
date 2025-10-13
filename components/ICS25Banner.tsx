@@ -34,7 +34,7 @@ export default function ICS25Banner() {
   };
 
   const handleLearnMore = () => {
-    router.push('/ics25');
+    router.push('/ics25/register');
   };
 
   if (!showBanner) return null;
@@ -57,8 +57,8 @@ export default function ICS25Banner() {
                   <span className="text-xs font-medium text-blue-700 dark:text-blue-300">22 Nov 2025 • IIIT Delhi</span>
                 </div>
                 <div className="hidden sm:block">
-                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mr-2">ICS'25 - Insturix Creator's Summit</span>
-                  <span className="text-sm text-zinc-600 dark:text-zinc-400">Registration opening soon</span>
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mr-2">ICS'25 - Gaming Tournament (Sub-Event)</span>
+                  <span className="text-sm text-zinc-600 dark:text-zinc-400">Register your team for Valorant or BGMI</span>
                 </div>
                 <div className="block sm:hidden">
                   <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">ICS'25 Summit</span>
@@ -71,8 +71,8 @@ export default function ICS25Banner() {
                   size="sm"
                   className="bg-zinc-900 dark:bg-zinc-100 hover:bg-zinc-800 dark:hover:bg-zinc-200 text-white dark:text-zinc-900 rounded-lg px-4 py-1.5 text-sm font-medium"
                 >
-                  <span className="hidden sm:inline">Learn More</span>
-                  <span className="sm:hidden">Details</span>
+                  <span className="hidden sm:inline">Register for Gaming</span>
+                  <span className="sm:hidden">Register</span>
                   <ArrowRight className="w-3 h-3 ml-1" />
                 </Button>
                 

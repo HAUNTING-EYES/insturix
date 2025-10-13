@@ -1,0 +1,50 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Typecheck Front-End",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"tsc",
+				"-p",
+				".",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Typecheck Next.js app",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"exec",
+				"next",
+				"build",
+				"--no-lint"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "typecheck-frontend",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-s",
+				"exec",
+				"tsc",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}

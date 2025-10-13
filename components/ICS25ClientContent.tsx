@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useUser } from '@clerk/nextjs';
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import CursorEffect from '@/components/ui/CursorEffect';
 import DotGrid from '@/components/DotGrid';
 
@@ -49,6 +50,7 @@ export default function ICS25ClientContent() {
   const { isSignedIn } = useUser();
   const [optedIn, setOptedIn] = useState(false);
   const LS_KEY = 'ics25_updates_optin';
+  const router = useRouter();
 
   useEffect(() => {
     if (typeof window !== 'undefined' && isSignedIn) {
@@ -61,6 +63,28 @@ export default function ICS25ClientContent() {
     try { localStorage.setItem(LS_KEY, '1'); } catch {}
     setOptedIn(true);
   }, [isSignedIn]);
+
+  const handleRegisterClick = useCallback(async () => {
+    try {
+      if (!isSignedIn) {
+        // Send unauthenticated users to signup first, then back to ICS25 register
+        const returnTo = encodeURIComponent('/ics25/register');
+        router.push(`/signup?redirect_url=${returnTo}`);
+        return;
+      }
+      const res = await fetch('/api/ics25/players/me', { cache: 'no-store', headers: { 'accept': 'application/json' } });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.player) {
+          router.push('/ics25/my');
+          return;
+        }
+      }
+    } catch {
+      // fall through on error
+    }
+    router.push('/ics25/register');
+  }, [isSignedIn, router]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950">
@@ -157,6 +181,10 @@ export default function ICS25ClientContent() {
                       <Users className="w-5 h-5 mr-2" />
                       Get Creator Pass
                     </Button>
+                    <Button onClick={handleRegisterClick} className="px-8 py-4 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(139,92,246,0.45)] transition-all duration-300 transform hover:scale-[1.03] text-lg">
+                        <Play className="w-5 h-5 mr-2" />
+                        Register for Gaming
+                      </Button>
                     <Button variant="outline" className="px-8 py-4 border-zinc-300 dark:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl font-semibold transition-all duration-300 text-lg">
                       <Play className="w-5 h-5 mr-2" />
                       Watch Teaser
@@ -239,6 +267,34 @@ export default function ICS25ClientContent() {
                 <span>IIIT Delhi • Pricing TBD • More details coming soon</span>
               </div>
             </div>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Participate in Gaming CTA */}
+      <section className="pt-12 pb-4 relative">
+        <div className="container mx-auto px-4">
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8 }}
+            viewport={{ once: true }}
+            className="max-w-4xl mx-auto"
+          >
+            <Card className="relative overflow-hidden bg-gradient-to-tr from-violet-600/10 via-fuchsia-500/10 to-sky-500/10 border-violet-500/20">
+              <span aria-hidden className="absolute -inset-1 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-sky-500/10 blur-2xl" />
+              <CardContent className="relative p-8 md:p-10">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                  <div>
+                    <h3 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">Participate in Gaming at ICS’25</h3>
+                    <p className="text-zinc-700 dark:text-zinc-300">Compete with your squad in Valorant or BGMI. Team leader registers for everyone. Entry fee is ₹500 per player.</p>
+                  </div>
+                  <Button onClick={handleRegisterClick} className="inline-flex self-start md:self-auto px-6 py-3 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(139,92,246,0.45)] transition-all duration-300">
+                      Register Now
+                    </Button>
+                </div>
+              </CardContent>
+            </Card>
           </motion.div>
         </div>
       </section>
