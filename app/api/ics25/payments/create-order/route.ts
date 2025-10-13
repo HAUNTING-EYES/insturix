@@ -21,8 +21,17 @@ export async function POST(req: NextRequest) {
     const player = await Player.findOne({ clerkUserId: userId });
     if (!player) return NextResponse.json({ ok: false, message: 'Player not found' }, { status: 404 });
 
-    const { amount = 500, currency = 'INR' } = await req.json();
-    const order = await razorpay.orders.create({ amount: amount * 100, currency, receipt: `ics25_${Date.now()}`, notes: { clerkUserId: userId } } as any);
+  const { amount = 500, currency = 'INR', referralCode } = await req.json();
+    // Attach/override referral code from payment section if provided (only if not confirmed yet)
+    if (referralCode && (!player.referredBy || player.referredBy.confirmed !== true)) {
+      const normCode = String(referralCode).trim().toLowerCase();
+      const referrer = await Player.findOne({ 'cashbacks.referral.code': normCode });
+      if (referrer && referrer.clerkUserId !== player.clerkUserId) {
+        player.referredBy = { code: normCode, referrerUserId: referrer.clerkUserId, confirmed: false } as any;
+        await player.save();
+      }
+    }
+    const order = await razorpay.orders.create({ amount: amount * 100, currency, receipt: `ics25_${Date.now()}`, notes: { clerkUserId: userId, referralCode: player?.referredBy?.code || '' } } as any);
 
     player.payment = {
       status: 'pending',

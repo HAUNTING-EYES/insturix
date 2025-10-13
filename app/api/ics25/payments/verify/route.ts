@@ -27,6 +27,21 @@ export async function POST(req: NextRequest) {
     player.payment.paymentId = paymentId;
     player.payment.signature = signature;
     player.payment.paidAt = new Date();
+    // Confirm referral attribution on successful payment
+    if (player.referredBy?.referrerUserId && player.referredBy.confirmed !== true) {
+      const referrer = await Player.findOne({ clerkUserId: player.referredBy.referrerUserId });
+      if (referrer) {
+        const ids = new Set<string>(referrer.cashbacks?.referral?.referredUserIds || []);
+        ids.add(player.clerkUserId);
+        referrer.cashbacks = referrer.cashbacks || ({} as any);
+        referrer.cashbacks.referral = referrer.cashbacks.referral || ({} as any);
+        referrer.cashbacks.referral.referredUserIds = Array.from(ids);
+        referrer.cashbacks.referral.referredCount = referrer.cashbacks.referral.referredUserIds.length;
+        if (referrer.cashbacks.referral.referredCount >= 3) referrer.cashbacks.referral.qualified = true;
+        await referrer.save();
+        player.referredBy.confirmed = true;
+      }
+    }
     await player.save();
     return NextResponse.json({ ok: true });
   } catch (e: any) {

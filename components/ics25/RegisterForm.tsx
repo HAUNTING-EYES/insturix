@@ -28,6 +28,7 @@ type TeamMember = { name: string; bgmi?: BgmiDetails; valorant?: ValorantDetails
 
 export default function RegisterForm() {
   const { user } = useUser();
+  const [referral, setReferral] = useState<string | null>(null);
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
   const [checking, setChecking] = useState(true);
@@ -58,6 +59,14 @@ export default function RegisterForm() {
       }
     }
   }, [user]);
+  useEffect(() => {
+    // Read referral code from URL if present
+    try {
+      const url = new URL(window.location.href);
+      const ref = url.searchParams.get('ref');
+      if (ref) setReferral(ref);
+    } catch {}
+  }, []);
   
   // Client-side guard: if a player already exists, redirect to portal immediately
   useEffect(() => {
@@ -186,6 +195,7 @@ export default function RegisterForm() {
         discord: leader.discord,
         game,
         gameDetails: game === 'valorant' ? { valorant: leaderVal } : { bgmi: leaderBgmi },
+        referralCode: referral || undefined,
       };
       const res = await fetch('/api/ics25/players', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(playerPayload) });
       const data = await res.json();

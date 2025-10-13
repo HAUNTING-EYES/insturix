@@ -25,6 +25,21 @@ const PaymentSchema = new Schema({
   paidAt: Date,
 }, { _id: false });
 
+const CashbackTaskSchema = new Schema({
+  status: { type: String, enum: ['none', 'submitted', 'verified', 'rejected'], default: 'none' },
+  proofUrl: String,
+  amount: Number,
+  verifiedAt: Date,
+}, { _id: false });
+
+const ReferralSchema = new Schema({
+  code: { type: String },
+  referredCount: { type: Number, default: 0 },
+  referredUserIds: { type: [String], default: [] },
+  qualified: { type: Boolean, default: false },
+  amount: Number,
+}, { _id: false });
+
 const PlayerSchema = new Schema({
   clerkUserId: { type: String, index: true },
   name: String,
@@ -37,6 +52,16 @@ const PlayerSchema = new Schema({
   teamCode: { type: String, default: 'awaiting' },
   teamRequests: { type: [String], default: [] }, // list of codes
   payment: PaymentSchema,
+  cashbacks: {
+    promoReel: { type: CashbackTaskSchema, default: () => ({ amount: 100, status: 'none' }) },
+    linkedinPost: { type: CashbackTaskSchema, default: () => ({ amount: 75, status: 'none' }) },
+    referral: { type: ReferralSchema, default: () => ({ amount: 75, referredCount: 0, referredUserIds: [], qualified: false }) },
+  },
+  referredBy: {
+    code: { type: String },
+    referrerUserId: { type: String },
+    confirmed: { type: Boolean, default: false },
+  },
   meta: Schema.Types.Mixed,
 }, { timestamps: true });
 

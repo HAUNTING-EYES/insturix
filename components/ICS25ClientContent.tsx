@@ -67,7 +67,9 @@ export default function ICS25ClientContent() {
   const handleRegisterClick = useCallback(async () => {
     try {
       if (!isSignedIn) {
-        router.push('/ics25/register');
+        // Send unauthenticated users to signup first, then back to ICS25 register
+        const returnTo = encodeURIComponent('/ics25/register');
+        router.push(`/signup?redirect_url=${returnTo}`);
         return;
       }
       const res = await fetch('/api/ics25/players/me', { cache: 'no-store', headers: { 'accept': 'application/json' } });

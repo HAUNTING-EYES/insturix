@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Copy, Users, CreditCard, CheckCircle2, Clock, ShieldAlert, Link as LinkIcon, CircleDollarSign, LogOut, Trash2, Info } from "lucide-react";
+import { Copy, Users, CreditCard, CheckCircle2, Clock, ShieldAlert, Link as LinkIcon, CircleDollarSign, LogOut, Trash2, Info, Check, X } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +38,9 @@ export default function PortalManager() {
   const [joining, setJoining] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [paying, setPaying] = useState(false);
+  const [paymentReferralCode, setPaymentReferralCode] = useState("");
+  const [checkingRef, setCheckingRef] = useState(false);
+  const [refCheck, setRefCheck] = useState<{ status: 'idle'|'valid'|'invalid'|'self'|'error'; message?: string; ownerName?: string } | null>(null);
 
   const [activeTab, setActiveTab] = useState<string>("registration");
 
@@ -53,6 +56,8 @@ export default function PortalManager() {
   const [pendingProfiles, setPendingProfiles] = useState<any[]>([]);
   const [memberProfiles, setMemberProfiles] = useState<any[]>([]);
   const [invitedTeam, setInvitedTeam] = useState<any | null>(null);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [proofs, setProofs] = useState<{ promoReel?: string; linkedinPost?: string }>({});
 
   useEffect(() => {
     (async () => {
@@ -74,6 +79,9 @@ export default function PortalManager() {
             ign: p.gameDetails?.bgmi?.ign || "",
             uid: p.gameDetails?.bgmi?.uid || "",
           });
+          // Preload referral code if exists
+          const code = p?.cashbacks?.referral?.code || null;
+          setReferralCode(code);
         }
         if (meData?.player?.teamCode && meData.player.teamCode !== 'awaiting') {
           const tr = await fetch(`/api/ics25/teams?code=${encodeURIComponent(meData.player.teamCode)}`);
@@ -289,8 +297,19 @@ export default function PortalManager() {
 
   const handlePayNow = async () => {
     try {
+      const trimmed = (paymentReferralCode || '').trim();
+      if (trimmed) {
+        if (refCheck?.status === 'self') {
+          toast({ title: 'Invalid referral', description: 'You cannot use your own referral code.', variant: 'destructive' as any });
+          return;
+        }
+        if (refCheck?.status === 'invalid') {
+          toast({ title: 'Invalid referral', description: 'This referral code is not valid. Clear it or check another code.', variant: 'destructive' as any });
+          return;
+        }
+      }
       setPaying(true);
-      const cr = await fetch('/api/ics25/payments/create-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 500 }) });
+      const cr = await fetch('/api/ics25/payments/create-order', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: 500, referralCode: trimmed ? trimmed.toLowerCase() : undefined }) });
       const cd = await cr.json();
       if (!cd.ok) throw new Error(cd.message || 'Failed to create order');
 
@@ -335,6 +354,29 @@ export default function PortalManager() {
     }
   };
 
+  const handleCheckReferral = async () => {
+    const code = (paymentReferralCode || '').trim().toLowerCase();
+    if (!code) { setRefCheck({ status: 'error', message: 'Enter a referral code to check' }); return; }
+    setCheckingRef(true);
+    setRefCheck(null);
+    try {
+      const r = await fetch(`/api/ics25/referrals/validate?code=${encodeURIComponent(code)}`);
+      const d = await r.json();
+      if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Failed to check');
+      if (!d.valid) {
+        setRefCheck({ status: 'invalid', message: 'Invalid referral code' });
+      } else if (d.self) {
+        setRefCheck({ status: 'self', message: 'You cannot use your own code' });
+      } else {
+        setRefCheck({ status: 'valid', message: `Valid — belongs to ${d.owner?.name || 'a player'}`, ownerName: d.owner?.name });
+      }
+    } catch (e: any) {
+      setRefCheck({ status: 'error', message: e.message || 'Could not validate code' });
+    } finally {
+      setCheckingRef(false);
+    }
+  };
+
   const saveProfile = async () => {
     try {
       setSavingProfile(true);
@@ -354,6 +396,38 @@ export default function PortalManager() {
       toast({ title: "Save failed", description: e.message || 'Please try again later', variant: "destructive" as any });
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const ensureReferral = async () => {
+    try {
+      const r = await fetch('/api/ics25/players', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cashback.referral.ensure' }) });
+      const d = await r.json();
+      if (r.ok && d.ok) {
+        setReferralCode(d.code || null);
+        toast({ title: 'Referral ready', description: 'Share your code/link to earn cashback.' });
+      } else {
+        throw new Error(d?.message || 'Failed to generate referral');
+      }
+    } catch (e: any) {
+      toast({ title: 'Error', description: e.message || 'Could not generate referral', variant: 'destructive' as any });
+    }
+  };
+
+  const submitCashback = async (task: 'promoReel'|'linkedinPost') => {
+    const url = task === 'promoReel' ? proofs.promoReel : proofs.linkedinPost;
+    if (!url || !/^https?:\/\//i.test(url)) {
+      toast({ title: 'Proof link required', description: 'Paste a valid public URL as proof.', variant: 'destructive' as any });
+      return;
+    }
+    try {
+      const r = await fetch('/api/ics25/players', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'cashback.submit', task, proofUrl: url }) });
+      const d = await r.json();
+      if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Submission failed');
+      toast({ title: 'Submitted', description: 'We will verify this within 48 hours.' });
+      await refreshMe();
+    } catch (e: any) {
+      toast({ title: 'Submission error', description: e.message || 'Try again later', variant: 'destructive' as any });
     }
   };
 
@@ -861,17 +935,114 @@ export default function PortalManager() {
         <TabsContent value="cashbacks">
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2 space-y-4">
+              {/* Cashback Summary */}
+              {(() => {
+                const promo = me?.cashbacks?.promoReel;
+                const linkedin = me?.cashbacks?.linkedinPost;
+                const refer = me?.cashbacks?.referral;
+                const amtPromo = promo?.amount ?? 100;
+                const amtLinkedin = linkedin?.amount ?? 75;
+                const amtReferral = refer?.amount ?? 75;
+                const earned = (promo?.status === 'verified' ? amtPromo : 0)
+                  + (linkedin?.status === 'verified' ? amtLinkedin : 0)
+                  + (refer?.qualified ? amtReferral : 0);
+                const pending = (promo?.status === 'submitted' ? amtPromo : 0)
+                  + (linkedin?.status === 'submitted' ? amtLinkedin : 0);
+                return (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Cashback Summary</CardTitle>
+                      <CardDescription>Track your cashback progress</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-md border border-zinc-800/50 p-3">
+                          <div className="text-white/60">Earned</div>
+                          <div className="text-white/90 text-base font-semibold">₹ {earned}</div>
+                        </div>
+                        <div className="rounded-md border border-zinc-800/50 p-3">
+                          <div className="text-white/60">Pending Review</div>
+                          <div className="text-white/90 text-base font-semibold">₹ {pending}</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 text-xs text-white/50">Note: Submissions are reviewed within 48 hours. Approved tasks will move to Earned.</div>
+                    </CardContent>
+                  </Card>
+                );
+              })()}
+
+              {/* Promo Reel Task */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Cashback offers</CardTitle>
-                  <CardDescription>Complete tasks to earn cashback</CardDescription>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Promo Reel — ₹100</CardTitle>
+                  <CardDescription>Post a reel tagging @insturix and #ICS25 #insturix</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <ul className="list-disc list-inside text-sm text-white/70 space-y-1">
-                    <li>Get up to ₹250 cashback by completing partner tasks.</li>
-                    <li>Follow Insturix on Instagram and share your team link.</li>
-                    <li>Join our Discord and verify your Riot/BGMI ID.</li>
-                  </ul>
+                <CardContent className="space-y-3">
+                  {(() => {
+                    const st = me?.cashbacks?.promoReel?.status || 'none';
+                    if (st === 'submitted') {
+                      return <div className="text-xs rounded-md border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2">Under review — we’ll verify this within 48 hours.</div>;
+                    }
+                    if (st === 'verified') {
+                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹100 will be credited.</div>;
+                    }
+                    if (st === 'rejected') {
+                      return <div className="text-xs rounded-md border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2">Rejected — please resubmit with valid proof.</div>;
+                    }
+                    return null;
+                  })()}
+                  <div className="text-xs text-white/60">Status: <span className="text-white/80 font-medium">{me?.cashbacks?.promoReel?.status || 'none'}</span></div>
+                  <div className="flex gap-2">
+                    <Input placeholder="Link to your reel (Instagram Reels, YouTube Shorts, etc.)" value={proofs.promoReel || ''} onChange={(e)=>setProofs(p=>({...p, promoReel: e.target.value}))} />
+                    <Button size="sm" onClick={()=>submitCashback('promoReel')} disabled={(me?.cashbacks?.promoReel?.status === 'submitted' || me?.cashbacks?.promoReel?.status === 'verified') || !(proofs.promoReel && /^https?:\/\//i.test(proofs.promoReel))}>{me?.cashbacks?.promoReel?.status === 'submitted' ? 'In Review' : 'Submit'}</Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* LinkedIn Post Task */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> LinkedIn Post — ₹75</CardTitle>
+                  <CardDescription>Write a LinkedIn post tagging Insturix about ICS’25</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {(() => {
+                    const st = me?.cashbacks?.linkedinPost?.status || 'none';
+                    if (st === 'submitted') {
+                      return <div className="text-xs rounded-md border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2">Under review — we’ll verify this within 48 hours.</div>;
+                    }
+                    if (st === 'verified') {
+                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹75 will be credited.</div>;
+                    }
+                    if (st === 'rejected') {
+                      return <div className="text-xs rounded-md border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2">Rejected — please resubmit with valid proof.</div>;
+                    }
+                    return null;
+                  })()}
+                  <div className="text-xs text-white/60">Status: <span className="text-white/80 font-medium">{me?.cashbacks?.linkedinPost?.status || 'none'}</span></div>
+                  <div className="flex gap-2">
+                    <Input placeholder="Link to your LinkedIn post" value={proofs.linkedinPost || ''} onChange={(e)=>setProofs(p=>({...p, linkedinPost: e.target.value}))} />
+                    <Button size="sm" onClick={()=>submitCashback('linkedinPost')} disabled={(me?.cashbacks?.linkedinPost?.status === 'submitted' || me?.cashbacks?.linkedinPost?.status === 'verified') || !(proofs.linkedinPost && /^https?:\/\//i.test(proofs.linkedinPost))}>{me?.cashbacks?.linkedinPost?.status === 'submitted' ? 'In Review' : 'Submit'}</Button>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Referral Task */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Referral — ₹75</CardTitle>
+                  <CardDescription>Earn cashback by registering 3 people via your referral</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="text-sm text-white/80">Your referral code</div>
+                  <div className="flex items-center gap-2">
+                    <Input readOnly value={referralCode || ''} placeholder="Generate your code" />
+                    <Button size="sm" onClick={ensureReferral} disabled={!!referralCode}>Generate</Button>
+                    {referralCode && (
+                      <Button size="sm" variant="secondary" onClick={() => copy(`${window.location.origin}/ics25/register?ref=${encodeURIComponent(referralCode)}`)}>Copy link</Button>
+                    )}
+                  </div>
+                  <div className="text-xs text-white/60">Progress: {me?.cashbacks?.referral?.referredCount || 0}/3 • {me?.cashbacks?.referral?.qualified ? 'Qualified — ₹75 added to Earned' : 'Not yet qualified'}</div>
                 </CardContent>
               </Card>
             </div>
@@ -909,11 +1080,32 @@ export default function PortalManager() {
               {me?.payment?.status === 'paid' ? (
                 <div className="mt-1 text-sm text-emerald-400">Payment confirmed</div>
               ) : (
-                <div className="flex items-center gap-2">
-                  <Button onClick={handlePayNow} disabled={paying} className="gap-1">
-                    <CircleDollarSign className="h-4 w-4" /> {paying ? 'Processing…' : 'Pay Now'}
-                  </Button>
-                  <div className="text-xs text-white/60">You'll be redirected to Razorpay to complete payment.</div>
+                <div className="space-y-3">
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-white/60">Referral code (optional)</label>
+                      <div className="flex gap-2">
+                        <Input placeholder="Have a referral code?" value={paymentReferralCode} onChange={(e)=>{ setPaymentReferralCode(e.target.value); setRefCheck(null); }} />
+                        <Button type="button" variant="outline" onClick={handleCheckReferral} disabled={checkingRef || !paymentReferralCode.trim()} className="whitespace-nowrap">
+                          {checkingRef ? 'Checking…' : 'Check'}
+                        </Button>
+                      </div>
+                      {refCheck?.status && (
+                        <div className={`mt-2 text-[12px] flex items-center gap-1 ${refCheck.status==='valid' ? 'text-emerald-400' : refCheck.status==='self' ? 'text-amber-400' : refCheck.status==='invalid' || refCheck.status==='error' ? 'text-red-400' : 'text-white/60'}`}>
+                          {refCheck.status==='valid' && <Check className="h-3.5 w-3.5" />}
+                          {(refCheck.status==='invalid' || refCheck.status==='error' || refCheck.status==='self') && <X className="h-3.5 w-3.5" />}
+                          <span>{refCheck.message}</span>
+                        </div>
+                      )}
+                      <div className="mt-1 text-[11px] text-white/50">If you have a referral code, enter it now so your referrer can be credited when your payment is verified.</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={handlePayNow} disabled={paying} className="gap-1">
+                      <CircleDollarSign className="h-4 w-4" /> {paying ? 'Processing…' : 'Pay Now'}
+                    </Button>
+                    <div className="text-xs text-white/60">You'll be redirected to Razorpay to complete payment.</div>
+                  </div>
                 </div>
               )}
             </CardContent>
