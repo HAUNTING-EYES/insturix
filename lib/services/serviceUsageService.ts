@@ -1,7 +1,7 @@
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import { IServiceLimits, IServiceLimit } from "@/schemas/user";
-import { getPlanLimits } from "@/lib/config/serviceLimits";
+import { getPlanLimits, UNIFIED_SERVICE_LIMITS } from "@/lib/config/serviceLimits";
 
 export interface ServiceUsageInfo {
   hasAccess: boolean;
@@ -34,6 +34,10 @@ export class ServiceUsageService {
       throw new Error(`User not found: ${userId}`);
     }
 
+    const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+    const planLimits = getPlanLimits(serviceName, normalizedPlanType);
+    ServiceUsageService.cleanupObsoleteLimits(user, serviceName, planLimits);
+
     // First try to get from user's current plan
     let serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
       (limit: IServiceLimit) => limit.limitType === limitType
@@ -42,7 +46,6 @@ export class ServiceUsageService {
     // If not found, get from unified configuration and add to user's plan
     if (!serviceLimit) {
       try {
-        const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
         const configLimit = planLimits.find(limit => limit.limitType === limitType);
         
         if (configLimit) {
@@ -123,6 +126,10 @@ export class ServiceUsageService {
       throw new Error(`User not found: ${userId}`);
     }
 
+    const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+    const planLimits = getPlanLimits(serviceName, normalizedPlanType);
+    ServiceUsageService.cleanupObsoleteLimits(user, serviceName, planLimits);
+
     // First try to get from user's current plan
     let serviceLimit = user.currentPlan.serviceLimits[serviceName]?.find(
       (limit: IServiceLimit) => limit.limitType === limitType
@@ -131,7 +138,6 @@ export class ServiceUsageService {
     // If not found, get from unified configuration and add to user's plan
     if (!serviceLimit) {
       try {
-        const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
         const configLimit = planLimits.find(limit => limit.limitType === limitType);
         
         if (configLimit) {
@@ -219,7 +225,7 @@ export class ServiceUsageService {
   /**
    * Get usage info for all services
    */
-  static async getServiceUsageForAllServices(userId: string): Promise<Record<string, Record<string, ServiceUsageInfo>>> {
+ static async getServiceUsageForAllServices(userId: string): Promise<Record<string, Record<string, ServiceUsageInfo>>> {
     await connectToDatabase();
 
     // Select only needed fields for better performance - fetch user once
@@ -234,6 +240,16 @@ export class ServiceUsageService {
     if (resetServices.length > 0) {
       console.log(`[ServiceUsageService] Auto-reset completed. Reset services:`, resetServices);
     }
+
+    // Clean up obsolete limits for all services
+    const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+    const allServices = Object.keys(UNIFIED_SERVICE_LIMITS) as (keyof IServiceLimits)[];
+    for (const sName of allServices) {
+      const pLimits = getPlanLimits(sName, normalizedPlanType);
+      ServiceUsageService.cleanupObsoleteLimits(user, sName, pLimits);
+    }
+    user.markModified('currentPlan.serviceLimits');
+    await user.save();
 
     const result: Record<string, Record<string, ServiceUsageInfo>> = {};
 
@@ -319,7 +335,8 @@ export class ServiceUsageService {
       // If not found, get from unified configuration and add to user's plan
       if (!serviceLimit) {
         try {
-          const planLimits = getPlanLimits(serviceName, user.currentPlan.name);
+          const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+          const planLimits = getPlanLimits(serviceName, normalizedPlanType);
           const configLimit = planLimits.find(limit => limit.limitType === limitType);
           
           if (configLimit) {
@@ -335,6 +352,7 @@ export class ServiceUsageService {
             };
             
             user.currentPlan.serviceLimits[serviceName].push(serviceLimit);
+            ServiceUsageService.cleanupObsoleteLimits(user, serviceName, planLimits);
             user.markModified('currentPlan.serviceLimits');
             await user.save();
             
@@ -350,18 +368,26 @@ export class ServiceUsageService {
       }
     } else if (serviceName) {
       // Reset all limits for a service
+      const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+      const planLimits = getPlanLimits(serviceName, normalizedPlanType);
+      ServiceUsageService.cleanupObsoleteLimits(user, serviceName, planLimits);
+      
       user.currentPlan.serviceLimits[serviceName]?.forEach((limit: IServiceLimit) => {
         limit.currentUsage = 0;
         limit.lastReset = now;
       });
     } else {
       // Reset all limits for all services
-      Object.keys(user.currentPlan.serviceLimits).forEach(service => {
-        user.currentPlan.serviceLimits[service as keyof IServiceLimits].forEach((limit: IServiceLimit) => {
+      const normalizedPlanType = ServiceUsageService.normalizePlanType(user.currentPlan.name);
+      const allServices = Object.keys(UNIFIED_SERVICE_LIMITS) as (keyof IServiceLimits)[];
+      for (const sName of allServices) {
+        const pLimits = getPlanLimits(sName, normalizedPlanType);
+        ServiceUsageService.cleanupObsoleteLimits(user, sName, pLimits);
+        user.currentPlan.serviceLimits[sName]?.forEach((limit: IServiceLimit) => {
           limit.currentUsage = 0;
           limit.lastReset = now;
         });
-      });
+      }
     }
 
     user.markModified('currentPlan.serviceLimits');
@@ -460,6 +486,49 @@ export class ServiceUsageService {
     const minutes = Math.floor((timeLeft % (60 * 60 * 1000)) / (60 * 1000));
 
     return { days, hours, minutes, totalMs: timeLeft };
+  }
+
+  private static normalizePlanType(planName: string): "free" | "plus" | "pro" | "premium" {
+    const planTypeMap: Record<string, "free" | "plus" | "pro" | "premium"> = {
+      'free': 'free',
+      'plus': 'plus',
+      'pro': 'pro',
+      'premium': 'premium',
+      'Free Plan': 'free',
+      'Plus Plan': 'plus',
+      'Pro Plan': 'pro',
+      'Premium Plan': 'premium'
+    };
+    
+    if (!planName) {
+      console.warn(`[ServiceUsageService] Plan name is undefined or null, defaulting to 'free'`);
+      return 'free';
+    }
+    return planTypeMap[planName] || planTypeMap[planName.toLowerCase()] || 'free';
+  }
+
+  private static cleanupObsoleteLimits(user: any, serviceName: keyof IServiceLimits, planLimits: any[]): boolean {
+    const validLimitTypes = planLimits.map(limit => limit.limitType);
+    const currentLimits = user.currentPlan.serviceLimits[serviceName];
+    
+    if (Array.isArray(currentLimits)) {
+      console.log(`[ServiceUsageService] Checking ${String(serviceName)} for user ${user.clerkUserId} - valid types: [${validLimitTypes.join(', ')}], current: [${currentLimits.map(l => l.limitType).join(', ')}]`);
+      
+      const filteredLimits = currentLimits.filter(
+        (limit: IServiceLimit) => validLimitTypes.includes(limit.limitType)
+      );
+      
+      if (filteredLimits.length !== currentLimits.length) {
+        const removedCount = currentLimits.length - filteredLimits.length;
+        const removedLimits = currentLimits.filter(
+          (limit: IServiceLimit) => !validLimitTypes.includes(limit.limitType)
+        );
+        console.log(`[ServiceUsageService] Removed ${removedCount} obsolete limits for ${String(serviceName)} user ${user.clerkUserId}: [${removedLimits.map(l => l.limitType).join(', ')}]`);
+        user.currentPlan.serviceLimits[serviceName] = filteredLimits;
+        return true; // Changes made
+      }
+    }
+    return false;
   }
 
   /**

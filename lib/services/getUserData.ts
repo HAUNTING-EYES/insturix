@@ -1,4 +1,4 @@
-import { auth, clerkClient } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { User } from "@/schemas/user";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { UserInitializationService } from "@/lib/services/userInitializationService";
@@ -52,8 +52,41 @@ export async function getUserData() {
     let user = await Promise.race([dbPromise, timeoutPromise]) as any;
 
     if (!user) {
-      console.log(`User not found in database for Clerk ID: ${userId}, returning null for client-side initialization`);
-      return null; // Let client handle user creation
+      console.log(`User not found in database for Clerk ID: ${userId}, initializing server-side`);
+      
+      // Server-side initialization for new users
+      const clerkUser = await currentUser();
+      if (clerkUser) {
+        const initResult = await UserInitializationService.ensureUserExists(
+          userId,
+          clerkUser.emailAddresses[0]?.emailAddress || "",
+          clerkUser.username || clerkUser.firstName || clerkUser.lastName || "default-username",
+          clerkUser.imageUrl
+        );
+        
+        if (initResult.error) {
+          console.error(`Failed to initialize user server-side: ${initResult.error}`);
+          return null;
+        }
+        
+        console.log(`Server-side user initialization successful for ${userId}, isNewUser: ${initResult.isNewUser}`);
+        
+        // Refetch user after initialization
+        const refetchPromise = (async () => {
+          await connectToDatabase();
+          return User.findOne({ clerkUserId: userId }).lean();
+        })();
+        
+        user = await Promise.race([refetchPromise, timeoutPromise]) as any;
+        
+        if (!user) {
+          console.error(`Failed to refetch user after server-side initialization: ${userId}`);
+          return null;
+        }
+      } else {
+        console.error("Clerk user not found during server-side initialization");
+        return null;
+      }
     }
 
     // Quick plan expiration check without saving (non-blocking)

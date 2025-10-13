@@ -1,0 +1,975 @@
+"use client";
+
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import { CanvasActions } from "../canvas/CanvasActions";
+import { VariationsGallery } from "../canvas/VariationsGallery";
+import { AICommandConsole } from "../canvas/AICommandConsole";
+import { NewVariationConsole } from "../canvas/NewVariationConsole";
+import { Input } from "@/components/ui/input";
+import { Grid, Sliders, X } from "lucide-react";
+import useClickatronStore from "@/stores/useCanvasStore";
+import { ImageDisplay } from "../canvas/ImageDisplay";
+import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
+import { useDebounce } from "use-debounce";
+import { produce } from "immer";
+import { CanvasControls } from "../canvas/CanvasControls";
+import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
+import { Settings, AlertTriangle } from "lucide-react";
+import { downloadImageWithFineTuning, getImageUrl } from "@/lib/frontend/services/clickatron-download";
+import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
+
+interface CanvasStageProps {
+  videoIdea: string;
+  onComplete: () => void;
+  isGenerating: boolean;
+}
+
+const fadeIn = {
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.4, ease: "easeOut" } as any,
+};
+
+// Helper function to get aspect ratio dimensions
+const getAspectRatioDimensions = (
+  aspectRatio: string,
+  maxWidth: number,
+  maxHeight: number
+) => {
+  const [widthRatio, heightRatio] = aspectRatio.split(":").map(Number);
+  const ratio = widthRatio / heightRatio;
+
+  let width = maxWidth;
+ let height = width / ratio;
+
+  if (height > maxHeight) {
+    height = maxHeight;
+    width = height * ratio;
+  }
+
+  return { width, height };
+};
+
+// Blank Canvas Component
+const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
+  const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      const containerWidth = window.innerWidth - 400; // Approximate sidebar widths
+      const containerHeight = window.innerHeight - 200; // Header and padding
+      const { width, height } = getAspectRatioDimensions(
+        aspectRatio,
+        Math.min(containerWidth * 0.8, 1200),
+        Math.min(containerHeight * 0.8, 800)
+      );
+      setDimensions({ width, height });
+    };
+
+    updateDimensions();
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
+  }, [aspectRatio]);
+
+  return (
+    <div
+      className="bg-zinc-800/30 border-2 border-dashed border-zinc-600/50 flex items-center justify-center rounded-lg transition-all duration-300"
+      style={{
+        width: `${dimensions.width}px`,
+        height: `${dimensions.height}px`,
+        minWidth: "300px",
+        minHeight: "200px",
+      }}
+    >
+      <div className="text-center">
+        <div className="text-zinc-400 text-lg mb-2">
+          Create Variation to Start
+        </div>
+        <div className="text-zinc-500/70 text-sm">
+          Use the AI console below to generate an image
+        </div>
+        <div className="text-zinc-600 text-xs mt-2">
+          {aspectRatio} aspect ratio
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// No Variation Selected Component
+const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
+  aspectRatio,
+}) => {
+  const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      const containerWidth = window.innerWidth - 400; // Approximate sidebar widths
+      const containerHeight = window.innerHeight - 200; // Header and padding
+      const { width, height } = getAspectRatioDimensions(
+        aspectRatio,
+        Math.min(containerWidth * 0.8, 1200),
+        Math.min(containerHeight * 0.8, 800)
+      );
+      setDimensions({ width, height });
+    };
+
+    updateDimensions();
+    window.addEventListener("resize", updateDimensions);
+    return () => window.removeEventListener("resize", updateDimensions);
+  }, [aspectRatio]);
+
+  return (
+    <div
+      className="bg-zinc-800/20 border-2 border-dashed border-zinc-700/30 flex items-center justify-center rounded-lg transition-all duration-300"
+      style={{
+        width: `${dimensions.width}px`,
+        height: `${dimensions.height}px`,
+        minWidth: "300px",
+        minHeight: "200px",
+      }}
+    >
+      <div className="text-center">
+        <div className="text-zinc-400 text-lg mb-2">Select a Variation</div>
+        <div className="text-zinc-500/70 text-sm">
+          Choose a variation from the gallery to view and edit
+        </div>
+        <div className="text-zinc-600 text-xs mt-2">
+          {aspectRatio} aspect ratio
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export function CanvasStage({ videoIdea }: CanvasStageProps) {
+  // All hooks must be called at the top level, before any early returns
+  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved, loadSession, updateVariation } =
+    useClickatronStore();
+  const [activeVariationId, setActiveVariationId] = useState<string | null>(
+    null
+  );
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
+  const [mobilePanel, setMobilePanel] = useState<'none' | 'gallery' | 'fine-tune'>('none');
+
+  const panelVariants = {
+    hidden: { y: '100%', opacity: 0 },
+    visible: { y: 0, opacity: 1 },
+    exit: { y: '100%', opacity: 0 }
+  };
+  const imageRef = useRef<ReactZoomPanPinchRef>(null);
+  const lastSyncedCanvasRef = useRef<string | null>(null);
+  const isInitialMount = useRef(true);
+  const renderCount = useRef(0);
+  const [localActiveVariation, setLocalActiveVariation] = useState(activeVariationId);
+  const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Debug: Track re-renders (only warn if excessive)
+  renderCount.current += 1;
+  if (renderCount.current > 50 && renderCount.current % 10 === 0) {
+    console.warn("CanvasStage re-rendered", renderCount.current, "times - check for infinite loops");
+  }
+
+  const canvas = task?.details.canvas;
+  // Ref to store the current canvas to prevent unnecessary re-renders
+  const canvasRef = useRef(canvas);
+  const variations = canvas?.variations || [];
+
+  // Get aspect ratio from session
+  const currentAspectRatio = task?.details.aspectRatio || "16:9";
+  const [aspectRatio, setAspectRatio] = useState<string>(currentAspectRatio);
+
+  const [debouncedCanvas] = useDebounce(canvas, 1000);
+
+  // Update canvasRef when canvas changes
+  useEffect(() => {
+    canvasRef.current = canvas;
+  }, [canvas]);
+
+  // Check for generating variations on component mount and start polling
+  useEffect(() => {
+    if (task?._id && variations.length > 0) {
+      const generatingVariations = variations.filter(v => v.status === 'generating');
+      if (generatingVariations.length > 0) {
+        console.log('Found generating variations on mount, starting polling:', generatingVariations.map(v => v.id));
+        abortControllerRef.current = new AbortController();
+        generatingVariations.forEach(variation => {
+          pollVariationCompletion(
+            task._id!,
+            variation.id,
+            loadSession,
+            () => useClickatronStore.getState().task,
+            undefined,
+            2000,
+            abortControllerRef.current!.signal
+          ).catch(err => {
+            if (err.message !== 'Polling aborted') {
+              console.error('Polling error:', err);
+            }
+          });
+        });
+      }
+    }
+  }, []); // Empty dependency array to run only once on mount
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (abortControllerRef.current) {
+        console.log('Aborting polling on unmount');
+        abortControllerRef.current.abort();
+      }
+    };
+  }, []);
+
+  // Update active variation if none is selected
+ useEffect(() => {
+    if (!localActiveVariation && variations.length > 0) {
+      setLocalActiveVariation(variations[0].id);
+      setActiveVariationId(variations[0].id);
+    }
+  }, [variations, localActiveVariation, setActiveVariationId]);
+
+
+ // Autosave canvas - simplified approach
+ useEffect(() => {
+    // Skip on initial mount to prevent immediate sync
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      if (debouncedCanvas) {
+        lastSyncedCanvasRef.current = JSON.stringify(debouncedCanvas);
+      }
+      return;
+    }
+
+    if (!debouncedCanvas || !task?._id || isSaving) {
+      return;
+    }
+
+    const currentCanvasString = JSON.stringify(debouncedCanvas);
+    const isDifferentFromLastSync = currentCanvasString !== lastSyncedCanvasRef.current;
+
+    if (isDifferentFromLastSync) {
+      console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!", {
+        taskId: task._id,
+        variationsCount: debouncedCanvas.variations?.length
+      });
+      lastSyncedCanvasRef.current = currentCanvasString;
+      syncCanvas(task._id, debouncedCanvas);
+    }
+  }, [debouncedCanvas, task?._id, isSaving]);
+
+  const activeVariation = variations.find((v) => v.id === localActiveVariation);
+
+  // Update aspect ratio when active variation changes (only for blank variations)
+  useEffect(() => {
+    if (activeVariation && activeVariation.status === "blank") {
+      setAspectRatio(activeVariation.aspectRatio);
+    }
+  }, [activeVariation]);
+
+  const handleVariationSelect = useCallback((variationId: string) => {
+    setLocalActiveVariation(variationId);
+    setActiveVariationId(variationId);
+  }, [setActiveVariationId]);
+
+  const handleAIGenerate = async (
+    prompt: string,
+    referenceImages?: File[],
+    modelId?: string
+  ) => {
+    if (!canvas || !task?._id) return;
+
+    // Check if the active variation is blank
+    const isBlank = activeVariation?.status === "blank";
+
+    // Generate idempotency key to prevent duplicate requests
+    const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+
+    try {
+      // Use the passed modelId, or fall back to the active variation's modelId, or use default
+      const selectedModelId = modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
+
+      // Create FormData
+      const formData = new FormData();
+      formData.append("prompt", prompt);
+      formData.append("modelId", selectedModelId);
+      formData.append("parentVariationId", activeVariationId || "");
+      formData.append("fineTuning", JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
+      formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
+      formData.append("aspectRatio", aspectRatio);
+
+      // If the active variation is blank, indicate that we want to update it
+      if (isBlank && activeVariationId) {
+        formData.append("updateExistingBlank", "true");
+      }
+
+      // Append reference images
+      referenceImages?.forEach((file, index) => {
+        formData.append(`referenceImages`, file);
+      });
+
+      const response = await fetch(
+        `/api/services/clickatron/session/${task._id}/variation`,
+        {
+          method: "POST",
+          headers: {
+            "Idempotency-Key": idempotencyKey
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to generate variation");
+      }
+
+      const data = await response.json();
+      console.log("Variation generation queued:", data);
+
+      // Use the variation object returned from the backend
+      if (data.variation) {
+        // Add the returned variation to local canvas immediately for instant UI
+        const newCanvas = produce(canvas, (draft) => {
+          // Check if variation already exists (e.g., for blank variations being updated)
+          const existingIndex = draft.variations.findIndex(v => v.id === data.variation.id);
+          if (existingIndex !== -1) {
+            // Update existing variation
+            draft.variations[existingIndex] = data.variation;
+          } else {
+            // Add new variation
+            draft.variations.unshift(data.variation);
+          }
+        });
+        updateCanvas(newCanvas);
+
+        // Immediately set the new variation as active (both local and global)
+        setLocalActiveVariation(data.variationId);
+        setActiveVariationId(data.variationId);
+      } else if (isBlank && activeVariationId) {
+        // Fallback for blank variations if no variation object is returned
+        updateVariation(activeVariationId, { status: 'generating' });
+        setActiveVariationId(activeVariationId);
+      } else {
+        // Fallback for non-blank variations if no variation object is returned
+        // For non-blank (edits or new from completed), add optimistic local variation with placeholder
+        const now = new Date();
+        const parentVariation = activeVariation; // For edits, use current active as parent
+        const isEdit = !!activeVariationId && activeVariation?.status === 'completed';
+
+        const optimisticVariation = {
+          id: data.variationId,
+          prompt: prompt,
+          status: 'generating' as const,
+          imageRef: isEdit ? parentVariation?.imageRef || '' : '', // Placeholder: parent image for edits only
+          aspectRatio: aspectRatio,
+          fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+          createdAt: now,
+          updatedAt: now,
+          parentVariationId: activeVariationId || undefined,
+          modelId: selectedModelId,
+          metadata: {},
+        };
+
+        // Add to local canvas immediately for instant UI
+        const newCanvas = produce(canvas, (draft) => {
+          draft.variations.unshift(optimisticVariation);
+        });
+        updateCanvas(newCanvas);
+
+        // Immediately set the new variation as active (both local and global)
+        setLocalActiveVariation(data.variationId);
+        setActiveVariationId(data.variationId);
+      }
+
+      // Start polling for completion, which will refresh the session state
+      // Use the new updateVariation function in the store
+      await pollVariationCompletion(
+        task._id,
+        data.variationId,
+        loadSession,
+        () => useClickatronStore.getState().task,
+        () => {
+          // Trigger a re-render of LimitDisplay components by updating a dummy state
+          // This is a simple way to force components to re-fetch their data
+          window.dispatchEvent(new CustomEvent('clickatron-usage-updated'));
+        },
+        2000,
+        abortControllerRef.current?.signal
+      ).catch(err => {
+        if (err.message !== 'Polling aborted') {
+          console.error('Polling error in handleAIGenerate:', err);
+        }
+      });
+
+    } catch (error) {
+      console.error("Error generating variation:", error);
+      // Handle error appropriately in UI
+    }
+  };
+
+  const saveTitle = async (newTitle: string) => {
+    if (!task?._id || !newTitle.trim()) return;
+
+    try {
+      const response = await fetch(`/api/services/clickatron/session/${task._id}/rename`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title: newTitle.trim() }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to rename session');
+      }
+
+      const data = await response.json();
+
+      // Update the task in the store with the new title
+      if (task && task.details) {
+        const updatedTask = {
+          ...task,
+          title: data.session.title
+        };
+        // We need to update the task in the store
+        // Since we don't have a direct method to update just the title,
+        // we'll reload the session to get the updated data
+        await loadSession(task._id);
+      }
+    } catch (error) {
+      console.error('Error saving title:', error);
+    }
+  };
+
+  const handleNewVariation = useCallback(() => {
+    if (!canvas) return;
+    const now = new Date();
+    const newVariation = {
+      id: `new_variation_${Date.now()}`,
+      prompt: "",
+      status: "blank" as const,
+      imageRef: "",
+      aspectRatio: aspectRatio,
+      fineTuning: { brightness: 10, contrast: 100, saturation: 100 },
+      createdAt: now,
+      updatedAt: now,
+      modelId: "fal-ai/flux-kontext/dev", // Default model for new variations
+    };
+    const newCanvas = produce(canvas, (draft) => {
+      draft.variations.unshift(newVariation);
+    });
+    updateCanvas(newCanvas);
+    setActiveVariationId(newVariation.id);
+  }, [canvas, currentAspectRatio]);
+
+  const handleDuplicateVariation = useCallback(
+    (variationId: string) => {
+      if (!canvas) return;
+
+      const originalVariation = variations.find((v) => v.id === variationId);
+      if (!originalVariation) return;
+
+      const duplicatedVariation = {
+        ...originalVariation,
+        id: `dup_${Date.now()}`,
+      };
+
+      const newCanvas = produce(canvas, (draft) => {
+        const originalIndex = draft.variations.findIndex(
+          (v) => v.id === variationId
+        );
+        // Insert the duplicate right after the original
+        draft.variations.splice(originalIndex + 1, 0, duplicatedVariation);
+      });
+
+      updateCanvas(newCanvas);
+      setActiveVariationId(duplicatedVariation.id);
+    },
+    [canvas, variations] // Removed updateCanvas from deps
+  );
+
+  const handleDeleteVariation = useCallback(
+    async (variationId: string) => {
+      if (!canvas || !task?._id) return;
+
+      try {
+        const response = await fetch(`/api/services/clickatron/session/${task._id}/variation/${variationId}`, {
+          method: 'DELETE',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to delete variation');
+        }
+
+        // Local update after successful API call
+        const newCanvas = produce(canvas, (draft) => {
+          const variationIndex = draft.variations.findIndex(
+            (v) => v.id === variationId
+          );
+          if (variationIndex !== -1) {
+            draft.variations.splice(variationIndex, 1);
+          }
+        });
+
+        updateCanvas(newCanvas);
+
+        // If we deleted the active variation, select another one
+        if (activeVariationId === variationId) {
+          const remainingVariations = newCanvas.variations;
+          if (remainingVariations.length > 0) {
+            setActiveVariationId(remainingVariations[0].id);
+          } else {
+            // No variations left, set to null
+            setActiveVariationId(null);
+          }
+        }
+      } catch (error) {
+        console.error('Error deleting variation:', error);
+        // Optionally, still do local delete or show error toast
+        // For now, local delete to maintain optimistic UI
+        const newCanvas = produce(canvas, (draft) => {
+          const variationIndex = draft.variations.findIndex(
+            (v) => v.id === variationId
+          );
+          if (variationIndex !== -1) {
+            draft.variations.splice(variationIndex, 1);
+          }
+        });
+        updateCanvas(newCanvas);
+        if (activeVariationId === variationId) {
+          const remainingVariations = newCanvas.variations;
+          if (remainingVariations.length > 0) {
+            setActiveVariationId(remainingVariations[0].id);
+          } else {
+            setActiveVariationId(null);
+          }
+        }
+      }
+    },
+    [canvas, activeVariationId, task?._id] // Removed updateCanvas from deps
+  );
+
+  const handleFinetuningChange = useCallback((
+    variationId: string,
+    key: "brightness" | "contrast" | "saturation",
+    value: number
+  ) => {
+    if (!canvasRef.current) {
+      console.log(' handleFinetuningChange - no canvas ref');
+      return;
+    }
+
+    // Only update if the value actually changed
+    const currentVariation = canvasRef.current.variations.find((v) => v.id === variationId);
+    if (currentVariation?.fineTuning?.[key] === value) {
+      console.log(' handleFinetuningChange - value unchanged, skipping update', { variationId, key, value });
+      return;
+    }
+
+    console.log(' handleFinetuningChange - updating', { variationId, key, value });
+
+    const newCanvas = produce(canvasRef.current, (draft) => {
+      const variation = draft.variations.find((v) => v.id === variationId);
+      if (variation) {
+        if (!variation.fineTuning) {
+          variation.fineTuning = {
+            brightness: 100,
+            contrast: 100,
+            saturation: 100,
+          };
+        }
+        variation.fineTuning[key] = value;
+      }
+    });
+    updateCanvas(newCanvas);
+  }, [updateCanvas]); // Removed canvas from deps since we're using ref
+
+  const handleResetFinetuning = useCallback(() => {
+    if (!localActiveVariation || !canvasRef.current) {
+      console.log('handleResetFinetuning - no active variation or canvas ref');
+      return;
+    }
+
+    console.log('handleResetFinetuning - resetting to defaults', { localActiveVariation });
+
+    const newCanvas = produce(canvasRef.current, (draft) => {
+      const variation = draft.variations.find((v) => v.id === localActiveVariation);
+      if (variation) {
+        variation.fineTuning = {
+          brightness: 100,
+          contrast: 100,
+          saturation: 100,
+        };
+      }
+    });
+    updateCanvas(newCanvas);
+  }, [localActiveVariation, updateCanvas]);
+
+  const handleAspectRatioChange = useCallback((newAspectRatio: string) => {
+    // Only update aspect ratio for blank variations
+    if (activeVariation && activeVariation.status === "blank") {
+      setAspectRatio(newAspectRatio);
+    }
+  }, [activeVariation, setAspectRatio]);
+
+  const handleManualSync = useCallback(() => {
+    if (canvas && task?._id) {
+      console.log('Manual sync triggered');
+      syncCanvas(task._id, canvas);
+    }
+  }, [canvas, task?._id]);
+
+  const handleDownload = useCallback(async () => {
+    if (!activeVariation || !activeVariation.imageRef) {
+      console.log("No active variation or image to download");
+      return;
+    }
+
+    try {
+      // Get the proper image URL (handling GCS signed URLs)
+      const imageUrl = await getImageUrl(activeVariation.imageRef);
+
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `clickatron-variation-${timestamp}.png`;
+
+      // Download with fine-tuning applied
+      await downloadImageWithFineTuning(
+        imageUrl,
+        activeVariation.fineTuning,
+        filename
+      );
+    } catch (error) {
+      console.error("Error downloading image:", error);
+      // TODO: Show user-friendly error message
+    }
+  }, [activeVariation]);
+
+  if (!canvas) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500 mx-auto mb-4"></div>
+          <p className="text-zinc-400">Loading Canvas...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      {...fadeIn}
+      className="fixed inset-0 bg-zinc-950 flex flex-row gap-0 overflow-hidden h-screen"
+    >
+      {/* Left Sidebar - Variations Gallery - Hidden on mobile */}
+      <div className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-zinc-900/95 border-r border-zinc-700/80 relative z-10" style={{ marginLeft: "64px" }}>
+        <VariationsGallery
+          variations={variations}
+          activeVariationId={localActiveVariation}
+          onVariationSelect={handleVariationSelect}
+          onAddToCompare={() => {}}
+          onNewVariation={handleNewVariation}
+          onDuplicateVariation={handleDuplicateVariation}
+          onDeleteVariation={handleDeleteVariation}
+          className="flex-1"
+        />
+      </div>
+
+      {/* Main Canvas Area */}
+      <div className="flex-1 flex flex-col h-full min-w-0 relative w-full">
+          {/* Top Header */}
+          <div className="p-4 border-b border-zinc-800/80 bg-zinc-950/90 backdrop-blur-sm relative z-10 flex flex-col items-center gap-2">
+            <div className="flex flex-col items-center pb-6 md:pb-0">
+              {isEditingTitle ? (
+                <Input
+                  type="text"
+                  value={editedTitle}
+                  onChange={(e) => setEditedTitle(e.target.value)}
+                  onBlur={() => {
+                    saveTitle(editedTitle);
+                    setIsEditingTitle(false);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      saveTitle(editedTitle);
+                      setIsEditingTitle(false);
+                    } else if (e.key === 'Escape') {
+                      setEditedTitle(task?.title || videoIdea);
+                      setIsEditingTitle(false);
+                    }
+                  }}
+                  className="text-lg font-semibold text-zinc-100 text-center"
+                  autoFocus
+                />
+              ) : (
+                <h2
+                  className="text-lg font-semibold text-zinc-100 cursor-pointer hover:bg-zinc-800/50 rounded px-2 py-1 text-center"
+                  onClick={() => {
+                    setEditedTitle(task?.title || videoIdea);
+                    setIsEditingTitle(true);
+                  }}
+                >
+                  {task?.title || videoIdea}
+                </h2>
+              )}
+              <SaveStatusIndicator
+                isSaving={isSaving}
+                saveError={saveError}
+                lastSaved={lastSaved}
+              />
+            </div>
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                onClick={handleManualSync}
+                className="text-xs bg-blue-60 text-white px-2 py-1 rounded mt-1"
+              >
+                Manual Sync (Debug)
+              </button>
+            )}
+        {/* Mobile Bottom Navigation */}
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950/95 backdrop-blur-md border-t border-zinc-800/80 p-3 flex justify-between items-center h-16 gap-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobilePanel('gallery')}
+            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+          >
+            <Grid className="h-5 w-5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMobilePanel('fine-tune')}
+            className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+          >
+            <Sliders className="h-5 w-5" />
+          </Button>
+        </div>
+  
+        </div>
+  
+        {/* Canvas Display Area */}
+        <div className="flex flex-1 overflow-hidden relative bg-zinc-900/20 h-full">
+          {/* Main Canvas Container */}
+          <div className="flex-1 flex items-center justify-center overflow-hidden relative h-full">
+            {/* Canvas Actions - Top Center - Only show for completed variations */}
+            {activeVariation?.status === "completed" && (
+              <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20">
+                <CanvasActions
+                  onZoomIn={() => imageRef.current?.zoomIn(0.3)}
+                  onZoomOut={() => imageRef.current?.zoomOut(0.3)}
+                  onResetZoom={() => imageRef.current?.resetTransform()}
+                  onDownload={handleDownload}
+                  // onShare={() => console.log("Share")}
+                />
+              </div>
+            )}
+
+            {/* Image Display with proper sizing */}
+            <div className="relative w-full h-full flex items-center justify-center">
+              {!activeVariation ? (
+                // No variation selected
+                <NoVariationSelected aspectRatio={currentAspectRatio} />
+              ) : activeVariation.status === "blank" &&
+                !activeVariation.imageRef ? (
+                // Blank canvas with proper aspect ratio
+                <BlankCanvas aspectRatio={currentAspectRatio} />
+              ) : activeVariation.status === "failed" ? (
+                // Failed variation - Enhanced error state with retry option
+                <div
+                  className="bg-gradient-to-br from-red-900/20 to-red-80/10 border-2 border-dashed border-red-60/40 flex items-center justify-center rounded-xl transition-all duration-300 relative overflow-hidden"
+                  style={{
+                    width: `${800}px`,
+                    height: `${450}px`,
+                    minWidth: "300px",
+                    minHeight: "200px",
+                  }}
+                >
+                  {/* Ambient background gradient */}
+                  <div className="absolute inset-0 bg-gradient-to-br from-red-50/5 to-orange-500/5 opacity-40" />
+
+                  <div className="text-center relative z-10 p-8">
+                    {/* Error icon with enhanced styling */}
+                    <div className="relative mb-6">
+                      <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-red-500/20 blur-xl" />
+                      <div className="relative w-16 h-16 mx-auto rounded-full bg-red-500/10 flex items-center justify-center ring-2 ring-red-400/30">
+                        <AlertTriangle className="h-8 w-8 text-red-400" />
+                      </div>
+
+                      <div className="space-y-4">
+                        <div className="text-red-300 text-xl font-semibold">
+                          Generation Failed
+                        </div>
+                        <div className="text-red-40/70 text-sm max-w-md mx-auto">
+                          Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues.
+                        </div>
+
+                        {/* Retry button */}
+                        {/* <div className="mt-6">
+                          <button
+                            onClick={() => handleAIGenerate(activeVariation.prompt)}
+                            className="px-6 py-3 bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white rounded-xl text-sm font-medium transition-all duration-200 shadow-lg"
+                          >
+                            Try Again
+                          </button>
+                        </div> */}
+
+                        <div className="mt-4 text-xs text-red-50/60">
+                          Consider adjusting your prompt or trying different settings
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <ImageDisplay
+                  key={localActiveVariation}
+                  ref={imageRef}
+                  imageRef={activeVariation.imageRef}
+                  status={activeVariation.status}
+                  variationId={localActiveVariation!}
+                  fineTuning={activeVariation.fineTuning}
+                  aspectRatio={aspectRatio}
+                  className="max-w-[90%] max-h-[90%] object-contain rounded-lg shadow-2xl"
+                />
+              )}
+            </div>
+          </div>
+
+        </div>
+
+        {/* Mobile Panels - Toggled full-width sections below canvas */}
+        {mobilePanel === 'gallery' && (
+          <div className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-y-auto pt-4">
+            <VariationsGallery
+              variations={variations}
+              activeVariationId={localActiveVariation}
+              onVariationSelect={handleVariationSelect}
+              onAddToCompare={() => {}}
+              onNewVariation={handleNewVariation}
+              onDuplicateVariation={handleDuplicateVariation}
+              onDeleteVariation={handleDeleteVariation}
+              mobile={true}
+              onClose={() => setMobilePanel('none')}
+              className="w-[90vw]"
+            />
+          </div>
+        )}
+        <AnimatePresence mode="wait">
+          {mobilePanel === 'fine-tune' && activeVariation?.fineTuning && (
+            <motion.div
+              key="controls"
+              variants={panelVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              transition={{ duration: 0.3, ease: "easeOut" }}
+              className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-hidden flex flex-col h-full"
+            >
+              <div className="flex items-center justify-between p-4 border-b border-zinc-800/80 bg-zinc-900/50">
+                <h3 className="text-sm font-medium text-zinc-200">Fine Tuning</h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setMobilePanel('none')}
+                  className="p-1 h-6 w-6 text-zinc-400 hover:text-zinc-200"
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-0">
+                <CanvasControls
+                  brightness={activeVariation.fineTuning.brightness}
+                  contrast={activeVariation.fineTuning.contrast}
+                  saturation={activeVariation.fineTuning.saturation}
+                  aspectRatio={aspectRatio}
+                  isBlankVariation={activeVariation.status === "blank"}
+                  onBrightnessChange={(val) =>
+                    handleFinetuningChange(localActiveVariation!, "brightness", val)
+                  }
+                  onContrastChange={(val) =>
+                    handleFinetuningChange(localActiveVariation!, "contrast", val)
+                  }
+                  onSaturationChange={(val) =>
+                    handleFinetuningChange(localActiveVariation!, "saturation", val)
+                  }
+                  onAspectRatioChange={handleAspectRatioChange}
+                  onReset={handleResetFinetuning}
+                  disabled={activeVariation?.status !== "completed"}
+                  className="h-full flex-1"
+                  mobile
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Bottom AI Command Console - Hide for generating and failed variations */}
+        {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
+          <div className="relative z-20 w-full flex-shrink-0">
+            {activeVariation?.status === "blank" ? (
+              <NewVariationConsole
+                onGenerate={handleAIGenerate}
+                isGenerating={false}
+                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                referenceImageCount={referenceImageCount}
+                onReferenceImageCountChange={setReferenceImageCount}
+              />
+            ) : (
+              <AICommandConsole
+                onGenerate={handleAIGenerate}
+                isGenerating={false}
+                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                referenceImageCount={referenceImageCount}
+                onReferenceImageCountChange={setReferenceImageCount}
+                currentImageUrl={activeVariation?.imageRef || ''}
+              />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Right Sidebar - Full height, next to main canvas */}
+      <div className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-zinc-900/95 backdrop-blur-xl border-l border-zinc-700/80 shadow-2xl">
+        {activeVariation?.fineTuning ? (
+          <CanvasControls
+            brightness={activeVariation.fineTuning.brightness}
+            contrast={activeVariation.fineTuning.contrast}
+            saturation={activeVariation.fineTuning.saturation}
+            aspectRatio={aspectRatio}
+            isBlankVariation={activeVariation.status === "blank"}
+            onBrightnessChange={(val) =>
+              handleFinetuningChange(localActiveVariation!, "brightness", val)
+            }
+            onContrastChange={(val) =>
+              handleFinetuningChange(localActiveVariation!, "contrast", val)
+            }
+            onSaturationChange={(val) =>
+              handleFinetuningChange(localActiveVariation!, "saturation", val)
+            }
+            onAspectRatioChange={handleAspectRatioChange}
+            onReset={handleResetFinetuning}
+            disabled={activeVariation?.status !== "completed"}
+            className="flex-1"
+          />
+        ) : (
+          <div className="flex-1 flex items-center justify-center p-6">
+            <div className="text-center text-zinc-500">
+              <Settings className="w-6 h-6 mx-auto mb-2 opacity-50" />
+              <p className="text-xs">
+                {!activeVariation
+                  ? "Select a variation to adjust"
+                  : "No adjustments available"}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}

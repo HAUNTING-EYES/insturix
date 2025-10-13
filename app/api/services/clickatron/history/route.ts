@@ -3,76 +3,37 @@ import { auth } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 
+// GET /api/services/clickatron/history - Fetch all tasks for the user
 export async function GET(request: Request) {
   try {
-    await getClickatronDb();
     const { userId } = await auth();
-
     if (!userId) {
-      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 });
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const url = new URL(request.url);
-    const page = parseInt(url.searchParams.get('page') || '1', 10);
-    const limit = parseInt(url.searchParams.get('limit') || '10', 10);
-    const status = url.searchParams.get('status');
+    const { searchParams } = new URL(request.url);
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const offset = parseInt(searchParams.get('offset') || '0');
 
-    // Validate pagination parameters
-    const validatedPage = Math.max(1, page);
-    const validatedLimit = Math.min(Math.max(1, limit), 50); // Max 50 items per page
-    const skip = (validatedPage - 1) * validatedLimit;
+    await getClickatronDb();
 
-    // Build query
-    const query: any = { clerkUserId: userId };
-    
-    if (status) {
-      const statusArray = status.split(',').map(s => s.trim());
-      query.status = { $in: statusArray };
-    }
+    const tasks = await ClickatronTask.find({ clerkUserId: userId })
+      .sort({ updatedAt: -1 })
+      .skip(offset)
+      .limit(limit);
 
-    // Use aggregation with $facet for count and paginated data in one roundtrip
-    const aggregationPipeline = [
-      { $match: query },
-      {
-        $facet: {
-          metadata: [{ $count: "totalItems" }],
-          data: [
-            { $sort: { createdAt: -1 } },
-            { $skip: skip },
-            { $limit: validatedLimit },
-            { $project: { "results.thumbnail.prompt": 0 } } // Exclude the prompt
-          ]
-        }
-      }
-    ];
+    const total = await ClickatronTask.countDocuments({ clerkUserId: userId });
 
-    const results = await ClickatronTask.aggregate(aggregationPipeline as any[]);
-
-    const history = results[0].data;
-    const totalItems = results[0].metadata[0] ? results[0].metadata[0].totalItems : 0;
-    const totalPages = Math.ceil(totalItems / validatedLimit);
-
-    const formattedHistory = history.map((task: any) => ({
-      ...task,
-      _id: task._id?.toString() || '',
-      createdAt: task.createdAt?.toISOString() || new Date().toISOString(),
-      updatedAt: task.updatedAt?.toISOString() || new Date().toISOString(),
-      ...(task.completedAt && { completedAt: new Date(task.completedAt).toISOString() }),
+    const history = tasks.map(task => ({
+      sessionId: task._id.toString(),
+      title: task.title || 'Untitled Session',
+      updatedAt: task.updatedAt,
+      variationsCount: task.details?.canvas?.variations?.length || 0,
     }));
 
-    return NextResponse.json({
-      data: formattedHistory,
-      pagination: {
-        totalItems,
-        totalPages,
-        currentPage: validatedPage,
-        itemsPerPage: validatedLimit,
-        hasNext: validatedPage < totalPages,
-        hasPrev: validatedPage > 1,
-      }
-    });
+    return NextResponse.json({ history, total });
   } catch (error) {
-    console.error('Error fetching Clickatron history:', error);
+    console.error('Error fetching history:', error);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

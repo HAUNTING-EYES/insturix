@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { withAdmin } from '@/lib/api/middleware/withAdmin';
-import { runServiceLimitsMigration, ServiceLimitsMigrationService } from '@/lib/migrations/serviceLimitsMigration';
+import { runServiceLimitsMigration } from '@/lib/migrations/serviceLimitsMigration';
 import { UNIFIED_SERVICE_LIMITS } from '@/lib/config/serviceLimits';
 import mongoose from 'mongoose';
 import connectToDatabase from '@/schemas/ConnectToDatabase';

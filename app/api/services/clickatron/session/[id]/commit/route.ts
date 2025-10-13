@@ -1,0 +1,117 @@
+import { NextResponse } from 'next/server';
+import { auth } from '@clerk/nextjs/server';
+import { ClickatronTask } from '@/schemas/Clickatron';
+import { getClickatronDb } from '@/lib/clickatron-mongo';
+import { Types } from 'mongoose';
+import { z } from 'zod';
+
+// Enhanced commit request schema
+const CommitVariationRequestSchema = z.object({
+  variationId: z.string(),
+  gcsPath: z.string(),
+  metadata: z.object({
+    fileSize: z.number(),
+    contentType: z.string(),
+    aspectRatio: z.string().optional(),
+    dimensions: z.string().optional(),
+  }).optional(),
+});
+
+// POST /api/services/clickatron/session/:id/commit - Mark final variation
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { id } = await params;
+    
+    if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
+      return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
+    }
+
+    await getClickatronDb();
+    const objectId = new Types.ObjectId(id);
+
+    // Find the task
+    const task = await ClickatronTask.findOne({ _id: objectId, clerkUserId: userId });
+    
+    if (!task) {
+      return NextResponse.json({ error: 'Session not found' }, { status: 404 });
+    }
+
+    const body = await request.json();
+    
+    // Validate request body
+    const validatedData = CommitVariationRequestSchema.parse(body);
+
+    // Check if canvas and variations exist
+    if (!task.details?.canvas?.variations) {
+      return NextResponse.json({ error: 'No variations found' }, { status: 404 });
+    }
+
+    // Find the specific variation
+    const variation = task.details.canvas.variations.find(
+      (v: any) => v.id === validatedData.variationId
+    );
+    
+    if (!variation) {
+      return NextResponse.json({ error: 'Variation not found' }, { status: 404 });
+    }
+
+    // Check if variation is completed
+    if (variation.status !== 'completed') {
+      return NextResponse.json({ 
+        error: 'Variation must be completed before committing',
+        details: { currentStatus: variation.status }
+      }, { status: 400 });
+    }
+
+    // Update variation with GCS metadata
+    variation.metadata = {
+      ...variation.metadata,
+      gcsPath: validatedData.gcsPath,
+      fileSize: validatedData.metadata?.fileSize,
+      contentType: validatedData.metadata?.contentType,
+      aspectRatio: validatedData.metadata?.aspectRatio,
+      dimensions: validatedData.metadata?.dimensions,
+    };
+    variation.updatedAt = new Date();
+
+
+    // Update task timestamps (keep status as is for ongoing canvas work)
+    task.updatedAt = new Date();
+
+    // Save the updated task
+    await task.save();
+
+    return NextResponse.json({
+      success: true,
+      thumbnailUrl: validatedData.gcsPath,
+      taskId: id,
+      committedVariation: {
+        id: variation.id,
+        prompt: variation.prompt,
+        timestamp: variation.timestamp,
+      },
+    });
+  } catch (error) {
+    console.error('Error committing variation:', error);
+    
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: error.errors },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: 'Internal Server Error' },
+      { status: 500 }
+    );
+  }
+}

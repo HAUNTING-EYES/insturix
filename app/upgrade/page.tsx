@@ -60,10 +60,12 @@ async function fetchUserPlanServerSide(userId: string | null) {
       status: userPlanWithServiceLimits.status,
     } : null;
 
-    return {
+    const fullReturn = {
       userType: user.currentPlan?.name || UserType.Free,
       currentPlan,
     };
+
+    return fullReturn;
   } catch (error) {
     console.error('Error fetching user plan server-side (direct DB):', error instanceof Error ? error.message : error);
     return { userType: null, currentPlan: null };
@@ -88,7 +90,20 @@ export default async function UpgradePage({ searchParams }: any) {
     currency = currencyInfo.currency;
   }
 
-  const { plans, success } = await fetchPlans(currency);
+  let plans: any = null;
+  let success = false;
+  try {
+    const result = await fetchPlans(currency);
+    plans = result.plans; // Now plain objects due to .lean() in getPlansForCurrency
+    success = result.success;
+  } catch (err) {
+    console.error('[upgrade] fetchPlans failed', {
+      currency,
+      currencyCookie: currencyCookie?.value ?? null,
+      error: err instanceof Error ? err.message : err,
+    });
+    throw err;
+  }
 
   const { userType: currentUserPlan, currentPlan: currentPlanData } = await fetchUserPlanServerSide(userId);
 

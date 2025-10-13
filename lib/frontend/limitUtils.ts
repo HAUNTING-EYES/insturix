@@ -11,6 +11,7 @@ export interface FrontendLimitInfo {
   isUnlimited: boolean;
   displayText: string;
   progressPercentage: number;
+  timeUntilReset?: { days: number; hours: number; minutes: number; totalMs: number } | null;
 }
 
 export interface ServiceLimitConfig {
@@ -126,7 +127,8 @@ export class FrontendLimitUtils {
       resetPeriod: usageInfo.resetPeriod,
       isUnlimited: usageInfo.isUnlimited,
       displayText,
-      progressPercentage
+      progressPercentage,
+      timeUntilReset: usageInfo.timeUntilReset
     };
   }
 

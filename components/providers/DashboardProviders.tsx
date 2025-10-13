@@ -18,9 +18,7 @@ export function DashboardProviders({ children }: DashboardProvidersProps) {
       <LocationProvider>
         <PricingClientProvider>
           <CurrencyProvider>
-            <TransitionProvider>
-              {children}
-            </TransitionProvider>
+            {children}
           </CurrencyProvider>
         </PricingClientProvider>
       </LocationProvider>

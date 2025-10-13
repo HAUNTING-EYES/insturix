@@ -171,7 +171,9 @@ export default function Navbar() {
     }
   }, [isMobile, isOpen]);
 
-  const navClasses = `fixed top-0 left-0 right-0 z-40 transition-all border-transparent ${
+  // Keep navbar above transient banners (like ICS25Banner) and popovers.
+  // The banner uses z-40; set navbar to z-50 so dropdowns and mobile menu render above it.
+  const navClasses = `fixed top-0 left-0 right-0 z-50 transition-all border-transparent ${
     isMobile ? "duration-150" : "duration-500"
   }`;
   const mobileOpenScrolledClasses =
@@ -286,7 +288,7 @@ export default function Navbar() {
               duration: 0.15, // Slightly faster for better performance
               ease: "easeOut",
             }}
-            className="fixed inset-x-0 top-16 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-xs md:hidden"
+            className="fixed inset-x-0 top-16 z-50 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-xs md:hidden"
           >
             <div className="px-6 py-4">
               <div className="space-y-2">

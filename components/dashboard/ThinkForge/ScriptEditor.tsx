@@ -128,18 +128,17 @@ export default function ScriptEditor({
   // Handle content changes
   const handleContentChange = useCallback(() => {
     setHasUnsavedChanges(true);
-    // Debounce autosave by 2s of idle typing
+    // Delegate save cadence to the hook; do only a light debounce here to avoid heavy conversions each keystroke
     if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
     autosaveTimerRef.current = setTimeout(async () => {
       try {
         const updatedScript = await convertBlocksToScript();
         onEditScript(updatedScript);
-        setHasUnsavedChanges(false);
+        // hasUnsavedChanges will flip off when isSaving completes (see effect below)
       } catch (e) {
-        // Keep unsaved state so user can retry
-        console.error('Autosave failed to prepare script:', e);
+        console.error('Autosave prepare failed:', e);
       }
-    }, 2000);
+    }, 300);
   }, [onEditScript]);
 
   // Cleanup autosave timer on unmount
@@ -220,12 +219,40 @@ export default function ScriptEditor({
       if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
       const edited = await editRes.json();
       const newTitle: string = edited?.title || script?.title || 'Untitled Script';
-      const newContent: string = (edited?.content || fullText || '').toString();
+  const newContent: string = (edited?.content || fullText || '').toString();
+  const looksLikeJSON = /\{[\s\S]*\}/.test(newContent.trim()) && (newContent.includes('"blocks"') || newContent.includes('"title"'));
       const serverBlocks: any[] | undefined = edited?.blocks;
       if (Array.isArray(serverBlocks) && serverBlocks.length > 0) {
-        // Trust server-provided blocks directly
-        editor.replaceBlocks(editor.document, serverBlocks as any);
-      } else {
+        // Prefer minimal updates when lengths match: patch by id
+        try {
+          const cur: any[] = (editor as any).document as any[];
+          const sameLen = Array.isArray(cur) && cur.length === serverBlocks.length;
+          if (sameLen) {
+            const byId: Record<string, number> = Object.create(null);
+            cur.forEach((b: any, i: number) => { if (b?.id) byId[String(b.id)] = i; });
+            let changed = 0;
+            for (let i = 0; i < serverBlocks.length; i++) {
+              const nb: any = serverBlocks[i];
+              const id = nb?.id ? String(nb.id) : '';
+              const idx = id && byId[id] !== undefined ? byId[id] : i;
+              if (idx >= 0 && idx < cur.length) {
+                // Replace block at idx
+                (editor as any).replaceBlocks([cur[idx]], [nb]);
+                changed++;
+              }
+            }
+            if (changed > 0) {
+              // Minimal patch applied
+            } else {
+              editor.replaceBlocks(editor.document, serverBlocks as any);
+            }
+          } else {
+            editor.replaceBlocks(editor.document, serverBlocks as any);
+          }
+        } catch {
+          editor.replaceBlocks(editor.document, serverBlocks as any);
+        }
+      } else if (!looksLikeJSON) {
         // Fallback to composing from content
         const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
         const newBlocks: any[] = [
@@ -233,6 +260,8 @@ export default function ScriptEditor({
           ...paras.map(p => ({ type: 'paragraph', content: p }))
         ];
         editor.replaceBlocks(editor.document, newBlocks as any);
+      } else {
+        // Avoid injecting half-JSON; keep current document
       }
 
       const updatedScript = await convertBlocksToScript();
@@ -751,4 +780,4 @@ export default function ScriptEditor({
       `}</style>
     </motion.div>
   );
-} 
+}

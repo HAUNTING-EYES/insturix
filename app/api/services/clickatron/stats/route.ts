@@ -42,8 +42,8 @@ export async function GET() {
     const pendingTasks = results[0].pendingTasks[0] ? results[0].pendingTasks[0].count : 0;
 
     const usage = await ServiceUsageService.getServiceUsageForAllServices(userId);
-
-    const clickatronUsage = usage.clickatron?.maxThumbnailGeneration;
+    
+    const clickatronUsage = usage.clickatron?.maxVariationGeneration;
 
     return NextResponse.json({
       success: true,
