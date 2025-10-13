@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import Socialize from "@/schemas/Socialize";
 import mongoose from "mongoose";
 import { auth } from "@clerk/nextjs/server"; // Import Clerk authentication
+import { SocializeGCSManager } from "@/lib/socialize-gcs";
 
 // Interface matching the Socialize schema
 import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
@@ -215,6 +216,24 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+// Helper function to generate signed URLs for banner images
+async function generateBannerSignedUrl(banner: BannerConfig): Promise<BannerConfig> {
+  if (banner.type === 'image' && banner.gcsPath) {
+    try {
+      const signedUrl = await SocializeGCSManager.generateSignedUrl(banner.gcsPath, 24);
+      return {
+        ...banner,
+        value: signedUrl // Replace with fresh signed URL
+      };
+    } catch (error) {
+      console.error('Failed to generate signed URL for banner:', error);
+      // Return original banner config if signed URL generation fails
+      return banner;
+    }
+  }
+  return banner;
+}
+
 // GET route for retrieving profiles
 export async function GET(request: NextRequest) {
   try {
@@ -235,11 +254,15 @@ export async function GET(request: NextRequest) {
       return Response.json({ error: "Socialize profile not found" }, { status: 404 });
     }
 
-    // For public profiles, we don't need to check clerkUserId against the authenticated user.
-    // The profile is publicly viewable if it exists.
+    // Generate fresh signed URL for banner if it's an image
+    let updatedBanner = userData.banner;
+    if (updatedBanner) {
+      updatedBanner = await generateBannerSignedUrl(updatedBanner);
+    }
 
     const responseData = {
       ...userData,
+      banner: updatedBanner,
       uniqueUsername: userData.username,
       _id: userData._id?.toString(),
     };

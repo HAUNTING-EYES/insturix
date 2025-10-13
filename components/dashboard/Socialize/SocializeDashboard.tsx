@@ -42,6 +42,7 @@ interface ISocialize {
   profileImage: string;
   bio: string;
   links: SocializeLink[];
+  banner?: BannerConfig;
   uniqueUsername?: string;
   notifications?: { message: string; duration: number }[];
   createdAt: Date;
@@ -60,8 +61,8 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  // Prevent long hangs on slow endpoints and avoid blocking initial paint
-  timeout: 4000,
+  // Increased timeout for operations that might take longer (like GCS uploads)
+  timeout: 15000, // 15 seconds
 });
 
 export default function SocializeDashboard({
@@ -130,7 +131,7 @@ export default function SocializeDashboard({
       if (!uniqueUsername) return null;
 
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 3900); // align with axios timeout
+      const id = setTimeout(() => controller.abort(), 14000); // align with axios timeout
       try {
         const { data } = await api.get<ISocialize>(
           `/services/socialize?username=${uniqueUsername}`,

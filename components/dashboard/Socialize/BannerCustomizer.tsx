@@ -18,6 +18,12 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
     const [selectedTab, setSelectedTab] = useState<"image" | "color">(
         banner.type === "image" ? "image" : "color"
     );
+
+    // Debug banner state
+    console.log('BannerCustomizer - Current banner:', banner);
+
+    // No need for proxy URL conversion - using signed URLs directly
+
     const [file, setFile] = useState<File | null>(null);
     const [uploading, setUploading] = useState(false);
     const [localColor, setLocalColor] = useState<string>(
@@ -50,7 +56,17 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                 throw new Error(message);
             }
             const data = await res.json();
-            onBannerChange({ type: "image", value: data.url, gradientType: "linear", gradientColors: [] });
+            console.log('Upload response:', data);
+            if (!data.gcsPath) {
+                throw new Error('No GCS path returned from upload');
+            }
+            onBannerChange({
+                type: "image",
+                value: data.signedUrl, // Use signed URL for immediate display
+                gcsPath: data.gcsPath, // Store GCS path for on-demand signed URLs
+                gradientType: "linear",
+                gradientColors: []
+            });
             toast({ title: "Banner updated", description: "Image uploaded successfully" });
             setFile(null);
         } catch (e: any) {
@@ -134,13 +150,52 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                     </div>
                     {banner.type === "image" && banner.value ? (
                         <div className="mt-4">
-                            <img
-                                src={banner.value}
-                                alt="Current banner"
-                                className="w-full h-24 object-cover rounded-md border border-[#0e6b9c]/30"
-                            />
+                            <div className="w-full h-24 bg-[#23232a] rounded-md border border-[#0e6b9c]/30 flex items-center justify-center relative">
+                                <img
+                                    src={banner.value}
+                                    alt="Current banner"
+                                    className="w-full h-full object-cover rounded-md"
+                                    onError={(e) => {
+                                        console.error('Banner image failed to load:', banner.value);
+                                        console.error('Banner config:', banner);
+                                        console.error('Error event:', e);
+                                        const parent = e.currentTarget.parentElement;
+                                        if (parent) {
+                                            parent.innerHTML = `
+                                                <div class="w-full h-full flex items-center justify-center text-zinc-400">
+                                                    <div class="text-center">
+                                                        <div class="text-2xl mb-2">🖼️</div>
+                                                        <div class="text-sm">Image failed to load</div>
+                                                        <div class="text-xs mt-1 opacity-75">URL: ${banner.value.substring(0, 50)}...</div>
+                                                        <div class="text-xs mt-1 opacity-75">GCS Path: ${banner.gcsPath || 'None'}</div>
+                                                        <button onclick="window.location.reload()" class="text-xs mt-2 px-2 py-1 bg-zinc-700 rounded hover:bg-zinc-600">
+                                                            Retry
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            `;
+                                        }
+                                    }}
+                                    onLoad={() => {
+                                        console.log('Banner image loaded successfully:', banner.value);
+                                    }}
+                                />
+                                <div className="absolute top-2 right-2 text-xs text-zinc-500 bg-black/50 px-2 py-1 rounded">
+                                    {banner.value.includes('storage.googleapis.com') ? 'Signed URL' : 'External'}
+                                </div>
+                            </div>
                         </div>
-                    ) : null}
+                    ) : (
+                        <div className="mt-4">
+                            <div className="w-full h-24 bg-[#23232a] rounded-md border border-[#0e6b9c]/30 flex items-center justify-center">
+                                <div className="text-center text-zinc-400">
+                                    <div className="text-2xl mb-2">🖼️</div>
+                                    <div className="text-sm">No banner image</div>
+                                    <div className="text-xs mt-1 opacity-75">Upload an image to see it here</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </TabsContent>
 
                 <TabsContent value="color" className="pt-4">

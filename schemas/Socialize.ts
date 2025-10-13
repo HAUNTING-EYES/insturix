@@ -10,6 +10,7 @@ export interface SocializeLink {
 export interface BannerConfig {
   type: 'image' | 'color' | 'gradient';
   value: string;
+  gcsPath?: string; // GCS path for image banners (not stored in DB, used for signed URL generation)
   gradientType?: 'linear' | 'radial';
   gradientColors?: Array<{
     color: string;

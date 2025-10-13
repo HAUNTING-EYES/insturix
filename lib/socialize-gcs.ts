@@ -47,7 +47,7 @@ export class SocializeGCSManager {
         buffer: Buffer,
         contentType: string,
         originalFilename: string
-    ): Promise<string> {
+    ): Promise<{ gcsPath: string; publicUrl: string }> {
         if (!bucket) {
             throw new Error('GCS is not configured for banner storage');
         }
@@ -69,24 +69,15 @@ export class SocializeGCSManager {
                 // Do NOT set per-object ACLs when Uniform Bucket-Level Access is enabled
             });
 
-            // If using signed URLs (recommended with UBLA/PAP), return a signed URL
-            if (process.env.GCS_SIGNED_URLS === 'true') {
-                const [signedUrl] = await file.getSignedUrl({
-                    action: 'read',
-                    expires: Date.now() + 24 * 60 * 60 * 1000, // 24h
-                });
-                if (process.env.NODE_ENV === 'development') {
-                    console.log('Banner uploaded to GCS (signed):', signedUrl);
-                }
-                return signedUrl;
+            // Generate public URL for reference
+            const publicUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
+
+            if (process.env.NODE_ENV === 'development') {
+                console.log('Banner uploaded to GCS:', { gcsPath, publicUrl });
             }
 
-            // Otherwise, rely on bucket-level IAM for public reads
-            const publicUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
-            if (process.env.NODE_ENV === 'development') {
-                console.log('Banner uploaded to GCS (public URL):', publicUrl);
-            }
-            return publicUrl;
+            // Return both GCS path and public URL
+            return { gcsPath, publicUrl };
         } catch (error) {
             console.error('Failed to upload banner to GCS:', error);
             throw new Error('Failed to upload banner image');
@@ -122,6 +113,39 @@ export class SocializeGCSManager {
         } catch (error) {
             console.error('Failed to delete banner from GCS:', error);
             throw new Error('Failed to delete banner image');
+        }
+    }
+
+    /**
+     * Generate a signed URL for a GCS path on-demand
+     */
+    static async generateSignedUrl(gcsPath: string, expirationHours: number = 24): Promise<string> {
+        if (!bucket) {
+            throw new Error('GCS is not configured for banner storage');
+        }
+
+        try {
+            const file = bucket.file(gcsPath);
+
+            // Check if file exists
+            const [exists] = await file.exists();
+            if (!exists) {
+                throw new Error('File not found in GCS');
+            }
+
+            const [signedUrl] = await file.getSignedUrl({
+                action: 'read',
+                expires: Date.now() + (expirationHours * 60 * 60 * 1000),
+            });
+
+            if (process.env.NODE_ENV === 'development') {
+                console.log('Generated signed URL for:', gcsPath);
+            }
+
+            return signedUrl;
+        } catch (error) {
+            console.error('Failed to generate signed URL:', error);
+            throw new Error('Failed to generate signed URL');
         }
     }
 

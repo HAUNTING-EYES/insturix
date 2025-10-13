@@ -8,6 +8,22 @@ import * as fs from "fs";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+export async function GET() {
+    try {
+        const isConfigured = SocializeGCSManager.isConfigured();
+        return NextResponse.json({
+            configured: isConfigured,
+            message: isConfigured ? "GCS is properly configured" : "GCS is not configured - check environment variables"
+        });
+    } catch (error) {
+        console.error("GCS configuration check failed:", error);
+        return NextResponse.json({
+            configured: false,
+            error: "Failed to check GCS configuration"
+        }, { status: 500 });
+    }
+}
+
 export async function POST(request: NextRequest) {
     try {
         const { userId } = await auth();
@@ -36,13 +52,22 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-            const publicUrl = await SocializeGCSManager.uploadBannerImage(
+            const uploadResult = await SocializeGCSManager.uploadBannerImage(
                 userId,
                 buffer,
                 file.type,
                 file.name
             );
-            return NextResponse.json({ success: true, url: publicUrl });
+
+            // Generate a signed URL for immediate display
+            const signedUrl = await SocializeGCSManager.generateSignedUrl(uploadResult.gcsPath, 24);
+
+            return NextResponse.json({
+                success: true,
+                gcsPath: uploadResult.gcsPath,
+                publicUrl: uploadResult.publicUrl,
+                signedUrl: signedUrl
+            });
         } catch (e) {
             console.error("GCS upload failed:", e);
             return NextResponse.json({ error: "Failed to upload banner image to GCS" }, { status: 500 });

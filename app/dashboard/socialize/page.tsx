@@ -1,4 +1,4 @@
-import SocializeClientWrapper from "@/components/dashboard/Socialize/SocializeDashboard";
+import SocializeDashboard from "@/components/dashboard/Socialize/SocializeDashboard";
 import { Share2 } from "lucide-react";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
@@ -29,7 +29,7 @@ export default async function SocializePage() {
 
       {/* Dashboard Content */}
       <Suspense fallback={<UniversalLoader />}>
-        <SocializeClientWrapper initialData={null} />
+        <SocializeDashboard initialData={null} />
       </Suspense>
     </div>
   );

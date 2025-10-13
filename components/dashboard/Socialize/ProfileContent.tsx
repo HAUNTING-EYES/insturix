@@ -67,16 +67,34 @@ export function ProfileContent({
     return `linear-gradient(135deg, ${colors.map(c => `${c.color} ${c.position}%`).join(', ')})`;
   };
 
+  // No need for proxy URL conversion - using signed URLs directly
+
   // Function to render banner
   const renderBanner = () => {
     switch (bannerConfig.type) {
       case 'image':
         return (
-          <div className={cn("w-full h-24 bg-cover bg-center bg-no-repeat", isPreview && "h-16")}>
+          <div className={cn("w-full h-24 bg-[#23232a] flex items-center justify-center", isPreview && "h-16")}>
             <img
               src={bannerConfig.value}
               alt="Profile banner"
               className="w-full h-full object-cover"
+              onError={(e) => {
+                console.error('Profile banner image failed to load:', bannerConfig.value);
+                const img = e.currentTarget;
+                img.style.display = 'none';
+                img.parentElement!.innerHTML = `
+                  <div class="w-full h-full flex items-center justify-center text-zinc-400">
+                    <div class="text-center">
+                      <div class="text-2xl mb-2">🖼️</div>
+                      <div class="text-sm">Banner unavailable</div>
+                    </div>
+                  </div>
+                `;
+              }}
+              onLoad={() => {
+                console.log('Profile banner image loaded successfully:', bannerConfig.value);
+              }}
             />
           </div>
         );
