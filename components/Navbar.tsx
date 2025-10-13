@@ -132,6 +132,10 @@ const menuItems = [
   {
     title:"Partner with us",
     href:"/contactus",
+  },
+  {
+    title: "ICS’25",
+    href: "/ics25",
   }
 ];
 
@@ -186,6 +190,7 @@ export default function Navbar() {
   };
 
   return (
+    <>
     <nav className={`${navClasses} ${getNavClasses()}`}>
       <div className="w-full max-w-none px-6">
         <div className="flex h-16 items-center justify-between">
@@ -340,6 +345,9 @@ export default function Navbar() {
         )}
       </AnimatePresence>
     </nav>
+    {/* Spacer to offset fixed navbar height so page content isn't hidden */}
+    <div className="h-16" aria-hidden />
+    </>
   );
 }
 

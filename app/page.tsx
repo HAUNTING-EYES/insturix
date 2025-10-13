@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import dynamic from "next/dynamic";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
+import PopupTrigger from "@/components/ics25/PopupTrigger";
 import WhoWeAre from "@/components/WhoWeAre";
 import { WhyUs } from "@/components/WhyUs";
 import Script from "next/script";
@@ -108,7 +109,8 @@ export default function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteStructuredData) }}
       />
       <ProgressBarWrapper />
-      <Navbar />
+  <Navbar />
+  <PopupTrigger context="home" />
       <ClientHeroSection />
       <WhoWeAre />
       <WhyUs />
