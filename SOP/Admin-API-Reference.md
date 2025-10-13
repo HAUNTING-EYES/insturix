@@ -45,6 +45,7 @@ The unified configuration is located in `lib/config/serviceLimits.ts`. This file
 
 ### Key Components
 
+
 #### 1. Unified Service Limits (`UNIFIED_SERVICE_LIMITS`)
 
 This is the single source of truth that combines service limit definitions with plan configurations. It's organized by service name, then by limit type.
