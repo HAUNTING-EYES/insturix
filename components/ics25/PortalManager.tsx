@@ -330,6 +330,20 @@ export default function PortalManager() {
     }
   };
 
+  const toggleListTeam = async () => {
+    if (!team) return;
+    try {
+      const desired = !team.listed;
+      const r = await fetch('/api/ics25/teams', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'setListed', code: team.code, listed: desired }) });
+      const d = await r.json();
+      if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Failed to update visibility');
+      setTeam((t: any) => t ? { ...t, listed: desired } : t);
+      toast({ title: desired ? 'Team listed publicly' : 'Team hidden', description: desired ? 'Your team will appear in Browse teams.' : 'Your team will not appear in Browse teams.' });
+    } catch (e: any) {
+      toast({ title: 'Update failed', description: e.message || 'Try again later', variant: 'destructive' as any });
+    }
+  };
+
   const acceptRequest = async (playerId: string) => {
     if (!team) return;
     try {
@@ -883,6 +897,16 @@ export default function PortalManager() {
                         </Button>
                         <span className="hidden sm:inline text-white/40"></span>
                         {/* Team page link removed: invites open portal directly */}
+                        {isLeader && (
+                          <span className="ml-auto flex items-center gap-2 text-xs">
+                            <Badge variant={team.listed ? 'default' : 'secondary'} className="h-5 px-1.5 text-[10px]">
+                              {team.listed ? 'Public' : 'Private'}
+                            </Badge>
+                            <Button size="sm" variant="outline" className="h-7 px-2 ring-1 ring-white/20" onClick={toggleListTeam}>
+                              {team.listed ? 'Make it private' : 'List publicly'}
+                            </Button>
+                          </span>
+                        )}
                       </CardDescription>
                     </CardHeader>
                     <CardContent>
@@ -965,7 +989,7 @@ export default function PortalManager() {
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-lg">Members ({team.members?.length || 0})</CardTitle>
-                      <CardDescription>Players in your team with payment status</CardDescription>
+                      <CardDescription></CardDescription>
                     </CardHeader>
                     <CardContent>
                       {memberProfiles.length === 0 ? (

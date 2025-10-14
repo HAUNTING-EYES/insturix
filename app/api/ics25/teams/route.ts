@@ -25,9 +25,12 @@ export async function GET(req: NextRequest) {
   const filter: any = {};
   if (code) filter.code = code;
   if (game) filter.game = game;
+  // If not fetching a specific team code, only show publicly listed teams in browse
   const teams = await Team.find(filter).lean();
   if (code) return NextResponse.json({ ok: true, team: teams[0] || null });
-  const withCapacity = incompleteOnly ? teams.filter(t => t.members.length < maxTeamSize(t.game)) : teams;
+  // Apply public listing filter when browsing
+  const visible = teams.filter((t: any) => t.listed === true);
+  const withCapacity = incompleteOnly ? visible.filter(t => t.members.length < maxTeamSize(t.game)) : visible;
   const total = withCapacity.length;
   if (!limit) {
     return NextResponse.json({ ok: true, teams: withCapacity, total, page: 1, pages: 1 });
@@ -154,6 +157,17 @@ export async function PATCH(req: NextRequest) {
     await team.save();
     await Player.updateOne({ clerkUserId: userId }, { $set: { teamCode: 'awaiting' } });
     return NextResponse.json({ ok: true });
+  }
+
+  if (action === 'setListed') {
+    const { code, listed } = body as { code: string; listed: boolean };
+    if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
+    const team = await Team.findOne({ code });
+    if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
+    if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
+    team.listed = !!listed;
+    await team.save();
+    return NextResponse.json({ ok: true, team });
   }
 
   return NextResponse.json({ ok: false, message: 'Unknown action' }, { status: 400 });

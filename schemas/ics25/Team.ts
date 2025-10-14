@@ -8,6 +8,8 @@ const TeamSchema = new Schema({
   members: { type: [String], default: [] }, // clerkUserIds
   pendingRequests: { type: [String], default: [] }, // clerkUserIds
   link: { type: String },
+  // When true, the team will appear in public browse lists for the selected game
+  listed: { type: Boolean, default: false },
   meta: Schema.Types.Mixed,
 }, { timestamps: true });
 
