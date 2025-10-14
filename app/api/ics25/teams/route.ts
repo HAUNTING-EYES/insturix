@@ -171,6 +171,18 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true, team: updated });
   }
 
+  if (action === 'rename') {
+    const { code, teamName } = body as { code: string; teamName: string };
+    if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
+    if (!teamName || !teamName.trim()) return NextResponse.json({ ok: false, message: 'Team name required' }, { status: 400 });
+    const team = await Team.findOne({ code });
+    if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
+    if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
+    await Team.updateOne({ _id: team._id }, { $set: { teamName: teamName.trim() } });
+    const updated = await Team.findById(team._id).lean();
+    return NextResponse.json({ ok: true, team: updated });
+  }
+
   return NextResponse.json({ ok: false, message: 'Unknown action' }, { status: 400 });
 }
 

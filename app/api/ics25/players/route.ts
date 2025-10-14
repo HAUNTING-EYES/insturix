@@ -67,6 +67,12 @@ export async function POST(req: NextRequest) {
     const { email: _email, game: _game, clerkUserId: _clerkUserId, ...rest } = data as any;
     // Merge updatable fields only
     Object.assign(existing, rest);
+    // Validate required fields after merge
+    const phone = (existing.phone || '').toString().trim();
+    const instagram = (existing.instagram || '').toString().trim();
+    if (!phone || !instagram) {
+      return NextResponse.json({ ok: false, message: 'Phone and Instagram are required' }, { status: 400 });
+    }
     // Update nested gameDetails only for the currently selected game
     if (rest.gameDetails) {
       if (existing.game === 'valorant' && rest.gameDetails.valorant) {
@@ -80,6 +86,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, player: existing });
   }
   // On create: persist email and game from first registration; both will be locked afterwards
+  // Validate required fields on create
+  const phone = (data.phone || '').toString().trim();
+  const instagram = (data.instagram || '').toString().trim();
+  if (!phone || !instagram) {
+    return NextResponse.json({ ok: false, message: 'Phone and Instagram are required' }, { status: 400 });
+  }
   const player = await Player.create(data);
   // Referral attachment: store on player.referredBy; confirmation happens at payment verification
   try {

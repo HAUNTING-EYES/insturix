@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Progress } from "@/components/ui/progress";
-import { Copy, Users, CreditCard, CheckCircle2, Clock, ShieldAlert, Link as LinkIcon, CircleDollarSign, LogOut, Trash2, Info, Check, X } from "lucide-react";
+import { Copy, Users, CreditCard, CheckCircle2, Clock, ShieldAlert, Link as LinkIcon, CircleDollarSign, LogOut, Trash2, Info, Check, X, Pencil } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -63,6 +63,9 @@ export default function PortalManager() {
   const [invitedTeam, setInvitedTeam] = useState<any | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [proofs, setProofs] = useState<{ promoReel?: string; linkedinPost?: string }>({});
+  const [editingTeamName, setEditingTeamName] = useState(false);
+  const [teamNameDraft, setTeamNameDraft] = useState("");
+  const [renaming, setRenaming] = useState(false);
 
   // Rank dropdown options
   const BGMI_GROUPS: { label: string; items: string[] }[] = [
@@ -330,6 +333,43 @@ export default function PortalManager() {
     }
   };
 
+  const startRename = () => {
+    if (!team) return;
+    setEditingTeamName(true);
+    setTeamNameDraft(team.teamName || "");
+  };
+
+  const cancelRename = () => {
+    setEditingTeamName(false);
+    setTeamNameDraft("");
+  };
+
+  const saveRename = async () => {
+    if (!team) return;
+    const next = (teamNameDraft || "").trim();
+    if (!next) { toast({ title: 'Team name required', variant: 'destructive' as any }); return; }
+    setRenaming(true);
+    try {
+      const r = await fetch('/api/ics25/teams', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rename', code: team.code, teamName: next }) });
+      const d = await r.json();
+      if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Failed to rename');
+      try {
+        const tr = await fetch(`/api/ics25/teams?code=${encodeURIComponent(team.code)}`);
+        const td = await tr.json();
+        if (tr.ok && td?.team) setTeam(td.team);
+        else setTeam((t:any)=> t ? { ...t, teamName: next } : t);
+      } catch {
+        setTeam((t:any)=> t ? { ...t, teamName: next } : t);
+      }
+      toast({ title: 'Team name updated' });
+      setEditingTeamName(false);
+    } catch (e:any) {
+      toast({ title: 'Rename failed', description: e.message || 'Try again later', variant: 'destructive' as any });
+    } finally {
+      setRenaming(false);
+    }
+  };
+
   const toggleListTeam = async () => {
     if (!team) return;
     try {
@@ -465,6 +505,12 @@ export default function PortalManager() {
   const saveProfile = async () => {
     try {
       if (!validateProfileForGame()) return;
+      const phoneOk = !!(profile.phone && profile.phone.trim());
+      const instaOk = !!(profile.instagram && profile.instagram.trim());
+      if (!phoneOk || !instaOk) {
+        toast({ title: 'Missing fields', description: 'Phone number and Instagram handle are required.', variant: 'destructive' as any });
+        return;
+      }
       setSavingProfile(true);
       const body: any = {
         name: profile.name,
@@ -724,12 +770,12 @@ export default function PortalManager() {
                         <Input value={profile.name} onChange={(e)=>setProfile(p=>({...p, name: e.target.value}))} />
                       </div>
                       <div>
-                        <label className="text-xs text-white/60">Phone</label>
+                        <label className="text-xs text-white/60">Phone <span className="text-red-400">*</span></label>
                         <Input value={profile.phone || ''} onChange={(e)=>setProfile(p=>({...p, phone: e.target.value}))} />
                       </div>
                       <div className="grid grid-cols-2 gap-3">
                         <div>
-                          <label className="text-xs text-white/60">Instagram</label>
+                          <label className="text-xs text-white/60">Instagram <span className="text-red-400">*</span></label>
                           <Input value={profile.instagram || ''} onChange={(e)=>setProfile(p=>({...p, instagram: e.target.value}))} placeholder="@username" />
                         </div>
                         <div>
@@ -897,7 +943,28 @@ export default function PortalManager() {
                   <Card>
                     <CardHeader>
                       <CardTitle className="text-lg flex items-center gap-2">
-                        <Users className="h-5 w-5" /> {team.teamName}
+                        <Users className="h-5 w-5" />
+                        {editingTeamName ? (
+                          <>
+                            <Input
+                              value={teamNameDraft}
+                              onChange={(e)=>setTeamNameDraft(e.target.value)}
+                              className="h-8 w-52 bg-white/5 border-white/10 text-white"
+                              maxLength={60}
+                            />
+                            <Button size="sm" onClick={saveRename} disabled={renaming || !teamNameDraft.trim()}>{renaming ? 'Saving…' : 'Save'}</Button>
+                            <Button size="sm" variant="ghost" onClick={cancelRename}>Cancel</Button>
+                          </>
+                        ) : (
+                          <>
+                            <span>{team.teamName}</span>
+                            {isLeader && (
+                              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={startRename}>
+                                <Pencil className="h-4 w-4" /> 
+                              </Button>
+                            )}
+                          </>
+                        )}
                         <Badge variant="secondary" className="ml-1">{team.game?.toUpperCase()}</Badge>
                       </CardTitle>
                       <CardDescription className="flex flex-wrap items-center gap-2">

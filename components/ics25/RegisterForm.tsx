@@ -308,7 +308,7 @@ export default function RegisterForm() {
                   <Input placeholder="e.g., Aditya Sharma" value={leader.name} onChange={(e)=>setLeader({...leader,name:e.target.value})} readOnly={!!user?.fullName} />
                 </div>
                 <div>
-                  <label className="text-xs text-white/70">Phone number</label>
+                  <label className="text-xs text-white/70">Phone number <span className="text-red-400">*</span></label>
                   <Input placeholder="e.g., +911234567890" value={leader.phone} onChange={(e)=>setLeader({...leader,phone:e.target.value})} onBlur={(e)=>setLeader({...leader, phone: normalizePhone(e.target.value)})} />
                 </div>
                 <div>
@@ -317,7 +317,7 @@ export default function RegisterForm() {
                   <div className="mt-1 text-[11px] text-white/50">Email is auto-filled from your account and cannot be changed.</div>
                 </div>
                 <div>
-                  <label className="text-xs text-white/70">Instagram handle</label>
+                  <label className="text-xs text-white/70">Instagram handle <span className="text-red-400">*</span></label>
                   <Input placeholder="@yourhandle" value={leader.instagram} onChange={(e)=>setLeader({...leader,instagram:e.target.value})} />
                 </div>
                 <div className="md:col-span-2">
