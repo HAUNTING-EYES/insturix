@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectLabel, SelectSeparator, SelectGroup } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { X, Check } from "lucide-react";
 // Avoid importing SVG as module to prevent svgr loader requirement
 import { useUser } from "@clerk/nextjs";
 
@@ -28,6 +32,36 @@ type TeamMember = { name: string; bgmi?: BgmiDetails; valorant?: ValorantDetails
 
 export default function RegisterForm() {
   const { user } = useUser();
+  // Rank options
+  const BGMI_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Bronze', items: ['Bronze V','Bronze IV','Bronze III','Bronze II','Bronze I'] },
+    { label: 'Silver', items: ['Silver V','Silver IV','Silver III','Silver II','Silver I'] },
+    { label: 'Gold', items: ['Gold V','Gold IV','Gold III','Gold II','Gold I'] },
+    { label: 'Platinum', items: ['Platinum V','Platinum IV','Platinum III','Platinum II','Platinum I'] },
+    { label: 'Diamond', items: ['Diamond V','Diamond IV','Diamond III','Diamond II','Diamond I'] },
+    { label: 'Crown', items: ['Crown V','Crown IV','Crown III','Crown II','Crown I'] },
+    { label: 'Ace', items: ['Ace (Base level)','Ace Master','Ace Dominator'] },
+    { label: 'Conqueror', items: ['Conqueror'] },
+  ];
+  const VALORANT_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Iron', items: ['Iron 1','Iron 2','Iron 3'] },
+    { label: 'Bronze', items: ['Bronze 1','Bronze 2','Bronze 3'] },
+    { label: 'Silver', items: ['Silver 1','Silver 2','Silver 3'] },
+    { label: 'Gold', items: ['Gold 1','Gold 2','Gold 3'] },
+    { label: 'Platinum', items: ['Platinum 1','Platinum 2','Platinum 3'] },
+    { label: 'Diamond', items: ['Diamond 1','Diamond 2','Diamond 3'] },
+    { label: 'Ascendant', items: ['Ascendant 1','Ascendant 2','Ascendant 3'] },
+    { label: 'Immortal', items: ['Immortal 1','Immortal 2','Immortal 3'] },
+    { label: 'Radiant', items: ['Radiant'] },
+  ];
+  const VALORANT_AGENT_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Controllers', items: ['Astra','Brimstone','Clove','Harbor','Omen','Viper'] },
+    { label: 'Duelists', items: ['Iso','Jett','Neon','Phoenix','Raze','Reyna','Yoru'] },
+    { label: 'Initiators', items: ['Breach','Fade','Gekko','KAY/O','Skye','Sova'] },
+    { label: 'Sentinels', items: ['Chamber','Cypher','Deadlock','Killjoy','Sage','Tejo','Veto','Vyse','Waylay'] },
+  ];
+  const splitAgents = (s?: string) => (s || "").split(',').map(a=>a.trim()).filter(Boolean);
+  const joinAgents = (arr: string[]) => Array.from(new Set(arr)).join(', ');
   const [referral, setReferral] = useState<string | null>(null);
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
@@ -36,6 +70,25 @@ export default function RegisterForm() {
   const [leader, setLeader] = useState<Leader>({ name: "", phone: "", email: "", instagram: "", discord: "" });
   const [leaderBgmi, setLeaderBgmi] = useState<BgmiDetails>({ ign: "", uid: "", rank: "" });
   const [leaderVal, setLeaderVal] = useState<ValorantDetails>({ riotId: "", rank: "", preferredAgents: "" });
+  // Multi-select helpers derived from state
+  const selectedAgents = splitAgents(leaderVal.preferredAgents);
+  const toggleAgent = (agent: string) => {
+    const set = new Set(selectedAgents);
+    if (set.has(agent)) {
+      set.delete(agent);
+    } else {
+      if (selectedAgents.length >= 5) {
+        toast({ title: "Limit reached", description: "You can select up to 5 agents.", variant: "destructive" });
+        return;
+      }
+      set.add(agent);
+    }
+    setLeaderVal(v => ({ ...v, preferredAgents: joinAgents(Array.from(set)) }));
+  };
+  const removeAgent = (agent: string) => {
+    const next = selectedAgents.filter((a: string) => a !== agent);
+    setLeaderVal(v => ({ ...v, preferredAgents: joinAgents(next) }));
+  };
 
   // Team & payment handled in portal
   const [navBusy, setNavBusy] = useState(false);
@@ -261,6 +314,7 @@ export default function RegisterForm() {
                 <div>
                   <label className="text-xs text-white/70">Email</label>
                   <Input placeholder="name@example.com" value={leader.email} onChange={(e)=>setLeader({...leader,email:e.target.value})} readOnly={!!user?.primaryEmailAddress?.emailAddress} />
+                  <div className="mt-1 text-[11px] text-white/50">Email is auto-filled from your account and cannot be changed.</div>
                 </div>
                 <div>
                   <label className="text-xs text-white/70">Instagram handle</label>
@@ -320,6 +374,9 @@ export default function RegisterForm() {
               {game && (
                 <div className="space-y-2">
                   <p className="text-xs text-white/70">You’ll provide your game-specific details next. Team formation happens in the following step.</p>
+                  <div className="text-xs rounded-md border border-amber-600/30 bg-amber-500/10 text-amber-200 px-3 py-2">
+                    Note: You can participate in only one game per ID. Once you register, your selected game will be locked and cannot be changed later.
+                  </div>
                 </div>
               )}
               <StepNav title="Select Game" />
@@ -342,7 +399,22 @@ export default function RegisterForm() {
                       </div>
                       <div>
                         <label className="text-xs text-white/70">Leader Tier/Rank</label>
-                        <Input placeholder="e.g., Ace, Crown" value={leaderBgmi.rank} onChange={(e)=>setLeaderBgmi({...leaderBgmi, rank:e.target.value})} />
+                        <Select value={leaderBgmi.rank || undefined} onValueChange={(v)=>setLeaderBgmi({...leaderBgmi, rank: v})}>
+                          <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
+                            <SelectValue placeholder="Select BGMI rank" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-zinc-900 text-white border border-white/10">
+                            {BGMI_GROUPS.map((grp, gi) => (
+                              <SelectGroup key={grp.label}>
+                                <SelectLabel>{grp.label}</SelectLabel>
+                                {grp.items.map(r => (
+                                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                                ))}
+                                {gi < BGMI_GROUPS.length - 1 && <SelectSeparator />}
+                              </SelectGroup>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </motion.div>
                   )}
@@ -354,11 +426,62 @@ export default function RegisterForm() {
                       </div>
                       <div>
                         <label className="text-xs text-white/70">Leader Rank</label>
-                        <Input placeholder="e.g., Gold 2" value={leaderVal.rank} onChange={(e)=>setLeaderVal({...leaderVal, rank:e.target.value})} />
+                        <Select value={leaderVal.rank || undefined} onValueChange={(v)=>setLeaderVal({...leaderVal, rank: v})}>
+                          <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
+                            <SelectValue placeholder="Select Valorant rank" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-zinc-900 text-white border border-white/10">
+                            {VALORANT_GROUPS.map((grp, gi) => (
+                              <SelectGroup key={grp.label}>
+                                <SelectLabel>{grp.label}</SelectLabel>
+                                {grp.items.map(r => (
+                                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                                ))}
+                                {gi < VALORANT_GROUPS.length - 1 && <SelectSeparator />}
+                              </SelectGroup>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                       <div>
                         <label className="text-xs text-white/70">Preferred Agent(s)</label>
-                        <Input placeholder="e.g., Jett, Sova" value={leaderVal.preferredAgents} onChange={(e)=>setLeaderVal({...leaderVal, preferredAgents:e.target.value})} />
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <button type="button" className="w-full min-h-10 text-left rounded-md border border-white/10 bg-white/5 px-2 py-2 focus:outline-none">
+                              <div className="flex flex-wrap gap-1.5">
+                                {selectedAgents.length === 0 ? (
+                                  <span className="text-xs text-white/50">Select preferred agents…</span>
+                                ) : selectedAgents.map(agent => (
+                                  <span key={agent} className="inline-flex items-center gap-1 rounded-md bg-white/10 border border-white/10 px-2 py-0.5 text-xs text-white/90">
+                                    {agent}
+                                    <X className="h-3.5 w-3.5 cursor-pointer opacity-70 hover:opacity-100" onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); removeAgent(agent); }} />
+                                  </span>
+                                ))}
+                              </div>
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent align="start" className="p-0 w-72 bg-zinc-900 text-white border border-white/10">
+                            <Command>
+                              <CommandInput placeholder="Search agents…" />
+                              <CommandEmpty>No agents found.</CommandEmpty>
+                              <CommandList>
+                                {VALORANT_AGENT_GROUPS.map(group => (
+                                  <CommandGroup key={group.label} heading={group.label}>
+                                    {group.items.map(agent => {
+                                      const checked = selectedAgents.includes(agent);
+                                      return (
+                                        <CommandItem key={agent} onSelect={() => toggleAgent(agent)}>
+                                          <Check className={`mr-2 h-4 w-4 ${checked ? 'opacity-100' : 'opacity-0'}`} />
+                                          {agent}
+                                        </CommandItem>
+                                      );
+                                    })}
+                                  </CommandGroup>
+                                ))}
+                              </CommandList>
+                            </Command>
+                          </PopoverContent>
+                        </Popover>
                       </div>
                     </motion.div>
                   )}

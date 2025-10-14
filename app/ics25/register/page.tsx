@@ -9,8 +9,15 @@ import Footer from "@/components/Footer";
 import PopupTrigger from "@/components/ics25/PopupTrigger";
 
 import { redirect } from "next/navigation";
+import { auth } from "@clerk/nextjs/server";
 
 export default async function Page() {
+  // Block unauthenticated users from accessing registration
+  // Requires sign-in before proceeding to the form
+  const { userId } = await auth();
+  if (!userId) {
+    redirect("/signin");
+  }
   // If the player is already registered, redirect them straight to the portal
   try {
     // Use a relative URL so Next.js forwards cookies in SSR and Clerk can identify the user

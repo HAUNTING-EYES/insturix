@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Progress } from "@/components/ui/progress";
 import { Copy, Users, CreditCard, CheckCircle2, Clock, ShieldAlert, Link as LinkIcon, CircleDollarSign, LogOut, Trash2, Info, Check, X } from "lucide-react";
 import {
   AlertDialog,
@@ -22,6 +23,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSearchParams, useRouter } from "next/navigation";
+import PlayerHoverCard from "@/components/ics25/PlayerHoverCard";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 export default function PortalManager() {
   const { user } = useUser();
@@ -50,7 +55,7 @@ export default function PortalManager() {
   const [browseTeams, setBrowseTeams] = useState<any[]>([]);
   const [browseQuery, setBrowseQuery] = useState("");
 
-  const [profile, setProfile] = useState<{ name: string; phone?: string; instagram?: string; discord?: string; riotId?: string; ign?: string; uid?: string }>({ name: "" });
+  const [profile, setProfile] = useState<{ name: string; phone?: string; instagram?: string; discord?: string; riotId?: string; ign?: string; uid?: string; valorantRank?: string; preferredAgents?: string; bgmiRank?: string }>({ name: "" });
   const [savingProfile, setSavingProfile] = useState(false);
   const [editingProfile, setEditingProfile] = useState(false);
   const [pendingProfiles, setPendingProfiles] = useState<any[]>([]);
@@ -58,6 +63,59 @@ export default function PortalManager() {
   const [invitedTeam, setInvitedTeam] = useState<any | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [proofs, setProofs] = useState<{ promoReel?: string; linkedinPost?: string }>({});
+
+  // Rank dropdown options
+  const BGMI_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Bronze', items: ['Bronze V','Bronze IV','Bronze III','Bronze II','Bronze I'] },
+    { label: 'Silver', items: ['Silver V','Silver IV','Silver III','Silver II','Silver I'] },
+    { label: 'Gold', items: ['Gold V','Gold IV','Gold III','Gold II','Gold I'] },
+    { label: 'Platinum', items: ['Platinum V','Platinum IV','Platinum III','Platinum II','Platinum I'] },
+    { label: 'Diamond', items: ['Diamond V','Diamond IV','Diamond III','Diamond II','Diamond I'] },
+    { label: 'Crown', items: ['Crown V','Crown IV','Crown III','Crown II','Crown I'] },
+    { label: 'Ace', items: ['Ace (Base level)','Ace Master','Ace Dominator'] },
+    { label: 'Conqueror', items: ['Conqueror'] },
+  ];
+  const VALORANT_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Iron', items: ['Iron 1','Iron 2','Iron 3'] },
+    { label: 'Bronze', items: ['Bronze 1','Bronze 2','Bronze 3'] },
+    { label: 'Silver', items: ['Silver 1','Silver 2','Silver 3'] },
+    { label: 'Gold', items: ['Gold 1','Gold 2','Gold 3'] },
+    { label: 'Platinum', items: ['Platinum 1','Platinum 2','Platinum 3'] },
+    { label: 'Diamond', items: ['Diamond 1','Diamond 2','Diamond 3'] },
+    { label: 'Ascendant', items: ['Ascendant 1','Ascendant 2','Ascendant 3'] },
+    { label: 'Immortal', items: ['Immortal 1','Immortal 2','Immortal 3'] },
+    { label: 'Radiant', items: ['Radiant'] },
+  ];
+
+  // Valorant preferred agents grouped by role
+  const VALORANT_AGENT_GROUPS: { label: string; items: string[] }[] = [
+    { label: 'Controllers', items: ['Astra','Brimstone','Clove','Harbor','Omen','Viper'] },
+    { label: 'Duelists', items: ['Iso','Jett','Neon','Phoenix','Raze','Reyna','Yoru'] },
+    { label: 'Initiators', items: ['Breach','Fade','Gekko','KAY/O','Skye','Sova'] },
+    { label: 'Sentinels', items: ['Chamber','Cypher','Deadlock','Killjoy','Sage','Tejo','Veto','Vyse','Waylay'] },
+  ];
+
+  const splitAgents = (s?: string) => (s || "").split(',').map(a=>a.trim()).filter(Boolean);
+  const joinAgents = (arr: string[]) => Array.from(new Set(arr)).join(', ');
+  // Multi-select helpers derived from current profile preferredAgents
+  const selectedAgents = splitAgents(profile.preferredAgents);
+  const toggleAgent = (agent: string) => {
+    const set = new Set(selectedAgents);
+    if (set.has(agent)) {
+      set.delete(agent);
+    } else {
+      if (selectedAgents.length >= 5) {
+        toast({ title: "Limit reached", description: "You can select up to 5 agents.", variant: "destructive" as any });
+        return;
+      }
+      set.add(agent);
+    }
+    setProfile(p => ({ ...p, preferredAgents: joinAgents(Array.from(set)) }));
+  };
+  const removeAgent = (agent: string) => {
+    const next = selectedAgents.filter((a: string) => a !== agent);
+    setProfile(p => ({ ...p, preferredAgents: joinAgents(next) }));
+  };
 
   useEffect(() => {
     (async () => {
@@ -76,8 +134,11 @@ export default function PortalManager() {
             instagram: p.instagram || "",
             discord: p.discord || "",
             riotId: p.gameDetails?.valorant?.riotId || "",
+            valorantRank: p.gameDetails?.valorant?.rank || "",
+            preferredAgents: p.gameDetails?.valorant?.preferredAgents || "",
             ign: p.gameDetails?.bgmi?.ign || "",
             uid: p.gameDetails?.bgmi?.uid || "",
+            bgmiRank: p.gameDetails?.bgmi?.rank || "",
           });
           // Preload referral code if exists
           const code = p?.cashbacks?.referral?.code || null;
@@ -379,6 +440,7 @@ export default function PortalManager() {
 
   const saveProfile = async () => {
     try {
+      if (!validateProfileForGame()) return;
       setSavingProfile(true);
       const body: any = {
         name: profile.name,
@@ -386,8 +448,8 @@ export default function PortalManager() {
         instagram: profile.instagram,
         discord: profile.discord,
       };
-      if (me?.game === 'valorant') body.gameDetails = { valorant: { riotId: profile.riotId } };
-  if (me?.game === 'bgmi') body.gameDetails = { bgmi: { ign: profile.ign, uid: profile.uid } };
+      if (me?.game === 'valorant') body.gameDetails = { valorant: { riotId: profile.riotId, rank: profile.valorantRank, preferredAgents: profile.preferredAgents } };
+      if (me?.game === 'bgmi') body.gameDetails = { bgmi: { ign: profile.ign, uid: profile.uid, rank: profile.bgmiRank } };
       const r = await fetch('/api/ics25/players', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!r.ok) throw new Error('Failed to save');
       toast({ title: "Saved", description: "Your registration details were updated." });
@@ -431,6 +493,32 @@ export default function PortalManager() {
     }
   };
 
+  // Validators for game-specific fields
+  const validateRiotId = (s?: string) => {
+    if (!s) return false;
+    const str = s.trim();
+    // Name 3-16 (no #/spaces), #, Tag 3-5 alphanum
+    return /^[^#\s]{3,16}#[A-Za-z0-9]{3,5}$/.test(str);
+  };
+  const validateProfileForGame = (): boolean => {
+    if (me?.game === 'valorant') {
+      if (!profile.riotId || !profile.valorantRank || !profile.preferredAgents) {
+        toast({ title: 'Missing fields', description: 'Riot ID, Rank and Preferred Agent(s) are required.', variant: 'destructive' as any });
+        return false;
+      }
+      if (!validateRiotId(profile.riotId)) {
+        toast({ title: 'Invalid Riot ID', description: 'Use Name#TAG with a 3-16 char name and 3-5 char tag (alphanumeric).', variant: 'destructive' as any });
+        return false;
+      }
+    } else if (me?.game === 'bgmi') {
+      if (!profile.ign || !profile.uid || !profile.bgmiRank) {
+        toast({ title: 'Missing fields', description: 'BGMI IGN, UID and Tier/Rank are required.', variant: 'destructive' as any });
+        return false;
+      }
+    }
+    return true;
+  };
+
   if (!userId) return <div className="mt-6 text-white/70">Please sign in to access your portal.</div>;
   if (loading) return (
     <div className="mt-6 grid md:grid-cols-3 gap-4">
@@ -445,7 +533,7 @@ export default function PortalManager() {
 
   return (
     <div className="mt-6 space-y-4">
-      <div className="flex flex-col gap-2 rounded-xl border border-zinc-800/50 bg-gradient-to-br from-zinc-900/60 to-zinc-900/20 p-4 md:p-5">
+      <div className="flex flex-col gap-3 rounded-xl border border-zinc-800/50 bg-gradient-to-br from-zinc-900/60 to-zinc-900/20 p-4 md:p-5">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl md:text-2xl font-semibold tracking-tight">ICS’25 Player Portal</h1>
@@ -475,28 +563,76 @@ export default function PortalManager() {
         ) : (
           <span className="ml-2">• Team: <span className="opacity-80">awaiting</span></span>
         )}</div>
+        {(() => {
+          // Compute next steps to guide the user
+          const steps: { label: string; action: () => void }[] = [];
+          const needsProfile = !profile?.name || (me?.game === 'valorant' && !profile.riotId) || (me?.game === 'bgmi' && !profile.ign);
+          if (needsProfile) steps.push({ label: 'Complete registration', action: () => setActiveTab('registration') });
+          if (!team) steps.push({ label: 'Join or create a team', action: () => setActiveTab('team') });
+          if (me?.payment?.status !== 'paid') steps.push({ label: 'Complete payment', action: () => setActiveTab('payment') });
+          if (steps.length === 0) return null;
+          return (
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-white/60">Next steps:</span>
+              {steps.map((s, i) => (
+                <Button key={i} size="sm" variant="secondary" className="h-7 px-2" onClick={s.action}>{s.label}</Button>
+              ))}
+            </div>
+          );
+        })()}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="w-full justify-start">
+        <div className="sticky top-20 z-10 -mx-1 px-1">
+          <TabsList className="w-full justify-start bg-zinc-900/60 backdrop-blur supports-[backdrop-filter]:bg-zinc-900/40 border border-white/10">
           <TabsTrigger value="registration">Registration</TabsTrigger>
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="cashbacks">Cashbacks</TabsTrigger>
           <TabsTrigger value="event">Event details</TabsTrigger>
           <TabsTrigger value="payment">Payment</TabsTrigger>
-        </TabsList>
+          </TabsList>
+        </div>
 
         <TabsContent value="registration">
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2 space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><Users className="h-5 w-5" /> {editingProfile ? 'Edit your details' : 'Your registration details'}</CardTitle>
-                  <CardDescription>{editingProfile ? 'Update your personal and game-specific fields' : 'You can edit these anytime'}</CardDescription>
+                  <CardTitle className="text-lg flex items-center gap-2"><Users className="h-5 w-5" /> {editingProfile ? 'Edit your details' : 'Your registration details'}
+                    <span className="flex-1" />
+                    <img
+                      src={(me as any)?.avatarUrl || (me as any)?.imageUrl || '/avatar.png'}
+                      alt={(me as any)?.name || 'Player'}
+                      className="h-14 w-14 rounded-full object-cover border border-white/10 ring-1 ring-white/10"
+                    />
+                  </CardTitle>
+                  <CardDescription>
+                    {editingProfile ? (
+                      <>
+                        Update your personal and game-specific fields. Email is linked to your account and cannot be edited. You can participate in only one game per ID; your game selection is locked after first registration.
+                      </>
+                    ) : (
+                      'You can edit these anytime. Email and selected game are locked.'
+                    )}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {!editingProfile ? (
                     <div className="grid grid-cols-1 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-white/60">Email</div>
+                        <div className="text-white/90">{me?.email || '—'}</div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <div className="text-xs text-white/60">Game (locked)</div>
+                          <div className="text-white/90">{me?.game ? me.game.toUpperCase() : '—'}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-white/60">Team Code</div>
+                          <div className="text-white/90">{me?.teamCode && me.teamCode !== 'awaiting' ? me.teamCode : '—'}</div>
+                        </div>
+                      </div>
                       <div>
                         <div className="text-xs text-white/60">Full name</div>
                         <div className="text-white/90">{profile.name || '—'}</div>
@@ -516,13 +652,23 @@ export default function PortalManager() {
                         </div>
                       </div>
                       {me?.game === 'valorant' && (
-                        <div>
-                          <div className="text-xs text-white/60">Riot ID</div>
-                          <div className="text-white/90">{profile.riotId || '—'}</div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <div className="text-xs text-white/60">Riot ID</div>
+                            <div className="text-white/90">{profile.riotId || '—'}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-white/60">Rank</div>
+                            <div className="text-white/90">{profile.valorantRank || '—'}</div>
+                          </div>
+                          <div className="md:col-span-2">
+                            <div className="text-xs text-white/60">Preferred Agent(s)</div>
+                            <div className="text-white/90">{profile.preferredAgents || '—'}</div>
+                          </div>
                         </div>
                       )}
                       {me?.game === 'bgmi' && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-3 gap-3">
                           <div>
                             <div className="text-xs text-white/60">BGMI IGN</div>
                             <div className="text-white/90">{profile.ign || '—'}</div>
@@ -531,11 +677,24 @@ export default function PortalManager() {
                             <div className="text-xs text-white/60">BGMI UID</div>
                             <div className="text-white/90">{profile.uid || '—'}</div>
                           </div>
+                          <div>
+                            <div className="text-xs text-white/60">Tier/Rank</div>
+                            <div className="text-white/90">{profile.bgmiRank || '—'}</div>
+                          </div>
                         </div>
                       )}
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-3">
+                      <div>
+                        <label className="text-xs text-white/60">Email</label>
+                        <Input value={me?.email || ''} readOnly disabled />
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/60">Game</label>
+                        <Input value={me?.game ? me.game.toUpperCase() : ''} readOnly disabled />
+                        <div className="mt-1 text-[11px] text-white/50">You can participate in only one game per ID. This cannot be changed.</div>
+                      </div>
                       <div>
                         <label className="text-xs text-white/60">Full name</label>
                         <Input value={profile.name} onChange={(e)=>setProfile(p=>({...p, name: e.target.value}))} />
@@ -555,20 +714,100 @@ export default function PortalManager() {
                         </div>
                       </div>
                       {me?.game === 'valorant' && (
-                        <div>
-                          <label className="text-xs text-white/60">Riot ID</label>
-                          <Input value={profile.riotId || ''} onChange={(e)=>setProfile(p=>({...p, riotId: e.target.value}))} placeholder="name#TAG" />
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="text-xs text-white/60">Riot ID <span className="text-red-400">*</span></label>
+                            <Input required value={profile.riotId || ''} onChange={(e)=>setProfile(p=>({...p, riotId: e.target.value}))} placeholder="Name#TAG" />
+                          </div>
+                          <div>
+                            <label className="text-xs text-white/60">Rank <span className="text-red-400">*</span></label>
+                            <Select value={profile.valorantRank || undefined} onValueChange={(v)=>setProfile(p=>({...p, valorantRank: v }))}>
+                              <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
+                                <SelectValue placeholder="Select Valorant rank" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-zinc-900 text-white border border-white/10">
+                                {VALORANT_GROUPS.map((grp, gi) => (
+                                  <SelectGroup key={grp.label}>
+                                    <SelectLabel>{grp.label}</SelectLabel>
+                                    {grp.items.map(r => (
+                                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                                    ))}
+                                    {gi < VALORANT_GROUPS.length - 1 && <SelectSeparator />}
+                                  </SelectGroup>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-white/60">Preferred Agent(s) <span className="text-red-400">*</span></label>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button type="button" className="w-full min-h-10 text-left rounded-md border border-white/10 bg-white/5 px-2 py-2 focus:outline-none">
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {selectedAgents.length === 0 ? (
+                                      <span className="text-xs text-white/50">Select preferred agents…</span>
+                                    ) : selectedAgents.map(agent => (
+                                      <span key={agent} className="inline-flex items-center gap-1 rounded-md bg-white/10 border border-white/10 px-2 py-0.5 text-xs text-white/90">
+                                        {agent}
+                                        <X className="h-3.5 w-3.5 cursor-pointer opacity-70 hover:opacity-100" onClick={(e)=>{ e.preventDefault(); e.stopPropagation(); removeAgent(agent); }} />
+                                      </span>
+                                    ))}
+                                  </div>
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent align="start" className="p-0 w-72 bg-zinc-900 text-white border border-white/10">
+                                <Command>
+                                  <CommandInput placeholder="Search agents…" />
+                                  <CommandEmpty>No agents found.</CommandEmpty>
+                                  <CommandList>
+                                    {VALORANT_AGENT_GROUPS.map(group => (
+                                      <CommandGroup key={group.label} heading={group.label}>
+                                        {group.items.map(agent => {
+                                          const checked = selectedAgents.includes(agent);
+                                          return (
+                                            <CommandItem key={agent} onSelect={() => toggleAgent(agent)}>
+                                              <Check className={`mr-2 h-4 w-4 ${checked ? 'opacity-100' : 'opacity-0'}`} />
+                                              {agent}
+                                            </CommandItem>
+                                          );
+                                        })}
+                                      </CommandGroup>
+                                    ))}
+                                  </CommandList>
+                                </Command>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
                         </div>
                       )}
                       {me?.game === 'bgmi' && (
                         <div className="grid grid-cols-2 gap-3">
                           <div>
-                            <label className="text-xs text-white/60">BGMI IGN</label>
+                            <label className="text-xs text-white/60">BGMI IGN <span className="text-red-400">*</span></label>
                             <Input value={profile.ign || ''} onChange={(e)=>setProfile(p=>({...p, ign: e.target.value}))} />
                           </div>
                           <div>
-                            <label className="text-xs text-white/60">BGMI UID</label>
+                            <label className="text-xs text-white/60">BGMI UID <span className="text-red-400">*</span></label>
                             <Input value={profile.uid || ''} onChange={(e)=>setProfile(p=>({...p, uid: e.target.value}))} />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="text-xs text-white/60">Tier/Rank <span className="text-red-400">*</span></label>
+                            <Select value={profile.bgmiRank || undefined} onValueChange={(v)=>setProfile(p=>({...p, bgmiRank: v }))}>
+                              <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
+                                <SelectValue placeholder="Select BGMI rank" />
+                              </SelectTrigger>
+                              <SelectContent className="bg-zinc-900 text-white border border-white/10">
+                                {BGMI_GROUPS.map((grp, gi) => (
+                                  <SelectGroup key={grp.label}>
+                                    <SelectLabel>{grp.label}</SelectLabel>
+                                    {grp.items.map(r => (
+                                      <SelectItem key={r} value={r}>{r}</SelectItem>
+                                    ))}
+                                    {gi < BGMI_GROUPS.length - 1 && <SelectSeparator />}
+                                  </SelectGroup>
+                                ))}
+                              </SelectContent>
+                            </Select>
                           </div>
                         </div>
                       )}
@@ -590,8 +829,11 @@ export default function PortalManager() {
                             instagram: p.instagram || '',
                             discord: p.discord || '',
                             riotId: p.gameDetails?.valorant?.riotId || '',
+                            valorantRank: p.gameDetails?.valorant?.rank || '',
+                            preferredAgents: p.gameDetails?.valorant?.preferredAgents || '',
                             ign: p.gameDetails?.bgmi?.ign || '',
                             uid: p.gameDetails?.bgmi?.uid || '',
+                            bgmiRank: p.gameDetails?.bgmi?.rank || '',
                           });
                         }
                         setEditingProfile(false);
@@ -639,7 +881,7 @@ export default function PortalManager() {
                         <Button size="sm" variant="ghost" className="h-7 px-2" onClick={()=>copy(team.code)}>
                           <Copy className="h-4 w-4" />
                         </Button>
-                        <span className="hidden sm:inline text-white/40">•</span>
+                        <span className="hidden sm:inline text-white/40"></span>
                         {/* Team page link removed: invites open portal directly */}
                       </CardDescription>
                     </CardHeader>
@@ -671,9 +913,7 @@ export default function PortalManager() {
                               </div>
                             </div>
                             <div className="mt-3">
-                              <div className="h-2 w-full rounded bg-white/5 overflow-hidden">
-                                <div className="h-full bg-violet-500" style={{ width: `${pct}%` }} />
-                              </div>
+                              <Progress value={pct} max={100} className="h-2 bg-white/5" />
                               <div className="mt-1 text-[10px] text-white/50">Team completion {pct}%</div>
                             </div>
                             <div className="mt-3 flex flex-wrap gap-2">
@@ -735,26 +975,28 @@ export default function PortalManager() {
                           {memberProfiles.map((m: any) => {
                             const isLeaderRow = m.clerkUserId === team.leaderId;
                             return (
-                              <div key={m.clerkUserId} className="flex items-center gap-3 p-2 rounded-md border border-zinc-800/50">
-                                <img src={m.avatarUrl || '/avatar.png'} alt={m.name} className="h-9 w-9 rounded-full object-cover" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <div className="text-sm text-white/90 truncate">{m.name}</div>
-                                    {isLeaderRow && <Badge className="h-5 px-1.5 text-[10px]">Leader</Badge>}
+                              <PlayerHoverCard key={m.clerkUserId} player={m}>
+                                <div className="flex items-center gap-3 p-2 rounded-md border border-zinc-800/50">
+                                  <img src={m.avatarUrl || '/avatar.png'} alt={m.name} className="h-9 w-9 rounded-full object-cover" />
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <div className="text-sm text-white/90 truncate">{m.name}</div>
+                                      {isLeaderRow && <Badge className="h-5 px-1.5 text-[10px]">Leader</Badge>}
+                                    </div>
+                                    <div className="text-xs text-white/60 truncate">{m.gameDetails?.valorant?.riotId || m.gameDetails?.bgmi?.ign || m.email}</div>
                                   </div>
-                                  <div className="text-xs text-white/60 truncate">{m.gameDetails?.valorant?.riotId || m.gameDetails?.bgmi?.ign || m.email}</div>
+                                  <div className={`text-[10px] px-2 py-0.5 rounded border ${m.payment?.status==='paid' ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/30' : 'bg-white/10 text-white/70 border-white/10'}`}>
+                                    {m.payment?.status==='paid' ? 'Paid' : 'Pending'}
+                                  </div>
+                                  {isLeader && !isLeaderRow && (
+                                    <Button size="sm" variant="ghost" className="text-xs" onClick={async ()=>{
+                                      if (!confirm('Remove this player from the team?')) return;
+                                      await fetch('/api/ics25/teams', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'removeMember', code: team.code, playerId: m.clerkUserId }) });
+                                      await refreshMe();
+                                    }}>Remove</Button>
+                                  )}
                                 </div>
-                                <div className={`text-[10px] px-2 py-0.5 rounded border ${m.payment?.status==='paid' ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/30' : 'bg-white/10 text-white/70 border-white/10'}`}>
-                                  {m.payment?.status==='paid' ? 'Paid' : 'Awaiting'}
-                                </div>
-                                {isLeader && !isLeaderRow && (
-                                  <Button size="sm" variant="ghost" className="text-xs" onClick={async ()=>{
-                                    if (!confirm('Remove this player from the team?')) return;
-                                    await fetch('/api/ics25/teams', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'removeMember', code: team.code, playerId: m.clerkUserId }) });
-                                    await refreshMe();
-                                  }}>Remove</Button>
-                                )}
-                              </div>
+                              </PlayerHoverCard>
                             );
                           })}
                         </div>
@@ -773,7 +1015,7 @@ export default function PortalManager() {
                       <CardContent className="flex items-center justify-between gap-2">
                         <div className="text-sm text-white/70">{invitedTeam.game?.toUpperCase()} • Members: {invitedTeam.members?.length ?? 0}</div>
                         {Array.isArray(me?.teamRequests) && me?.teamRequests?.includes(invitedTeam.code) ? (
-                          <Button size="sm" variant="ghost" disabled>Requested</Button>
+                          <Button size="sm" variant="outline" disabled className="opacity-80">Requested</Button>
                         ) : (
                           <Button size="sm" onClick={() => handleJoinByCode(invitedTeam.code)} disabled={joining}>{joining ? 'Requesting…' : 'Request to join'}</Button>
                         )}
@@ -843,7 +1085,10 @@ export default function PortalManager() {
                                     </div>
                                     <div className="flex items-center gap-2">
                                       {alreadyRequested ? (
-                                        <Button size="sm" variant="ghost" onClick={()=>handleCancelRequest(t.code)}>Cancel</Button>
+                                        <>
+                                          <Button size="sm" variant="outline" disabled className="opacity-80">Requested</Button>
+                                          <Button size="sm" variant="ghost" onClick={()=>handleCancelRequest(t.code)}>Cancel</Button>
+                                        </>
                                       ) : (
                                         <Button size="sm" disabled={joining} onClick={() => { handleJoinByCode(t.code); }}>
                                           {joining ? 'Requesting…' : 'Request'}
@@ -894,7 +1139,7 @@ export default function PortalManager() {
                   <div>• Team size: Valorant 5 players, BGMI 4 players.</div>
                   <div>• Join using a team code or create your own team and share the invite link.</div>
                   <div>• Leaders must accept incoming join requests; members can cancel requests.</div>
-                  <div>• Payment is per player. Team status shows Paid/Awaiting for each member.</div>
+                  <div>• Payment is per player. Team status shows Paid/Pending for each member.</div>
                   <div>• Leaders can remove members. Deleting a team removes all members.</div>
                 </CardContent>
               </Card>
@@ -908,21 +1153,23 @@ export default function PortalManager() {
                     {team.pendingRequests.map((uid: string) => {
                       const p = pendingProfiles.find((pp)=>pp.clerkUserId === uid);
                       return (
-                        <div key={uid} className="flex items-center justify-between p-2 rounded-md border border-zinc-800/50">
-                          <div className="flex items-center gap-3">
-                            <div className="h-8 w-8 rounded-full bg-white/10 overflow-hidden">
-                              {p?.avatarUrl ? <img src={p.avatarUrl} alt={p.name||'Player'} className="h-full w-full object-cover" /> : null}
+                        <PlayerHoverCard key={uid} player={p || {}}>
+                          <div className="flex items-center justify-between p-2 rounded-md border border-zinc-800/50">
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-full bg-white/10 overflow-hidden">
+                                {p?.avatarUrl ? <img src={p.avatarUrl} alt={p?.name||'Player'} className="h-full w-full object-cover" /> : <img src="/avatar.png" alt="Player" className="h-full w-full object-cover" />}
+                              </div>
+                              <div>
+                                <div className="text-sm text-white/90">{p?.name || 'Unknown Player'}</div>
+                                <div className="text-xs text-white/60">{p?.gameDetails?.valorant?.riotId || p?.gameDetails?.bgmi?.ign || uid}</div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="text-sm text-white/90">{p?.name || 'Unknown Player'}</div>
-                              <div className="text-xs text-white/60">{p?.gameDetails?.valorant?.riotId || p?.gameDetails?.bgmi?.ign || uid}</div>
+                            <div className="flex items-center gap-2">
+                              <Button size="sm" variant="secondary" onClick={()=>acceptRequest(uid)}>Accept</Button>
+                              <Button size="sm" variant="ghost" onClick={()=>denyRequest(uid)}>Deny</Button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Button size="sm" variant="secondary" onClick={()=>acceptRequest(uid)}>Accept</Button>
-                            <Button size="sm" variant="ghost" onClick={()=>denyRequest(uid)}>Deny</Button>
-                          </div>
-                        </div>
+                        </PlayerHoverCard>
                       );
                     })}
                   </CardContent>
@@ -940,9 +1187,9 @@ export default function PortalManager() {
                 const promo = me?.cashbacks?.promoReel;
                 const linkedin = me?.cashbacks?.linkedinPost;
                 const refer = me?.cashbacks?.referral;
-                const amtPromo = promo?.amount ?? 100;
+                const amtPromo = promo?.amount ?? 75;
                 const amtLinkedin = linkedin?.amount ?? 75;
-                const amtReferral = refer?.amount ?? 75;
+                const amtReferral = refer?.amount ?? 100;
                 const earned = (promo?.status === 'verified' ? amtPromo : 0)
                   + (linkedin?.status === 'verified' ? amtLinkedin : 0)
                   + (refer?.qualified ? amtReferral : 0);
@@ -974,7 +1221,7 @@ export default function PortalManager() {
               {/* Promo Reel Task */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Promo Reel — ₹100</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Promo Reel — ₹75</CardTitle>
                   <CardDescription>Post a reel tagging @insturix and #ICS25 #insturix</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -984,7 +1231,7 @@ export default function PortalManager() {
                       return <div className="text-xs rounded-md border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2">Under review — we’ll verify this within 48 hours.</div>;
                     }
                     if (st === 'verified') {
-                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹100 will be credited.</div>;
+                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹75 will be credited.</div>;
                     }
                     if (st === 'rejected') {
                       return <div className="text-xs rounded-md border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2">Rejected — please resubmit with valid proof.</div>;
@@ -1030,7 +1277,7 @@ export default function PortalManager() {
               {/* Referral Task */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Referral — ₹75</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Referral — ₹100</CardTitle>
                   <CardDescription>Earn cashback by registering 3 people via your referral</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -1081,6 +1328,13 @@ export default function PortalManager() {
                 <div className="mt-1 text-sm text-emerald-400">Payment confirmed</div>
               ) : (
                 <div className="space-y-3">
+                  <div className="rounded-md border border-white/10 p-3 text-sm text-white/80">
+                    <div className="flex items-center justify-between">
+                      <span>Registration fee</span>
+                      <span className="font-semibold">₹ 500</span>
+                    </div>
+                    <div className="mt-1 text-xs text-white/50">No additional charges. Referral cashback is paid to the referrer after your payment is verified.</div>
+                  </div>
                   <div className="grid sm:grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs text-white/60">Referral code (optional)</label>

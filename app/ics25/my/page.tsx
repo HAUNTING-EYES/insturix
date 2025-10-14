@@ -14,7 +14,6 @@ export default function MyPortalPage() {
       <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.09)" size={900} blur={180} />
 
       <div className="relative z-10 max-w-5xl mx-auto px-4 py-12">
-        <h1 className="text-2xl md:text-4xl font-bold text-zinc-900 dark:text-zinc-100">My ICS’25 Registration</h1>
         <PortalManager />
       </div>
       <div className="relative z-20"><Footer /></div>

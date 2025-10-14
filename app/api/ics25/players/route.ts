@@ -34,8 +34,8 @@ export async function POST(req: NextRequest) {
     if (!player) return NextResponse.json({ ok: false, message: 'Player not found' }, { status: 404 });
     if (!player.cashbacks) player.cashbacks = {} as any;
     if (task === 'promoReel') {
-      player.cashbacks.promoReel = { ...(player.cashbacks.promoReel as any), status: 'submitted', proofUrl, amount: 100 } as any;
-      await PromoReelSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 100, status: 'submitted' });
+      player.cashbacks.promoReel = { ...(player.cashbacks.promoReel as any), status: 'submitted', proofUrl, amount: 75 } as any;
+      await PromoReelSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 75, status: 'submitted' });
     } else if (task === 'linkedinPost') {
       player.cashbacks.linkedinPost = { ...(player.cashbacks.linkedinPost as any), status: 'submitted', proofUrl, amount: 75 } as any;
       await LinkedInSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 75, status: 'submitted' });
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (!player.cashbacks) player.cashbacks = {} as any;
     if (!player.cashbacks.referral?.code) {
       const code = crypto.randomBytes(3).toString('hex'); // 6-char hex
-      player.cashbacks.referral = { ...(player.cashbacks.referral as any), code, amount: 75 } as any;
+      player.cashbacks.referral = { ...(player.cashbacks.referral as any), code, amount: 100 } as any;
       await player.save();
     }
     return NextResponse.json({ ok: true, code: player.cashbacks.referral?.code, player });
@@ -63,10 +63,23 @@ export async function POST(req: NextRequest) {
   const data = { ...body, clerkUserId: body.clerkUserId || userId };
   const existing = await Player.findOne({ clerkUserId: data.clerkUserId });
   if (existing) {
-    Object.assign(existing, data);
+    // Prevent changes to locked fields: email and game cannot be changed once set
+    const { email: _email, game: _game, clerkUserId: _clerkUserId, ...rest } = data as any;
+    // Merge updatable fields only
+    Object.assign(existing, rest);
+    // Update nested gameDetails only for the currently selected game
+    if (rest.gameDetails) {
+      if (existing.game === 'valorant' && rest.gameDetails.valorant) {
+        existing.gameDetails = { ...existing.gameDetails, valorant: { ...(existing.gameDetails as any)?.valorant, ...rest.gameDetails.valorant } } as any;
+      }
+      if (existing.game === 'bgmi' && rest.gameDetails.bgmi) {
+        existing.gameDetails = { ...existing.gameDetails, bgmi: { ...(existing.gameDetails as any)?.bgmi, ...rest.gameDetails.bgmi } } as any;
+      }
+    }
     await existing.save();
     return NextResponse.json({ ok: true, player: existing });
   }
+  // On create: persist email and game from first registration; both will be locked afterwards
   const player = await Player.create(data);
   // Referral attachment: store on player.referredBy; confirmation happens at payment verification
   try {

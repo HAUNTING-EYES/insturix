@@ -34,34 +34,64 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - UX polish and fixes
   - Fixed navbar overlap with a spacer so titles aren’t hidden under the global header.
   - Hardened invite handling against undefined state and stale codes; added URL cleanup to prevent loops.
+  - Sticky tabs with blur and refined portal header with helpful “Next steps” affordances.
+  - Registration tab header now shows the player avatar (pfp) on the right; avatar size increased for clarity.
+  - Player hover card redesigned: title is "player profile"; player name moved into the details section; shows Instagram and all game-specific fields (Valorant: Riot ID, Rank, Agents; BGMI: IGN, UID, Rank); Paid/Pending badge; tooltip edge artifact fixed.
+  - Rank inputs replaced with grouped dropdowns (BGMI/Valorant) in both Register form and Portal editor; dark styling, correct placeholders, and scrollable dropdown viewport to prevent overflow.
+  - Valorant Preferred Agent(s) implemented as a searchable, grouped multi-select with chips and remove controls in Register form and Portal editor. Selection capped at 5 with a friendly toast when limit reached.
+  - Registration route guard added: unauthenticated users visiting /ics25/register are redirected to /signin (server-side).
+  - Portal editor validations added: Riot ID required with format Name#TAG (name 3–16 chars, tag 3–5 alphanumeric); BGMI IGN/UID/Rank now required.
+  - Copy normalization: all UI references to “Awaiting” switched to “Pending” (chips, hover badges, helper text).
 
 ## What’s done ✅
-
+ Portal UX overhaul with dedicated header and tabs
 - Data & persistence
   - Mongoose connection dedicated to dbName "ics25".
   - Schemas/collections for Players and Teams.
 - API endpoints
   - Players: upsert + read (all; current user via `players/me`).
   - Teams: create, get, and PATCH actions for all membership flows; leader-only delete.
+   - Registration tab now exposes all details for editing, except for locked fields (email, game). Email is auto-filled from signup and is non-editable; game is chosen once during first registration and is locked thereafter. Game-specific details remain editable.
+   - Game lock warning added to Register step 2: "You can participate in only one game per ID. Once you register, your selected game will be locked and cannot be changed later."
+
+ - Cashbacks and referrals
+   - Added Cashbacks tab with three tasks:
+     - Promo Reel (₹75): submit public link; status shows none → submitted (Under review) → verified/rejected.
+     - LinkedIn Post (₹75): submit public link; similar review flow.
+     - Referral (₹100 on 3 confirmed referrals): generate your code; progress tracked; qualifies after 3 paid registrations by referred users.
+   - Separate admin collections for submissions: `PromoReelSubmission`, `LinkedInSubmission` for easier back-office review.
+   - Player schema extended with `cashbacks` and `referredBy` fields; referral counts and qualification tracked server-side.
+   - Referral code is entered in the Payment tab; it’s only credited when the payer’s payment is verified successfully.
+   - Referral validation endpoint `GET /api/ics25/referrals/validate?code=` plus a Payment tab "Check" button to validate codes and block invalid/self usage.
+   - Amount updates: Promo Reel → ₹75; Referral → ₹100 (LinkedIn remains ₹75). These are reflected in schema defaults, API writes, and UI text/summary.
   - Payments: create Razorpay order and verify signature; updates Player.payment state.
 - Registration & portal UX
   - RegisterForm simplified to 3 steps (Personal → Game → Game details) then redirect to `/ics25/my`.
+  - Registration tab shows all details; email and game are locked; game-specific fields editable inline.
+  - Cashbacks tab with tasks submission, status messaging, and summary (Earned and Pending Review totals).
+  - Payment tab includes a referral code input with a "Check" validator; payment blocks on invalid/self referral codes.
   - PortalManager provides: join by code, create team, cancel requests, leave/delete team (with confirms), copy invite link.
-  - Payment section: Pay Now (Razorpay), verification, and live status badges (Paid/Pending) per member on team pages.
+ `components/ics25/PortalManager.tsx` — Tabs UI, invite code handling with URL cleanup, team browse pagination, disabled Request state, cancel request, members list with payment status, leader actions. Cashbacks tab (tasks, summary, referral code generation), Payment referral code input + Check, locked email/game in Registration editor.
   - Team page shows member payment status; leader-only applicant review via ProfileCardModal.
 - Design polish (latest)
   - Refactored portal to Cards/Badges/Buttons; added skeletons, toasts, confirm dialogs, better layout, and icons.
   - Inline “Edit registration” in portal to update personal and game-specific details.
 
-### Files touched (Oct 14)
+ `app/api/ics25/players/{me,route}.ts` — Player fetch/upsert; used by SSR and client guards. Locks email and game on updates; handles cashback submissions; generates referral code if missing.
 
+ `app/api/ics25/referrals/validate/route.ts` — Validate referral code (exists? self? owner?).
 - `components/ics25/PortalManager.tsx` — Tabs UI, invite code handling with URL cleanup, team browse pagination, disabled Request state, cancel request, members list with payment status, leader actions.
+ `schemas/ics25/Player.ts` — Extended with `cashbacks` (promoReel/linkedinPost/referral) and `referredBy`. Default amounts updated: Promo ₹75, LinkedIn ₹75, Referral ₹100; referral tracking.
+ `schemas/ics25/PromoReelSubmission.ts` and `schemas/ics25/LinkedInSubmission.ts` — Separate collections for admin review of submissions.
+ `components/ics25/RegisterForm.tsx` — 3-step form with game lock warning and auto-filled email note.
 - `components/ICS25ClientContent.tsx` — Landing buttons route to portal if player exists, else to register.
 - `app/ics25/page.tsx` and `app/ics25/register/page.tsx` — SSR redirect to portal when a player exists.
+ - `GET /api/ics25/referrals/validate?code=` — validate referral code; returns `{ ok, valid, self, owner }`.
 - `app/ics25/[letter]/[code]/page.tsx` — Redirect invite to `/ics25/my?code=&game=`; awaits params to remove runtime error.
-- `app/ics25/[letter]/[code]/route.ts` — Removed to resolve route/page conflict (ensure the file is deleted in the repo).
+ Inline profile editing (name, phone, socials, and game-specific fields: Valorant Riot ID/Rank/Preferred Agents; BGMI IGN/UID/Tier).
 - `app/api/ics25/teams/route.ts` — Pagination added to GET; refined PATCH actions.
 - `app/api/ics25/players/{me,route}.ts` — Player fetch/upsert; used by SSR and client guards.
+ - Locked fields: Email (from signup) and Game (chosen on first registration). Notice shown during selection in Register step 2.
 - `app/api/ics25/payments/{create-order,verify}/route.ts` — Payment endpoints for Razorpay.
 
 ## In progress / next 🔜
@@ -69,6 +99,8 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - Portal inline “Edit game selection” (if policy allows changing game post-registration).
 - Additional polish: member list preview in the portal card, success banners, and subtle animations.
 - Ops hardening: ensure Atlas IP allowlist and envs are correct in all environments.
+  - Add three cashback tasks: Promo Reel (₹75), LinkedIn Post (₹75), and Referral (₹100 on 3 confirmed referrals). Show earned and pending; under review/approved states. Store submissions in separate collections.
+  - Referral code entry must be in Payment; confirm referral only after payment verification; add a Check button to validate referral codes.
 
 ## Technical highlights 🧩
 
@@ -78,13 +110,18 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - Payments: Razorpay Checkout; server creates orders and verifies signature; Player.payment reflects status, amounts, and IDs.
 
 ## API surface (key routes)
+  - Normalize referral codes server-side; fixed typing issue (lean() cast) on validation route.
+  - Registration tab exposes email + game as locked, with warning in register flow.
 
 - `GET /api/ics25/players` — list players (supports `?ids=`).
 - `POST /api/ics25/players` — upsert player (auth enforced server-side; accepts profile + gameDetails).
+  - Admin endpoints/UI for verifying/rejecting promo/LinkedIn submissions (current flow marks submitted; separate admin actions needed to set verified/rejected).
 - `GET /api/ics25/players/me` — current user player record.
 - `GET /api/ics25/teams?code=ABC123` — fetch team by code; supports filters for lists and pagination via `?page=&limit=` returning `{ teams, total, page, pages }`.
+ - app/api/ics25/referrals/validate/route.ts — Referral validation.
 - `POST /api/ics25/teams` — create team; leader = current user; optional server code generation.
 - `PATCH /api/ics25/teams` — actions:
+ - components/ics25/PortalManager.tsx — Portal UI with join/create, requests, payment, inline edit profile; cashbacks tab; referral code validation in Payment.
   - `requestJoin`, `accept`, `deny`, `removeMember`, `cancelRequest`, `leaveTeam`.
 - `DELETE /api/ics25/teams?code=ABC123` — leader-only delete with cleanup.
 - `POST /api/ics25/payments/create-order` — create Razorpay order; set Player.payment to pending.
@@ -148,7 +185,6 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
   - Add minimal tests for redirects, request workflows, and disabled-request UI.
   - Ensure the `route.ts` file is removed at `/ics25/[letter]/[code]` to eliminate conflicts in all environments.
 
----
 
 Historical summary retained below (from Oct 13, 2025):
 

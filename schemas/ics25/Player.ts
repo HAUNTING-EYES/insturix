@@ -53,9 +53,9 @@ const PlayerSchema = new Schema({
   teamRequests: { type: [String], default: [] }, // list of codes
   payment: PaymentSchema,
   cashbacks: {
-    promoReel: { type: CashbackTaskSchema, default: () => ({ amount: 100, status: 'none' }) },
+    promoReel: { type: CashbackTaskSchema, default: () => ({ amount: 75, status: 'none' }) },
     linkedinPost: { type: CashbackTaskSchema, default: () => ({ amount: 75, status: 'none' }) },
-    referral: { type: ReferralSchema, default: () => ({ amount: 75, referredCount: 0, referredUserIds: [], qualified: false }) },
+    referral: { type: ReferralSchema, default: () => ({ amount: 100, referredCount: 0, referredUserIds: [], qualified: false }) },
   },
   referredBy: {
     code: { type: String },
