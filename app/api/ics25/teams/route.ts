@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
   // If not fetching a specific team code, only show publicly listed teams in browse
   const teams = await Team.find(filter).lean();
   if (code) return NextResponse.json({ ok: true, team: teams[0] || null });
-  // Apply public listing filter when browsing
-  const visible = teams.filter((t: any) => t.listed === true);
+  // Apply public listing filter when browsing. Treat missing `listed` as public for backward compatibility.
+  const visible = teams.filter((t: any) => t.listed !== false);
   const withCapacity = incompleteOnly ? visible.filter(t => t.members.length < maxTeamSize(t.game)) : visible;
   const total = withCapacity.length;
   if (!limit) {
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
     const exists = await Team.findOne({ code });
     if (exists) return NextResponse.json({ ok: false, message: 'Code already exists' }, { status: 409 });
   }
-  const team = await Team.create({ teamName, game, code, leaderId: userId, members: [userId], pendingRequests: [], link: `https://insturix.com/ics25/${game === 'valorant' ? 'v' : 'b'}/${code}` });
+  const team = await Team.create({ teamName, game, code, leaderId: userId, members: [userId], pendingRequests: [], link: `https://insturix.com/ics25/${game === 'valorant' ? 'v' : 'b'}/${code}`, listed: true });
   await Player.updateOne({ clerkUserId: userId }, { $set: { teamCode: code, teamRequests: [] } }, { upsert: true });
   return NextResponse.json({ ok: true, team });
 }
@@ -165,9 +165,10 @@ export async function PATCH(req: NextRequest) {
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
-    team.listed = !!listed;
-    await team.save();
-    return NextResponse.json({ ok: true, team });
+    // Use updateOne with strict: false so it persists even if a stale compiled schema is cached in dev
+    await Team.updateOne({ _id: team._id }, { $set: { listed: !!listed } }, { strict: false });
+    const updated = await Team.findById(team._id).lean();
+    return NextResponse.json({ ok: true, team: updated });
   }
 
   return NextResponse.json({ ok: false, message: 'Unknown action' }, { status: 400 });

@@ -9,7 +9,8 @@ const TeamSchema = new Schema({
   pendingRequests: { type: [String], default: [] }, // clerkUserIds
   link: { type: String },
   // When true, the team will appear in public browse lists for the selected game
-  listed: { type: Boolean, default: false },
+  // Default public; older teams without this field are treated as public by API browse
+  listed: { type: Boolean, default: true },
   meta: Schema.Types.Mixed,
 }, { timestamps: true });
 
