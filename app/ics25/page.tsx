@@ -25,6 +25,7 @@ export const metadata: Metadata = {
   },
 };
 
+
 export default async function ICS25Page() {
   // Auto-open portal when a signed-in player already has registration
   // We call the same endpoint used elsewhere; cookies are forwarded in server components
