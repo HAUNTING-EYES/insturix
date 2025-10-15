@@ -1,7 +1,7 @@
 import mongoose, { Schema, models, model } from 'mongoose';
 
 const TeamSchema = new Schema({
-  teamName: { type: String, required: true },
+  teamName: { type: String, required: true, maxlength: 20 },
   code: { type: String, required: true, unique: true, index: true },
   game: { type: String, enum: ['valorant', 'bgmi'], required: true },
   leaderId: { type: String, required: true, index: true }, // clerkUserId

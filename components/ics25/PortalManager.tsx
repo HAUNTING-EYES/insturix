@@ -24,6 +24,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useSearchParams, useRouter } from "next/navigation";
 import PlayerHoverCard from "@/components/ics25/PlayerHoverCard";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
@@ -173,9 +174,18 @@ export default function PortalManager() {
             setActiveTab('team');
             setJoinCode(codeParam);
             try {
-              const tr = await fetch(`/api/ics25/teams?code=${encodeURIComponent(codeParam)}`);
-              const td = await tr.json();
-              setInvitedTeam(td?.team || null);
+              if (!CODE_REGEX.test(codeParam)) {
+                toast({ title: 'Invalid code', description: 'Team code in the link is invalid.', variant: 'destructive' as any });
+              } else {
+                const tr = await fetch(`/api/ics25/teams?code=${encodeURIComponent(codeParam)}`);
+                if (tr.status === 400) {
+                  toast({ title: 'Invalid code', description: 'Team code format is invalid.', variant: 'destructive' as any });
+                } else if (tr.status === 404) {
+                  toast({ title: 'Team not found', description: 'No team exists with this code.', variant: 'destructive' as any });
+                }
+                const td = await tr.json();
+                setInvitedTeam(td?.team || null);
+              }
             } catch {}
             // Clean URL to /ics25/my (keep portal state only in memory)
             try { router.replace('/ics25/my'); } catch {}
@@ -252,9 +262,15 @@ export default function PortalManager() {
     }
   }, [activeTab, game]);
 
+  const CODE_REGEX = /^[A-Za-z0-9]{6}$/;
+
   const handleJoinByCode = async (codeFromList?: string) => {
     const codeVal = (codeFromList ?? joinCode).trim();
     if (!codeVal) return;
+    if (!CODE_REGEX.test(codeVal)) {
+      toast({ title: 'Invalid code', description: 'Team code must be 6 letters/numbers.', variant: 'destructive' as any });
+      return;
+    }
     if (!game) {
       toast({ title: "Select your game", description: "Edit your registration to choose a game first.", variant: "destructive" as any });
       return;
@@ -262,7 +278,19 @@ export default function PortalManager() {
     setJoining(true);
     try {
       const r = await fetch('/api/ics25/teams', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'requestJoin', code: codeVal }) });
-      if (!r.ok) throw new Error('Failed to send join request');
+      if (!r.ok) {
+        let msg = 'Failed to send join request';
+        try { const d = await r.json(); if (d?.message) msg = d.message; } catch {}
+        if (r.status === 400) {
+          toast({ title: 'Invalid code', description: 'Team code format is invalid.', variant: 'destructive' as any });
+          return;
+        }
+        if (r.status === 404) {
+          toast({ title: 'Team not found', description: 'No team exists with this code.', variant: 'destructive' as any });
+          return;
+        }
+        throw new Error(msg);
+      }
       toast({ title: "Request sent", description: `Requested to join ${codeVal}` });
       setMe((prev: any) => prev ? { ...prev, teamRequests: Array.from(new Set([...(prev.teamRequests||[]), codeVal])) } : prev);
       setJoinCode("");
@@ -277,6 +305,10 @@ export default function PortalManager() {
 
   const handleCreateTeam = async () => {
     if (!teamName.trim()) return;
+    if (teamName.trim().length > 20) {
+      toast({ title: 'Team name too long', description: 'Use 20 characters or fewer.', variant: 'destructive' as any });
+      return;
+    }
     if (!game) {
       toast({ title: "Select your game", description: "Edit your registration to choose a game first.", variant: "destructive" as any });
       return;
@@ -284,7 +316,11 @@ export default function PortalManager() {
     setCreating(true);
     try {
       const r = await fetch('/api/ics25/teams', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ teamName: teamName.trim(), game }) });
-      if (!r.ok) throw new Error('Failed to create team');
+      if (!r.ok) {
+        let msg = 'Failed to create team';
+        try { const d = await r.json(); if (d?.message) msg = d.message; } catch {}
+        throw new Error(msg);
+      }
       const d = await r.json();
       toast({ title: "Team created", description: `${teamName.trim()} • Code ${d.team.code}` });
       // Open the portal with the invite code so it picks up and shows the team inline
@@ -348,6 +384,7 @@ export default function PortalManager() {
     if (!team) return;
     const next = (teamNameDraft || "").trim();
     if (!next) { toast({ title: 'Team name required', variant: 'destructive' as any }); return; }
+    if (next.length > 20) { toast({ title: 'Too long', description: 'Team name must be ≤ 20 characters.', variant: 'destructive' as any }); return; }
     setRenaming(true);
     try {
       const r = await fetch('/api/ics25/teams', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'rename', code: team.code, teamName: next }) });
@@ -502,14 +539,23 @@ export default function PortalManager() {
     }
   };
 
-  const saveProfile = async () => {
+  const saveProfile = async (): Promise<boolean> => {
     try {
-      if (!validateProfileForGame()) return;
+  if (!validateProfileForGame()) return false;
       const phoneOk = !!(profile.phone && profile.phone.trim());
       const instaOk = !!(profile.instagram && profile.instagram.trim());
       if (!phoneOk || !instaOk) {
         toast({ title: 'Missing fields', description: 'Phone number and Instagram handle are required.', variant: 'destructive' as any });
-        return;
+        return false;
+      }
+      // Additional format validations
+      if (profile.phone && !isValidPhone(profile.phone)) {
+        toast({ title: 'Invalid phone number', description: 'Enter a valid phone number with country code (e.g., +911234567890) or 10-15 digits.', variant: 'destructive' as any });
+        return false;
+      }
+      if (me?.game === 'valorant' && profile.riotId && !validateRiotId(profile.riotId)) {
+        toast({ title: 'Invalid Riot ID', description: 'Use Name#TAG (name 3–16 chars, tag 3–5 alphanumeric).', variant: 'destructive' as any });
+        return false;
       }
       setSavingProfile(true);
       const body: any = {
@@ -521,11 +567,17 @@ export default function PortalManager() {
       if (me?.game === 'valorant') body.gameDetails = { valorant: { riotId: profile.riotId, rank: profile.valorantRank, preferredAgents: profile.preferredAgents } };
       if (me?.game === 'bgmi') body.gameDetails = { bgmi: { ign: profile.ign, uid: profile.uid, rank: profile.bgmiRank } };
       const r = await fetch('/api/ics25/players', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      if (!r.ok) throw new Error('Failed to save');
+      if (!r.ok) {
+        let msg = 'Failed to save';
+        try { const d = await r.json(); if (d?.message) msg = d.message; } catch {}
+        throw new Error(msg);
+      }
       toast({ title: "Saved", description: "Your registration details were updated." });
       await refreshMe();
+      return true;
     } catch (e: any) {
       toast({ title: "Save failed", description: e.message || 'Please try again later', variant: "destructive" as any });
+      return false;
     } finally {
       setSavingProfile(false);
     }
@@ -570,6 +622,13 @@ export default function PortalManager() {
     // Name 3-16 (no #/spaces), #, Tag 3-5 alphanum
     return /^[^#\s]{3,16}#[A-Za-z0-9]{3,5}$/.test(str);
   };
+  const isValidPhone = (s?: string) => {
+    if (!s) return false;
+    const p = s.replace(/[^+\d]/g, '');
+    if (/^\+[1-9]\d{7,14}$/.test(p)) return true;
+    if (/^\d{10,15}$/.test(p)) return true;
+    return false;
+  };
   const validateProfileForGame = (): boolean => {
     if (me?.game === 'valorant') {
       if (!profile.riotId || !profile.valorantRank || !profile.preferredAgents) {
@@ -604,12 +663,12 @@ export default function PortalManager() {
   return (
     <div className="mt-6 space-y-4">
       <div className="flex flex-col gap-3 rounded-xl border border-zinc-800/50 bg-gradient-to-br from-zinc-900/60 to-zinc-900/20 p-4 md:p-5">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
           <div>
             <h1 className="text-xl md:text-2xl font-semibold tracking-tight">ICS’25 Player Portal</h1>
             <p className="text-sm text-white/60">Manage registration, teams, cashbacks and payments.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:ml-auto">
             {me.payment?.status === 'paid' ? (
               <Badge className="gap-1 bg-emerald-600 text-white border-emerald-700"><CheckCircle2 className="h-4 w-4" /> Paid</Badge>
             ) : (
@@ -622,17 +681,20 @@ export default function PortalManager() {
             )}
           </div>
         </div>
-        <div className="text-xs text-white/50">Game: <span className="font-medium text-white/70">{me.game?.toUpperCase() || '—'}</span> {team ? (
-          <span className="ml-2 flex items-center gap-1">
-            • Team: <span className="text-white/70">{team.teamName}</span>
-            <span className="text-white/40">(Code:</span> <span className="font-mono text-white/70">{team.code}</span><span className="text-white/40">)</span>
-            <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[10px]" onClick={()=>copy(team.code)}>
-              <Copy className="h-3 w-3" />
-            </Button>
-          </span>
-        ) : (
-          <span className="ml-2">• Team: <span className="opacity-80">awaiting</span></span>
-        )}</div>
+        <div className="text-xs text-white/50 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>Game: <span className="font-medium text-white/70">{me.game?.toUpperCase() || '—'}</span></span>
+          {team ? (
+            <span className="flex items-center gap-1">
+              • Team: <span className="text-white/70 max-w-[50vw] sm:max-w-none truncate inline-block align-bottom">{team.teamName}</span>
+              <span className="text-white/40">(Code:</span> <span className="font-mono text-white/70 break-all">{team.code}</span><span className="text-white/40">)</span>
+              <Button size="sm" variant="ghost" className="h-6 px-1.5 text-[10px]" onClick={()=>copy(team.code)}>
+                <Copy className="h-3 w-3" />
+              </Button>
+            </span>
+          ) : (
+            <span>• Team: <span className="opacity-80">awaiting</span></span>
+          )}
+        </div>
         {(() => {
           // Compute next steps to guide the user
           const steps: { label: string; action: () => void }[] = [];
@@ -653,28 +715,34 @@ export default function PortalManager() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <div className="sticky top-20 z-10 -mx-1 px-1">
-          <TabsList className="w-full justify-start bg-zinc-900/60 backdrop-blur supports-[backdrop-filter]:bg-zinc-900/40 border border-white/10">
-          <TabsTrigger value="registration">Registration</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
-          <TabsTrigger value="cashbacks">Cashbacks</TabsTrigger>
-          <TabsTrigger value="event">Event details</TabsTrigger>
-          <TabsTrigger value="payment">Payment</TabsTrigger>
+        <div className="sticky top-16 sm:top-20 z-10 -mx-1 px-1">
+          <TabsList className="w-full justify-start bg-zinc-900/60 backdrop-blur supports-[backdrop-filter]:bg-zinc-900/40 border border-white/10 overflow-x-auto whitespace-nowrap pr-1 [-ms-overflow-style:none] [scrollbar-width:none]">
+          <TabsTrigger className="shrink-0" value="registration">Registration</TabsTrigger>
+          <TabsTrigger className="shrink-0" value="team">Team</TabsTrigger>
+          <TabsTrigger className="shrink-0" value="cashbacks">Cashbacks</TabsTrigger>
+          <TabsTrigger className="shrink-0" value="event">Event details</TabsTrigger>
+          <TabsTrigger className="shrink-0" value="payment">Payment</TabsTrigger>
           </TabsList>
         </div>
 
         <TabsContent value="registration">
           <div className="grid md:grid-cols-3 gap-4">
             <div className="md:col-span-2 space-y-4">
-              <Card>
+                  <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><Users className="h-5 w-5" /> {editingProfile ? 'Edit your details' : 'Your registration details'}
-                    <span className="flex-1" />
-                    <img
-                      src={(me as any)?.avatarUrl || (me as any)?.imageUrl || '/avatar.png'}
-                      alt={(me as any)?.name || 'Player'}
-                      className="h-14 w-14 rounded-full object-cover border border-white/10 ring-1 ring-white/10"
-                    />
+                      <CardTitle className="text-lg flex items-start sm:items-center gap-2 flex-wrap"><Users className="h-5 w-5" /> {editingProfile ? 'Edit your details' : 'Your registration details'}
+                        <span className="flex-1" />
+                        <Avatar className="h-12 w-12 sm:h-14 sm:w-14 border border-white/10 ring-1 ring-white/10">
+                      <AvatarImage src={(me as any)?.imageUrl || (me as any)?.avatarUrl || user?.imageUrl || undefined} alt={(me as any)?.name || 'Player'} />
+                      <AvatarFallback className="text-sm text-white/70">
+                        {((me as any)?.name || 'P')
+                          .split(' ')
+                          .map((s: string) => s[0])
+                          .join('')
+                          .slice(0, 2)
+                          .toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
                   </CardTitle>
                   <CardDescription>
                     {editingProfile ? (
@@ -693,7 +761,7 @@ export default function PortalManager() {
                         <div className="text-xs text-white/60">Email</div>
                         <div className="text-white/90">{me?.email || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <div className="text-xs text-white/60">Game (locked)</div>
                           <div className="text-white/90">{me?.game ? me.game.toUpperCase() : '—'}</div>
@@ -711,7 +779,7 @@ export default function PortalManager() {
                         <div className="text-xs text-white/60">Phone</div>
                         <div className="text-white/90">{profile.phone || '—'}</div>
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <div className="text-xs text-white/60">Instagram</div>
                           <div className="text-white/90">{profile.instagram || '—'}</div>
@@ -722,7 +790,7 @@ export default function PortalManager() {
                         </div>
                       </div>
                       {me?.game === 'valorant' && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <div className="text-xs text-white/60">Riot ID</div>
                             <div className="text-white/90">{profile.riotId || '—'}</div>
@@ -731,14 +799,14 @@ export default function PortalManager() {
                             <div className="text-xs text-white/60">Rank</div>
                             <div className="text-white/90">{profile.valorantRank || '—'}</div>
                           </div>
-                          <div className="md:col-span-2">
+                          <div className="sm:col-span-2">
                             <div className="text-xs text-white/60">Preferred Agent(s)</div>
                             <div className="text-white/90">{profile.preferredAgents || '—'}</div>
                           </div>
                         </div>
                       )}
                       {me?.game === 'bgmi' && (
-                        <div className="grid grid-cols-3 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
                             <div className="text-xs text-white/60">BGMI IGN</div>
                             <div className="text-white/90">{profile.ign || '—'}</div>
@@ -773,7 +841,7 @@ export default function PortalManager() {
                         <label className="text-xs text-white/60">Phone <span className="text-red-400">*</span></label>
                         <Input value={profile.phone || ''} onChange={(e)=>setProfile(p=>({...p, phone: e.target.value}))} />
                       </div>
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="text-xs text-white/60">Instagram <span className="text-red-400">*</span></label>
                           <Input value={profile.instagram || ''} onChange={(e)=>setProfile(p=>({...p, instagram: e.target.value}))} placeholder="@username" />
@@ -784,7 +852,7 @@ export default function PortalManager() {
                         </div>
                       </div>
                       {me?.game === 'valorant' && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs text-white/60">Riot ID <span className="text-red-400">*</span></label>
                             <Input required value={profile.riotId || ''} onChange={(e)=>setProfile(p=>({...p, riotId: e.target.value}))} placeholder="Name#TAG" />
@@ -808,7 +876,7 @@ export default function PortalManager() {
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="md:col-span-2">
+                          <div className="sm:col-span-2">
                             <label className="text-xs text-white/60">Preferred Agent(s) <span className="text-red-400">*</span></label>
                             <Popover>
                               <PopoverTrigger asChild>
@@ -825,7 +893,7 @@ export default function PortalManager() {
                                   </div>
                                 </button>
                               </PopoverTrigger>
-                              <PopoverContent align="start" className="p-0 w-72 bg-zinc-900 text-white border border-white/10">
+                              <PopoverContent align="start" className="p-0 w-[min(18rem,calc(100vw-2rem))] bg-zinc-900 text-white border border-white/10">
                                 <Command>
                                   <CommandInput placeholder="Search agents…" />
                                   <CommandEmpty>No agents found.</CommandEmpty>
@@ -851,7 +919,7 @@ export default function PortalManager() {
                         </div>
                       )}
                       {me?.game === 'bgmi' && (
-                        <div className="grid grid-cols-2 gap-3">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div>
                             <label className="text-xs text-white/60">BGMI IGN <span className="text-red-400">*</span></label>
                             <Input value={profile.ign || ''} onChange={(e)=>setProfile(p=>({...p, ign: e.target.value}))} />
@@ -860,7 +928,7 @@ export default function PortalManager() {
                             <label className="text-xs text-white/60">BGMI UID <span className="text-red-400">*</span></label>
                             <Input value={profile.uid || ''} onChange={(e)=>setProfile(p=>({...p, uid: e.target.value}))} />
                           </div>
-                          <div className="md:col-span-2">
+                          <div className="sm:col-span-2">
                             <label className="text-xs text-white/60">Tier/Rank <span className="text-red-400">*</span></label>
                             <Select value={profile.bgmiRank || undefined} onValueChange={(v)=>setProfile(p=>({...p, bgmiRank: v }))}>
                               <SelectTrigger className="w-full bg-white/5 border-white/10 text-white">
@@ -889,7 +957,7 @@ export default function PortalManager() {
                     <Button onClick={()=>setEditingProfile(true)}>Edit</Button>
                   ) : (
                     <>
-                      <Button onClick={async ()=>{ await saveProfile(); setEditingProfile(false); }} disabled={savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</Button>
+                      <Button onClick={async ()=>{ const ok = await saveProfile(); if (ok) setEditingProfile(false); }} disabled={savingProfile}>{savingProfile ? 'Saving…' : 'Save changes'}</Button>
                       <Button variant="ghost" onClick={()=>{ // reset local changes
                         const p = me;
                         if (p) {
@@ -942,15 +1010,15 @@ export default function PortalManager() {
                   {/* Team Overview */}
                   <Card>
                     <CardHeader>
-                      <CardTitle className="text-lg flex items-center gap-2">
+                      <CardTitle className="text-lg flex items-center gap-2 flex-wrap">
                         <Users className="h-5 w-5" />
                         {editingTeamName ? (
                           <>
                             <Input
                               value={teamNameDraft}
                               onChange={(e)=>setTeamNameDraft(e.target.value)}
-                              className="h-8 w-52 bg-white/5 border-white/10 text-white"
-                              maxLength={60}
+                              className="h-8 w-full sm:w-52 bg-white/5 border-white/10 text-white"
+                              maxLength={20}
                             />
                             <Button size="sm" onClick={saveRename} disabled={renaming || !teamNameDraft.trim()}>{renaming ? 'Saving…' : 'Save'}</Button>
                             <Button size="sm" variant="ghost" onClick={cancelRename}>Cancel</Button>
@@ -978,7 +1046,7 @@ export default function PortalManager() {
                           (() => {
                             const isPublic = team.listed !== false;
                             return (
-                              <span className="ml-auto flex items-center gap-2 text-xs">
+                              <span className="ml-0 sm:ml-auto w-full sm:w-auto flex flex-wrap items-center gap-2 text-xs justify-between sm:justify-end">
                                 <Badge variant={isPublic ? 'default' : 'secondary'} className="h-5 px-1.5 text-[10px]">
                                   {isPublic ? 'Public' : 'Private'}
                                 </Badge>
@@ -1082,14 +1150,26 @@ export default function PortalManager() {
                             const isLeaderRow = m.clerkUserId === team.leaderId;
                             return (
                               <PlayerHoverCard key={m.clerkUserId} player={m}>
-                                <div className="flex items-center gap-3 p-2 rounded-md border border-zinc-800/50">
-                                  <img src={m.avatarUrl || '/avatar.png'} alt={m.name} className="h-9 w-9 rounded-full object-cover" />
+                                <div className="flex items-center gap-3 p-2 rounded-md border border-zinc-800/50 flex-wrap">
+                                  <Avatar className="h-9 w-9">
+                                    <AvatarImage src={m.imageUrl || m.avatarUrl || undefined} alt={m.name} />
+                                    <AvatarFallback className="text-[10px] text-white/70">
+                                      {(m?.name || 'P')
+                                        .split(' ')
+                                        .map((s: string) => s[0])
+                                        .join('')
+                                        .slice(0, 2)
+                                        .toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
                                       <div className="text-sm text-white/90 truncate">{m.name}</div>
                                       {isLeaderRow && <Badge className="h-5 px-1.5 text-[10px]">Leader</Badge>}
                                     </div>
-                                    <div className="text-xs text-white/60 truncate">{m.gameDetails?.valorant?.riotId || m.gameDetails?.bgmi?.ign || m.email}</div>
+                                    <div className="text-xs text-white/60 truncate">
+                                      {m.gameDetails?.valorant?.rank || m.gameDetails?.bgmi?.rank || ''}
+                                    </div>
                                   </div>
                                   <div className={`text-[10px] px-2 py-0.5 rounded border ${m.payment?.status==='paid' ? 'bg-emerald-600/20 text-emerald-300 border-emerald-500/30' : 'bg-white/10 text-white/70 border-white/10'}`}>
                                     {m.payment?.status==='paid' ? 'Paid' : 'Pending'}
@@ -1118,7 +1198,7 @@ export default function PortalManager() {
                         <CardTitle className="text-lg">Team invite detected</CardTitle>
                         <CardDescription>You were invited to join {invitedTeam.teamName} • Code {invitedTeam.code}</CardDescription>
                       </CardHeader>
-                      <CardContent className="flex items-center justify-between gap-2">
+                      <CardContent className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
                         <div className="text-sm text-white/70">{invitedTeam.game?.toUpperCase()} • Members: {invitedTeam.members?.length ?? 0}</div>
                         {Array.isArray(me?.teamRequests) && me?.teamRequests?.includes(invitedTeam.code) ? (
                           <Button size="sm" variant="outline" disabled className="opacity-80">Requested</Button>
@@ -1135,11 +1215,11 @@ export default function PortalManager() {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <Input placeholder="Enter team code" value={joinCode} onChange={(e)=>setJoinCode(e.target.value)} />
+                        <Input placeholder="Enter team code" value={joinCode} onChange={(e)=>setJoinCode(e.target.value)} maxLength={6} />
                         <Button onClick={() => handleJoinByCode()} disabled={joining}>{joining ? 'Requesting…' : 'Request join'}</Button>
                       </div>
                       <div className="flex flex-col sm:flex-row gap-2">
-                        <Input placeholder="Team name" value={teamName} onChange={(e)=>setTeamName(e.target.value)} />
+                        <Input placeholder="Team name" value={teamName} onChange={(e)=>setTeamName(e.target.value)} maxLength={20} />
                         <Button variant="secondary" disabled={creating} onClick={handleCreateTeam}>{creating ? 'Creating…' : 'Create team'}</Button>
                       </div>
                     </CardContent>
@@ -1184,12 +1264,12 @@ export default function PortalManager() {
                               {filtered.map((t: any) => {
                                 const alreadyRequested = Array.isArray(me?.teamRequests) && me.teamRequests.includes(t.code);
                                 return (
-                                  <div key={t.code} className="flex items-center justify-between p-2 rounded-md border border-zinc-800/50">
+                                  <div key={t.code} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 rounded-md border border-zinc-800/50 gap-2">
                                     <div className="text-sm text-white/80">
                                       <div className="font-medium">{t.teamName}</div>
                                       <div className="text-xs text-white/50">{t.game.toUpperCase()} • Code: <span className="font-mono">{t.code}</span> • {t.members.length} members</div>
                                     </div>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 sm:ml-auto">
                                       {alreadyRequested ? (
                                         <>
                                           <Button size="sm" variant="outline" disabled className="opacity-80">Requested</Button>
@@ -1260,17 +1340,25 @@ export default function PortalManager() {
                       const p = pendingProfiles.find((pp)=>pp.clerkUserId === uid);
                       return (
                         <PlayerHoverCard key={uid} player={p || {}}>
-                          <div className="flex items-center justify-between p-2 rounded-md border border-zinc-800/50">
+                          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-2 rounded-md border border-zinc-800/50 gap-2">
                             <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 rounded-full bg-white/10 overflow-hidden">
-                                {p?.avatarUrl ? <img src={p.avatarUrl} alt={p?.name||'Player'} className="h-full w-full object-cover" /> : <img src="/avatar.png" alt="Player" className="h-full w-full object-cover" />}
-                              </div>
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={p?.imageUrl || p?.avatarUrl || undefined} alt={p?.name || 'Player'} />
+                                <AvatarFallback className="text-[10px] text-white/70">
+                                  {(p?.name || 'P')
+                                    .split(' ')
+                                    .map((s: string) => s[0])
+                                    .join('')
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
                               <div>
                                 <div className="text-sm text-white/90">{p?.name || 'Unknown Player'}</div>
-                                <div className="text-xs text-white/60">{p?.gameDetails?.valorant?.riotId || p?.gameDetails?.bgmi?.ign || uid}</div>
+                                <div className="text-xs text-white/60">{p?.gameDetails?.valorant?.rank || p?.gameDetails?.bgmi?.rank || ''}</div>
                               </div>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2 sm:ml-auto">
                               <Button size="sm" variant="secondary" onClick={()=>acceptRequest(uid)}>Accept</Button>
                               <Button size="sm" variant="ghost" onClick={()=>denyRequest(uid)}>Deny</Button>
                             </div>
@@ -1345,7 +1433,7 @@ export default function PortalManager() {
                     return null;
                   })()}
                   <div className="text-xs text-white/60">Status: <span className="text-white/80 font-medium">{me?.cashbacks?.promoReel?.status || 'none'}</span></div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Input placeholder="Link to your reel (Instagram Reels, YouTube Shorts, etc.)" value={proofs.promoReel || ''} onChange={(e)=>setProofs(p=>({...p, promoReel: e.target.value}))} />
                     <Button size="sm" onClick={()=>submitCashback('promoReel')} disabled={(me?.cashbacks?.promoReel?.status === 'submitted' || me?.cashbacks?.promoReel?.status === 'verified') || !(proofs.promoReel && /^https?:\/\//i.test(proofs.promoReel))}>{me?.cashbacks?.promoReel?.status === 'submitted' ? 'In Review' : 'Submit'}</Button>
                   </div>
@@ -1373,7 +1461,7 @@ export default function PortalManager() {
                     return null;
                   })()}
                   <div className="text-xs text-white/60">Status: <span className="text-white/80 font-medium">{me?.cashbacks?.linkedinPost?.status || 'none'}</span></div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <Input placeholder="Link to your LinkedIn post" value={proofs.linkedinPost || ''} onChange={(e)=>setProofs(p=>({...p, linkedinPost: e.target.value}))} />
                     <Button size="sm" onClick={()=>submitCashback('linkedinPost')} disabled={(me?.cashbacks?.linkedinPost?.status === 'submitted' || me?.cashbacks?.linkedinPost?.status === 'verified') || !(proofs.linkedinPost && /^https?:\/\//i.test(proofs.linkedinPost))}>{me?.cashbacks?.linkedinPost?.status === 'submitted' ? 'In Review' : 'Submit'}</Button>
                   </div>
@@ -1388,7 +1476,7 @@ export default function PortalManager() {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="text-sm text-white/80">Your referral code</div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <Input readOnly value={referralCode || ''} placeholder="Generate your code" />
                     <Button size="sm" onClick={ensureReferral} disabled={!!referralCode}>Generate</Button>
                     {referralCode && (
@@ -1444,7 +1532,7 @@ export default function PortalManager() {
                   <div className="grid sm:grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs text-white/60">Referral code (optional)</label>
-                      <div className="flex gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2">
                         <Input placeholder="Have a referral code?" value={paymentReferralCode} onChange={(e)=>{ setPaymentReferralCode(e.target.value); setRefCheck(null); }} />
                         <Button type="button" variant="outline" onClick={handleCheckReferral} disabled={checkingRef || !paymentReferralCode.trim()} className="whitespace-nowrap">
                           {checkingRef ? 'Checking…' : 'Check'}
@@ -1460,7 +1548,7 @@ export default function PortalManager() {
                       <div className="mt-1 text-[11px] text-white/50">If you have a referral code, enter it now so your referrer can be credited when your payment is verified.</div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
                     <Button onClick={handlePayNow} disabled={paying} className="gap-1">
                       <CircleDollarSign className="h-4 w-4" /> {paying ? 'Processing…' : 'Pay Now'}
                     </Button>

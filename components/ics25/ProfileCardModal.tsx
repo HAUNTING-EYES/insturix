@@ -1,6 +1,7 @@
 "use client";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 type Props = {
   open: boolean;
@@ -16,12 +17,22 @@ export default function ProfileCardModal({ open, onOpenChange, player, onAccept,
   const b = player?.gameDetails?.bgmi;
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="bg-zinc-950 border-white/10 text-white">
+      <DialogContent className="bg-zinc-950 border-white/10 text-white w-[calc(100vw-2rem)] max-w-lg">
         <DialogHeader>
           <DialogTitle>Player Profile</DialogTitle>
         </DialogHeader>
         <div className="flex items-center gap-4">
-          <img src={player.avatarUrl || '/avatar.png'} alt={player.name} className="h-14 w-14 rounded-full object-cover" />
+          <Avatar className="h-14 w-14">
+            <AvatarImage src={player?.imageUrl || player?.avatarUrl || undefined} alt={player?.name} />
+            <AvatarFallback className="text-sm text-white/70">
+              {(player?.name || 'P')
+                .split(' ')
+                .map((s: string) => s[0])
+                .join('')
+                .slice(0, 2)
+                .toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
           <div>
             <div className="text-lg font-semibold">{player.name}</div>
             <div className="text-xs text-white/60">{player.email}</div>
@@ -46,7 +57,7 @@ export default function ProfileCardModal({ open, onOpenChange, player, onAccept,
           )}
         </div>
         {(onAccept || onDeny) && (
-          <div className="mt-4 flex gap-2 justify-end">
+          <div className="mt-4 flex flex-col sm:flex-row gap-2 justify-end">
             {onDeny && <Button variant="secondary" onClick={onDeny}>Deny</Button>}
             {onAccept && <Button onClick={onAccept}>Accept</Button>}
           </div>

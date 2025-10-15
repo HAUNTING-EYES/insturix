@@ -1,4 +1,4 @@
-# ICS’25 Updates — Status and Summary (Updated: Oct 14, 2025)
+# ICS’25 Updates — Status and Summary (Updated: Oct 16, 2025)
 
 This document tracks the ICS’25 registration/portal work: what’s shipped, what’s pending, key technical details, endpoints, and a verbatim chat summary for context.
 
@@ -8,6 +8,70 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - Teams and players are persisted in MongoDB (dbName: "ics25") with server-enforced permissions and invite/request flows.
 - Razorpay payments are integrated end-to-end (order + server-side verification). Player.payment is updated and shown in the UI.
 - Portal UI is redesigned with the shared UI kit (Cards/Buttons/Badges), inline profile editing, confirmations, toasts, and skeleton loaders.
+
+## New in Oct 16, 2025
+
+- Team listing privacy (Public/Private)
+  - Schema: added `listed: boolean` on Team with `default: true` so teams are public by default.
+  - API: Teams browse (`GET /api/ics25/teams`) returns only teams where `listed !== false`; new teams explicitly saved with `listed: true`.
+  - API: Leader-only `PATCH /api/ics25/teams` with `action: 'setListed'` to toggle listing; returns the updated team.
+  - Legacy compatibility: if `listed` is missing on older teams, they are treated as public.
+  - UI: Leader-only toggle in the portal Team card; shows a Public/Private badge and persists via PATCH with a post-save refetch.
+
+- Team rename (leader-only)
+  - API: `PATCH /api/ics25/teams` with `action: 'rename'` updates `teamName`; leader-only; returns updated team.
+  - UI: Inline edit with Input + Save/Cancel; disables Save while empty; refetches team on success.
+
+- Player identity requirements
+  - Server: `POST /api/ics25/players` upsert now requires non-empty `phone` and `instagram` on create and after merge on update; responds 400 if missing.
+  - UI: Portal registration editor requires phone and Instagram (labels show required indicator); Register form step 1 mirrors this.
+
+- Avatar/pfp reliability and 404 fix
+  - Replaced all hard-coded `"/avatar.png"` fallbacks with the shared `Avatar` component and initials fallback in:
+    - `components/ics25/PortalManager.tsx`
+    - `components/ics25/PlayerHoverCard.tsx`
+    - `components/ics25/ProfileCardModal.tsx`
+  - API enrichment adds Clerk profile images to players:
+    - `GET /api/ics25/players/me` now includes `player.imageUrl` from Clerk.
+    - `GET /api/ics25/players?ids=...` enriches each player with `imageUrl` from Clerk.
+  - Portal header avatar also falls back to the current Clerk user’s `imageUrl` from `useUser()`.
+  - Result: No more GET `/avatar.png` 404s; pfps render when available, otherwise initials are shown.
+
+- Mobile responsiveness and hover cards
+  - Tabs bar: made horizontally scrollable when tabs overflow; prevents wrapping and keeps the bar usable on small screens.
+  - PlayerHoverCard interaction: on touch devices, hover cards open on tap via a Popover; on desktop, they remain on hover via Tooltip.
+  - Boundary leak fix: consolidated the visual shell (rounded, blur, shadow, ring) on the Popover/Tooltip content to avoid double-layer radius mismatches; no more black/white edge “leaks.”
+  - Desktop theme override: enforced a dark shell (`bg-zinc-950/95`, `!text-white`) for Tooltip/Popover content so cards don’t turn white under theme defaults.
+  - Player chip subtitle: now shows only the player’s Rank under the name (no email/Riot ID on mobile/desktop chips).
+  - Members/pending rows and action bars: allow wrapping on small screens; inputs and buttons stack; long names and codes truncate.
+
+- Team name length and join code validation
+  - Backend: Team.teamName capped at max 20 chars; enforced on create and rename (400 on violation).
+  - UI: Team name inputs (create/rename) limited to 20 characters with a friendly error toast.
+  - Code format: 6-character alphanumeric code enforced end-to-end.
+    - Invalid format returns 400 “Invalid code format”; UI shows “Invalid code”.
+    - Non-existent but well-formed codes return 404 “Team not found”; UI shows “Team not found”.
+
+- Stricter registration validations and editor save behavior
+  - Register flow: cannot proceed to next step unless all required fields on the current step are valid (Personal → Game → Game details). Saving to portal validates again and blocks with toasts when fields are missing/invalid.
+  - Portal registration editor: Save is blocked until all required fields pass validation (phone format, Instagram required; Valorant Riot ID format; BGMI IGN/UID/Rank required). The editor does not close on failed save; toasts explain what to fix.
+
+### Changelog (Oct 16)
+
+- `schemas/ics25/Team.ts` — Add `listed: { type: Boolean, default: true }`.
+- `schemas/ics25/Team.ts` — Add `teamName` `maxlength: 20`.
+- `app/api/ics25/teams/route.ts` — New actions: `setListed` and `rename`; browse filters `listed !== false`; create sets `listed: true`.
+- `app/api/ics25/teams/route.ts` — Validate `teamName` length (≤ 20). Enforce 6-char alphanumeric team code format on GET/PATCH/DELETE; return 400 for invalid format, 404 for not found.
+- `app/api/ics25/players/route.ts` — Enforce required `phone` and `instagram`; enrich `GET ?ids=...` with Clerk `imageUrl`.
+- `app/api/ics25/players/route.ts` — Validate Valorant Riot ID format and required game fields on create/update; return 400 with clear messages.
+- `app/api/ics25/players/me/route.ts` — Enrich response with Clerk `imageUrl`.
+- `components/ics25/PortalManager.tsx` — Leader toggle for Public/Private, inline rename UI, registration editor requires phone/instagram, switch to `Avatar`.
+- `components/ics25/PortalManager.tsx` — Limit team name inputs to 20 chars; join-by-code validates format client-side and maps server 400→“Invalid code”, 404→“Team not found”; editor Save only closes on successful validation+save; added phone and Riot ID format checks with toasts.
+- `components/ics25/PlayerHoverCard.tsx` — Switch to `Avatar` with initials fallback.
+- `components/ics25/ProfileCardModal.tsx` — Switch to `Avatar` with initials fallback.
+  - `components/ics25/PlayerHoverCard.tsx` — Tap-to-open on mobile, hover on desktop; single styled shell; dark theme forced on desktop.
+  - `components/ics25/PortalManager.tsx` — TabsList scrollable on overflow; chip subtitle shows rank-only; mobile layout wraps/aligns correctly.
+  - `components/ics25/RegisterForm.tsx` — Safe-area padding for sticky nav; responsive grids; popover width constrained; scrollable command list; stricter step validation and save guard before redirecting to portal.
 
 ## New in Oct 14, 2025
 
@@ -160,6 +224,19 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - Repo-wide typecheck reports errors in unrelated areas (alyzitron/thinkforge/tests). ICS’25 files compile, but full `tsc --noEmit` may fail due to these unrelated errors.
 - DB connectivity must be fixed (Atlas allowlist/env) for APIs to work in non-local scenarios.
 - If you see "Conflicting route and page at /ics25/[letter]/[code]", delete `app/ics25/[letter]/[code]/route.ts` so only `page.tsx` handles the redirect.
+
+## Chat summary (Oct 16, 2025)
+
+- Objective: Fix mobile breakage and hover-card UX while preserving desktop behavior.
+- Actions:
+  - Made the tabs bar horizontally scrollable to improve responsiveness on small screens.
+  - Switched hover behavior to Popover on tap for mobile; kept Tooltip on hover for desktop.
+  - Fixed visual boundary leaks by applying rounded/blur/shadow/ring on the Popover/Tooltip shell instead of nesting a separate Card.
+  - Forced dark shell on desktop hover card to prevent theme-induced white backgrounds.
+  - Updated player chips to show Rank only beneath the name.
+- Results:
+  - Mobile: no more card/background proportion mismatches; no 1px leaks; tap-to-view profile works.
+  - Desktop: consistently dark hover card, no white background; cleaner player rows.
 
 ## Chat summary (Oct 14, 2025)
 

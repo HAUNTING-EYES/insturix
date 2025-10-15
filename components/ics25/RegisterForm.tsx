@@ -234,6 +234,10 @@ export default function RegisterForm() {
   const saveAndGoToPortal = async () => {
     try {
       setLoading(true);
+      // Final step validation before saving
+      if (!validateStep()) {
+        return;
+      }
       if (!game) {
         toast({ title: "Select game", description: "Choose Valorant or BGMI.", variant: "destructive" });
         return;
@@ -252,7 +256,7 @@ export default function RegisterForm() {
       };
       const res = await fetch('/api/ics25/players', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(playerPayload) });
       const data = await res.json();
-      if (!data.ok) throw new Error(data.message || 'Failed to save');
+      if (!res.ok || !data.ok) throw new Error(data.message || 'Failed to save');
       window.location.href = '/ics25/my';
     } catch (e: any) {
       toast({ title: "Save error", description: e.message, variant: "destructive" });
@@ -264,7 +268,7 @@ export default function RegisterForm() {
   // Payment is handled in the portal, not here
 
   const StepNav = ({ title, right }: { title: string; right?: { label: string; onClick: () => void; disabled?: boolean } }) => (
-    <div className="sticky bottom-4 z-20 mt-8 flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 backdrop-blur-md p-3">
+    <div className="sticky bottom-4 z-20 mt-8 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 backdrop-blur-md p-3 [@supports(padding:max(0px))]:pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <Button variant="secondary" onClick={handlePrev} disabled={step === 1 || navBusy}>
         Previous
       </Button>
@@ -388,7 +392,7 @@ export default function RegisterForm() {
               <div className="relative">
                 <AnimatePresence mode="wait">
                   {game === 'bgmi' && (
-                    <motion.div key="bgmi-fields" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} className="grid md:grid-cols-3 gap-3">
+                    <motion.div key="bgmi-fields" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
                       <div>
                         <label className="text-xs text-white/70">Leader IGN</label>
                         <Input placeholder="In-Game Name" value={leaderBgmi.ign} onChange={(e)=>setLeaderBgmi({...leaderBgmi, ign:e.target.value})} />
@@ -419,7 +423,7 @@ export default function RegisterForm() {
                     </motion.div>
                   )}
                   {game === 'valorant' && (
-                    <motion.div key="valorant-fields" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} className="grid md:grid-cols-3 gap-3">
+                    <motion.div key="valorant-fields" initial={{opacity:0,y:8}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} className="grid sm:grid-cols-2 md:grid-cols-3 gap-3">
                       <div>
                         <label className="text-xs text-white/70">Leader Riot ID</label>
                         <Input placeholder="Name#TAG" value={leaderVal.riotId} onChange={(e)=>setLeaderVal({...leaderVal, riotId:e.target.value})} />
@@ -460,11 +464,11 @@ export default function RegisterForm() {
                               </div>
                             </button>
                           </PopoverTrigger>
-                          <PopoverContent align="start" className="p-0 w-72 bg-zinc-900 text-white border border-white/10">
+                          <PopoverContent align="start" className="p-0 w-[min(18rem,calc(100vw-2rem))] bg-zinc-900 text-white border border-white/10">
                             <Command>
                               <CommandInput placeholder="Search agents…" />
                               <CommandEmpty>No agents found.</CommandEmpty>
-                              <CommandList>
+                              <CommandList className="max-h-64 overflow-y-auto">
                                 {VALORANT_AGENT_GROUPS.map(group => (
                                   <CommandGroup key={group.label} heading={group.label}>
                                     {group.items.map(agent => {

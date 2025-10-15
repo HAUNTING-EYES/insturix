@@ -4,6 +4,8 @@ import Player from '@/schemas/ics25/Player';
 import Team from '@/schemas/ics25/Team';
 import { auth } from '@clerk/nextjs/server';
 
+const CODE_REGEX = /^[A-Za-z0-9]{6}$/; // 6-char alphanumeric
+
 function maxTeamSize(game: 'valorant'|'bgmi') { return game === 'bgmi' ? 4 : 5; }
 function genCode(len = 6) {
   const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -23,11 +25,20 @@ export async function GET(req: NextRequest) {
   const page = pageParam ? Math.max(1, parseInt(pageParam)) : 1;
   const limit = limitParam ? Math.max(1, parseInt(limitParam)) : undefined;
   const filter: any = {};
-  if (code) filter.code = code;
+  if (code) {
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
+    filter.code = code;
+  }
   if (game) filter.game = game;
   // If not fetching a specific team code, only show publicly listed teams in browse
   const teams = await Team.find(filter).lean();
-  if (code) return NextResponse.json({ ok: true, team: teams[0] || null });
+  if (code) {
+    const team = teams[0] || null;
+    if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
+    return NextResponse.json({ ok: true, team });
+  }
   // Apply public listing filter when browsing. Treat missing `listed` as public for backward compatibility.
   const visible = teams.filter((t: any) => t.listed !== false);
   const withCapacity = incompleteOnly ? visible.filter(t => t.members.length < maxTeamSize(t.game)) : visible;
@@ -49,6 +60,12 @@ export async function POST(req: NextRequest) {
   let { teamName, game, code } = body as { teamName: string; game: 'valorant'|'bgmi'; code?: string } as any;
   if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
   if (!teamName || !game) return NextResponse.json({ ok: false, message: 'Missing fields' }, { status: 400 });
+  if (typeof teamName !== 'string' || teamName.trim().length === 0) {
+    return NextResponse.json({ ok: false, message: 'Team name required' }, { status: 400 });
+  }
+  if (teamName.trim().length > 20) {
+    return NextResponse.json({ ok: false, message: 'Team name must be 20 characters or fewer' }, { status: 400 });
+  }
   // Generate a unique code if not provided
   if (!code) {
     // Try a few times to avoid rare collisions
@@ -59,6 +76,9 @@ export async function POST(req: NextRequest) {
     }
     if (!code) return NextResponse.json({ ok: false, message: 'Failed to generate code' }, { status: 500 });
   } else {
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const exists = await Team.findOne({ code });
     if (exists) return NextResponse.json({ ok: false, message: 'Code already exists' }, { status: 409 });
   }
@@ -75,6 +95,9 @@ export async function PATCH(req: NextRequest) {
 
   if (action === 'requestJoin') {
     const { code } = body as { code: string };
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
@@ -87,6 +110,9 @@ export async function PATCH(req: NextRequest) {
 
   if (action === 'accept') {
     const { code, playerId } = body as { code: string; playerId: string };
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
@@ -116,6 +142,9 @@ export async function PATCH(req: NextRequest) {
 
   if (action === 'deny') {
     const { code, playerId } = body as { code: string; playerId: string };
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
@@ -127,6 +156,9 @@ export async function PATCH(req: NextRequest) {
 
   if (action === 'removeMember') {
     const { code, playerId } = body as { code: string; playerId: string };
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
@@ -139,6 +171,9 @@ export async function PATCH(req: NextRequest) {
   if (action === 'cancelRequest') {
     const { code } = body as { code: string };
     if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     team.pendingRequests = team.pendingRequests.filter((u: string) => u !== userId);
@@ -150,6 +185,9 @@ export async function PATCH(req: NextRequest) {
   if (action === 'leaveTeam') {
     const { code } = body as { code: string };
     if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId === userId) return NextResponse.json({ ok: false, message: 'Leader cannot leave team; delete team instead' }, { status: 400 });
@@ -162,6 +200,9 @@ export async function PATCH(req: NextRequest) {
   if (action === 'setListed') {
     const { code, listed } = body as { code: string; listed: boolean };
     if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
@@ -175,6 +216,10 @@ export async function PATCH(req: NextRequest) {
     const { code, teamName } = body as { code: string; teamName: string };
     if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
     if (!teamName || !teamName.trim()) return NextResponse.json({ ok: false, message: 'Team name required' }, { status: 400 });
+    if (teamName.trim().length > 20) return NextResponse.json({ ok: false, message: 'Team name must be 20 characters or fewer' }, { status: 400 });
+    if (!CODE_REGEX.test(code)) {
+      return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
+    }
     const team = await Team.findOne({ code });
     if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
     if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });
@@ -192,6 +237,7 @@ export async function DELETE(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const code = searchParams.get('code');
   if (!code) return NextResponse.json({ ok: false, message: 'Missing code' }, { status: 400 });
+  if (!CODE_REGEX.test(code)) return NextResponse.json({ ok: false, message: 'Invalid code format' }, { status: 400 });
   const team = await Team.findOne({ code });
   if (!team) return NextResponse.json({ ok: false, message: 'Team not found' }, { status: 404 });
   if (team.leaderId !== userId) return NextResponse.json({ ok: false, message: 'Forbidden' }, { status: 403 });

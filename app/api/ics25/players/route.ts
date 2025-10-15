@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Player from '@/schemas/ics25/Player';
 import Team from '@/schemas/ics25/Team';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import PromoReelSubmission from '@/schemas/ics25/PromoReelSubmission';
 import LinkedInSubmission from '@/schemas/ics25/LinkedInSubmission';
 import crypto from 'crypto';
@@ -14,7 +14,20 @@ export async function GET(req: NextRequest) {
   if (ids) {
     const arr = ids.split(',').map((s) => s.trim()).filter(Boolean);
     const players = await Player.find({ clerkUserId: { $in: arr } }).lean();
-    return NextResponse.json({ ok: true, players });
+    try {
+      const client = await clerkClient();
+      const enriched = await Promise.all(players.map(async (p: any) => {
+        try {
+          const u = await client.users.getUser(p.clerkUserId);
+          return { ...p, imageUrl: u?.imageUrl };
+        } catch {
+          return p;
+        }
+      }));
+      return NextResponse.json({ ok: true, players: enriched });
+    } catch {
+      return NextResponse.json({ ok: true, players });
+    }
   }
   const players = await Player.find().lean();
   return NextResponse.json({ ok: true, players });
@@ -73,6 +86,23 @@ export async function POST(req: NextRequest) {
     if (!phone || !instagram) {
       return NextResponse.json({ ok: false, message: 'Phone and Instagram are required' }, { status: 400 });
     }
+    // Game-specific validations
+    if (existing.game === 'valorant' && (rest.gameDetails?.valorant || (existing.gameDetails as any)?.valorant)) {
+      const gd = rest.gameDetails?.valorant || (existing.gameDetails as any)?.valorant || {};
+      if (!gd.riotId || !gd.rank || !gd.preferredAgents) {
+        return NextResponse.json({ ok: false, message: 'Valorant: Riot ID, Rank and Preferred Agent(s) are required' }, { status: 400 });
+      }
+      const riotId = gd.riotId.toString().trim();
+      if (!/^[^#\s]{3,16}#[A-Za-z0-9]{3,5}$/.test(riotId)) {
+        return NextResponse.json({ ok: false, message: 'Invalid Riot ID format. Use Name#TAG (name 3–16 chars, tag 3–5 alphanumeric).' }, { status: 400 });
+      }
+    }
+    if (existing.game === 'bgmi' && (rest.gameDetails?.bgmi || (existing.gameDetails as any)?.bgmi)) {
+      const gd = rest.gameDetails?.bgmi || (existing.gameDetails as any)?.bgmi || {};
+      if (!gd.ign || !gd.uid || !gd.rank) {
+        return NextResponse.json({ ok: false, message: 'BGMI: IGN, UID and Tier/Rank are required' }, { status: 400 });
+      }
+    }
     // Update nested gameDetails only for the currently selected game
     if (rest.gameDetails) {
       if (existing.game === 'valorant' && rest.gameDetails.valorant) {
@@ -91,6 +121,23 @@ export async function POST(req: NextRequest) {
   const instagram = (data.instagram || '').toString().trim();
   if (!phone || !instagram) {
     return NextResponse.json({ ok: false, message: 'Phone and Instagram are required' }, { status: 400 });
+  }
+  // Game-specific validations on create
+  if (data.game === 'valorant') {
+    const gd = (data.gameDetails as any)?.valorant || {};
+    if (!gd.riotId || !gd.rank || !gd.preferredAgents) {
+      return NextResponse.json({ ok: false, message: 'Valorant: Riot ID, Rank and Preferred Agent(s) are required' }, { status: 400 });
+    }
+    const riotId = gd.riotId.toString().trim();
+    if (!/^[^#\s]{3,16}#[A-Za-z0-9]{3,5}$/.test(riotId)) {
+      return NextResponse.json({ ok: false, message: 'Invalid Riot ID format. Use Name#TAG (name 3–16 chars, tag 3–5 alphanumeric).' }, { status: 400 });
+    }
+  }
+  if (data.game === 'bgmi') {
+    const gd = (data.gameDetails as any)?.bgmi || {};
+    if (!gd.ign || !gd.uid || !gd.rank) {
+      return NextResponse.json({ ok: false, message: 'BGMI: IGN, UID and Tier/Rank are required' }, { status: 400 });
+    }
   }
   const player = await Player.create(data);
   // Referral attachment: store on player.referredBy; confirmation happens at payment verification
