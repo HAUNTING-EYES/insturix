@@ -22,7 +22,7 @@ This document provides a comprehensive guide for administrators to manage the un
 
 ## Quick Start
 
-This system provides a single source of truth for all service limits and plan configurations. All limits are defined once in `lib/config/serviceLimits.ts` and automatically applied throughout the application.
+This system provides a single source of truth for all service limits and plan configurations.All limits are defined once in `lib/config/serviceLimits.ts` and automatically applied throughout the application.
 
 ### Key Files and Endpoints
 
