@@ -3,7 +3,7 @@
 This document tracks the ICS’25 registration/portal work: what’s shipped, what’s pending, key technical details, endpoints, and a verbatim chat summary for context.
 
 ## TL;DR
-
+ 
 - Individual-first registration is live. After saving personal + game details, users land in the portal to join/create teams and pay.
 - Teams and players are persisted in MongoDB (dbName: "ics25") with server-enforced permissions and invite/request flows.
 - Razorpay payments are integrated end-to-end (order + server-side verification). Player.payment is updated and shown in the UI.
