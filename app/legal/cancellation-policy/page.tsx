@@ -1,137 +1,101 @@
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 
+// Layout updated to match site design; policy text remains unchanged.
 export default function CancellationPolicy() {
   return (
     <>
       <Navbar />
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50/30 to-slate-100 dark:from-gray-900 dark:via-blue-950/30 dark:to-slate-900 transition-all duration-500 font-sans">
-        <div className="container mx-auto px-4 py-40 max-w-5xl">
-          {/* Header Section */}
-          <div className="text-center mb-16 relative">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 dark:from-blue-400/10 dark:to-purple-400/10 blur-3xl -z-10"></div>
-            <h1 className="text-5xl md:text-7xl font-extrabold bg-gradient-to-r from-blue-600 via-purple-600 to-blue-800 dark:from-blue-400 dark:via-purple-400 dark:to-blue-300 bg-clip-text text-transparent mb-10 tracking-tight">
-              Cancellation Policy
-            </h1>
-            <div className="inline-flex items-center bg-gradient-to-r from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600 text-white px-6 py-3 rounded-full text-sm font-semibold shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
-              <svg
-                className="w-4 h-4 mr-2"
-                fill="currentColor"
-                viewBox="0 0 20 20"
-              >
-                <path
-                  fillRule="evenodd"
-                  d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 000 2h8a1 1 0 100-2H6z"
-                  clipRule="evenodd"
-                />
-              </svg>
-              Effective Date: July 13, 2025
+      <div id="top" className="min-h-screen bg-[rgb(var(--surface-0))]">
+        {/* Hero */}
+        <section className="relative border-b border-neutral-200/60 dark:border-neutral-800/60">
+          <div className="absolute inset-0 bg-grid-neutral-100/20 dark:bg-grid-neutral-900/20 bg-[size:24px_24px] opacity-40" />
+          <div className="container relative mx-auto px-4 py-14 sm:py-16">
+            <div className="max-w-3xl">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">Legal</p>
+              <h1 className="mt-2 text-3xl sm:text-4xl lg:text-5xl font-bold primtext">Cancellation Policy</h1>
+              <p className="mt-3 text-sm text-muted-foreground">Effective Date: July 13, 2025</p>
             </div>
           </div>
+        </section>
 
-          {/* Introduction */}
-          <div className="relative mb-12 group">
-            <div className="absolute inset-0 bg-gradient-to-r from-blue-600/10 to-purple-600/10 dark:from-blue-400/5 dark:to-purple-400/5 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-            <div className="relative bg-gradient-to-r from-blue-600/5 to-blue-700/5 dark:from-blue-400/3 dark:to-blue-500/3 rounded-3xl shadow-xl dark:shadow-2xl p-8 md:p-10 border border-gray-200/50 dark:border-gray-700/50 hover:shadow-2xl dark:hover:shadow-blue-500/20 transition-all duration-500">
-              <div className="flex items-start space-x-4">
-                <div className="flex-shrink-0 w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 rounded-2xl flex items-center justify-center">
-                  <svg
-                    className="w-6 h-6 text-white"
-                    fill="currentColor"
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-3">
-                    Transparency and Integrity
-                  </h3>
-                  <p className="text-lg text-gray-700 dark:text-gray-300 leading-relaxed">
-                    At <span className="font-bold text-black dark:text-white">Insturix</span>, transparency and integrity are at the core of our policies. As we provide AI-driven digital services and tools, this cancellation policy has been drafted to ensure fairness while protecting the integrity of our operations and digital infrastructure.
-                  </p>
-                </div>
+        {/* Content with sticky ToC */}
+        <div className="container mx-auto px-4 py-10 lg:py-12">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-8 lg:gap-12">
+            {/* ToC */}
+            <aside className="hidden lg:block">
+              <div className="sticky top-24 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground">On this page</p>
+                <nav className="text-sm text-muted-foreground">
+                  <ol className="space-y-2">
+                    <li><a href="#intro" className="hover:text-foreground">Introduction</a></li>
+                    <li><a href="#general-policy-overview" className="hover:text-foreground">1. General Policy Overview</a></li>
+                    <li><a href="#cancel-subscription-plans" className="hover:text-foreground">2. Cancellation of Subscription Plans</a></li>
+                    <li><a href="#cancel-commands-orders" className="hover:text-foreground">3. Cancellation of Commands, Orders, or Executed Services</a></li>
+                    <li><a href="#automated-services" className="hover:text-foreground">4. Automated Services &amp; No Manual Interventions</a></li>
+                    <li><a href="#termination-by-insturix" className="hover:text-foreground">5. Termination by Insturix</a></li>
+                    <li><a href="#how-to-cancel" className="hover:text-foreground">6. How to Cancel a Plan</a></li>
+                  </ol>
+                </nav>
               </div>
-            </div>
-          </div>
+            </aside>
 
-          {/* Policy Sections */}
-          <div className="space-y-8">
-            {/* Section 1: General Policy Overview */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-gray-600/5 to-gray-700/5 dark:from-gray-400/3 dark:to-gray-500/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-              <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
-                  <span className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">1</span>
-                  General Policy Overview
-                </h3>
-                <p className="text-gray-700 dark:text-gray-300 leading-relaxed text-lg pl-16">
+            {/* Main */}
+            <main className="scroll-smooth space-y-6 lg:space-y-8">
+              {/* Introduction */}
+              <section id="intro" className="section-card scroll-mt-24">
+                <h2 className="text-lg font-semibold primtext mb-2">Transparency and Integrity</h2>
+                <p className="text-foreground/80 leading-relaxed">
+                  At <span className="font-bold">Insturix</span>, transparency and integrity are at the core of our policies. As we provide AI-driven digital services and tools, this cancellation policy has been drafted to ensure fairness while protecting the integrity of our operations and digital infrastructure.
+                </p>
+              </section>
+
+              {/* 1 */}
+              <section id="general-policy-overview" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
+                <h3 className="text-xl font-semibold primtext">1. General Policy Overview</h3>
+                <p className="mt-3 text-foreground/80 leading-relaxed">
                   Insturix offers Platform-as-a-service (PaaS) and AI-powered solutions. Due to the automated and digital nature of our Platform, cancellations are only applicable to ongoing subscription plans, not on individual actions or executed commands.
                 </p>
-              </div>
-            </section>
+              </section>
 
-            {/* Section 2: Cancellation of Subscription Plans */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-600/5 to-blue-600/5 dark:from-purple-400/3 dark:to-blue-400/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-              <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
-                  <span className="bg-gradient-to-br from-purple-600 to-blue-700 dark:from-purple-500 dark:to-blue-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">2</span>
-                  Cancellation of Subscription Plans
-                </h3>
-                <ul className="list-disc pl-20 text-gray-700 dark:text-gray-300 space-y-3 text-lg">
+              {/* 2 */}
+              <section id="cancel-subscription-plans" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
+                <h3 className="text-xl font-semibold primtext">2. Cancellation of Subscription Plans</h3>
+                <ul className="mt-3 list-disc pl-6 space-y-2 text-foreground/80 leading-relaxed">
                   <li>Customers have the right to cancel their active subscription plans at any time via their account dashboard.</li>
                   <li>Upon cancellation, the subscription remains active until the end of the billing cycle as outlined in the original plan description.</li>
                   <li>No refunds or partial refunds will be issued for unused days in the active period.</li>
                   <li>All plan-based services and access rights will be automatically terminated at the end of the current billing period.</li>
                   <li>Users will receive a confirmation email upon successful cancellation.</li>
                 </ul>
-              </div>
-            </section>
+              </section>
 
-            {/* Section 3: Cancellation of Commands, Orders, or Executed Services */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-blue-600/5 to-purple-600/5 dark:from-blue-400/3 dark:to-purple-400/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-              <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
-                  <span className="bg-gradient-to-br from-blue-600 to-purple-700 dark:from-blue-500 dark:to-purple-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">3</span>
-                  Cancellation of Commands, Orders, or Executed Services
-                </h3>
-                <ul className="list-disc pl-20 text-gray-700 dark:text-gray-300 space-y-3 text-lg">
+              {/* 3 */}
+              <section id="cancel-commands-orders" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
+                <h3 className="text-xl font-semibold primtext">3. Cancellation of Commands, Orders, or Executed Services</h3>
+                <ul className="mt-3 list-disc pl-6 space-y-2 text-foreground/80 leading-relaxed">
                   <li>Once a command is executed (e.g., an AI request, project generation, code execution, business report generation, video editing job, etc.), it is final and irreversible.</li>
                   <li>This includes actions initiated on platforms such as Editron, ThinkForge, Musitron, Alyzitron, or any other service offered by Insturix.</li>
                   <li>No cancellations, pauses, or amendments are permitted after an order or command has been submitted, as our systems allocate computational and human resources in real time.</li>
                 </ul>
-              </div>
-            </section>
+              </section>
 
-            {/* Section 4: Automated Services & No Manual Interventions */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-gray-600/5 to-gray-700/5 dark:from-gray-400/3 dark:to-gray-500/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-              <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
-                  <span className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">4</span>
-                  Automated Services & No Manual Interventions
-                </h3>
-                <ul className="list-disc pl-20 text-gray-700 dark:text-gray-300 space-y-3 text-lg">
+              {/* 4 */}
+              <section id="automated-services" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
+                <h3 className="text-xl font-semibold primtext">4. Automated Services &amp; No Manual Interventions</h3>
+                <ul className="mt-3 list-disc pl-6 space-y-2 text-foreground/80 leading-relaxed">
                   <li>Many Insturix tools operate in real time with minimal human intervention.</li>
                   <li>Once a service is triggered, backend systems and AI modules begin immediate processing.</li>
                   <li>For this reason, manual override or cancellation requests cannot be accommodated after initiation.</li>
                 </ul>
-              </div>
-            </section>
+              </section>
 
-            {/* Section 5: Termination by Insturix */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-purple-600/5 to-blue-600/5 dark:from-purple-400/3 dark:to-blue-400/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-              <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
-                  <span className="bg-gradient-to-br from-purple-600 to-blue-700 dark:from-purple-500 dark:to-blue-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">5</span>
-                  Termination by Insturix
-                </h3>
-                <ul className="list-disc pl-20 text-gray-700 dark:text-gray-300 space-y-3 text-lg">
+              {/* 5 */}
+              <section id="termination-by-insturix" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
+                <h3 className="text-xl font-semibold primtext">5. Termination by Insturix</h3>
+                <ul className="mt-3 list-disc pl-6 space-y-2 text-foreground/80 leading-relaxed">
                   <li>We reserve the right to cancel a user’s access or subscription at our sole discretion in the following cases:
-                    <ul className="list-disc pl-8 mt-2 space-y-1 text-base">
+                    <ul className="list-disc pl-6 mt-2 space-y-1">
                       <li>Violation of our Terms of Use</li>
                       <li>Fraudulent behavior or misuse of AI systems</li>
                       <li>Unauthorized commercial redistribution of our services</li>
@@ -140,63 +104,43 @@ export default function CancellationPolicy() {
                   </li>
                   <li>In such cases, no refund or compensation will be provided.</li>
                 </ul>
-              </div>
-            </section>
+              </section>
 
-            {/* Section 6: How to Cancel a Plan */}
-            <section className="relative group">
-              <div className="absolute inset-0 bg-gradient-to-r from-gray-600/5 to-gray-700/5 dark:from-gray-400/3 dark:to-gray-500/3 rounded-3xl blur-xl group-hover:blur-2xl transition-all duration-500"></div>
-              <div className="relative bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-3xl shadow-lg dark:shadow-xl p-8 border border-gray-200/50 dark:border-gray-700/50">
-                <h3 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-6 flex items-center group">
-                  <span className="bg-gradient-to-br from-blue-600 to-blue-700 dark:from-blue-500 dark:to-blue-600 text-white rounded-2xl w-12 h-12 flex items-center justify-center text-lg font-bold mr-4 shadow-lg">6</span>
-                  How to Cancel a Plan
-                </h3>
-                <ol className="list-decimal pl-20 text-gray-700 dark:text-gray-300 space-y-3 text-lg">
+              {/* 6 */}
+              <section id="how-to-cancel" className="section-card scroll-mt-24 border-l-2 border-l-neutral-300 dark:border-l-neutral-700">
+                <h3 className="text-xl font-semibold primtext">6. How to Cancel a Plan</h3>
+                <ol className="mt-3 list-decimal pl-6 space-y-2 text-foreground/80 leading-relaxed">
                   <li>Go to your Insturix Account</li>
                   <li>Navigate to “Manage Plan” &gt; “Cancel Subscription”</li>
                   <li>Follow the confirmation steps</li>
                   <li>A confirmation email will be sent immediately</li>
                 </ol>
-                <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900 dark:to-purple-900 rounded-lg border border-gray-200 dark:border-gray-700">
-                  <p className="text-gray-800 dark:text-gray-200">
+                <div className="mt-6 rounded-lg border border-neutral-200 dark:border-neutral-700 p-4">
+                  <p>
                     For any cancellation support, contact us at {" "}
-                    <a href="mailto:support@insturix.com" className="font-semibold text-black dark:text-white hover:underline">
+                    <a href="mailto:support@insturix.com" className="font-semibold hover:underline">
                       support@insturix.com
                     </a>
                   </p>
                 </div>
-              </div>
-            </section>
-          </div>
+              </section>
 
-          {/* Footer note */}
-          <div className="text-center mt-16 pt-10 border-t border-gray-300/50 dark:border-gray-600/50">
-            <div className="max-w-3xl mx-auto">
-              <div className="bg-gradient-to-r from-gray-100 to-gray-200 dark:from-gray-800 dark:to-gray-700 rounded-2xl p-8 shadow-lg border border-gray-200/50 dark:border-gray-700/50">
-                <div className="flex items-center justify-center mb-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-purple-600 dark:from-blue-400 dark:to-purple-500 rounded-2xl flex items-center justify-center">
-                    <svg
-                      className="w-6 h-6 text-white"
-                      fill="currentColor"
-                      viewBox="0 0 20 20"
-                    >
-                      <path
-                        fillRule="evenodd"
-                        d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
-                        clipRule="evenodd"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <p className="text-gray-600 dark:text-gray-300 text-lg font-medium leading-relaxed">
+              {/* Acknowledgement */}
+              <section className="section-card">
+                <p className="text-foreground/80">
                   By using Insturix, you acknowledge that you have read, understood, and agree to be bound by this Cancellation & Refund Policy.
                 </p>
+              </section>
+
+              {/* Back to top */}
+              <div className="flex justify-end">
+                <a href="#top" className="inline-flex items-center text-sm text-muted-foreground hover:text-foreground transition-colors">Back to top ↑</a>
               </div>
-            </div>
+            </main>
           </div>
         </div>
       </div>
       <Footer />
     </>
   );
-} 
+}
