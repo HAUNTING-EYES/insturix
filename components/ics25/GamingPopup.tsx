@@ -41,7 +41,7 @@ export default function ICS25GamingPopup({ isOpen, onClose }: { isOpen: boolean;
               </div>
             </div>
 
-            <p className="text-center text-sm text-zinc-700 dark:text-zinc-300">Cashback up to ₹250 based on completing tasks (details coming soon).</p>
+            <p className="text-center text-sm text-zinc-700 dark:text-zinc-300">Cashback up to ₹350 on completing creator tasks (details on player portal).</p>
 
             <div className="text-center">
               <button

@@ -203,7 +203,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                   <div className="text-zinc-900 dark:text-zinc-100 font-semibold">Valorant or BGMI</div>
                 </div>
               </div>
-              <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300 text-center">Cashback up to ₹250 based on completing tasks (details coming soon).</p>
+              <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300 text-center">Cashback up to ₹350 on completing creator tasks (details on player portal).</p>
             </motion.div>
 
             {/* Special Promotion */}
