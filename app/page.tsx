@@ -111,7 +111,7 @@ export default function Home() {
       <ProgressBarWrapper />
   <Navbar />
   <PopupTrigger context="home" />
-      <ClientHeroSection />
+  <ClientHeroSection />
       <WhoWeAre />
       <WhyUs />
       {/* <Testimo /> */}

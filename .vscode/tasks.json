@@ -71,6 +71,16 @@
 				"$eslint-stylish"
 			],
 			"group": "build"
+		},
+		{
+			"label": "Typecheck Front-End changed files",
+			"type": "shell",
+			"command": "pnpm -s tsc -p . --noEmit",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
 		}
 	]
 }

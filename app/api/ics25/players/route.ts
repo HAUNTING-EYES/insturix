@@ -47,11 +47,11 @@ export async function POST(req: NextRequest) {
     if (!player) return NextResponse.json({ ok: false, message: 'Player not found' }, { status: 404 });
     if (!player.cashbacks) player.cashbacks = {} as any;
     if (task === 'promoReel') {
-      player.cashbacks.promoReel = { ...(player.cashbacks.promoReel as any), status: 'submitted', proofUrl, amount: 75 } as any;
-      await PromoReelSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 75, status: 'submitted' });
+      player.cashbacks.promoReel = { ...(player.cashbacks.promoReel as any), status: 'submitted', proofUrl, amount: 100 } as any;
+      await PromoReelSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 100, status: 'submitted' });
     } else if (task === 'linkedinPost') {
-      player.cashbacks.linkedinPost = { ...(player.cashbacks.linkedinPost as any), status: 'submitted', proofUrl, amount: 75 } as any;
-      await LinkedInSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 75, status: 'submitted' });
+      player.cashbacks.linkedinPost = { ...(player.cashbacks.linkedinPost as any), status: 'submitted', proofUrl, amount: 100 } as any;
+      await LinkedInSubmission.create({ playerId: player._id.toString(), clerkUserId: player.clerkUserId, name: player.name, instagram: player.instagram, proofUrl, amount: 100, status: 'submitted' });
     } else {
       return NextResponse.json({ ok: false, message: 'Unknown task' }, { status: 400 });
     }
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     if (!player.cashbacks) player.cashbacks = {} as any;
     if (!player.cashbacks.referral?.code) {
       const code = crypto.randomBytes(3).toString('hex'); // 6-char hex
-      player.cashbacks.referral = { ...(player.cashbacks.referral as any), code, amount: 100 } as any;
+      player.cashbacks.referral = { ...(player.cashbacks.referral as any), code, amount: 150 } as any;
       await player.save();
     }
     return NextResponse.json({ ok: true, code: player.cashbacks.referral?.code, player });

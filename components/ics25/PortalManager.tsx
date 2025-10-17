@@ -1381,9 +1381,9 @@ export default function PortalManager() {
                 const promo = me?.cashbacks?.promoReel;
                 const linkedin = me?.cashbacks?.linkedinPost;
                 const refer = me?.cashbacks?.referral;
-                const amtPromo = promo?.amount ?? 75;
-                const amtLinkedin = linkedin?.amount ?? 75;
-                const amtReferral = refer?.amount ?? 100;
+                const amtPromo = promo?.amount ?? 100;
+                const amtLinkedin = linkedin?.amount ?? 100;
+                const amtReferral = refer?.amount ?? 150;
                 const earned = (promo?.status === 'verified' ? amtPromo : 0)
                   + (linkedin?.status === 'verified' ? amtLinkedin : 0)
                   + (refer?.qualified ? amtReferral : 0);
@@ -1415,7 +1415,7 @@ export default function PortalManager() {
               {/* Promo Reel Task */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Promo Reel — ₹75</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Promo Reel — ₹100</CardTitle>
                   <CardDescription>Post a reel tagging @insturix and #ICS25 #insturix</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -1425,7 +1425,7 @@ export default function PortalManager() {
                       return <div className="text-xs rounded-md border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2">Under review — we’ll verify this within 48 hours.</div>;
                     }
                     if (st === 'verified') {
-                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹75 will be credited.</div>;
+                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹100 will be credited.</div>;
                     }
                     if (st === 'rejected') {
                       return <div className="text-xs rounded-md border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2">Rejected — please resubmit with valid proof.</div>;
@@ -1443,7 +1443,7 @@ export default function PortalManager() {
               {/* LinkedIn Post Task */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> LinkedIn Post — ₹75</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> LinkedIn Post — ₹100</CardTitle>
                   <CardDescription>Write a LinkedIn post tagging Insturix about ICS’25</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -1453,7 +1453,7 @@ export default function PortalManager() {
                       return <div className="text-xs rounded-md border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2">Under review — we’ll verify this within 48 hours.</div>;
                     }
                     if (st === 'verified') {
-                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹75 will be credited.</div>;
+                      return <div className="text-xs rounded-md border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2">Approved — ₹100 will be credited.</div>;
                     }
                     if (st === 'rejected') {
                       return <div className="text-xs rounded-md border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2">Rejected — please resubmit with valid proof.</div>;
@@ -1471,7 +1471,7 @@ export default function PortalManager() {
               {/* Referral Task */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Referral — ₹100</CardTitle>
+                  <CardTitle className="text-lg flex items-center gap-2"><ShieldAlert className="h-5 w-5" /> Referral — ₹150</CardTitle>
                   <CardDescription>Earn cashback by registering 3 people via your referral</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -1483,7 +1483,7 @@ export default function PortalManager() {
                       <Button size="sm" variant="secondary" onClick={() => copy(`${window.location.origin}/ics25/register?ref=${encodeURIComponent(referralCode)}`)}>Copy link</Button>
                     )}
                   </div>
-                  <div className="text-xs text-white/60">Progress: {me?.cashbacks?.referral?.referredCount || 0}/3 • {me?.cashbacks?.referral?.qualified ? 'Qualified — ₹75 added to Earned' : 'Not yet qualified'}</div>
+                  <div className="text-xs text-white/60">Progress: {me?.cashbacks?.referral?.referredCount || 0}/3 • {me?.cashbacks?.referral?.qualified ? 'Qualified — ₹100 added to Earned' : 'Not yet qualified'}</div>
                 </CardContent>
               </Card>
             </div>
@@ -1522,6 +1522,9 @@ export default function PortalManager() {
                 <div className="mt-1 text-sm text-emerald-400">Payment confirmed</div>
               ) : (
                 <div className="space-y-3">
+                  <div className="rounded-md border border-emerald-700/30 bg-emerald-600/10 text-emerald-200 px-3 py-2 text-xs">
+                    Complete all three cashback tasks (Promo Reel ₹100, LinkedIn ₹100, Referral ₹150) to earn ₹350 back — effective price becomes <b>₹150</b>.
+                  </div>
                   <div className="rounded-md border border-white/10 p-3 text-sm text-white/80">
                     <div className="flex items-center justify-between">
                       <span>Registration fee</span>

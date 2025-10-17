@@ -4,21 +4,35 @@ import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
-import { ArrowRight, Users } from "lucide-react";
+import { ArrowRight, Users, Sparkles } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
 import ICS25Popup from "@/components/ICS25Popup";
 import ICS25Banner from "@/components/ICS25Banner";
+import CountUp from "@/components/CountUp";
+
+// Keep messages stable between renders to avoid resetting timers/animations
+const HERO_MESSAGES = [
+  "Level Up Your Content",
+  "Level Up Your Growth",
+  "Level Up Your Popularity",
+  "Level Up Your Security",
+  "Level Up Your Workflow",
+  "Level Up Your Revenue",
+  "Level Up Your Creativity",
+  "Level Up Your Network",
+];
 
 export default function HeroSection() {
   const [isHovering, setIsHovering] = useState(false);
   const [showICS25Popup, setShowICS25Popup] = useState(false);
+  const [countEnded, setCountEnded] = useState(false);
 
   // ICS25 Popup logic
   useEffect(() => {
     // Check if user has seen the popup before
     const hasSeenPopup = localStorage.getItem('ics25-popup-seen');
-    
+
     if (!hasSeenPopup) {
       // Show popup after a shorter delay
       const timer = setTimeout(() => {
@@ -49,16 +63,7 @@ export default function HeroSection() {
   // });
   // const displayCount = userCountData?.total_count || 20;
 
-  const heroMessages = [
-    "Level Up Your Content",
-    "Level Up Your Growth",
-    "Level Up Your Popularity",
-    "Level Up Your Security",
-    "Level Up Your Workflow",
-    "Level Up Your Revenue",
-    "Level Up Your Creativity",
-    "Level Up Your Network",
-  ];
+  const heroMessages = HERO_MESSAGES;
 
   return (
     <div className="relative min-h-screen w-full overflow-hidden select-none">
@@ -97,82 +102,125 @@ export default function HeroSection() {
               </div>
 
               <div className="relative z-10 w-full">
+                {/* Beautified CountUp on top of rotating text */}
+                <motion.div
+                  className="mb-6 sm:mb-8 md:mb-1 mt-4 sm:mt-6 md:mt-8 flex w-full items-center justify-center"
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  transition={{ duration: 0.6, ease: "easeOut" }}
+                >
+                  <div className="relative">
+                    <motion.div
+                      role="status"
+                      aria-live="polite"
+                      className="inline-flex max-w-[min(92vw,64rem)] items-baseline gap-2 sm:gap-3 whitespace-nowrap"
+                    >
+                      <div className="relative inline-block">
+                        {/* underline glow shadow beneath the counter */}
+                        <span
+                          aria-hidden
+                          className="pointer-events-none absolute -bottom-1 left-0 right-0 h-2 rounded-full blur-md opacity-50"
+                          style={{
+                            background:
+                              'linear-gradient(90deg, rgba(139,92,246,0) 0%, rgba(139,92,246,0.4) 25%, rgba(236,72,153,0.35) 50%, rgba(14,165,233,0.4) 75%, rgba(14,165,233,0) 100%)',
+                          }}
+                        />
+                        <motion.span
+                          className="relative z-10 inline-flex items-baseline whitespace-nowrap text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight leading-none"
+                          animate={countEnded ? { scale: [1, 1.05, 1] } : {}}
+                          transition={countEnded ? { duration: 0.6, ease: 'easeOut' } : {}}
+                        >
+                          {/* Digits only (gradient) */}
+                          <CountUp
+  from={0}
+  to={6100}
+  separator=","
+  duration={1.6}
+  className="inline-flex items-baseline gap-0 leading-none"
+  numberClassName="tabular-nums text-transparent bg-clip-text bg-gradient-to-r from-[#9da3a8] via-[#c5c9cc] to-[#7c8185] drop-shadow-[0_1px_3px_rgba(255,255,255,0.1)]"
+  onStart={() => setCountEnded(false)}
+  onEnd={() => setCountEnded(true)}
+/>
+
+<span className="ml-2 text-2xl sm:text-3xl md:text-4xl font-semibold text-transparent bg-clip-text bg-gradient-to-r from-[#b0b5b8] via-[#d4d7d9] to-[#8b8f93] drop-shadow-[0_1px_2px_rgba(255,255,255,0.15)] leading-none">
+  +
+</span>
+
+<span className="ml-3 text-base sm:text-lg md:text-2xl font-semibold leading-none tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-[#8f969b] via-[#b9bec1] to-[#6d7376] drop-shadow-[0_1px_3px_rgba(255,255,255,0.2)]">
+  creators
+</span>
+
+                        </motion.span>
+                      </div>
+                    </motion.div>
+                  </div>
+                </motion.div>
                 <TypingAnimation
                   messages={heroMessages}
                   displayDuration={3000}
                   characterDelay={40}
                   transitionDuration={350}
                   shouldLoop={true}
-                  textClass="w-full text-2xl xs:text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-tight"
+                  showCaret
+                  caretClass="ml-2 inline-block h-[0.9em] w-[2px] bg-white/70 animate-pulse"
+                  textClass="relative z-10 w-full text-2xl xs:text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight text-foreground leading-tight"
                 />
+
+                {/* Subheading under rotating text */}
+                <motion.p
+                  className="mt-3 sm:mt-5 max-w-3xl mx-auto px-3 sm:px-0 text-sm xs:text-base sm:text-lg text-white/70 leading-relaxed"
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.5, delay: 0.5 }}
+                >
+                  <span>Securing the Future of Content Creators.</span>
+                  <br className="hidden md:block" />
+                  <span> Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.</span>
+                </motion.p>
               </div>
             </div>
 
-            <motion.p
-              className="mx-auto max-w-xl text-sm sm:text-base md:text-lg lg:text-xl text-muted-foreground/80 px-6 sm:px-4 mb-6 sm:mb-8 leading-relaxed"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8, delay: 1 }}
-            >
-              Securing the Future of Content Creators. Your all-in-one platform
-              for creator protection, AI-powered tools, and brand collaborations
-            </motion.p>
 
-            {/* Waitlist button - Enhanced for mobile */}
+            {/* Primary CTA - below rotating text */}
             <motion.div
-              className="mb-6 sm:mb-8 px-4 sm:px-0"
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6, delay: 1.2 }}
+              className="mt-6 sm:mt-8 flex w-full items-center justify-center px-4 sm:px-0"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.8 }}
             >
-              <Link href="/signup">
+              <Link href="/signup" className="group inline-flex">
                 <motion.button
-                  className="group relative overflow-hidden rounded-full bg-gradient-to-r from-red-700 to-orange-600 px-6 sm:px-8 py-3 sm:py-4 text-sm sm:text-base font-semibold text-white shadow-xl transition-all duration-300 ease-out hover:shadow-[0_0_50px_5px_rgba(var(--primary),0.6)] active:scale-[0.98] w-full sm:w-auto max-w-xs sm:max-w-none mx-auto"
+                  className="relative overflow-hidden rounded-full bg-gradient-to-r from-red-700 via-red-600 to-orange-500 px-7 sm:px-9 py-3.5 sm:py-4.5 text-base sm:text-lg font-semibold text-white shadow-[0_8px_30px_rgba(255,99,71,0.35)] transition-all duration-300 ease-out hover:shadow-[0_12px_40px_rgba(255,140,0,0.45)] active:scale-[0.98]"
                   onMouseEnter={() => setIsHovering(true)}
                   onMouseLeave={() => setIsHovering(false)}
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.03, y: -1 }}
+                  whileTap={{ scale: 0.985 }}
                 >
-                  <span className="relative z-10 flex items-center justify-center gap-2">
-                    <Users className="h-4 w-4 sm:h-5 sm:w-5" />
-                    <span>Join Now!</span>
-                    <motion.div
-                      animate={{ x: isHovering ? 5 : 0 }}
-                      transition={{ duration: 0.3 }}
-                    >
-                      <ArrowRight className="h-4 w-4 sm:h-5 sm:w-5" />
+                  <span className="relative z-10 flex items-center justify-center gap-2.5">
+                    <Users className="h-5 w-5 sm:h-6 sm:w-6" />
+                    <span>Join Now</span>
+                    <motion.div animate={{ x: isHovering ? 5 : 0 }} transition={{ duration: 0.25 }}>
+                      <ArrowRight className="h-5 w-5 sm:h-6 sm:w-6" />
                     </motion.div>
                   </span>
 
+                  {/* animated sheen */}
                   <motion.div
-                    className="absolute inset-0 z-0 bg-gradient-to-r from-red-700 to-orange-500 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-                    animate={{
-                      backgroundPosition: isHovering ? "100% 0%" : "0% 0%",
-                    }}
-                    transition={{ duration: 0.8, ease: "easeInOut" }}
-                    style={{ backgroundSize: "200% 100%" }}
-                  />
-
-                  <motion.div
-                    className="absolute inset-0 -z-10 opacity-0 group-hover:opacity-30"
-                    animate={{
-                      x: isHovering ? "100%" : "-100%",
-                    }}
-                    transition={{ duration: 0.5, ease: "easeInOut" }}
+                    className="pointer-events-none absolute inset-0 z-0 opacity-0 group-hover:opacity-100"
+                    animate={{ backgroundPosition: isHovering ? "120% 0%" : "-20% 0%" }}
+                    transition={{ duration: 0.9, ease: "easeInOut" }}
                     style={{
-                      background:
-                        "linear-gradient(90deg, transparent, rgba(255,255,255,0.8), transparent)",
-                      width: "50%",
-                      height: "100%",
+                      background: "linear-gradient(110deg, rgba(255,255,255,0.0) 0%, rgba(255,255,255,0.22) 35%, rgba(255,255,255,0.0) 70%)",
+                      backgroundSize: "200% 100%",
                     }}
                   />
                 </motion.button>
               </Link>
             </motion.div>
 
-            {/* Startup Program Logos - Mobile Optimized */}
+            {/* Startup Program Logos - Mobile Optimized (raised slightly for above-the-fold visibility) */}
             <motion.div
-              className="flex flex-col items-center gap-3 sm:gap-4 mt-12 sm:mt-16 md:mt-20 px-4 sm:px-0"
+              className="flex flex-col items-center gap-3 sm:gap-4 mt-6 sm:mt-8 md:mt-10 lg:mt-12 px-4 sm:px-0"
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 1.4 }}
@@ -234,11 +282,11 @@ export default function HeroSection() {
 
       {/* ICS25 Banner */}
       <ICS25Banner />
-      
+
       {/* ICS25 Popup */}
-      <ICS25Popup 
-        isOpen={showICS25Popup} 
-        onClose={handleCloseICS25Popup} 
+      <ICS25Popup
+        isOpen={showICS25Popup}
+        onClose={handleCloseICS25Popup}
       />
     </div>
   );

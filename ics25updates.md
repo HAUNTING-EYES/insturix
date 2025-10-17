@@ -8,6 +8,7 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - Teams and players are persisted in MongoDB (dbName: "ics25") with server-enforced permissions and invite/request flows.
 - Razorpay payments are integrated end-to-end (order + server-side verification). Player.payment is updated and shown in the UI.
 - Portal UI is redesigned with the shared UI kit (Cards/Buttons/Badges), inline profile editing, confirmations, toasts, and skeleton loaders.
+- Cashbacks: Promo Reel ₹100, LinkedIn ₹100, Referral ₹150. Completing all three returns ₹350, making the effective price ₹150. Payment tab shows this notice.
 
 ## New in Oct 16, 2025
 
@@ -56,6 +57,24 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
   - Register flow: cannot proceed to next step unless all required fields on the current step are valid (Personal → Game → Game details). Saving to portal validates again and blocks with toasts when fields are missing/invalid.
   - Portal registration editor: Save is blocked until all required fields pass validation (phone format, Instagram required; Valorant Riot ID format; BGMI IGN/UID/Rank required). The editor does not close on failed save; toasts explain what to fix.
 
+- Cashback amounts + Payment notice (pricing clarity)
+  - Amounts increased: Promo Reel → ₹100; LinkedIn Post → ₹100; Referral → ₹150.
+  - UI updated across Cashbacks tab headings and summary math; API and schema defaults aligned to new amounts.
+  - Payment tab includes a clear notice: “Complete all three cashback tasks to earn ₹350 total; your effective price is ₹150.”
+
+- Homepage hero polish (non-portal but related UX)
+  - Added an animated CountUp badge showing “Over 6,100+ creators” above the rotating headline.
+  - Beautified the badge with a glassy pill, gradient number, glow, and a shimmer sweep; ensured it’s responsive and doesn’t overflow.
+  - Increased sizes for better prominence; constrained width and allowed wrapping on small screens.
+  - Fixed shimmer so it traverses fully without stopping mid-way; added a subtle completion pulse when the count finishes.
+  - Restored rotating headline behavior with a more reliable cycle (timeout-driven, transition variants, and a small watchdog to prevent stalls). “Join Now” CTA placed under the headline with improved gradient, lift, and sheen.
+  - Follow-up refinements (this session):
+    - Counter pill: improved depth (top highlight + inner ring), smoother shimmer, and slight brightness pop on completion.
+    - Clear suffix: “+ creators and counting...” is now always visible and attached to the number; no wrap/clipping.
+    - Readability: gradient applies to digits only; labels use solid colors; tabular numbers prevent jitter.
+    - Rotating headline caret: physically tracks the last typed character and pulses; no more stationary blink.
+    - Added subheading under the rotating text: “Securing the Future of Content Creators. Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.”
+
 ### Changelog (Oct 16)
 
 - `schemas/ics25/Team.ts` — Add `listed: { type: Boolean, default: true }`.
@@ -72,6 +91,15 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
   - `components/ics25/PlayerHoverCard.tsx` — Tap-to-open on mobile, hover on desktop; single styled shell; dark theme forced on desktop.
   - `components/ics25/PortalManager.tsx` — TabsList scrollable on overflow; chip subtitle shows rank-only; mobile layout wraps/aligns correctly.
   - `components/ics25/RegisterForm.tsx` — Safe-area padding for sticky nav; responsive grids; popover width constrained; scrollable command list; stricter step validation and save guard before redirecting to portal.
+  - `components/Home/HeroSection.tsx` — Added/beautified CountUp pill, shimmer sweep, increased sizes, safe wrapping; fixed shimmer pass and improved CTA placement/styling.
+  - `components/CountUp.tsx` — Reusable animated number with separators, onStart/onEnd hooks.
+  - `components/ui/TypingAnimation.tsx` — Reliable rotation via timeout-driven cycle, parent motion variants, and a small stall-watchdog.
+
+  ### Changelog (Oct 16 — follow-up)
+
+  - `components/CountUp.tsx` — Add `prefix`/`suffix` ReactNode props and `numberClassName` for digit-only gradient; clamp to exact final value on end.
+  - `components/Home/HeroSection.tsx` — Counter pill polish (highlight, inner ring, shimmer tune), keep suffix on one line with `whitespace-nowrap`, always show “and counting...”, apply gradient to digits only, and add subheading under the rotating headline.
+  - `components/ui/TypingAnimation.tsx` — Moving caret that follows the last typed character using measured character refs; varied pulse while typing vs pause; retains anti-stall watchdog.
 
 ## New in Oct 14, 2025
 
@@ -127,7 +155,7 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
    - Player schema extended with `cashbacks` and `referredBy` fields; referral counts and qualification tracked server-side.
    - Referral code is entered in the Payment tab; it’s only credited when the payer’s payment is verified successfully.
    - Referral validation endpoint `GET /api/ics25/referrals/validate?code=` plus a Payment tab "Check" button to validate codes and block invalid/self usage.
-   - Amount updates: Promo Reel → ₹75; Referral → ₹100 (LinkedIn remains ₹75). These are reflected in schema defaults, API writes, and UI text/summary.
+  - Amount updates: Promo Reel → ₹100; LinkedIn Post → ₹100; Referral → ₹150. These are reflected in schema defaults, API writes, and UI text/summary.
   - Payments: create Razorpay order and verify signature; updates Player.payment state.
 - Registration & portal UX
   - RegisterForm simplified to 3 steps (Personal → Game → Game details) then redirect to `/ics25/my`.
@@ -237,6 +265,22 @@ This document tracks the ICS’25 registration/portal work: what’s shipped, wh
 - Results:
   - Mobile: no more card/background proportion mismatches; no 1px leaks; tap-to-view profile works.
   - Desktop: consistently dark hover card, no white background; cleaner player rows.
+
+### Chat summary (Oct 16, 2025 — later pass)
+
+- Objectives:
+  - Communicate cashback increase clearly and show effective price in Payment tab.
+  - Elevate the homepage hero with a large CountUp stat above the rotating headline.
+  - Fix rotation stalls and make the shimmer sweep pass seamlessly.
+
+- Changes:
+  - Updated amounts to Promo ₹100, LinkedIn ₹100, Referral ₹150 in API, schema defaults, and UI; added Payment tab notice: earn ₹350 total, effective price ₹150.
+  - Introduced CountUp component and integrated it into the hero; glassy pill, gradient number, glow, full-width shimmer, completion pulse; size increased responsively.
+  - Stabilized rotating headline with timeout-based cycling and transition variants; added a watchdog to prevent stalls; improved “Join Now” button placement and styling under the headline.
+
+- Outcome:
+  - Portal reflects current cashback economics and pricing messaging; users see a clear effective price.
+  - Homepage hero is more dynamic and premium; number animation and headline rotation behave reliably without visual glitches.
 
 ## Chat summary (Oct 14, 2025)
 
@@ -388,3 +432,13 @@ Historical summary retained below (from Oct 13, 2025):
 - components/ics25/PortalManager.tsx — Portal UI with join/create, requests, payment, and inline edit profile (latest redesign).
 - app/ics25/my/page.tsx — Client page rendering PortalManager.
 - app/ics25/[letter]/[code]/page.tsx — Team page with leader review and payment badges.
+
+## Chat summary (Oct 16, 2025 — this session)
+
+- Objective: Improve hero counter design and rotating headline; make “and counting...” visible; make the caret move with the text; add a subheading under the rotating text.
+- Changes delivered:
+  - Counter pill: added subtle top highlight + inner ring, tuned shimmer, brightness pop on completion; kept everything in a single nowrap line.
+  - CountUp behavior: gradient restricted to digits via `numberClassName`; attached suffix “+ creators and counting...” via `suffix` prop; clamped final value to prevent micro-overshoot.
+  - Rotating text caret: now tracks the last typed character horizontally using character refs and absolute positioning; pulse animation differs while typing vs paused.
+  - Subheading: added the line “Securing the Future of Content Creators. Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.” below the rotating text.
+- Outcome: The hero looks premium and stable — no missing suffix, no wrap/clipping; caret aligns with text as it animates; subheading clarifies the product value.
