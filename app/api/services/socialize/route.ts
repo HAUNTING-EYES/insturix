@@ -2,6 +2,18 @@ import { NextRequest } from "next/server";
 import Socialize from "@/schemas/Socialize";
 import mongoose from "mongoose";
 import { auth } from "@clerk/nextjs/server"; // Import Clerk authentication
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+// Create a rate limiter for socialize profile access
+// Limit to 100 requests per 10 minutes per IP address
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, "10 m"),
+  analytics: true,
+  prefix: "@upstash/ratelimit/socialize",
+  ephemeralCache: new Map(),
+});
 
 // Interface matching the Socialize schema
 import type { SocializeLink } from "@/schemas/Socialize";
@@ -189,6 +201,26 @@ export async function PATCH(request: NextRequest) {
 // GET route for retrieving profiles
 export async function GET(request: NextRequest) {
   try {
+    // Rate limiting for GET requests - use a combination of IP and user agent as identifier
+    const identifier =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "anonymous";
+
+    const { success, limit, remaining, reset } = await ratelimit.limit(identifier);
+
+    if (!success) {
+      return Response.json(
+        {
+          error: "Rate limit exceeded. Please try again later.",
+          limit,
+          remaining,
+          reset,
+        },
+        { status: 429 }
+      );
+    }
+
     await connectToDatabase();
 
     const { searchParams } = new URL(request.url);
