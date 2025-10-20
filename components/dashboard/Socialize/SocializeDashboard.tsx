@@ -133,7 +133,7 @@ export default function SocializeDashboard({
       }
     },
     initialData: initialData,
-    enabled: !!uniqueUsername,
+    enabled: !initialData && !!uniqueUsername, // Only fetch if initialData is not present
     // Keep initial server data fresh for a short window to avoid jitter on quick switches
     staleTime: 30_000,
   });
@@ -337,13 +337,14 @@ export default function SocializeDashboard({
   };
 
   useEffect(() => {
-    if (userData) {
-      setLinks(userData.links || []);
-      setBio(userData.bio || "");
-      setMessage(userData.notifications?.[0]?.message || "");
-      setDuration(userData.notifications?.[0]?.duration ?? 1);
+    const data = userData || initialData;
+    if (data) {
+      setLinks(data.links || []);
+      setBio(data.bio || "");
+      setMessage(data.notifications?.[0]?.message || "");
+      setDuration(data.notifications?.[0]?.duration ?? 1);
     }
-  }, [userData]);
+  }, [userData, initialData]);
 
   return (
     <div className="relative">

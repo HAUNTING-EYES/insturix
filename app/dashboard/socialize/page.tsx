@@ -4,8 +4,9 @@ import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import React, { Suspense } from "react";
 import { UniversalLoader } from "@/components/Loader/UniversalLoader";
+import { fetchSocializeUser } from "@/lib/socialize/main";
 
-export const revalidate = 60;
+export const revalidate = 0; // Revalidate on every request
 
 export default async function SocializePage() {
   const user = await currentUser();
@@ -13,7 +14,9 @@ export default async function SocializePage() {
     redirect("/sign-in");
   }
 
-  // Remove blocking database call - let client handle data fetching
+  // Fetch data on the server
+  const socializeData = await fetchSocializeUser(user.username);
+
   return (
     <div className="container mx-auto p-8">
       {/* Page Header */}
@@ -29,7 +32,7 @@ export default async function SocializePage() {
 
       {/* Dashboard Content */}
       <Suspense fallback={<UniversalLoader />}>
-        <SocializeClientWrapper initialData={null} />
+        <SocializeClientWrapper initialData={socializeData} />
       </Suspense>
     </div>
   );
