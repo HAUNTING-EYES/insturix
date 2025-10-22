@@ -7,6 +7,17 @@ export interface SocializeLink {
   icon?: string;
 }
 
+export interface BannerConfig {
+  type: 'image' | 'color' | 'gradient';
+  value: string;
+  gcsPath?: string; // GCS path for image banners (not stored in DB, used for signed URL generation)
+  gradientType?: 'linear' | 'radial';
+  gradientColors?: Array<{
+    color: string;
+    position: number;
+  }>;
+}
+
 interface INotification {
   message: string;
   duration: number;
@@ -19,6 +30,7 @@ interface ISocialize extends Document {
   bio: string;
   links: SocializeLink[];
   notifications: INotification[];
+  banner: BannerConfig;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -63,6 +75,48 @@ const notificationSchema = new Schema<INotification>(
   { _id: false }
 );
 
+const gradientColorSchema = new Schema(
+  {
+    color: {
+      type: String,
+      required: true,
+      match: /^#[0-9A-Fa-f]{6}$/,
+    },
+    position: {
+      type: Number,
+      required: true,
+      min: 0,
+      max: 100,
+    },
+  },
+  { _id: false }
+);
+
+const bannerSchema = new Schema<BannerConfig>(
+  {
+    type: {
+      type: String,
+      enum: ['image', 'color', 'gradient'],
+      default: 'color',
+    },
+    value: {
+      type: String,
+      required: true,
+      default: '#0e6b9c',
+    },
+    gradientType: {
+      type: String,
+      enum: ['linear', 'radial'],
+      default: 'linear',
+    },
+    gradientColors: {
+      type: [gradientColorSchema],
+      default: [],
+    },
+  },
+  { _id: false }
+);
+
 const socializeSchema = new Schema<ISocialize>(
   {
     clerkUserId: {
@@ -96,6 +150,15 @@ const socializeSchema = new Schema<ISocialize>(
     notifications: {
       type: [notificationSchema],
       default: [],
+    },
+    banner: {
+      type: bannerSchema,
+      default: {
+        type: 'color',
+        value: '#0e6b9c',
+        gradientType: 'linear',
+        gradientColors: [],
+      },
     },
   },
   {
