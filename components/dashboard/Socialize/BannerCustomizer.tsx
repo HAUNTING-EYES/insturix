@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import type { BannerConfig } from "@/schemas/Socialize";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,22 +15,43 @@ interface BannerCustomizerProps {
 
 export function BannerCustomizer({ banner, onBannerChange, isUploading }: BannerCustomizerProps) {
     const { toast } = useToast();
+    const [expanded, setExpanded] = useState(false);
     const [selectedTab, setSelectedTab] = useState<"image" | "color">(
         banner.type === "image" ? "image" : "color"
     );
-
-    // Debug banner state
-    console.log('BannerCustomizer - Current banner:', banner);
-
-    // No need for proxy URL conversion - using signed URLs directly
-
     const [file, setFile] = useState<File | null>(null);
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [dragOver, setDragOver] = useState(false);
     const [uploading, setUploading] = useState(false);
+    // Ensure localColor is always a defined string (avoid undefined -> controlled/uncontrolled)
     const [localColor, setLocalColor] = useState<string>(
-        banner.type === "color" ? banner.value : "#0e6b9c"
+        banner?.type === "color" && banner?.value ? banner.value : "#0e6b9c"
     );
+    useEffect(() => {
+        if (banner?.type === 'color') {
+            setLocalColor(banner?.value ?? '#0e6b9c');
+        }
+    }, [banner?.type, banner?.value]);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    // Create and cleanup object URL for local preview
+    useEffect(() => {
+        if (file) {
+            const url = URL.createObjectURL(file);
+            setPreviewUrl(url);
+            return () => {
+                URL.revokeObjectURL(url);
+                setPreviewUrl(null);
+            };
+        } else {
+            setPreviewUrl(null);
+        }
+    }, [file]);
 
     const currentUploading = uploading || !!isUploading;
+
+    // Minimal console debug kept intentionally (can be removed later)
+    console.debug('BannerCustomizer:', { banner, expanded, selectedTab });
 
     async function handleUpload() {
         if (!file) return;
@@ -56,19 +77,20 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                 throw new Error(message);
             }
             const data = await res.json();
-            console.log('Upload response:', data);
             if (!data.gcsPath) {
                 throw new Error('No GCS path returned from upload');
             }
             onBannerChange({
                 type: "image",
-                value: data.signedUrl, // Use signed URL for immediate display
-                gcsPath: data.gcsPath, // Store GCS path for on-demand signed URLs
+                value: data.signedUrl,
+                gcsPath: data.gcsPath,
                 gradientType: "linear",
                 gradientColors: []
             });
             toast({ title: "Banner updated", description: "Image uploaded successfully" });
             setFile(null);
+            // close panel after success for a cleaner interaction
+            setExpanded(false);
         } catch (e: any) {
             toast({ title: "Upload failed", description: e?.message || "Try again later", variant: "destructive" });
         } finally {
@@ -96,134 +118,184 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
         }
     }
 
-    function normalizeHex(input: string): string | null {
+    // Normalize to a canonical lowercase 6-digit hex string (e.g. #00aabb)
+    function normalizeHex(input?: string): string | null {
         if (!input) return null;
         let v = input.trim();
         if (!v.startsWith("#")) v = `#${v}`;
         const hex = v.replace(/^#/, "");
         if (hex.length === 3 && /^[0-9a-fA-F]{3}$/.test(hex)) {
-            const exp = hex.split("").map((c) => c + c).join("");
+            const exp = hex.split("").map((c) => (c + c).toLowerCase()).join("");
             return `#${exp}`;
         }
-        if (/^[0-9a-fA-F]{6}$/.test(hex)) return `#${hex}`;
+        if (/^[0-9a-fA-F]{6}$/.test(hex)) return `#${hex.toLowerCase()}`;
         return null;
     }
 
     function handleColorInput(next: string) {
-        setLocalColor(next);
         const normalized = normalizeHex(next);
+        // Keep the preview in canonical form when possible
+        setLocalColor(normalized ?? next);
         if (normalized) {
             onBannerChange({ type: "color", value: normalized, gradientType: "linear", gradientColors: [] });
         }
     }
 
     return (
-        <div className="rounded-lg border border-[#0e6b9c]/30 p-4 bg-[#0b0b0b]">
-            <div className="mb-3">
-                <h3 className="text-lg font-medium text-white">Profile Banner</h3>
-                <p className="text-sm text-zinc-400">Upload an image or choose a color.</p>
-            </div>
-
-            <Tabs value={selectedTab} onValueChange={(v) => setSelectedTab(v as any)}>
-                <TabsList className="bg-[#0f0f0f]">
-                    <TabsTrigger value="image">Image</TabsTrigger>
-                    <TabsTrigger value="color">Color</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="image" className="pt-4">
-                    <div className="flex items-center gap-3">
-                        <Input
-                            type="file"
-                            accept="image/jpeg,image/jpg,image/png,image/webp,image/svg+xml"
-                            onChange={(e) => setFile(e.target.files?.[0] || null)}
-                            disabled={currentUploading}
-                            className="bg-[#121212] border-[#0e6b9c]/30 text-white"
-                        />
-                        <Button onClick={handleUpload} disabled={!file || currentUploading}>
-                            {currentUploading ? "Uploading..." : "Upload"}
-                        </Button>
-                        {banner.type === "image" && banner.value ? (
-                            <Button variant="outline" onClick={handleDeleteImage} disabled={currentUploading}>
-                                Remove Image
-                            </Button>
-                        ) : null}
+        <div className="rounded-md border border-zinc-800 bg-[#0b0b0b]">
+            <button
+                type="button"
+                onClick={() => setExpanded((s) => !s)}
+                className="w-full flex items-center justify-between px-4 py-3 text-left"
+            >
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-md overflow-hidden bg-zinc-900 flex items-center justify-center">
+                        {banner.type === 'image' && banner.value ? (
+                            <img src={banner.value} alt="banner" className="w-full h-full object-cover" />
+                        ) : (
+                            <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || '#0e6b9c' }} />
+                        )}
                     </div>
-                    {banner.type === "image" && banner.value ? (
-                        <div className="mt-4">
-                            <div className="w-full h-24 bg-[#23232a] rounded-md border border-[#0e6b9c]/30 flex items-center justify-center relative">
-                                <img
-                                    src={banner.value}
-                                    alt="Current banner"
-                                    className="w-full h-full object-cover rounded-md"
-                                    onError={(e) => {
-                                        console.error('Banner image failed to load:', banner.value);
-                                        console.error('Banner config:', banner);
-                                        console.error('Error event:', e);
-                                        const parent = e.currentTarget.parentElement;
-                                        if (parent) {
-                                            parent.innerHTML = `
-                                                <div class="w-full h-full flex items-center justify-center text-zinc-400">
-                                                    <div class="text-center">
-                                                        <div class="text-2xl mb-2">🖼️</div>
-                                                        <div class="text-sm">Image failed to load</div>
-                                                        <div class="text-xs mt-1 opacity-75">URL: ${banner.value.substring(0, 50)}...</div>
-                                                        <div class="text-xs mt-1 opacity-75">GCS Path: ${banner.gcsPath || 'None'}</div>
-                                                        <button onclick="window.location.reload()" class="text-xs mt-2 px-2 py-1 bg-zinc-700 rounded hover:bg-zinc-600">
-                                                            Retry
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            `;
-                                        }
-                                    }}
-                                    onLoad={() => {
-                                        console.log('Banner image loaded successfully:', banner.value);
-                                    }}
-                                />
-                                <div className="absolute top-2 right-2 text-xs text-zinc-500 bg-black/50 px-2 py-1 rounded">
-                                    {banner.value.includes('storage.googleapis.com') ? 'Signed URL' : 'External'}
+                    <div>
+                        <div className="text-sm font-medium text-white">Profile Banner</div>
+                        <div className="text-xs text-zinc-400">{banner.type === 'image' ? 'Image' : 'Color'}</div>
+                    </div>
+                </div>
+                <div className="text-xs text-zinc-400">{expanded ? 'Close' : 'Edit'}</div>
+            </button>
+
+            {expanded ? (
+                <div className="px-4 pb-4 pt-2 space-y-3 border-t border-zinc-800">
+                    <div className="flex items-center gap-3">
+                        <div className="flex-1 grid grid-cols-2 gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setSelectedTab('image')}
+                                className={`px-3 py-2 text-sm rounded ${selectedTab === 'image' ? 'bg-zinc-900 text-white' : 'bg-transparent text-zinc-300 border border-zinc-800'}`}
+                            >
+                                Image
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSelectedTab('color')}
+                                className={`px-3 py-2 text-sm rounded ${selectedTab === 'color' ? 'bg-zinc-900 text-white' : 'bg-transparent text-zinc-300 border border-zinc-800'}`}
+                            >
+                                Color
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {banner.type === 'image' && banner.value ? (
+                                <button onClick={handleDeleteImage} disabled={currentUploading} className="text-xs text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Remove</button>
+                            ) : null}
+                        </div>
+                    </div>
+
+                    {selectedTab === 'image' ? (
+                        <div className="flex flex-col gap-3">
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept="image/jpeg,image/jpg,image/png,image/webp,image/svg+xml"
+                                className="hidden"
+                                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                            />
+
+                            <div
+                                role="button"
+                                tabIndex={0}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click();
+                                }}
+                                onClick={() => fileInputRef.current?.click()}
+                                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                                onDragLeave={() => setDragOver(false)}
+                                onDrop={(e) => {
+                                    e.preventDefault();
+                                    setDragOver(false);
+                                    const f = e.dataTransfer?.files?.[0];
+                                    if (f) setFile(f);
+                                }}
+                                className={`w-full h-28 rounded-md border-2 ${dragOver ? 'border-dashed border-[#0e6b9c]' : 'border-zinc-800'} bg-[#0f0f0f] flex items-center gap-4 px-4 cursor-pointer`}
+                            >
+                                <div className="w-16 h-16 bg-gradient-to-br from-[#0b0b0b] to-[#0f1316] rounded overflow-hidden flex items-center justify-center">
+                                    {previewUrl ? (
+                                        <img src={previewUrl} alt="preview" className="w-full h-full object-cover" />
+                                    ) : banner.type === 'image' && banner.value ? (
+                                        <img src={banner.value} alt="current banner" className="w-full h-full object-cover" />
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center text-zinc-500">
+                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6 mb-1 opacity-80">
+                                                <rect x="3" y="5" width="18" height="14" rx="2" ry="2" strokeWidth="1.5" />
+                                                <circle cx="12" cy="12" r="2.5" strokeWidth="1.5" />
+                                            </svg>
+                                            <div className="text-[11px]">No image</div>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex-1 text-sm text-zinc-300">
+                                    <div className="font-medium text-white">{file ? file.name : (banner.type === 'image' && banner.value ? 'Current banner' : 'Upload banner image')}</div>
+                                    <div className="text-xs text-zinc-400 mt-1">{file ? `${(file.size / 1024 / 1024).toFixed(2)} MB` : 'JPG, PNG, WebP, SVG — max 5MB'}</div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                    {file ? (
+                                        <button onClick={(e) => { e.stopPropagation(); setFile(null); }} className="text-xs text-zinc-300 px-2 py-1 border border-zinc-800 rounded">Clear</button>
+                                    ) : null}
+                                    <button onClick={(e) => { e.stopPropagation(); handleUpload(); }} disabled={!file || currentUploading} className="px-3 py-2 text-sm rounded bg-[#0e6b9c] text-black">
+                                        {currentUploading ? 'Uploading...' : 'Upload'}
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     ) : (
-                        <div className="mt-4">
-                            <div className="w-full h-24 bg-[#23232a] rounded-md border border-[#0e6b9c]/30 flex items-center justify-center">
-                                <div className="text-center text-zinc-400">
-                                    <div className="text-2xl mb-2">🖼️</div>
-                                    <div className="text-sm">No banner image</div>
-                                    <div className="text-xs mt-1 opacity-75">Upload an image to see it here</div>
-                                </div>
-                            </div>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="color"
+                                value={normalizeHex(localColor) ?? '#0e6b9c'}
+                                onChange={(e) => handleColorInput(e.target.value)}
+                                disabled={currentUploading}
+                                className="w-10 h-8 p-0 border-none bg-transparent"
+                            />
+                            <input
+                                type="text"
+                                value={localColor ?? ''}
+                                onChange={(e) => handleColorInput(e.target.value)}
+                                disabled={currentUploading}
+                                className="bg-transparent border border-zinc-800 text-sm text-white px-2 py-1 rounded w-36"
+                                placeholder="#0e6b9c"
+                            />
                         </div>
                     )}
-                </TabsContent>
 
-                <TabsContent value="color" className="pt-4">
-                    <div className="flex items-center gap-3">
-                        <Input
-                            type="color"
-                            value={normalizeHex(localColor) || "#0e6b9c"}
-                            onChange={(e) => handleColorInput(e.target.value)}
-                            disabled={currentUploading}
-                            className="w-16 h-10 p-0 border-none bg-transparent"
-                        />
-                        <Input
-                            type="text"
-                            value={localColor}
-                            onChange={(e) => handleColorInput(e.target.value)}
-                            disabled={currentUploading}
-                            className="bg-[#121212] border-[#0e6b9c]/30 text-white w-32"
-                            placeholder="#0e6b9c"
-                        />
-                        <div
-                            className="w-40 h-10 rounded-md border border-[#0e6b9c]/30"
-                            style={{ backgroundColor: normalizeHex(localColor) || "#0e6b9c" }}
-                        />
+                    <div className="mt-2">
+                        <div className="w-full h-24 bg-[#141414] rounded-md border border-zinc-800 overflow-hidden">
+                            {selectedTab === 'image' && banner.type === 'image' && banner.value ? (
+                                <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => console.error('Banner load error', e)} />
+                            ) : selectedTab === 'color' ? (
+                                <div className="w-full h-full" style={{ backgroundColor: normalizeHex(localColor) || localColor || '#0e6b9c' }} />
+                            ) : banner.type === 'image' && banner.value ? (
+                                <img src={banner.value} alt="Current banner" className="w-full h-full object-cover" onError={(e) => console.error('Banner load error', e)} />
+                            ) : banner.type === 'color' && banner.value ? (
+                                <div className="w-full h-full" style={{ backgroundColor: normalizeHex(banner.value) || banner.value }} />
+                            ) : banner.type === 'gradient' && banner.gradientColors && banner.gradientColors.length > 0 ? (
+                                <div className="w-full h-full" style={{ background: banner.gradientColors && banner.gradientColors.length > 0 ? `linear-gradient(135deg, ${banner.gradientColors.map(c => `${c.color} ${c.position}%`).join(', ')})` : undefined }} />
+                            ) : (
+                                <div className="w-full h-full flex flex-col items-center justify-center text-zinc-400">
+                                    <div className="w-16 h-10 mb-2 rounded-md bg-gradient-to-r from-[#0f1720] to-[#0c1014] flex items-center justify-center">
+                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6 opacity-80">
+                                            <rect x="3" y="5" width="18" height="14" rx="2" ry="2" strokeWidth="1.5" />
+                                            <circle cx="12" cy="12" r="2.5" strokeWidth="1.5" />
+                                        </svg>
+                                    </div>
+                                    <div className="text-sm">No banner preview</div>
+                                    <div className="text-xs text-zinc-500 mt-1">Upload an image to show here</div>
+                                </div>
+                            )}
+                        </div>
                     </div>
-                </TabsContent>
-
-                {/* Gradient option removed */}
-            </Tabs>
+                </div>
+            ) : null}
         </div>
     );
 }
