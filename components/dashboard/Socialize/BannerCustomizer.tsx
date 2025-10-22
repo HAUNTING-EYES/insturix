@@ -80,6 +80,8 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
             if (!data.gcsPath) {
                 throw new Error('No GCS path returned from upload');
             }
+            const prevBanner = banner;
+
             onBannerChange({
                 type: "image",
                 value: data.signedUrl,
@@ -91,6 +93,23 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
             setFile(null);
             // close panel after success for a cleaner interaction
             setExpanded(false);
+            // Delete previous image from GCS if it exists and was an image
+            try {
+                if (prevBanner?.type === 'image' && (prevBanner.gcsPath || prevBanner.value)) {
+                    const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
+                    // prefer gcsPath if present
+                    deleteUrl.searchParams.set('url', prevBanner.gcsPath || prevBanner.value || '');
+                    const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
+                    if (!delRes.ok) {
+                        const err = await delRes.json().catch(() => ({}));
+                        console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
+                        // Non-blocking: inform user
+                        toast({ title: 'Warning', description: 'Could not delete previous banner image', variant: 'destructive' });
+                    }
+                }
+            } catch (e) {
+                console.warn('Error deleting previous banner image:', e);
+            }
         } catch (e: any) {
             toast({ title: "Upload failed", description: e?.message || "Try again later", variant: "destructive" });
         } finally {
@@ -137,7 +156,56 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
         // Keep the preview in canonical form when possible
         setLocalColor(normalized ?? next);
         if (normalized) {
+            const prevBanner = banner;
             onBannerChange({ type: "color", value: normalized, gradientType: "linear", gradientColors: [] });
+            // If previous banner was an uploaded image, delete it from GCS
+            (async () => {
+                try {
+                    if (prevBanner?.type === 'image' && (prevBanner.gcsPath || prevBanner.value)) {
+                        const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
+                        deleteUrl.searchParams.set('url', prevBanner.gcsPath || prevBanner.value || '');
+                        const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
+                        if (!delRes.ok) {
+                            const err = await delRes.json().catch(() => ({}));
+                            console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
+                            // Optionally show a toast (kept minimal to avoid too many toasts)
+                            toast({ title: 'Warning', description: 'Could not delete previous banner image', variant: 'destructive' });
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error deleting previous banner image:', e);
+                }
+            })();
+        }
+    }
+
+    async function applyColor() {
+        const normalized = normalizeHex(localColor);
+        if (!normalized) {
+            toast({ title: 'Invalid color', description: 'Please enter a valid hex color like #00aabb', variant: 'destructive' });
+            return;
+        }
+        const prevBanner = banner;
+        // If a file is staged (not uploaded), just clear it locally
+        if (file) setFile(null);
+        // Persist the color change
+        onBannerChange({ type: 'color', value: normalized, gradientType: 'linear', gradientColors: [] });
+        toast({ title: 'Banner updated', description: 'Color applied to banner' });
+
+        // If previous banner was an uploaded image, delete it from GCS
+        try {
+            if (prevBanner?.type === 'image' && (prevBanner.gcsPath || prevBanner.value)) {
+                const deleteUrl = new URL(window.location.origin + "/api/services/socialize/upload/banner");
+                deleteUrl.searchParams.set('url', prevBanner.gcsPath || prevBanner.value || '');
+                const delRes = await fetch(deleteUrl.toString(), { method: 'DELETE' });
+                if (!delRes.ok) {
+                    const err = await delRes.json().catch(() => ({}));
+                    console.warn('Failed to delete previous banner image:', err?.error || delRes.statusText);
+                    toast({ title: 'Warning', description: 'Could not delete previous banner image', variant: 'destructive' });
+                }
+            }
+        } catch (e) {
+            console.warn('Error deleting previous banner image:', e);
         }
     }
 
@@ -253,18 +321,21 @@ export function BannerCustomizer({ banner, onBannerChange, isUploading }: Banner
                             <input
                                 type="color"
                                 value={normalizeHex(localColor) ?? '#0e6b9c'}
-                                onChange={(e) => handleColorInput(e.target.value)}
+                                onChange={(e) => setLocalColor(e.target.value)}
                                 disabled={currentUploading}
                                 className="w-10 h-8 p-0 border-none bg-transparent"
                             />
                             <input
                                 type="text"
                                 value={localColor ?? ''}
-                                onChange={(e) => handleColorInput(e.target.value)}
+                                onChange={(e) => setLocalColor(e.target.value)}
                                 disabled={currentUploading}
                                 className="bg-transparent border border-zinc-800 text-sm text-white px-2 py-1 rounded w-36"
                                 placeholder="#0e6b9c"
                             />
+                            <button onClick={applyColor} disabled={currentUploading} className="px-3 py-2 text-sm rounded bg-[#0e6b9c] text-black">
+                                Apply color
+                            </button>
                         </div>
                     )}
 
