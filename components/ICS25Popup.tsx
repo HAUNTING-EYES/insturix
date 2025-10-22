@@ -51,17 +51,6 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
             <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-purple-100/20 via-transparent to-transparent dark:from-purple-900/10 rounded-full blur-3xl" />
           </div>
 
-          {/* Close Button */}
-          <motion.button
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            onClick={onClose}
-            className="absolute top-6 right-6 z-10 p-2 rounded-full bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors duration-200"
-          >
-            <X className="w-5 h-5 text-zinc-600 dark:text-zinc-400" />
-          </motion.button>
-
           <div className="relative z-10 p-8 md:p-12 overflow-y-auto max-h-[80vh]">
             {/* Header */}
             <motion.div
@@ -75,10 +64,16 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.2 }}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 mb-6"
+                className="inline-flex items-center gap-3 mb-6"
               >
-                <Calendar className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
-                <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">Mid November (TBA)</span>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+                  <Calendar className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                  <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">22 Nov 2025</span>
+                </div>
+                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+                  <MapPin className="w-4 h-4 text-zinc-600 dark:text-zinc-400" />
+                  <span className="text-zinc-700 dark:text-zinc-300 font-medium text-sm">IIIT Delhi</span>
+                </div>
               </motion.div>
 
               {/* Main Title */}
@@ -182,6 +177,35 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
               </div>
             </motion.div>
 
+            {/* Gaming Event Details */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1.2, duration: 0.4 }}
+              className="mb-8"
+            >
+              <h3 className="text-zinc-900 dark:text-zinc-100 font-semibold text-xl mb-3 text-center">ICS’25 Gaming Tournament (Sub-Event)</h3>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
+                  <div className="text-white/80 text-sm">Qualifiers</div>
+                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">1 Nov (Online) • 8 Nov (Online)</div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
+                  <div className="text-white/80 text-sm">Finals</div>
+                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">22 Nov (Offline at IIIT Delhi)</div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
+                  <div className="text-white/80 text-sm">Entry Fee</div>
+                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">₹500 per player</div>
+                </div>
+                <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
+                  <div className="text-white/80 text-sm">Games</div>
+                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">Valorant or BGMI</div>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300 text-center">Cashback up to ₹350 on completing creator tasks (details on player portal).</p>
+            </motion.div>
+
             {/* Special Promotion */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -194,7 +218,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 <span className="text-blue-700 dark:text-blue-300 font-semibold">Special Offer</span>
               </div>
               <p className="text-zinc-800 dark:text-zinc-200 mb-2">
-                <span className="font-semibold">Get discounts</span> by creating a promotional reel!
+                <span className="font-semibold">Get discounts on Creator Passes</span> by creating a promotional reel!
               </p>
               <p className="text-zinc-600 dark:text-zinc-400 text-sm">
                 Tag us and use <span className="font-mono bg-zinc-200 dark:bg-zinc-700 px-2 py-1 rounded text-xs">#ICS25</span> <span className="font-mono bg-zinc-200 dark:bg-zinc-700 px-2 py-1 rounded text-xs">#insturix</span>
@@ -234,7 +258,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
             >
               <div className="inline-flex items-center gap-2 text-zinc-500 dark:text-zinc-400 text-sm">
                 <MapPin className="w-4 h-4" />
-                <span>Venue TBD • More details coming soon</span>
+                <span>IIIT Delhi • More details coming soon</span>
               </div>
             </motion.div>
           </div>

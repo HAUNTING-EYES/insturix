@@ -1,0 +1,19 @@
+import mongoose, { Schema, models, model } from 'mongoose';
+
+const TeamSchema = new Schema({
+  teamName: { type: String, required: true, maxlength: 20 },
+  code: { type: String, required: true, unique: true, index: true },
+  game: { type: String, enum: ['valorant', 'bgmi'], required: true },
+  leaderId: { type: String, required: true, index: true }, // clerkUserId
+  members: { type: [String], default: [] }, // clerkUserIds
+  pendingRequests: { type: [String], default: [] }, // clerkUserIds
+  link: { type: String },
+  // When true, the team will appear in public browse lists for the selected game
+  // Default public; older teams without this field are treated as public by API browse
+  listed: { type: Boolean, default: true },
+  meta: Schema.Types.Mixed,
+}, { timestamps: true });
+
+export type TeamDocument = mongoose.InferSchemaType<typeof TeamSchema> & mongoose.Document;
+
+export default models.Ics25Team || model('Ics25Team', TeamSchema);

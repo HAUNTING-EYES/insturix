@@ -1,0 +1,86 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Typecheck Front-End",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"tsc",
+				"-p",
+				".",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Typecheck Next.js app",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"exec",
+				"next",
+				"build",
+				"--no-lint"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "typecheck-frontend",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-s",
+				"exec",
+				"tsc",
+				"--noEmit"
+			],
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Dev: Next.js (pnpm dev)",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"dev"
+			],
+			"isBackground": true,
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Install deps (pnpm i)",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"i"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
+		},
+		{
+			"label": "Typecheck Front-End changed files",
+			"type": "shell",
+			"command": "pnpm -s tsc -p . --noEmit",
+			"isBackground": false,
+			"problemMatcher": [
+				"$tsc"
+			],
+			"group": "build"
+		}
+	]
+}

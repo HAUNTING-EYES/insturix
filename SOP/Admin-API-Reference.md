@@ -22,7 +22,7 @@ This document provides a comprehensive guide for administrators to manage the un
 
 ## Quick Start
 
-This system provides a single source of truth for all service limits and plan configurations. All limits are defined once in `lib/config/serviceLimits.ts` and automatically applied throughout the application.
+This system provides a single source of truth for all service limits and plan configurations.All limits are defined once in `lib/config/serviceLimits.ts` and automatically applied throughout the application.
 
 ### Key Files and Endpoints
 
@@ -44,6 +44,7 @@ See the [API Endpoints](#api-endpoints) section for detailed curl commands.
 The unified configuration is located in `lib/config/serviceLimits.ts`. This file is the single source of truth for all service limits, plan configurations, and pricing.
 
 ### Key Components
+
 
 #### 1. Unified Service Limits (`UNIFIED_SERVICE_LIMITS`)
 

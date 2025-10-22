@@ -40,21 +40,10 @@ const departments = [
     name: "Engineering Team",
     members: [
       {
-        name: "Srijan Baniyal",
-        role: "Tech Executive",
-        image: SB,
-        bio: "Full-stack developer and  AI enthusiast.",
-        social: {
-          linkedin: "https://www.linkedin.com/in/srijan-baniyal/",
-          github: "https://github.com/Srijan-Baniyal",
-          website: "https://srijanbaniyal.com",
-        },
-      },
-      {
         name: "Lakshay Goel",
         role: "Tech Executive",
         image: LG,
-        bio: " AI/ML,creative strategist and content creation.",
+        bio: " AI/ML, Gen AI, creative strategist.",
         social: {
           github: "https://github.com/lkshycode",
           linkedin: "https://www.linkedin.com/in/iamlakshaygoel/",

@@ -1,7 +1,12 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { useState, useEffect, memo } from "react";
+import { useState, useEffect, useRef, memo } from "react";
+const parentVariants = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.25 } },
+  exit: { opacity: 0, y: -6, transition: { duration: 0.2 } },
+};
 
 interface TypingAnimationProps {
   messages: string[];
@@ -12,6 +17,8 @@ interface TypingAnimationProps {
   transitionDuration?: number; // Duration of character animation (ms)
   shouldLoop?: boolean;
   onComplete?: () => void;
+  showCaret?: boolean; // Show blinking caret at the end
+  caretClass?: string; // Tailwind classes for caret
 }
 
 const characterVariants = {
@@ -48,8 +55,9 @@ const characterVariants = {
 
 // Memoized character component for performance
 const AnimatedCharacter = memo(
-  ({ char, index }: { char: string; index: number }) => (
+  ({ char, index, setCharRef }: { char: string; index: number; setCharRef?: (i: number, el: HTMLElement | null) => void }) => (
     <motion.span
+      ref={(el) => setCharRef?.(index, el)}
       custom={index}
       variants={characterVariants}
       initial="hidden"
@@ -67,7 +75,7 @@ const AnimatedCharacter = memo(
 );
 AnimatedCharacter.displayName = "AnimatedCharacter";
 
-const AnimatedText = memo(({ text }: { text: string }) => {
+const AnimatedText = memo(({ text, setCharRef }: { text: string; setCharRef?: (i: number, el: HTMLElement | null) => void }) => {
   const words = text.split(" ");
   let globalCharIndex = 0;
 
@@ -87,6 +95,7 @@ const AnimatedText = memo(({ text }: { text: string }) => {
                 key={`${char}-${wordStart + idx}`}
                 char={char}
                 index={wordStart + idx}
+                setCharRef={setCharRef}
               />
             ))}
             {wordIdx !== words.length - 1 && (
@@ -94,6 +103,7 @@ const AnimatedText = memo(({ text }: { text: string }) => {
                 key={`space-${wordStart + word.length}`}
                 char=" "
                 index={wordStart + word.length}
+                setCharRef={setCharRef}
               />
             )}
           </span>
@@ -113,40 +123,88 @@ export default function TypingAnimation({
   transitionDuration = 350,
   shouldLoop = true,
   onComplete = () => {},
+  showCaret = false,
+  caretClass = "ml-2 inline-block h-[0.9em] w-[2px] bg-white/70",
 }: TypingAnimationProps) {
   const [currentMessageIndex, setCurrentMessageIndex] = useState(0);
   const [isTypingComplete, setIsTypingComplete] = useState(false);
+  const lastAdvanceAtRef = useRef<number>(Date.now());
+  const [typedIndex, setTypedIndex] = useState(0);
+  const [isTypingPhase, setIsTypingPhase] = useState(true);
+  const messageStartAtRef = useRef<number>(Date.now());
+  const wrapperRef = useRef<HTMLSpanElement | null>(null);
+  const charRefs = useRef<(HTMLElement | null)[]>([]);
+
+  const setCharRef = (i: number, el: HTMLElement | null) => {
+    charRefs.current[i] = el;
+  };
 
   useEffect(() => {
+    if (!messages || messages.length === 0) return;
     if (isTypingComplete && !shouldLoop) return;
 
-    // Calculate total time for the current message
     const currentMessage = messages[currentMessageIndex];
-    const typingDuration = currentMessage.length * characterDelay;
-    const totalDuration = typingDuration + displayDuration;
+    const safeCharDelay = Number.isFinite(characterDelay) ? characterDelay : 40;
+    const safeDisplay = Number.isFinite(displayDuration) ? displayDuration : 3000;
+    const typingDuration = Math.max(0, currentMessage?.length ?? 0) * safeCharDelay;
+    const totalDuration = Math.max(800, typingDuration + safeDisplay);
 
-    const interval = setInterval(() => {
+    // Reset caret and refs for new message
+    charRefs.current = [];
+    messageStartAtRef.current = Date.now();
+    setIsTypingPhase(true);
+    setTypedIndex(0);
+
+    // During typing phase, update typedIndex based on time elapsed
+    const caretInterval = window.setInterval(() => {
+      const elapsed = Date.now() - messageStartAtRef.current;
+      const idx = Math.min(currentMessage?.length ?? 0, Math.floor(elapsed / safeCharDelay));
+      setTypedIndex(idx);
+      if (elapsed >= typingDuration) {
+        setIsTypingPhase(false);
+      }
+    }, Math.max(16, Math.floor(safeCharDelay / 2)));
+
+    const timeoutId = window.setTimeout(() => {
       setCurrentMessageIndex((prev) => {
-        const nextIndex = prev === messages.length - 1 ? 0 : prev + 1;
-        if (nextIndex === 0 && !shouldLoop) {
+        const isLast = prev >= messages.length - 1;
+        if (isLast) {
+          if (shouldLoop) return 0;
           setIsTypingComplete(true);
           onComplete?.();
           return prev;
         }
-        return nextIndex;
+        return prev + 1;
       });
+      lastAdvanceAtRef.current = Date.now();
     }, totalDuration);
 
-    return () => clearInterval(interval);
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.clearInterval(caretInterval);
+    };
   }, [
-    isTypingComplete,
-    messages,
     currentMessageIndex,
+    messages,
     characterDelay,
     displayDuration,
     shouldLoop,
     onComplete,
+    isTypingComplete,
   ]);
+
+  // Watchdog to prevent stall: if no advance in ~6s, force next message
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    const intervalId = window.setInterval(() => {
+      const elapsed = Date.now() - lastAdvanceAtRef.current;
+      if (elapsed > 6000) {
+        setCurrentMessageIndex((prev) => (prev + 1) % messages.length);
+        lastAdvanceAtRef.current = Date.now();
+      }
+    }, 1500);
+    return () => window.clearInterval(intervalId);
+  }, [messages]);
 
   // Update the variant timing based on props
   useEffect(() => {
@@ -182,7 +240,12 @@ export default function TypingAnimation({
       <AnimatePresence mode="wait">
         <motion.span
           key={currentMessageIndex}
-          className={textClass}
+          variants={parentVariants}
+          initial="initial"
+          animate="animate"
+          exit="exit"
+          className={`${textClass} relative`}
+          ref={wrapperRef}
           style={{
             lineHeight: 1.2,
             maxWidth: "100%",
@@ -194,7 +257,32 @@ export default function TypingAnimation({
             willChange: "transform",
           }}
         >
-          <AnimatedText text={messages[currentMessageIndex]} />
+          <AnimatedText text={messages[currentMessageIndex]} setCharRef={setCharRef} />
+          {showCaret && (() => {
+            const i = Math.max(0, Math.min(typedIndex - 1, charRefs.current.length - 1));
+            const charEl = charRefs.current[i] ?? null;
+            const wrapperEl = wrapperRef.current;
+            let style: any = { opacity: 0 };
+            if (charEl && wrapperEl) {
+              const c = charEl.getBoundingClientRect();
+              const w = wrapperEl.getBoundingClientRect();
+              style = {
+                left: c.right - w.left,
+                top: c.top - w.top,
+                height: '0.95em',
+                opacity: 1,
+              };
+            }
+            return (
+              <motion.span
+                aria-hidden
+                className="pointer-events-none absolute w-[2px] bg-white/80"
+                style={style}
+                animate={isTypingPhase ? { opacity: [0.6, 1, 0.6] } : { opacity: [0.3, 1, 0.3] }}
+                transition={{ duration: isTypingPhase ? 0.8 : 1.2, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            );
+          })()}
         </motion.span>
       </AnimatePresence>
     </div>

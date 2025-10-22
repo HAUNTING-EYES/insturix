@@ -8,11 +8,9 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { PerformanceMonitor } from "@/components/performance/PerformanceMonitor";
-import { Inter } from "next/font/google";
 import { keywords } from "@/lib/seo/keywords";
 
 
-const inter = Inter({ subsets: ["latin"] });
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -117,7 +115,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-      <html lang="en" className={inter.className}>
+  <html lang="en" className="antialiased">
         <head>
           <meta
             name="google-site-verification"
