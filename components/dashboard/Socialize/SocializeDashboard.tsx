@@ -61,8 +61,8 @@ const api = axios.create({
   headers: {
     "Content-Type": "application/json",
   },
-  // Increased timeout for operations that might take longer (like GCS uploads)
-  timeout: 15000, // 15 seconds
+  // Prevent long hangs on slow endpoints and avoid blocking initial paint
+  timeout: 4000,
 });
 
 export default function SocializeDashboard({
@@ -131,7 +131,7 @@ export default function SocializeDashboard({
       if (!uniqueUsername) return null;
 
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 14000); // align with axios timeout
+      const id = setTimeout(() => controller.abort(), 3900); // align with axios timeout
       try {
         const { data } = await api.get<ISocialize>(
           `/services/socialize?username=${uniqueUsername}`,
@@ -143,7 +143,7 @@ export default function SocializeDashboard({
       }
     },
     initialData: initialData,
-    enabled: !!uniqueUsername,
+    enabled: !initialData && !!uniqueUsername, // Only fetch if initialData is not present
     // Keep initial server data fresh for a short window to avoid jitter on quick switches
     staleTime: 30_000,
   });
@@ -167,7 +167,7 @@ export default function SocializeDashboard({
       }
 
       const controller = new AbortController();
-      const id = setTimeout(() => controller.abort(), 3000);
+      const id = setTimeout(() => controller.abort(), 2900);
       try {
         const { data } = await api.get(
           `/link-preview?url=${encodeURIComponent(url)}`,
@@ -347,19 +347,20 @@ export default function SocializeDashboard({
   };
 
   useEffect(() => {
-    if (userData) {
-      setLinks(userData.links || []);
-      setBio(userData.bio || "");
-      setMessage(userData.notifications?.[0]?.message || "");
-      setDuration(userData.notifications?.[0]?.duration ?? 1);
-      setBanner(userData.banner || {
+    const data = userData || initialData;
+    if (data) {
+      setLinks(data.links || []);
+      setBio(data.bio || "");
+      setMessage(data.notifications?.[0]?.message || "");
+      setDuration(data.notifications?.[0]?.duration ?? 1);
+      setBanner(data.banner || {
         type: 'color',
         value: '#0e6b9c',
         gradientType: 'linear',
         gradientColors: []
       });
     }
-  }, [userData]);
+  }, [userData, initialData]);
 
   const handleBannerChange = (newBanner: BannerConfig) => {
     setBanner(newBanner);
