@@ -2,9 +2,22 @@ import { NextRequest } from "next/server";
 import Socialize from "@/schemas/Socialize";
 import mongoose from "mongoose";
 import { auth } from "@clerk/nextjs/server"; // Import Clerk authentication
+import { SocializeGCSManager } from "@/lib/socialize-gcs";
+import { Ratelimit } from "@upstash/ratelimit";
+import { Redis } from "@upstash/redis";
+
+// Create a rate limiter for socialize profile access
+// Limit to 100 requests per 10 minutes per IP address
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, "10 m"),
+  analytics: true,
+  prefix: "@upstash/ratelimit/socialize",
+  ephemeralCache: new Map(),
+});
 
 // Interface matching the Socialize schema
-import type { SocializeLink } from "@/schemas/Socialize";
+import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
 
 interface Notification {
   message: string;
@@ -18,6 +31,7 @@ interface ISocializeData {
   bio?: string;
   links?: SocializeLink[];
   notifications?: Notification[];
+  banner?: BannerConfig;
   _id?: string; // Add _id for lean results
   __v?: number; // Add __v for lean results
 }
@@ -61,6 +75,33 @@ function isValidSocializeData(data: ISocializeData, isPatch: boolean = false): s
     for (const notification of data.notifications) {
       if (typeof notification.message !== 'string' || !notification.message.trim()) return "Each notification must have a message.";
       if (typeof notification.duration !== 'number' || notification.duration < 1 || notification.duration > 24) return "Each notification must have a duration between 1 and 24.";
+    }
+  }
+  if (data.banner !== undefined) {
+    if (!data.banner.type || !['image', 'color', 'gradient'].includes(data.banner.type)) {
+      return "Banner type must be 'image', 'color', or 'gradient'.";
+    }
+    if (!data.banner.value || typeof data.banner.value !== 'string') {
+      return "Banner value is required.";
+    }
+    if (data.banner.type === 'color' && !/^#[0-9A-Fa-f]{6}$/.test(data.banner.value)) {
+      return "Banner color must be a valid hex color (e.g., #ff0000).";
+    }
+    if (data.banner.type === 'image' && !/^https?:\/\/.+/.test(data.banner.value)) {
+      return "Banner image must be a valid URL.";
+    }
+    if (data.banner.type === 'gradient') {
+      if (!data.banner.gradientColors || !Array.isArray(data.banner.gradientColors) || data.banner.gradientColors.length < 2) {
+        return "Gradient must have at least 2 colors.";
+      }
+      for (const colorStop of data.banner.gradientColors) {
+        if (!/^#[0-9A-Fa-f]{6}$/.test(colorStop.color)) {
+          return "Gradient colors must be valid hex colors.";
+        }
+        if (typeof colorStop.position !== 'number' || colorStop.position < 0 || colorStop.position > 100) {
+          return "Gradient color positions must be between 0 and 100.";
+        }
+      }
     }
   }
   return null;
@@ -149,6 +190,7 @@ export async function PATCH(request: NextRequest) {
 
     if (updateFields.bio !== undefined) updateData.bio = updateFields.bio;
     if (updateFields.profileImage !== undefined) updateData.profileImage = updateFields.profileImage;
+    if (updateFields.banner !== undefined) updateData.banner = updateFields.banner;
 
     // TODO: Implement more granular array updates (add, remove, update specific items) for links and notifications.
     // Current implementation replaces the entire array if provided.
@@ -186,9 +228,47 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
+// Helper function to generate signed URLs for banner images
+async function generateBannerSignedUrl(banner: BannerConfig): Promise<BannerConfig> {
+  if (banner.type === 'image' && banner.gcsPath) {
+    try {
+      const signedUrl = await SocializeGCSManager.generateSignedUrl(banner.gcsPath, 24);
+      return {
+        ...banner,
+        value: signedUrl // Replace with fresh signed URL
+      };
+    } catch (error) {
+      console.error('Failed to generate signed URL for banner:', error);
+      // Return original banner config if signed URL generation fails
+      return banner;
+    }
+  }
+  return banner;
+}
+
 // GET route for retrieving profiles
 export async function GET(request: NextRequest) {
   try {
+    // Rate limiting for GET requests - use a combination of IP and user agent as identifier
+    const identifier =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+      request.headers.get("x-real-ip") ||
+      "anonymous";
+
+    const { success, limit, remaining, reset } = await ratelimit.limit(identifier);
+
+    if (!success) {
+      return Response.json(
+        {
+          error: "Rate limit exceeded. Please try again later.",
+          limit,
+          remaining,
+          reset,
+        },
+        { status: 429 }
+      );
+    }
+
     await connectToDatabase();
 
     const { searchParams } = new URL(request.url);
@@ -206,11 +286,15 @@ export async function GET(request: NextRequest) {
       return Response.json({ error: "Socialize profile not found" }, { status: 404 });
     }
 
-    // For public profiles, we don't need to check clerkUserId against the authenticated user.
-    // The profile is publicly viewable if it exists.
+    // Generate fresh signed URL for banner if it's an image
+    let updatedBanner = userData.banner;
+    if (updatedBanner) {
+      updatedBanner = await generateBannerSignedUrl(updatedBanner);
+    }
 
     const responseData = {
       ...userData,
+      banner: updatedBanner,
       uniqueUsername: userData.username,
       _id: userData._id?.toString(),
     };

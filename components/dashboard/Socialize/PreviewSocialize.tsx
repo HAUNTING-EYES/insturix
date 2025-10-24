@@ -1,12 +1,13 @@
 import { ProfileContent } from "./ProfileContent";
 import { SocializeUser } from "@/lib/socialize/main";
-import type { SocializeLink } from "@/schemas/Socialize";
+import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
 
 interface SocializePreviewProps {
   logo: string | null;
   profileTitle: string;
   bio: string;
   links: SocializeLink[];
+  banner?: BannerConfig;
 }
 
 export function SocializePreview({
@@ -14,6 +15,7 @@ export function SocializePreview({
   profileTitle,
   bio,
   links,
+  banner,
 }: SocializePreviewProps) {
   const socializeData: SocializeUser = {
     profileImage: logo || "",
@@ -21,6 +23,7 @@ export function SocializePreview({
     uniqueUsername: profileTitle,
     bio: bio,
     links: links,
+    banner: banner,
     // Dummy data for preview context
     clerkUserId: "preview-user-id",
     notifications: [],

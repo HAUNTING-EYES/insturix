@@ -25,6 +25,7 @@ interface SocializeLinkPreviewCardProps {
   userBio: string
   userLogo: string | null | undefined
   userName: string | undefined
+  userBanner?: import("@/schemas/Socialize").BannerConfig
 }
 
 export function SocializeLinkPreviewCard({
@@ -35,6 +36,7 @@ export function SocializeLinkPreviewCard({
   userBio,
   userLogo,
   userName,
+  userBanner,
 }: SocializeLinkPreviewCardProps) {
   return (
     <Card className="bg-black/30 border-[#0e6b9c]/30 backdrop-blur-sm h-full">
@@ -112,6 +114,7 @@ export function SocializeLinkPreviewCard({
           profileTitle={userName || ""}
           bio={userBio || ""}
           links={userLinks || []}
+          banner={userBanner}
         />
       </CardFooter>
     </Card>
