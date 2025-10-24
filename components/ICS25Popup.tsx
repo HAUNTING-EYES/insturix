@@ -115,8 +115,8 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
               {[
                 {
                   icon: Users,
-                  title: "Creator Passes",
-                  description: "Exclusive access for 10k+ followers"
+                  title: "Attendee Passes",
+                  description: "All-access tickets for everyone"
                 },
                 {
                   icon: Trophy,
@@ -184,15 +184,15 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
               transition={{ delay: 1.2, duration: 0.4 }}
               className="mb-8"
             >
-              <h3 className="text-zinc-900 dark:text-zinc-100 font-semibold text-xl mb-3 text-center">ICS’25 Gaming Tournament (Sub-Event)</h3>
+              <h3 className="text-zinc-900 dark:text-zinc-100 font-semibold text-xl mb-3 text-center">GameOn Esports (Online Tournament)</h3>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
                   <div className="text-white/80 text-sm">Qualifiers</div>
-                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">1 Nov (Online) • 8 Nov (Online)</div>
+                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">1 Nov (Online)</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
                   <div className="text-white/80 text-sm">Finals</div>
-                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">22 Nov (Offline at IIIT Delhi)</div>
+                  <div className="text-zinc-900 dark:text-zinc-100 font-semibold">8 Nov (Online)</div>
                 </div>
                 <div className="rounded-lg border border-white/10 bg-zinc-50/50 dark:bg-white/5 p-4">
                   <div className="text-white/80 text-sm">Entry Fee</div>
@@ -203,7 +203,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                   <div className="text-zinc-900 dark:text-zinc-100 font-semibold">Valorant or BGMI</div>
                 </div>
               </div>
-              <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300 text-center">Cashback up to ₹350 on completing creator tasks (details on player portal).</p>
+              <p className="mt-3 text-sm text-zinc-700 dark:text-zinc-300 text-center">Fully online. Winners announced at ICS'25 awards on Nov 23. Cashback up to ₹350 on creator tasks.</p>
             </motion.div>
 
             {/* Special Promotion */}
@@ -218,7 +218,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 <span className="text-blue-700 dark:text-blue-300 font-semibold">Special Offer</span>
               </div>
               <p className="text-zinc-800 dark:text-zinc-200 mb-2">
-                <span className="font-semibold">Get discounts on Creator Passes</span> by creating a promotional reel!
+                <span className="font-semibold">Get discounts on Attendee Passes</span> by creating a promotional reel!
               </p>
               <p className="text-zinc-600 dark:text-zinc-400 text-sm">
                 Tag us and use <span className="font-mono bg-zinc-200 dark:bg-zinc-700 px-2 py-1 rounded text-xs">#ICS25</span> <span className="font-mono bg-zinc-200 dark:bg-zinc-700 px-2 py-1 rounded text-xs">#insturix</span>

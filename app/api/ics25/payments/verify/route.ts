@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { auth } from '@clerk/nextjs/server';
 import { getIcs25Db } from '@/lib/ics25-mongo';
-import Player from '@/schemas/ics25/Player';
+import Attendee from '@/schemas/ics25/Attendee';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,31 +18,31 @@ export async function POST(req: NextRequest) {
     if (computed !== signature) {
       return NextResponse.json({ ok: false, message: 'Payment verification failed' }, { status: 400 });
     }
-    const player = await Player.findOne({ clerkUserId: userId });
-    if (!player) return NextResponse.json({ ok: false, message: 'Player not found' }, { status: 404 });
-    if (!player.payment || player.payment.orderId !== orderId) {
+    const attendee = await Attendee.findOne({ clerkUserId: userId });
+    if (!attendee) return NextResponse.json({ ok: false, message: 'Attendee not found' }, { status: 404 });
+    if (!attendee.payment || attendee.payment.orderId !== orderId) {
       return NextResponse.json({ ok: false, message: 'Order mismatch' }, { status: 400 });
     }
-    player.payment.status = 'paid';
-    player.payment.paymentId = paymentId;
-    player.payment.signature = signature;
-    player.payment.paidAt = new Date();
+    attendee.payment.status = 'paid';
+    attendee.payment.paymentId = paymentId;
+    attendee.payment.signature = signature;
+    attendee.payment.paidAt = new Date();
     // Confirm referral attribution on successful payment
-    if (player.referredBy?.referrerUserId && player.referredBy.confirmed !== true) {
-      const referrer = await Player.findOne({ clerkUserId: player.referredBy.referrerUserId });
+    if (attendee.referredBy?.referrerUserId && attendee.referredBy.confirmed !== true) {
+      const referrer = await Attendee.findOne({ clerkUserId: attendee.referredBy.referrerUserId });
       if (referrer) {
-        const ids = new Set<string>(referrer.cashbacks?.referral?.referredUserIds || []);
-        ids.add(player.clerkUserId);
-        referrer.cashbacks = referrer.cashbacks || ({} as any);
-        referrer.cashbacks.referral = referrer.cashbacks.referral || ({} as any);
-        referrer.cashbacks.referral.referredUserIds = Array.from(ids);
-        referrer.cashbacks.referral.referredCount = referrer.cashbacks.referral.referredUserIds.length;
-        if (referrer.cashbacks.referral.referredCount >= 3) referrer.cashbacks.referral.qualified = true;
+        const ids = new Set<string>(referrer.cashback?.referral?.referredUserIds || []);
+        ids.add(attendee.clerkUserId);
+        referrer.cashback = referrer.cashback || ({} as any);
+        referrer.cashback.referral = referrer.cashback.referral || ({} as any);
+        referrer.cashback.referral.referredUserIds = Array.from(ids);
+        referrer.cashback.referral.referredCount = referrer.cashback.referral.referredUserIds.length;
+        if (referrer.cashback.referral.referredCount >= 3) referrer.cashback.referral.qualified = true;
         await referrer.save();
-        player.referredBy.confirmed = true;
+        attendee.referredBy.confirmed = true;
       }
     }
-    await player.save();
+    await attendee.save();
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error('ICS25 verify error:', e);

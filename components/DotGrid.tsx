@@ -133,39 +133,43 @@ const DotGrid: React.FC<DotGridProps> = ({
     if (!circlePath) return;
 
     let rafId: number;
+    let frameCount = 0;
     const proxSq = proximity * proximity;
 
     const draw = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      frameCount++;
+      if (frameCount % 2 === 0) {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      const { x: px, y: py } = pointerRef.current;
+        const { x: px, y: py } = pointerRef.current;
 
-      for (const dot of dotsRef.current) {
-        const ox = dot.cx + dot.xOffset;
-        const oy = dot.cy + dot.yOffset;
-        const dx = dot.cx - px;
-        const dy = dot.cy - py;
-        const dsq = dx * dx + dy * dy;
+        for (const dot of dotsRef.current) {
+          const ox = dot.cx + dot.xOffset;
+          const oy = dot.cy + dot.yOffset;
+          const dx = dot.cx - px;
+          const dy = dot.cy - py;
+          const dsq = dx * dx + dy * dy;
 
-        let styleFill = baseColor;
-        if (dsq <= proxSq) {
-          const dist = Math.sqrt(dsq);
-          const t = 1 - dist / proximity;
-          const r = Math.round(baseRgb.r + (activeRgb.r - baseRgb.r) * t);
-          const g = Math.round(baseRgb.g + (activeRgb.g - baseRgb.g) * t);
-          const b = Math.round(baseRgb.b + (activeRgb.b - baseRgb.b) * t);
-          styleFill = `rgba(${r},${g},${b},1)`;
+          let styleFill = baseColor;
+          if (dsq <= proxSq) {
+            const dist = Math.sqrt(dsq);
+            const t = 1 - dist / proximity;
+            const r = Math.round(baseRgb.r + (activeRgb.r - baseRgb.r) * t);
+            const g = Math.round(baseRgb.g + (activeRgb.g - baseRgb.g) * t);
+            const b = Math.round(baseRgb.b + (activeRgb.b - baseRgb.b) * t);
+            styleFill = `rgba(${r},${g},${b},1)`;
+          }
+
+          ctx.save();
+          ctx.translate(ox, oy);
+          ctx.fillStyle = styleFill;
+          if (circlePath) ctx.fill(circlePath);
+          ctx.restore();
         }
-
-        ctx.save();
-        ctx.translate(ox, oy);
-        ctx.fillStyle = styleFill;
-        if (circlePath) ctx.fill(circlePath);
-        ctx.restore();
       }
 
       rafId = requestAnimationFrame(draw);

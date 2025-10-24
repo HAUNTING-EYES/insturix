@@ -23,12 +23,33 @@ export default function CursorEffect({
   const [position, setPosition] = useState({ x: 0, y: 0 });
 
   useEffect(() => {
+    // Delay adding heavy mouse listeners until after initial paint to avoid blocking LCP
+    const delay = performance.now() < 1000 ? 600 : 0;
+    let rafId: number | null = null;
+    let last: { x: number; y: number } | null = null;
+
     const updateCursorPosition = (e: MouseEvent) => {
-      setPosition({ x: e.clientX, y: e.clientY });
+      last = { x: e.clientX, y: e.clientY };
+      if (rafId == null) {
+        rafId = requestAnimationFrame(() => {
+          if (last) {
+            setPosition(last);
+            last = null;
+          }
+          rafId = null;
+        });
+      }
     };
 
-    window.addEventListener("mousemove", updateCursorPosition);
-    return () => window.removeEventListener("mousemove", updateCursorPosition);
+    const t = setTimeout(() => {
+      window.addEventListener("mousemove", updateCursorPosition, { passive: true });
+    }, delay);
+
+    return () => {
+      clearTimeout(t);
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener("mousemove", updateCursorPosition as EventListener);
+    };
   }, []);
 
   const getEffectStyles = () => {
@@ -72,5 +93,5 @@ transition: `transform 0.05s ease, background-color 0.5s ease`,
     }
   };
 
-  return <div style={getEffectStyles()} />;
+  return <div style={{ ...getEffectStyles(), willChange: 'transform, opacity' }} />;
 }

@@ -337,7 +337,7 @@ export function CanvasIdeaInput() {
             }
             
             // Calculate deletion range: from trigger to cursor
-            let deleteFrom = triggerPos;
+            const deleteFrom = triggerPos;
             let deleteTo = cursorPos;
             
             // Check for whitespace after cursor and extend if needed

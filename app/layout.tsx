@@ -1,15 +1,18 @@
 import type { Metadata, Viewport } from "next";
+import { Inter, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import ThemeProvider from "@/providers/ThemeProvider";
 import { Toaster } from "@/components/ui/toaster";
 import ReactQueryProvider from "@/providers/ReactQuery";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { Analytics } from "@vercel/analytics/react";
+import ClientAnalyticsLoader from '@/components/analytics/ClientLoader';
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import { PerformanceMonitor } from "@/components/performance/PerformanceMonitor";
 import { keywords } from "@/lib/seo/keywords";
 
+
+const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
+const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], display: "swap", variable: "--font-space-grotesk" });
 
 
 export const viewport: Viewport = {
@@ -115,7 +118,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-  <html lang="en" className="antialiased">
+  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable}`}>
         <head>
           <meta
             name="google-site-verification"
@@ -153,13 +156,13 @@ export default function RootLayout({
           <ReactQueryProvider>
             <ThemeProvider>
               {children}
-              <Analytics />
+              {/* Lazy-loaded analytics & performance monitor (client-only) */}
+              <ClientAnalyticsLoader />
               <SpeedInsights />
               <Toaster />
               {process.env.NODE_ENV === 'development' && (
                 <>
                   <ReactQueryDevtools />
-                  <PerformanceMonitor />
                 </>
               )}
             </ThemeProvider>

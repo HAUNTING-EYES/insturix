@@ -27,6 +27,7 @@ export default function HeroSection() {
   const [isHovering, setIsHovering] = useState(false);
   const [showICS25Popup, setShowICS25Popup] = useState(false);
   const [countEnded, setCountEnded] = useState(false);
+  const [mounted, setMounted] = useState(false);
 
   // ICS25 Popup logic
   useEffect(() => {
@@ -41,6 +42,13 @@ export default function HeroSection() {
 
       return () => clearTimeout(timer);
     }
+  }, []);
+
+  useEffect(() => {
+    // Throttle animation start if first load is fast
+    const delay = performance.now() < 1000 ? 600 : 0;
+    const t = setTimeout(() => setMounted(true), delay);
+    return () => clearTimeout(t);
   }, []);
 
   const handleCloseICS25Popup = () => {
@@ -78,8 +86,9 @@ export default function HeroSection() {
           <motion.div
             className="w-full"
             initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
+            animate={mounted ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 0.8, delay: 0.2 }}
+            style={{ willChange: 'transform, opacity' }}
           >
             {/* Eyebrow badge */}
             {/* <motion.div
@@ -106,8 +115,9 @@ export default function HeroSection() {
                 <motion.div
                   className="mb-6 sm:mb-8 md:mb-1 mt-4 sm:mt-6 md:mt-8 flex w-full items-center justify-center"
                   initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  animate={mounted ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.6, ease: "easeOut" }}
+                  style={{ willChange: 'transform, opacity' }}
                 >
                   <div className="relative">
                     <motion.div

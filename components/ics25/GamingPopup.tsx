@@ -20,16 +20,16 @@ export default function ICS25GamingPopup({ isOpen, onClose }: { isOpen: boolean;
           </div>
           <div className="relative z-10 p-6 md:p-8 space-y-4">
             <h2 className="text-2xl md:text-3xl font-bold text-zinc-900 dark:text-zinc-100 text-center">ICS’25 Gaming Tournament (Sub-Event)</h2>
-            <p className="text-center text-zinc-600 dark:text-zinc-400">Compete in Valorant or BGMI. Qualifiers online, grand finals offline.</p>
+            <p className="text-center text-zinc-600 dark:text-zinc-400">Compete in Valorant or BGMI. Fully online tournament. Winners announced at ICS'25 awards on Nov 23.</p>
 
             <div className="grid sm:grid-cols-2 gap-3">
               <div className="rounded-lg border border-white/10 bg-zinc-50/70 dark:bg-white/5 p-4">
                 <div className="text-sm text-zinc-500 dark:text-white/70 flex items-center gap-2"><Calendar className="w-4 h-4" /> Qualifiers</div>
-                <div className="font-semibold text-zinc-900 dark:text-zinc-100">1 Nov (Online) • 8 Nov (Online)</div>
+                <div className="font-semibold text-zinc-900 dark:text-zinc-100">1 Nov (Online)</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-zinc-50/70 dark:bg-white/5 p-4">
                 <div className="text-sm text-zinc-500 dark:text-white/70 flex items-center gap-2"><MapPin className="w-4 h-4" /> Finals</div>
-                <div className="font-semibold text-zinc-900 dark:text-zinc-100">22 Nov • Offline at IIIT Delhi</div>
+                <div className="font-semibold text-zinc-900 dark:text-zinc-100">8 Nov (Online)</div>
               </div>
               <div className="rounded-lg border border-white/10 bg-zinc-50/70 dark:bg-white/5 p-4">
                 <div className="text-sm text-zinc-500 dark:text-white/70 flex items-center gap-2"><IndianRupee className="w-4 h-4" /> Entry Fee</div>

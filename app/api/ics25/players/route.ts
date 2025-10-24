@@ -87,8 +87,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, message: 'Phone and Instagram are required' }, { status: 400 });
     }
     // Game-specific validations
-    if (existing.game === 'valorant' && (rest.gameDetails?.valorant || (existing.gameDetails as any)?.valorant)) {
-      const gd = rest.gameDetails?.valorant || (existing.gameDetails as any)?.valorant || {};
+    // Only validate game-specific fields if the request is attempting to update them
+    if (existing.game === 'valorant' && (rest.gameDetails?.valorant)) {
+      const gd = rest.gameDetails?.valorant || {};
       if (!gd.riotId || !gd.rank || !gd.preferredAgents) {
         return NextResponse.json({ ok: false, message: 'Valorant: Riot ID, Rank and Preferred Agent(s) are required' }, { status: 400 });
       }
@@ -97,8 +98,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: false, message: 'Invalid Riot ID format. Use Name#TAG (name 3–16 chars, tag 3–5 alphanumeric).' }, { status: 400 });
       }
     }
-    if (existing.game === 'bgmi' && (rest.gameDetails?.bgmi || (existing.gameDetails as any)?.bgmi)) {
-      const gd = rest.gameDetails?.bgmi || (existing.gameDetails as any)?.bgmi || {};
+    if (existing.game === 'bgmi' && (rest.gameDetails?.bgmi)) {
+      const gd = rest.gameDetails?.bgmi || {};
       if (!gd.ign || !gd.uid || !gd.rank) {
         return NextResponse.json({ ok: false, message: 'BGMI: IGN, UID and Tier/Rank are required' }, { status: 400 });
       }

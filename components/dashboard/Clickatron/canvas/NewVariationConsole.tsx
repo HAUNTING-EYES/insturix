@@ -346,7 +346,7 @@ export function NewVariationConsole({
             }
             
             // Calculate deletion range: from trigger to cursor
-            let deleteFrom = triggerPos;
+            const deleteFrom = triggerPos;
             let deleteTo = cursorPos;
             
             // Check for whitespace after cursor and extend if needed
@@ -412,7 +412,7 @@ export function NewVariationConsole({
 
   const getPlainPrompt = () => {
     if (!editor) return '';
-    let plain = editor.getText().replace(/\s+/g, ' ').trim();
+    const plain = editor.getText().replace(/\s+/g, ' ').trim();
     return plain;
   };
 

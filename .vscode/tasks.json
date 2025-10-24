@@ -81,6 +81,35 @@
 				"$tsc"
 			],
 			"group": "build"
+		},
+		{
+			"label": "lint:frontend",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"lint"
+			],
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
+		},
+		{
+			"label": "pnpm-lint-ics25-scope",
+			"type": "shell",
+			"command": "pnpm",
+			"args": [
+				"-C",
+				"Front-End",
+				"-w",
+				"-s",
+				"lint"
+			],
+			"isBackground": false,
+			"problemMatcher": [
+				"$eslint-stylish"
+			],
+			"group": "build"
 		}
 	]
 }

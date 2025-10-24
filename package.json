@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.14",
+    "@aws-sdk/client-ses": "^3.916.0",
     "@blocknote/core": "^0.33.0",
     "@blocknote/mantine": "^0.33.0",
     "@blocknote/react": "^0.33.0",
@@ -96,6 +97,7 @@
     "ogl": "^1.0.11",
     "razorpay": "^2.9.6",
     "react": "^19.1.0",
+    "react-country-state-city": "^1.1.12",
     "react-dom": "^19.1.0",
     "react-dropzone": "^14.3.8",
     "react-hook-form": "^7.59.0",

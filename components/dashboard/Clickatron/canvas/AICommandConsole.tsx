@@ -82,7 +82,7 @@ export function AICommandConsole({
           char: '@',
           items: ({ query }) => {
             
-            let items = [];
+            const items = [];
             
             if (currentImageUrlRef.current) {
               // If currentImageUrl exists, add it as @img1, then add uploads as @img2+
@@ -379,7 +379,7 @@ export function AICommandConsole({
             }
             
             // Calculate deletion range: from trigger to cursor
-            let deleteFrom = triggerPos;
+            const deleteFrom = triggerPos;
             let deleteTo = cursorPos;
             
             // Check for whitespace after cursor and extend if needed
@@ -427,7 +427,7 @@ export function AICommandConsole({
 
   const getPlainPrompt = () => {
     if (!editor) return '';
-    let plain = editor.getText().replace(/\s+/g, ' ').trim();
+    const plain = editor.getText().replace(/\s+/g, ' ').trim();
     return plain;
   };
 

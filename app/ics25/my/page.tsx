@@ -1,8 +1,10 @@
 "use client";
+import { lazy, Suspense } from "react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CursorEffect from "@/components/ui/CursorEffect";
-import PortalManager from "@/components/ics25/PortalManager";
+
+const PortalManager = lazy(() => import("@/components/ics25/PortalManager"));
 
 export default function MyPortalPage() {
   return (
@@ -14,7 +16,9 @@ export default function MyPortalPage() {
       <CursorEffect variant="glow" color="rgba(59, 130, 246, 0.09)" size={900} blur={180} />
 
       <div className="relative z-10 max-w-5xl mx-auto px-4 py-12">
-        <PortalManager />
+        <Suspense fallback={<div className="text-center py-8">Loading portal...</div>}>
+          <PortalManager />
+        </Suspense>
       </div>
       <div className="relative z-20"><Footer /></div>
     </div>

@@ -13,7 +13,7 @@ type MongooseCache = {
 };
 
 declare global {
-  // eslint-disable-next-line no-var
+   
   var ics25_mongoose: MongooseCache | undefined;
 }
 
