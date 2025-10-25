@@ -746,12 +746,64 @@ export default function CheckoutForm() {
                   </div>
                 )}
                 <div>
-                  <Label htmlFor="bronze-instagram">Instagram story/post link</Label>
+                  <Label htmlFor="bronze-instagram">Instagram reel/post link</Label>
                   <Input id="bronze-instagram" value={bronzeInstagramUrl} onChange={(e)=>setBronzeInstagramUrl(e.target.value)} placeholder="https://instagram.com/..." disabled={bronzePromotionStatus === 'submitted'} />
                 </div>
                 <div>
                   <Label htmlFor="bronze-linkedin">LinkedIn post link</Label>
                   <Input id="bronze-linkedin" value={bronzeLinkedinUrl} onChange={(e)=>setBronzeLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/posts/..." disabled={bronzePromotionStatus === 'submitted'} />
+                </div>
+
+                {/* Social Media Template */}
+                <div className="space-y-4 mt-4">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label className="text-sm font-semibold">Social Media Template</Label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const text = "Everyone's talking about it — but I'm actually going.\nICS'25: The Creator-Tech Summit by Insturix.\n\nWhere creators, founders, and innovators come together to redefine how AI and creativity shape the future of content, business, and culture.\n\nThis isn't just another event — it's the intersection of imagination and innovation, and the conversations happening here are the ones that will define the next decade.\n\nIf you're serious about creating, building, or leading in the digital age — you'll want to be in that room.\nBecause if you're not there, you'll be watching the future unfold from your feed.\n\nSee you at the summit. 🚀\n#ICS25 #Insturix #InsturixCreatorSummit2025 #Innovation #CreatorEconomy #AICreators #FutureOfContent";
+                          navigator.clipboard.writeText(text);
+                          toast({ title: "Copied!", description: "Template copied to clipboard" });
+                        }}
+                        className="text-xs px-3 py-1 rounded-md bg-amber-600/20 hover:bg-amber-600/30 text-amber-600 dark:text-amber-400 transition"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                    <div className="text-sm text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      Everyone's talking about it — but I'm actually going.<br />
+                      ICS'25: The Creator-Tech Summit by Insturix.<br />
+                      <br />
+                      Where creators, founders, and innovators come together to redefine how AI and creativity shape the future of content, business, and culture.<br />
+                      <br />
+                      This isn't just another event — it's the intersection of imagination and innovation, and the conversations happening here are the ones that will define the next decade.<br />
+                      <br />
+                      If you're serious about creating, building, or leading in the digital age — you'll want to be in that room.<br />
+                      Because if you're not there, you'll be watching the future unfold from your feed.<br />
+                      <br />
+                      See you at the summit. 🚀<br />
+                      #ICS25 #Insturix #InsturixCreatorSummit2025 #Innovation #CreatorEconomy #AICreators #FutureOfContent
+                    </div>
+                  </div>
+
+                  {/* ThinkForge Button and Note */}
+                  <div className="rounded-lg border border-amber-600/30 bg-amber-500/10 p-4">
+                    <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-3">
+                      Want a better personalized message? Create your own with ThinkForge! Don't forget to use <span className="font-semibold text-amber-600 dark:text-amber-400">#insturix</span> and <span className="font-semibold text-amber-600 dark:text-amber-400">#ics25</span> in your posts.
+                    </p>
+                    <a
+                      href="https://insturix.com/dashboard/thinkforge"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition text-sm"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                      Go to ThinkForge
+                    </a>
+                  </div>
                 </div>
               </div>
             )}
@@ -979,6 +1031,23 @@ export default function CheckoutForm() {
                   <p className="mt-1 text-xs text-zinc-600 dark:text-zinc-400">
                     Your Creator Pass application has been approved. Complete payment to secure your pass.
                   </p>
+                </div>
+              )}
+
+              {tier === 'bronze' && bronzePromotionStatus !== 'verified' && (
+                <div className="mt-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm font-semibold mb-2">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    How Bronze Pass Works
+                  </div>
+                  <div className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
+                    <p><strong>Step 1:</strong> Post about ICS'25 on Instagram and LinkedIn using the template given or make your own (dont forget to tag us #insturix #ics25).</p>
+                    <p><strong>Step 2:</strong> Paste the public links to your posts in the fields below.</p>
+                    <p><strong>Step 3:</strong> Submit for review - we'll verify your posts within 48 hours.</p>
+                    <p><strong>Review Process:</strong> We check for genuine posts with event hashtags and appropriate content.</p>
+                  </div>
                 </div>
               )}
 
