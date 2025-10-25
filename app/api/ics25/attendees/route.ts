@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Attendee from '@/schemas/ics25/Attendee';
+import BronzePromotionSubmission from '@/schemas/ics25/BronzePromotionSubmission';
 
 export async function GET(req: NextRequest) {
   await getIcs25Db();
@@ -32,6 +33,26 @@ export async function POST(req: NextRequest) {
   }
 
   const { attendeePassTier } = body;
+
+  // For Bronze tier, check if promotion tasks are approved
+  if (attendeePassTier === 'bronze') {
+    const existingAttendee = await Attendee.findOne({ clerkUserId: userId });
+
+    let isVerified = existingAttendee?.bronzePromotion?.status === 'verified';
+    // If attendee doesn't exist or bronzePromotion not set, fall back to submission record
+    if (!isVerified) {
+      const submission = await BronzePromotionSubmission.findOne({ clerkUserId: userId, status: 'verified' }).lean();
+      isVerified = !!submission;
+    }
+
+    if (!isVerified) {
+      return NextResponse.json({ 
+        ok: false, 
+        message: 'Bronze pass requires completion and approval of promotional tasks',
+        requiresPromotion: true 
+      }, { status: 400 });
+    }
+  }
 
   // Validate required fields for all attendee registrations
   const { name, email, phone, instagram, linkedin, profession, ageGroup, city, state } = body;

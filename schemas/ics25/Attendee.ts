@@ -43,6 +43,14 @@ const UpgradeIntentSchema = new Schema({
   status: { type: String, enum: ['pending', 'completed', 'cancelled'], default: 'pending' },
 }, { _id: false });
 
+const BronzePromotionSchema = new Schema({
+  status: { type: String, enum: ['none', 'submitted', 'verified', 'rejected'], default: 'none' },
+  instagramProofUrl: String,
+  linkedinProofUrl: String,
+  submittedAt: Date,
+  rejectionReason: String,
+}, { _id: false });
+
 const Ics25AttendeeSchema = new Schema({
   clerkUserId: { type: String, index: true, required: true },
   name: { type: String },
@@ -65,6 +73,7 @@ const Ics25AttendeeSchema = new Schema({
   cashback: {
     referral: { type: AttendeeReferralSchema, default: () => ({ amount: 150, referredCount: 0, referredUserIds: [], qualified: false }) },
   },
+  bronzePromotion: { type: BronzePromotionSchema, default: () => ({ status: 'none' }) },
   upgradeIntent: { type: UpgradeIntentSchema },
   upgradePayments: { type: [UpgradePaymentSchema], default: [] },
   refunds: { type: [RefundSchema], default: [] },

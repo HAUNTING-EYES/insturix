@@ -72,6 +72,11 @@ export default function CheckoutForm() {
   const [referralCode, setReferralCode] = useState<string>("");
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [creatorApprovalStatus, setCreatorApprovalStatus] = useState<string | null>(null);
+  const [bronzePromotionStatus, setBronzePromotionStatus] = useState<string | null>(null);
+  const [bronzeRejectionReason, setBronzeRejectionReason] = useState<string | null>(null);
+  const [bronzeInstagramUrl, setBronzeInstagramUrl] = useState<string>("");
+  const [bronzeLinkedinUrl, setBronzeLinkedinUrl] = useState<string>("");
+  const [bronzeSubmitting, setBronzeSubmitting] = useState<boolean>(false);
 
   const [states, setStates] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
@@ -265,6 +270,23 @@ export default function CheckoutForm() {
             // Each status will show appropriate banner/message
           }
         }
+
+        // Check bronze promotion status
+        const bronzeRes = await fetch("/api/ics25/bronze-promotion", { headers: { accept: "application/json" } });
+        if (bronzeRes.ok) {
+          const bronzeData = await bronzeRes.json();
+          const bronzePromotion = bronzeData?.bronzePromotion;
+
+          if (bronzePromotion) {
+            setBronzePromotionStatus(bronzePromotion.status || 'none');
+            setBronzeRejectionReason(bronzePromotion.rejectionReason || null);
+            if (bronzePromotion.instagramProofUrl) setBronzeInstagramUrl(bronzePromotion.instagramProofUrl);
+            if (bronzePromotion.linkedinProofUrl) setBronzeLinkedinUrl(bronzePromotion.linkedinProofUrl);
+          } else {
+            setBronzePromotionStatus('none');
+            setBronzeRejectionReason(null);
+          }
+        }
         
         if (attendeeRes.status === 401) {
           router.push("/signin?redirect_url=/checkout");
@@ -368,9 +390,60 @@ export default function CheckoutForm() {
       const creatorSocialOk = !!youtube.trim() || !!instagram.trim() || !!linkedin.trim();
       return basicOk && socialsOk && addressOk && demoOk && proOk && creatorSocialOk;
     }
+    // For bronze, only allow registration after promotion is verified
+    if (tier === 'bronze') {
+      const promoOk = bronzePromotionStatus === 'verified';
+      return promoOk && basicOk && socialsOk && addressOk && demoOk && proOk;
+    }
     
     return basicOk && socialsOk && addressOk && demoOk && proOk;
-  }, [name, email, phone, instagram, linkedin, youtube, cityName, stateName, ageGroup, profession, tier]);
+  }, [name, email, phone, instagram, linkedin, youtube, cityName, stateName, ageGroup, profession, tier, bronzePromotionStatus]);
+
+  // Auto-poll bronze status while under review
+  useEffect(() => {
+    if (tier !== 'bronze' || bronzePromotionStatus !== 'submitted') return;
+    let mounted = true;
+    const interval = setInterval(async () => {
+      try {
+        const r = await fetch('/api/ics25/bronze-promotion', { headers: { accept: 'application/json' } });
+        if (!r.ok) return;
+        const d = await r.json();
+        const bp = d?.bronzePromotion;
+        if (!mounted) return;
+        if (bp) {
+          setBronzePromotionStatus(bp.status || 'none');
+          setBronzeRejectionReason(bp.rejectionReason || null);
+        }
+      } catch {}
+    }, 30000);
+    return () => { mounted = false; clearInterval(interval); };
+  }, [tier, bronzePromotionStatus]);
+
+  const submitBronzePromotion = async () => {
+    // Validate URLs
+    if (!/^https?:\/\//i.test(bronzeInstagramUrl) || !/^https?:\/\//i.test(bronzeLinkedinUrl)) {
+      toast({ title: 'Invalid links', description: 'Please paste valid public URLs for Instagram and LinkedIn.', variant: 'destructive' as any });
+      return;
+    }
+    try {
+      setBronzeSubmitting(true);
+      const r = await fetch('/api/ics25/bronze-promotion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instagramProofUrl: bronzeInstagramUrl, linkedinProofUrl: bronzeLinkedinUrl })
+      });
+      const d = await r.json();
+      if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Submission failed');
+      toast({ title: 'Submitted', description: 'We will review your promotion within 48 hours.' });
+      // Set status to submitted immediately
+      setBronzePromotionStatus('submitted');
+      setBronzeRejectionReason(null);
+    } catch (e: any) {
+      toast({ title: 'Submission error', description: e?.message || 'Try again later', variant: 'destructive' as any });
+    } finally {
+      setBronzeSubmitting(false);
+    }
+  };
 
   const handleUpsertProfile = async () => {
     // Upsert attendee profile with all required details
@@ -438,16 +511,25 @@ export default function CheckoutForm() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // If Bronze tier and promotion isn't verified yet, allow submitting the promotion
+    // before running the full-form validation. This prevents the "Missing info"
+    // toast when users are only submitting their promotion links.
+    if (tier === 'bronze' && bronzePromotionStatus !== 'verified') {
+      await submitBronzePromotion();
+      return;
+    }
+
     if (!canPay) {
-      const missingMsg = tier === 'creators' 
+      const missingMsg = tier === 'creators'
         ? "Please fill all required fields including at least one social media link (YouTube, Instagram, or LinkedIn)."
         : "Please fill all required fields: name, email, mobile, Instagram, LinkedIn, profession, age group, and location (city & state).";
       toast({ title: "Missing info", description: missingMsg, variant: "destructive" as any });
       return;
     }
+
     try {
       setCreatingOrder(true);
-      
+
       // For Creator Pass, submit for review if not yet approved
       if (tier === 'creators' && creatorApprovalStatus !== 'approved') {
         // Submit creator application with all details
@@ -597,6 +679,23 @@ export default function CheckoutForm() {
           </div>
         )}
 
+        {/* Bronze Approved Banner */}
+        {tier === 'bronze' && bronzePromotionStatus === 'verified' && (
+          <div className="mb-6 p-4 rounded-lg bg-green-500/10 border border-green-500/20">
+            <div className="flex items-start gap-3">
+              <svg className="w-6 h-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <div className="flex-1">
+                <h3 className="font-semibold text-green-600 dark:text-green-400 mb-1">Bronze Promotion Approved</h3>
+                <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                  You’re approved! Please fill in your details below and click “Register Free” to complete your Bronze pass registration.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <div className="md:col-span-2 space-y-6">
             <div>
@@ -633,6 +732,32 @@ export default function CheckoutForm() {
               </div>
             </div>
 
+            {/* Bronze promotion pre-approval block */}
+            {tier === 'bronze' && bronzePromotionStatus !== 'verified' && (
+              <div className="space-y-4">
+                {bronzePromotionStatus === 'rejected' && (
+                  <div className="rounded-lg border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2 text-sm">
+                    Submission rejected{bronzeRejectionReason ? `: ${bronzeRejectionReason}` : ''}. Please fix and resubmit.
+                  </div>
+                )}
+                {bronzePromotionStatus === 'submitted' && (
+                  <div className="rounded-lg border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2 text-sm">
+                    Under review — we’ll verify your links within 48 hours.
+                  </div>
+                )}
+                <div>
+                  <Label htmlFor="bronze-instagram">Instagram story/post link</Label>
+                  <Input id="bronze-instagram" value={bronzeInstagramUrl} onChange={(e)=>setBronzeInstagramUrl(e.target.value)} placeholder="https://instagram.com/..." disabled={bronzePromotionStatus === 'submitted'} />
+                </div>
+                <div>
+                  <Label htmlFor="bronze-linkedin">LinkedIn post link</Label>
+                  <Input id="bronze-linkedin" value={bronzeLinkedinUrl} onChange={(e)=>setBronzeLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/posts/..." disabled={bronzePromotionStatus === 'submitted'} />
+                </div>
+              </div>
+            )}
+
+            {/* Main registration fields (hidden for Bronze until approved) */}
+            {(tier !== 'bronze' || bronzePromotionStatus === 'verified') && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="name">Full name</Label>
@@ -783,11 +908,14 @@ export default function CheckoutForm() {
                 </Popover>
               </div>
             </div>
+            )}
 
-            <div>
-              <Label htmlFor="referral">Referral code (optional)</Label>
-              <Input id="referral" value={referralCode} onChange={(e)=>setReferralCode(e.target.value)} placeholder="Have a friend’s code?" />
-            </div>
+            {(tier !== 'bronze' || bronzePromotionStatus === 'verified') && (
+              <div>
+                <Label htmlFor="referral">Referral code (optional)</Label>
+                <Input id="referral" value={referralCode} onChange={(e)=>setReferralCode(e.target.value)} placeholder="Have a friend’s code?" />
+              </div>
+            )}
           </div>
 
           <aside className="md:col-span-1">
@@ -854,8 +982,11 @@ export default function CheckoutForm() {
                 </div>
               )}
 
-              <Button type="submit" disabled={creatingOrder || !canPay || (tier === 'creators' && creatorApprovalStatus === 'pending')} className={`mt-5 w-full rounded-xl font-semibold text-white ${
-                tier === "bronze" 
+              <Button type="submit" disabled={
+                (tier === 'bronze' && bronzePromotionStatus === 'submitted')
+                || (tier !== 'bronze' && (!canPay || (tier === 'creators' && creatorApprovalStatus === 'pending'))) 
+              } className={`mt-5 w-full rounded-xl font-semibold text-white ${
+                tier === "bronze"
                   ? "bg-amber-600 hover:bg-amber-700"
                   : tier === "silver"
                   ? "bg-white hover:bg-gray-100 text-gray-800"
@@ -865,8 +996,12 @@ export default function CheckoutForm() {
                   ? "bg-red-500 hover:bg-red-600"
                   : "bg-[#3A9EFF] hover:bg-[#2a8be6]"
               }`}>
-                {tier === "bronze" 
-                  ? (creatingOrder ? "Registering…" : "Register Free") 
+                {tier === "bronze"
+                  ? (bronzePromotionStatus === 'submitted' 
+                      ? 'In Review'
+                      : (bronzePromotionStatus === 'verified' 
+                          ? (creatingOrder ? 'Registering…' : 'Register Free')
+                          : (bronzeSubmitting ? 'Submitting…' : 'Submit for Review')))
                   : tier === "creators" && creatorApprovalStatus === 'pending'
                   ? (creatingOrder ? "Submitting…" : "Under Review")
                   : tier === "creators" && creatorApprovalStatus !== 'approved'
