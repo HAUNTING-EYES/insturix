@@ -19,7 +19,7 @@ const tournaments: TournamentEntry[] = [
   {
     id: "valorant",
     title: "Valorant (5v5)",
-    desc: "Fully online tournament. Nov 1 qualifiers, Nov 8 finals.",
+  desc: "Fully online tournament. Nov 8 qualifiers, Nov 15 finals.",
     details: ["Own PC Required", "Standard Map Pool", "Anti‑Cheat Enforced"],
     image: "gameon4.png",
     cta: { label: "View Details", href: "#faqs" },
@@ -27,7 +27,7 @@ const tournaments: TournamentEntry[] = [
   {
     id: "bgmi",
     title: "BGMI (4v4)",
-    desc: "Fully online tournament. Nov 1 qualifiers, Nov 8 finals.",
+  desc: "Fully online tournament. Nov 8 qualifiers, Nov 15 finals.",
     details: ["Own Mobile Device", "Classic ERANGEL+", "Spectator Mode"],
     image: "gameon5.png",
     cta: { label: "View Details", href: "#faqs" },

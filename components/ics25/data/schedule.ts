@@ -27,19 +27,19 @@ export const AGENDA_HIGHLIGHTS: AgendaItem[] = [
 // DTV summary (no speculative exact hours; hours string kept general per brief)
 export const DTV = {
 	dates: "Nov 22–23, 2025",
-	hours: "10:00 AM – 08:00 PM", // Full schedule drops Oct 25
+	hours: "10:00 AM – 08:00 PM", // Full schedule drops Nov 15
 	venueShort: "IIIT Delhi, New Delhi"};
 
 // Timed milestones based strictly on provided text files.
 export const MILESTONES: Milestone[] = [
 	{
-		date: "Oct 25",
+		date: "Nov 15",
 		title: "Full schedule goes live",
 		detail: "Timeslots and rooms published on this page.",
 		icon: "calendar",
 	},
 	{
-		date: "Nov 1",
+		date: "Nov 8",
 		title: "GameOn Qualifiers – Round 1",
 		detail: "Online qualifiers kick off (Valorant/BGMI).",
 		icon: "game",
@@ -54,9 +54,9 @@ export const MILESTONES: Milestone[] = [
 		href: "/ics25/gameon",
 	},
 	{
-		date: "Nov 22",
-		title: "ICS'25 Day 1 + Esports Finals",
-		detail: "Summit opens at IIIT Delhi; esports finals begin (select titles).",
+		date: "Nov 15",
+		title: "GameOn Finals",
+		detail: "Esports finals (select titles) — times and live-stream info to follow.",
 		icon: "trophy",
 		href: "/ics25/gameon",
 	},
@@ -68,4 +68,4 @@ export const MILESTONES: Milestone[] = [
 	},
 ];
 
-// Note: Avoid including any unverified exact timings; update after Oct 25 when precise schedule is published.
+// Note: Avoid including any unverified exact timings; update after Nov 15 when precise schedule is published.

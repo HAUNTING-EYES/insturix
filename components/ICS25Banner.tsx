@@ -52,9 +52,9 @@ export default function ICS25Banner() {
           <div className="container mx-auto px-4 py-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/60 dark:bg-zinc-800/60 backdrop-blur-sm border border-blue-200 dark:border-blue-700">
+                  <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-white/60 dark:bg-zinc-800/60 backdrop-blur-sm border border-blue-200 dark:border-blue-700">
                   <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Nov 1 & 8 • Online</span>
+                  <span className="text-xs font-medium text-blue-700 dark:text-blue-300">Nov 8 & 15 • Online</span>
                 </div>
                 <div className="hidden sm:block">
                   <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mr-2">GameOn Esports (Online Tournament)</span>

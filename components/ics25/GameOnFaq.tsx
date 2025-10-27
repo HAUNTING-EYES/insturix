@@ -33,12 +33,12 @@ const sections: FaqSection[] = [
       {
         id: "dates",
         q: "What are the key dates?",
-        a: "Online qualifiers: Nov 1. Online finals: Nov 8. Winners announced at ICS'25 awards ceremony on Nov 23 @ IIIT Delhi. Detailed match slots are shared after registration.",
+        a: "Online qualifiers: Nov 8. Online finals: Nov 15. Winners announced at ICS'25 awards ceremony on Nov 23 @ IIIT Delhi. Detailed match slots are shared after registration.",
       },
       {
         id: "format",
         q: "What's the tournament format?",
-        a: "Fully online tournament. Qualifiers on Nov 1, finals on Nov 8. Winners announced at the ICS'25 awards ceremony on Nov 23.",
+        a: "Fully online tournament. Qualifiers on Nov 8, finals on Nov 15. Winners announced at the ICS'25 awards ceremony on Nov 23.",
       },
       {
         id: "brackets",
@@ -78,7 +78,7 @@ const sections: FaqSection[] = [
       {
         id: "net",
         q: "Internet requirements?",
-        a: "Stable high-speed internet is required for all online matches (qualifiers and finals on Nov 1 & 8).",
+        a: "Stable high-speed internet is required for all online matches (qualifiers and finals on Nov 8 & 15).",
       },
     ],
   },

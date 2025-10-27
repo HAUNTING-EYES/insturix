@@ -38,7 +38,7 @@ Files Added / Changed
 
 8. components/ics25/Schedule.tsx (modified)
    - Previously referenced the ICS'25 app; updated to remove the app promo.
-   - New copy: "Full schedule drops Oct 25 on this website. Live updates will be posted here." and a panel labeled "Updates — Live on the Site" stating "No mobile app. We’ll post real-time changes, room switches and announcements right here.".
+   - New copy: "Full schedule drops Nov 15 on this website. Live updates will be posted here." and a panel labeled "Updates — Live on the Site" stating "No mobile app. We’ll post real-time changes, room switches and announcements right here.".
 
 9. components/ics25/IcsFaq.tsx (added)
    - FAQ accordion for core ICS questions (registration, refunds, accommodation, conduct, Wi‑Fi/food).
@@ -256,7 +256,7 @@ Recent edits (2025-10-20 - ongoing session)
 - Esports framing and imagery:
    - Added arena imagery and background frames for the GameOn hero and tournament cards; created `public/ics25/gameon-frames.jpg` as the recommended asset path. Tournament cards now support per-card banners.
 - Tournament overlays and schedule adjustments:
-   - Tournament overlays for Valorant and BGMI were added and populated from curated content; schedule milestones updated: Finals on Nov 22 and Awards & Closing on Nov 23.
+   - Tournament overlays for Valorant and BGMI were added and populated from curated content; schedule milestones updated: Finals on Nov 15 and Awards & Closing on Nov 23.
 - Tickets / Pricing updates:
    - Pricing grid modernized to glass panels with subtle gradient frames, cleaned price typography (removed gradients), CTA buttons routed to `/checkout?tier=<slug>`, and a tasteful "Recommended" ribbon on the Gold tier.
 - Theming and palette:

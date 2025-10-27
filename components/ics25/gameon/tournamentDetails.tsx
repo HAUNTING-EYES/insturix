@@ -42,7 +42,7 @@ export function getTournamentDetail(key: TournamentKey): React.ReactNode {
         <section>
           <h4 className="text-white font-semibold mb-1">Finals Setup</h4>
           <ul className="list-disc list-inside text-zinc-300 text-sm space-y-1">
-            <li>Fully online finals on Nov 8.</li>
+            <li>Fully online finals on Nov 15.</li>
             <li>Own PC with stable internet required; Discord voice mandatory.</li>
           </ul>
         </section>
@@ -56,8 +56,8 @@ export function getTournamentDetail(key: TournamentKey): React.ReactNode {
       <section>
         <h4 className="text-white font-semibold mb-1">Format</h4>
         <ul className="list-disc list-inside text-zinc-300 text-sm space-y-1">
-          <li>Online qualifiers: Round-robin on Nov 1.</li>
-          <li>Online finals: Knockout finals on Nov 8.</li>
+          <li>Online qualifiers: Round-robin on Nov 8.</li>
+          <li>Online finals: Knockout finals on Nov 15.</li>
           <li>Team size: 4 players; 1 substitute allowed. Substitutes should be added at the team's discretion and registered in advance. Substitutes follow the same payment process; refund may be requested by the substitute only before qualifiers begin. No refunds after qualifiers begin.</li>
         </ul>
       </section>
@@ -89,7 +89,7 @@ export function getTournamentDetail(key: TournamentKey): React.ReactNode {
       <section>
         <h4 className="text-white font-semibold mb-1">Finals Setup</h4>
         <ul className="list-disc list-inside text-zinc-300 text-sm space-y-1">
-          <li>Fully online tournament (Nov 1 qualifiers, Nov 8 finals).</li>
+          <li>Fully online tournament (Nov 8 qualifiers, Nov 15 finals).</li>
           <li>Stable internet connection and own device required.</li>
           <li>Winners announced at ICS'25 awards ceremony on Nov 23 @ IIIT Delhi.</li>
         </ul>

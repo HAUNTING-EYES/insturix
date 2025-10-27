@@ -6,7 +6,7 @@ import CountUp from "@/components/CountUp";
 
 const stats = [
   { label: "Attendees", to: 800, suffix: "+" },
-  { label: "Digital Reach", to: 50, suffix: "K+" },
+  { label: "Digital Reach", to: 30, suffix: "M+" },
   { label: "Creator Collabs", to: 200, suffix: "+" },
 ] as const;
 

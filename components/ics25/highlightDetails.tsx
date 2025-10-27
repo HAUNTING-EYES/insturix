@@ -119,7 +119,7 @@ export function getHighlightDetail(title: HighlightKey) {
           <ul className="space-y-3 text-sm text-zinc-300">
             <li>
               <div className="text-white font-medium">Format</div>
-              <div className="mt-1">Online qualifiers (Nov 1) → Finals (Nov 8)</div>
+                <div className="mt-1">Online qualifiers (Nov 8) → Finals (Nov 15)</div>
             </li>
             <li className="divider-gradient" />
             <li>

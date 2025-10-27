@@ -209,11 +209,11 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="text-center">
                     <div className="text-white font-semibold">Qualifiers</div>
-                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Nov 1 (Online)</div>
+                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Nov 8 (Online)</div>
                   </div>
                   <div className="text-center">
                     <div className="text-white font-semibold">Finals</div>
-                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Nov 8 (Online)</div>
+                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Nov 15 (Online)</div>
                   </div>
                   <div className="text-center">
                     <div className="text-white font-semibold">Entry Fee</div>

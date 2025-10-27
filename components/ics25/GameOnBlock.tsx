@@ -22,7 +22,7 @@ export default function GameOnBlock() {
           <div className="mt-6 grid grid-cols-3 gap-4 text-center">
             <TimelinePill label="Prize Pool" value="₹25,000" />
             <TimelinePill label="Total Teams" value="120" />
-            <TimelinePill label="Nov 1 & 8" value="Online" />
+            <TimelinePill label="Nov 8 & 15" value="Online" />
           </div>
         </motion.div>
         <div className="relative min-h-48 rounded-2xl overflow-hidden border border-white/10">

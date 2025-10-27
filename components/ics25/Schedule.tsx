@@ -38,7 +38,7 @@ export default function SchedulePreview() {
               <Calendar className="w-5 h-5 text-[#7AB8FF] mt-0.5" />
               <div>
                 <div className="text-sm text-white/80">Schedule Release</div>
-                <div className="text-base font-semibold text-white">November 2, 2025</div>
+                <div className="text-base font-semibold text-white">November 15, 2025</div>
                 <p className="mt-1 text-sm text-white/60">Keep Checking this page for updates.</p>
               </div>
             </div>
