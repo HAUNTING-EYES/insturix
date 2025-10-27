@@ -1,7 +1,7 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen } from "lucide-react";
+import { BookOpen, Lightbulb, FileText, MessageSquare, Sparkles, History, Settings, FolderOpen, Calendar, Brain, Library } from "lucide-react";
 import clsx from "clsx";
 import { PromptPanel } from "@/components/dashboard/ThinkForge/PromptPanel";
 import { toast } from '@/hooks/use-toast';
@@ -13,6 +13,8 @@ import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeClient, ScriptModel } from "./hooks/useThinkForgeClient";
+import Dock from "@/components/dashboard/ThinkForge/Dock";
+import PlanningPanel from "@/components/dashboard/ThinkForge/PlanningPanel";
 
 const hats = ["white", "red", "black", "yellow", "green", "blue"] as const;
 const skeletonIdeas = (prompt: string): IdeaCardData[] => {
@@ -42,6 +44,7 @@ export default function ThinkForgeLanding() {
 	const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
 	const [hasSubmitted, setHasSubmitted] = useState(false);
 	const [libraryOpen, setLibraryOpen] = useState(false);
+	const [planningOpen, setPlanningOpen] = useState(false);
 	const [selectedIdea, setSelectedIdea] = useState<IdeaCardData | null>(null);
 	const [phase, setPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED' | 'SCRIPT'>('PROMPT');
 	// Session is now created upon idea selection; no explicit new-session gating needed here
@@ -242,6 +245,61 @@ export default function ThinkForgeLanding() {
 		}
 	};
 
+	// Dock items for ThinkForge features
+	const dockItems = [
+		{
+			icon: <FolderOpen size={20} />,
+			label: 'Projects',
+			onClick: () => {
+				toast({ title: 'Projects', description: 'Project management coming soon!' });
+			}
+		},
+		{
+			icon: <Lightbulb size={20} />,
+			label: 'Ideation',
+			onClick: () => {
+				// Close planning if open
+				setPlanningOpen(false);
+				// Reset to ideation view
+				setSelectedIdea(null);
+				setIdeas([]);
+				setHasSubmitted(false);
+				setPrompt("");
+				setPhase('PROMPT');
+			}
+		},
+		{
+			icon: <Calendar size={20} />,
+			label: 'Planning',
+			onClick: () => {
+				setPlanningOpen(true);
+			}
+		},
+		{
+			icon: <FileText size={20} />,
+			label: 'Scripting',
+			onClick: () => {
+				if (phase === 'SCRIPT') {
+					toast({ title: 'Already in Scripting', description: 'You are viewing the script editor.' });
+				} else {
+					toast({ title: 'Scripting', description: 'Select an idea to create a script.' });
+				}
+			}
+		},
+		{
+			icon: <Brain size={20} />,
+			label: 'Whiteboard',
+			onClick: () => {
+				toast({ title: 'Whiteboard', description: 'Visual thinking tools coming soon!' });
+			}
+		},
+		{
+			icon: <Library size={20} />,
+			label: 'Library',
+			onClick: () => setLibraryOpen(true)
+		}
+	];
+
 	return (
 		<div className="relative min-h-dvh w-full overflow-hidden bg-neutral-950 text-white">
 			<BackgroundDecor />
@@ -318,19 +376,6 @@ export default function ThinkForgeLanding() {
 						exit={{ opacity: 0 }}
 						onClick={() => setLibraryOpen(false)}
 					/>
-				)}
-			</AnimatePresence>
-			<AnimatePresence>
-				{!libraryOpen && (
-					<motion.button
-						onClick={() => setLibraryOpen(true)}
-						className="group fixed right-3 top-4 z-30 flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/80 backdrop-blur-md transition hover:bg-white/10"
-						initial={{ opacity: 0, y: -8, scale: 0.85 }}
-						animate={{ opacity: 1, y: 0, scale: 1 }}
-						exit={{ opacity: 0, y: -6 }}
-					>
-						<BookOpen className="h-3.5 w-3.5 text-red-300" /> Library
-					</motion.button>
 				)}
 			</AnimatePresence>
 
@@ -439,6 +484,21 @@ export default function ThinkForgeLanding() {
 					</div>
 				</div>
 			)}
+
+			{/* ThinkForge Dock */}
+			<Dock
+				items={dockItems}
+				panelHeight={68}
+				baseItemSize={50}
+				magnification={70}
+				distance={180}
+			/>
+
+			{/* Planning Panel */}
+			<PlanningPanel
+				isOpen={planningOpen}
+				onClose={() => setPlanningOpen(false)}
+			/>
 		</div>
 	);
 }
