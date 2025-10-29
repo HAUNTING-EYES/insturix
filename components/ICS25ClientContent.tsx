@@ -33,6 +33,7 @@ import IcsFaq from '@/components/ics25/IcsFaq';
 
 const HighlightsGrid = lazy(() => import('@/components/ics25/HighlightsGrid'));
 const PricingGrid = lazy(() => import('@/components/ics25/PricingGrid'));
+const Creators = lazy(() => import('@/components/ics25/Creators'));
 
 export default function ICS25ClientContent() {
   const { isSignedIn } = useUser();
@@ -187,16 +188,16 @@ export default function ICS25ClientContent() {
                 <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-sky-500/10 via-transparent to-fuchsia-400/10 blur-2xl" aria-hidden />
                 <div className="relative rounded-[14px] bg-white/5 backdrop-blur-xl px-6 py-6 border border-white/10">
                   <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                    <Button onClick={handleAttendeePassClick} className="px-8 py-4 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 transform hover:scale-[1.03] text-lg tilt-hover">
+                    <Button onClick={handleAttendeePassClick} className="w-full sm:w-auto px-8 py-4 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 transform hover:scale-[1.03] text-lg tilt-hover">
                       <Users className="w-5 h-5 mr-2" />
                       Get Attendee Pass
                     </Button>
-                    <Button onClick={handleRegisterClick} className="px-8 py-4 bg-[#3A9EFF] hover:bg-[#2a8be6] text-white font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.45)] transition-all duration-300 transform hover:scale-[1.03] text-lg tilt-hover glow-pulse">
+                    <Button onClick={handleRegisterClick} className="w-full sm:w-auto px-8 py-4 bg-[#3A9EFF] hover:bg-[#2a8be6] text-white font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.45)] transition-all duration-300 transform hover:scale-[1.03] text-lg tilt-hover glow-pulse">
                         <Play className="w-5 h-5 mr-2" />
                         Register for Gaming
                       </Button>
-                    <a href="#schedule" className="inline-flex">
-                      <Button variant="outline" className="px-8 py-4 border-white/20 text-white hover:bg-white/10 rounded-xl font-semibold transition-all duration-300 text-lg tilt-hover">
+                    <a href="#schedule" className="inline-flex w-full sm:w-auto">
+                      <Button variant="outline" className="w-full px-8 py-4 border-white/20 text-white hover:bg-white/10 rounded-xl font-semibold transition-all duration-300 text-lg tilt-hover">
                         <Calendar className="w-5 h-5 mr-2" />
                         View Schedule
                       </Button>
@@ -219,6 +220,7 @@ export default function ICS25ClientContent() {
       <RailNav
         sections={[
           { id: "about", label: "About" },
+          { id: "creators", label: "Creators" },
           { id: "highlights", label: "Highlights" },
           { id: "gameon", label: "Esports" },
           { id: "pricing", label: "Passes" },
@@ -234,9 +236,17 @@ export default function ICS25ClientContent() {
         <AboutICS25 />
       </SectionWrapper>
 
+      {/* Creators */}
+      <SectionWrapper id="creators" className="section-angled-bottom">
+        <SectionHeader eyebrow="Featured" title="Creators Attending" subtitle="" />
+        <Suspense fallback={<div className="text-center py-8">Loading creators...</div>}>
+          <Creators />
+        </Suspense>
+      </SectionWrapper>
+
       {/* Highlights */}
-      <SectionWrapper id="highlights" className="section-angled-bottom">
-        <SectionHeader eyebrow="Highlights" title="What’s On" subtitle="From reel battles to AI showcases and awards." />
+      <SectionWrapper id="highlights" className="section-angled-top section-angled-bottom">
+        <SectionHeader eyebrow="Highlights" title="What's On" subtitle="From reel battles to AI showcases and awards." />
         <Suspense fallback={<div className="text-center py-8">Loading highlights...</div>}>
           <HighlightsGrid />
         </Suspense>
@@ -324,21 +334,21 @@ export default function ICS25ClientContent() {
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center min-h-[64px]">
               {!isSignedIn && (
-                <Link href="/signup" className="inline-flex">
-                  <Button className="px-10 py-5 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 text-lg group">
+                <Link href="/signup" className="inline-flex w-full sm:w-auto">
+                  <Button className="w-full px-10 py-5 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 text-lg group">
                     <ExternalLink className="w-5 h-5 mr-2 transition-transform group-hover:-translate-y-0.5" />
                     Sign Up for Updates
                   </Button>
                 </Link>
               )}
               {isSignedIn && !optedIn && (
-                <Button onClick={handleOptIn} className="px-10 py-5 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 text-lg group">
+                <Button onClick={handleOptIn} className="w-full sm:w-auto px-10 py-5 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 text-lg group">
                   <ExternalLink className="w-5 h-5 mr-2 transition-transform group-hover:-translate-y-0.5" />
                   Notify Me
                 </Button>
               )}
               {isSignedIn && optedIn && (
-                <Button disabled className="px-10 py-5 bg-green-600 dark:bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl shadow-lg text-lg inline-flex items-center gap-2">
+                <Button disabled className="w-full sm:w-auto px-10 py-5 bg-green-600 dark:bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl shadow-lg text-lg inline-flex items-center gap-2">
                   <Check className="w-5 h-5" />
                   Signed Up for Updates
                 </Button>
