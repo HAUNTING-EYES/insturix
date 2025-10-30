@@ -13,82 +13,16 @@ import GameOnFaq from "@/components/ics25/GameOnFaq";
 import ScrollProgressBar from "@/components/ScrollProgressBar";
 import Marquee from "@/components/ics25/Marquee";
 import RailNav from "@/components/ics25/RailNav";
-import Script from "next/script";
-import {
-  gameOnEventSchema,
-  gameOnFAQSchema,
-  gameOnBreadcrumbSchema,
-} from "@/lib/seo/ics25-schema";
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
 
 export const metadata: Metadata = {
-  title: "GameOn — Esports Tournaments at ICS'25 | Valorant & BGMI | Register Now",
-  description:
-    "Compete in GameOn esports at ICS'25 — Valorant 5v5 and BGMI 4v4 tournaments with ₹25,000 prize pool. Online qualifiers + live finals at IIIT Delhi. Limited team slots; register your squad today.",
-  keywords: [
-    "GameOn esports ICS25",
-    "Valorant tournament Delhi 2025",
-    "BGMI tournament India 2025",
-    "esports tournament Delhi November 2025",
-    "Valorant 5v5 tournament India",
-    "BGMI 4v4 tournament Delhi",
-    "gaming tournament prize pool India",
-    "register for GameOn Valorant BGMI tournament",
-    "creator gaming tournament",
-    "esports events Delhi",
-  ],
+  title: "GameOn Esports @ ICS’25",
+  description: "Valorant & BGMI tournament at Insturix Creators Summit 2025. ₹25,000 prize pool. Register your team.",
   alternates: { canonical: "/ics25/gameon" },
-  openGraph: {
-    type: "website",
-    locale: "en_IN",
-    url: `${SITE_URL}/ics25/gameon`,
-    title: "GameOn — Esports Tournaments at ICS'25 | Valorant & BGMI",
-    description:
-      "Compete in Valorant (5v5) and BGMI (4v4) with ₹25,000 prize pool. Online qualifiers + live finals. Register now!",
-    siteName: "Insturix",
-    images: [
-      {
-        url: "/ics25/gameon3.png",
-        width: 1200,
-        height: 630,
-        alt: "GameOn Esports Tournament at ICS'25",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    site: "@insturix",
-    creator: "@insturix",
-    title: "GameOn — Esports at ICS'25 | Valorant & BGMI",
-    description: "₹25,000 prize pool. Qualifiers + live finals. Register your team now!",
-    images: ["/ics25/gameon3.png"],
-  },
-  robots: {
-    index: true,
-    follow: true,
-  },
 };
 
 export default function GameOnPage() {
   return (
     <div className="theme-gameon relative min-h-screen bg-[#0A0A0C] text-white">
-      {/* Structured Data for SEO */}
-      <Script
-        id="gameon-event-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(gameOnEventSchema) }}
-      />
-      <Script
-        id="gameon-faq-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(gameOnFAQSchema) }}
-      />
-      <Script
-        id="gameon-breadcrumb-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(gameOnBreadcrumbSchema) }}
-      />
       <ScrollProgressBar />
       <Navbar />
       <RailNav
@@ -105,7 +39,7 @@ export default function GameOnPage() {
         <SectionWrapper id="hero" className="section-angled-top">
           <EsportsHero />
         </SectionWrapper>
-  <Marquee className="py-4 text-white/80" items={["Valorant", "BGMI", "GameOn", "ICS'25", "Esports", "Arena", "Finals"]} speed={70} />
+  <Marquee className="py-4 text-white/80" items={["Valorant", "BGMI", "GameOn", "ICS’25", "Esports", "Arena", "Finals"]} speed={70} />
         <SectionWrapper id="tournaments" className="section-angled-bottom">
           <SectionHeader eyebrow="Tournaments" title="Choose Your Title" subtitle="can participate in one per registration" />
           <TournamentGrid />

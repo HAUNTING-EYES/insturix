@@ -1,15 +1,65 @@
-export const metadata = {
-  title: "ICS’25 Gaming Registration | Insturix",
-  description: "Register individually for Valorant or BGMI at ICS’25. Create or join a team. Secure payment via Razorpay.",
-};
+import { Metadata } from "next";
+import Script from "next/script";
 import RegisterForm from "@/components/ics25/RegisterForm";
 import CursorEffect from "@/components/ui/CursorEffect";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import PopupTrigger from "@/components/ics25/PopupTrigger";
-
 import { redirect } from "next/navigation";
 import { auth } from "@clerk/nextjs/server";
+import { registerBreadcrumbSchema } from "@/lib/seo/ics25-schema";
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
+
+export const metadata: Metadata = {
+  title: "Register for GameOn Esports Tournament at ICS'25 — Valorant & BGMI | Insturix",
+  description:
+    "Register your team for GameOn esports tournaments at ICS'25. Compete in Valorant (5v5) and BGMI (4v4) with ₹25,000 prize pool. Online qualifiers + live finals at IIIT Delhi. Entry fee: ₹500 per player.",
+  keywords: [
+    "GameOn esports tournament registration ICS25",
+    "register for Valorant 5v5 tournament Delhi",
+    "BGMI 4v4 esports tournament registration",
+    "gaming tournament ICS25 Delhi",
+    "esports competition Valorant BGMI",
+    "GameOn tournament registration India",
+    "esports team registration ICS25",
+    "gaming tournament entry fee India",
+    "esports qualifiers ICS25 Delhi",
+    "Valorant BGMI tournament prize pool",
+  ],
+  alternates: {
+    canonical: "/ics25/register",
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_IN",
+    url: `${SITE_URL}/ics25/register`,
+    title: "Register for GameOn Esports Tournament at ICS'25",
+    description:
+      "Join GameOn esports tournaments at ICS'25 — compete in Valorant & BGMI with ₹25,000 prize pool. Register your team now!",
+    siteName: "Insturix",
+    images: [
+      {
+        url: "/ics25/gameon3.png",
+        width: 1200,
+        height: 630,
+        alt: "GameOn Esports Tournament at ICS'25 - Register Now",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@insturix",
+    creator: "@insturix",
+    title: "Register for GameOn Esports Tournament — ICS'25",
+    description: "Valorant 5v5 & BGMI 4v4 tournaments. Register your team. ₹25,000 prize pool!",
+    images: ["/ics25/gameon3.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
 
 export default async function Page() {
   // Block unauthenticated users from accessing registration
@@ -34,6 +84,12 @@ export default async function Page() {
   }
   return (
     <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950">
+      {/* Structured Data for SEO */}
+      <Script
+        id="register-breadcrumb-schema"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(registerBreadcrumbSchema) }}
+      />
       <div className="relative z-20">
         <Navbar />
       </div>

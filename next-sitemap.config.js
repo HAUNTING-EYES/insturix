@@ -74,7 +74,26 @@ const config = {
         changefreq: "always",
         priority: 1.0,
         lastmod: new Date().toISOString(),
-      }
+      },
+      // ICS'25 Event Pages (High Priority)
+      {
+        loc: "/ics25",
+        changefreq: "daily",
+        priority: 0.95,
+        lastmod: new Date().toISOString(),
+      },
+      {
+        loc: "/ics25/gameon",
+        changefreq: "weekly",
+        priority: 0.85,
+        lastmod: new Date().toISOString(),
+      },
+      {
+        loc: "/ics25/register",
+        changefreq: "daily",
+        priority: 0.9,
+        lastmod: new Date().toISOString(),
+      },
     ];
 
     // Combine all paths
@@ -155,6 +174,21 @@ const config = {
     if (path === "/") {
       priority = 1.0;
       changefreq = "always";
+    } else if (path?.startsWith("/ics25")) {
+      // ICS'25 event pages get high priority during event season
+      if (path === "/ics25") {
+        priority = 0.95;
+        changefreq = "daily";
+      } else if (path === "/ics25/register") {
+        priority = 0.9;
+        changefreq = "daily";
+      } else if (path === "/ics25/gameon") {
+        priority = 0.85;
+        changefreq = "weekly";
+      } else {
+        priority = 0.7;
+        changefreq = "weekly";
+      }
     } else if (path?.startsWith("/resources/blogs")) {
       priority = 0.9;
       changefreq = "daily";

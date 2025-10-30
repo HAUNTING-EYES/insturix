@@ -6,10 +6,60 @@ import { redirect } from "next/navigation";
 import CheckoutFormWrapper from "../../components/ics25/CheckoutFormWrapper";
 import { getIcs25Db } from "@/lib/ics25-mongo";
 import Attendee from "@/schemas/ics25/Attendee";
+import { Metadata } from "next";
+import Script from "next/script";
+import { ics25BreadcrumbSchema } from "@/lib/seo/ics25-schema";
 
-export const metadata = {
-  title: "Checkout · ICS'25 Attendee Pass | Insturix",
-  description: "Book your ICS'25 Attendee Pass (Bronze, Silver, Gold, Platinum). Secure payments via Razorpay.",
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
+
+export const metadata: Metadata = {
+  title: "Buy ICS'25 Creator Pass — Bronze, Silver, Gold, Platinum | Insturix Creators Summit 2025",
+  description:
+    "Book your ICS'25 Creator Pass now — choose from Bronze (free), Silver (₹2000), Gold (₹3000), or Platinum (₹7000). Full access to talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22-23. Secure payment via Razorpay.",
+  keywords: [
+    "buy ICS25 creator pass",
+    "ICS25 ticket price Delhi",
+    "creator summit pass Bronze Silver Gold Platinum",
+    "ICS25 event pass registration",
+    "Insturix Creators Summit 2025 ticket",
+    "event pass checkout ICS25",
+    "creator conference pass India",
+    "ICS25 pass price tier",
+    "book creator summit pass",
+    "ICS25 Delhi November event",
+  ],
+  alternates: {
+    canonical: "/checkout",
+  },
+  openGraph: {
+    type: "website",
+    locale: "en_IN",
+    url: `${SITE_URL}/checkout`,
+    title: "Buy ICS'25 Creator Pass — Multiple Tiers Available",
+    description:
+      "Secure your spot at ICS'25 — choose your Creator Pass tier. Bronze, Silver, Gold, or Platinum. Workshops, networking, and esports tournaments included.",
+    siteName: "Insturix",
+    images: [
+      {
+        url: "/ics25/ics25banner.png",
+        width: 1200,
+        height: 630,
+        alt: "Buy ICS'25 Creator Pass - Insturix Creators Summit 2025",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    site: "@insturix",
+    creator: "@insturix",
+    title: "Buy ICS'25 Creator Pass",
+    description: "Choose your pass tier: Bronze, Silver, Gold, or Platinum. Secure checkout via Razorpay.",
+    images: ["/ics25/ics25banner.png"],
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default async function Page({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
@@ -30,6 +80,12 @@ export default async function Page({ searchParams }: { searchParams?: Record<str
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950">
+      {/* Structured Data for SEO */}
+      <Script
+        id="checkout-breadcrumb-schema"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(ics25BreadcrumbSchema) }}
+      />
       <div className="relative z-20">
         <Navbar />
       </div>
