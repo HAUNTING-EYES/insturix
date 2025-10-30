@@ -3,7 +3,7 @@ import Link from "next/link";
 export type HighlightKey =
   | "Reel-Making Battles"
   | "Speed Editing Showdown"
-  | "Stand Up Comedy"
+  | "Talent Showdown"
   | "ThinkForge Ideation"
   | "Creator Panels"
   | "GameOn Esports"
@@ -56,24 +56,24 @@ export function getHighlightDetail(title: HighlightKey) {
           </ul>
         </div>
       );
-    case "Stand Up Comedy":
+    case "Talent Showdown":
       return (
         <div className="space-y-5">
-          <p className="text-white/90">Hilarious stand-up performances and comedy battles featuring top comedians and emerging talent.</p>
+          <p className="text-white/90">A platform for small and medium creators and non-creators to showcase their talent and launch themselves in front of the broader creator community and industry professionals.</p>
           <ul className="space-y-3 text-sm text-zinc-300">
             <li>
-              <div className="text-white font-medium">Performances</div>
-              <div className="mt-1">Live sets from professional comedians and creator showcases</div>
+              <div className="text-white font-medium">Who Can Participate</div>
+              <div className="mt-1">Small, medium creators, and non-creators of all skill levels</div>
             </li>
             <li className="divider-gradient" />
             <li>
-              <div className="text-white font-medium">Battles</div>
-              <div className="mt-1">Comedy showdowns with audience voting and prizes</div>
+              <div className="text-white font-medium">Showcase</div>
+              <div className="mt-1">Diverse talent categories including comedy, music, dance, storytelling, and more</div>
             </li>
             <li className="divider-gradient" />
             <li>
-              <div className="text-white font-medium">Workshops</div>
-              <div className="mt-1">Learn stand-up techniques and storytelling from experts</div>
+              <div className="text-white font-medium">Opportunity</div>
+              <div className="mt-1">Network with brands, gain exposure, and launch your creator journey</div>
             </li>
           </ul>
         </div>

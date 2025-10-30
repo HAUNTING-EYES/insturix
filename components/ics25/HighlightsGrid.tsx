@@ -16,7 +16,7 @@ type Item = {
 const items: Item[] = [
   { icon: Play, title: "Reel-Making Battles", desc: "Create viral clips live with Insturix tools." },
   { icon: Sparkles, title: "Speed Editing Showdown", desc: "Race to cut the most epic short video." },
-  { icon: Mic, title: "Stand Up Comedy", desc: "Hilarious performances and comedy battles." },
+  { icon: Mic, title: "Talent Showdown", desc: "Showcase your talent and launch your creator journey." },
   { icon: Cpu, title: "ThinkForge Ideation", desc: "ForgeAI to spark scripts and hooks." },
   { icon: Mic2, title: "Creator Panels", desc: "Talks on trends, growth and AI workflows." },
   { icon: Gamepad2, title: "GameOn Esports", desc: "Fully online Valorant & BGMI tournament." },

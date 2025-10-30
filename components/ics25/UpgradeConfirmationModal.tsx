@@ -50,9 +50,9 @@ const TIER_COLORS: Record<Tier, {
 };
 
 const TIER_BENEFITS: Record<Tier, string[]> = {
-  bronze: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards", "DJ night access"],
-  silver: ["Everything in Bronze", "Participate in Reel making showdown", "Speed Edits", "Access to quiet rooms and Gaming Zones", "Standup Show"],
-  gold: ["Everything in Silver", "Networking lounge", "Lunch both days", "Free merch", "1 yr Insturix Pro Subscription"],
+  bronze: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"],
+  silver: ["Everything in Bronze", "Participate in Reel making showdown", "Speed Edits", "Access to quiet rooms and Gaming Zones", "Talent Showdown"],
+  gold: ["Everything in Silver", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"],
   creators: ["Everything in Gold", "Priority Access", "Brand Shoutout", "Featuring on Banner"],
 };
 

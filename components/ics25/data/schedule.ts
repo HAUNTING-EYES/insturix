@@ -17,11 +17,10 @@ export const AGENDA_HIGHLIGHTS: AgendaItem[] = [
 	{ title: "Creator Awards", desc: "Honoring standout creators across categories." },
 	{ title: "Panel talks", desc: "Industry expert discussions and insights." },
 	{ title: "Speaker sessions", desc: "Keynote presentations from leading creators." },
-	{ title: "DJ night", desc: "Exclusive after-party with live music." },
 	{ title: "Speed Edits", desc: "Fast-paced editing competitions." },
-	{ title: "Standup Show", desc: "Comedy performances by creators." },
+	{ title: "Talent Showdown", desc: "A platform for small and medium creators and non-creators to showcase their talent and launch themselves in front of the broader creator community." },
 	{ title: "Lunch both days", desc: "Catered meals and networking opportunities." },
-	{ title: "Free merch", desc: "Exclusive ICS'25 branded merchandise." },
+	{ title: "Exclusive merch", desc: "Exclusive ICS'25 branded merchandise and goodies." },
 ];
 
 // DTV summary (no speculative exact hours; hours string kept general per brief)

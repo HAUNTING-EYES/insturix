@@ -162,7 +162,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 {[
                   { icon: Play, text: "Reel-Making Battles" },
                   { icon: Sparkles, text: "Speed Editing Showdown" },
-                  { icon: Mic, text: "Stand Up Comedy" },
+                  { icon: Mic, text: "Talent Showdown" },
                   { icon: Cpu, text: "ThinkForge Ideation" },
                   { icon: Mic2, text: "Creator Panels" },
                   { icon: Gamepad2, text: "GameOn Esports" },
@@ -268,7 +268,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 </div>
                 <div className="bg-white/5 border border-white/10 rounded-lg p-4">
                   <div className="text-white font-bold text-lg mb-2">🎉 Unforgettable Vibes</div>
-                  <div className="text-white/80 text-sm">Talks, panels, DJ night, standup comedy, and exclusive merch.</div>
+                  <div className="text-white/80 text-sm">Talks, panels, talent showcase, and exclusive merch.</div>
                 </div>
               </div>
             </motion.div>

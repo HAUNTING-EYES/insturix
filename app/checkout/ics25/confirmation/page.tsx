@@ -25,8 +25,7 @@ const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[
     perks: [
       "Access to panel talks",
       "Access to speaker sessions",
-      "Audience Access to Creator Awards",
-      "DJ night access"
+      "Audience Access to Creator Awards"
     ]
   },
   silver: { 
@@ -40,7 +39,7 @@ const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[
       "Participate in Reel making showdown",
       "Speed Edits",
       "Access to quite rooms and Gaming Zones",
-      "Standup Show"
+      "Talent Showdown"
     ]
   },
   gold: { 
@@ -53,7 +52,7 @@ const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[
       "Everything in Silver",
       "Networking lounge",
       "Lunch both days",
-      "Free merch",
+      "Exclusive merch",
       "1 yr Insturix Pro Subscription"
     ]
   },

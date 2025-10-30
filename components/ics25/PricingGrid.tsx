@@ -16,9 +16,9 @@ type Tier = {
 };
 
 const tiers: Tier[] = [
-  { name: "Bronze", price: "Free", features: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards", "DJ night access"], cta: "Register" },
-  { name: "Silver", price: "₹2500", features: ["Everything in Bronze Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Standup Show"], cta: "Get Pass" },
-  { name: "Gold", price: "₹5000", features: ["Everything in Silver Pass", "Networking lounge", "Lunch both days", "Free merch", "1 yr Insturix Pro Subscription"], cta: "Get Pass", highlight: true },
+  { name: "Bronze", price: "Free", features: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"], cta: "Register" },
+  { name: "Silver", price: "₹2500", features: ["Everything in Bronze Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Talent Showdown"], cta: "Get Pass" },
+  { name: "Gold", price: "₹5000", features: ["Everything in Silver Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"], cta: "Get Pass", highlight: true },
   { name: "Creators", price: "₹3000", features: ["Everything in Gold Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"], cta: "Get Creators Pass", reddish: true, subtitle: "Validity: 10k+ followers Instagram/YouTube/LinkedIn" },
 ];
 

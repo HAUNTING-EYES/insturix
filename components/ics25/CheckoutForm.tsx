@@ -33,9 +33,9 @@ import { useUser, useAuth } from "@clerk/nextjs";
 type Tier = "bronze" | "silver" | "gold" | "creators";
 
 const TIER_PRICING: Record<Tier, { label: string; amount: number; currency: "INR"; perks: string[]; cta?: string; subtitle?: string }> = {
-  bronze: { label: "Bronze", amount: 0, currency: "INR", perks: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards", "DJ night access"], cta: "Register" },
-  silver: { label: "Silver", amount: 2500, currency: "INR", perks: ["Everything in Bronze Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Standup Show"] },
-  gold: { label: "Gold", amount: 5000, currency: "INR", perks: ["Everything in Silver Pass", "Networking lounge", "Lunch both days", "Free merch", "1 yr Insturix Pro Subscription"] },
+  bronze: { label: "Bronze", amount: 0, currency: "INR", perks: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"], cta: "Register" },
+  silver: { label: "Silver", amount: 2500, currency: "INR", perks: ["Everything in Bronze Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Talent Showdown"] },
+  gold: { label: "Gold", amount: 5000, currency: "INR", perks: ["Everything in Silver Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"] },
   creators: { label: "Creators", amount: 3000, currency: "INR", perks: ["Everything in Gold Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"], subtitle: "Validity: 10k+ followers Instagram/YouTube/LinkedIn" },
 };
 
