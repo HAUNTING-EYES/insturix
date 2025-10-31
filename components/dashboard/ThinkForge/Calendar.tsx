@@ -2,8 +2,9 @@
 
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, format, isSameMonth, isToday, isSameDay, addMonths, subMonths } from "date-fns";
-import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus, Filter, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus, Filter, Search, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import FloatingIdeaPanel from "./FloatingIdeaPanel";
 
 export interface CalendarEvent {
   id: string;
@@ -21,6 +22,7 @@ type CalendarProps = {
   onEventClick?: (event: CalendarEvent) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
   onClose?: () => void;
+  onEventUpdate?: (id: string, patch: Partial<CalendarEvent>) => void;
 };
 
 // Platform icon mapping with ThinkForge tints (red-forward aesthetic)
@@ -79,10 +81,7 @@ const EventChip = ({ event, onClick, onDragEnd }: { event: CalendarEvent; onClic
         }
       }}
   className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-red-500/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
+      onClick={onClick}
     >
       <PlatformIcon platform={event.platform} size={10} />
       <span className="truncate flex-1">{event.title}</span>
@@ -106,7 +105,8 @@ export default function Calendar({
   onCellClick,
   onEventClick,
   onEventDrop,
-  onClose
+  onClose,
+  onEventUpdate
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState("");
@@ -118,6 +118,7 @@ export default function Calendar({
   ]);
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [openEventId, setOpenEventId] = useState<string | null>(null);
 
   // Generate calendar days for a single month
   const generateMonthDays = useCallback((date: Date) => {
@@ -150,7 +151,15 @@ export default function Calendar({
   // Group events by date for quick lookup
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    events.forEach(event => {
+    const q = searchQuery.trim().toLowerCase();
+    const filtered = q
+      ? events.filter((e) =>
+          e.title.toLowerCase().includes(q) ||
+          e.tags?.some((t) => t.toLowerCase().includes(q))
+        )
+      : events;
+
+    filtered.forEach(event => {
       const dateKey = format(new Date(event.date), 'yyyy-MM-dd');
       if (!map.has(dateKey)) {
         map.set(dateKey, []);
@@ -158,7 +167,7 @@ export default function Calendar({
       map.get(dateKey)!.push(event);
     });
     return map;
-  }, [events]);
+  }, [events, searchQuery]);
 
   // Navigation handlers
   const goToPreviousMonth = () => {
@@ -367,12 +376,15 @@ export default function Calendar({
           <div className="absolute top-0 bottom-0 right-0 w-12 bg-gradient-to-l from-neutral-950 to-transparent" />
         </div>
 
-        <div className="grid grid-cols-7 min-h-full">
+        <div className="grid grid-cols-7 min-h-full" role="grid">
           {calendarDays.map((day, idx) => {
             const dateKey = format(day, 'yyyy-MM-dd');
             const dayEvents = eventsByDate.get(dateKey) || [];
             const isCurrentMonth = isSameMonth(day, currentDate);
             const isTodayDate = isToday(day);
+            const maxChips = 3;
+            const visible = dayEvents.slice(0, maxChips);
+            const overflow = dayEvents.length - visible.length;
 
             return (
               <div
@@ -416,14 +428,28 @@ export default function Calendar({
                 {/* Events */}
                 <div className="space-y-1.5">
                   <AnimatePresence>
-                    {dayEvents.map(event => (
-                      <EventChip
+                    {visible.map(event => (
+                      <motion.button
                         key={event.id}
-                        event={event}
-                        onClick={() => onEventClick?.(event)}
-                        onDragEnd={onEventDrop}
-                      />
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        className="w-full text-left"
+                        onClick={() => {
+                          setOpenEventId(event.id);
+                          onEventClick?.(event);
+                        }}
+                      >
+                        <EventChip
+                          event={event}
+                          onClick={() => {}}
+                          onDragEnd={onEventDrop}
+                        />
+                      </motion.button>
                     ))}
+                    {overflow > 0 && (
+                      <div className="text-[11px] text-neutral-400">+{overflow} more</div>
+                    )}
                   </AnimatePresence>
                 </div>
               </div>
@@ -431,6 +457,35 @@ export default function Calendar({
           })}
         </div>
       </div>
+
+      {/* Floating Panel Overlay */}
+      <AnimatePresence>
+        {openEventId && events.find((e) => e.id === openEventId) && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-40"
+            onClick={() => setOpenEventId(null)}
+          >
+            <div className="absolute bottom-0 right-0 p-6 sm:bottom-auto sm:top-1/2 sm:right-12 sm:-translate-y-1/2">
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <FloatingIdeaPanel
+                  event={events.find((e) => e.id === openEventId)!}
+                  onClose={() => setOpenEventId(null)}
+                  onUpdate={onEventUpdate}
+                />
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

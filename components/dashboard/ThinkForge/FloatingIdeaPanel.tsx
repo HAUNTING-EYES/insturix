@@ -1,0 +1,123 @@
+"use client";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { Sparkles, X, Youtube, Instagram, Linkedin } from "lucide-react";
+import { useDebouncedCallback } from "use-debounce";
+
+// Import type only to avoid runtime dependency cycles
+import type { CalendarEvent } from "./Calendar";
+
+type FloatingIdeaPanelProps = {
+  event: CalendarEvent;
+  onClose: () => void;
+  onUpdate?: (id: string, patch: Partial<CalendarEvent>) => void;
+};
+
+const platformIcon = (platform: CalendarEvent["platform"]) => {
+  const common = "shrink-0";
+  if (platform === "youtube") return <Youtube size={14} className={common + " text-red-300"} />;
+  if (platform === "instagram") return <Instagram size={14} className={common + " text-rose-300"} />;
+  if (platform === "linkedin") return <Linkedin size={14} className={common + " text-red-200"} />;
+  return null;
+};
+
+export default function FloatingIdeaPanel({ event, onClose, onUpdate }: FloatingIdeaPanelProps) {
+  const [title, setTitle] = useState(event.title);
+  const [description, setDescription] = useState("");
+  const [status, setStatus] = useState<CalendarEvent["status"]>(event.status);
+
+  useEffect(() => {
+    // Reset when event changes
+    setTitle(event.title);
+    setStatus(event.status);
+  }, [event]);
+
+  const debouncedSave = useDebouncedCallback((patch: Partial<CalendarEvent>) => {
+    onUpdate?.(event.id, patch);
+  }, 600);
+
+  // Handlers
+  const handleTitleChange = (v: string) => {
+    setTitle(v);
+    debouncedSave({ title: v });
+  };
+
+  const handleStatusChange = (s: CalendarEvent["status"]) => {
+    setStatus(s);
+    onUpdate?.(event.id, { status: s });
+  };
+
+  const statusOptions: Array<CalendarEvent["status"]> = useMemo(() => [
+    "draft",
+    "scheduled",
+    "published",
+  ], []);
+
+  return (
+    <div className="w-[320px] md:w-[360px] rounded-2xl border border-neutral-800/70 bg-neutral-950/95 backdrop-blur-xl shadow-2xl shadow-red-900/20 outline-none">
+      <div className="p-3 border-b border-neutral-800/60 flex items-center gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium text-neutral-200">
+          {platformIcon(event.platform)}
+          <span className="truncate">{new Date(event.date).toDateString()}</span>
+        </div>
+        <div className="ml-auto flex items-center gap-1 text-neutral-400">
+          <Sparkles size={14} className="text-red-300/70" />
+          {event.aiScore ?? 0}
+        </div>
+        <button
+          aria-label="Close"
+          onClick={onClose}
+          className="ml-2 p-1 rounded-lg hover:bg-neutral-800/70 text-neutral-400 hover:text-white transition"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div className="p-4 space-y-3">
+        <input
+          value={title}
+          onChange={(e) => handleTitleChange(e.target.value)}
+          className="w-full bg-neutral-900/60 border border-neutral-800/70 rounded-xl px-3 py-2 text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-red-700/40"
+          placeholder="Idea…"
+        />
+
+        <div className="flex gap-2 items-center text-xs text-neutral-400">
+          {statusOptions.map((s) => (
+            <button
+              key={s}
+              onClick={() => handleStatusChange(s)}
+              className={`px-2.5 py-1 rounded-lg border text-xs transition ${
+                s === status
+                  ? "bg-red-700/20 border-red-700/50 text-red-200"
+                  : "bg-neutral-900/50 border-neutral-800/70 hover:bg-neutral-800/60"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <textarea
+          value={description}
+          onChange={(e) => {
+            setDescription(e.target.value);
+            debouncedSave({ aiScore: event.aiScore }); // example autosave touch; extend to persist description if added to type
+          }}
+          placeholder="Script / notes…"
+          rows={6}
+          className="w-full bg-neutral-900/60 border border-neutral-800/70 rounded-xl px-3 py-2 text-sm text-neutral-200 placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-red-700/40 resize-none"
+        />
+
+        <div className="flex items-center justify-between text-xs text-neutral-500">
+          <span>Last edited just now</span>
+          <button
+            className="px-3 py-1.5 rounded-lg bg-gradient-to-br from-red-600 to-red-700 text-white text-xs shadow-md"
+            onClick={onClose}
+          >
+            Open Script
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
