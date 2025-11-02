@@ -59,7 +59,7 @@ export const ics25EventSchema = {
     {
       "@type": "Offer",
       name: "Silver Pass",
-      price: "2000",
+      price: "2500",
       priceCurrency: "INR",
       availability: "https://schema.org/InStock",
       url: `${SITE_URL}/ics25/register`,
@@ -69,7 +69,7 @@ export const ics25EventSchema = {
     {
       "@type": "Offer",
       name: "Gold Pass",
-      price: "3000",
+      price: "5000",
       priceCurrency: "INR",
       availability: "https://schema.org/InStock",
       url: `${SITE_URL}/ics25/register`,
@@ -78,13 +78,13 @@ export const ics25EventSchema = {
     },
     {
       "@type": "Offer",
-      name: "Platinum Pass",
-      price: "7000",
+      name: "Creators Pass",
+      price: "3000",
       priceCurrency: "INR",
       availability: "https://schema.org/InStock",
       url: `${SITE_URL}/ics25/register`,
       validFrom: "2025-10-01T00:00:00+05:30",
-      category: "VIP perks, meet creators, backstage access, 1-year Insturix Pro",
+      category: "Everything in Gold + creator perks",
     },
   ],
   performer: [
@@ -187,7 +187,7 @@ export const ics25FAQSchema = {
       name: "How do I register for ICS'25?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Visit insturix.com/ics25 and click 'Register Now' to choose your Creator Pass tier (Bronze, Silver, Gold, or Platinum). You can also register for the GameOn esports tournament separately. Payment is via secure Razorpay gateway with UPI, cards, and net banking.",
+        text: "Visit insturix.com/ics25 and click 'Register Now' to choose your pass tier (Bronze, Silver, Gold, or Creators). You can also register for the GameOn esports tournament separately. Payment is via secure Razorpay gateway with UPI, cards, and net banking.",
       },
     },
     {
@@ -195,7 +195,7 @@ export const ics25FAQSchema = {
       name: "What are the ticket prices for ICS'25?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "Bronze Pass: Free (upon task completion), Silver: ₹2,000 (students) / ₹2,500, Gold: ₹3,000, Platinum: ₹7,000. Group discounts of 20% are available for teams of 5+. All passes include access to talks, zones, workshops, and networking areas with varying levels of perks.",
+        text: "Bronze Pass: Free (upon task completion), Silver: ₹2,500, Gold: ₹5,000, Creators: ₹3,000. Group discounts of 20% are available for teams of 5+. All passes include access to talks, zones, workshops, and networking areas with varying levels of perks.",
       },
     },
     {

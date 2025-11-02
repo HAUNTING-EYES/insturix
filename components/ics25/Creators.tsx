@@ -93,6 +93,20 @@ const creators = [
     },
     description: "Santosh Mishra is a skilled Microsoft software engineer and tech educator renowned for his YouTube channel 'InterviewCafe', where he provides practical career guidance, interview preparation tips, and technical education to aspiring professionals across digital platforms.",
   },
+  {
+    id: 7,
+    name: "Chitwan Garg",
+    handle: "@chitwangarg",
+    avatar: "/creators/chitwan.jpg",
+    category: "Fitness & Nutrition Certified Coach and Expert, Content Creator",
+    followers: "2M+",
+    verified: true,
+    socials: {
+      youtube: "https://www.youtube.com/@Chitwangarg",
+      instagram: "https://www.instagram.com/chitwangarg",
+    },
+    description: "Chitwan Garg is a certified nutrition coach and top fitness creator, inspiring hundreds of thousands with accessible, results-oriented nutrition and wellness content across Instagram and YouTube.",
+  },
 ];
 
 const categoryBlurbs: Record<string, string> = {

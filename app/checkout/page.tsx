@@ -13,13 +13,13 @@ import { ics25BreadcrumbSchema } from "@/lib/seo/ics25-schema";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
 
 export const metadata: Metadata = {
-  title: "Buy ICS'25 Creator Pass — Bronze, Silver, Gold, Platinum | Insturix Creators Summit 2025",
+  title: "Buy ICS'25 Attendee Pass — Bronze, Silver, Gold, Creators | Insturix Creators Summit 2025",
   description:
-    "Book your ICS'25 Creator Pass now — choose from Bronze (free), Silver (₹2000), Gold (₹3000), or Platinum (₹7000). Full access to talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22-23. Secure payment via Razorpay.",
+    "Book your ICS'25 Attendee Pass — Bronze (free), Silver (₹2500), Gold (₹5000), Creators (₹3000). Access talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22-23. Secure payment via Razorpay.",
   keywords: [
     "buy ICS25 creator pass",
     "ICS25 ticket price Delhi",
-    "creator summit pass Bronze Silver Gold Platinum",
+  "creator summit pass Bronze Silver Gold Creators",
     "ICS25 event pass registration",
     "Insturix Creators Summit 2025 ticket",
     "event pass checkout ICS25",
@@ -35,9 +35,9 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_IN",
     url: `${SITE_URL}/checkout`,
-    title: "Buy ICS'25 Creator Pass — Multiple Tiers Available",
+    title: "Buy ICS'25 Attendee Pass — Multiple Tiers Available",
     description:
-      "Secure your spot at ICS'25 — choose your Creator Pass tier. Bronze, Silver, Gold, or Platinum. Workshops, networking, and esports tournaments included.",
+      "Secure your spot at ICS'25 — choose your pass tier. Bronze, Silver, Gold, or Creators. Workshops, networking, and esports included.",
     siteName: "Insturix",
     images: [
       {
@@ -52,8 +52,8 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     site: "@insturix",
     creator: "@insturix",
-    title: "Buy ICS'25 Creator Pass",
-    description: "Choose your pass tier: Bronze, Silver, Gold, or Platinum. Secure checkout via Razorpay.",
+  title: "Buy ICS'25 Attendee Pass",
+  description: "Choose your pass tier: Bronze, Silver, Gold, or Creators. Secure checkout via Razorpay.",
     images: ["/ics25/ics25banner.png"],
   },
   robots: {

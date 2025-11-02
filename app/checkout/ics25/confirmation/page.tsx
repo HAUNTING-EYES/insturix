@@ -344,7 +344,8 @@ export default function ConfirmationPage() {
                 <p className="text-white/80">
                   You're all set for ICS'25! We've sent a confirmation email to <strong className="text-white">{attendee.email}</strong> with your event details and badge information.
                 </p>
-                {currentTier === 'creators' && (
+                {/* Show refund message only if there's a refund record (Gold → Creators upgrade) */}
+                {currentTier === 'creators' && attendee.refunds && attendee.refunds.length > 0 && (
                   <div className="mt-4 pt-4 border-t border-emerald-500/30">
                     <p className="text-sm text-emerald-300 flex items-center gap-2">
                       <Check className="h-4 w-4" />

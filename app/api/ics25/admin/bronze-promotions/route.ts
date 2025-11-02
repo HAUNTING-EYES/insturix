@@ -1,35 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import BronzePromotionSubmission from '@/schemas/ics25/BronzePromotionSubmission';
 import Attendee from '@/schemas/ics25/Attendee';
-
-// Admin emails allowed to review submissions
-const ADMIN_EMAILS = [
-  'shubh@insturix.com',
-  'adarsh@insturix.com',
-  // Add more admin emails as needed
-];
 
 /**
  * GET /api/ics25/admin/bronze-promotions
  * List all bronze promotion submissions (filtered by status if provided)
  */
 export async function GET(req: NextRequest) {
+  // Verify admin access
+  const adminCheck = await verifyAdminForApi();
+  if (!adminCheck.isAdmin) {
+    return adminCheck.response;
+  }
+
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user is admin
-    const user = await clerkClient().users.getUser(userId);
-    const userEmail = user?.emailAddresses?.[0]?.emailAddress;
-    
-    if (!userEmail || !ADMIN_EMAILS.includes(userEmail)) {
-      return NextResponse.json({ ok: false, message: 'Admin access required' }, { status: 403 });
-    }
-
     await getIcs25Db();
 
     const { searchParams } = new URL(req.url);
@@ -56,20 +42,13 @@ export async function GET(req: NextRequest) {
  * Approve or reject a bronze promotion submission
  */
 export async function POST(req: NextRequest) {
+  // Verify admin access
+  const adminCheck = await verifyAdminForApi();
+  if (!adminCheck.isAdmin) {
+    return adminCheck.response;
+  }
+
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check if user is admin
-    const user = await clerkClient().users.getUser(userId);
-    const userEmail = user?.emailAddresses?.[0]?.emailAddress;
-    
-    if (!userEmail || !ADMIN_EMAILS.includes(userEmail)) {
-      return NextResponse.json({ ok: false, message: 'Admin access required' }, { status: 403 });
-    }
-
     await getIcs25Db();
 
     const body = await req.json();
@@ -104,7 +83,7 @@ export async function POST(req: NextRequest) {
     // Update submission
     submission.status = action === 'approve' ? 'verified' : 'rejected';
     submission.reviewedAt = new Date();
-    submission.reviewedBy = userId;
+    submission.reviewedBy = adminCheck.email || adminCheck.userId!;
     
     if (action === 'reject') {
       submission.rejectionReason = rejectionReason;

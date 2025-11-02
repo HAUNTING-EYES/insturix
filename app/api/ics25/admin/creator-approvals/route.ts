@@ -1,20 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, clerkClient } from '@clerk/nextjs/server';
+import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Creator from '@/schemas/ics25/Creator';
 
 // Admin-only endpoint to approve/reject Creator Pass applications
 export async function POST(req: NextRequest) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
-
-  // Check if user is admin (you can customize this check based on your admin setup)
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const isAdmin = user.publicMetadata?.role === 'admin' || user.privateMetadata?.role === 'admin';
-  
-  if (!isAdmin) {
-    return NextResponse.json({ ok: false, message: 'Forbidden: Admin access required' }, { status: 403 });
+  // Verify admin access
+  const adminCheck = await verifyAdminForApi();
+  if (!adminCheck.isAdmin) {
+    return adminCheck.response;
   }
 
   await getIcs25Db();
@@ -35,17 +29,10 @@ export async function POST(req: NextRequest) {
     }, { status: 400 });
   }
 
-  if (action !== 'approve' && action !== 'reject') {
+  if (action !== 'approve' && action !== 'reject' && action !== 'revert') {
     return NextResponse.json({ 
       ok: false, 
-      message: 'Invalid action. Must be "approve" or "reject"' 
-    }, { status: 400 });
-  }
-
-  if (action === 'reject' && !rejectionReason?.trim()) {
-    return NextResponse.json({ 
-      ok: false, 
-      message: 'Rejection reason is required when rejecting an application' 
+      message: 'Invalid action. Must be "approve", "reject", or "revert"' 
     }, { status: 400 });
   }
 
@@ -60,12 +47,19 @@ export async function POST(req: NextRequest) {
     }
 
     // Update approval status
-    creator.status = action === 'approve' ? 'approved' : 'rejected';
-    creator.reviewedAt = new Date();
-    creator.reviewedBy = user.emailAddresses[0]?.emailAddress || userId;
+    creator.status = action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'pending';
     
-    if (action === 'reject') {
-      creator.rejectionReason = rejectionReason.trim();
+    if (action === 'revert') {
+      creator.reviewedAt = undefined;
+      creator.reviewedBy = undefined;
+      creator.rejectionReason = undefined;
+    } else {
+      creator.reviewedAt = new Date();
+      creator.reviewedBy = adminCheck.email || adminCheck.userId!;
+      
+      if (action === 'reject' && rejectionReason?.trim()) {
+        creator.rejectionReason = rejectionReason.trim();
+      }
     }
 
     await creator.save();
@@ -86,16 +80,10 @@ export async function POST(req: NextRequest) {
 
 // Get all pending Creator Pass applications (admin only)
 export async function GET(req: NextRequest) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
-
-  // Check if user is admin
-  const client = await clerkClient();
-  const user = await client.users.getUser(userId);
-  const isAdmin = user.publicMetadata?.role === 'admin' || user.privateMetadata?.role === 'admin';
-  
-  if (!isAdmin) {
-    return NextResponse.json({ ok: false, message: 'Forbidden: Admin access required' }, { status: 403 });
+  // Verify admin access
+  const adminCheck = await verifyAdminForApi();
+  if (!adminCheck.isAdmin) {
+    return adminCheck.response;
   }
 
   await getIcs25Db();

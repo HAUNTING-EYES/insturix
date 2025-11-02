@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Attendee from '@/schemas/ics25/Attendee';
 import Creator from '@/schemas/ics25/Creator';
@@ -13,15 +13,13 @@ const TIER_PRICING: Record<string, number> = {
 };
 
 export async function POST(req: NextRequest) {
-  try {
-    const { userId } = await auth();
-    
-    // TODO: Add admin role check here
-    // For now, any authenticated user can approve (should be restricted to admins)
-    if (!userId) {
-      return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 });
-    }
+  // Verify admin access
+  const adminCheck = await verifyAdminForApi();
+  if (!adminCheck.isAdmin) {
+    return adminCheck.response;
+  }
 
+  try {
     await getIcs25Db();
 
     const { creatorUserId, approved, rejectionReason } = await req.json();
@@ -46,7 +44,7 @@ export async function POST(req: NextRequest) {
       // Approve the creator application
       creator.status = 'approved';
       creator.reviewedAt = new Date();
-      creator.reviewedBy = userId; // Admin who approved
+      creator.reviewedBy = adminCheck.email || adminCheck.userId!; // Admin who approved
       await creator.save();
 
       const currentTier = attendee.attendeePassTier;
@@ -139,7 +137,7 @@ export async function POST(req: NextRequest) {
       // Reject the creator application
       creator.status = 'rejected';
       creator.reviewedAt = new Date();
-      creator.reviewedBy = userId;
+      creator.reviewedBy = adminCheck.email || adminCheck.userId!;
       creator.rejectionReason = rejectionReason || 'Did not meet eligibility requirements';
       await creator.save();
 
