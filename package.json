@@ -73,6 +73,7 @@
     "@vercel/edge": "^1.2.2",
     "@vercel/speed-insights": "^1.2.0",
     "ai": "^5.0.44",
+    "aws4": "^1.13.2",
     "axios": "^1.12.2",
     "cheerio": "^1.1.0",
     "class-variance-authority": "^0.7.1",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import Link from "next/link";
 
 export default function AdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
@@ -22,9 +23,9 @@ export default function AdminError({ error, reset }: { error: Error & { digest?:
         >
           Retry
         </button>
-        <a href="/" className="px-4 py-2 rounded border border-zinc-300 dark:border-zinc-700">
+        <Link href="/" className="px-4 py-2 rounded border border-zinc-300 dark:border-zinc-700">
           Go Home
-        </a>
+        </Link>
       </div>
       {process.env.NODE_ENV === "development" && (
         <pre className="mt-6 text-left text-xs max-w-3xl overflow-auto p-3 bg-zinc-100 dark:bg-zinc-900 rounded">

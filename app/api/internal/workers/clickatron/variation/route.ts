@@ -530,7 +530,10 @@ async function handler(req: Request) {
 }
 
 // Add error handling for signature verification
-const protectedHandler = verifySignatureAppRouter(handler);
+// Only enable signature verification if QStash keys are available
+const protectedHandler = process.env.QSTASH_CURRENT_SIGNING_KEY 
+  ? verifySignatureAppRouter(handler)
+  : handler;
 
 export const POST = async (req: Request) => {
   try {
