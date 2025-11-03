@@ -35,7 +35,23 @@ import {
 
 import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
 import { BannerCustomizer } from "./BannerCustomizer";
+import { getExpiresAtFromDuration, isNotificationExpired } from "@/lib/utils/notification";
 
+
+
+// interface ISocialize {
+//   clerkUserId: string;
+//   username: string;
+//   profileImage: string;
+//   bio: string;
+//   links: SocializeLink[];
+//   banner?: BannerConfig;
+//   uniqueUsername?: string;
+//   notifications?: { message: string; duration: number }[];
+//   createdAt: Date;
+//   updatedAt: Date;
+// }
+// Add the necessary fields to the notification object type within ISocialize
 interface ISocialize {
   clerkUserId: string;
   username: string;
@@ -44,7 +60,14 @@ interface ISocialize {
   links: SocializeLink[];
   banner?: BannerConfig;
   uniqueUsername?: string;
-  notifications?: { message: string; duration: number }[];
+  notifications?: { 
+    message: string; 
+    duration: number;
+    // --- ADD THESE TWO FIELDS ---
+    timestamp?: string; 
+    expiresAt?: string;
+    // ----------------------------
+  }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -311,31 +334,73 @@ export default function SocializeDashboard({
     );
   };
 
+  // const handleAddUpdate = async () => {
+  //   if (
+  //     duration === "" ||
+  //     Number(duration) < 1 ||
+  //     Number(duration) > 24 ||
+  //     !message.trim()
+  //   )
+  //     return;
+  //   updateUserDataMutation.mutate(
+  //     {
+  //       notifications: [{ message, duration: Number(duration) }],
+  //     },
+  //     {
+  //       onSuccess: () => {
+  //         setShowUpdatePopup(false);
+  //         toast({
+  //           title: "Success",
+  //           description: "Notification updated",
+  //           variant: "default",
+  //           duration: 4000,
+  //         });
+  //       },
+  //     }
+  //   );
+  // };
   const handleAddUpdate = async () => {
-    if (
-      duration === "" ||
-      Number(duration) < 1 ||
-      Number(duration) > 24 ||
-      !message.trim()
-    )
-      return;
-    updateUserDataMutation.mutate(
-      {
-        notifications: [{ message, duration: Number(duration) }],
+  if (
+    duration === "" ||
+    Number(duration) < 1 ||
+    Number(duration) > 24 ||
+    !message.trim()
+  )
+    return;
+
+  const now = new Date().toISOString();
+  const expiresAt = getExpiresAtFromDuration(Number(duration));
+
+  updateUserDataMutation.mutate(
+    {
+      // notifications: [
+      //   {
+      //     message,
+      //     duration: Number(duration),
+      //     timestamp: now,
+      //     expiresAt,
+      //   },
+      notifications: [
+  ...(userData?.notifications?.filter((n) => !isNotificationExpired(n)) || []),
+  { message, duration: Number(duration), timestamp: now, expiresAt }
+],
+
+    
+    },
+    {
+      onSuccess: () => {
+        setShowUpdatePopup(false);
+        toast({
+          title: "Success",
+          description: "Notification added successfully",
+          variant: "default",
+          duration: 4000,
+        });
       },
-      {
-        onSuccess: () => {
-          setShowUpdatePopup(false);
-          toast({
-            title: "Success",
-            description: "Notification updated",
-            variant: "default",
-            duration: 4000,
-          });
-        },
-      }
-    );
-  };
+    }
+  );
+};
+
   const handleSelectLink = (index: number) => {
     setSelectedLinkIndex(index);
   };
@@ -366,6 +431,24 @@ export default function SocializeDashboard({
     setBanner(newBanner);
     updateUserDataMutation.mutate({ banner: newBanner });
   };
+  // console.log("Notifications:", userData?.updates);
+//      const activeNotification =
+//   userData?.notifications?.find((n) => !isNotificationExpired(n)) ?? null;
+// // Force re-check every minute to auto-hide expired notifications
+// Auto-filter out expired notifications
+const activeNotification =
+  (userData?.notifications ?? []).filter((n) => !isNotificationExpired(n))[0] ??
+  null;
+
+// Re-render every minute to re-check expiry
+const [, forceRender] = useState(0);
+useEffect(() => {
+  const interval = setInterval(() => forceRender((v) => v + 1), 10_000);
+  return () => clearInterval(interval);
+}, []);
+
+
+
 
   return (
     <div className="relative">
@@ -409,7 +492,7 @@ export default function SocializeDashboard({
               }}
             />
             <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
-            {userData?.notifications?.[0]?.message ? (
+            {/* {userData?.notifications?.[0]?.message ? (
               <SocializeNotificationCard
                 message={userData.notifications[0].message}
                 duration={userData.notifications[0].duration}
@@ -426,7 +509,28 @@ export default function SocializeDashboard({
                   Add a New Update
                 </Button>
               </div>
-            )}
+            )} */}
+         
+
+{activeNotification ? (
+  <SocializeNotificationCard
+    message={activeNotification.message}
+    duration={activeNotification.duration}
+    onEdit={() => setShowUpdatePopup(true)}
+  />
+) : (
+  <div className="mb-6">
+    <Button
+      variant="outline"
+      className="border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+      onClick={() => setShowUpdatePopup(true)}
+    >
+      <Bell className="w-4 h-4 mr-2" />
+      Add a New Update
+    </Button>
+  </div>
+)}
+
             <SocializeLinksCard
               links={links}
               selectedLinkIndex={selectedLinkIndex}
