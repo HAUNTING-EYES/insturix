@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 const milestones = [
   { date: "Nov 8", label: "Qualifiers (Online)" },
   { date: "Nov 15", label: "Finals (Online)" },
-  { date: "Nov 22–23", label: "ICS'25 @ IIIT Delhi" },
+  { date: "Nov 22", label: "ICS'25 @ IIIT Delhi" },
   { date: "Nov 23", label: "GameOn Awards Ceremony" },
 ];
 

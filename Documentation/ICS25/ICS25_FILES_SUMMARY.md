@@ -159,7 +159,7 @@ Profile pictures for featured creators (JPG/PNG, 400x400px)
 
 ## Event Details
 
-- **Dates**: November 22-23, 2025
+- **Dates**: November 22, 2025
 - **Venue**: IIIT Delhi, Okhla Industrial Estate Phase III, New Delhi
 - **Expected Attendance**: 800+ creators
 - **Digital Reach**: 30M+

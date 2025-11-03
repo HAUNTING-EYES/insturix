@@ -21,12 +21,12 @@
 ### Landing Page
 **Title:**
 ```
-Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22–23, IIIT Delhi
+Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22, IIIT Delhi
 ```
 
 **Meta Description:**
 ```
-Join 800+ creators at ICS'25 in Delhi — two days of AI-powered demos (Editron, Alyzitron, Musitron), live reel-making competitions, workshops, and GameOn esports (Valorant & BGMI). Register now — early spots & group discounts available.
+Join 800+ creators at ICS'25 in Delhi — AI-powered demos (Editron, Alyzitron, Musitron), live reel-making competitions, workshops, and GameOn esports (Valorant & BGMI). Register now — early spots & group discounts available.
 ```
 
 ### GameOn Page
@@ -59,7 +59,7 @@ Buy your ICS'25 Creator Pass or register for GameOn tournaments. Get cashback re
 ```
 🚀 ICS'25 is HERE! India's largest student-led creator summit
 
-📅 Nov 22-23, 2025
+📅 Nov 22, 2025
 📍 IIIT Delhi
 
 ✨ AI tool demos (Editron, Alyzitron, Musitron)
@@ -78,7 +78,7 @@ Excited to announce ICS'25 — Insturix Creators Summit 2025! 🎉
 
 Join 800+ creators, gamers, and entrepreneurs at India's largest student-led creator-tech summit.
 
-📅 November 22-23, 2025
+📅 November 22, 2025
 📍 IIIT Delhi, New Delhi
 
 What's happening:
@@ -104,7 +104,7 @@ Early bird spots filling fast. Secure your Creator Pass today!
 India's BIGGEST creator summit 🚀
 
 📍 IIIT Delhi
-📅 Nov 22-23, 2025
+📅 Nov 22, 2025
 🎯 800+ Creators
 
 What you'll get:
@@ -128,12 +128,12 @@ Link in bio to register! 👆
 
 ### YouTube Title
 ```
-ICS'25 — India's Biggest Creator Summit | Nov 22-23 at IIIT Delhi | Register Now!
+ICS'25 — India's Biggest Creator Summit | Nov 22 at IIIT Delhi | Register Now!
 ```
 
 ### YouTube Description
 ```
-ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-tech summit happening on November 22-23, 2025, at IIIT Delhi.
+ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-tech summit happening on November 22, 2025, at IIIT Delhi.
 
 Join 800+ creators for:
 ✅ AI tool demos (Editron, Alyzitron, Musitron, ThinkForge)
@@ -176,7 +176,7 @@ LinkedIn: /company/insturix
 
 ### Search Ad 1 - Event Registration
 **Headline 1:** Register for ICS'25 Creator Summit
-**Headline 2:** Nov 22-23 at IIIT Delhi
+**Headline 2:** Nov 22 at IIIT Delhi
 **Headline 3:** 800+ Creators | AI Tools | Esports
 
 **Description 1:** Join India's largest creator-tech summit. AI demos, competitions, workshops, networking. Early bird spots available!
@@ -240,7 +240,7 @@ LinkedIn: /company/insturix
 
 ### Announcement Email
 ```
-🚀 You're Invited: ICS'25 — India's Biggest Creator Summit (Nov 22-23)
+🚀 You're Invited: ICS'25 — India's Biggest Creator Summit (Nov 22)
 ```
 
 ### Registration Reminder
@@ -274,7 +274,7 @@ Event Venue, Technology Company, Educational Consultant
 
 **Description:**
 ```
-ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-tech summit at IIIT Delhi. Join 800+ creators for AI tool demos, live competitions, GameOn esports, workshops, and networking on November 22-23, 2025.
+ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-tech summit at IIIT Delhi. Join 800+ creators for AI tool demos, live competitions, GameOn esports, workshops, and networking on November 22, 2025.
 ```
 
 **Services:**
@@ -325,5 +325,5 @@ ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-te
 ---
 
 **Last Updated:** October 30, 2025
-**Event Dates:** November 22-23, 2025
+**Event Dates:** November 22, 2025
 **Location:** IIIT Delhi, New Delhi, India

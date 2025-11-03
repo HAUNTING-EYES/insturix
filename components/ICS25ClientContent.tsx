@@ -142,7 +142,7 @@ export default function ICS25ClientContent() {
             className="max-w-5xl mx-auto"
           >
                         <motion.div initial={{ opacity: 0, y: 10 }} animate={mounted && !shouldReduceMotion ? { opacity: 1, y: 0 } : { opacity: 1, y: 0 }} transition={{ delay: shouldReduceMotion ? 0 : 0.2, duration: shouldReduceMotion ? 0 : 0.5 }} className="mb-6 text-white/80">
-              Nov 22–23, 2025 • IIIT Delhi
+              Nov 22, 2025 • IIIT Delhi
             </motion.div>
 
             {/* Staggered per-letter title for cinematic entry */}
@@ -215,7 +215,7 @@ export default function ICS25ClientContent() {
         <div className="scroll-indicator" />
       </section>
       {/* DTV label */}
-      <div className="pointer-events-none absolute bottom-4 right-4 text-xs text-white/70">Nov 22–23, 2025 • IIIT Delhi</div>
+      <div className="pointer-events-none absolute bottom-4 right-4 text-xs text-white/70">Nov 22, 2025 • IIIT Delhi</div>
       {/* Rail Navigation */}
       <RailNav
         sections={[

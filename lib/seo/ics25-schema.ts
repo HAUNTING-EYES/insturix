@@ -179,7 +179,7 @@ export const ics25FAQSchema = {
       name: "What is ICS'25?",
       acceptedAnswer: {
         "@type": "Answer",
-        text: "ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-tech summit held on November 22-23, 2025, at IIIT Delhi. It brings together 800+ creators, gamers, entrepreneurs, and brands for two days of AI tool demos, live competitions, workshops, panels, networking, and the GameOn esports tournament.",
+        text: "ICS'25 (Insturix Creators Summit 2025) is India's largest student-led creator-tech summit held on November 22, 2025, at IIIT Delhi. It brings together 800+ creators, gamers, entrepreneurs, and brands for AI tool demos, live competitions, workshops, panels, networking, and the GameOn esports tournament.",
       },
     },
     {

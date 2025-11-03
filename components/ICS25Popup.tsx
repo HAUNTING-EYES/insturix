@@ -71,7 +71,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
               >
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15 text-white">
                   <Calendar className="w-4 h-4 text-white/80" />
-                  <span className="font-medium text-sm">Nov 22–23, 2025</span>
+                  <span className="font-medium text-sm">Nov 22, 2025</span>
                 </div>
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15 text-white">
                   <MapPin className="w-4 h-4 text-white/80" />

@@ -15,7 +15,7 @@ const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
 export const metadata: Metadata = {
   title: "Buy ICS'25 Attendee Pass — Bronze, Silver, Gold, Creators | Insturix Creators Summit 2025",
   description:
-    "Book your ICS'25 Attendee Pass — Bronze (free), Silver (₹2500), Gold (₹5000), Creators (₹3000). Access talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22-23. Secure payment via Razorpay.",
+    "Book your ICS'25 Attendee Pass — Bronze (free), Silver (₹2500), Gold (₹5000), Creators (₹3000). Access talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22. Secure payment via Razorpay.",
   keywords: [
     "buy ICS25 creator pass",
     "ICS25 ticket price Delhi",

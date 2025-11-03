@@ -27,7 +27,7 @@ Create these images (1200x630px, <500KB each):
 
 **Requirements:**
 - Clear event name: "ICS'25 - Insturix Creators Summit 2025"
-- Dates: "November 22-23, 2025"
+- Dates: "November 22, 2025"
 - Location: "IIIT Delhi"
 - Insturix branding/logo
 - High contrast, readable text

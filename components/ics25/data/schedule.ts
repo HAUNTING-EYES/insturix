@@ -25,7 +25,7 @@ export const AGENDA_HIGHLIGHTS: AgendaItem[] = [
 
 // DTV summary (no speculative exact hours; hours string kept general per brief)
 export const DTV = {
-	dates: "Nov 22–23, 2025",
+	dates: "Nov 22, 2025",
 	hours: "10:00 AM – 08:00 PM", // Full schedule drops Nov 15
 	venueShort: "IIIT Delhi, New Delhi"};
 

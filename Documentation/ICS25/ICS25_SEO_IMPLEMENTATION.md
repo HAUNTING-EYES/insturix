@@ -23,7 +23,7 @@ Created `lib/seo/ics25-schema.ts` with comprehensive schemas:
 
 #### **ICS'25 Landing Page** (`app/ics25/page.tsx`)
 ✅ **Metadata:**
-- Title: "Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22–23, IIIT Delhi"
+- Title: "Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22, IIIT Delhi"
 - Description: 160-char optimized with urgency CTA and key features
 - Keywords: Complete array from ics25-keywords.ts
 - Canonical: /ics25

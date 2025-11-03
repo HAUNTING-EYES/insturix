@@ -113,7 +113,7 @@ const sections: FaqSection[] = [
       {
         id: "ics-access",
         q: "Can we attend ICS'25 events?",
-        a: "Yes! Purchase an attendee pass separately to attend talks, workshops, and networking on Nov 22-23 @ IIIT Delhi.",
+        a: "Yes! Purchase an attendee pass separately to attend talks, workshops, and networking on Nov 22 @ IIIT Delhi.",
       },
     ],
   },

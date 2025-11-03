@@ -16,9 +16,9 @@ import {
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
 
 export const metadata: Metadata = {
-  title: "Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22–23, IIIT Delhi",
+  title: "Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22, IIIT Delhi",
   description:
-    "Join 800+ creators at ICS'25 in Delhi — two days of AI-powered demos (Editron, Alyzitron, Musitron), live reel-making competitions, workshops, and GameOn esports (Valorant & BGMI). Register now — early spots & group discounts available.",
+    "Join 800+ creators at ICS'25 in Delhi — AI-powered demos (Editron, Alyzitron, Musitron), live reel-making competitions, workshops, and GameOn esports (Valorant & BGMI). Register now — early spots & group discounts available.",
   keywords: allIcs25Keywords,
   authors: [{ name: "Insturix", url: SITE_URL }],
   creator: "Insturix",
@@ -30,7 +30,7 @@ export const metadata: Metadata = {
     type: "website",
     locale: "en_IN",
     url: `${SITE_URL}/ics25`,
-    title: "Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22–23, Delhi",
+    title: "Insturix Creators Summit 2025 (ICS'25) — Creator Summit & GameOn | Nov 22, Delhi",
     description:
       "Join 800+ creators at India's largest student-led creator-tech summit. AI tool demos, live competitions, workshops, GameOn esports (Valorant & BGMI), networking & awards. Register now!",
     siteName: "Insturix",
@@ -47,7 +47,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     site: "@insturix",
     creator: "@insturix",
-    title: "ICS'25 — Insturix Creators Summit 2025 | Nov 22–23, Delhi",
+    title: "ICS'25 — Insturix Creators Summit 2025 | Nov 22, Delhi",
     description:
       "Join 800+ creators at ICS'25 — AI demos, live competitions, workshops, GameOn esports. Register now for early bird spots!",
     images: ["/ics25/ics25banner.png"],
