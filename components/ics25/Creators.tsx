@@ -44,7 +44,7 @@ const creators = [
     handle: "@abhinavsayshi",
     avatar: "/creators/abhinav.jpg",
     category: "Entrepreneur, Digital Creator, Family Business Advisor",
-    followers: "250K+",
+    followers: "300K+",
     socials: {
       instagram: "https://www.instagram.com/abhinavsayshi/?hl=en",
       youtube: "https://www.youtube.com/@abhinavsayshi",
@@ -84,8 +84,7 @@ const creators = [
     handle: "@iamsantoshmishra",
     avatar: "/creators/santosh.jpg",
     category: "Software Engineer, Tech Educator, Content Creator",
-    followers: "100K+",
-    verified: true,
+    followers: "200K+",
     socials: {
       youtube: "https://www.youtube.com/@InterviewCafe",
       instagram: "https://www.instagram.com/iamsantoshmishra/",
@@ -100,12 +99,24 @@ const creators = [
     avatar: "/creators/chitwan.jpg",
     category: "Fitness & Nutrition Certified Coach and Expert, Content Creator",
     followers: "2M+",
-    verified: true,
     socials: {
       youtube: "https://www.youtube.com/@Chitwangarg",
       instagram: "https://www.instagram.com/chitwangarg",
     },
     description: "Chitwan Garg is a certified nutrition coach and top fitness creator, inspiring hundreds of thousands with accessible, results-oriented nutrition and wellness content across Instagram and YouTube.",
+  },
+  {
+    id: 8,
+    name: "Ekansh Taneja",
+    handle: "@ekansh_taneja_fitness",
+    avatar: "/creators/ekansh.jpg",
+    category: "Fitness Coach, Transformation Specialist, Content Creator",
+    followers: "1.5M+",
+    socials: {
+      youtube: "https://www.youtube.com/@EkanshTanejaFitness",
+      instagram: "https://www.instagram.com/ekansh_taneja_fitness",
+    },
+    description: "Ekansh Taneja is an award-winning fitness coach, ICN Gold medalist, and certified sports nutrition specialist who transformed his own health by losing over 37 kg, now helping thousands achieve dramatic results through flexible dieting, evidence-based programs, and social media influence across India.",
   },
 ];
 
