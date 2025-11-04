@@ -4,8 +4,10 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { addDays, startOfMonth, endOfMonth, startOfWeek, endOfWeek, format, isSameMonth, isToday, isSameDay, addMonths, subMonths } from "date-fns";
 import { ChevronLeft, ChevronRight, Youtube, Instagram, Linkedin, Sparkles, Plus, Filter, Search, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import FloatingIdeaPanel from "./FloatingIdeaPanel";
+import ContentCardModal from "./ContentCardModal";
+import { ContentCard } from "@/app/dashboard/thinkforge/types";
 
+// Legacy CalendarEvent type for backward compatibility
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -17,45 +19,54 @@ export interface CalendarEvent {
 }
 
 type CalendarProps = {
-  events: CalendarEvent[];
+  events: (ContentCard | CalendarEvent)[];
   onCellClick?: (date: Date) => void;
-  onEventClick?: (event: CalendarEvent) => void;
+  onEventClick?: (event: ContentCard | CalendarEvent) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
   onClose?: () => void;
-  onEventUpdate?: (id: string, patch: Partial<CalendarEvent>) => void;
+  onEventUpdate?: (id: string, patch: Partial<ContentCard | CalendarEvent>) => void;
+  onCreateCard?: (date: Date) => void;
+  onDeleteCard?: (id: string) => void;
+  onOpenScript?: (sessionId: string) => void;
 };
 
 // Platform icon mapping with ThinkForge tints (red-forward aesthetic)
-const PlatformIcon = ({ platform, size = 12 }: { platform: CalendarEvent['platform']; size?: number }) => {
-  const tint: Record<CalendarEvent['platform'], string> = {
+const PlatformIcon = ({ platform, size = 12 }: { platform: string; size?: number }) => {
+  const tint: Record<string, string> = {
     youtube: 'text-red-400',
     instagram: 'text-rose-400',
     linkedin: 'text-red-300',
   };
-  const common = `${tint[platform]} drop-shadow-[0_0_6px_rgba(255,0,0,0.08)]`;
-  const icons = {
+  const common = `${tint[platform] || 'text-red-300'} drop-shadow-[0_0_6px_rgba(255,0,0,0.08)]`;
+  const icons: Record<string, React.ReactNode> = {
     youtube: <Youtube size={size} className={common} />,
     instagram: <Instagram size={size} className={common} />,
     linkedin: <Linkedin size={size} className={common} />
   };
-  return icons[platform] || null;
+  return icons[platform] || <Sparkles size={size} className={common} />;
 };
 
 // Status color mapping for ThinkForge aesthetic (minimal + red/black)
-const getStatusColor = (status: CalendarEvent['status']) => {
+const getStatusColor = (status: string) => {
   // Keep subtle differences but stay within the red/neutral spectrum for cohesion
-  const colors = {
+  const colors: Record<string, string> = {
     scheduled: 'bg-red-600/15 border-red-500/40 text-red-200',
     draft: 'bg-neutral-800/60 border-neutral-700/70 text-neutral-200',
     published: 'bg-red-600/25 border-red-500/50 text-red-100',
-  } as const;
+    in_production: 'bg-yellow-600/15 border-yellow-500/40 text-yellow-200',
+  };
   return colors[status] || colors.draft;
 };
 
 // Event chip component - the small event pills shown in calendar cells
-const EventChip = ({ event, onClick, onDragEnd }: { event: CalendarEvent; onClick: () => void; onDragEnd?: (eventId: string, newDate: Date) => void }) => {
+const EventChip = ({ event, onClick, onDragEnd }: { event: ContentCard | CalendarEvent; onClick: () => void; onDragEnd?: (eventId: string, newDate: Date) => void }) => {
   const statusColor = getStatusColor(event.status);
-  const firstTag = event.tags?.[0];
+  // Support both legacy tags and new customTags
+  const allTags = ('customTags' in event && event.customTags?.length) 
+    ? [...event.customTags, ...(event.tags || [])]
+    : (event.tags || []);
+  const firstTag = allTags?.[0];
+  const isContentCard = 'customTags' in event && 'plannedDates' in event;
   
   return (
     <motion.div
@@ -80,7 +91,7 @@ const EventChip = ({ event, onClick, onDragEnd }: { event: CalendarEvent; onClic
           }
         }
       }}
-  className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-red-500/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
+      className={`group relative px-1.5 py-0.5 rounded-lg text-[10px] font-medium border cursor-pointer hover:scale-[1.02] transition-transform ${statusColor} truncate flex items-center gap-1 ring-1 ring-red-500/10 backdrop-blur-[2px] shadow-[0_1px_6px_rgba(220,38,38,0.15)]`}
       onClick={onClick}
     >
       <PlatformIcon platform={event.platform} size={10} />
@@ -106,7 +117,10 @@ export default function Calendar({
   onEventClick,
   onEventDrop,
   onClose,
-  onEventUpdate
+  onEventUpdate,
+  onCreateCard,
+  onDeleteCard,
+  onOpenScript
 }: CalendarProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState("");
@@ -119,6 +133,7 @@ export default function Calendar({
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [openEventId, setOpenEventId] = useState<string | null>(null);
+  const [selectedCard, setSelectedCard] = useState<ContentCard | null>(null);
 
   // Generate calendar days for a single month
   const generateMonthDays = useCallback((date: Date) => {
@@ -150,21 +165,41 @@ export default function Calendar({
 
   // Group events by date for quick lookup
   const eventsByDate = useMemo(() => {
-    const map = new Map<string, CalendarEvent[]>();
+    const map = new Map<string, (ContentCard | CalendarEvent)[]>();
     const q = searchQuery.trim().toLowerCase();
     const filtered = q
-      ? events.filter((e) =>
-          e.title.toLowerCase().includes(q) ||
-          e.tags?.some((t) => t.toLowerCase().includes(q))
-        )
+      ? events.filter((e) => {
+          const titleMatch = e.title.toLowerCase().includes(q);
+          const tagMatch = e.tags?.some((t) => t.toLowerCase().includes(q));
+          const customTagMatch = ('customTags' in e && e.customTags) 
+            ? e.customTags.some((t) => t.toLowerCase().includes(q))
+            : false;
+          const ideaMatch = ('idea' in e && e.idea) 
+            ? e.idea.idea.toLowerCase().includes(q) || 
+              e.idea.purpose.toLowerCase().includes(q)
+            : false;
+          return titleMatch || tagMatch || customTagMatch || ideaMatch;
+        })
       : events;
 
     filtered.forEach(event => {
-      const dateKey = format(new Date(event.date), 'yyyy-MM-dd');
-      if (!map.has(dateKey)) {
-        map.set(dateKey, []);
+      // Support multiple dates for ContentCard
+      if ('plannedDates' in event && event.plannedDates?.length > 0) {
+        event.plannedDates.forEach(dateStr => {
+          const dateKey = format(new Date(dateStr), 'yyyy-MM-dd');
+          if (!map.has(dateKey)) {
+            map.set(dateKey, []);
+          }
+          map.get(dateKey)!.push(event);
+        });
+      } else {
+        // Legacy single date support
+        const dateKey = format(new Date(event.date), 'yyyy-MM-dd');
+        if (!map.has(dateKey)) {
+          map.set(dateKey, []);
+        }
+        map.get(dateKey)!.push(event);
       }
-      map.get(dateKey)!.push(event);
     });
     return map;
   }, [events, searchQuery]);
@@ -390,16 +425,33 @@ export default function Calendar({
               <div
                 key={`${format(day, 'yyyy-MM-dd')}-${idx}`}
                 className={`
-                  relative min-h-[140px] p-3 border-r border-b border-neutral-800/40
+                  group relative min-h-[140px] p-3 border-r border-b border-neutral-800/40
                   ${isCurrentMonth ? 'bg-neutral-950' : 'bg-neutral-900/20'}
                   ${isTodayDate ? 'bg-red-950/20 border-red-900/40 shadow-[inset_0_0_0_1px_rgba(127,29,29,0.25)]' : ''}
-                  hover:bg-neutral-900/40 transition-colors cursor-pointer
+                  hover:bg-neutral-900/40 transition-all duration-200 cursor-pointer
                   ${idx % 7 === 6 ? 'border-r-0' : ''}
+                  focus-within:ring-2 focus-within:ring-red-500/50 focus-within:ring-offset-2 focus-within:ring-offset-neutral-950
                 `}
-                onClick={() => onCellClick?.(day)}
+                onClick={() => {
+                  if (dayEvents.length === 0 && onCreateCard) {
+                    onCreateCard(day);
+                  } else {
+                    onCellClick?.(day);
+                  }
+                }}
                 role="gridcell"
                 aria-label={format(day, 'MMMM d, yyyy')}
                 tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    if (dayEvents.length === 0 && onCreateCard) {
+                      onCreateCard(day);
+                    } else {
+                      onCellClick?.(day);
+                    }
+                  }
+                }}
               >
                 {/* Day number */}
                 <div className="flex items-start justify-between mb-2">
@@ -427,18 +479,25 @@ export default function Calendar({
 
                 {/* Events */}
                 <div className="space-y-1.5">
-                  <AnimatePresence>
+                  <AnimatePresence mode="popLayout">
                     {visible.map(event => (
                       <motion.button
                         key={event.id}
-                        initial={{ opacity: 0, scale: 0.9 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.9 }}
-                        className="w-full text-left"
-                        onClick={() => {
-                          setOpenEventId(event.id);
+                        initial={{ opacity: 0, scale: 0.9, y: -4 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.9, y: -4 }}
+                        transition={{ duration: 0.15 }}
+                        className="w-full text-left focus:outline-none focus:ring-2 focus:ring-red-500/50 rounded"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if ('customTags' in event && 'plannedDates' in event) {
+                            setSelectedCard(event as ContentCard);
+                          } else {
+                            setOpenEventId(event.id);
+                          }
                           onEventClick?.(event);
                         }}
+                        aria-label={`Open ${event.title} content card`}
                       >
                         <EventChip
                           event={event}
@@ -448,9 +507,20 @@ export default function Calendar({
                       </motion.button>
                     ))}
                     {overflow > 0 && (
-                      <div className="text-[11px] text-neutral-400">+{overflow} more</div>
+                      <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        className="text-[11px] text-neutral-400 px-1"
+                      >
+                        +{overflow} more
+                      </motion.div>
                     )}
                   </AnimatePresence>
+                  {dayEvents.length === 0 && isCurrentMonth && (
+                    <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-neutral-600 text-center py-1">
+                      Click to add
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -458,9 +528,27 @@ export default function Calendar({
         </div>
       </div>
 
-      {/* Floating Panel Overlay */}
+      {/* Content Card Modal */}
+      {selectedCard && (
+        <ContentCardModal
+          card={selectedCard}
+          isOpen={!!selectedCard}
+          onClose={() => setSelectedCard(null)}
+          onUpdate={(id, updates) => {
+            onEventUpdate?.(id, updates);
+            setSelectedCard(prev => prev ? { ...prev, ...updates } : null);
+          }}
+          onDelete={(id) => {
+            onDeleteCard?.(id);
+            setSelectedCard(null);
+          }}
+          onOpenScript={onOpenScript}
+        />
+      )}
+
+      {/* Legacy Floating Panel for CalendarEvent (backward compatibility) */}
       <AnimatePresence>
-        {openEventId && events.find((e) => e.id === openEventId) && (
+        {openEventId && events.find((e) => e.id === openEventId && !('customTags' in e)) && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -476,11 +564,10 @@ export default function Calendar({
                 exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <FloatingIdeaPanel
-                  event={events.find((e) => e.id === openEventId)!}
-                  onClose={() => setOpenEventId(null)}
-                  onUpdate={onEventUpdate}
-                />
+                {/* Keep FloatingIdeaPanel for legacy CalendarEvent support */}
+                <div className="text-xs text-neutral-400 p-4 bg-neutral-900/80 rounded-xl border border-neutral-800/70">
+                  Legacy event view - upgrade to ContentCard for full features
+                </div>
               </motion.div>
             </div>
           </motion.div>

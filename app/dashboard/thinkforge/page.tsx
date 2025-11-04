@@ -273,7 +273,8 @@ export default function ThinkForgeLanding() {
 			label: 'Planning',
 			onClick: () => {
 				setPlanningOpen(true);
-			}
+			},
+			active: planningOpen
 		},
 		{
 			icon: <FileText size={20} />,
@@ -498,6 +499,54 @@ export default function ThinkForgeLanding() {
 			<PlanningPanel
 				isOpen={planningOpen}
 				onClose={() => setPlanningOpen(false)}
+				onOpenScript={async (sessionId) => {
+					try {
+						setPlanningOpen(false);
+						// Close any existing session
+						await tf.closeSession();
+						setPendingSessionId(null);
+						
+						// Hydrate the session from content card
+						const data = await tf.hydrate({ sessionId });
+						if (data?.sessionId) {
+							setPendingSessionId(data.sessionId);
+							if (data.script) {
+								(tf.setScriptAndQueueSave as any)(data.script);
+							}
+							
+							// Reconstruct idea from project meta if available
+							const pm = data.projectMeta || {};
+							if (pm.idea) {
+								const stableId = (() => {
+									let h = 0;
+									for (let i = 0; i < String(sessionId).length; i++) {
+										h = (h * 31 + String(sessionId).charCodeAt(i)) >>> 0;
+									}
+									return h || Date.now();
+								})();
+								const ideaObj = {
+									id: stableId,
+									idea: pm.idea || 'Untitled',
+									purpose: pm.purpose || '',
+									style: pm.style || '',
+									format: pm.format || '',
+									platform: pm.platform || '',
+									tone: (pm.tone || 'blue') as any,
+								} as any;
+								setSelectedIdea(ideaObj);
+							}
+							
+							// Switch to SCRIPT phase
+							setPhase('SCRIPT');
+						}
+					} catch (err) {
+						toast({
+							title: 'Failed to open script',
+							description: 'Could not load the script session.',
+							variant: 'destructive',
+						});
+					}
+				}}
 			/>
 		</div>
 	);
