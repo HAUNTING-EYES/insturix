@@ -77,10 +77,11 @@ export default function BronzePromotionPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!instagramProofUrl || !linkedinProofUrl) {
+    // Require at least one link (Instagram or LinkedIn)
+    if (!instagramProofUrl && !linkedinProofUrl) {
       toast({
-        title: "Missing Links",
-        description: "Please provide both Instagram and LinkedIn promotion links",
+        title: "Missing Link",
+        description: "Please provide at least one promotion link (Instagram or LinkedIn)",
         variant: "destructive" as any,
       });
       return;
@@ -102,8 +103,8 @@ export default function BronzePromotionPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          instagramProofUrl,
-          linkedinProofUrl,
+          instagramProofUrl: instagramProofUrl || undefined,
+          linkedinProofUrl: linkedinProofUrl || undefined,
           name,
           email,
           phone,
@@ -167,7 +168,7 @@ export default function BronzePromotionPage() {
                 Bronze Pass - Promotion Tasks
               </h1>
               <p className="text-zinc-600 dark:text-zinc-400">
-                Complete these 2 simple tasks to unlock your <strong>free</strong> Bronze Pass for ICS'25!
+                Complete <strong>at least one</strong> of the following tasks to unlock your free Bronze Pass for ICS'25.
               </p>
             </div>
 
@@ -248,14 +249,14 @@ export default function BronzePromotionPage() {
 
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="instagram">Instagram Story Link *</Label>
+                  <Label htmlFor="instagram">Instagram Story Link (optional)</Label>
                   <Input
                     id="instagram"
                     type="url"
                     value={instagramProofUrl}
                     onChange={(e) => setInstagramProofUrl(e.target.value)}
                     placeholder="https://instagram.com/stories/..."
-                    required
+                    required={false}
                   />
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
                     Paste the link to your Instagram story (it should be public or saved to highlights)
@@ -263,14 +264,14 @@ export default function BronzePromotionPage() {
                 </div>
 
                 <div>
-                  <Label htmlFor="linkedin">LinkedIn Post Link *</Label>
+                  <Label htmlFor="linkedin">LinkedIn Post Link (optional)</Label>
                   <Input
                     id="linkedin"
                     type="url"
                     value={linkedinProofUrl}
                     onChange={(e) => setLinkedinProofUrl(e.target.value)}
                     placeholder="https://linkedin.com/posts/..."
-                    required
+                    required={false}
                   />
                   <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-500">
                     Paste the link to your LinkedIn post
@@ -298,7 +299,7 @@ export default function BronzePromotionPage() {
               </Button>
 
               <p className="text-xs text-center text-zinc-500">
-                By submitting, you agree to complete both promotional tasks as described
+                By submitting, you confirm you've completed at least one of the promotional tasks.
               </p>
             </form>
           </div>

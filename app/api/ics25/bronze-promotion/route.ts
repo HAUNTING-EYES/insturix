@@ -61,20 +61,26 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const { instagramProofUrl, linkedinProofUrl, name, email, phone } = body;
 
-    // Validate required fields
-    if (!instagramProofUrl || !linkedinProofUrl) {
+    // Validate at least one link is provided
+    if (!instagramProofUrl && !linkedinProofUrl) {
       return NextResponse.json({ 
         ok: false, 
-        message: 'Both Instagram and LinkedIn promotion links are required' 
+        message: 'Please provide at least one promotion link (Instagram or LinkedIn)' 
       }, { status: 400 });
     }
 
-    // Validate URLs
+    // Validate provided URLs only
     const urlPattern = /^https?:\/\/.+/i;
-    if (!urlPattern.test(instagramProofUrl) || !urlPattern.test(linkedinProofUrl)) {
+    if (instagramProofUrl && !urlPattern.test(instagramProofUrl)) {
       return NextResponse.json({ 
         ok: false, 
-        message: 'Please provide valid URLs for both promotion links' 
+        message: 'Please provide a valid Instagram URL' 
+      }, { status: 400 });
+    }
+    if (linkedinProofUrl && !urlPattern.test(linkedinProofUrl)) {
+      return NextResponse.json({ 
+        ok: false, 
+        message: 'Please provide a valid LinkedIn URL' 
       }, { status: 400 });
     }
 
@@ -98,8 +104,8 @@ export async function POST(req: NextRequest) {
     // Create or update submission
   if (submission) {
       // Update existing submission (e.g., if previously rejected)
-      submission.instagramProofUrl = instagramProofUrl;
-      submission.linkedinProofUrl = linkedinProofUrl;
+      submission.instagramProofUrl = instagramProofUrl || undefined as any;
+      submission.linkedinProofUrl = linkedinProofUrl || undefined as any;
       submission.status = 'submitted';
       if (typeof name === 'string') submission.name = name;
       if (typeof email === 'string') submission.email = email;
@@ -113,8 +119,8 @@ export async function POST(req: NextRequest) {
         ...(name ? { name } : {}),
         ...(email ? { email } : {}),
         ...(phone ? { phone } : {}),
-        instagramProofUrl,
-        linkedinProofUrl,
+        ...(instagramProofUrl ? { instagramProofUrl } : {}),
+        ...(linkedinProofUrl ? { linkedinProofUrl } : {}),
         status: 'submitted',
       });
     }
@@ -125,8 +131,8 @@ export async function POST(req: NextRequest) {
     if (attendee) {
       attendee.bronzePromotion = {
         status: 'submitted',
-        instagramProofUrl,
-        linkedinProofUrl,
+        ...(instagramProofUrl ? { instagramProofUrl } : {}),
+        ...(linkedinProofUrl ? { linkedinProofUrl } : {}),
         submittedAt: new Date(),
       } as any;
       await attendee.save();

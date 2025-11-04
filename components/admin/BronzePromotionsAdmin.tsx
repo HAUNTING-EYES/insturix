@@ -33,8 +33,8 @@ interface BronzeSubmission {
   name?: string;
   email?: string;
   phone?: string;
-  instagramProofUrl: string;
-  linkedinProofUrl: string;
+  instagramProofUrl?: string;
+  linkedinProofUrl?: string;
   status: 'submitted' | 'verified' | 'rejected';
   rejectionReason?: string;
   createdAt: string;
@@ -229,15 +229,19 @@ export default function BronzePromotionsAdmin() {
                             <Instagram className="w-5 h-5 text-pink-500" />
                             <span className="font-medium">Instagram Promotion</span>
                           </div>
-                          <a
-                            href={submission.instagramProofUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-sky-600 hover:underline flex items-center gap-1"
-                          >
-                            View Post
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
+                          {submission.instagramProofUrl ? (
+                            <a
+                              href={submission.instagramProofUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-sky-600 hover:underline flex items-center gap-1"
+                            >
+                              View Post
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <div className="text-sm text-zinc-500">Not provided</div>
+                          )}
                         </div>
 
                         <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
@@ -245,15 +249,19 @@ export default function BronzePromotionsAdmin() {
                             <Linkedin className="w-5 h-5 text-blue-600" />
                             <span className="font-medium">LinkedIn Post</span>
                           </div>
-                          <a
-                            href={submission.linkedinProofUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-sm text-sky-600 hover:underline flex items-center gap-1"
-                          >
-                            View Post
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
+                          {submission.linkedinProofUrl ? (
+                            <a
+                              href={submission.linkedinProofUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-sky-600 hover:underline flex items-center gap-1"
+                            >
+                              View Post
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <div className="text-sm text-zinc-500">Not provided</div>
+                          )}
                         </div>
                       </div>
 

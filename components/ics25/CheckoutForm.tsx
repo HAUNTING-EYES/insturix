@@ -420,9 +420,19 @@ export default function CheckoutForm() {
   }, [tier, bronzePromotionStatus]);
 
   const submitBronzePromotion = async () => {
-    // Validate URLs
-    if (!/^https?:\/\//i.test(bronzeInstagramUrl) || !/^https?:\/\//i.test(bronzeLinkedinUrl)) {
-      toast({ title: 'Invalid links', description: 'Please paste valid public URLs for Instagram and LinkedIn.', variant: 'destructive' as any });
+    // Require at least one link
+    if (!bronzeInstagramUrl && !bronzeLinkedinUrl) {
+      toast({ title: 'Missing link', description: 'Please provide at least one promotion link (Instagram or LinkedIn).', variant: 'destructive' as any });
+      return;
+    }
+    // Validate provided URLs only
+    const urlPattern = /^https?:\/\//i;
+    if (bronzeInstagramUrl && !urlPattern.test(bronzeInstagramUrl)) {
+      toast({ title: 'Invalid Instagram URL', description: 'Please paste a valid public Instagram URL.', variant: 'destructive' as any });
+      return;
+    }
+    if (bronzeLinkedinUrl && !urlPattern.test(bronzeLinkedinUrl)) {
+      toast({ title: 'Invalid LinkedIn URL', description: 'Please paste a valid public LinkedIn URL.', variant: 'destructive' as any });
       return;
     }
     try {
@@ -430,7 +440,10 @@ export default function CheckoutForm() {
       const r = await fetch('/api/ics25/bronze-promotion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instagramProofUrl: bronzeInstagramUrl, linkedinProofUrl: bronzeLinkedinUrl })
+        body: JSON.stringify({
+          ...(bronzeInstagramUrl ? { instagramProofUrl: bronzeInstagramUrl } : {}),
+          ...(bronzeLinkedinUrl ? { linkedinProofUrl: bronzeLinkedinUrl } : {}),
+        })
       });
       const d = await r.json();
       if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Submission failed');
@@ -1046,6 +1059,7 @@ export default function CheckoutForm() {
                     <p><strong>Step 1:</strong> Post about ICS'25 on Instagram and LinkedIn using the template given or make your own (dont forget to tag us #insturix #ics25).</p>
                     <p><strong>Step 2:</strong> Paste the public links to your posts in the fields below.</p>
                     <p><strong>Step 3:</strong> Submit for review - we'll verify your posts within 48 hours.</p>
+                    <p><strong>Step 4:</strong> Once approved - come back and fill out the form to register.</p>
                     <p><strong>Review Process:</strong> We check for genuine posts with event hashtags and appropriate content.</p>
                   </div>
                 </div>
