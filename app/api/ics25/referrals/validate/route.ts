@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Player from '@/schemas/ics25/Player';
+import Attendee from '@/schemas/ics25/Attendee';
 
 export async function GET(req: NextRequest) {
   try {
@@ -12,15 +13,34 @@ export async function GET(req: NextRequest) {
     const code = raw.trim().toLowerCase();
     if (!code) return NextResponse.json({ ok: false, message: 'Code is required' }, { status: 400 });
 
-  const owner = (await Player.findOne({ 'cashbacks.referral.code': code }).lean()) as any;
-    if (!owner) return NextResponse.json({ ok: true, valid: false });
+    let owner: any = await Player.findOne({ 'cashbacks.referral.code': code }).lean();
+    let ownerType: 'player' | 'attendee' | null = null;
+
+    if (owner) {
+      ownerType = 'player';
+    } else {
+      owner = await Attendee.findOne({ 'cashback.referral.code': code }).lean();
+      if (owner) {
+        ownerType = 'attendee';
+      }
+    }
+
+    if (!owner || !ownerType) {
+      return NextResponse.json({ ok: true, valid: false });
+    }
 
     const isSelf = !!(userId && owner.clerkUserId === userId);
     return NextResponse.json({
       ok: true,
       valid: true,
       self: isSelf,
-      owner: { name: owner.name || 'Player', clerkUserId: owner.clerkUserId, avatarUrl: (owner as any).avatarUrl || null },
+      owner: {
+        name: owner.name || (ownerType === 'player' ? 'Player' : 'Attendee'),
+        clerkUserId: owner.clerkUserId,
+        avatarUrl: ownerType === 'player' ? owner.avatarUrl || null : null,
+        type: ownerType,
+        tier: ownerType === 'attendee' ? owner.attendeePassTier || null : owner.game || null,
+      },
     });
   } catch (e: any) {
     console.error('Referral validate error:', e);

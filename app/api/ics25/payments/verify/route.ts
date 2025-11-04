@@ -4,6 +4,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Attendee from '@/schemas/ics25/Attendee';
 import Player from '@/schemas/ics25/Player';
+import { applyAttendeeReferralCredit } from '@/lib/ics25/referrals';
 
 export async function POST(req: NextRequest) {
   try {
@@ -68,15 +69,10 @@ export async function POST(req: NextRequest) {
       } else {
         const referrer = await Attendee.findOne({ clerkUserId: record.referredBy.referrerUserId });
         if (referrer) {
-          const ids = new Set<string>(referrer.cashback?.referral?.referredUserIds || []);
-          ids.add(record.clerkUserId);
-          referrer.cashback = referrer.cashback || ({} as any);
-          referrer.cashback.referral = referrer.cashback.referral || ({} as any);
-          referrer.cashback.referral.referredUserIds = Array.from(ids);
-          referrer.cashback.referral.referredCount = referrer.cashback.referral.referredUserIds.length;
-          if (referrer.cashback.referral.referredCount >= 3) referrer.cashback.referral.qualified = true;
-          await referrer.save();
+          await applyAttendeeReferralCredit(referrer, record.clerkUserId);
           record.referredBy.confirmed = true;
+          record.referredBy.creditedAt = record.referredBy.creditedAt || new Date();
+          record.markModified?.('referredBy');
         }
       }
     }

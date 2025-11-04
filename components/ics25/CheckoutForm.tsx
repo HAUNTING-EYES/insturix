@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,11 +26,15 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Calendar, Check, ChevronsUpDown } from "lucide-react";
+import { Calendar, Check, ChevronsUpDown, Loader2, X } from "lucide-react";
 import { GetCountries, GetState, GetCity } from "react-country-state-city";
 import { useUser, useAuth } from "@clerk/nextjs";
 
 type Tier = "bronze" | "silver" | "gold" | "creators";
+
+type ReferralValidationResult =
+  | { ok: true; status: 'valid'; code: string; ownerName?: string | null }
+  | { ok: false; status: 'invalid' | 'self' | 'error'; message: string; code: string };
 
 const TIER_PRICING: Record<Tier, { label: string; amount: number; currency: "INR"; perks: string[]; cta?: string; subtitle?: string }> = {
   bronze: { label: "Bronze", amount: 0, currency: "INR", perks: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"], cta: "Register" },
@@ -70,6 +74,13 @@ export default function CheckoutForm() {
 
   const [tier, setTier] = useState<Tier>("silver");
   const [referralCode, setReferralCode] = useState<string>("");
+  const [checkingReferral, setCheckingReferral] = useState(false);
+  const [referralCheck, setReferralCheck] = useState<
+    | { status: 'valid'; message: string; ownerName?: string | null; code: string }
+    | { status: 'invalid' | 'self' | 'error'; message: string; code: string }
+    | null
+  >(null);
+  const prefilledReferralRef = useRef<string | null>(null);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [creatorApprovalStatus, setCreatorApprovalStatus] = useState<string | null>(null);
   const [bronzePromotionStatus, setBronzePromotionStatus] = useState<string | null>(null);
@@ -86,6 +97,58 @@ export default function CheckoutForm() {
   const [stateOpen, setStateOpen] = useState(false);
   const [cityOpen, setCityOpen] = useState(false);
 
+  const validateReferralCode = useCallback(async (rawCode: string, options: { showEmptyError?: boolean } = {}): Promise<ReferralValidationResult> => {
+    const normalized = (rawCode || '').trim().toLowerCase();
+    if (!normalized) {
+      if (options.showEmptyError) {
+        setReferralCheck({ status: 'error', message: 'Enter a referral code to check', code: '' });
+      } else {
+        setReferralCheck(null);
+      }
+      return { ok: false, status: 'error', message: 'Referral code required', code: '' };
+    }
+
+    setCheckingReferral(true);
+    try {
+      const res = await fetch(`/api/ics25/referrals/validate?code=${encodeURIComponent(normalized)}`);
+      const data = await res.json();
+
+      if (!res.ok || data?.ok === false) {
+        const message = data?.message || 'Failed to validate code';
+        setReferralCheck({ status: 'error', message, code: normalized });
+        return { ok: false, status: 'error', message, code: normalized };
+      }
+
+      if (!data.valid) {
+        const message = 'Invalid referral code';
+        setReferralCheck({ status: 'invalid', message, code: normalized });
+        return { ok: false, status: 'invalid', message, code: normalized };
+      }
+
+      if (data.self) {
+        const message = 'You cannot use your own code';
+        setReferralCheck({ status: 'self', message, code: normalized });
+        return { ok: false, status: 'self', message, code: normalized };
+      }
+
+  const ownerName = data.owner?.name || null;
+  const message = ownerName ? `Valid - belongs to ${ownerName}` : 'Valid referral code';
+      setReferralCheck({ status: 'valid', message, ownerName, code: normalized });
+      return { ok: true, status: 'valid', code: normalized, ownerName };
+    } catch (err: any) {
+      const message = err?.message || 'Could not validate code';
+      setReferralCheck({ status: 'error', message, code: normalized });
+      return { ok: false, status: 'error', message, code: normalized };
+    } finally {
+      setCheckingReferral(false);
+    }
+  }, []);
+
+  const handleCheckReferral = useCallback(async () => {
+    if (checkingReferral) return;
+    await validateReferralCode(referralCode, { showEmptyError: true });
+  }, [checkingReferral, referralCode, validateReferralCode]);
+
   useEffect(() => {
     // Preselect tier from query
     const q = (searchParams?.get("tier") || "").toLowerCase();
@@ -93,6 +156,21 @@ export default function CheckoutForm() {
       setTier(q);
     }
   }, [searchParams]);
+
+  useEffect(() => {
+    const refParam = (searchParams?.get("ref") || "").trim().toLowerCase();
+    if (refParam && !referralCode) {
+      setReferralCode(refParam);
+      prefilledReferralRef.current = refParam;
+    }
+  }, [searchParams, referralCode]);
+
+  useEffect(() => {
+    if (prefilledReferralRef.current && referralCode.trim().toLowerCase() === prefilledReferralRef.current) {
+      void validateReferralCode(prefilledReferralRef.current);
+      prefilledReferralRef.current = null;
+    }
+  }, [referralCode, validateReferralCode]);
 
   useEffect(() => {
     // Prevent running multiple times
@@ -473,6 +551,10 @@ export default function CheckoutForm() {
       state: stateName,
       attendeePassTier: tier,
     };
+    const normalizedReferral = referralCode?.trim().toLowerCase();
+    if (normalizedReferral) {
+      body.referralCode = normalizedReferral;
+    }
     try {
       const r = await fetch("/api/ics25/attendees", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       const d = await r.json();
@@ -540,7 +622,26 @@ export default function CheckoutForm() {
       return;
     }
 
+    const normalizedReferralInput = (referralCode || '').trim().toLowerCase();
+
     try {
+      if (normalizedReferralInput) {
+        const isAlreadyValidated =
+          referralCheck?.code === normalizedReferralInput && referralCheck.status === 'valid';
+
+        if (!isAlreadyValidated) {
+          const validation = await validateReferralCode(normalizedReferralInput);
+          if (!validation.ok) {
+            toast({
+              title: 'Referral code issue',
+              description: validation.message,
+              variant: 'destructive' as any,
+            });
+            return;
+          }
+        }
+      }
+
       setCreatingOrder(true);
 
       // For Creator Pass, submit for review if not yet approved
@@ -592,7 +693,7 @@ export default function CheckoutForm() {
       const r = await fetch("/api/ics25/payments/create-order", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ amount: pricing.amount, currency: pricing.currency, referralCode: referralCode || undefined })
+        body: JSON.stringify({ amount: pricing.amount, currency: pricing.currency, referralCode: normalizedReferralInput || undefined })
       });
       const d = await r.json();
       if (!r.ok || !d.ok) throw new Error(d?.message || "Failed to create order");
@@ -982,7 +1083,55 @@ export default function CheckoutForm() {
             {(tier !== 'bronze' || bronzePromotionStatus === 'verified') && (
               <div>
                 <Label htmlFor="referral">Referral code (optional)</Label>
-                <Input id="referral" value={referralCode} onChange={(e)=>setReferralCode(e.target.value)} placeholder="Have a friend’s code?" />
+                <div className="mt-2 flex flex-col gap-2">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <Input
+                      id="referral"
+                      value={referralCode}
+                      onChange={(e) => {
+                        setReferralCode(e.target.value);
+                        setReferralCheck(null);
+                        prefilledReferralRef.current = null;
+                      }}
+                      placeholder="Have a friend’s code?"
+                      className="sm:flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={handleCheckReferral}
+                      disabled={checkingReferral}
+                      className="sm:w-auto"
+                    >
+                      {checkingReferral ? (
+                        <span className="flex items-center gap-2 text-sm">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Checking...
+                        </span>
+                      ) : (
+                        'Check'
+                      )}
+                    </Button>
+                  </div>
+                  {referralCheck && (
+                    <div
+                      className={`text-xs flex items-center gap-2 ${
+                        referralCheck.status === 'valid'
+                          ? 'text-emerald-500'
+                          : referralCheck.status === 'self'
+                            ? 'text-amber-500'
+                            : 'text-red-500'
+                      }`}
+                    >
+                      {referralCheck.status === 'valid' ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <X className="h-3.5 w-3.5" />
+                      )}
+                      <span>{referralCheck.message}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

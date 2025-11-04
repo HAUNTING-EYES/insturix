@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { motion } from "framer-motion";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
-import { Check, ChevronRight, AlertCircle, Sparkles, Clock } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
+import { Check, ChevronRight, AlertCircle, Sparkles, Clock, Copy, RefreshCcw } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 import UpgradeConfirmationModal from "../../../../components/ics25/UpgradeConfirmationModal";
@@ -78,6 +80,17 @@ const UPGRADE_PATHS: Record<Tier, Tier[]> = {
   creators: [], // No upgrades from creators
 };
 
+const REFERRAL_UPGRADE_MESSAGES: Partial<Record<Tier, { title: string; description: string }>> = {
+  silver: {
+    title: "Pass upgraded to Silver",
+    description: "25 verified referrals unlocked Silver perks. Keep going for Gold at 55 referrals.",
+  },
+  gold: {
+    title: "Pass upgraded to Gold",
+    description: "55 verified referrals unlocked Gold. Enjoy the full ICS'25 experience!",
+  },
+};
+
 export default function ConfirmationPage() {
   const { user } = useUser();
   const router = useRouter();
@@ -90,6 +103,11 @@ export default function ConfirmationPage() {
   const [upgrading, setUpgrading] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState<'none' | 'pending' | 'approved' | 'rejected'>('none');
   const [creatorStatusLoading, setCreatorStatusLoading] = useState(false);
+  const [generatingReferral, setGeneratingReferral] = useState(false);
+  const [refreshingReferral, setRefreshingReferral] = useState(false);
+  const siteOrigin = (process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com").replace(/\/$/, "");
+  const prevTierRef = useRef<Tier | null>(null);
+  const [recentUpgrade, setRecentUpgrade] = useState<Tier | null>(null);
 
   // Load Razorpay script
   useEffect(() => {
@@ -102,52 +120,7 @@ export default function ConfirmationPage() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!user) {
-      router.push("/signin?redirect_url=/checkout/ics25/confirmation");
-      return;
-    }
-
-    (async () => {
-      try {
-        const res = await fetch("/api/ics25/attendees");
-        if (!res.ok) throw new Error("Failed to fetch attendee data");
-        
-        const data = await res.json();
-        if (!data.attendee) {
-          // No attendee record - redirect to checkout
-          router.push("/checkout");
-          return;
-        }
-
-        // Check if they've completed registration
-        // Bronze is free (no payment required), others need payment
-        const tier = data.attendee.attendeePassTier;
-        const paymentStatus = data.attendee.payment?.status;
-        
-        if (tier !== 'bronze' && paymentStatus !== 'paid') {
-          // Non-bronze passes require payment
-          router.push("/checkout");
-          return;
-        }
-
-        setAttendee(data.attendee);
-        
-        // Fetch creator application status if they're trying to upgrade to creators
-        fetchCreatorStatus();
-      } catch (e: any) {
-        toast({
-          title: "Error",
-          description: e.message || "Failed to load your registration",
-          variant: "destructive",
-        });
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, [user, router, toast]);
-
-  const fetchCreatorStatus = async () => {
+  const fetchCreatorStatus = useCallback(async () => {
     try {
       setCreatorStatusLoading(true);
       const res = await fetch("/api/ics25/attendees/creator-status");
@@ -160,7 +133,69 @@ export default function ConfirmationPage() {
     } finally {
       setCreatorStatusLoading(false);
     }
-  };
+  }, []);
+
+  const loadAttendee = useCallback(async (showErrors: boolean = true) => {
+    try {
+      const res = await fetch("/api/ics25/attendees");
+      if (!res.ok) throw new Error("Failed to fetch attendee data");
+
+      const data = await res.json();
+      if (!data.attendee) {
+        router.push("/checkout");
+        return null;
+      }
+
+      const tier = data.attendee.attendeePassTier as Tier;
+      const paymentStatus = data.attendee.payment?.status;
+      const rawReferralUpgrades = data.attendee.cashback?.referral?.upgrades;
+      const referralUpgradesList: string[] = Array.isArray(rawReferralUpgrades) ? rawReferralUpgrades : [];
+      const triggeredByReferral = referralUpgradesList.includes(tier);
+
+      if (tier !== 'bronze' && paymentStatus !== 'paid' && !triggeredByReferral) {
+        router.push("/checkout");
+        return null;
+      }
+
+      const previousTier = prevTierRef.current;
+      if (previousTier && previousTier !== tier) {
+        if (triggeredByReferral) {
+          setRecentUpgrade(tier);
+          const msg = REFERRAL_UPGRADE_MESSAGES[tier];
+          toast({
+            title: msg?.title || `Pass upgraded to ${TIER_PRICING[tier].label}`,
+            description: msg?.description || 'Your referral milestone unlocked a new tier automatically.',
+          });
+        } else {
+          setRecentUpgrade(null);
+        }
+      }
+      prevTierRef.current = tier;
+
+      setAttendee(data.attendee);
+      await fetchCreatorStatus();
+      return data.attendee;
+    } catch (e: any) {
+      if (showErrors) {
+        toast({
+          title: "Error",
+          description: e.message || "Failed to load your registration",
+          variant: "destructive",
+        });
+      }
+      return null;
+    }
+  }, [fetchCreatorStatus, router, toast]);
+
+  useEffect(() => {
+    if (!user) {
+      router.push("/signin?redirect_url=/checkout/ics25/confirmation");
+      return;
+    }
+
+    setLoading(true);
+    loadAttendee().finally(() => setLoading(false));
+  }, [user, router, loadAttendee]);
 
   const handleUpgradeClick = (tier: Tier) => {
     setSelectedUpgrade(tier);
@@ -288,6 +323,58 @@ export default function ConfirmationPage() {
     rzp.open();
   };
 
+  const handleGenerateReferral = async () => {
+    setGeneratingReferral(true);
+    try {
+      const res = await fetch("/api/ics25/attendees/referral", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || data?.ok === false) {
+        throw new Error(data?.message || "Failed to generate referral code");
+      }
+      toast({
+        title: "Referral code ready",
+        description: "Share it with your friends to unlock upgrades.",
+      });
+      await loadAttendee(false);
+    } catch (e: any) {
+      toast({
+        title: "Could not generate referral",
+        description: e?.message || "Please try again later.",
+        variant: "destructive",
+      });
+    } finally {
+      setGeneratingReferral(false);
+    }
+  };
+
+  const handleCopyReferral = async () => {
+    const code = attendee?.cashback?.referral?.code;
+    if (!code) return;
+    const shareLink = `${siteOrigin}/checkout?ref=${encodeURIComponent(code)}`;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      toast({ title: "Link copied", description: "Share it with your community." });
+    } catch {
+      toast({
+        title: "Copy failed",
+        description: "We couldn't copy the link automatically. Copy it manually instead.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleRefreshReferral = async () => {
+    setRefreshingReferral(true);
+    try {
+      const updated = await loadAttendee(false);
+      if (updated) {
+        toast({ title: "Progress updated", description: "Referral stats refreshed." });
+      }
+    } finally {
+      setRefreshingReferral(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-[#0A0A0C] flex items-center justify-center">
@@ -303,6 +390,43 @@ export default function ConfirmationPage() {
   const currentTier = attendee.attendeePassTier as Tier;
   const currentPricing = TIER_PRICING[currentTier];
   const availableUpgrades = UPGRADE_PATHS[currentTier];
+  const referralData = attendee.cashback?.referral || {} as any;
+  const referralCode = (referralData.code || "") as string;
+  const hasReferralCode = !!referralCode;
+  const referredCount = typeof referralData.referredCount === 'number' ? referralData.referredCount : 0;
+  const referralUpgrades: string[] = Array.isArray(referralData.upgrades) ? referralData.upgrades : [];
+  const REFERRAL_MAX = 55;
+  const SILVER_MILESTONE = 25;
+  const isBronzeTier = currentTier === 'bronze';
+  const isSilverTier = currentTier === 'silver';
+  const silverUnlocked = referralUpgrades.includes('silver') || !isBronzeTier;
+  const goldUnlocked = referralUpgrades.includes('gold') || currentTier === 'gold' || currentTier === 'creators';
+  const progressPercent = Math.min(100, Math.round((referredCount / REFERRAL_MAX) * 100));
+  const referralsToSilver = Math.max(0, SILVER_MILESTONE - referredCount);
+  const referralsToGold = Math.max(0, REFERRAL_MAX - referredCount);
+  const referralShareLink = hasReferralCode ? `${siteOrigin}/checkout?ref=${referralCode}` : '';
+  const silverMarkerPosition = `${(SILVER_MILESTONE / REFERRAL_MAX) * 100}%`;
+  const formatRegistrations = (count: number) => (count === 1 ? 'registration' : 'registrations');
+  const milestoneMessage = (() => {
+    if (isBronzeTier) {
+      if (referralsToSilver > 0) {
+        return `${referralsToSilver} more ${formatRegistrations(referralsToSilver)} to unlock Silver automatically. Gold awaits at 55.`;
+      }
+      if (referralsToGold > 0) {
+        return `Silver unlocked! ${referralsToGold} more ${formatRegistrations(referralsToGold)} to reach Gold at 55.`;
+      }
+      return "Gold unlocked! Enjoy the full ICS'25 experience.";
+    }
+    if (isSilverTier) {
+      if (referralsToGold > 0) {
+        return `${referralsToGold} more ${formatRegistrations(referralsToGold)} to unlock Gold at 55.`;
+      }
+      return "Gold unlocked! Enjoy the full ICS'25 experience.";
+    }
+    return "Keep sharing to help your community discover ICS'25.";
+  })();
+  const milestoneReached = isBronzeTier ? referralsToSilver <= 0 : referralsToGold <= 0;
+  const upgradeNotice = recentUpgrade ? REFERRAL_UPGRADE_MESSAGES[recentUpgrade] || null : null;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0A0A0C]">
@@ -358,6 +482,23 @@ export default function ConfirmationPage() {
           </div>
         </motion.div>
 
+        {upgradeNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45 }}
+            className="mb-10 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
+          >
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4" />
+                <span className="font-semibold">{upgradeNotice.title}</span>
+              </div>
+              <span className="text-emerald-100/80 sm:text-right">{upgradeNotice.description}</span>
+            </div>
+          </motion.div>
+        )}
+
         {/* Current Pass Card */}
         <motion.div
           initial={{ opacity: 0, y: 14 }}
@@ -380,6 +521,9 @@ export default function ConfirmationPage() {
                     <p className="text-sm text-white/70">
                       {currentTier === "creators" ? "10k+ followers required" : "Active Pass"}
                     </p>
+                    {referralUpgrades.includes(currentTier) && (
+                      <p className="mt-1 text-xs text-emerald-300">Unlocked automatically via referrals</p>
+                    )}
                   </div>
                 </div>
                 <div className={`${currentPricing.badgeColor} text-white text-xs font-medium px-3 py-1.5 rounded-full flex items-center gap-1.5`}>
@@ -405,6 +549,130 @@ export default function ConfirmationPage() {
             </div>
           </div>
         </motion.div>
+
+        {/* Referral & Rewards */}
+        {currentTier !== 'gold' && currentTier !== 'creators' && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.15 }}
+            viewport={{ once: true }}
+            className="mb-12"
+          >
+          <h2 className="text-xl font-bold text-white mb-4">Refer & Upgrade</h2>
+          <div className="rounded-3xl overflow-hidden p-[1px] bg-gradient-to-br from-sky-500/25 via-white/10 to-emerald-500/20">
+            <div className="relative rounded-[22px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-6">
+              <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(220px_140px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+
+              <div className="relative flex flex-col gap-6 lg:flex-row">
+                <div className="flex-1 space-y-4">
+                  
+                  <h3 className="text-2xl font-semibold text-white">
+                    Share your code, climb the ladder
+                  </h3>
+                  <p className="text-sm text-white/70">
+                    Every verified ICS'25 registration using your code counts toward free upgrades.                  </p>
+
+                  {referralUpgrades.length > 0 && (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {referralUpgrades.includes('silver') && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-200">
+                          <Check className="h-3 w-3" /> Silver upgrade unlocked
+                        </span>
+                      )}
+                      {referralUpgrades.includes('gold') && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-3 py-1 text-xs text-amber-200">
+                          <Check className="h-3 w-3" /> Gold upgrade unlocked
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="space-y-2 pt-2">
+                    <div className="flex items-center justify-between text-xs text-white/60">
+                      <span>{referredCount} {formatRegistrations(referredCount)} so far</span>
+                      <span>Gold milestone at {REFERRAL_MAX}</span>
+                    </div>
+                    {isBronzeTier && (
+                      <div className="flex items-center justify-between text-[11px] text-white/50">
+                        <span>Silver milestone at {SILVER_MILESTONE} referrals</span>
+                        <span>{Math.min(referredCount, SILVER_MILESTONE)}/{SILVER_MILESTONE}</span>
+                      </div>
+                    )}
+                    <div className="relative">
+                      <Progress value={progressPercent} className="h-2 bg-white/10" />
+                      {isBronzeTier && (
+                        <span
+                          aria-hidden
+                          className="absolute top-1/2 -translate-y-1/2 h-6 w-px bg-emerald-300/80"
+                          style={{ left: silverMarkerPosition }}
+                        />
+                      )}
+                    </div>
+                    <div className={`text-xs ${milestoneReached ? 'text-emerald-300 flex items-center gap-2' : 'text-white/60'}`}>
+                      {milestoneReached && <Check className="h-3 w-3" />}
+                      <span>{milestoneMessage}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="w-full lg:w-80 space-y-3">
+                  <div>
+                    <span className="text-xs text-white/60">Your referral code</span>
+                    <Input
+                      readOnly
+                      value={referralCode}
+                      placeholder="Generate your code"
+                      className="mt-1 bg-white/5 border-white/10 text-white"
+                    />
+                    <p className="mt-2 text-[11px] text-white/50">
+                      Share the code or send the link. Every verified registration counts.
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <Button
+                      size="sm"
+                      className="gap-1"
+                      onClick={hasReferralCode ? handleCopyReferral : handleGenerateReferral}
+                      disabled={generatingReferral}
+                    >
+                      {generatingReferral ? (
+                        'Generating…'
+                      ) : hasReferralCode ? (
+                        <>
+                          <Copy className="h-4 w-4" /> Copy link
+                        </>
+                      ) : (
+                        'Generate code'
+                      )}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="gap-1"
+                      onClick={handleRefreshReferral}
+                      disabled={refreshingReferral}
+                    >
+                      <RefreshCcw className={`h-4 w-4 ${refreshingReferral ? 'animate-spin' : ''}`} />
+                      {refreshingReferral ? 'Refreshing…' : 'Refresh'}
+                    </Button>
+                  </div>
+                  {hasReferralCode && (
+                    <div className="text-[11px] text-white/60 bg-white/5 border border-white/10 rounded-lg px-3 py-2 break-all">
+                      {referralShareLink}
+                    </div>
+                  )}
+                  {!hasReferralCode && (
+                    <div className="text-[11px] text-white/50 rounded-lg border border-dashed border-white/20 px-3 py-2">
+                      Generate your code to start tracking referral progress.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+        )}
 
         {/* Upgrade Options */}
         {availableUpgrades.length > 0 && (

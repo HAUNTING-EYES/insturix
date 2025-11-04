@@ -16,6 +16,9 @@ const AttendeeReferralSchema = new Schema({
   referredUserIds: { type: [String], default: [] },
   qualified: { type: Boolean, default: false },
   amount: Number,
+  upgrades: { type: [String], default: [] },
+  lastUpdatedAt: Date,
+  lastUpgradedAt: Date,
 }, { _id: false });
 
 const UpgradePaymentSchema = new Schema({
@@ -69,6 +72,7 @@ const Ics25AttendeeSchema = new Schema({
     code: { type: String },
     referrerUserId: { type: String },
     confirmed: { type: Boolean, default: false },
+    creditedAt: { type: Date },
   },
   cashback: {
     referral: { type: AttendeeReferralSchema, default: () => ({ amount: 150, referredCount: 0, referredUserIds: [], qualified: false }) },
