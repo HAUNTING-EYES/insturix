@@ -758,11 +758,15 @@ export default function CheckoutForm() {
                     Under review — we’ll verify your links within 48 hours.
                   </div>
                 )}
-                <div>
+                <div className="rounded-lg border border-amber-600/30 bg-amber-500/10 px-3 py-3">
+                  <h4 className="font-semibold text-sm text-amber-700 dark:text-amber-300 mb-1">Creators Tasks (Do any)</h4>
+                  <p className="text-xs text-amber-600 dark:text-amber-400">Share about ICS25 on one or both platforms. Fill in at least one link below.</p>
+                </div>
+                <div className={`transition-opacity ${bronzeLinkedinUrl && !bronzeInstagramUrl ? 'opacity-50' : 'opacity-100'}`}>
                   <Label htmlFor="bronze-instagram">Instagram reel/post link</Label>
                   <Input id="bronze-instagram" value={bronzeInstagramUrl} onChange={(e)=>setBronzeInstagramUrl(e.target.value)} placeholder="https://instagram.com/..." disabled={bronzePromotionStatus === 'submitted'} />
                 </div>
-                <div>
+                <div className={`transition-opacity ${bronzeInstagramUrl && !bronzeLinkedinUrl ? 'opacity-50' : 'opacity-100'}`}>
                   <Label htmlFor="bronze-linkedin">LinkedIn post link</Label>
                   <Input id="bronze-linkedin" value={bronzeLinkedinUrl} onChange={(e)=>setBronzeLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/posts/..." disabled={bronzePromotionStatus === 'submitted'} />
                 </div>
