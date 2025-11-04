@@ -1,3 +1,5 @@
+
+
 "use client";
 
 import { useState, useEffect } from "react";
@@ -10,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
+import { isNotificationExpired } from "@/lib/utils/notification";
 import { cn } from "@/lib/utils";
 
 interface ProfileContentProps {
@@ -29,14 +32,12 @@ export function ProfileContent({
   useEffect(() => {
     let timeout: NodeJS.Timeout;
     if (showNotification) {
-      timeout = setTimeout(() => {
-        setShowNotification(false);
-      }, 5000);
+      timeout = setTimeout(() => setShowNotification(false), 5000);
     }
     return () => clearTimeout(timeout);
   }, [showNotification]);
 
-  // Extract profile data from the Socialize response
+  // Extract profile data
   const {
     username,
     bio,
@@ -45,44 +46,64 @@ export function ProfileContent({
     profileImage,
     banner,
   } = socializeData;
+
   const displayName = username || uniqueUsername;
-  const hasNotifications = notifications && notifications.length > 0;
+
+  // ✅ Safe filtering: prevents errors from invalid/missing data
+  const validNotifications = Array.isArray(notifications)
+    ? notifications.filter(
+        (n) => n && typeof n === "object" && !isNotificationExpired(n)
+      )
+    : [];
+
+  const hasNotifications = validNotifications.length > 0;
   const hasBio = bio && bio.length > 0;
 
-  // Create default banner if none exists
+  // Default banner fallback
   const defaultBanner: BannerConfig = {
-    type: 'color',
-    value: '#0e6b9c',
-    gradientType: 'linear',
-    gradientColors: []
+    type: "color",
+    value: "#0e6b9c",
+    gradientType: "linear",
+    gradientColors: [],
   };
 
   const bannerConfig = banner || defaultBanner;
 
-  // Function to create gradient CSS
-  const createGradientCSS = (colors: Array<{ color: string, position: number }>, type: string) => {
-    if (type === 'radial') {
-      return `radial-gradient(circle, ${colors.map(c => `${c.color} ${c.position}%`).join(', ')})`;
+  const createGradientCSS = (
+    colors: Array<{ color: string; position: number }>,
+    type: string
+  ) => {
+    if (type === "radial") {
+      return `radial-gradient(circle, ${colors
+        .map((c) => `${c.color} ${c.position}%`)
+        .join(", ")})`;
     }
-    return `linear-gradient(135deg, ${colors.map(c => `${c.color} ${c.position}%`).join(', ')})`;
+    return `linear-gradient(135deg, ${colors
+      .map((c) => `${c.color} ${c.position}%`)
+      .join(", ")})`;
   };
 
-  // No need for proxy URL conversion - using signed URLs directly
-
-  // Function to render banner
   const renderBanner = () => {
     switch (bannerConfig.type) {
-      case 'image':
+      case "image":
         return (
-          <div className={cn("w-full h-24 bg-[#23232a] flex items-center justify-center", isPreview && "h-16")}>
+          <div
+            className={cn(
+              "w-full h-24 bg-[#23232a] flex items-center justify-center",
+              isPreview && "h-16"
+            )}
+          >
             <img
               src={bannerConfig.value}
               alt="Profile banner"
               className="w-full h-full object-cover"
               onError={(e) => {
-                console.error('Profile banner image failed to load:', bannerConfig.value);
                 const img = e.currentTarget;
-                img.style.display = 'none';
+                console.error(
+                  "Profile banner image failed to load:",
+                  bannerConfig.value
+                );
+                img.style.display = "none";
                 img.parentElement!.innerHTML = `
                   <div class="w-full h-full flex items-center justify-center text-zinc-400">
                     <div class="text-center">
@@ -92,33 +113,37 @@ export function ProfileContent({
                   </div>
                 `;
               }}
-              onLoad={() => {
-                console.log('Profile banner image loaded successfully:', bannerConfig.value);
-              }}
             />
           </div>
         );
-      case 'color':
+      case "color":
         return (
           <div
             className={cn("w-full h-24", isPreview && "h-16")}
             style={{ backgroundColor: bannerConfig.value }}
           />
         );
-      case 'gradient':
+      case "gradient":
         return (
           <div
             className={cn("w-full h-24", isPreview && "h-16")}
             style={{
-              background: bannerConfig.gradientColors && bannerConfig.gradientColors.length > 0
-                ? createGradientCSS(bannerConfig.gradientColors, bannerConfig.gradientType || 'linear')
-                : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+              background:
+                bannerConfig.gradientColors &&
+                bannerConfig.gradientColors.length > 0
+                  ? createGradientCSS(
+                      bannerConfig.gradientColors,
+                      bannerConfig.gradientType || "linear"
+                    )
+                  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
             }}
           />
         );
       default:
         return (
-          <div className={cn("w-full h-24 bg-[#23232a]", isPreview && "h-16")} />
+          <div
+            className={cn("w-full h-24 bg-[#23232a]", isPreview && "h-16")}
+          />
         );
     }
   };
@@ -130,7 +155,7 @@ export function ProfileContent({
         isPreview && "gap-2"
       )}
     >
-      {/* Profile header with enhanced design */}
+      {/* Profile header */}
       <Card
         className={cn(
           "w-full bg-[#1a1a1f] border-[#2a2a35] shadow-xl overflow-hidden",
@@ -138,6 +163,7 @@ export function ProfileContent({
         )}
       >
         {renderBanner()}
+
         <CardContent className={cn("p-6 relative", isPreview && "p-3")}>
           <Avatar
             className={cn(
@@ -202,22 +228,22 @@ export function ProfileContent({
             >
               <Bell className="w-5 h-5 text-white" />
               <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-white text-xs flex items-center justify-center">
-                {notifications.length}
+                {validNotifications.length}
               </span>
             </Button>
           )}
         </CardContent>
       </Card>
 
-      {/* Notification panel */}
+      {/* Notification Panel */}
       {hasNotifications && showNotification && !isPreview && (
         <NotificationPanel
-          notifications={notifications}
+          notifications={validNotifications ?? []}
           onClose={() => setShowNotification(false)}
         />
       )}
 
-      {/* Social Links with improved design */}
+      {/* Social Links */}
       <div className={cn("w-full space-y-3", isPreview && "space-y-2")}>
         {links && links.length > 0 ? (
           links.map((link, i) => (
@@ -244,7 +270,7 @@ export function ProfileContent({
                   {link.title && link.title.trim() !== ""
                     ? link.title
                     : link.platform.charAt(0).toUpperCase() +
-                    link.platform.slice(1)}
+                      link.platform.slice(1)}
                 </span>
                 <p
                   className={cn(
