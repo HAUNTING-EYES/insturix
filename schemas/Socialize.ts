@@ -160,6 +160,12 @@ const socializeSchema = new Schema<ISocialize>(
     notifications: {
       type: [notificationSchema],
       default: [],
+      validate: [
+        {
+          validator: (notifications: any[]) => notifications.length <= 50,
+          message: "Cannot have more than 50 notifications."
+        }
+      ]
     },
     banner: {
       type: bannerSchema,
