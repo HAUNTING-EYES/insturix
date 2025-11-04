@@ -51,8 +51,6 @@
 //   }
 // }
 
-
-import mongoose from "mongoose";
 import Socialize from "@/schemas/Socialize";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 
@@ -102,7 +100,7 @@ export interface SocializeUser {
  * Filters out expired notifications before returning
  */
 export async function fetchSocializeUser(
-  uniqueUsername: string
+ uniqueUsername: string
 ): Promise<SocializeUser> {
   try {
     await connectToDatabase();
@@ -130,7 +128,7 @@ const validNotifications = (userDataRaw.notifications || []).filter((n: any) => 
     return new Date(n.expiresAt) > now;
   }
 
-  // If only timestamp + duration exist, compute expiration
+ // If only timestamp + duration exist, compute expiration
   if (n.timestamp) {
     const expiration = new Date(new Date(n.timestamp).getTime() + n.duration * 60 * 60 * 1000);
     return expiration > now;
