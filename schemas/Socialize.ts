@@ -21,6 +21,8 @@ export interface BannerConfig {
 interface INotification {
   message: string;
   duration: number;
+  timestamp?: string;
+ expiresAt?: string;
 }
 
 interface ISocialize extends Document {
@@ -70,6 +72,14 @@ const notificationSchema = new Schema<INotification>(
       required: true,
       min: 1,
       max: 24,
+    },
+    timestamp: {
+      type: String,
+      required: false,
+    },
+    expiresAt: {
+      type: String,
+      required: false,
     },
   },
   { _id: false }
@@ -150,6 +160,12 @@ const socializeSchema = new Schema<ISocialize>(
     notifications: {
       type: [notificationSchema],
       default: [],
+      validate: [
+        {
+          validator: (notifications: any[]) => notifications.length <= 50,
+          message: "Cannot have more than 50 notifications."
+        }
+      ]
     },
     banner: {
       type: bannerSchema,
@@ -179,7 +195,10 @@ export default Socialize;
  * - Ensures each link has a title (defaults to platform)
  * - Ensures each link has an icon (auto-chosen by platform)
  */
-import { getPlatformIconName } from "@/components/dashboard/Socialize/SocializeIcons";
+// Avoid using tsconfig path alias at top-level so scripts running under the
+// ts-node ESM loader don't fail to resolve package-style specifiers. Use a
+// relative import with explicit extension required by ESM resolution.
+import { getPlatformIconName } from "../lib/socialize/getPlatformIconName.ts";
 
 export const normalizeSocializeLinks = (links: SocializeLink[]): SocializeLink[] => {
   return links.map(link => {
