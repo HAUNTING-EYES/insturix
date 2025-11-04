@@ -6,7 +6,7 @@ The Creator Pass system has been restructured to use a separate collection for b
 ## Collections
 
 ### 1. ics25attendees
-**Purpose**: Stores all regular attendee registrations (Bronze, Silver, Gold passes)
+**Purpose**: Stores all regular attendee registrations (Bronze, Silver, Gold passes) 
 
 **Fields**:
 - User details (name, email, phone, instagram, linkedin, etc.)
