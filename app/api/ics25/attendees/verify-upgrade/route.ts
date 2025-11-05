@@ -39,13 +39,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, message: 'Invalid signature' }, { status: 400 });
     }
 
+    const intent = attendee.upgradeIntent;
+
     // Verify order matches the upgrade intent
-    if (attendee.upgradeIntent?.orderId !== orderId) {
+    if (intent?.orderId !== orderId) {
       return NextResponse.json({ ok: false, message: 'Order mismatch' }, { status: 400 });
     }
 
+    const intentAmount = intent?.amount ?? 0;
+    const intentTargetTier = intent?.targetTier ?? targetTier;
+
     // Update attendee tier
-    attendee.attendeePassTier = targetTier;
+    attendee.attendeePassTier = intentTargetTier;
     attendee.upgradeIntent = undefined as any; // Clear upgrade intent
     
     // Add upgrade payment to history if needed
@@ -56,8 +61,8 @@ export async function POST(req: NextRequest) {
       orderId,
       paymentId,
       signature,
-      amount: attendee.upgradeIntent?.amount || 0,
-      targetTier,
+      amount: intentAmount,
+      targetTier: intentTargetTier,
       paidAt: new Date(),
     });
 

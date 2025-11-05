@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Creator from '@/schemas/ics25/Creator';
+import Attendee from '@/schemas/ics25/Attendee';
+import { clerkClient } from '@clerk/nextjs/server';
 
 // Admin-only endpoint to approve/reject Creator Pass applications
 export async function POST(req: NextRequest) {
@@ -21,6 +23,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { creatorId, action, rejectionReason } = body;
+  const trimmedReason = typeof rejectionReason === 'string' ? rejectionReason.trim() : undefined;
   
   if (!creatorId || !action) {
     return NextResponse.json({ 
@@ -33,6 +36,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ 
       ok: false, 
       message: 'Invalid action. Must be "approve", "reject", or "revert"' 
+    }, { status: 400 });
+  }
+
+  if (action === 'reject' && !trimmedReason) {
+    return NextResponse.json({ 
+      ok: false, 
+      message: 'rejectionReason is required when rejecting' 
     }, { status: 400 });
   }
 
@@ -56,9 +66,11 @@ export async function POST(req: NextRequest) {
     } else {
       creator.reviewedAt = new Date();
       creator.reviewedBy = adminCheck.email || adminCheck.userId!;
-      
-      if (action === 'reject' && rejectionReason?.trim()) {
-        creator.rejectionReason = rejectionReason.trim();
+      if (action === 'approve') {
+        creator.rejectionReason = undefined;
+      }
+      if (action === 'reject' && trimmedReason) {
+        creator.rejectionReason = trimmedReason;
       }
     }
 
@@ -93,13 +105,80 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') || 'pending';
 
     const creators = await Creator.find({ status })
-    .sort({ submittedAt: -1 })
-    .lean();
+      .sort({ submittedAt: -1 })
+      .lean();
 
-    return NextResponse.json({ 
-      ok: true, 
-      creators,
-      count: creators.length
+    if (creators.length === 0) {
+      return NextResponse.json({ ok: true, creators: [], count: 0 });
+    }
+
+    const userIds = creators
+      .map((creator) => creator.clerkUserId)
+      .filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+
+    const attendees = await Attendee.find({ clerkUserId: { $in: userIds } })
+      .select('clerkUserId name email phone')
+      .lean();
+
+    const attendeeMap = new Map(attendees.map((attendee) => [attendee.clerkUserId, attendee]));
+
+    const displayNameMap = new Map<string, string>();
+    const missingFromDb: string[] = [];
+
+    for (const id of userIds) {
+      const existingCreator = creators.find((creator) => creator.clerkUserId === id);
+      const candidateName = [existingCreator?.name, attendeeMap.get(id)?.name]
+        .find((value) => typeof value === 'string' && value.trim().length > 0);
+
+      if (candidateName) {
+        displayNameMap.set(id, candidateName.trim());
+      } else {
+        missingFromDb.push(id);
+      }
+    }
+
+    if (missingFromDb.length > 0) {
+      try {
+        const client = await clerkClient();
+        const clerkUsersResponse = await client.users.getUserList({
+          userId: missingFromDb,
+          limit: missingFromDb.length,
+        });
+
+        const clerkUsers = Array.isArray((clerkUsersResponse as any)?.data)
+          ? (clerkUsersResponse as any).data
+          : clerkUsersResponse;
+
+        for (const user of clerkUsers as Array<{ id: string; fullName?: string | null; firstName?: string | null; lastName?: string | null }>) {
+          const nameFromClerk = [user.fullName, `${user.firstName ?? ''} ${user.lastName ?? ''}`]
+            .map((value) => (value ?? '').trim())
+            .find((value) => value.length > 0);
+
+          if (nameFromClerk && user.id) {
+            displayNameMap.set(user.id, nameFromClerk);
+          }
+        }
+      } catch (clerkError) {
+        console.error('Failed to fetch clerk user names for creator approvals:', clerkError);
+      }
+    }
+
+    const enrichedCreators = creators.map((creator) => {
+      const attendee = attendeeMap.get(creator.clerkUserId ?? '');
+      const displayName = displayNameMap.get(creator.clerkUserId ?? '') ?? creator.name ?? '';
+      return {
+        ...creator,
+        displayName: displayName.trim() || undefined,
+        attendeeName: attendee?.name,
+        attendeeEmail: attendee?.email,
+        attendeePhone: attendee?.phone,
+      };
+    });
+
+    return NextResponse.json({
+      ok: true,
+      creators: enrichedCreators,
+      count: enrichedCreators.length,
     });
   } catch (e: any) {
     console.error('Admin get applications error:', e);

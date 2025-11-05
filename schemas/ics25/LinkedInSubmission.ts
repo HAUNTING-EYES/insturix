@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 const LinkedInSubmissionSchema = new Schema({
   playerId: { type: String, index: true },
@@ -11,6 +15,10 @@ const LinkedInSubmissionSchema = new Schema({
   reviewedAt: Date,
 }, { timestamps: true });
 
-export type LinkedInSubmissionDocument = mongoose.InferSchemaType<typeof LinkedInSubmissionSchema> & mongoose.Document;
+export type LinkedInSubmissionDocument = InferSchemaType<typeof LinkedInSubmissionSchema> & Document;
 
-export default models.Ics25LinkedInPromo || model('Ics25LinkedInPromo', LinkedInSubmissionSchema);
+const Ics25LinkedInPromoModel =
+  (mongoose.models.Ics25LinkedInPromo as Model<LinkedInSubmissionDocument>)
+  || mongoose.model('Ics25LinkedInPromo', LinkedInSubmissionSchema);
+
+export default Ics25LinkedInPromoModel;

@@ -18,11 +18,26 @@ export async function POST(req: NextRequest) {
   try {
     await getIcs25Db();
 
-    const { type, id, action } = await req.json();
+    const { type, id, action, rejectionReason } = await req.json();
+    const trimmedReason = typeof rejectionReason === 'string' ? rejectionReason.trim() : undefined;
 
     if (!type || !id || !action) {
       return NextResponse.json(
         { ok: false, message: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    if (action !== 'approve' && action !== 'reject') {
+      return NextResponse.json(
+        { ok: false, message: 'Invalid action. Must be "approve" or "reject"' },
+        { status: 400 }
+      );
+    }
+
+    if (action === 'reject' && !trimmedReason) {
+      return NextResponse.json(
+        { ok: false, message: 'rejectionReason is required when rejecting' },
         { status: 400 }
       );
     }
@@ -81,12 +96,15 @@ export async function POST(req: NextRequest) {
       }
 
       case 'bronzePass': {
+        const reviewerId = adminCheck.email || adminCheck.userId!;
+        const reviewTimestamp = new Date();
         const submission = await Ics25BronzePromotion.findByIdAndUpdate(
           id,
           { 
             status: newStatus, 
-            reviewedAt: new Date(),
-            reviewedBy: adminCheck.email || adminCheck.userId!
+            reviewedAt: reviewTimestamp,
+            reviewedBy: reviewerId,
+            rejectionReason: action === 'approve' ? undefined : trimmedReason,
           },
           { new: true }
         );
@@ -98,14 +116,34 @@ export async function POST(req: NextRequest) {
           );
         }
 
-        // Update attendee's bronze promotion status if approved
-        if (action === 'approve' && submission.clerkUserId) {
+        if (submission.clerkUserId) {
+          const attendeeSet: Record<string, any> = {
+            'bronzePromotion.status': newStatus,
+            'bronzePromotion.reviewedAt': reviewTimestamp,
+            'bronzePromotion.reviewedBy': reviewerId,
+          };
+
+          if (submission.instagramProofUrl) {
+            attendeeSet['bronzePromotion.instagramProofUrl'] = submission.instagramProofUrl;
+          }
+          if (submission.linkedinProofUrl) {
+            attendeeSet['bronzePromotion.linkedinProofUrl'] = submission.linkedinProofUrl;
+          }
+          if (submission.createdAt) {
+            attendeeSet['bronzePromotion.submittedAt'] = submission.createdAt;
+          }
+
+          const attendeeUpdateQuery: Record<string, any> = { $set: attendeeSet };
+
+          if (action === 'reject') {
+            attendeeUpdateQuery.$set['bronzePromotion.rejectionReason'] = trimmedReason ?? 'Rejected by admin';
+          } else {
+            attendeeUpdateQuery.$unset = { 'bronzePromotion.rejectionReason': '' };
+          }
+
           await Ics25Attendee.findOneAndUpdate(
             { clerkUserId: submission.clerkUserId },
-            {
-              'bronzePromotion.status': 'verified',
-              'bronzePromotion.submittedAt': submission.createdAt,
-            }
+            attendeeUpdateQuery
           );
         }
 
@@ -113,13 +151,24 @@ export async function POST(req: NextRequest) {
       }
 
       case 'creator': {
+        const reviewerId = adminCheck.email || adminCheck.userId!;
+        const reviewTimestamp = new Date();
+        const creatorSet: Record<string, any> = {
+          status: action === 'approve' ? 'approved' : 'rejected',
+          reviewedAt: reviewTimestamp,
+          reviewedBy: reviewerId,
+        };
+        const creatorUpdate: Record<string, any> = { $set: creatorSet };
+
+        if (action === 'approve') {
+          creatorUpdate.$unset = { rejectionReason: '' };
+        } else {
+          creatorUpdate.$set.rejectionReason = trimmedReason ?? 'Application rejected by admin';
+        }
+
         const creator = await Ics25Creator.findByIdAndUpdate(
           id,
-          {
-            status: action === 'approve' ? 'approved' : 'rejected',
-            reviewedAt: new Date(),
-            reviewedBy: adminCheck.email || adminCheck.userId!,
-          },
+          creatorUpdate,
           { new: true }
         );
 

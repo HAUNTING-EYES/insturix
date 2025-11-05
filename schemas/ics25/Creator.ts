@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 const CreatorSocialLinksSchema = new Schema({
   youtube: { type: String },
@@ -28,6 +32,10 @@ const Ics25CreatorSchema = new Schema({
   hasCompletedPayment: { type: Boolean, default: false },
 }, { timestamps: true });
 
-export type Ics25CreatorDocument = mongoose.InferSchemaType<typeof Ics25CreatorSchema> & mongoose.Document;
+export type Ics25CreatorDocument = InferSchemaType<typeof Ics25CreatorSchema> & Document;
 
-export default models.Ics25Creator || model('Ics25Creator', Ics25CreatorSchema, 'ics25creators');
+const Ics25CreatorModel =
+  (mongoose.models.Ics25Creator as Model<Ics25CreatorDocument>)
+  || mongoose.model('Ics25Creator', Ics25CreatorSchema, 'ics25creators');
+
+export default Ics25CreatorModel;

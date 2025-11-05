@@ -74,6 +74,20 @@ export async function POST(req: NextRequest) {
     const currentPrice = TIER_PRICING[currentTier];
     const targetPrice = TIER_PRICING[targetTier];
     const priceDiff = targetPrice - currentPrice;
+    const refundAmount = priceDiff < 0 ? Math.abs(priceDiff) : 0;
+    const refundReason = `Upgrade from ${currentTier} to ${targetTier}`;
+    const paymentId = attendee.payment?.paymentId;
+    const paymentCurrency = attendee.payment?.currency || 'INR';
+    const refunds = Array.isArray(attendee.refunds)
+      ? attendee.refunds
+      : (attendee.refunds = [] as any);
+    const alreadyRefunded = refundAmount > 0 && refunds.some((entry: any) => {
+      if (!entry) return false;
+      const samePayment = entry.paymentId && paymentId && entry.paymentId === paymentId;
+      const sameReason = entry.reason === refundReason;
+      const processed = entry.status === 'processed';
+      return (!!paymentId ? samePayment : sameReason) && processed && entry.amount === refundAmount;
+    });
 
     // If upgrade requires additional payment
     if (priceDiff > 0) {
@@ -119,14 +133,93 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // If no additional payment required (shouldn't happen for valid upgrades, but handle it)
+    // No additional payment required; handle potential refund flows for downgrades
     attendee.attendeePassTier = targetTier;
+
+    if (refundAmount > 0 && !alreadyRefunded) {
+      if (!paymentId) {
+        await attendee.save();
+        return NextResponse.json({
+          ok: true,
+          requiresPayment: false,
+          refundInitiated: false,
+          requiresManualRefund: true,
+          message: 'Upgrade successful, please contact support for manual refund processing',
+          refundAmount,
+        });
+      }
+
+      try {
+        const refund = await createRefund({
+          paymentId,
+          amount: refundAmount * 100,
+          currency: paymentCurrency,
+          reason: refundReason,
+          notes: {
+            clerkUserId: userId,
+            fromTier: currentTier,
+            toTier: targetTier,
+            refundAmount: refundAmount.toString(),
+          },
+        });
+
+        refunds.push({
+          paymentId,
+          refundId: (refund as any)?.id || 'pending',
+          amount: refundAmount,
+          reason: refundReason,
+          status: 'processed',
+          processedAt: new Date(),
+        });
+
+        attendee.markModified?.('refunds');
+
+        if (typeof attendee.payment?.amount === 'number') {
+          attendee.payment.amount = Math.max(0, attendee.payment.amount - refundAmount);
+          attendee.markModified?.('payment');
+        }
+
+        await attendee.save();
+
+        return NextResponse.json({
+          ok: true,
+          requiresPayment: false,
+          refundInitiated: true,
+          refundAmount,
+          message: 'Upgrade successful and refund initiated',
+        });
+      } catch (error: any) {
+        console.error('Refund processing failed during upgrade:', error);
+        refunds.push({
+          paymentId,
+          amount: refundAmount,
+          reason: refundReason,
+          status: 'failed',
+          processedAt: new Date(),
+        });
+        attendee.markModified?.('refunds');
+        await attendee.save();
+
+        return NextResponse.json({
+          ok: true,
+          requiresPayment: false,
+          refundInitiated: false,
+          requiresManualRefund: true,
+          refundAmount,
+          message: 'Upgrade successful, but refund could not be processed automatically. Support has been alerted.',
+          error: error?.message || 'Refund processing failed',
+        });
+      }
+    }
+
     await attendee.save();
 
     return NextResponse.json({
       ok: true,
       requiresPayment: false,
       message: 'Upgrade successful',
+      refundInitiated: alreadyRefunded,
+      refundAmount: alreadyRefunded ? refundAmount : undefined,
     });
   } catch (e: any) {
     console.error('Upgrade error:', e);

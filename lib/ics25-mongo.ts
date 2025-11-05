@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { Connection, Mongoose } from 'mongoose';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const ICS25_DB_NAME = 'ics25';
@@ -8,35 +8,49 @@ if (!MONGODB_URI) {
 }
 
 type MongooseCache = {
-  conn: typeof mongoose | null;
-  promise: Promise<typeof mongoose> | null;
+  conn: Connection | null;
+  promise: Promise<Connection> | null;
+  mongoose: Mongoose;
 };
 
 declare global {
-   
+  // eslint-disable-next-line no-var
   var ics25_mongoose: MongooseCache | undefined;
 }
 
-const cached: MongooseCache = global.ics25_mongoose ?? { conn: null, promise: null };
+const cached: MongooseCache = global.ics25_mongoose ?? {
+  conn: null,
+  promise: null,
+  mongoose: new mongoose.Mongoose(),
+};
+
 if (!global.ics25_mongoose) {
   global.ics25_mongoose = cached;
 }
 
-async function dbConnect(): Promise<typeof mongoose> {
+async function dbConnect(): Promise<Connection> {
   if (cached.conn) return cached.conn;
   if (!cached.promise) {
-    const opts: Parameters<typeof mongoose.connect>[1] = {
+    const opts: Parameters<typeof cached.mongoose.connect>[1] = {
       bufferCommands: false,
       dbName: ICS25_DB_NAME,
       maxPoolSize: 10,
     };
-    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((m) => m);
+    cached.promise = cached.mongoose.connect(MONGODB_URI!, opts).then((m) => m.connection);
   }
   cached.conn = await cached.promise;
   return cached.conn;
 }
 
+export function getIcs25Mongoose() {
+  return cached.mongoose;
+}
+
 export async function getIcs25Db() {
   await dbConnect();
-  return mongoose;
+  return cached.mongoose;
+}
+
+export async function getIcs25Connection() {
+  return dbConnect();
 }

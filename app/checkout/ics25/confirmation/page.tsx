@@ -236,13 +236,19 @@ export default function ConfirmationPage() {
       if (data.requiresPayment) {
         await initiatePayment(data);
       } else if (data.refundInitiated) {
-        // For downgrades with refund
+        const amountLabel = typeof data.refundAmount === 'number' ? ` Refund of ₹${data.refundAmount} will be processed in 3-5 business days.` : '';
         toast({
           title: "Upgrade Successful!",
-          description: `Your pass has been upgraded to ${TIER_PRICING[selectedUpgrade].label}. Refund of ₹${data.refundAmount} will be processed in 3-5 business days.`,
+          description: `Your pass has been upgraded to ${TIER_PRICING[selectedUpgrade].label}.${amountLabel}`.trim(),
         });
         setShowUpgradeModal(false);
-        // Refresh attendee data
+        window.location.reload();
+      } else if (data.requiresManualRefund) {
+        toast({
+          title: "Upgrade Successful",
+          description: data.message || "Your pass has been upgraded. Please contact support to complete the refund.",
+        });
+        setShowUpgradeModal(false);
         window.location.reload();
       } else {
         toast({

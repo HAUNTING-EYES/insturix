@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 const PromoReelSubmissionSchema = new Schema({
   playerId: { type: String, index: true },
@@ -11,6 +15,10 @@ const PromoReelSubmissionSchema = new Schema({
   reviewedAt: Date,
 }, { timestamps: true });
 
-export type PromoReelSubmissionDocument = mongoose.InferSchemaType<typeof PromoReelSubmissionSchema> & mongoose.Document;
+export type PromoReelSubmissionDocument = InferSchemaType<typeof PromoReelSubmissionSchema> & Document;
 
-export default models.Ics25PromoReel || model('Ics25PromoReel', PromoReelSubmissionSchema);
+const Ics25PromoReelModel =
+  (mongoose.models.Ics25PromoReel as Model<PromoReelSubmissionDocument>)
+  || mongoose.model('Ics25PromoReel', PromoReelSubmissionSchema);
+
+export default Ics25PromoReelModel;

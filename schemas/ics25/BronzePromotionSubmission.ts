@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 const BronzePromotionSubmissionSchema = new Schema({
   clerkUserId: { type: String, index: true },
@@ -13,6 +17,10 @@ const BronzePromotionSubmissionSchema = new Schema({
   reviewedBy: String, // admin's clerkUserId
 }, { timestamps: true });
 
-export type BronzePromotionSubmissionDocument = mongoose.InferSchemaType<typeof BronzePromotionSubmissionSchema> & mongoose.Document;
+export type BronzePromotionSubmissionDocument = InferSchemaType<typeof BronzePromotionSubmissionSchema> & Document;
 
-export default models.Ics25BronzePromotion || model('Ics25BronzePromotion', BronzePromotionSubmissionSchema);
+const Ics25BronzePromotionModel =
+  (mongoose.models.Ics25BronzePromotion as Model<BronzePromotionSubmissionDocument>)
+  || mongoose.model('Ics25BronzePromotion', BronzePromotionSubmissionSchema);
+
+export default Ics25BronzePromotionModel;

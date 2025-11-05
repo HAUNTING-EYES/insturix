@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 export type Game = 'valorant' | 'bgmi';
 
@@ -65,6 +69,10 @@ const PlayerSchema = new Schema({
   meta: Schema.Types.Mixed,
 }, { timestamps: true });
 
-export type PlayerDocument = mongoose.InferSchemaType<typeof PlayerSchema> & mongoose.Document;
+export type PlayerDocument = InferSchemaType<typeof PlayerSchema> & Document;
 
-export default models.Ics25Player || model('Ics25Player', PlayerSchema);
+const Ics25PlayerModel =
+  (mongoose.models.Ics25Player as Model<PlayerDocument>)
+  || mongoose.model('Ics25Player', PlayerSchema);
+
+export default Ics25PlayerModel;

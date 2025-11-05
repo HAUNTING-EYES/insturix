@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 const AttendeePaymentSchema = new Schema({
   status: { type: String, enum: ['none', 'pending', 'paid', 'failed'], default: 'none' },
@@ -52,6 +56,8 @@ const BronzePromotionSchema = new Schema({
   linkedinProofUrl: String,
   submittedAt: Date,
   rejectionReason: String,
+  reviewedAt: Date,
+  reviewedBy: String,
 }, { _id: false });
 
 const Ics25AttendeeSchema = new Schema({
@@ -83,6 +89,10 @@ const Ics25AttendeeSchema = new Schema({
   refunds: { type: [RefundSchema], default: [] },
 }, { timestamps: true });
 
-export type Ics25AttendeeDocument = mongoose.InferSchemaType<typeof Ics25AttendeeSchema> & mongoose.Document;
+export type Ics25AttendeeDocument = InferSchemaType<typeof Ics25AttendeeSchema> & Document;
 
-export default models.Ics25Attendee || model('Ics25Attendee', Ics25AttendeeSchema);
+const Ics25AttendeeModel =
+  (mongoose.models.Ics25Attendee as Model<Ics25AttendeeDocument>)
+  || mongoose.model('Ics25Attendee', Ics25AttendeeSchema);
+
+export default Ics25AttendeeModel;

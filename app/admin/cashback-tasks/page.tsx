@@ -1,4 +1,5 @@
 import CashbackTasksManager from "@/components/admin/CashbackTasksManager";
+import AdminBackButton from "@/components/admin/AdminBackButton";
 import Navbar from "@/components/Navbar";
 
 export const metadata = {
@@ -18,6 +19,9 @@ export default async function AdminCashbackTasksPage() {
     <div className="min-h-screen bg-white dark:bg-zinc-950">
       <Navbar />
       <div className="container max-w-7xl mx-auto px-4 py-8">
+        <div className="mb-6">
+          <AdminBackButton />
+        </div>
         <div className="mb-8">
           <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900 dark:text-zinc-100">
             Cashback Tasks Management

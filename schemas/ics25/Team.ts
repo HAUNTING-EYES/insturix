@@ -1,4 +1,8 @@
-import mongoose, { Schema, models, model } from 'mongoose';
+import type { Document, InferSchemaType, Model } from 'mongoose';
+import { getIcs25Mongoose } from '@/lib/ics25-mongo';
+
+const mongoose = getIcs25Mongoose();
+const { Schema } = mongoose;
 
 const TeamSchema = new Schema({
   teamName: { type: String, required: true, maxlength: 20 },
@@ -14,6 +18,10 @@ const TeamSchema = new Schema({
   meta: Schema.Types.Mixed,
 }, { timestamps: true });
 
-export type TeamDocument = mongoose.InferSchemaType<typeof TeamSchema> & mongoose.Document;
+export type TeamDocument = InferSchemaType<typeof TeamSchema> & Document;
 
-export default models.Ics25Team || model('Ics25Team', TeamSchema);
+const Ics25TeamModel =
+  (mongoose.models.Ics25Team as Model<TeamDocument>)
+  || mongoose.model('Ics25Team', TeamSchema);
+
+export default Ics25TeamModel;

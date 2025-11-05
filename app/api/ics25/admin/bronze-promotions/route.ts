@@ -3,6 +3,99 @@ import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import BronzePromotionSubmission from '@/schemas/ics25/BronzePromotionSubmission';
 import Attendee from '@/schemas/ics25/Attendee';
+import { clerkClient } from '@clerk/nextjs/server';
+
+const BRONZE_STATUSES = ['submitted', 'verified', 'rejected'] as const;
+type BronzeStatus = (typeof BRONZE_STATUSES)[number];
+
+type NormalizedSubmission = {
+  _id: string;
+  clerkUserId: string;
+  name?: string;
+  displayName?: string;
+  email?: string;
+  phone?: string;
+  instagramHandle?: string;
+  linkedinHandle?: string;
+  instagramProofUrl?: string;
+  linkedinProofUrl?: string;
+  status: BronzeStatus;
+  rejectionReason?: string;
+  createdAt?: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  source: 'submission' | 'submission+attendee' | 'attendee';
+};
+
+const toIsoString = (value: unknown): string | undefined => {
+  if (!value) return undefined;
+  try {
+    const date = new Date(value as any);
+    if (Number.isNaN(date.getTime())) {
+      return undefined;
+    }
+    return date.toISOString();
+  } catch {
+    return undefined;
+  }
+};
+
+const normalizeSubmission = (
+  submission: any,
+  attendee?: any,
+  sourceOverride?: NormalizedSubmission['source'],
+  displayName?: string
+): NormalizedSubmission => {
+  const source: NormalizedSubmission['source'] = sourceOverride ?? (attendee ? 'submission+attendee' : 'submission');
+  return {
+    _id: submission._id?.toString?.() ?? String(submission._id),
+    clerkUserId: submission.clerkUserId,
+    name: submission.name || attendee?.name || undefined,
+    displayName,
+    email: submission.email || attendee?.email || undefined,
+    phone: submission.phone || attendee?.phone || undefined,
+    instagramHandle: attendee?.instagram || undefined,
+    linkedinHandle: attendee?.linkedin || undefined,
+    instagramProofUrl: submission.instagramProofUrl || attendee?.bronzePromotion?.instagramProofUrl || undefined,
+    linkedinProofUrl: submission.linkedinProofUrl || attendee?.bronzePromotion?.linkedinProofUrl || undefined,
+    status: submission.status as BronzeStatus,
+    rejectionReason: submission.rejectionReason || attendee?.bronzePromotion?.rejectionReason || undefined,
+    createdAt: toIsoString(
+      submission.createdAt || attendee?.bronzePromotion?.submittedAt || attendee?.createdAt
+    ),
+    reviewedAt: toIsoString(
+      submission.reviewedAt || attendee?.bronzePromotion?.reviewedAt || attendee?.updatedAt
+    ),
+    reviewedBy: submission.reviewedBy || attendee?.bronzePromotion?.reviewedBy || undefined,
+    source,
+  };
+};
+
+const normalizeAttendeeOnly = (attendee: any): NormalizedSubmission | null => {
+  const status = attendee?.bronzePromotion?.status;
+  if (!status || !BRONZE_STATUSES.includes(status)) {
+    return null;
+  }
+
+  return {
+    _id: `attendee-${attendee._id?.toString?.() ?? attendee._id}`,
+    clerkUserId: attendee.clerkUserId,
+    name: attendee.name || undefined,
+    displayName: attendee.name || undefined,
+    email: attendee.email || undefined,
+    phone: attendee.phone || undefined,
+    instagramHandle: attendee.instagram || undefined,
+    linkedinHandle: attendee.linkedin || undefined,
+    instagramProofUrl: attendee.bronzePromotion?.instagramProofUrl || undefined,
+    linkedinProofUrl: attendee.bronzePromotion?.linkedinProofUrl || undefined,
+    status: attendee.bronzePromotion.status as BronzeStatus,
+    rejectionReason: attendee.bronzePromotion?.rejectionReason || undefined,
+    createdAt: toIsoString(attendee.bronzePromotion?.submittedAt || attendee.createdAt),
+    reviewedAt: toIsoString(attendee.bronzePromotion?.reviewedAt || attendee.updatedAt),
+    reviewedBy: attendee.bronzePromotion?.reviewedBy || undefined,
+    source: 'attendee',
+  };
+};
 
 /**
  * GET /api/ics25/admin/bronze-promotions
@@ -19,18 +112,101 @@ export async function GET(req: NextRequest) {
     await getIcs25Db();
 
     const { searchParams } = new URL(req.url);
-    const status = searchParams.get('status');
+    const statusParam = searchParams.get('status');
 
-    let query: any = {};
-    if (status && ['submitted', 'verified', 'rejected'].includes(status)) {
-      query.status = status;
+    const statusFilter: BronzeStatus[] = statusParam && BRONZE_STATUSES.includes(statusParam as BronzeStatus)
+      ? [statusParam as BronzeStatus]
+      : [...BRONZE_STATUSES];
+
+    const submissionQuery = statusFilter.length === BRONZE_STATUSES.length
+      ? {}
+      : { status: statusFilter[0] };
+
+    const [submissionDocs, attendeeDocs] = await Promise.all([
+      BronzePromotionSubmission.find(submissionQuery)
+        .sort({ createdAt: -1 })
+        .lean(),
+      Attendee.find({ 'bronzePromotion.status': { $in: statusFilter } })
+        .select('clerkUserId name email phone instagram linkedin bronzePromotion createdAt updatedAt')
+        .lean(),
+    ]);
+
+    const attendeeByUserId = new Map<string, any>(
+      attendeeDocs.map((att: any) => [att.clerkUserId, att])
+    );
+
+    const submissionUserIds = new Set<string>(submissionDocs.map((doc: any) => doc.clerkUserId));
+
+    const pendingNames = new Set<string>();
+
+    for (const doc of submissionDocs as Array<any>) {
+      const userId = doc?.clerkUserId;
+      if (typeof userId !== 'string') continue;
+      const submissionName = typeof doc.name === 'string' ? doc.name.trim() : '';
+      const attendeeName = attendeeByUserId.get(userId)?.name;
+
+      if (!submissionName && typeof attendeeName !== 'string') {
+        pendingNames.add(userId);
+      }
     }
 
-    const submissions = await BronzePromotionSubmission.find(query)
-      .sort({ createdAt: -1 })
-      .lean();
+    const clerkNameMap = new Map<string, string>();
+    if (pendingNames.size > 0) {
+      try {
+        const client = await clerkClient();
+        const clerkResponse = await client.users.getUserList({
+          userId: Array.from(pendingNames),
+          limit: pendingNames.size,
+        });
 
-    return NextResponse.json({ ok: true, submissions });
+        const clerkUsers = Array.isArray((clerkResponse as any)?.data)
+          ? (clerkResponse as any).data
+          : clerkResponse;
+
+        for (const user of clerkUsers as Array<{ id: string; fullName?: string | null; firstName?: string | null; lastName?: string | null }>) {
+          const derived = [user.fullName, `${user.firstName ?? ''} ${user.lastName ?? ''}`]
+            .map((value) => (value ?? '').trim())
+            .find((value) => value.length > 0);
+          if (derived && user.id) {
+            clerkNameMap.set(user.id, derived);
+          }
+        }
+      } catch (clerkError) {
+        console.error('Failed to fetch Clerk names for bronze promotions:', clerkError);
+      }
+    }
+
+    const normalizedSubmissions = submissionDocs.map((doc: any) => {
+      const attendeeMatch = attendeeByUserId.get(doc.clerkUserId);
+      const displayName = [doc.name, attendeeMatch?.name, clerkNameMap.get(doc.clerkUserId)]
+        .map((value) => (value ?? '').trim())
+        .find((value) => (value ?? '').length > 0);
+      return normalizeSubmission(doc, attendeeMatch, undefined, displayName);
+    });
+
+    const attendeeOnlyEntries = attendeeDocs
+      .filter((att: any) => !submissionUserIds.has(att.clerkUserId))
+      .map((att: any) => normalizeAttendeeOnly(att))
+      .filter((entry): entry is NormalizedSubmission => Boolean(entry))
+      .map((entry) => {
+        const displayName = [entry.name, clerkNameMap.get(entry.clerkUserId)]
+          .map((value) => (value ?? '').trim())
+          .find((value) => (value ?? '').length > 0);
+        return {
+          ...entry,
+          displayName: displayName ?? entry.displayName,
+        };
+      });
+
+    const combined = [...normalizedSubmissions, ...attendeeOnlyEntries]
+      .filter((entry) => statusFilter.includes(entry.status))
+      .sort((a, b) => {
+        const aTime = a.createdAt ? Date.parse(a.createdAt) : 0;
+        const bTime = b.createdAt ? Date.parse(b.createdAt) : 0;
+        return bTime - aTime;
+      });
+
+    return NextResponse.json({ ok: true, submissions: combined, count: combined.length });
   } catch (e: any) {
     console.error('GET /api/ics25/admin/bronze-promotions error:', e);
     return NextResponse.json({ ok: false, message: e?.message || 'Internal error' }, { status: 500 });
@@ -53,6 +229,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
     const { submissionId, action, rejectionReason } = body;
+    const trimmedReason = typeof rejectionReason === 'string' ? rejectionReason.trim() : undefined;
 
     if (!submissionId || !action) {
       return NextResponse.json({ 
@@ -61,14 +238,14 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    if (!['approve', 'reject'].includes(action)) {
+    if (!['approve', 'reject', 'revert'].includes(action)) {
       return NextResponse.json({ 
         ok: false, 
-        message: 'action must be either "approve" or "reject"' 
+        message: 'action must be either "approve", "reject", or "revert"' 
       }, { status: 400 });
     }
 
-    if (action === 'reject' && !rejectionReason) {
+    if (action === 'reject' && !trimmedReason) {
       return NextResponse.json({ 
         ok: false, 
         message: 'rejectionReason is required when rejecting' 
@@ -81,32 +258,75 @@ export async function POST(req: NextRequest) {
     }
 
     // Update submission
-    submission.status = action === 'approve' ? 'verified' : 'rejected';
-    submission.reviewedAt = new Date();
-    submission.reviewedBy = adminCheck.email || adminCheck.userId!;
-    
-    if (action === 'reject') {
-      submission.rejectionReason = rejectionReason;
+    const reviewerId = adminCheck.email || adminCheck.userId!;
+    const reviewTimestamp = new Date();
+
+    let responseMessage = '';
+
+    if (action === 'revert') {
+      submission.status = 'submitted';
+      submission.reviewedAt = undefined;
+      submission.reviewedBy = undefined;
+      submission.rejectionReason = undefined;
+
+      await submission.save();
+
+      const attendee = await Attendee.findOne({ clerkUserId: submission.clerkUserId });
+      if (attendee) {
+        const promo = attendee.bronzePromotion || ({} as any);
+        promo.status = 'submitted';
+        promo.reviewedAt = undefined;
+        promo.reviewedBy = undefined;
+        promo.rejectionReason = undefined;
+        promo.instagramProofUrl = submission.instagramProofUrl || promo.instagramProofUrl;
+        promo.linkedinProofUrl = submission.linkedinProofUrl || promo.linkedinProofUrl;
+        promo.submittedAt = promo.submittedAt || submission.createdAt || reviewTimestamp;
+
+        attendee.bronzePromotion = promo;
+        await attendee.save();
+      }
+
+      const attendeeObj = attendee ? (typeof attendee.toObject === 'function' ? attendee.toObject() : attendee) : undefined;
+
+      responseMessage = 'Submission reverted to pending';
+
+      return NextResponse.json({
+        ok: true,
+        message: responseMessage,
+        submission: normalizeSubmission(submission.toObject(), attendeeObj),
+      });
     }
-    
+
+    submission.status = action === 'approve' ? 'verified' : 'rejected';
+    submission.reviewedAt = reviewTimestamp;
+    submission.reviewedBy = reviewerId;
+    submission.rejectionReason = action === 'approve' ? undefined : trimmedReason;
+
     await submission.save();
 
     // Update attendee record
     const attendee = await Attendee.findOne({ clerkUserId: submission.clerkUserId });
-    if (attendee && attendee.bronzePromotion) {
-      attendee.bronzePromotion.status = action === 'approve' ? 'verified' : 'rejected';
-      
-      if (action === 'reject') {
-        attendee.bronzePromotion.rejectionReason = rejectionReason;
-      }
-      
+    if (attendee) {
+      const promo = attendee.bronzePromotion || ({} as any);
+      promo.status = submission.status;
+      promo.instagramProofUrl = submission.instagramProofUrl || promo.instagramProofUrl;
+      promo.linkedinProofUrl = submission.linkedinProofUrl || promo.linkedinProofUrl;
+      promo.submittedAt = promo.submittedAt || submission.createdAt || reviewTimestamp;
+      promo.reviewedAt = reviewTimestamp;
+      promo.reviewedBy = reviewerId;
+      promo.rejectionReason = action === 'approve' ? undefined : trimmedReason;
+
+      attendee.bronzePromotion = promo;
       await attendee.save();
     }
 
+    const attendeeObj = attendee ? (typeof attendee.toObject === 'function' ? attendee.toObject() : attendee) : undefined;
+    responseMessage = action === 'approve' ? 'Submission approved' : 'Submission rejected';
+
     return NextResponse.json({ 
       ok: true, 
-      message: action === 'approve' ? 'Submission approved' : 'Submission rejected',
-      submission 
+      message: responseMessage,
+      submission: normalizeSubmission(submission.toObject(), attendeeObj)
     });
   } catch (e: any) {
     console.error('POST /api/ics25/admin/bronze-promotions error:', e);
