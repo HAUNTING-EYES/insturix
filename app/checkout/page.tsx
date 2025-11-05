@@ -75,7 +75,20 @@ export default async function Page({ searchParams }: { searchParams?: Record<str
   await getIcs25Db();
   const existingAttendee = await Attendee.findOne({ clerkUserId: userId }).lean();
   if (existingAttendee && (existingAttendee as any).attendeePassTier) {
-    redirect('/checkout/ics25/confirmation');
+    const attendeeTier = (existingAttendee as any).attendeePassTier as string;
+    const paymentStatus = (existingAttendee as any)?.payment?.status as string | undefined;
+
+    if (attendeeTier === 'bronze') {
+      if (paymentStatus === 'pending') {
+        redirect('/checkout/bronze/review');
+      }
+
+      if (paymentStatus && paymentStatus !== 'pending') {
+        redirect('/checkout/ics25/confirmation');
+      }
+    } else if (paymentStatus === 'paid') {
+      redirect('/checkout/ics25/confirmation');
+    }
   }
 
   return (

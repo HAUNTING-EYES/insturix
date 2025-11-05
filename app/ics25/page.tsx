@@ -77,8 +77,20 @@ export default async function ICS25Page() {
     const res = await fetch('/api/ics25/attendees', { cache: 'no-store', headers: { 'accept': 'application/json' } });
     if (res.ok) {
       const data = await res.json();
-      if (data?.attendee?.attendeePassTier) {
-        redirect('/checkout/success');
+      const attendee = data?.attendee;
+
+      if (attendee?.attendeePassTier === 'bronze' && attendee?.payment?.status === 'pending') {
+        redirect('/checkout/bronze/review');
+      }
+
+      if (attendee?.attendeePassTier) {
+        if (attendee.attendeePassTier === 'bronze') {
+          redirect('/checkout/success');
+        }
+
+        if (attendee?.payment?.status === 'paid') {
+          redirect('/checkout/success');
+        }
       }
     }
   } catch {

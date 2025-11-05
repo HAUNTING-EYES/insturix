@@ -30,7 +30,14 @@ function CheckoutFormContent() {
         const res = await fetch("/api/ics25/attendees", { headers: { accept: "application/json" } });
         if (res.ok) {
           const data = await res.json();
-          if (data?.attendee?.attendeePassTier && data?.attendee?.payment?.status === 'paid') {
+          const attendee = data?.attendee;
+
+          if (attendee?.attendeePassTier === 'bronze' && attendee?.payment?.status === 'pending') {
+            router.push('/checkout/bronze/review');
+            return;
+          }
+
+          if (attendee?.attendeePassTier && attendee?.payment?.status === 'paid') {
             setIsRegistered(true);
             // Redirect to success page
             router.push("/checkout/success");

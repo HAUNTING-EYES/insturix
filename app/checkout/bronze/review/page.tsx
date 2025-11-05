@@ -42,7 +42,7 @@ export default function BronzeReviewPage() {
           if (bronzePromotion.status === 'verified') {
             // Optionally auto-redirect after a short delay
             setTimeout(() => {
-              router.push("/checkout?tier=bronze");
+              router.push("/checkout/ics25/confirmation");
             }, 2000);
           }
         }
@@ -105,10 +105,6 @@ export default function BronzeReviewPage() {
                     <li className="flex items-start gap-2">
                       <span className="text-amber-600 mt-0.5">•</span>
                       <span>You'll receive an email notification once approved</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-amber-600 mt-0.5">•</span>
-                      <span>After approval, complete your Bronze Pass registration</span>
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-amber-600 mt-0.5">•</span>

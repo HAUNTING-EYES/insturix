@@ -6,6 +6,7 @@ import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
@@ -23,6 +24,15 @@ export default function BronzePromotionPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [instagramHandle, setInstagramHandle] = useState("");
+  const [linkedinProfile, setLinkedinProfile] = useState("");
+  const [organization, setOrganization] = useState("");
+  const [profession, setProfession] = useState("");
+  const [ageGroup, setAgeGroup] = useState("");
+  const [cityName, setCityName] = useState("");
+  const [stateName, setStateName] = useState("");
+  const [referralCode, setReferralCode] = useState("");
+  const ageGroupOptions = ["13-18", "18-26", "26-34", "34-45", "45+"];
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -32,7 +42,6 @@ export default function BronzePromotionPage() {
 
     (async () => {
       try {
-        // Get user's basic info
         if (user?.primaryEmailAddress?.emailAddress) {
           setEmail(user.primaryEmailAddress.emailAddress);
         }
@@ -40,23 +49,72 @@ export default function BronzePromotionPage() {
           setName(user.fullName);
         }
 
-        // Check bronze promotion status
+        // Attempt to prefill details from an attendee record if it exists
+        try {
+          const attendeeRes = await fetch("/api/ics25/attendees");
+          if (attendeeRes.status === 401) {
+            router.push("/signin?redirect_url=/checkout/bronze/promotion");
+            return;
+          }
+          if (attendeeRes.ok) {
+            const attendeeData = await attendeeRes.json();
+            const attendee = attendeeData?.attendee;
+            if (attendee) {
+              if (attendee.name) setName(attendee.name);
+              if (attendee.email) setEmail(attendee.email);
+              if (attendee.phone) setPhone(attendee.phone);
+              if (attendee.instagram) setInstagramHandle(attendee.instagram);
+              if (attendee.linkedin) setLinkedinProfile(attendee.linkedin);
+              if (attendee.organization) setOrganization(attendee.organization);
+              if (attendee.profession) setProfession(attendee.profession);
+              if (attendee.ageGroup) setAgeGroup(attendee.ageGroup);
+              if (attendee.city) setCityName(attendee.city);
+              if (attendee.state) setStateName(attendee.state);
+              if (attendee.referredBy?.code) setReferralCode(attendee.referredBy.code);
+
+              if (attendee.attendeePassTier) {
+                const awaitingBronzeApproval = attendee.attendeePassTier === 'bronze' && attendee.payment?.status === 'pending';
+                if (!awaitingBronzeApproval) {
+                  setLoading(false);
+                  router.push("/checkout/ics25/confirmation");
+                  return;
+                }
+              }
+            }
+          }
+        } catch (attendeeError) {
+          console.warn("Failed to load attendee record:", attendeeError);
+        }
+
         const res = await fetch("/api/ics25/bronze-promotion");
         if (res.ok) {
           const data = await res.json();
           const bronzePromotion = data?.bronzePromotion;
-          
+          const submission = data?.submission;
+
+          if (submission) {
+            if (submission.name) setName(submission.name);
+            if (submission.email) setEmail(submission.email);
+            if (submission.phone) setPhone(submission.phone);
+            if (submission.instagramProofUrl) setInstagramProofUrl(submission.instagramProofUrl);
+            if (submission.linkedinProofUrl) setLinkedinProofUrl(submission.linkedinProofUrl);
+          } else if (bronzePromotion) {
+            if (bronzePromotion.instagramProofUrl) setInstagramProofUrl(bronzePromotion.instagramProofUrl);
+            if (bronzePromotion.linkedinProofUrl) setLinkedinProofUrl(bronzePromotion.linkedinProofUrl);
+          }
+
           if (bronzePromotion) {
             if (bronzePromotion.status === 'submitted') {
-              // Already submitted, redirect to review page
+              setLoading(false);
               router.push("/checkout/bronze/review");
               return;
-            } else if (bronzePromotion.status === 'verified') {
-              // Already approved, redirect to checkout
-              router.push("/checkout?tier=bronze");
+            }
+            if (bronzePromotion.status === 'verified') {
+              setLoading(false);
+              router.push("/checkout/ics25/confirmation");
               return;
-            } else if (bronzePromotion.status === 'rejected') {
-              // Can resubmit
+            }
+            if (bronzePromotion.status === 'rejected') {
               toast({
                 title: "Previous Submission Rejected",
                 description: bronzePromotion.rejectionReason || "Please submit new promotion links",
@@ -77,6 +135,37 @@ export default function BronzePromotionPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+    const trimmedPhone = phone.trim();
+    const trimmedInstagram = instagramHandle.trim();
+    const trimmedLinkedin = linkedinProfile.trim();
+    const trimmedProfession = profession.trim();
+    const trimmedCity = cityName.trim();
+    const trimmedState = stateName.trim();
+    const trimmedOrganization = organization.trim();
+    const normalizedReferral = referralCode.trim().toLowerCase();
+
+    const missingFields: string[] = [];
+    if (!trimmedName) missingFields.push("name");
+    if (!trimmedEmail) missingFields.push("email");
+    if (!trimmedPhone) missingFields.push("phone");
+    if (!trimmedInstagram) missingFields.push("instagram");
+    if (!trimmedLinkedin) missingFields.push("linkedin");
+    if (!trimmedProfession) missingFields.push("profession");
+    if (!ageGroup) missingFields.push("age group");
+    if (!trimmedCity) missingFields.push("city");
+    if (!trimmedState) missingFields.push("state");
+
+    if (missingFields.length > 0) {
+      toast({
+        title: "Missing Information",
+        description: `Please provide: ${missingFields.join(", ")}`,
+        variant: "destructive" as any,
+      });
+      return;
+    }
+
     // Require at least one link (Instagram or LinkedIn)
     if (!instagramProofUrl && !linkedinProofUrl) {
       toast({
@@ -87,28 +176,35 @@ export default function BronzePromotionPage() {
       return;
     }
 
-    if (!name || !email || !phone) {
-      toast({
-        title: "Missing Information",
-        description: "Please provide your name, email, and phone number",
-        variant: "destructive" as any,
-      });
-      return;
-    }
-
     try {
       setSubmitting(true);
+
+      const payload: Record<string, any> = {
+        instagramProofUrl: instagramProofUrl || undefined,
+        linkedinProofUrl: linkedinProofUrl || undefined,
+        name: trimmedName,
+        email: trimmedEmail,
+        phone: trimmedPhone,
+        instagram: trimmedInstagram,
+        linkedin: trimmedLinkedin,
+        profession: trimmedProfession,
+        ageGroup,
+        city: trimmedCity,
+        state: trimmedState,
+      };
+
+      if (trimmedOrganization) {
+        payload.organization = trimmedOrganization;
+      }
+
+      if (normalizedReferral) {
+        payload.referralCode = normalizedReferral;
+      }
 
       const res = await fetch("/api/ics25/bronze-promotion", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          instagramProofUrl: instagramProofUrl || undefined,
-          linkedinProofUrl: linkedinProofUrl || undefined,
-          name,
-          email,
-          phone,
-        }),
+        body: JSON.stringify(payload),
       });
 
       const data = await res.json();
@@ -118,7 +214,7 @@ export default function BronzePromotionPage() {
       }
 
       toast({
-        title: "Promotion Submitted!",
+        title: "Details Submitted!",
         description: "We'll review your submission within 48 hours",
       });
 
@@ -152,7 +248,7 @@ export default function BronzePromotionPage() {
       
       <main className="max-w-3xl mx-auto px-4 py-16">
         <button
-          onClick={() => router.push("/checkout?tier=bronze")}
+          onClick={() => router.push("/checkout")}
           className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 mb-6"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -245,6 +341,89 @@ export default function BronzePromotionPage() {
                     required
                   />
                 </div>
+                <div>
+                  <Label htmlFor="instagram-handle">Instagram *</Label>
+                  <Input
+                    id="instagram-handle"
+                    value={instagramHandle}
+                    onChange={(e) => setInstagramHandle(e.target.value)}
+                    placeholder="@username or profile URL"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="linkedin-profile">LinkedIn *</Label>
+                  <Input
+                    id="linkedin-profile"
+                    value={linkedinProfile}
+                    onChange={(e) => setLinkedinProfile(e.target.value)}
+                    placeholder="Profile URL"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="organization">School / Institution / Company (optional)</Label>
+                  <Input
+                    id="organization"
+                    value={organization}
+                    onChange={(e) => setOrganization(e.target.value)}
+                    placeholder="Name (if applicable)"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="profession">Profession *</Label>
+                  <Input
+                    id="profession"
+                    value={profession}
+                    onChange={(e) => setProfession(e.target.value)}
+                    placeholder="Student, Engineer, Creator, etc."
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="age-group">Age Group *</Label>
+                  <Select value={ageGroup} onValueChange={setAgeGroup}>
+                    <SelectTrigger id="age-group" className="w-full">
+                      <SelectValue placeholder="Select age group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ageGroupOptions.map((option) => (
+                        <SelectItem key={option} value={option}>
+                          {option}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="city">City *</Label>
+                  <Input
+                    id="city"
+                    value={cityName}
+                    onChange={(e) => setCityName(e.target.value)}
+                    placeholder="City"
+                    required
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="state">State *</Label>
+                  <Input
+                    id="state"
+                    value={stateName}
+                    onChange={(e) => setStateName(e.target.value)}
+                    placeholder="State"
+                    required
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <Label htmlFor="referral">Referral Code (optional)</Label>
+                  <Input
+                    id="referral"
+                    value={referralCode}
+                    onChange={(e) => setReferralCode(e.target.value)}
+                    placeholder="Have a friend’s code?"
+                  />
+                </div>
               </div>
 
               <div className="space-y-4">
@@ -285,7 +464,7 @@ export default function BronzePromotionPage() {
                 </h4>
                 <ul className="text-sm text-zinc-600 dark:text-zinc-400 space-y-1">
                   <li>• We'll review your submissions within 48 hours</li>
-                  <li>• Once approved, you can complete your Bronze Pass registration</li>
+                  <li>• Once approved, your Bronze Pass registration will be confirmed automatically</li>
                   <li>• You'll receive a confirmation email</li>
                 </ul>
               </div>

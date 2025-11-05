@@ -272,21 +272,18 @@ export async function POST(req: NextRequest) {
       await submission.save();
 
       const attendee = await Attendee.findOne({ clerkUserId: submission.clerkUserId });
+      let attendeeObj: any;
       if (attendee) {
-        const promo = attendee.bronzePromotion || ({} as any);
-        promo.status = 'submitted';
-        promo.reviewedAt = undefined;
-        promo.reviewedBy = undefined;
-        promo.rejectionReason = undefined;
-        promo.instagramProofUrl = submission.instagramProofUrl || promo.instagramProofUrl;
-        promo.linkedinProofUrl = submission.linkedinProofUrl || promo.linkedinProofUrl;
-        promo.submittedAt = promo.submittedAt || submission.createdAt || reviewTimestamp;
-
-        attendee.bronzePromotion = promo;
-        await attendee.save();
+        attendee.payment = attendee.payment || ({} as any);
+        if (attendee.payment.status !== 'paid') {
+          attendee.payment.status = 'pending';
+          if (typeof attendee.markModified === 'function') {
+            attendee.markModified('payment');
+          }
+          await attendee.save();
+        }
+        attendeeObj = typeof attendee.toObject === 'function' ? attendee.toObject() : attendee;
       }
-
-      const attendeeObj = attendee ? (typeof attendee.toObject === 'function' ? attendee.toObject() : attendee) : undefined;
 
       responseMessage = 'Submission reverted to pending';
 
@@ -307,16 +304,17 @@ export async function POST(req: NextRequest) {
     // Update attendee record
     const attendee = await Attendee.findOne({ clerkUserId: submission.clerkUserId });
     if (attendee) {
-      const promo = attendee.bronzePromotion || ({} as any);
-      promo.status = submission.status;
-      promo.instagramProofUrl = submission.instagramProofUrl || promo.instagramProofUrl;
-      promo.linkedinProofUrl = submission.linkedinProofUrl || promo.linkedinProofUrl;
-      promo.submittedAt = promo.submittedAt || submission.createdAt || reviewTimestamp;
-      promo.reviewedAt = reviewTimestamp;
-      promo.reviewedBy = reviewerId;
-      promo.rejectionReason = action === 'approve' ? undefined : trimmedReason;
-
-      attendee.bronzePromotion = promo;
+      attendee.payment = attendee.payment || ({} as any);
+      if (action === 'approve') {
+        if (attendee.payment.status !== 'paid') {
+          attendee.payment.status = 'none';
+        }
+      } else if (attendee.payment.status !== 'paid') {
+        attendee.payment.status = 'pending';
+      }
+      if (typeof attendee.markModified === 'function') {
+        attendee.markModified('payment');
+      }
       await attendee.save();
     }
 

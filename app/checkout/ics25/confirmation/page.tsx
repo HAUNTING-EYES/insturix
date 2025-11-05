@@ -157,6 +157,11 @@ export default function ConfirmationPage() {
         return null;
       }
 
+      if (tier === 'bronze' && paymentStatus === 'pending') {
+        router.push("/checkout/bronze/review");
+        return null;
+      }
+
       const previousTier = prevTierRef.current;
       if (previousTier && previousTier !== tier) {
         if (triggeredByReferral) {

@@ -498,6 +498,26 @@ export default function CheckoutForm() {
   }, [tier, bronzePromotionStatus]);
 
   const submitBronzePromotion = async () => {
+    const missingFields: string[] = [];
+    if (!name.trim()) missingFields.push('name');
+    if (!email.trim()) missingFields.push('email');
+    if (!phone.trim()) missingFields.push('phone');
+    if (!instagram.trim()) missingFields.push('instagram');
+    if (!linkedin.trim()) missingFields.push('linkedin');
+    if (!profession.trim()) missingFields.push('profession');
+    if (!ageGroup) missingFields.push('age group');
+    if (!cityName.trim()) missingFields.push('city');
+    if (!stateName.trim()) missingFields.push('state');
+
+    if (missingFields.length > 0) {
+      toast({
+        title: 'Missing info',
+        description: `Please fill: ${missingFields.join(', ')}`,
+        variant: 'destructive' as any,
+      });
+      return;
+    }
+
     // Require at least one link
     if (!bronzeInstagramUrl && !bronzeLinkedinUrl) {
       toast({ title: 'Missing link', description: 'Please provide at least one promotion link (Instagram or LinkedIn).', variant: 'destructive' as any });
@@ -515,13 +535,31 @@ export default function CheckoutForm() {
     }
     try {
       setBronzeSubmitting(true);
+      const payload: Record<string, any> = {
+        instagramProofUrl: bronzeInstagramUrl || undefined,
+        linkedinProofUrl: bronzeLinkedinUrl || undefined,
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        instagram: instagram.trim(),
+        linkedin: linkedin.trim(),
+        profession: profession.trim(),
+        ageGroup,
+        city: cityName.trim(),
+        state: stateName.trim(),
+      };
+      if (organization.trim()) {
+        payload.organization = organization.trim();
+      }
+      const normalizedReferral = referralCode.trim().toLowerCase();
+      if (normalizedReferral) {
+        payload.referralCode = normalizedReferral;
+      }
+
       const r = await fetch('/api/ics25/bronze-promotion', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...(bronzeInstagramUrl ? { instagramProofUrl: bronzeInstagramUrl } : {}),
-          ...(bronzeLinkedinUrl ? { linkedinProofUrl: bronzeLinkedinUrl } : {}),
-        })
+        body: JSON.stringify(payload)
       });
       const d = await r.json();
       if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Submission failed');
@@ -529,6 +567,7 @@ export default function CheckoutForm() {
       // Set status to submitted immediately
       setBronzePromotionStatus('submitted');
       setBronzeRejectionReason(null);
+      router.push('/checkout/bronze/review');
     } catch (e: any) {
       toast({ title: 'Submission error', description: e?.message || 'Try again later', variant: 'destructive' as any });
     } finally {
@@ -926,8 +965,7 @@ export default function CheckoutForm() {
               </div>
             )}
 
-            {/* Main registration fields (hidden for Bronze until approved) */}
-            {(tier !== 'bronze' || bronzePromotionStatus === 'verified') && (
+            {/* Main registration fields */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="name">Full name</Label>
@@ -1077,11 +1115,7 @@ export default function CheckoutForm() {
                   </PopoverContent>
                 </Popover>
               </div>
-            </div>
-            )}
-
-            {(tier !== 'bronze' || bronzePromotionStatus === 'verified') && (
-              <div>
+              <div className="md:col-span-2">
                 <Label htmlFor="referral">Referral code (optional)</Label>
                 <div className="mt-2 flex flex-col gap-2">
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -1133,7 +1167,8 @@ export default function CheckoutForm() {
                   )}
                 </div>
               </div>
-            )}
+            </div>
+
           </div>
 
           <aside className="md:col-span-1">
@@ -1246,7 +1281,7 @@ export default function CheckoutForm() {
               </Button>
               <p className="mt-2 text-[11px] text-zinc-500">By proceeding you agree to the event terms.</p>
             </div>
-            </div>
+          </div>
           </aside>
         </div>
       </form>
