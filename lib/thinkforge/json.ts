@@ -6,6 +6,20 @@ export type ScriptModel = {
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  metadata?: {
+    workflow?: string;
+    thoughts?: string;
+    duration_ms?: number;
+    agent_steps?: Array<{
+      agent?: string;
+      step?: string;
+      output?: string;
+    }>;
+    quality_metrics?: {
+      score?: number;
+      feedback?: string;
+    };
+  } | null;
 };
 
 export function stripCodeFences(input: string): string {
@@ -126,7 +140,20 @@ export function sanitizeServerScript(input: any): ScriptModel {
     .filter(Boolean)
     // guarantee ids even if sanitizeBlock returned nullish id for any reason
     .map((b: any) => ({ ...b, id: ensureBlockId(b?.id) })) as Block[];
-  return { title, outline, content, blocks };
+  
+  // Preserve metadata if present
+  const metadata = input?.metadata ? {
+    workflow: typeof input.metadata.workflow === 'string' ? input.metadata.workflow : undefined,
+    thoughts: typeof input.metadata.thoughts === 'string' ? input.metadata.thoughts.slice(0, 1000) : undefined,
+    duration_ms: typeof input.metadata.duration_ms === 'number' ? input.metadata.duration_ms : undefined,
+    agent_steps: Array.isArray(input.metadata.agent_steps) ? input.metadata.agent_steps.slice(0, 20) : undefined,
+    quality_metrics: input.metadata.quality_metrics ? {
+      score: typeof input.metadata.quality_metrics.score === 'number' ? input.metadata.quality_metrics.score : undefined,
+      feedback: typeof input.metadata.quality_metrics.feedback === 'string' ? input.metadata.quality_metrics.feedback.slice(0, 500) : undefined,
+    } : undefined,
+  } : null;
+  
+  return { title, outline, content, blocks, metadata };
 }
 
 // ---- ID helpers ----

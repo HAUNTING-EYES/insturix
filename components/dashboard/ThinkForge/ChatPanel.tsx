@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import clsx from 'clsx';
-import { ChevronDown, Bot, Square, Pencil, X, Check } from 'lucide-react';
+import { Bot, Square, Pencil, X, Check } from 'lucide-react';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
 import { toast } from '@/hooks/use-toast';
 import { looksLikeJSON, parseJsonLenient, sanitizeServerScript, extractBalancedJson } from '@/lib/thinkforge/json';
@@ -23,10 +23,6 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
   // Use internal API route proxy; no secret exposed client-side
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
-  const [chatMode, setChatMode] = useState<'ask'|'edit'>('ask');
-  const [showModeMenu, setShowModeMenu] = useState(false);
-  const modeBtnRef = useRef<HTMLButtonElement | null>(null);
-  const modeMenuRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const suggestionsRef = useRef<HTMLDivElement | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -113,7 +109,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
     return () => { cancelled = true; };
   }, [sessionId, selectedIdea?.idea, initialMessages]);
 
-  // Receive selection from ScriptEditor and prefill chat input for edit
+  // Receive selection from ScriptEditor and prefill chat input
   useEffect(() => {
     const handler = (e: any) => {
       const text = (e?.detail?.text || '').toString();
@@ -124,11 +120,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
 ${text}
 ---
 Describe the change you want:`;
-      setChatMode('edit');
       setChatInput(template);
       // focus textarea if possible
       setTimeout(() => {
-        const el = document.querySelector('textarea[placeholder*="Describe the edit"], textarea') as HTMLTextAreaElement | null;
+        const el = document.querySelector('textarea') as HTMLTextAreaElement | null;
         el?.focus();
         el?.setSelectionRange(template.length, template.length);
       }, 0);
@@ -137,17 +132,6 @@ Describe the change you want:`;
     return () => window.removeEventListener('tf-selection-to-chat' as any, handler);
   }, []);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      // If click is inside any open menu, ignore
-      if (modeMenuRef.current && modeMenuRef.current.contains(target)) return;
-      // Outside clicks for mode menu
-      if (showModeMenu && modeBtnRef.current && !modeBtnRef.current.contains(target)) setShowModeMenu(false);
-    };
-    window.addEventListener('mousedown', handler);
-    return () => window.removeEventListener('mousedown', handler);
-  }, [showModeMenu]);
 
   useEffect(() => {
     if (stickToBottom && chatScrollRef.current) {
@@ -379,317 +363,177 @@ Describe the change you want:`;
     if (!text) return;
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: text, ts: Date.now() };
     setChatInput('');
-    // If in edit mode, run inspector -> editor and update script instead of streaming chat
-    if (chatMode === 'edit') {
-      // Echo user's instruction into chat first
-      setChatMessages(prev => [...prev, userMsg]);
-      try {
-        let assistantText = '';
-        if (onRunEdit) {
-          // Show a non-thinker placeholder bubble while applying the edit
-          const thinkingId = crypto.randomUUID();
-          setChatMessages(prev => [...prev, { id: thinkingId, role: 'assistant', content: 'Working…', ts: Date.now(), streaming: true }]);
-          // Don't stream thinker; we keep a simple placeholder until summary phase
-          setIsStreaming(true);
-          setStreamingAssistantId(thinkingId);
-          const scriptPayload = {
-            title: script?.title || 'Untitled Script',
-            content: script?.content || ''
-          };
-          const projectPayload = {
-            idea: selectedIdea?.idea,
-            purpose: (selectedIdea as any)?.purpose,
-            style: (selectedIdea as any)?.style,
-            format: (selectedIdea as any)?.format,
-            platform: (selectedIdea as any)?.platform,
-            tone: selectedIdea?.tone
-          };
-          // If a selection was sent from the editor, keep it in the instruction context
-          const enrichedRunEdit = pendingSelection ? `Apply this change ONLY to the selected text:
-Selected:
----
-${pendingSelection}
----
-Change:
-${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithContext(text);
-          // Immediately proceed to run the edit; placeholder ensures the user sees progress
-
-          // Run the actual edit via provided handler and use its returned data to apply immediately
-          try {
-            const result = await onRunEdit(enrichedRunEdit, pendingSelection || undefined);
-            if (result && typeof onApplyEdit === 'function') {
-              const sanitized = sanitizeServerScript(result, script || {});
-              const newTitle: string = sanitized?.title || script?.title || 'Untitled Script';
-              const newContent: string = sanitized?.content || script?.content || '';
-              const htmlBody = composeHtml(newTitle, newContent, (sanitized as any)?.html);
-              onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: (sanitized as any)?.blocks || undefined } as any);
-              setPendingSelection(null);
-            }
-          } catch {}
-          // Start summary streaming into the same bubble
-          setIsStreaming(true);
-          setStreamingAssistantId(thinkingId);
-          const summaryController = new AbortController();
-          abortRef.current = summaryController;
-          let finalSummary = '';
-          try {
-            const res = await fetch('/api/services/thinkforge/think/summary', {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                instruction: enrichedRunEdit,
-                scriptBefore: { title: script?.title || 'Untitled Script', content: script?.content || '' },
-                scriptAfter: null,
-                project: { idea: selectedIdea?.idea, platform: (selectedIdea as any)?.platform, tone: selectedIdea?.tone, style: (selectedIdea as any)?.style, format: (selectedIdea as any)?.format, purpose: (selectedIdea as any)?.purpose },
-                sessionId
-              }),
-              signal: summaryController.signal
-            });
-            if (res.ok && res.body) {
-              const reader = res.body.getReader();
-              const decoder = new TextDecoder('utf-8');
-              let done = false; let leftover = ''; let acc = '';
-              // Replace bubble content to start with Summary and configure word streaming
-              setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: 'Summary: ', streaming: true } : m));
-              typingRef.current.queue = [];
-              typingRef.current.active = false;
-              if (typingRef.current.timer) clearTimeout(typingRef.current.timer);
-              typingRef.current.mode = 'word';
-              typingRef.current.delayMs = 35;
-              while (!done) {
-                const { value, done: d } = await reader.read();
-                done = d;
-                if (value) {
-                  const raw = decoder.decode(value, { stream: true });
-                  acc += raw;
-                  const textChunk = leftover + raw;
-                  let tokens = textChunk.split(/(\s+)/);
-                  const last = tokens[tokens.length - 1];
-                  if (last && !/\s+/.test(last)) {
-                    leftover = tokens.pop() as string;
-                  } else {
-                    leftover = '';
-                  }
-                  tokens = tokens.filter(t => t.length > 0);
-                  if (tokens.length) {
-                    typingRef.current.queue.push(...tokens);
-                    startTypingLoop(thinkingId);
-                  }
-                }
-              }
-              const tail = decoder.decode();
-              if (tail || leftover) {
-                acc += (tail || '') + (leftover || '');
-                const finalTokens = ((leftover || '') + (tail || '')).split(/(\s+)/).filter(t => t.length > 0);
-                if (finalTokens.length) {
-                  typingRef.current.queue.push(...finalTokens);
-                  startTypingLoop(thinkingId);
-                }
-              }
-              // mark bubble as done
-              setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, streaming: false } : m));
-              finalSummary = acc.trim();
-            } else {
-              // Fallback concise summary from instruction
-              const concise = text.length > 200 ? text.slice(0, 200) + '…' : text;
-              finalSummary = `Applied edit: ${concise}`;
-              setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: finalSummary, streaming: false } : m));
-            }
-          } catch (err:any) {
-            if (err?.name !== 'AbortError') {
-              const concise = text.length > 200 ? text.slice(0, 200) + '…' : text;
-              finalSummary = `Applied edit: ${concise}`;
-              setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: finalSummary, streaming: false } : m));
-            }
-          } finally {
-            setIsStreaming(false);
-            setStreamingAssistantId(null);
-          }
-          // Persist both messages if sessionId available
-          if (sessionId) {
-            void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'user', content: text }) });
-            if (finalSummary) {
-              void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'assistant', content: 'Summary: ' + finalSummary }) });
-            }
-          }
-          return;
-        }
-        // Fallback local-only edit flow (legacy)
-        // Prepare payloads from current script and selected idea
-        const scriptPayload = {
-          title: script?.title || 'Untitled Script',
-          content: script?.content || '',
-          // Include blocks so server can resolve indices when selection provided
-          blocks: (script as any)?.blocks || undefined,
-        } as any;
-        const projectPayload = {
-          idea: selectedIdea?.idea,
-          purpose: (selectedIdea as any)?.purpose,
-          style: (selectedIdea as any)?.style,
-          format: (selectedIdea as any)?.format,
-          platform: (selectedIdea as any)?.platform,
-          tone: selectedIdea?.tone
-        };
-        // 1) Show a working placeholder while we inspect and edit
-        let thinkingId = crypto.randomUUID();
-        setChatMessages(prev => [...prev, { id: thinkingId, role: 'assistant', content: 'Working…', ts: Date.now(), streaming: true }]);
-        const enrichedLocal = buildInstructionWithContext(text);
-
-        // 2) Inspect the request to confirm it's an edit
-        const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: pendingSelection ? `Edit the selection only.\nSelection:\n${pendingSelection}\nInstruction:\n${text}` : enrichedLocal,
-            script: scriptPayload, project: projectPayload, sessionId
-          })
-        });
-        if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
-        const inspect = await inspectRes.json();
-        if (inspect?.action !== 'edit') {
-          assistantText = 'That looks like a question, not an edit. Use Ask mode for Q&A. I did not change the script.';
-          // transform thinking bubble into answer guidance, remove blinker
-          setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: assistantText, streaming: false } : m));
-          return;
-        }
-        // 3) Apply the edit using block-targeted endpoint
-        const editRes = await fetch('/api/services/thinkforge/script/edit-blocks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            instruction: pendingSelection ? `Replace only the selected text with your improved version.\nSelected:\n${pendingSelection}\nChange:\n${text}` : enrichedLocal,
-            script: scriptPayload, project: projectPayload, sessionId, selection: pendingSelection || undefined
-          })
-        });
-        if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
-        const editedText = await editRes.text();
-        const edited = parseJsonLenient<any>(editedText);
-        if (!edited) {
-          // Do not display broken JSON; surface a friendly failure and stop
-          setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: 'Applied a large edit, but the response was invalid. Please try again.', streaming: false } : m));
-          return;
-        }
-        const sanitizedEdited = sanitizeServerScript(edited, script || {});
-        // Clamp extremely large content to avoid UI hiccups; rely on blocks for rendering
-        if (sanitizedEdited && typeof sanitizedEdited.content === 'string' && sanitizedEdited.content.length > 200000) {
-          sanitizedEdited.content = sanitizedEdited.content.slice(0, 200000);
-        }
-        const newTitle: string = sanitizedEdited?.title || scriptPayload.title;
-        let appliedAfterContent: string = scriptPayload.content || '';
-        const serverBlocks: any[] | undefined = Array.isArray((sanitizedEdited as any)?.blocks) ? (sanitizedEdited as any).blocks : undefined;
-        // Prefer applying server-returned blocks directly
-        if (serverBlocks && serverBlocks.length > 0) {
-          const combinedContent: string = ((sanitizedEdited as any)?.content || scriptPayload.content || '').toString();
-          const htmlBody = composeHtml(newTitle, combinedContent, (sanitizedEdited as any)?.html);
-          onApplyEdit({ ...(script || {}), title: newTitle, content: combinedContent, body: htmlBody, blocks: serverBlocks } as any);
-          appliedAfterContent = combinedContent;
-        } else {
-          // Fallback to content replacement
-          const newContent: string = ((sanitizedEdited as any)?.content || scriptPayload.content || '').toString();
-          const htmlBody = composeHtml(newTitle, newContent, (sanitizedEdited as any)?.html);
-          onApplyEdit({ ...(script || {}), title: newTitle, content: newContent, body: htmlBody, blocks: undefined } as any);
-          appliedAfterContent = newContent;
-        }
-        setPendingSelection(null);
-        // 4) Stream a concise summary into the same bubble
-        setIsStreaming(true);
-        setStreamingAssistantId(thinkingId);
-        const summaryController2 = new AbortController();
-        abortRef.current = summaryController2;
-        let finalSummary2 = '';
-        try {
-          const res2 = await fetch('/api/services/thinkforge/think/summary', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              instruction: enrichedLocal,
-              scriptBefore: { title: scriptPayload.title, content: scriptPayload.content || '' },
-              scriptAfter: { title: newTitle, content: appliedAfterContent },
-              project: { idea: selectedIdea?.idea, platform: (selectedIdea as any)?.platform, tone: selectedIdea?.tone, style: (selectedIdea as any)?.style, format: (selectedIdea as any)?.format, purpose: (selectedIdea as any)?.purpose },
-              sessionId
-            }),
-            signal: summaryController2.signal
-          });
-          if (res2.ok && res2.body) {
-            const reader2 = res2.body.getReader();
-            const decoder2 = new TextDecoder('utf-8');
-            let done2 = false; let leftover2 = ''; let acc2 = '';
-            setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: 'Summary: ', streaming: true } : m));
-            typingRef.current.queue = [];
-            typingRef.current.active = false;
-            if (typingRef.current.timer) clearTimeout(typingRef.current.timer);
-            typingRef.current.mode = 'word';
-            typingRef.current.delayMs = 35;
-            while (!done2) {
-              const { value, done } = await reader2.read();
-              done2 = done;
-              if (value) {
-                const raw = decoder2.decode(value, { stream: true });
-                acc2 += raw;
-                const textChunk2 = leftover2 + raw;
-                let tokens2 = textChunk2.split(/(\s+)/);
-                const last2 = tokens2[tokens2.length - 1];
-                if (last2 && !/\s+/.test(last2)) {
-                  leftover2 = tokens2.pop() as string;
-                } else {
-                  leftover2 = '';
-                }
-                tokens2 = tokens2.filter(t => t.length > 0);
-                if (tokens2.length) {
-                  typingRef.current.queue.push(...tokens2);
-                  startTypingLoop(thinkingId);
-                }
-              }
-            }
-            const tail2 = decoder2.decode();
-            if (tail2 || leftover2) {
-              acc2 += (tail2 || '') + (leftover2 || '');
-              const finalTokens2 = ((leftover2 || '') + (tail2 || '')).split(/(\s+)/).filter(t => t.length > 0);
-              if (finalTokens2.length) {
-                typingRef.current.queue.push(...finalTokens2);
-                startTypingLoop(thinkingId);
-              }
-            }
-            setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, streaming: false } : m));
-            finalSummary2 = acc2.trim();
-          } else {
-            // Fallback to a computed single-line summary
-            const oldTitle = scriptPayload.title?.trim() || '';
-            const oldText = scriptPayload.content?.trim() || '';
-            const newText = appliedAfterContent.trim();
-            const oldWords = oldText.split(/\s+/).filter(Boolean).length;
-            const newWords = newText.split(/\s+/).filter(Boolean).length;
-            const delta = newWords - oldWords;
-            const lengthPart = delta === 0 ? 'kept length' : (delta > 0 ? `expanded by ${delta} words` : `condensed by ${Math.abs(delta)} words`);
-            const titlePart = newTitle.trim() !== oldTitle ? 'updated title' : '';
-            const oldSections = oldText.split(/\n{2,}/).filter(Boolean).length;
-            const newSections = newText.split(/\n{2,}/).filter(Boolean).length;
-            const secDelta = newSections - oldSections;
-            const sectionsPart = secDelta === 0 ? '' : (secDelta > 0 ? `added ${secDelta} section${secDelta===1?'':'s'}` : `removed ${Math.abs(secDelta)} section${Math.abs(secDelta)===1?'':'s'}`);
-            const parts = [titlePart, lengthPart, sectionsPart].filter(Boolean);
-            finalSummary2 = `Applied edit: ${parts.join(', ')}`;
-            setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: finalSummary2, streaming: false } : m));
-          }
-        } catch (err:any) {
-          if (err?.name !== 'AbortError') {
-            finalSummary2 = 'Applied your edit to the script.';
-            setChatMessages(prev => prev.map(m => m.id === thinkingId ? { ...m, content: finalSummary2, streaming: false } : m));
-          }
-        } finally {
-          setIsStreaming(false);
-          setStreamingAssistantId(null);
-        }
-        if (sessionId) {
-          void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'user', content: text }) });
-          if (finalSummary2) {
-            void fetch('/api/services/thinkforge/chat/append', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId, role: 'assistant', content: 'Summary: ' + finalSummary2 }) });
-          }
-        }
-      } catch (e) {
-          setChatMessages(prev => [...prev, { id: crypto.randomUUID(), role: 'assistant', content: '[Failed to apply edit]', ts: Date.now(), streaming: false }]);
+    
+    // Unified chat - backend decides workflow automatically
+    // Prepare script and project payloads
+    const scriptPayload = script ? {
+      title: script.title || 'Untitled Script',
+      content: script.content || '',
+      blocks: (script as any)?.blocks || undefined,
+    } : undefined;
+    
+    const projectPayload = {
+      idea: selectedIdea?.idea,
+      purpose: (selectedIdea as any)?.purpose,
+      style: (selectedIdea as any)?.style,
+      format: (selectedIdea as any)?.format,
+      platform: (selectedIdea as any)?.platform,
+      tone: selectedIdea?.tone
+    };
+    
+    // Add user message to chat
+    setChatMessages(prev => [...prev, userMsg]);
+    
+    // Create assistant message placeholder
+    const assistantId = crypto.randomUUID();
+    setChatMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '', ts: Date.now(), streaming: true }]);
+    setIsStreaming(true);
+    setStreamingAssistantId(assistantId);
+    
+    // Reset typing state
+    typingRef.current.queue = [];
+    typingRef.current.active = false;
+    if (typingRef.current.timer) clearTimeout(typingRef.current.timer);
+    typingRef.current.mode = 'char';
+    typingRef.current.delayMs = 7;
+    typingRef.current.batchChars = 2;
+    
+    let assistantAccum = '';
+    let scriptUpdateJson = '';
+    let inScriptUpdate = false;
+    
+    try {
+      const controller = new AbortController();
+      abortRef.current = controller;
+      
+      const res = await fetch('/api/services/thinkforge/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: text,
+          sessionId,
+          script: scriptPayload,
+          project: projectPayload,
+          selection: pendingSelection || undefined
+        }),
+        signal: controller.signal
+      });
+      
+      if (res.status === 429) {
+        try { const data = await res.json(); } catch {}
+        setChatMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: 'Chat limit reached for this session. Please wait for reset or upgrade your plan.', streaming: false } : m));
+        setIsStreaming(false);
+        setStreamingAssistantId(null);
+        toast({ title: 'Chat limit reached', description: 'Please wait until the limit resets or upgrade your plan.', icon: <Bot className="h-4 w-4" /> });
+        return;
       }
-      return;
+      
+      if (!res.body) throw new Error('No response body');
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let done = false;
+      
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        if (value) {
+          const chunk = decoder.decode(value, { stream: true });
+          
+          // Check for script update marker
+          if (chunk.includes('<script_update>')) {
+            inScriptUpdate = true;
+            const parts = chunk.split('<script_update>');
+            if (parts[0]) {
+              assistantAccum += parts[0];
+              const chars = parts[0].replace(/\r\n/g, '\n').split('');
+              typingRef.current.queue.push(...chars);
+              startTypingLoop(assistantId);
+            }
+            scriptUpdateJson = parts[1] || '';
+            continue;
+          }
+          
+          if (chunk.includes('</script_update>')) {
+            const parts = chunk.split('</script_update>');
+            scriptUpdateJson += parts[0];
+            
+            // Parse and apply script update
+            try {
+              const updateData = JSON.parse(scriptUpdateJson);
+              if (updateData.script && typeof onApplyEdit === 'function') {
+                const sanitized = sanitizeServerScript(updateData.script);
+                const newTitle: string = sanitized?.title || script?.title || 'Untitled Script';
+                const newContent: string = sanitized?.content || script?.content || '';
+                const htmlBody = composeHtml(newTitle, newContent, (sanitized as any)?.html);
+                // Include metadata from orchestration
+                const metadata = updateData.metadata || {};
+                
+                // Ensure blocks are properly set - prefer sanitized blocks, fallback to updateData.script.blocks
+                const blocks = (sanitized?.blocks && Array.isArray(sanitized.blocks) && sanitized.blocks.length > 0) 
+                  ? sanitized.blocks 
+                  : (updateData.script?.blocks && Array.isArray(updateData.script.blocks) && updateData.script.blocks.length > 0)
+                    ? updateData.script.blocks
+                    : undefined;
+                
+                onApplyEdit({ 
+                  ...(script || {}), 
+                  title: newTitle, 
+                  content: newContent, 
+                  body: htmlBody, 
+                  blocks: blocks,
+                  metadata: {
+                    workflow: metadata.workflow,
+                    thoughts: (sanitized as any)?.thoughts || metadata.thoughts,
+                    duration_ms: (sanitized as any)?.duration_ms || metadata.duration_ms,
+                    agent_steps: metadata.agent_steps,
+                    quality_metrics: metadata.quality_metrics,
+                  }
+                } as any);
+              }
+            } catch (e) {
+              console.error('Failed to parse script update', e);
+            }
+            
+            inScriptUpdate = false;
+            if (parts[1]) {
+              // Continue with remaining content after marker
+              assistantAccum += parts[1];
+              const chars = parts[1].replace(/\r\n/g, '\n').split('');
+              typingRef.current.queue.push(...chars);
+              startTypingLoop(assistantId);
+            }
+            continue;
+          }
+          
+          if (inScriptUpdate) {
+            scriptUpdateJson += chunk;
+            continue;
+          }
+          
+          // Normal streaming
+          assistantAccum += chunk;
+          const chars = chunk.replace(/\r\n/g, '\n').split('');
+          typingRef.current.queue.push(...chars);
+          startTypingLoop(assistantId);
+        }
+      }
+      
+      // Flush remaining queue
+      flushQueueInstant(assistantId);
+      setIsStreaming(false);
+      setStreamingAssistantId(null);
+      setPendingSelection(null);
+      
+      // Mark message as done
+      setChatMessages(prev => prev.map(m => m.id === assistantId ? { ...m, streaming: false } : m));
+      
+    } catch (e: any) {
+      if (e?.name === 'AbortError') return;
+      setChatMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: '[Error fetching response]', streaming: false } : m));
+      setIsStreaming(false);
+      setStreamingAssistantId(null);
     }
-    await streamAssistantForPrompt(text, userMsg);
-  }, [chatInput, chatMode, script, selectedIdea, streamAssistantForPrompt, onApplyEdit]);
+  }, [chatInput, script, selectedIdea, sessionId, onApplyEdit, pendingSelection, composeHtml, sanitizeServerScript, startTypingLoop, flushQueueInstant]);
 
   // Editing logic
   const beginEditMessage = (id: string, existing: string) => {
@@ -723,8 +567,10 @@ ${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithC
       } catch {}
     }
 
-    // Start new assistant stream from the edited message; backend will include prior context
-    await streamAssistantForPrompt(trimmed, editedUser, { appendUser: false, skipPersistUser: true });
+    // Start new assistant stream from the edited message using unified chat endpoint
+    // This will be handled by sendChat logic, but we need to trigger it manually here
+    // For now, just add the edited message and let user send again
+    // TODO: Integrate with unified chat endpoint for message editing
   };
 
   // Rich formatting renderer
@@ -847,11 +693,8 @@ ${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithC
 
   const seedSuggestions = () => {
     const baseCommon = ["Add hook","Stronger CTA","Expand section","Shorter version","More data","Story angle","Add humor","Sharpen tone","Cut fluff","Improve flow","Alt headline","Platform tweak"];    
-    const modeAdds: Record<typeof chatMode, string[]> = {
-      ask: ["What next?","Is pacing ok?","Better opening?","Tone check","Fact check"],
-      edit: ["Tighten copy","Condense to 60s","Punchier verbs","Clarify benefit","Remove jargon"],
-    };
-    const pool = [...baseCommon, ...modeAdds[chatMode]];
+    const additional = ["What next?","Is pacing ok?","Better opening?","Tone check","Fact check","Tighten copy","Condense to 60s","Punchier verbs","Clarify benefit","Remove jargon"];
+    const pool = [...baseCommon, ...additional];
     const shuffled = [...new Set(pool)].sort(()=> Math.random()-0.5).slice(0,12);
     setSuggestions(shuffled);
   };
@@ -948,32 +791,12 @@ ${text.replace(/^[\s\S]*?---\s*$/m, '').trim() || text}` : buildInstructionWithC
               value={chatInput}
               onChange={(e)=> setChatInput(e.target.value)}
               onKeyDown={handleChatKey}
-              placeholder={chatMode==='edit' ? 'Describe the edit you want...' : 'Ask about structure, tone, or audience...'}
+              placeholder="Ask about structure, tone, or audience, or describe edits you want..."
               rows={2}
               className="w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-3 py-3 pr-16 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/30 backdrop-blur-md scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
               disabled={!sessionId}
             />
             <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-white/10" />
-            {/* Mode selector placed below the textarea to avoid overlap */}
-            <div className="mt-1">
-              <button
-                ref={modeBtnRef}
-                type="button"
-                onClick={()=>{setShowModeMenu(v=>!v);}}
-                className="flex items-center gap-1 rounded-md border border-white/10 bg-white/10 px-2 py-1 text-[10px] font-medium text-white/80 hover:bg-white/20 hover:text-white transition"
-              >
-                <Bot className="h-3 w-3 text-red-300"/> {chatMode} <ChevronDown className="h-3 w-3"/>
-              </button>
-              {showModeMenu && (createPortal(
-                <div ref={modeMenuRef} className="fixed z-[110]" style={{left: modeBtnRef.current?.getBoundingClientRect().left, top: (modeBtnRef.current?.getBoundingClientRect().bottom||0)+4}}>
-                  <div className="w-36 overflow-hidden rounded-xl border border-white/10 bg-neutral-950/95 backdrop-blur-2xl shadow-lg shadow-black/50" onMouseDown={(e)=>e.stopPropagation()}>
-                    {(['ask','edit'] as const).map(m => (
-                      <button key={m} type="button" onClick={()=>{setChatMode(m); setShowModeMenu(false); seedSuggestions();}} className={clsx('w-full px-3 py-2 text-left text-[11px] font-medium capitalize transition', m===chatMode ? 'bg-red-500/30 text-white' : 'text-white/70 hover:bg-white/10 hover:text-white')}>{m}</button>
-                    ))}
-                  </div>
-                </div>, document.body)
-              )}
-            </div>
           </div>
           <button type="submit" disabled={!sessionId || !chatInput.trim() || isStreaming} aria-label="Send message" className="relative h-[48px] w-[56px] rounded-2xl overflow-hidden bg-gradient-to-br from-red-600 via-red-500 to-rose-500 text-white shadow-lg shadow-red-900/30 transition-all duration-200 hover:from-red-500 hover:via-rose-500 hover:to-rose-400 hover:shadow-red-800/40 active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed">
             <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.25),transparent_60%)]" />

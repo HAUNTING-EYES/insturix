@@ -36,6 +36,21 @@ export interface Script {
   tips?: string[];
   // Legacy support for scripts that come as simple content string
   content?: string;
+  // Orchestration metadata from agentic workflow
+  metadata?: {
+    workflow?: string;
+    thoughts?: string;
+    duration_ms?: number;
+    agent_steps?: Array<{
+      agent?: string;
+      step?: string;
+      output?: string;
+    }>;
+    quality_metrics?: {
+      score?: number;
+      feedback?: string;
+    };
+  };
 }
 
 export interface ChatMessage {

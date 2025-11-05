@@ -12,7 +12,11 @@ import {
   Sparkles,
   Eye,
   Edit,
-  FileText
+  FileText,
+  ChevronDown,
+  ChevronUp,
+  Brain,
+  Zap
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -81,6 +85,7 @@ export default function ScriptEditor({
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importErr, setImportErr] = useState<string | null>(null);
+  const [showOrchestration, setShowOrchestration] = useState(false);
 
   // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
 
@@ -593,6 +598,94 @@ export default function ScriptEditor({
           </CardContent>
         </Card>
       ) : null}
+
+      {/* Orchestration Metadata Display */}
+      {script?.metadata && (script.metadata.thoughts || script.metadata.duration_ms || script.metadata.workflow) && (
+        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl mt-4">
+          <CardContent className="p-0">
+            <button
+              onClick={() => setShowOrchestration(!showOrchestration)}
+              className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <Brain className="h-4 w-4 text-purple-400" />
+                <span className="text-sm font-medium text-zinc-200">Agentic Orchestration Details</span>
+                {script.metadata.workflow && (
+                  <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    {script.metadata.workflow}
+                  </span>
+                )}
+                {script.metadata.duration_ms && (
+                  <span className="text-xs text-zinc-400">
+                    {script.metadata.duration_ms}ms
+                  </span>
+                )}
+              </div>
+              {showOrchestration ? (
+                <ChevronUp className="h-4 w-4 text-zinc-400" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-zinc-400" />
+              )}
+            </button>
+            {showOrchestration && (
+              <div className="px-4 pb-4 space-y-4 border-t border-white/10">
+                {script.metadata.thoughts && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Zap className="h-3.5 w-3.5 text-yellow-400" />
+                      <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Agent Thoughts</span>
+                    </div>
+                    <div className="text-sm text-zinc-300 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 font-mono">
+                      {script.metadata.thoughts}
+                    </div>
+                  </div>
+                )}
+                {script.metadata.agent_steps && script.metadata.agent_steps.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Brain className="h-3.5 w-3.5 text-blue-400" />
+                      <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Agent Steps</span>
+                    </div>
+                    <div className="space-y-2">
+                      {script.metadata.agent_steps.map((step, idx) => (
+                        <div key={idx} className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                          {step.agent && (
+                            <div className="text-xs font-semibold text-blue-300 mb-1">{step.agent}</div>
+                          )}
+                          {step.step && (
+                            <div className="text-sm text-zinc-300 mb-1">{step.step}</div>
+                          )}
+                          {step.output && (
+                            <div className="text-xs text-zinc-400 font-mono mt-1 opacity-75">{step.output}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {script.metadata.quality_metrics && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <Check className="h-3.5 w-3.5 text-green-400" />
+                      <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Quality Metrics</span>
+                    </div>
+                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                      {script.metadata.quality_metrics.score !== undefined && (
+                        <div className="text-sm text-zinc-300 mb-1">
+                          Score: <span className="font-semibold text-green-300">{script.metadata.quality_metrics.score}/100</span>
+                        </div>
+                      )}
+                      {script.metadata.quality_metrics.feedback && (
+                        <div className="text-sm text-zinc-300 mt-2">{script.metadata.quality_metrics.feedback}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Enhancement Dialog */}
       <Dialog open={aiPromptDialog} onOpenChange={setAiPromptDialog}>

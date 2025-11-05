@@ -207,6 +207,7 @@ export default function ThinkForgeLanding() {
 			content,
 			body: htmlBody,
 			blocks: (m.blocks as any) || undefined,
+			metadata: m.metadata || undefined,
 			sections: [], tips: [], duration: undefined, targetAudience: undefined, tone: undefined
 		} as Script;
 	}, []);
@@ -217,6 +218,7 @@ export default function ThinkForgeLanding() {
 		title: s.title,
 		content: s.content || '',
 		blocks: (s as any).blocks || null,
+		metadata: s.metadata || null,
 	}), []);
 
 	// Handlers using autosave hook

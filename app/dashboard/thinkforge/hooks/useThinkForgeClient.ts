@@ -11,6 +11,20 @@ export type ScriptModel = {
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  metadata?: {
+    workflow?: string;
+    thoughts?: string;
+    duration_ms?: number;
+    agent_steps?: Array<{
+      agent?: string;
+      step?: string;
+      output?: string;
+    }>;
+    quality_metrics?: {
+      score?: number;
+      feedback?: string;
+    };
+  } | null;
 };
 
 export type HydratePayload = {
@@ -211,6 +225,7 @@ export function useThinkForgeClient() {
       outline: sanitized?.outline ?? script?.outline ?? null,
       content: sanitized?.content ?? script?.content ?? null,
       blocks: sanitized?.blocks ?? script?.blocks ?? null,
+      metadata: sanitized?.metadata ?? script?.metadata ?? null,
     };
     setScriptAndQueueSave(updated);
     return sanitized;
@@ -246,6 +261,7 @@ export function useThinkForgeClient() {
       outline: sanitized?.outline ?? script?.outline ?? null,
       content: sanitized?.content ?? script?.content ?? null,
       blocks: nextBlocks,
+      metadata: sanitized?.metadata ?? script?.metadata ?? null,
     };
     setScriptAndQueueSave(updated);
     return sanitized;
