@@ -5,7 +5,7 @@ const mongoose = getIcs25Mongoose();
 const { Schema } = mongoose;
 
 const AttendeePaymentSchema = new Schema({
-  status: { type: String, enum: ['none', 'pending', 'paid', 'failed'], default: 'none' },
+  status: { type: String, enum: ['none', 'pending', 'paid', 'failed', 'rejected'], default: 'none' },
   orderId: String,
   paymentId: String,
   signature: String,

@@ -1,5 +1,7 @@
 # Email Service Testing Guide
 
+> NOTE: This legacy guide has been superseded by `Documentation/email/testing.md` and the `pnpm test:email` command.
+
 ## 🧪 Complete Testing Guide
 
 ### Prerequisites

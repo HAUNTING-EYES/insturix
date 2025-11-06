@@ -4,28 +4,20 @@
  * Central export point for all email-related functionality
  */
 
-// Core SES client and functions
 export {
   sendEmail,
   sendBatchEmails,
   verifySESConfiguration,
   EMAIL_CONFIG,
+  getEmailConfig,
   type EmailParams,
   type EmailResult,
 } from './ses-client';
 
-// Email templates
-export {
-  emailWrapper,
-  welcomeEmail,
-  verificationEmail,
-  passwordResetEmail,
-  orderConfirmationEmail,
-  notificationEmail,
-  securityAlertEmail,
-} from './templates';
+export { TransactionalMailer, createMailer, getDefaultMailer } from './mailer';
+export { loadMailerConfig } from './config';
+export type { MailerConfig } from './config';
 
-// Helper functions
 export {
   sendWelcomeEmail,
   sendVerificationEmail,
@@ -33,5 +25,11 @@ export {
   sendOrderConfirmationEmail,
   sendNotificationEmail,
   sendSecurityAlertEmail,
-  sendCustomEmail,
+  sendTemplateEmail,
+  sendBatchEmailsManaged,
+  sendPromotionalEmail,
+  sendTicketConfirmationEmail,
 } from './helpers';
+
+export * from './templates';
+export * from './types';

@@ -37,7 +37,10 @@ export async function GET(request: NextRequest) {
     let passRegistrations = 0;
     try {
       const Attendee = (await import("@/schemas/ics25/Attendee")).default;
-      passRegistrations = await Attendee.countDocuments();
+      // Only count attendees with valid payment status (exclude rejected and failed)
+      passRegistrations = await Attendee.countDocuments({
+        'payment.status': { $nin: ['rejected', 'failed'] }
+      });
     } catch {
       // Attendee schema not available, set to 0
       passRegistrations = 0;

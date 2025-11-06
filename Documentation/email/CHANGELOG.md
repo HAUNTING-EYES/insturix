@@ -1,5 +1,14 @@
 # AWS SES Email Service - Changelog
 
+## Version 2.0.0 (November 6, 2025)
+
+- Replaced monolithic SES client with modular `TransactionalMailer` abstraction.
+- Added `providers/` directory with dedicated AWS SES provider and rate limiter helper.
+- Moved templates into `templates/` directory with typed payload contracts and registry helpers.
+- Added Node test coverage in `__tests__/` plus `pnpm test:email` script.
+- Refreshed documentation (README, summary, and new docs under `Documentation/email`).
+- Updated helpers to support template sending, batch delivery, and configuration verification through the new mailer.
+
 ## Version 1.0.0 (October 24, 2025)
 
 ### 🎉 Initial Release

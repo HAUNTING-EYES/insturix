@@ -1,21 +1,30 @@
-# AWS SES Email Service Documentation
+# Transactional Mailer
 
-## Overview
+Modular emailing system for Insturix. The system builds on AWS Simple Email Service (SES) and provides a reusable `TransactionalMailer` component plus a typed template registry.
 
-Production-ready transactional email service for Insturix using AWS SES (Simple Email Service). This implementation is optimized for reliability, rate limiting compliance, and scalability.
+## Architecture
+
+```
+lib/services/email/
+├── config.ts                # Environment driven configuration loader
+├── mailer.ts                # TransactionalMailer abstraction
+├── providers/
+│   ├── rate-limiter.ts      # Throttling helper used by SES provider
+│   └── ses-provider.ts      # AWS SES implementation of MailProvider
+├── templates/
+│   ├── base.ts              # Shared HTML wrapper
+│   ├── *.ts                 # Template renderers
+│   └── index.ts             # Template registry helpers
+├── helpers.ts               # Thin convenience wrappers for app code
+├── ses-client.ts            # Backwards-compatible façade for legacy imports
+├── types.ts                 # Shared types across providers/templates
+├── __tests__/               # Node test coverage for core behaviours
+└── README.md                # You are here
+```
 
 ## Configuration
 
-### AWS SES Setup
-- **Region**: Configurable via `AWS_SES_REGION` (default: ap-south-1 Mumbai)
-- **From Address**: Configurable via `AWS_SES_FROM_EMAIL` (default: no-reply@insturix.com)
-- **Production Limits**: 
-  - 50,000 emails/day
-  - 14 emails/second
-
-### Environment Variables
-
-Add to your `.env.local`:
+Set the following environment variables in `.env.local` (and deployment targets):
 
 ```bash
 AWS_ACCESS_KEY_ID=your_aws_access_key_id
@@ -24,19 +33,87 @@ AWS_SES_REGION=ap-south-1
 AWS_SES_FROM_EMAIL=no-reply@insturix.com
 ```
 
-## Features
+If `AWS_SES_FROM_EMAIL` is missing the mailer throws during configuration to avoid silent misconfigurations.
 
-✅ **Automatic Rate Limiting** - Stays under 14 emails/second
-✅ **Smart Retry Logic** - Exponential backoff on throttling/transient errors
-✅ **Batch Processing** - Send multiple emails efficiently
-✅ **HTML + Text Templates** - Professional, responsive email designs
-✅ **Production Ready** - Works on AWS Lambda, EC2, and Node.js servers
-✅ **Type Safety** - Full TypeScript support
-✅ **Comprehensive Logging** - Track success/failure rates
+## Usage
 
-## Quick Start
+### Import the mailer
 
-### 1. Basic Email Sending
+```typescript
+import {
+  sendWelcomeEmail,
+  sendVerificationEmail,
+  sendPasswordResetEmail,
+  sendOrderConfirmationEmail,
+  sendNotificationEmail,
+  sendSecurityAlertEmail,
+} from '@/lib/services/email';
+
+await sendWelcomeEmail('user@example.com', 'Test User');
+```
+
+### Using templates directly
+
+```typescript
+import { sendTemplateEmail } from '@/lib/services/email';
+
+await sendTemplateEmail('notification', {
+  to: 'ops@example.com',
+  payload: {
+    name: 'Ops Team',
+    title: 'Deployment complete',
+    message: 'Version 1.2.3 is live.',
+  },
+});
+```
+
+### Creating a custom mailer instance
+
+```typescript
+import { createMailer, TransactionalMailer } from '@/lib/services/email';
+
+const mailer: TransactionalMailer = createMailer();
+await mailer.send({
+  to: 'user@example.com',
+  subject: 'Custom email',
+  htmlBody: '<p>Hello</p>',
+});
+```
+
+## Templates
+
+Templates live in `lib/services/email/templates/` and expose typed payloads via `templates/index.ts`. Add a new file, register it in `templates/index.ts`, and the template becomes available through `sendTemplateEmail`.
+
+Current template identifiers:
+
+- `welcome`
+- `verification`
+- `password-reset`
+- `order-confirmation`
+- `notification`
+- `security-alert`
+
+Each renderer returns HTML, text, and a subject line so all emails ship with a plain text fallback.
+
+## Testing
+
+Key behaviours are covered with Node test files inside `lib/services/email/__tests__/`.
+
+```bash
+pnpm test:email
+```
+
+The script relies on the `tsx` runner and uses an in-memory provider to validate template rendering, batch sending, and configuration delegation without touching AWS.
+
+## API Route
+
+The existing API route `app/api/email/send/route.ts` now uses the new helper functions. Single or batch sends continue to work without code changes.
+
+## Migration Notes
+
+- `ses-client.ts` now wraps the transactional mailer but keeps `sendEmail`, `sendBatchEmails`, `verifySESConfiguration`, `EMAIL_CONFIG`, `EmailParams`, and `EmailResult` exports for backward compatibility.
+- Helpers return strongly typed `SendResult` objects and accept `Recipient | Recipient[]` values to support named recipients.
+- The new template directory makes it simple to add future transactional emails without touching the core mailer logic.
 
 ```typescript
 import { sendEmail } from '@/lib/services/email';
@@ -209,7 +286,7 @@ async function sendAnnouncementToAllUsers() {
   }));
 
   // Send in batches of 10 (rate limiter handles sequencing)
-  const results = await sendBatchEmails(emails, 10);
+  const results = await sendBatchEmails(emails, { batchSize: 10 });
 
   const successCount = results.filter(r => r.success).length;
   console.log(`Sent ${successCount}/${emails.length} emails`);

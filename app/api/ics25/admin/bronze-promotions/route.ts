@@ -309,8 +309,11 @@ export async function POST(req: NextRequest) {
         if (attendee.payment.status !== 'paid') {
           attendee.payment.status = 'none';
         }
-      } else if (attendee.payment.status !== 'paid') {
-        attendee.payment.status = 'pending';
+      } else {
+        // Set payment status to 'rejected' when admin rejects the bronze promotion
+        if (attendee.payment.status !== 'paid') {
+          attendee.payment.status = 'rejected';
+        }
       }
       if (typeof attendee.markModified === 'function') {
         attendee.markModified('payment');

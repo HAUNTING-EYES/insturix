@@ -1,5 +1,7 @@
 # 📧 AWS SES Email Service - Final Summary
 
+> NOTE: This starter guide references the legacy implementation. Use the new README plus the docs in `Documentation/email/` for the current mailer.
+
 ## ✅ **Implementation Complete!**
 
 ### What Changed (Environment Variables):
@@ -313,7 +315,7 @@ await sendOrderConfirmationEmail(email, name, orderId, items);
 await sendNotificationEmail(email, name, title, message, url, buttonText);
 await sendSecurityAlertEmail(email, name, alertType, details);
 await sendEmail({ to, subject, htmlBody, textBody });
-await sendBatchEmails([...emails], batchSize);
+await sendBatchEmails([...emails], { batchSize });
 ```
 
 ### Environment Variables

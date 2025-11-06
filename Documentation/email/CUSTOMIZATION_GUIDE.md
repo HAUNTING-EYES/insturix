@@ -1,5 +1,7 @@
 # Email Customization Guide
 
+> NOTE: This file is kept for reference. The transactional mailer now uses the modular templates in `lib/services/email/templates/`. See `Documentation/email/overview.md` for the up-to-date process.
+
 ## 🎨 How to Customize Email Templates
 
 ### Method 1: Modify Existing Templates (Recommended for consistent look)

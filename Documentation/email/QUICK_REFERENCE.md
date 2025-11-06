@@ -1,5 +1,7 @@
 # Email Service - Quick Reference Card
 
+> NOTE: Updated quick reference material is now maintained in `Documentation/email/`. This card remains for historical context.
+
 ## 🚀 Setup (One-time)
 
 Add to `.env.local`:

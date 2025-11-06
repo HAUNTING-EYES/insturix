@@ -73,7 +73,7 @@ export default function BronzePromotionPage() {
               if (attendee.referredBy?.code) setReferralCode(attendee.referredBy.code);
 
               if (attendee.attendeePassTier) {
-                const awaitingBronzeApproval = attendee.attendeePassTier === 'bronze' && attendee.payment?.status === 'pending';
+                const awaitingBronzeApproval = attendee.attendeePassTier === 'bronze' && (attendee.payment?.status === 'pending' || attendee.payment?.status === 'rejected');
                 if (!awaitingBronzeApproval) {
                   setLoading(false);
                   router.push("/checkout/ics25/confirmation");

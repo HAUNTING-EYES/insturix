@@ -1,5 +1,7 @@
 # AWS SES Email Service - Implementation Guide
 
+> NOTE: This legacy guide predates the transactional mailer refactor. Prefer the updated README and the docs under `Documentation/email/`.
+
 ## 🚀 Quick Setup (5 minutes)
 
 ### Step 1: Add AWS Credentials
@@ -152,7 +154,7 @@ async function sendAnnouncement() {
     textBody: `Hi ${user.name}! We have exciting news...`,
   }));
   
-  const results = await sendBatchEmails(emails, 10);
+  const results = await sendBatchEmails(emails, { batchSize: 10 });
   console.log(`Sent ${results.filter(r => r.success).length}/${emails.length} emails`);
 }
 ```

@@ -83,7 +83,12 @@ export default async function Page({ searchParams }: { searchParams?: Record<str
         redirect('/checkout/bronze/review');
       }
 
-      if (paymentStatus && paymentStatus !== 'pending') {
+      // If rejected, allow user to re-submit their bronze promotion
+      if (paymentStatus === 'rejected') {
+        redirect('/checkout/bronze/promotion');
+      }
+
+      if (paymentStatus && paymentStatus !== 'pending' && paymentStatus !== 'rejected') {
         redirect('/checkout/ics25/confirmation');
       }
     } else if (paymentStatus === 'paid') {

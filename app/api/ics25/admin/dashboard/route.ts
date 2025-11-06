@@ -62,6 +62,12 @@ export async function GET(req: NextRequest) {
     // Fetch Passes data
     const allAttendees = await Ics25Attendee.find({}).lean();
 
+    // Filter out attendees with rejected or failed payment status for total count
+    const validAttendees = allAttendees.filter((a: any) => {
+      const status = a.payment?.status;
+      return status !== 'rejected' && status !== 'failed';
+    });
+
     const tiers: Array<"bronze" | "silver" | "gold" | "creators"> = [
       'bronze',
       'silver',
@@ -70,7 +76,7 @@ export async function GET(req: NextRequest) {
     ];
 
     const byTier = tiers.reduce((acc, t) => {
-      const list = allAttendees.filter((a: any) => a.attendeePassTier === t);
+      const list = validAttendees.filter((a: any) => a.attendeePassTier === t);
       const paid = list.filter((a: any) => a.payment?.status === 'paid').length;
       const pending = list.filter((a: any) => a.payment?.status === 'pending').length;
       (acc as any)[t] = { total: list.length, paid, pending };
@@ -78,11 +84,11 @@ export async function GET(req: NextRequest) {
     }, {} as Record<string, { total: number; paid: number; pending: number }>);
 
     const passesData = {
-      totalAttendees: allAttendees.length,
+      totalAttendees: validAttendees.length,
       byTier,
       byPaymentStatus: {
-        paid: allAttendees.filter((a: any) => a.payment?.status === 'paid').length,
-        pending: allAttendees.filter((a: any) => a.payment?.status === 'pending').length,
+        paid: validAttendees.filter((a: any) => a.payment?.status === 'paid').length,
+        pending: validAttendees.filter((a: any) => a.payment?.status === 'pending').length,
       },
       pricing: ICS25_PASS_PRICES,
     } as const;

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, BarChart3, Calendar, Zap, Shield } from "lucide-react";
+import { LogOut, BarChart3, Calendar, Zap, Shield, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tabs,
@@ -157,6 +157,13 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
               <BarChart3 className="w-4 h-4" />
               <span>Analytics</span>
             </TabsTrigger>
+            <TabsTrigger
+              value="mailing"
+              className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-teal-500 data-[state=active]:text-white rounded-lg px-4 py-2"
+            >
+              <Mail className="w-4 h-4" />
+              <span>Mailing</span>
+            </TabsTrigger>
           </TabsList>
 
           {/* ICS'25 Tab */}
@@ -178,6 +185,28 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
               transition={{ delay: 0.5 }}
             >
               <AnalyticsTab />
+            </motion.div>
+          </TabsContent>
+
+          {/* Mailing Tab */}
+          <TabsContent value="mailing" className="space-y-6">
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5 }}
+            >
+              <div className="text-center py-12">
+                <p className="text-muted-foreground mb-4">
+                  Access the full mailing dashboard
+                </p>
+                <Button
+                  onClick={() => router.push("/admin/mailing")}
+                  className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white"
+                >
+                  <Mail className="mr-2 h-4 w-4" />
+                  Open Mailing Dashboard
+                </Button>
+              </div>
             </motion.div>
           </TabsContent>
         </Tabs>
