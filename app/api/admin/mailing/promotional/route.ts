@@ -8,7 +8,7 @@ import { sendEmail } from '@/lib/services/email';
 import { promotionalEmailTemplate } from '@/lib/services/email/templates/promotional';
 
 const MONGODB_URI = process.env.MONGODB_URI!;
-const PROD_DB_NAME = 'insturix'; // Production database for user data
+const PROD_DB_NAME = 'insturix_prod'; // Production database for user data
 
 // Cached connection for insturix_prod database
 let cachedConnection: typeof mongoose | null = null;
