@@ -2,14 +2,14 @@ import crypto from 'crypto';
 import Attendee, { Ics25AttendeeDocument } from '@/schemas/ics25/Attendee';
 import Player from '@/schemas/ics25/Player';
 
-export type AttendeeReferralUpgrade = 'silver' | 'gold';
+export type AttendeeReferralUpgrade = 'gold' | 'platinum';
 
-type Tier = 'bronze' | 'silver' | 'gold' | 'creators';
+type Tier = 'bronze' | 'silver' | 'gold' | 'platinum' | 'creators';
 
-const TIER_ORDER: Tier[] = ['bronze', 'silver', 'gold', 'creators'];
+const TIER_ORDER: Tier[] = ['bronze', 'silver', 'gold', 'platinum', 'creators'];
 const REFERRAL_THRESHOLDS: Record<AttendeeReferralUpgrade, number> = {
-  silver: 25,
-  gold: 55,
+  gold: 25,
+  platinum: 55,
 };
 
 function tierRank(tier: Tier) {
@@ -47,7 +47,7 @@ function ensureReferralContainer(attendee: Ics25AttendeeDocument) {
   }
 
   if (typeof referral.qualified !== 'boolean') {
-    referral.qualified = referral.referredCount >= REFERRAL_THRESHOLDS.silver;
+    referral.qualified = referral.referredCount >= REFERRAL_THRESHOLDS.gold;
     touched = true;
   }
 
@@ -59,15 +59,15 @@ function applyReferralMilestones(attendee: Ics25AttendeeDocument, referral: any)
   const triggered: AttendeeReferralUpgrade[] = [];
   let touched = false;
 
-  if (referral.referredCount >= REFERRAL_THRESHOLDS.silver && !upgradesSet.has('silver')) {
-    upgradesSet.add('silver');
-    triggered.push('silver');
-    touched = true;
-  }
-
   if (referral.referredCount >= REFERRAL_THRESHOLDS.gold && !upgradesSet.has('gold')) {
     upgradesSet.add('gold');
     triggered.push('gold');
+    touched = true;
+  }
+
+  if (referral.referredCount >= REFERRAL_THRESHOLDS.platinum && !upgradesSet.has('platinum')) {
+    upgradesSet.add('platinum');
+    triggered.push('platinum');
     touched = true;
   }
 
@@ -82,10 +82,10 @@ function applyReferralMilestones(attendee: Ics25AttendeeDocument, referral: any)
 
   if (currentTier !== 'creators') {
     let targetTier: Tier | null = null;
-    if (referral.referredCount >= REFERRAL_THRESHOLDS.gold) {
+    if (referral.referredCount >= REFERRAL_THRESHOLDS.platinum) {
+      targetTier = 'platinum';
+    } else if (referral.referredCount >= REFERRAL_THRESHOLDS.gold) {
       targetTier = 'gold';
-    } else if (referral.referredCount >= REFERRAL_THRESHOLDS.silver) {
-      targetTier = 'silver';
     }
 
     if (targetTier) {
@@ -95,7 +95,7 @@ function applyReferralMilestones(attendee: Ics25AttendeeDocument, referral: any)
         attendee.attendeePassTier = targetTier;
         tierChanged = true;
         touched = true;
-        if (!triggered.includes(targetTier)) {
+        if (!triggered.includes(targetTier as AttendeeReferralUpgrade)) {
           triggered.push(targetTier as AttendeeReferralUpgrade);
         }
         referral.lastUpgradedAt = new Date();
@@ -172,7 +172,7 @@ export async function syncAttendeeTierWithReferralProgress(attendee: Ics25Attend
   referral.referredCount = typeof referral.referredCount === 'number'
     ? referral.referredCount
     : referral.referredUserIds.length;
-  referral.qualified = referral.referredCount >= REFERRAL_THRESHOLDS.silver;
+  referral.qualified = referral.referredCount >= REFERRAL_THRESHOLDS.gold;
 
   const { triggered, touched } = applyReferralMilestones(attendee, referral);
   const updated = structureTouched || touched || creditResult.attendeeDirty;
@@ -245,7 +245,7 @@ export async function applyAttendeeReferralCredit(referrer: Ics25AttendeeDocumen
   referral.referredUserIds = Array.from(ids);
   referral.referredCount = ids.size;
   referral.lastUpdatedAt = new Date();
-  referral.qualified = referral.referredCount >= REFERRAL_THRESHOLDS.silver;
+  referral.qualified = referral.referredCount >= REFERRAL_THRESHOLDS.gold;
   const { triggered } = applyReferralMilestones(referrer, referral);
   referrer.markModified('cashback');
   await referrer.save();

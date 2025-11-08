@@ -68,10 +68,11 @@ export async function GET(req: NextRequest) {
       return status !== 'rejected' && status !== 'failed';
     });
 
-    const tiers: Array<"bronze" | "silver" | "gold" | "creators"> = [
+    const tiers: Array<"bronze" | "silver" | "gold" | "platinum" | "creators"> = [
       'bronze',
       'silver',
       'gold',
+      'platinum',
       'creators',
     ];
 

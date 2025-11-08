@@ -41,8 +41,8 @@ export async function POST(req: NextRequest) {
 
   const existing = await Attendee.findOne({ clerkUserId: userId });
 
-  // For Bronze tier, check if promotion tasks are approved
-  if (attendeePassTier === 'bronze') {
+  // For Silver tier, check if promotion tasks are approved (Bronze does not require promotion)
+  if (attendeePassTier === 'silver') {
     let isVerified = existing?.bronzePromotion?.status === 'verified';
     if (!isVerified) {
       const submission = await BronzePromotionSubmission.findOne({ clerkUserId: userId, status: 'verified' }).lean();
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     if (!isVerified) {
       return NextResponse.json({
         ok: false,
-        message: 'Bronze pass requires completion and approval of promotional tasks',
+        message: 'Silver pass requires completion and approval of promotional tasks',
         requiresPromotion: true,
       }, { status: 400 });
     }
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
         if (!existing.referredBy?.code) {
           const referrer = await Attendee.findOne({ 'cashback.referral.code': normalizedReferralCode });
           if (referrer && referrer.clerkUserId !== existing.clerkUserId) {
-            const autoConfirm = (existing.attendeePassTier === 'bronze');
+            const autoConfirm = (existing.attendeePassTier === 'bronze' || existing.attendeePassTier === 'silver');
             existing.referredBy = {
               code: normalizedReferralCode,
               referrerUserId: referrer.clerkUserId,
@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
           }
         } else if (
           existing.referredBy?.code === normalizedReferralCode &&
-          existing.attendeePassTier === 'bronze' &&
+          (existing.attendeePassTier === 'bronze' || existing.attendeePassTier === 'silver') &&
           existing.referredBy.confirmed !== true
         ) {
           const referrer = await Attendee.findOne({ clerkUserId: existing.referredBy.referrerUserId || '' });
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
     if (normalizedReferralCode) {
       const referrer = await Attendee.findOne({ 'cashback.referral.code': normalizedReferralCode });
       if (referrer && referrer.clerkUserId !== userId) {
-        confirmImmediately = attendeePassTier === 'bronze';
+        confirmImmediately = attendeePassTier === 'bronze' || attendeePassTier === 'silver';
         (attendeeData as any).referredBy = {
           code: normalizedReferralCode,
           referrerUserId: referrer.clerkUserId,

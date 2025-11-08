@@ -45,9 +45,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, message: 'Attendee not found' }, { status: 404 });
     }
 
-    // Only require payment if the current tier is a paid tier (silver/gold)
-    const paidTiers = ['silver', 'gold'];
-    if (paidTiers.includes(attendee.attendeePassTier) && attendee.payment?.status !== 'paid') {
+    // Only require payment if the current tier is a paid tier (gold/platinum)
+    // Bronze and Silver are free
+    // Also check for upgradePayments - users who upgraded via upgradePayments should be allowed to apply
+    const paidTiers = ['gold', 'platinum'];
+    const hasMainPayment = attendee.payment?.status === 'paid';
+    const upgradePayments = attendee.upgradePayments;
+    const hasUpgradePayments = upgradePayments && Array.isArray(upgradePayments) && upgradePayments.length > 0;
+    const hasPaidForCurrentTier = hasMainPayment || hasUpgradePayments;
+
+    if (paidTiers.includes(attendee.attendeePassTier) && !hasPaidForCurrentTier) {
       return NextResponse.json({ 
         ok: false, 
         message: 'Payment required before upgrading' 
@@ -57,7 +64,7 @@ export async function POST(req: NextRequest) {
     const currentTier = attendee.attendeePassTier;
 
     // Validate upgrade path to creators
-    if (!['bronze', 'silver', 'gold'].includes(currentTier)) {
+    if (!['bronze', 'silver', 'gold', 'platinum'].includes(currentTier)) {
       return NextResponse.json({ 
         ok: false, 
         message: 'Invalid upgrade path' 

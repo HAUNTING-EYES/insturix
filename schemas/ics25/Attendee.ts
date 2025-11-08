@@ -72,7 +72,7 @@ const Ics25AttendeeSchema = new Schema({
   ageGroup: { type: String },
   city: { type: String },
   state: { type: String },
-  attendeePassTier: { type: String, enum: ['bronze', 'silver', 'gold', 'creators'], required: true },
+  attendeePassTier: { type: String, enum: ['bronze', 'silver', 'gold', 'platinum', 'creators'], required: true },
   payment: { type: AttendeePaymentSchema, default: () => ({ status: 'none' }) },
   referredBy: {
     code: { type: String },

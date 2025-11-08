@@ -32,15 +32,28 @@ function CheckoutFormContent() {
           const data = await res.json();
           const attendee = data?.attendee;
 
-          if (attendee?.attendeePassTier === 'bronze' && attendee?.payment?.status === 'pending') {
+          // Bronze and Silver are free, so they don't require paid status
+          // Silver requires promotion approval
+          if (attendee?.attendeePassTier === 'silver' && attendee?.payment?.status === 'pending') {
             router.push('/checkout/bronze/review');
             return;
           }
 
-          if (attendee?.attendeePassTier && attendee?.payment?.status === 'paid') {
+          // Bronze doesn't require promotion, so if registered, redirect to confirmation
+          if (attendee?.attendeePassTier === 'bronze' && attendee?.payment?.status && attendee?.payment?.status !== 'pending' && attendee?.payment?.status !== 'rejected') {
             setIsRegistered(true);
-            // Redirect to success page
-            router.push("/checkout/success");
+            router.push("/checkout/ics25/confirmation");
+            return;
+          }
+
+          // Check if user has upgraded passes or upgrade payments
+          const hasUpgradedPass = ['gold', 'platinum', 'creators'].includes(attendee?.attendeePassTier);
+          const hasUpgradePayments = attendee?.upgradePayments && Array.isArray(attendee.upgradePayments) && attendee.upgradePayments.length > 0;
+
+          if (attendee?.attendeePassTier && (attendee?.payment?.status === 'paid' || hasUpgradedPass || hasUpgradePayments)) {
+            setIsRegistered(true);
+            // Redirect to confirmation page
+            router.push("/checkout/ics25/confirmation");
             return;
           }
         }

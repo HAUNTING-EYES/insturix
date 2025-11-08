@@ -8,14 +8,15 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import { Check, ChevronRight, AlertCircle, Sparkles, Clock, Copy, RefreshCcw } from "lucide-react";
+import { Check, ChevronRight, AlertCircle, Sparkles, Clock, Copy, RefreshCcw, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 import { useToast } from "@/hooks/use-toast";
 import UpgradeConfirmationModal from "../../../../components/ics25/UpgradeConfirmationModal";
 import CreatorUpgradeForm from "../../../../components/ics25/CreatorUpgradeForm";
 
-type Tier = "bronze" | "silver" | "gold" | "creators";
+type Tier = "bronze" | "silver" | "gold" | "platinum" | "creators";
 
 const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[]; gradient: string; badgeColor: string; dotColor: string }> = {
   bronze: { 
@@ -32,26 +33,39 @@ const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[
   },
   silver: { 
     label: "Silver", 
-    amount: 2500,
+    amount: 0,
     gradient: "from-white/65 via-white/20 to-gray-200/85",
     badgeColor: "bg-gray-300",
     dotColor: "bg-white",
     perks: [
-      "Everything in Bronze",
+      "Access to panel talks",
+      "Access to speaker sessions",
+      "Audience Access to Creator Awards",
+      "Insturix Plus Plan included"
+    ]
+  },
+  gold: { 
+    label: "Gold", 
+    amount: 2500,
+    gradient: "from-yellow-400/35 via-white/20 to-yellow-600/35",
+    badgeColor: "bg-yellow-500",
+    dotColor: "bg-yellow-500",
+    perks: [
+      "Everything in Silver Pass",
       "Participate in Reel making showdown",
       "Speed Edits",
       "Access to quite rooms and Gaming Zones",
       "Talent Showdown"
     ]
   },
-  gold: { 
-    label: "Gold", 
+  platinum: { 
+    label: "Platinum", 
     amount: 5000,
-    gradient: "from-yellow-400/35 via-white/20 to-yellow-600/35",
-    badgeColor: "bg-yellow-500",
-    dotColor: "bg-yellow-500",
+    gradient: "from-zinc-900/50 via-zinc-800/30 to-black/50",
+    badgeColor: "bg-zinc-900",
+    dotColor: "bg-zinc-900",
     perks: [
-      "Everything in Silver",
+      "Everything in Gold Pass",
       "Networking lounge",
       "Lunch both days",
       "Exclusive merch",
@@ -65,7 +79,7 @@ const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[
     badgeColor: "bg-red-500",
     dotColor: "bg-red-500",
     perks: [
-      "Everything in Gold",
+      "Everything in Platinum Pass",
       "Priority Access",
       "Brand Shoutout",
       "Featuring on Banner"
@@ -74,20 +88,21 @@ const TIER_PRICING: Record<Tier, { label: string; amount: number; perks: string[
 };
 
 const UPGRADE_PATHS: Record<Tier, Tier[]> = {
-  bronze: ["silver", "gold", "creators"],
-  silver: ["gold", "creators"],
-  gold: ["creators"],
+  bronze: ["gold", "platinum", "creators"], // Silver upgrade only via creator tasks (bronze promotion)
+  silver: ["gold", "platinum", "creators"],
+  gold: ["platinum", "creators"],
+  platinum: ["creators"],
   creators: [], // No upgrades from creators
 };
 
 const REFERRAL_UPGRADE_MESSAGES: Partial<Record<Tier, { title: string; description: string }>> = {
-  silver: {
-    title: "Pass upgraded to Silver",
-    description: "25 verified referrals unlocked Silver perks. Keep going for Gold at 55 referrals.",
-  },
   gold: {
-    title: "Pass upgraded to Gold",
-    description: "55 verified referrals unlocked Gold. Enjoy the full ICS'25 experience!",
+    title: "Successfully upgraded from Silver to Gold!",
+    description: "25 verified referrals unlocked Gold perks. Keep going for Platinum at 55 referrals.",
+  },
+  platinum: {
+    title: "Successfully upgraded from Gold to Platinum!",
+    description: "55 verified referrals unlocked Platinum. Enjoy the full ICS'25 experience!",
   },
 };
 
@@ -105,9 +120,18 @@ export default function ConfirmationPage() {
   const [creatorStatusLoading, setCreatorStatusLoading] = useState(false);
   const [generatingReferral, setGeneratingReferral] = useState(false);
   const [refreshingReferral, setRefreshingReferral] = useState(false);
+  const [bronzePromotionStatus, setBronzePromotionStatus] = useState<string | null>(null);
+  const [bronzeRejectionReason, setBronzeRejectionReason] = useState<string | null>(null);
+  const [bronzeInstagramUrl, setBronzeInstagramUrl] = useState<string>("");
+  const [bronzeLinkedinUrl, setBronzeLinkedinUrl] = useState<string>("");
+  const [bronzeSubmitting, setBronzeSubmitting] = useState<boolean>(false);
   const siteOrigin = (process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com").replace(/\/$/, "");
   const prevTierRef = useRef<Tier | null>(null);
   const [recentUpgrade, setRecentUpgrade] = useState<Tier | null>(null);
+  const [bronzeToSilverUpgrade, setBronzeToSilverUpgrade] = useState<boolean>(false);
+  const bronzeUpgradeProcessedRef = useRef<boolean>(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const creatorPollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load Razorpay script
   useEffect(() => {
@@ -135,6 +159,109 @@ export default function ConfirmationPage() {
     }
   }, []);
 
+  const fetchBronzePromotionStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ics25/bronze-promotion", { headers: { accept: "application/json" } });
+      if (res.ok) {
+        const data = await res.json();
+        const bronzePromotion = data?.bronzePromotion;
+        if (bronzePromotion) {
+          const newStatus = bronzePromotion.status || 'none';
+          // Only update if status changed to prevent unnecessary re-renders
+          if (newStatus !== bronzePromotionStatus) {
+            setBronzePromotionStatus(newStatus);
+            setBronzeRejectionReason(bronzePromotion.rejectionReason || null);
+          }
+          if (bronzePromotion.instagramProofUrl) setBronzeInstagramUrl(bronzePromotion.instagramProofUrl);
+          if (bronzePromotion.linkedinProofUrl) setBronzeLinkedinUrl(bronzePromotion.linkedinProofUrl);
+        } else {
+          if (bronzePromotionStatus !== 'none') {
+            setBronzePromotionStatus('none');
+          }
+        }
+      }
+    } catch {
+      // Silently fail
+    }
+  }, [bronzePromotionStatus]);
+
+  const submitBronzePromotion = useCallback(async () => {
+    if (!attendee) return;
+
+    const missingFields: string[] = [];
+    if (!attendee.name?.trim()) missingFields.push('name');
+    if (!attendee.email?.trim()) missingFields.push('email');
+    if (!attendee.phone?.trim()) missingFields.push('phone');
+    if (!attendee.instagram?.trim()) missingFields.push('instagram');
+    if (!attendee.linkedin?.trim()) missingFields.push('linkedin');
+    if (!attendee.profession?.trim()) missingFields.push('profession');
+    if (!attendee.ageGroup) missingFields.push('age group');
+    if (!attendee.city?.trim()) missingFields.push('city');
+    if (!attendee.state?.trim()) missingFields.push('state');
+
+    if (missingFields.length > 0) {
+      toast({
+        title: 'Missing info',
+        description: `Please update your profile with: ${missingFields.join(', ')}`,
+        variant: 'destructive' as any,
+      });
+      return;
+    }
+
+    if (!bronzeInstagramUrl && !bronzeLinkedinUrl) {
+      toast({ title: 'Missing link', description: 'Please provide at least one promotion link (Instagram or LinkedIn).', variant: 'destructive' as any });
+      return;
+    }
+
+    const urlPattern = /^https?:\/\//i;
+    if (bronzeInstagramUrl && !urlPattern.test(bronzeInstagramUrl)) {
+      toast({ title: 'Invalid Instagram URL', description: 'Please paste a valid public Instagram URL.', variant: 'destructive' as any });
+      return;
+    }
+    if (bronzeLinkedinUrl && !urlPattern.test(bronzeLinkedinUrl)) {
+      toast({ title: 'Invalid LinkedIn URL', description: 'Please paste a valid public LinkedIn URL.', variant: 'destructive' as any });
+      return;
+    }
+
+    try {
+      setBronzeSubmitting(true);
+      const payload: Record<string, any> = {
+        instagramProofUrl: bronzeInstagramUrl || undefined,
+        linkedinProofUrl: bronzeLinkedinUrl || undefined,
+        name: attendee.name.trim(),
+        email: attendee.email.trim(),
+        phone: attendee.phone.trim(),
+        instagram: attendee.instagram.trim(),
+        linkedin: attendee.linkedin.trim(),
+        profession: attendee.profession.trim(),
+        ageGroup: attendee.ageGroup,
+        city: attendee.city.trim(),
+        state: attendee.state.trim(),
+        attendeePassTier: 'silver', // Upgrade to Silver
+      };
+      if (attendee.organization?.trim()) {
+        payload.organization = attendee.organization.trim();
+      }
+
+      const r = await fetch('/api/ics25/bronze-promotion', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const d = await r.json();
+      if (!r.ok || d?.ok === false) throw new Error(d?.message || 'Submission failed');
+      toast({ title: 'Submitted', description: 'Your submission is under review. After approval, your pass will automatically upgrade to Silver.' });
+      setBronzePromotionStatus('submitted');
+      setBronzeRejectionReason(null);
+      bronzeUpgradeProcessedRef.current = false; // Reset ref for new submission
+      // Stay on confirmation page, don't redirect
+    } catch (e: any) {
+      toast({ title: 'Submission error', description: e?.message || 'Try again later', variant: 'destructive' as any });
+    } finally {
+      setBronzeSubmitting(false);
+    }
+  }, [attendee, bronzeInstagramUrl, bronzeLinkedinUrl, toast, router]);
+
   const loadAttendee = useCallback(async (showErrors: boolean = true) => {
     try {
       const res = await fetch("/api/ics25/attendees");
@@ -148,18 +275,37 @@ export default function ConfirmationPage() {
 
       const tier = data.attendee.attendeePassTier as Tier;
       const paymentStatus = data.attendee.payment?.status;
+      const upgradePayments = data.attendee.upgradePayments;
+      const hasUpgradePayments = upgradePayments && Array.isArray(upgradePayments) && upgradePayments.length > 0;
       const rawReferralUpgrades = data.attendee.cashback?.referral?.upgrades;
       const referralUpgradesList: string[] = Array.isArray(rawReferralUpgrades) ? rawReferralUpgrades : [];
       const triggeredByReferral = referralUpgradesList.includes(tier);
 
-      if (tier !== 'bronze' && paymentStatus !== 'paid' && !triggeredByReferral) {
+      // Bronze and Silver are free, so they don't require paid status
+      // Also allow users with upgradePayments (they've paid for upgrades) to stay on confirmation page
+      if (tier !== 'bronze' && tier !== 'silver' && paymentStatus !== 'paid' && !triggeredByReferral && !hasUpgradePayments) {
         router.push("/checkout");
         return null;
       }
 
-      if (tier === 'bronze' && paymentStatus === 'pending') {
-        router.push("/checkout/bronze/review");
-        return null;
+      // Silver requires promotion approval (bronze does not)
+      // Only redirect if payment status is pending AND promotion is not verified
+      // If promotion is verified, the tier should already be Silver, so don't redirect
+      if (tier === 'silver' && paymentStatus === 'pending') {
+        // Check promotion status before redirecting
+        const promoRes = await fetch("/api/ics25/bronze-promotion", { headers: { accept: "application/json" } });
+        if (promoRes.ok) {
+          const promoData = await promoRes.json();
+          const promoStatus = promoData?.bronzePromotion?.status;
+          // If promotion is verified, don't redirect (tier should update soon)
+          if (promoStatus !== 'verified') {
+            router.push("/checkout/bronze/review");
+            return null;
+          }
+        } else {
+          router.push("/checkout/bronze/review");
+          return null;
+        }
       }
 
       const previousTier = prevTierRef.current;
@@ -171,6 +317,21 @@ export default function ConfirmationPage() {
             title: msg?.title || `Pass upgraded to ${TIER_PRICING[tier].label}`,
             description: msg?.description || 'Your referral milestone unlocked a new tier automatically.',
           });
+        } else if (previousTier === 'bronze' && tier === 'silver') {
+          // Bronze→Silver upgrade via creator tasks approval
+          setRecentUpgrade(tier);
+          setBronzeToSilverUpgrade(true);
+          toast({
+            title: "Successfully upgraded from Bronze to Silver!",
+            description: "Your pass has been upgraded to Silver with Insturix Plus Plan included.",
+          });
+        } else if (tier === 'creators') {
+          // Creator application approved - show success message
+          setRecentUpgrade(tier);
+          toast({
+            title: "Creator Pass Approved! 🎉",
+            description: "Your Creator Pass application has been approved! Welcome to the Creators tier.",
+          });
         } else {
           setRecentUpgrade(null);
         }
@@ -179,6 +340,10 @@ export default function ConfirmationPage() {
 
       setAttendee(data.attendee);
       await fetchCreatorStatus();
+      // Fetch Bronze promotion status if user is Bronze tier
+      if (tier === 'bronze') {
+        await fetchBronzePromotionStatus();
+      }
       return data.attendee;
     } catch (e: any) {
       if (showErrors) {
@@ -190,7 +355,7 @@ export default function ConfirmationPage() {
       }
       return null;
     }
-  }, [fetchCreatorStatus, router, toast]);
+  }, [fetchCreatorStatus, fetchBronzePromotionStatus, router, toast]);
 
   useEffect(() => {
     if (!user) {
@@ -201,6 +366,154 @@ export default function ConfirmationPage() {
     setLoading(true);
     loadAttendee().finally(() => setLoading(false));
   }, [user, router, loadAttendee]);
+
+  // Auto-poll Bronze promotion status while under review (similar to referral upgrade polling)
+  useEffect(() => {
+    const tier = attendee?.attendeePassTier as Tier;
+    if (tier !== 'bronze' || bronzePromotionStatus !== 'submitted') {
+      // Clear interval if conditions not met
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Clear any existing interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    let mounted = true;
+    pollingIntervalRef.current = setInterval(async () => {
+      if (!mounted) return;
+      try {
+        // Check promotion status
+        const r = await fetch('/api/ics25/bronze-promotion', { headers: { accept: 'application/json' } });
+        if (!r.ok || !mounted) return;
+        const d = await r.json();
+        const bp = d?.bronzePromotion;
+        if (!mounted || !bp) return;
+        
+        const newStatus = bp.status || 'none';
+        const statusChanged = newStatus !== bronzePromotionStatus;
+        
+        // Update status if changed
+        if (statusChanged) {
+          setBronzePromotionStatus(newStatus);
+          setBronzeRejectionReason(bp.rejectionReason || null);
+        }
+        
+        // Always reload attendee (like referral upgrades) - it will detect tier change automatically
+        // The admin route upgrades Bronze to Silver when approving, so loadAttendee will pick it up
+        await loadAttendee(false);
+        
+        // If verified, clear interval (tier change will be detected by loadAttendee)
+        if (newStatus === 'verified') {
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+        }
+      } catch {}
+    }, 30000);
+    
+    return () => { 
+      mounted = false;
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [attendee?.attendeePassTier, bronzePromotionStatus, loadAttendee]);
+
+  // Auto-poll Creator application status while pending
+  useEffect(() => {
+    // Only poll if application status is pending
+    if (applicationStatus !== 'pending') {
+      // Clear interval if conditions not met
+      if (creatorPollingIntervalRef.current) {
+        clearInterval(creatorPollingIntervalRef.current);
+        creatorPollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // Clear any existing interval
+    if (creatorPollingIntervalRef.current) {
+      clearInterval(creatorPollingIntervalRef.current);
+    }
+
+    let mounted = true;
+    creatorPollingIntervalRef.current = setInterval(async () => {
+      if (!mounted) return;
+      try {
+        // Check creator application status
+        const r = await fetch('/api/ics25/attendees/creator-status', { headers: { accept: 'application/json' } });
+        if (!r.ok || !mounted) return;
+        const d = await r.json();
+        if (!mounted || !d) return;
+        
+        const newStatus = d.status || 'none';
+        const statusChanged = newStatus !== applicationStatus;
+        
+        // Update status if changed
+        if (statusChanged) {
+          setApplicationStatus(newStatus);
+        }
+        
+        // Always reload attendee - admin route updates tier to 'creators' when approving
+        // loadAttendee will detect tier change automatically
+        await loadAttendee(false);
+        
+        // If approved or rejected, clear interval (status change will be detected)
+        if (newStatus === 'approved' || newStatus === 'rejected') {
+          if (creatorPollingIntervalRef.current) {
+            clearInterval(creatorPollingIntervalRef.current);
+            creatorPollingIntervalRef.current = null;
+          }
+        }
+      } catch (e) {
+        console.error('Creator application polling error:', e);
+      }
+    }, 10000); // Poll every 10 seconds
+
+    return () => {
+      mounted = false;
+      if (creatorPollingIntervalRef.current) {
+        clearInterval(creatorPollingIntervalRef.current);
+        creatorPollingIntervalRef.current = null;
+      }
+    };
+  }, [applicationStatus, loadAttendee]);
+
+  // Immediately upgrade tier to Silver when promotion status becomes verified
+  useEffect(() => {
+    const tier = attendee?.attendeePassTier as Tier;
+    if (tier === 'bronze' && bronzePromotionStatus === 'verified' && !bronzeUpgradeProcessedRef.current) {
+      bronzeUpgradeProcessedRef.current = true;
+      
+      // Immediately upgrade tier to Silver via API (ensures upgrade happens right away)
+      const upgradeToSilver = async () => {
+        try {
+          const res = await fetch('/api/ics25/attendees/upgrade', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ targetTier: 'silver' })
+          });
+          
+          // Reload attendee to get updated tier and show upgrade notification
+          // This will detect the tier change and show toast (Bronze→Silver upgrade)
+          await loadAttendee(false);
+        } catch (e) {
+          // On error, still reload attendee (admin route may have already upgraded)
+          await loadAttendee(false);
+        }
+      };
+      
+      upgradeToSilver();
+    }
+  }, [bronzePromotionStatus, attendee?.attendeePassTier, attendee, loadAttendee]);
 
   const handleUpgradeClick = (tier: Tier) => {
     setSelectedUpgrade(tier);
@@ -240,6 +553,8 @@ export default function ConfirmationPage() {
       // If upgrade requires payment, redirect to Razorpay
       if (data.requiresPayment) {
         await initiatePayment(data);
+        // Payment flow will handle redirect, so return early to prevent modal from showing success
+        return;
       } else if (data.refundInitiated) {
         const amountLabel = typeof data.refundAmount === 'number' ? ` Refund of ₹${data.refundAmount} will be processed in 3-5 business days.` : '';
         toast({
@@ -247,21 +562,24 @@ export default function ConfirmationPage() {
           description: `Your pass has been upgraded to ${TIER_PRICING[selectedUpgrade].label}.${amountLabel}`.trim(),
         });
         setShowUpgradeModal(false);
-        window.location.reload();
+        // Explicitly redirect to confirmation page to ensure we stay on the right page
+        window.location.href = '/checkout/ics25/confirmation';
       } else if (data.requiresManualRefund) {
         toast({
           title: "Upgrade Successful",
           description: data.message || "Your pass has been upgraded. Please contact support to complete the refund.",
         });
         setShowUpgradeModal(false);
-        window.location.reload();
+        // Explicitly redirect to confirmation page to ensure we stay on the right page
+        window.location.href = '/checkout/ics25/confirmation';
       } else {
         toast({
           title: "Upgrade Successful!",
           description: `Your pass has been upgraded to ${TIER_PRICING[selectedUpgrade].label}.`,
         });
         setShowUpgradeModal(false);
-        window.location.reload();
+        // Explicitly redirect to confirmation page to ensure we stay on the right page
+        window.location.href = '/checkout/ics25/confirmation';
       }
     } catch (e: any) {
       toast({
@@ -269,6 +587,8 @@ export default function ConfirmationPage() {
         description: e.message || "Failed to process upgrade",
         variant: "destructive",
       });
+      // Re-throw error so the modal knows it failed and doesn't show success screen
+      throw e;
     } finally {
       setUpgrading(false);
     }
@@ -307,7 +627,8 @@ export default function ConfirmationPage() {
             description: "Your pass has been upgraded.",
           });
           setShowUpgradeModal(false);
-          window.location.reload();
+          // Explicitly redirect to confirmation page to ensure we stay on the right page
+          window.location.href = '/checkout/ics25/confirmation';
         } catch (e: any) {
           toast({
             title: "Payment Verification Failed",
@@ -407,36 +728,30 @@ export default function ConfirmationPage() {
   const referredCount = typeof referralData.referredCount === 'number' ? referralData.referredCount : 0;
   const referralUpgrades: string[] = Array.isArray(referralData.upgrades) ? referralData.upgrades : [];
   const REFERRAL_MAX = 55;
-  const SILVER_MILESTONE = 25;
+  const GOLD_MILESTONE = 25;
   const isBronzeTier = currentTier === 'bronze';
   const isSilverTier = currentTier === 'silver';
-  const silverUnlocked = referralUpgrades.includes('silver') || !isBronzeTier;
-  const goldUnlocked = referralUpgrades.includes('gold') || currentTier === 'gold' || currentTier === 'creators';
+  const goldUnlocked = referralUpgrades.includes('gold') || currentTier === 'gold' || currentTier === 'platinum' || currentTier === 'creators';
+  const platinumUnlocked = referralUpgrades.includes('platinum') || currentTier === 'platinum' || currentTier === 'creators';
   const progressPercent = Math.min(100, Math.round((referredCount / REFERRAL_MAX) * 100));
-  const referralsToSilver = Math.max(0, SILVER_MILESTONE - referredCount);
-  const referralsToGold = Math.max(0, REFERRAL_MAX - referredCount);
+  const referralsToGold = Math.max(0, GOLD_MILESTONE - referredCount);
+  const referralsToPlatinum = Math.max(0, REFERRAL_MAX - referredCount);
   const referralShareLink = hasReferralCode ? `${siteOrigin}/checkout?ref=${referralCode}` : '';
-  const silverMarkerPosition = `${(SILVER_MILESTONE / REFERRAL_MAX) * 100}%`;
+  const goldMarkerPosition = `${(GOLD_MILESTONE / REFERRAL_MAX) * 100}%`;
   const formatRegistrations = (count: number) => (count === 1 ? 'registration' : 'registrations');
   const milestoneMessage = (() => {
-    if (isBronzeTier) {
-      if (referralsToSilver > 0) {
-        return `${referralsToSilver} more ${formatRegistrations(referralsToSilver)} to unlock Silver automatically. Gold awaits at 55.`;
-      }
+    if (isBronzeTier || isSilverTier) {
       if (referralsToGold > 0) {
-        return `Silver unlocked! ${referralsToGold} more ${formatRegistrations(referralsToGold)} to reach Gold at 55.`;
+        return `${referralsToGold} more ${formatRegistrations(referralsToGold)} to unlock Gold automatically. Platinum awaits at 55.`;
       }
-      return "Gold unlocked! Enjoy the full ICS'25 experience.";
-    }
-    if (isSilverTier) {
-      if (referralsToGold > 0) {
-        return `${referralsToGold} more ${formatRegistrations(referralsToGold)} to unlock Gold at 55.`;
+      if (referralsToPlatinum > 0) {
+        return `Gold unlocked! ${referralsToPlatinum} more ${formatRegistrations(referralsToPlatinum)} to reach Platinum at 55.`;
       }
-      return "Gold unlocked! Enjoy the full ICS'25 experience.";
+      return "Platinum unlocked! Enjoy the full ICS'25 experience.";
     }
     return "Keep sharing to help your community discover ICS'25.";
   })();
-  const milestoneReached = isBronzeTier ? referralsToSilver <= 0 : referralsToGold <= 0;
+  const milestoneReached = (isBronzeTier || isSilverTier) ? referralsToGold <= 0 : referralsToPlatinum <= 0;
   const upgradeNotice = recentUpgrade ? REFERRAL_UPGRADE_MESSAGES[recentUpgrade] || null : null;
 
   return (
@@ -493,7 +808,25 @@ export default function ConfirmationPage() {
           </div>
         </motion.div>
 
-        {upgradeNotice && (
+        {/* Bronze to Silver upgrade notification */}
+        {bronzeToSilverUpgrade && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.45 }}
+            className="mb-10 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200"
+          >
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-2">
+                <Check className="h-4 w-4" />
+                <span className="font-semibold">Successfully upgraded from Bronze to Silver!</span>
+              </div>
+              <span className="text-emerald-100/80 sm:text-right">Your pass now includes Insturix Plus Plan</span>
+            </div>
+          </motion.div>
+        )}
+
+        {upgradeNotice && !bronzeToSilverUpgrade && (
           <motion.div
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
@@ -522,7 +855,15 @@ export default function ConfirmationPage() {
           <div className={`rounded-3xl overflow-hidden p-[1px] bg-gradient-to-br ${currentPricing.gradient}`}>
             <div className="relative rounded-[22px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-6">
               {/* Sheen effect */}
-              <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+              {currentTier === 'platinum' ? (
+                <>
+                  {/* Platinum-specific metallic shine */}
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] bg-gradient-to-br from-white/20 via-white/5 to-transparent opacity-60" />
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.25),transparent)]" />
+                </>
+              ) : (
+                <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+              )}
               
               <div className="relative flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
@@ -561,8 +902,170 @@ export default function ConfirmationPage() {
           </div>
         </motion.div>
 
+        {/* Bronze Creator Tasks Upgrade */}
+        {currentTier === 'bronze' && (
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, delay: 0.15 }}
+            viewport={{ once: true }}
+            className="mb-12"
+          >
+            <h2 className="text-xl font-bold text-white mb-4">Upgrade to Silver via Creator Tasks</h2>
+            <div className="rounded-3xl overflow-hidden p-[1px] bg-gradient-to-br from-amber-600/25 via-white/10 to-amber-800/20">
+              <div className="relative rounded-[22px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-6">
+                <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(220px_140px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+
+                <div className="relative space-y-4">
+                  {bronzePromotionStatus === 'rejected' && (
+                    <div className="rounded-lg border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2 text-sm">
+                      Submission rejected{bronzeRejectionReason ? `: ${bronzeRejectionReason}` : ''}. Please fix and resubmit.
+                    </div>
+                  )}
+                  {bronzePromotionStatus === 'submitted' && (
+                    <div className="rounded-lg border border-amber-600/30 bg-amber-500/10 text-amber-300 px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Clock className="h-4 w-4" />
+                        <span className="font-semibold">Under Review</span>
+                      </div>
+                      <p className="text-xs text-amber-200/80 mt-1">
+                        We'll verify your links within 48 hours. After approval, your pass will automatically upgrade to Silver with Insturix Plus Plan included.
+                      </p>
+                    </div>
+                  )}
+                  {bronzePromotionStatus === 'verified' && (
+                    <div className="rounded-lg border border-emerald-600/30 bg-emerald-500/10 text-emerald-300 px-3 py-2 text-sm">
+                      <div className="flex items-center gap-2 mb-1">
+                        <CheckCircle2 className="h-4 w-4" />
+                        <span className="font-semibold">Approved!</span>
+                      </div>
+                      <p className="text-xs text-emerald-200/80 mt-1">
+                        Your promotion has been approved! Your pass is being upgraded to Silver...
+                      </p>
+                    </div>
+                  )}
+
+                  {bronzePromotionStatus !== 'submitted' && bronzePromotionStatus !== 'verified' && (
+                    <>
+                      <div className="rounded-lg border border-amber-600/30 bg-amber-500/10 px-3 py-3">
+                        <h4 className="font-semibold text-sm text-amber-700 dark:text-amber-300 mb-1">Creators Tasks (Do any)</h4>
+                        <p className="text-xs text-amber-600 dark:text-amber-400">Share about ICS25 on one or both platforms. Fill in at least one link below to upgrade to Silver Pass.</p>
+                      </div>
+
+                      <div className={`transition-opacity ${bronzeLinkedinUrl && !bronzeInstagramUrl ? 'opacity-50' : 'opacity-100'}`}>
+                        <Label htmlFor="bronze-instagram-upgrade" className="text-white/80">Instagram reel/post link</Label>
+                        <Input 
+                          id="bronze-instagram-upgrade" 
+                          value={bronzeInstagramUrl} 
+                          onChange={(e)=>setBronzeInstagramUrl(e.target.value)} 
+                          placeholder="https://instagram.com/..." 
+                          className="mt-1 bg-white/5 border-white/10 text-white"
+                        />
+                      </div>
+
+                      <div className={`transition-opacity ${bronzeInstagramUrl && !bronzeLinkedinUrl ? 'opacity-50' : 'opacity-100'}`}>
+                        <Label htmlFor="bronze-linkedin-upgrade" className="text-white/80">LinkedIn post link</Label>
+                        <Input 
+                          id="bronze-linkedin-upgrade" 
+                          value={bronzeLinkedinUrl} 
+                          onChange={(e)=>setBronzeLinkedinUrl(e.target.value)} 
+                          placeholder="https://linkedin.com/posts/..." 
+                          className="mt-1 bg-white/5 border-white/10 text-white"
+                        />
+                      </div>
+
+                      {/* Social Media Template */}
+                      <div className="space-y-4 mt-4">
+                        <div className="rounded-lg border border-white/10 bg-white/5 p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <Label className="text-sm font-semibold text-white/80">Social Media Template</Label>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const text = "Everyone's talking about it — but I'm actually going.\nICS'25: The Creator-Tech Summit by Insturix.\n\nWhere creators, founders, and innovators come together to redefine how AI and creativity shape the future of content, business, and culture.\n\nThis isn't just another event — it's the intersection of imagination and innovation, and the conversations happening here are the ones that will define the next decade.\n\nIf you're serious about creating, building, or leading in the digital age — you'll want to be in that room.\nBecause if you're not there, you'll be watching the future unfold from your feed.\n\nSee you at the summit. 🚀\n#ICS25 #Insturix #InsturixCreatorSummit2025 #Innovation #CreatorEconomy #AICreators #FutureOfContent";
+                                navigator.clipboard.writeText(text);
+                                toast({ title: "Copied!", description: "Template copied to clipboard" });
+                              }}
+                              className="text-xs px-3 py-1 rounded-md bg-amber-600/20 hover:bg-amber-600/30 text-amber-600 dark:text-amber-400 transition"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <div className="text-sm text-white/60 leading-relaxed">
+                            Everyone's talking about it — but I'm actually going.<br />
+                            ICS'25: The Creator-Tech Summit by Insturix.<br />
+                            <br />
+                            Where creators, founders, and innovators come together to redefine how AI and creativity shape the future of content, business, and culture.<br />
+                            <br />
+                            This isn't just another event — it's the intersection of imagination and innovation, and the conversations happening here are the ones that will define the next decade.<br />
+                            <br />
+                            If you're serious about creating, building, or leading in the digital age — you'll want to be in that room.<br />
+                            Because if you're not there, you'll be watching the future unfold from your feed.<br />
+                            <br />
+                            See you at the summit. 🚀<br />
+                            #ICS25 #Insturix #InsturixCreatorSummit2025 #Innovation #CreatorEconomy #AICreators #FutureOfContent
+                          </div>
+                        </div>
+
+                        {/* ThinkForge Button and Note */}
+                        <div className="rounded-lg border border-amber-600/30 bg-amber-500/10 p-4">
+                          <p className="text-sm text-white/70 mb-3">
+                            Want a better personalized message? Create your own with ThinkForge! Don't forget to use <span className="font-semibold text-amber-400">#insturix</span> and <span className="font-semibold text-amber-400">#ics25</span> in your posts.
+                          </p>
+                          <a
+                            href="https://insturix.com/dashboard/thinkforge"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-medium transition text-sm"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                            Go to ThinkForge
+                          </a>
+                        </div>
+                      </div>
+
+                      {/* Info Box */}
+                      <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-4">
+                        <div className="flex items-start gap-2 text-blue-300 text-sm font-semibold mb-2">
+                          <svg className="w-5 h-5 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          How Bronze to Silver Upgrade Works
+                        </div>
+                        <div className="text-xs text-white/70 space-y-1">
+                          <p><strong>Step 1:</strong> Post about ICS'25 on Instagram and LinkedIn using the template given or make your own (dont forget to tag us #insturix #ics25).</p>
+                          <p><strong>Step 2:</strong> Paste the public links to your posts in the fields above.</p>
+                          <p><strong>Step 3:</strong> Submit for review - we'll verify your posts within 48 hours.</p>
+                          <p><strong>Step 4:</strong> Once approved - your pass will automatically upgrade to Silver with Insturix Plus Plan included.</p>
+                          <p><strong>Review Process:</strong> We check for genuine posts with event hashtags and appropriate content.</p>
+                        </div>
+                      </div>
+
+                      <Button
+                        onClick={submitBronzePromotion}
+                        disabled={bronzePromotionStatus === 'submitted' || bronzePromotionStatus === 'verified' || bronzeSubmitting}
+                        className="w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {bronzeSubmitting 
+                          ? 'Submitting…' 
+                          : bronzePromotionStatus === 'submitted' 
+                            ? 'Under Review' 
+                            : bronzePromotionStatus === 'verified'
+                              ? 'Upgrading to Silver...'
+                              : 'Submit for Review'}
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
         {/* Referral & Rewards */}
-        {currentTier !== 'gold' && currentTier !== 'creators' && (
+        {currentTier !== 'bronze' && currentTier !== 'platinum' && currentTier !== 'creators' && (
           <motion.div
             initial={{ opacity: 0, y: 14 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -586,14 +1089,14 @@ export default function ConfirmationPage() {
 
                   {referralUpgrades.length > 0 && (
                     <div className="flex flex-wrap gap-2 pt-1">
-                      {referralUpgrades.includes('silver') && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs text-emerald-200">
-                          <Check className="h-3 w-3" /> Silver upgrade unlocked
-                        </span>
-                      )}
                       {referralUpgrades.includes('gold') && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/20 px-3 py-1 text-xs text-amber-200">
                           <Check className="h-3 w-3" /> Gold upgrade unlocked
+                        </span>
+                      )}
+                      {referralUpgrades.includes('platinum') && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-zinc-700/30 px-3 py-1 text-xs text-zinc-200">
+                          <Check className="h-3 w-3" /> Platinum upgrade unlocked
                         </span>
                       )}
                     </div>
@@ -602,21 +1105,21 @@ export default function ConfirmationPage() {
                   <div className="space-y-2 pt-2">
                     <div className="flex items-center justify-between text-xs text-white/60">
                       <span>{referredCount} {formatRegistrations(referredCount)} so far</span>
-                      <span>Gold milestone at {REFERRAL_MAX}</span>
+                      <span>Platinum milestone at {REFERRAL_MAX}</span>
                     </div>
-                    {isBronzeTier && (
+                    {(isBronzeTier || isSilverTier) && (
                       <div className="flex items-center justify-between text-[11px] text-white/50">
-                        <span>Silver milestone at {SILVER_MILESTONE} referrals</span>
-                        <span>{Math.min(referredCount, SILVER_MILESTONE)}/{SILVER_MILESTONE}</span>
+                        <span>Gold milestone at {GOLD_MILESTONE} referrals</span>
+                        <span>{Math.min(referredCount, GOLD_MILESTONE)}/{GOLD_MILESTONE}</span>
                       </div>
                     )}
                     <div className="relative">
                       <Progress value={progressPercent} className="h-2 bg-white/10" />
-                      {isBronzeTier && (
+                      {(isBronzeTier || isSilverTier) && (
                         <span
                           aria-hidden
-                          className="absolute top-1/2 -translate-y-1/2 h-6 w-px bg-emerald-300/80"
-                          style={{ left: silverMarkerPosition }}
+                          className="absolute top-1/2 -translate-y-1/2 h-6 w-px bg-amber-300/80"
+                          style={{ left: goldMarkerPosition }}
                         />
                       )}
                     </div>
@@ -696,7 +1199,7 @@ export default function ConfirmationPage() {
             <h2 className="text-xl font-bold text-white mb-4">Upgrade Your Pass</h2>
             <p className="text-white/70 mb-6">
               Get more value from ICS'25 by upgrading to a higher tier pass. 
-              {currentTier === "gold" && " Note: Upgrading to Creators Pass will refund ₹2000 (takes 3-5 business days)."}
+              {currentTier === "platinum" && " Note: Upgrading to Creators Pass will refund ₹2000 (takes 3-5 business days)."}
             </p>
             
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -716,7 +1219,15 @@ export default function ConfirmationPage() {
                   >
                     <div className="relative rounded-[22px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-6 h-full flex flex-col">
                       {/* Sheen effect */}
-                      <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+                      {upgradeTier === 'platinum' ? (
+                        <>
+                          {/* Platinum-specific metallic shine */}
+                          <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] bg-gradient-to-br from-white/20 via-white/5 to-transparent opacity-60" />
+                          <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.25),transparent)]" />
+                        </>
+                      ) : (
+                        <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+                      )}
                       
                       <div className="relative flex items-center gap-3 mb-2">
                         <h3 className="text-lg font-bold text-white">{pricing.label}</h3>
@@ -778,7 +1289,9 @@ export default function ConfirmationPage() {
                         <Button
                           onClick={() => handleUpgradeClick(upgradeTier)}
                           className={`w-full font-semibold rounded-xl transition-colors ${
-                            pricing.label.toLowerCase().includes('gold')
+                            pricing.label.toLowerCase().includes('platinum')
+                              ? "bg-zinc-900 hover:bg-black text-white shadow-[0_0_30px_rgba(0,0,0,0.5)] border border-zinc-700"
+                              : pricing.label.toLowerCase().includes('gold')
                               ? "bg-yellow-500 hover:bg-yellow-600 text-white shadow-[0_0_30px_rgba(245,158,11,0.35)]"
                               : pricing.label.toLowerCase().includes('bronze')
                               ? "bg-amber-600 hover:bg-amber-700 text-white shadow-[0_0_30px_rgba(245,158,11,0.35)]"

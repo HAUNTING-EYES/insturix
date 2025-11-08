@@ -261,10 +261,10 @@ export default function BronzePromotionPage() {
           <div className="relative rounded-3xl border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-8">
             <div className="mb-6">
               <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100 mb-2">
-                Bronze Pass - Promotion Tasks
+                Silver Pass - Promotion Tasks
               </h1>
               <p className="text-zinc-600 dark:text-zinc-400">
-                Complete <strong>at least one</strong> of the following tasks to unlock your free Bronze Pass for ICS'25.
+                Complete <strong>at least one</strong> of the following tasks to unlock your free Silver Pass for ICS'25.
               </p>
             </div>
 

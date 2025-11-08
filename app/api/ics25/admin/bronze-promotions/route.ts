@@ -306,17 +306,24 @@ export async function POST(req: NextRequest) {
     if (attendee) {
       attendee.payment = attendee.payment || ({} as any);
       if (action === 'approve') {
+        // If Bronze tier, upgrade to Silver on approval
+        if (attendee.attendeePassTier === 'bronze') {
+          attendee.attendeePassTier = 'silver';
+        }
         if (attendee.payment.status !== 'paid') {
           attendee.payment.status = 'none';
         }
       } else {
-        // Set payment status to 'rejected' when admin rejects the bronze promotion
+        // Set payment status to 'rejected' when admin rejects the promotion
         if (attendee.payment.status !== 'paid') {
           attendee.payment.status = 'rejected';
         }
       }
       if (typeof attendee.markModified === 'function') {
         attendee.markModified('payment');
+        if (action === 'approve' && attendee.attendeePassTier === 'silver') {
+          attendee.markModified('attendeePassTier');
+        }
       }
       await attendee.save();
     }

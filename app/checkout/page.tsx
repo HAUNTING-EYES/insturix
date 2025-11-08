@@ -13,13 +13,13 @@ import { ics25BreadcrumbSchema } from "@/lib/seo/ics25-schema";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
 
 export const metadata: Metadata = {
-  title: "Buy ICS'25 Attendee Pass — Bronze, Silver, Gold, Creators | Insturix Creators Summit 2025",
+  title: "Buy ICS'25 Attendee Pass — Bronze, Silver, Gold, Platinum, Creators | Insturix Creators Summit 2025",
   description:
-    "Book your ICS'25 Attendee Pass — Bronze (free), Silver (₹2500), Gold (₹5000), Creators (₹3000). Access talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22. Secure payment via Razorpay.",
+    "Book your ICS'25 Attendee Pass — Bronze (free), Silver (free), Gold (₹2500), Platinum (₹5000), Creators (₹3000). Access talks, workshops, networking, and GameOn esports at IIIT Delhi, Nov 22. Secure payment via Razorpay.",
   keywords: [
     "buy ICS25 creator pass",
     "ICS25 ticket price Delhi",
-  "creator summit pass Bronze Silver Gold Creators",
+  "creator summit pass Bronze Silver Gold Platinum Creators",
     "ICS25 event pass registration",
     "Insturix Creators Summit 2025 ticket",
     "event pass checkout ICS25",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
     url: `${SITE_URL}/checkout`,
     title: "Buy ICS'25 Attendee Pass — Multiple Tiers Available",
     description:
-      "Secure your spot at ICS'25 — choose your pass tier. Bronze, Silver, Gold, or Creators. Workshops, networking, and esports included.",
+      "Secure your spot at ICS'25 — choose your pass tier. Bronze, Silver, Gold, Platinum, or Creators. Workshops, networking, and esports included.",
     siteName: "Insturix",
     images: [
       {
@@ -53,7 +53,7 @@ export const metadata: Metadata = {
     site: "@insturix",
     creator: "@insturix",
   title: "Buy ICS'25 Attendee Pass",
-  description: "Choose your pass tier: Bronze, Silver, Gold, or Creators. Secure checkout via Razorpay.",
+  description: "Choose your pass tier: Bronze, Silver, Gold, Platinum, or Creators. Secure checkout via Razorpay.",
     images: ["/ics25/ics25banner.png"],
   },
   robots: {
@@ -77,21 +77,40 @@ export default async function Page({ searchParams }: { searchParams?: Record<str
   if (existingAttendee && (existingAttendee as any).attendeePassTier) {
     const attendeeTier = (existingAttendee as any).attendeePassTier as string;
     const paymentStatus = (existingAttendee as any)?.payment?.status as string | undefined;
+    const upgradePayments = (existingAttendee as any)?.upgradePayments as any[] | undefined;
 
+    // Check if user has upgraded passes (gold, platinum, creators) or has upgrade payments
+    // These indicate the user has completed an upgrade and should see confirmation page
+    const hasUpgradedPass = ['gold', 'platinum', 'creators'].includes(attendeeTier);
+    const hasUpgradePayments = upgradePayments && Array.isArray(upgradePayments) && upgradePayments.length > 0;
+
+    // Bronze and Silver are free, so they don't require paid status
     if (attendeeTier === 'bronze') {
+      // Bronze doesn't require promotion, so redirect to confirmation if registered
+      if (paymentStatus && paymentStatus !== 'pending' && paymentStatus !== 'rejected') {
+        redirect('/checkout/ics25/confirmation');
+      }
+    } else if (attendeeTier === 'silver') {
+      // Silver requires promotion approval
       if (paymentStatus === 'pending') {
         redirect('/checkout/bronze/review');
       }
 
-      // If rejected, allow user to re-submit their bronze promotion
+      // If rejected, allow user to re-submit their silver promotion
       if (paymentStatus === 'rejected') {
         redirect('/checkout/bronze/promotion');
+      }
+
+      // If user has upgrade payments, they've upgraded from silver - redirect to confirmation
+      if (hasUpgradePayments) {
+        redirect('/checkout/ics25/confirmation');
       }
 
       if (paymentStatus && paymentStatus !== 'pending' && paymentStatus !== 'rejected') {
         redirect('/checkout/ics25/confirmation');
       }
-    } else if (paymentStatus === 'paid') {
+    } else if (hasUpgradedPass || paymentStatus === 'paid' || hasUpgradePayments) {
+      // User has gold/platinum/creators pass OR has paid OR has upgrade payments - redirect to confirmation
       redirect('/checkout/ics25/confirmation');
     }
   }

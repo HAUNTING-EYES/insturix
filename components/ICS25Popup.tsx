@@ -16,9 +16,13 @@ import {
   Mic,
   Cpu,
   Mic2,
-  Gamepad2,
   Award,
-  Handshake
+  Handshake,
+  X,
+  Lightbulb,
+  Users2,
+  Flame,
+  Music
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -45,7 +49,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
           transition={{ duration: 0.3, ease: "easeOut" }}
           className="relative rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
         >
-          {/* ICS'25 dark neon vibe backdrop */}
+          {/* Premium ICS'25 backdrop with glass-morphism */}
           <div className="absolute inset-0">
             <div className="absolute inset-0 bg-[#0A0A0C]" />
             <div className="absolute inset-0 bg-gradient-to-br from-sky-500/10 via-transparent to-fuchsia-400/10" />
@@ -54,7 +58,16 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
             <div className="absolute inset-0 bg-gradient-radial from-white/10 via-transparent to-transparent" />
           </div>
 
-          <div className="relative z-10 p-6 md:p-10 overflow-y-auto max-h-[80vh] border border-white/10 rounded-2xl m-2 md:m-3 bg-white/5 backdrop-blur-xl">
+          <div className="relative z-10 p-6 md:p-10 overflow-y-auto max-h-[80vh] border border-white/15 rounded-2xl m-2 md:m-3 bg-white/[0.03] backdrop-blur-2xl shadow-[0_8px_32px_0_rgba(0,0,0,0.37)]">
+            {/* Close Button */}
+            <button
+              onClick={onClose}
+              className="absolute top-4 right-4 p-2 rounded-lg hover:bg-white/10 transition-colors duration-200 z-50"
+              aria-label="Close popup"
+            >
+              <X className="w-6 h-6 text-white/70 hover:text-white" />
+            </button>
+
             {/* Header */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -69,13 +82,13 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                 transition={{ delay: 0.2 }}
                 className="inline-flex items-center gap-3 mb-6"
               >
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15 text-white">
-                  <Calendar className="w-4 h-4 text-white/80" />
-                  <span className="font-medium text-sm">Nov 22, 2025</span>
+                <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.08] border border-white/20 text-white backdrop-blur-md shadow-lg">
+                  <Calendar className="w-4 h-4 text-white/90" />
+                  <span className="font-semibold text-sm">Nov 22, 2025</span>
                 </div>
-                <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15 text-white">
-                  <MapPin className="w-4 h-4 text-white/80" />
-                  <span className="font-medium text-sm">IIIT Delhi</span>
+                <div className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.08] border border-white/20 text-white backdrop-blur-md shadow-lg">
+                  <MapPin className="w-4 h-4 text-white/90" />
+                  <span className="font-semibold text-sm">IIIT Delhi</span>
                 </div>
               </motion.div>
 
@@ -139,12 +152,12 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                   transition={{ delay: 0.7 + (index * 0.1), duration: 0.4 }}
                   className="relative group"
                 >
-                  <div className="relative p-6 rounded-xl bg-white/5 border border-white/10 hover:border-white/20 transition-all duration-300 hover:shadow-[0_0_30px_rgba(58,158,255,0.25)]">
-                    <div className="inline-flex p-3 rounded-lg bg-white text-black mb-4">
+                  <div className="relative p-6 rounded-xl bg-white/[0.04] border border-white/15 hover:border-white/30 transition-all duration-300 hover:shadow-[0_0_30px_rgba(58,158,255,0.25)] backdrop-blur-sm hover:bg-white/[0.06]">
+                    <div className="inline-flex p-3 rounded-lg bg-gradient-to-br from-white to-white/90 text-black mb-4 shadow-md">
                       <item.icon className="w-6 h-6" />
                     </div>
-                    <h3 className="text-white font-semibold text-lg mb-2">{item.title}</h3>
-                    <p className="text-white/70 text-sm">{item.description}</p>
+                    <h3 className="text-white font-bold text-lg mb-2">{item.title}</h3>
+                    <p className="text-white/80 text-sm leading-relaxed">{item.description}</p>
                   </div>
                 </motion.div>
               ))}
@@ -157,7 +170,7 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
               transition={{ delay: 1.0, duration: 0.4 }}
               className="mb-8"
             >
-              <h3 className="text-white font-semibold text-xl mb-4 text-center">What Awaits You</h3>
+              <h3 className="text-white font-bold text-xl mb-5 text-center">What Awaits You</h3>
               <div className="flex flex-wrap justify-center gap-3">
                 {[
                   { icon: Play, text: "Reel-Making Battles" },
@@ -165,7 +178,6 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                   { icon: Mic, text: "Talent Showdown" },
                   { icon: Cpu, text: "ThinkForge Ideation" },
                   { icon: Mic2, text: "Creator Panels" },
-                  { icon: Gamepad2, text: "GameOn Esports" },
                   { icon: Award, text: "Creator Awards" },
                   { icon: Handshake, text: "Networking Zones" }
                 ].map((item, index) => (
@@ -174,101 +186,129 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: 1.1 + (index * 0.05), duration: 0.3 }}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/10 border border-white/15"
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full bg-white/[0.08] border border-white/20 backdrop-blur-sm hover:bg-white/[0.12] hover:border-white/30 transition-all duration-200"
                   >
-                    <item.icon className="w-4 h-4 text-white/80" />
-                    <span className="text-white/80 text-sm font-medium">{item.text}</span>
+                    <item.icon className="w-4 h-4 text-white/90" />
+                    <span className="text-white/90 text-sm font-semibold">{item.text}</span>
                   </motion.div>
                 ))}
               </div>
             </motion.div>
 
-            {/* Esports quick blurb (linking to register) */}
+            {/* ICS25 Passes Showcase */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 1.2, duration: 0.4 }}
-              className="mb-8 text-center"
-            >
-              
-            </motion.div>
-
-            {/* GameOn Spotlight */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.25, duration: 0.4 }}
               className="mb-8"
             >
-              <h3 className="text-white font-semibold text-xl mb-4 text-center">GameOn Esports Spotlight</h3>
-              <div className="bg-gradient-to-r from-red-500/5 to-transparent border border-red-500/20 rounded-xl p-6">
-                <div className="text-center mb-4">
-                  <div className="text-red-400 font-bold text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Fully Online Tournament</div>
-                  <div className="text-white/70 text-sm">Compete in Valorant or BGMI. Winners crowned at ICS'25 awards!</div>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-white font-semibold">Qualifiers</div>
-                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Nov 8 (Online)</div>
+              <h3 className="text-white font-bold text-xl mb-5 text-center">Available Passes</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                {/* Bronze Pass */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 1.25, duration: 0.3 }}
+                  className="group relative rounded-xl overflow-hidden p-[1px] bg-gradient-to-br from-amber-600/35 via-white/20 to-amber-800/35"
+                >
+                  <div className="relative h-full rounded-[10px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-3 flex flex-col items-center justify-center min-h-24">
+                    <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 relative z-10">Bronze</span>
                   </div>
-                  <div className="text-center">
-                    <div className="text-white font-semibold">Finals</div>
-                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>Nov 15 (Online)</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-white font-semibold">Entry Fee</div>
-                    <div className="text-red-400 text-lg" style={{ textShadow: '0 0 10px rgba(239, 68, 68, 0.5)' }}>₹500/player</div>
-                  </div>
-                </div>
-                <div className="text-center mt-4 text-white/70 text-sm">
-                  Cashback up to ₹350 on completing creator tasks. Register now!
-                </div>
-              </div>
-            </motion.div>
+                </motion.div>
 
-            {/* Special Promotion */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.35, duration: 0.4 }}
-              className="text-center rounded-xl p-6 border border-white/10 bg-white/5 mb-8"
-            >
-              <div className="flex items-center justify-center gap-2 mb-3">
-                <Sparkles className="w-5 h-5 text-[#3A9EFF]" />
-                <span className="text-white font-semibold">Special Offer</span>
+                {/* Silver Pass */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 1.3, duration: 0.3 }}
+                  className="group relative rounded-xl overflow-hidden p-[1px] bg-gradient-to-br from-white/65 via-white/20 to-gray-200/85"
+                >
+                  <div className="relative h-full rounded-[10px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-3 flex flex-col items-center justify-center min-h-24">
+                    <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 relative z-10">Silver</span>
+                  </div>
+                </motion.div>
+
+                {/* Gold Pass */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 1.35, duration: 0.3 }}
+                  className="group relative rounded-xl overflow-hidden p-[1px] bg-gradient-to-br from-yellow-400/35 via-white/20 to-yellow-600/35"
+                >
+                  <div className="relative h-full rounded-[10px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-3 flex flex-col items-center justify-center min-h-24">
+                    <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 relative z-10">Gold</span>
+                  </div>
+                </motion.div>
+
+                {/* Platinum Pass */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 1.4, duration: 0.3 }}
+                  className="group relative rounded-xl overflow-hidden p-[1px] bg-gradient-to-br from-zinc-900/50 via-zinc-800/30 to-black/50"
+                >
+                  <div className="relative h-full rounded-[10px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-3 flex flex-col items-center justify-center min-h-24">
+                    {/* Platinum-specific metallic shine */}
+                    <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] bg-gradient-to-br from-white/20 via-white/5 to-transparent opacity-60" />
+                    <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.25),transparent)]" />
+                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 relative z-10">Platinum</span>
+                  </div>
+                </motion.div>
+
+                {/* Creators Pass */}
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 1.45, duration: 0.3 }}
+                  className="group relative rounded-xl overflow-hidden p-[1px] bg-gradient-to-br from-red-500/35 via-white/20 to-red-700/35"
+                >
+                  <div className="relative h-full rounded-[10px] border border-white/10 bg-white/60 dark:bg-zinc-950/60 backdrop-blur-xl p-3 flex flex-col items-center justify-center min-h-24">
+                    <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[10px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+                    <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 relative z-10">Creators</span>
+                  </div>
+                </motion.div>
               </div>
-              <p className="text-white mb-2">
-                <span className="font-semibold">Get discounts on Attendee Passes</span> by creating a promotional reel!
-              </p>
-              <p className="text-white/70 text-sm">
-                Tag us and use <span className="font-mono bg-white/10 px-2 py-1 rounded text-xs">#ICS25</span> <span className="font-mono bg-white/10 px-2 py-1 rounded text-xs">#insturix</span>
-              </p>
             </motion.div>
 
             {/* Why Attend Teaser */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.45, duration: 0.4 }}
+              transition={{ delay: 1.3, duration: 0.4 }}
               className="text-center mb-8"
             >
-              <h3 className="text-white font-semibold text-xl mb-4">Why ICS'25?</h3>
+              <h3 className="text-white font-bold text-xl mb-5">Why ICS'25?</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                  <div className="text-white font-bold text-lg mb-2">🚀 Innovation Hub</div>
-                  <div className="text-white/80 text-sm">Experience cutting-edge AI tools live – Editron, Alyzitron, Musitron, ThinkForge.</div>
+                <div className="bg-white/[0.04] border border-white/15 rounded-xl p-5 backdrop-blur-sm hover:bg-white/[0.06] hover:border-white/25 transition-all duration-300 flex flex-col items-center text-center">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <Lightbulb className="w-5 h-5 text-[#3A9EFF]" />
+                    <div className="text-white font-bold text-lg">Innovation Hub</div>
+                  </div>
+                  <div className="text-white/85 text-sm leading-relaxed">Experience cutting-edge AI tools live – Editron, Alyzitron, Musitron, ThinkForge.</div>
                 </div>
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                  <div className="text-white font-bold text-lg mb-2">🌟 Creator Community</div>
-                  <div className="text-white/80 text-sm">Connect with 800+ creators, brands, and fans in structured networking.</div>
+                <div className="bg-white/[0.04] border border-white/15 rounded-xl p-5 backdrop-blur-sm hover:bg-white/[0.06] hover:border-white/25 transition-all duration-300 flex flex-col items-center text-center">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <Users2 className="w-5 h-5 text-[#7AB8FF]" />
+                    <div className="text-white font-bold text-lg">Creator Community</div>
+                  </div>
+                  <div className="text-white/85 text-sm leading-relaxed">Connect with 800+ creators, brands, and fans in structured networking.</div>
                 </div>
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                  <div className="text-white font-bold text-lg mb-2">🏆 Epic Competitions</div>
-                  <div className="text-white/80 text-sm">Reel battles, speed edits, esports finals, and creator awards night.</div>
+                <div className="bg-white/[0.04] border border-white/15 rounded-xl p-5 backdrop-blur-sm hover:bg-white/[0.06] hover:border-white/25 transition-all duration-300 flex flex-col items-center text-center">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <Flame className="w-5 h-5 text-orange-400" />
+                    <div className="text-white font-bold text-lg">Epic Competitions</div>
+                  </div>
+                  <div className="text-white/85 text-sm leading-relaxed">Reel battles, speed edits, live competitions, and creator awards night.</div>
                 </div>
-                <div className="bg-white/5 border border-white/10 rounded-lg p-4">
-                  <div className="text-white font-bold text-lg mb-2">🎉 Unforgettable Vibes</div>
-                  <div className="text-white/80 text-sm">Talks, panels, talent showcase, and exclusive merch.</div>
+                <div className="bg-white/[0.04] border border-white/15 rounded-xl p-5 backdrop-blur-sm hover:bg-white/[0.06] hover:border-white/25 transition-all duration-300 flex flex-col items-center text-center">
+                  <div className="flex items-center justify-center gap-2 mb-3">
+                    <Music className="w-5 h-5 text-fuchsia-400" />
+                    <div className="text-white font-bold text-lg">Unforgettable Vibes</div>
+                  </div>
+                  <div className="text-white/85 text-sm leading-relaxed">Talks, panels, talent showcase, and exclusive merch.</div>
                 </div>
               </div>
             </motion.div>
@@ -277,26 +317,16 @@ export default function ICS25Popup({ isOpen, onClose }: ICS25PopupProps) {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1.55, duration: 0.4 }}
+              transition={{ delay: 1.4, duration: 0.4 }}
               className="flex flex-col sm:flex-row gap-4 justify-center"
             >
               <Button
                 onClick={goToICS25}
-                className="px-8 py-3 bg-white text-black hover:bg-zinc-200 font-semibold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.35)] transition-all duration-300 transform hover:scale-[1.03]"
+                className="px-8 py-3.5 bg-gradient-to-r from-white to-white/95 text-black hover:from-white/95 hover:to-white/90 font-bold rounded-xl shadow-lg hover:shadow-[0_0_30px_rgba(58,158,255,0.4)] transition-all duration-300 transform hover:scale-[1.03] text-base"
               >
                 <span>Go to ICS25</span>
                 <ArrowRight className="w-5 h-5 ml-2" />
               </Button>
-            </motion.div>
-
-            {/* Venue Info */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1.7, duration: 0.4 }}
-              className="text-center mt-6"
-            >
-              
             </motion.div>
           </div>
         </motion.div>

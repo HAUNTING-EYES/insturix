@@ -30,7 +30,7 @@ import { Calendar, Check, ChevronsUpDown, Loader2, X } from "lucide-react";
 import { GetCountries, GetState, GetCity } from "react-country-state-city";
 import { useUser, useAuth } from "@clerk/nextjs";
 
-type Tier = "bronze" | "silver" | "gold" | "creators";
+type Tier = "bronze" | "silver" | "gold" | "platinum" | "creators";
 
 type ReferralValidationResult =
   | { ok: true; status: 'valid'; code: string; ownerName?: string | null }
@@ -38,9 +38,10 @@ type ReferralValidationResult =
 
 const TIER_PRICING: Record<Tier, { label: string; amount: number; currency: "INR"; perks: string[]; cta?: string; subtitle?: string }> = {
   bronze: { label: "Bronze", amount: 0, currency: "INR", perks: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"], cta: "Register" },
-  silver: { label: "Silver", amount: 2500, currency: "INR", perks: ["Everything in Bronze Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Talent Showdown"] },
-  gold: { label: "Gold", amount: 5000, currency: "INR", perks: ["Everything in Silver Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"] },
-  creators: { label: "Creators", amount: 3000, currency: "INR", perks: ["Everything in Gold Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"], subtitle: "Validity: 10k+ followers Instagram/YouTube/LinkedIn" },
+  silver: { label: "Silver", amount: 0, currency: "INR", perks: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards", "Insturix Plus Plan included"], subtitle: "Creator tasks required" },
+  gold: { label: "Gold", amount: 2500, currency: "INR", perks: ["Everything in Silver Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Talent Showdown"] },
+  platinum: { label: "Platinum", amount: 5000, currency: "INR", perks: ["Everything in Gold Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"] },
+  creators: { label: "Creators", amount: 3000, currency: "INR", perks: ["Everything in Platinum Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"], subtitle: "Validity: 10k+ followers Instagram/YouTube/LinkedIn" },
 };
 
 declare global {
@@ -88,6 +89,7 @@ export default function CheckoutForm() {
   const [bronzeInstagramUrl, setBronzeInstagramUrl] = useState<string>("");
   const [bronzeLinkedinUrl, setBronzeLinkedinUrl] = useState<string>("");
   const [bronzeSubmitting, setBronzeSubmitting] = useState<boolean>(false);
+  const [actualAttendeeTier, setActualAttendeeTier] = useState<Tier | null>(null);
 
   const [states, setStates] = useState<any[]>([]);
   const [cities, setCities] = useState<any[]>([]);
@@ -152,8 +154,8 @@ export default function CheckoutForm() {
   useEffect(() => {
     // Preselect tier from query
     const q = (searchParams?.get("tier") || "").toLowerCase();
-    if (q === "bronze" || q === "silver" || q === "gold" || q === "creators") {
-      setTier(q);
+    if (q === "bronze" || q === "silver" || q === "gold" || q === "platinum" || q === "creators") {
+      setTier(q as Tier);
     }
   }, [searchParams]);
 
@@ -296,8 +298,16 @@ export default function CheckoutForm() {
           const att = attendeeData?.attendee;
           
           if (att) {
-            // Check if user has paid pass - redirect to confirmation page
-            if (att.attendeePassTier && att.payment?.status === 'paid') {
+            // Store actual attendee tier to check if user has upgraded
+            if (att.attendeePassTier) {
+              setActualAttendeeTier(att.attendeePassTier as Tier);
+            }
+
+            // Check if user has paid pass or upgraded - redirect to confirmation page
+            const hasUpgradedPass = ['gold', 'platinum', 'creators'].includes(att.attendeePassTier);
+            const hasUpgradePayments = att.upgradePayments && Array.isArray(att.upgradePayments) && att.upgradePayments.length > 0;
+            
+            if (att.attendeePassTier && (att.payment?.status === 'paid' || hasUpgradedPass || hasUpgradePayments)) {
               router.push("/checkout/ics25/confirmation");
               return; // Keep loading true, don't show form
             }
@@ -349,20 +359,22 @@ export default function CheckoutForm() {
           }
         }
 
-        // Check bronze promotion status
-        const bronzeRes = await fetch("/api/ics25/bronze-promotion", { headers: { accept: "application/json" } });
-        if (bronzeRes.ok) {
-          const bronzeData = await bronzeRes.json();
-          const bronzePromotion = bronzeData?.bronzePromotion;
+        // Check silver promotion status (silver requires creator tasks, bronze does not)
+        if (tier === 'silver') {
+          const bronzeRes = await fetch("/api/ics25/bronze-promotion", { headers: { accept: "application/json" } });
+          if (bronzeRes.ok) {
+            const bronzeData = await bronzeRes.json();
+            const bronzePromotion = bronzeData?.bronzePromotion;
 
-          if (bronzePromotion) {
-            setBronzePromotionStatus(bronzePromotion.status || 'none');
-            setBronzeRejectionReason(bronzePromotion.rejectionReason || null);
-            if (bronzePromotion.instagramProofUrl) setBronzeInstagramUrl(bronzePromotion.instagramProofUrl);
-            if (bronzePromotion.linkedinProofUrl) setBronzeLinkedinUrl(bronzePromotion.linkedinProofUrl);
-          } else {
-            setBronzePromotionStatus('none');
-            setBronzeRejectionReason(null);
+            if (bronzePromotion) {
+              setBronzePromotionStatus(bronzePromotion.status || 'none');
+              setBronzeRejectionReason(bronzePromotion.rejectionReason || null);
+              if (bronzePromotion.instagramProofUrl) setBronzeInstagramUrl(bronzePromotion.instagramProofUrl);
+              if (bronzePromotion.linkedinProofUrl) setBronzeLinkedinUrl(bronzePromotion.linkedinProofUrl);
+            } else {
+              setBronzePromotionStatus('none');
+              setBronzeRejectionReason(null);
+            }
           }
         }
         
@@ -468,8 +480,8 @@ export default function CheckoutForm() {
       const creatorSocialOk = !!youtube.trim() || !!instagram.trim() || !!linkedin.trim();
       return basicOk && socialsOk && addressOk && demoOk && proOk && creatorSocialOk;
     }
-    // For bronze, only allow registration after promotion is verified
-    if (tier === 'bronze') {
+    // For silver, only allow registration after promotion is verified (bronze does not require promotion)
+    if (tier === 'silver') {
       const promoOk = bronzePromotionStatus === 'verified';
       return promoOk && basicOk && socialsOk && addressOk && demoOk && proOk;
     }
@@ -477,9 +489,9 @@ export default function CheckoutForm() {
     return basicOk && socialsOk && addressOk && demoOk && proOk;
   }, [name, email, phone, instagram, linkedin, youtube, cityName, stateName, ageGroup, profession, tier, bronzePromotionStatus]);
 
-  // Auto-poll bronze status while under review
+  // Auto-poll silver promotion status while under review
   useEffect(() => {
-    if (tier !== 'bronze' || bronzePromotionStatus !== 'submitted') return;
+    if (tier !== 'silver' || bronzePromotionStatus !== 'submitted') return;
     let mounted = true;
     const interval = setInterval(async () => {
       try {
@@ -645,10 +657,10 @@ export default function CheckoutForm() {
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // If Bronze tier and promotion isn't verified yet, allow submitting the promotion
+    // If Silver tier and promotion isn't verified yet, allow submitting the promotion
     // before running the full-form validation. This prevents the "Missing info"
     // toast when users are only submitting their promotion links.
-    if (tier === 'bronze' && bronzePromotionStatus !== 'verified') {
+    if (tier === 'silver' && bronzePromotionStatus !== 'verified') {
       await submitBronzePromotion();
       return;
     }
@@ -832,17 +844,18 @@ export default function CheckoutForm() {
           </div>
         )}
 
-        {/* Bronze Approved Banner */}
-        {tier === 'bronze' && bronzePromotionStatus === 'verified' && (
+        {/* Silver Promotion Approved Banner */}
+        {/* Only show if user is selecting silver tier AND their actual tier is still silver (not upgraded) */}
+        {tier === 'silver' && bronzePromotionStatus === 'verified' && actualAttendeeTier === 'silver' && (
           <div className="mb-6 p-4 rounded-lg bg-green-500/10 border border-green-500/20">
             <div className="flex items-start gap-3">
               <svg className="w-6 h-6 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <div className="flex-1">
-                <h3 className="font-semibold text-green-600 dark:text-green-400 mb-1">Bronze Promotion Approved</h3>
+                <h3 className="font-semibold text-green-600 dark:text-green-400 mb-1">Silver Promotion Approved</h3>
                 <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                  You’re approved! Please fill in your details below and click “Register Free” to complete your Bronze pass registration.
+                  You're approved! Please fill in your details below and click "Register Free" to complete your Silver pass registration.
                 </p>
               </div>
             </div>
@@ -854,7 +867,7 @@ export default function CheckoutForm() {
             <div>
               <Label>Pass Tier</Label>
               <div className="mt-2 grid grid-cols-2 gap-3">
-                {(["bronze","silver","gold","creators"] as Tier[]).map((t) => {
+                {(["bronze","silver","gold","platinum","creators"] as Tier[]).map((t) => {
                   const getSelectedStyles = (tierName: string) => {
                     switch (tierName) {
                       case "bronze":
@@ -863,6 +876,8 @@ export default function CheckoutForm() {
                         return { border: "border-gray-400", bg: "bg-gray-400/10" };
                       case "gold":
                         return { border: "border-yellow-500", bg: "bg-yellow-500/10" };
+                      case "platinum":
+                        return { border: "border-white", bg: "bg-zinc-900/30" };
                       case "creators":
                         return { border: "border-red-500", bg: "bg-red-500/10" };
                       default:
@@ -878,15 +893,15 @@ export default function CheckoutForm() {
                       className={`rounded-xl border px-4 py-3 text-left transition ${tier===t?`${selectedStyles.border} ${selectedStyles.bg}`:"border-white/10 hover:bg-white/5"}`}
                     >
                       <div className="font-semibold">{TIER_PRICING[t].label}</div>
-                      <div className="text-sm text-zinc-500 dark:text-zinc-400">{t==="bronze"?"Free":`₹${TIER_PRICING[t].amount}`}</div>
+                      <div className="text-sm text-zinc-500 dark:text-zinc-400">{t==="bronze"||t==="silver"?"Free":`₹${TIER_PRICING[t].amount}`}</div>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {/* Bronze promotion pre-approval block */}
-            {tier === 'bronze' && bronzePromotionStatus !== 'verified' && (
+            {/* Silver promotion pre-approval block */}
+            {tier === 'silver' && bronzePromotionStatus !== 'verified' && (
               <div className="space-y-4">
                 {bronzePromotionStatus === 'rejected' && (
                   <div className="rounded-lg border border-red-600/30 bg-red-500/10 text-red-300 px-3 py-2 text-sm">
@@ -1179,11 +1194,20 @@ export default function CheckoutForm() {
                 ? "bg-gradient-to-br from-amber-600/35 via-white/20 to-amber-800/35"
                 : tier === 'silver'
                 ? "bg-gradient-to-br from-white/65 via-white/20 to-gray-200/85"
+                : tier === 'platinum'
+                ? "bg-gradient-to-br from-zinc-900/50 via-zinc-800/30 to-black/50"
                 : tier === 'creators'
                 ? "bg-gradient-to-br from-red-500/35 via-white/20 to-red-700/35"
                 : "bg-gradient-to-br from-white/15 via-white/10 to-white/15"
             }`}>
               <div className="relative rounded-[14px] border border-white/10 bg-white/50 dark:bg-zinc-900/60 p-4">
+              {/* Sheen effect for platinum */}
+              {tier === 'platinum' && (
+                <>
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[14px] bg-gradient-to-br from-white/20 via-white/5 to-transparent opacity-60" />
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[14px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.25),transparent)]" />
+                </>
+              )}
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-sm text-zinc-500">Selected</div>
@@ -1235,13 +1259,13 @@ export default function CheckoutForm() {
                 </div>
               )}
 
-              {tier === 'bronze' && bronzePromotionStatus !== 'verified' && (
+              {tier === 'silver' && bronzePromotionStatus !== 'verified' && (
                 <div className="mt-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                   <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 text-sm font-semibold mb-2">
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    How Bronze Pass Works
+                    How Silver Pass Works
                   </div>
                   <div className="text-xs text-zinc-600 dark:text-zinc-400 space-y-1">
                     <p><strong>Step 1:</strong> Post about ICS'25 on Instagram and LinkedIn using the template given or make your own (dont forget to tag us #insturix #ics25).</p>
@@ -1254,8 +1278,8 @@ export default function CheckoutForm() {
               )}
 
               <Button type="submit" disabled={
-                (tier === 'bronze' && bronzePromotionStatus === 'submitted')
-                || (tier !== 'bronze' && (!canPay || (tier === 'creators' && creatorApprovalStatus === 'pending'))) 
+                (tier === 'silver' && bronzePromotionStatus === 'submitted')
+                || ((tier !== 'silver' || bronzePromotionStatus === 'verified') && (!canPay || (tier === 'creators' && creatorApprovalStatus === 'pending'))) 
               } className={`mt-5 w-full rounded-xl font-semibold text-white ${
                 tier === "bronze"
                   ? "bg-amber-600 hover:bg-amber-700"
@@ -1263,16 +1287,20 @@ export default function CheckoutForm() {
                   ? "bg-white hover:bg-gray-100 text-gray-800"
                   : tier === "gold"
                   ? "bg-yellow-500 hover:bg-yellow-600"
+                  : tier === "platinum"
+                  ? "bg-zinc-900 hover:bg-black border border-zinc-700"
                   : tier === "creators"
                   ? "bg-red-500 hover:bg-red-600"
                   : "bg-[#3A9EFF] hover:bg-[#2a8be6]"
               }`}>
-                {tier === "bronze"
+                {tier === "silver"
                   ? (bronzePromotionStatus === 'submitted' 
                       ? 'In Review'
                       : (bronzePromotionStatus === 'verified' 
                           ? (creatingOrder ? 'Registering…' : 'Register Free')
                           : (bronzeSubmitting ? 'Submitting…' : 'Submit for Review')))
+                  : tier === "bronze"
+                  ? (creatingOrder ? 'Registering…' : 'Register Free')
                   : tier === "creators" && creatorApprovalStatus === 'pending'
                   ? (creatingOrder ? "Submitting…" : "Under Review")
                   : tier === "creators" && creatorApprovalStatus !== 'approved'

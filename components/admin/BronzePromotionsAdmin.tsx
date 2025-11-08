@@ -160,7 +160,7 @@ export default function BronzePromotionsAdmin() {
 
       toast({
         title: "Approved!",
-        description: `Bronze promotion for ${getToastLabel(submission)} has been approved.`,
+        description: `Silver promotion for ${getToastLabel(submission)} has been approved.`,
       });
 
       // Refresh list
@@ -288,10 +288,10 @@ export default function BronzePromotionsAdmin() {
       </div>
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-zinc-900 dark:text-zinc-100">
-          Bronze Pass Promotions
+          Silver Pass Promotions
         </h1>
         <p className="text-zinc-600 dark:text-zinc-400 mt-2">
-          Review Instagram and LinkedIn promotion submissions for Bronze Pass approval
+          Review Instagram and LinkedIn promotion submissions for Silver Pass approval
         </p>
       </div>
 

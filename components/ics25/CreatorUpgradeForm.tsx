@@ -15,12 +15,13 @@ import { Label } from "@/components/ui/label";
 import { AlertTriangle, ArrowRight, Check, AlertCircle, Users, Zap, Clock } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
-type Tier = "bronze" | "silver" | "gold" | "creators";
+type Tier = "bronze" | "silver" | "gold" | "platinum" | "creators";
 
 const TIER_LABELS: Record<Tier, string> = {
   bronze: "Bronze Pass",
   silver: "Silver Pass",
   gold: "Gold Pass",
+  platinum: "Platinum Pass",
   creators: "Creators Pass",
 };
 
@@ -39,6 +40,10 @@ const TIER_COLORS: Record<Tier, {
   gold: {
     gradient: "from-yellow-400 via-yellow-300 to-yellow-500",
     text: "text-yellow-400"
+  },
+  platinum: {
+    gradient: "from-zinc-400 via-zinc-300 to-zinc-500",
+    text: "text-zinc-300"
   },
   creators: {
     gradient: "from-red-500 via-red-400 to-red-600",
@@ -415,7 +420,7 @@ export default function CreatorUpgradeForm({
                   <div className="space-y-2.5 text-xs">
                     <div className="flex justify-between items-center text-white/60">
                       <span>Current Pass:</span>
-                      <span className={`font-semibold ${TIER_COLORS[currentTier].text}`}>{TIER_LABELS[currentTier]}</span>
+                      <span className={`font-semibold ${TIER_COLORS[currentTier]?.text || 'text-white'}`}>{TIER_LABELS[currentTier] || currentTier}</span>
                     </div>
                     <div className="flex justify-between items-center text-white/60">
                       <span>Upgrading To:</span>

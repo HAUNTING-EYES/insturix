@@ -10,12 +10,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import Link from "next/link";
 
-type TierKey = 'bronze' | 'silver' | 'gold' | 'creators';
+type TierKey = 'bronze' | 'silver' | 'gold' | 'platinum' | 'creators';
 
 const PASS_PRICES: Record<TierKey, number> = {
   bronze: 0,
-  silver: 2500,
-  gold: 5000,
+  silver: 0,
+  gold: 2500,
+  platinum: 5000,
   creators: 3000,
 };
 const GAMEON_PRICE = 500;
@@ -43,6 +44,7 @@ interface DashboardData {
       bronze: { total: number; paid: number; pending: number };
       silver: { total: number; paid: number; pending: number };
       gold: { total: number; paid: number; pending: number };
+      platinum: { total: number; paid: number; pending: number };
       creators: { total: number; paid: number; pending: number };
     };
     byPaymentStatus: {

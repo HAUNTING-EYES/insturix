@@ -13,12 +13,13 @@ import { Button } from "@/components/ui/button";
 import { AlertTriangle, ArrowRight, Check, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
-type Tier = "bronze" | "silver" | "gold" | "creators";
+type Tier = "bronze" | "silver" | "gold" | "platinum" | "creators";
 
 const TIER_LABELS: Record<Tier, string> = {
   bronze: "Bronze",
   silver: "Silver",
   gold: "Gold",
+  platinum: "Platinum",
   creators: "Creators",
 };
 
@@ -42,6 +43,11 @@ const TIER_COLORS: Record<Tier, {
     text: "text-yellow-400",
     icon: "text-yellow-400"
   },
+  platinum: {
+    gradient: "from-zinc-900 via-zinc-800 to-black",
+    text: "text-zinc-300",
+    icon: "text-zinc-300"
+  },
   creators: {
     gradient: "from-red-500 via-red-400 to-red-600",
     text: "text-red-400",
@@ -51,9 +57,10 @@ const TIER_COLORS: Record<Tier, {
 
 const TIER_BENEFITS: Record<Tier, string[]> = {
   bronze: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"],
-  silver: ["Everything in Bronze", "Participate in Reel making showdown", "Speed Edits", "Access to quiet rooms and Gaming Zones", "Talent Showdown"],
-  gold: ["Everything in Silver", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"],
-  creators: ["Everything in Gold", "Priority Access", "Brand Shoutout", "Featuring on Banner"],
+  silver: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards", "Insturix Plus Plan included"],
+  gold: ["Everything in Silver Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quiet rooms and Gaming Zones", "Talent Showdown"],
+  platinum: ["Everything in Gold Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"],
+  creators: ["Everything in Platinum Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"],
 };
 
 interface UpgradeConfirmationModalProps {
@@ -144,7 +151,7 @@ export default function UpgradeConfirmationModal({
                       {/* Current Pass */}
                       <div className="text-center flex-1">
                         <div className="text-xs text-white/50 mb-3 uppercase tracking-wider font-medium">Current</div>
-                        <div className={`font-bold text-xl bg-gradient-to-r ${TIER_COLORS[currentTier].gradient} bg-clip-text text-transparent mb-2`} style={{ textShadow: `0 0 8px ${currentTier === 'bronze' ? 'rgba(217,119,6,0.8)' : currentTier === 'silver' ? 'rgba(229,231,235,0.8)' : currentTier === 'gold' ? 'rgba(250,204,21,0.8)' : 'rgba(239,68,68,0.8)'}` }}>
+                        <div className={`font-bold text-xl bg-gradient-to-r ${TIER_COLORS[currentTier].gradient} bg-clip-text text-transparent mb-2`} style={{ textShadow: `0 0 8px ${currentTier === 'bronze' ? 'rgba(217,119,6,0.8)' : currentTier === 'silver' ? 'rgba(229,231,235,0.8)' : currentTier === 'gold' ? 'rgba(250,204,21,0.8)' : currentTier === 'platinum' ? 'rgba(0,0,0,0.8)' : 'rgba(239,68,68,0.8)'}` }}>
                           {TIER_LABELS[currentTier]}
                         </div>
                         <div className="text-sm text-white/70 font-medium">₹{currentPrice.toLocaleString()}</div>
@@ -162,7 +169,7 @@ export default function UpgradeConfirmationModal({
                       {/* Target Pass */}
                       <div className="text-center flex-1">
                         <div className="text-xs text-white/50 mb-3 uppercase tracking-wider font-medium">Upgrading To</div>
-                        <div className={`font-bold text-xl bg-gradient-to-r ${TIER_COLORS[targetTier].gradient} bg-clip-text text-transparent mb-2`} style={{ textShadow: `0 0 8px ${targetTier === 'bronze' ? 'rgba(217,119,6,0.8)' : targetTier === 'silver' ? 'rgba(229,231,235,0.8)' : targetTier === 'gold' ? 'rgba(250,204,21,0.8)' : 'rgba(239,68,68,0.8)'}` }}>
+                        <div className={`font-bold text-xl bg-gradient-to-r ${TIER_COLORS[targetTier].gradient} bg-clip-text text-transparent mb-2`} style={{ textShadow: `0 0 8px ${targetTier === 'bronze' ? 'rgba(217,119,6,0.8)' : targetTier === 'silver' ? 'rgba(229,231,235,0.8)' : targetTier === 'gold' ? 'rgba(250,204,21,0.8)' : targetTier === 'platinum' ? 'rgba(0,0,0,0.8)' : 'rgba(239,68,68,0.8)'}` }}>
                           {TIER_LABELS[targetTier]}
                         </div>
                         <div className="text-sm text-white/70 font-medium">₹{targetPrice.toLocaleString()}</div>

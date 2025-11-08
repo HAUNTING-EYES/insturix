@@ -74,6 +74,7 @@ export async function POST(req: NextRequest) {
       state,
       organization,
       referralCode,
+      attendeePassTier, // For Bronze→Silver upgrade
     } = body || {};
 
     // Validate at least one link is provided
@@ -140,10 +141,16 @@ export async function POST(req: NextRequest) {
 
     const now = new Date();
 
-    // Upsert attendee with provided details and mark payment as pending
+    // Upsert attendee with provided details
     let attendee = await Attendee.findOne({ clerkUserId: userId });
+    const targetTier = attendeePassTier === 'silver' ? 'silver' : 'silver'; // Always upgrade to Silver
+    const isBronzeUpgrade = attendee?.attendeePassTier === 'bronze';
 
-    if (attendee && attendee.attendeePassTier && attendee.attendeePassTier !== 'bronze') {
+    // Allow submission if:
+    // 1. No existing attendee (new Silver registration)
+    // 2. Existing attendee is Bronze (upgrade to Silver)
+    // 3. Existing attendee is Silver (resubmission)
+    if (attendee && attendee.attendeePassTier && attendee.attendeePassTier !== 'bronze' && attendee.attendeePassTier !== 'silver') {
       return NextResponse.json({
         ok: false,
         message: 'You are already registered for a different pass tier.',
@@ -161,15 +168,23 @@ export async function POST(req: NextRequest) {
       attendee.city = trimmedCity;
       attendee.state = trimmedState;
       attendee.organization = trimmedOrganization;
-      attendee.attendeePassTier = 'bronze';
+      // For Bronze upgrade, keep tier as Bronze until approval (will upgrade on approval)
+      // For Silver registration, set tier to Silver
+      if (!isBronzeUpgrade) {
+        attendee.attendeePassTier = 'silver';
+      }
+      // Keep Bronze tier unchanged for upgrade path
       attendee.payment = attendee.payment || ({} as any);
-      if (attendee.payment.status !== 'paid') {
+      // For Bronze upgrade, payment status stays as 'none' (free upgrade)
+      // For Silver registration, set to 'pending' until approved
+      if (!isBronzeUpgrade && attendee.payment.status !== 'paid') {
         attendee.payment.status = 'pending';
         if (typeof attendee.markModified === 'function') {
           attendee.markModified('payment');
         }
       }
     } else {
+      // New Silver registration
       attendee = new Attendee({
         clerkUserId: userId,
         name: trimmedName,
@@ -182,7 +197,7 @@ export async function POST(req: NextRequest) {
         city: trimmedCity,
         state: trimmedState,
         organization: trimmedOrganization,
-        attendeePassTier: 'bronze',
+        attendeePassTier: 'silver',
         payment: { status: 'pending' },
       } as any);
     }

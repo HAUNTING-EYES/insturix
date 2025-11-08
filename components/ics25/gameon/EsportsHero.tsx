@@ -34,7 +34,7 @@ export default function EsportsHero() {
           <h1 className="mt-2 text-4xl md:text-6xl font-black bg-clip-text text-transparent bg-gradient-to-r from-[#FF3B3B] via-[#FF6B6B] to-[#4B5320]">Valorant × BGMI</h1>
           
           <div className="mt-5 flex flex-wrap gap-3">
-            <Link href="/ics25/register"><Button className="bg-[#FF3B3B] text-white hover:bg-[#e03535]">Register Now</Button></Link>
+            <Button disabled className="bg-zinc-700 text-zinc-400 cursor-not-allowed opacity-60">Registration Closed</Button>
             <Link href="#faqs"><Button variant="outline" className="border-white/30 text-white hover:bg-white/10">Rules & FAQs</Button></Link>
           </div>
           {/* Removed sticker chips per request */}

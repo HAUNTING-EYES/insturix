@@ -1,6 +1,7 @@
 "use client";
 
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
+import ICS25Popup from "@/components/ICS25Popup";
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import("@/components/dashboard/Dashboard"));
@@ -21,6 +22,28 @@ const THEME = {
 };
 
 export default function DashboardClientPage() {
+  const [showICS25Popup, setShowICS25Popup] = useState(false);
+
+  useEffect(() => {
+    // Check if user has seen the popup before
+    const hasSeenPopup = localStorage.getItem('ics25-dashboard-popup-seen');
+
+    if (!hasSeenPopup) {
+      // Show popup after a short delay
+      const timer = setTimeout(() => {
+        setShowICS25Popup(true);
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, []);
+
+  const handleCloseICS25Popup = () => {
+    setShowICS25Popup(false);
+    // Mark as seen for this session
+    localStorage.setItem('ics25-dashboard-popup-seen', 'true');
+  };
+
   return (
     <>
       <Suspense
@@ -35,6 +58,12 @@ export default function DashboardClientPage() {
       >
         <Dashboard />
       </Suspense>
+
+      {/* ICS25 Popup */}
+      <ICS25Popup
+        isOpen={showICS25Popup}
+        onClose={handleCloseICS25Popup}
+      />
 
       <Suspense fallback={null}>
         <CursorEffect

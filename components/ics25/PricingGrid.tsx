@@ -17,9 +17,10 @@ type Tier = {
 
 const tiers: Tier[] = [
   { name: "Bronze", price: "Free", features: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards"], cta: "Register" },
-  { name: "Silver", price: "₹2500", features: ["Everything in Bronze Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Talent Showdown"], cta: "Get Pass" },
-  { name: "Gold", price: "₹5000", features: ["Everything in Silver Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"], cta: "Get Pass", highlight: true },
-  { name: "Creators", price: "₹3000", features: ["Everything in Gold Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"], cta: "Get Creators Pass", reddish: true, subtitle: "Validity: 10k+ followers Instagram/YouTube/LinkedIn" },
+  { name: "Silver", price: "Free", features: ["Access to panel talks", "Access to speaker sessions", "Audience Access to Creator Awards", "Insturix Plus Plan included"], cta: "Get Pass", subtitle: "Creator tasks required" },
+  { name: "Gold", price: "₹2500", features: ["Everything in Silver Pass", "Participate in Reel making showdown", "Speed Edits", "Access to quite rooms and Gaming Zones", "Talent Showdown"], cta: "Get Pass", highlight: true },
+  { name: "Platinum", price: "₹5000", features: ["Everything in Gold Pass", "Networking lounge", "Lunch both days", "Exclusive merch", "1 yr Insturix Pro Subscription"], cta: "Get Pass" },
+  { name: "Creators", price: "₹3000", features: ["Everything in Platinum Pass", "Priority Access", "Brand Shoutout", "Featuring on Banner"], cta: "Get Creators Pass", reddish: true, subtitle: "Validity: 10k+ followers Instagram/YouTube/LinkedIn" },
 ];
 
 export default function PricingGrid() {
@@ -27,7 +28,7 @@ export default function PricingGrid() {
     <div className="relative">
       {/* Ambient frame glow */}
       <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-[32px] bg-gradient-to-br from-[#3A9EFF]/12 via-transparent to-[#FF2EE6]/12 blur-2xl" />
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
         {tiers.map((t, i) => (
           <motion.article
             key={t.name}
@@ -36,7 +37,9 @@ export default function PricingGrid() {
             viewport={{ once: true }}
             transition={{ duration: 0.45, delay: i * 0.06 }}
             className={`group relative rounded-3xl overflow-hidden p-[1px] ${
-              t.name.toLowerCase().includes('gold')
+              t.name.toLowerCase().includes('platinum')
+                ? "bg-gradient-to-br from-zinc-900/50 via-zinc-800/30 to-black/50"
+                : t.name.toLowerCase().includes('gold')
                 ? "bg-gradient-to-br from-yellow-400/35 via-white/20 to-yellow-600/35"
                 : t.name.toLowerCase().includes('bronze')
                 ? "bg-gradient-to-br from-amber-600/35 via-white/20 to-amber-800/35"
@@ -56,7 +59,15 @@ export default function PricingGrid() {
                 </div>
               ) : null}
               {/* Sheen */}
-              <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+              {t.name.toLowerCase().includes('platinum') ? (
+                <>
+                  {/* Platinum-specific metallic shine */}
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] bg-gradient-to-br from-white/20 via-white/5 to-transparent opacity-60" />
+                  <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.25),transparent)]" />
+                </>
+              ) : (
+                <div aria-hidden className="pointer-events-none absolute inset-0 rounded-[22px] [mask-image:radial-gradient(200px_120px_at_0%_0%,rgba(255,255,255,0.15),transparent)]" />
+              )}
               {/* Title & price */}  
               <div className="flex flex-col gap-1 h-16 flex-shrink-0">
                 <div className="flex items-baseline justify-between">
@@ -74,6 +85,7 @@ export default function PricingGrid() {
                 {t.features.map((f) => (
                   <li key={f} className="flex items-center gap-2">
                     <span className={`inline-block size-1.5 rounded-full flex-shrink-0 mt-0.5 ${
+                      t.name.toLowerCase().includes('platinum') ? 'bg-zinc-900' :
                       t.name.toLowerCase().includes('gold') ? 'bg-yellow-500' :
                       t.name.toLowerCase().includes('bronze') ? 'bg-amber-600' :
                       t.name.toLowerCase().includes('silver') ? 'bg-white' :
@@ -92,7 +104,9 @@ export default function PricingGrid() {
                   return (
                     <Link href={href} aria-label={`Get ${t.name} pass`} className="inline-flex w-full">
                       <Button className={`w-full font-semibold rounded-xl transition-colors ${
-                        t.name.toLowerCase().includes('gold')
+                        t.name.toLowerCase().includes('platinum')
+                          ? "bg-zinc-900 hover:bg-black text-white shadow-[0_0_30px_rgba(0,0,0,0.5)] border border-zinc-700"
+                          : t.name.toLowerCase().includes('gold')
                           ? "bg-yellow-500 hover:bg-yellow-600 text-white shadow-[0_0_30px_rgba(245,158,11,0.35)]"
                           : t.name.toLowerCase().includes('bronze')
                           ? "bg-amber-600 hover:bg-amber-700 text-white shadow-[0_0_30px_rgba(245,158,11,0.35)]"

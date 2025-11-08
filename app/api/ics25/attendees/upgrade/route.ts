@@ -13,15 +13,17 @@ const razorpay = new Razorpay({
 
 const TIER_PRICING: Record<string, number> = {
   bronze: 0,
-  silver: 2500,
-  gold: 5000,
+  silver: 0,
+  gold: 2500,
+  platinum: 5000,
   creators: 3000,
 };
 
 const VALID_UPGRADES: Record<string, string[]> = {
-  bronze: ['silver', 'gold', 'creators'],
-  silver: ['gold', 'creators'],
-  gold: ['creators'],
+  bronze: ['gold', 'platinum', 'creators'], // Silver upgrade only via bronze creator tasks promotion
+  silver: ['gold', 'platinum', 'creators'],
+  gold: ['platinum', 'creators'],
+  platinum: ['creators'],
 };
 
 export async function POST(req: NextRequest) {
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
     const { targetTier } = await req.json();
 
     // Validate target tier
-    if (!targetTier || !['bronze', 'silver', 'gold', 'creators'].includes(targetTier)) {
+    if (!targetTier || !['bronze', 'silver', 'gold', 'platinum', 'creators'].includes(targetTier)) {
       return NextResponse.json({ ok: false, message: 'Invalid target tier' }, { status: 400 });
     }
 
@@ -48,8 +50,14 @@ export async function POST(req: NextRequest) {
 
     const currentTier = attendee.attendeePassTier;
 
-    // Check if attendee has paid (Bronze is free, so no payment check needed)
-    if (currentTier !== 'bronze' && attendee.payment?.status !== 'paid') {
+    // Check if attendee has paid (Bronze and Silver are free, so no payment check needed)
+    // Also check for upgradePayments - users who upgraded via upgradePayments should be allowed to upgrade further
+    const hasMainPayment = attendee.payment?.status === 'paid';
+    const upgradePayments = attendee.upgradePayments;
+    const hasUpgradePayments = upgradePayments && Array.isArray(upgradePayments) && upgradePayments.length > 0;
+    const hasPaidForCurrentTier = hasMainPayment || hasUpgradePayments;
+
+    if (currentTier !== 'bronze' && currentTier !== 'silver' && !hasPaidForCurrentTier) {
       return NextResponse.json({ ok: false, message: 'Payment required before upgrading' }, { status: 400 });
     }
 
