@@ -5,6 +5,10 @@ import { getIcs25Db } from '@/lib/ics25-mongo';
 import Attendee from '@/schemas/ics25/Attendee';
 import Player from '@/schemas/ics25/Player';
 import { applyAttendeeReferralCredit } from '@/lib/ics25/referrals';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { sendTicketConfirmationEmail } from '@/lib/services/email';
+import { hasEmailBeenSent, markEmailSent } from '@/lib/services/email/ticket-email-tracking';
 
 export async function POST(req: NextRequest) {
   try {
@@ -78,6 +82,45 @@ export async function POST(req: NextRequest) {
     }
     
     await record.save();
+    
+    // Send ticket confirmation email for attendees (not players)
+    if (!isPlayer && record instanceof Attendee) {
+      try {
+        // Check if confirmation email already sent
+        if (!hasEmailBeenSent(record, 'confirmation')) {
+          // Connect to production database to get user details
+          await connectToDatabase();
+          
+          // Get user details for email
+          const user = await User.findOne({ clerkUserId: userId }).lean();
+          const userName = user?.username || record.name || 'Valued User';
+          const userEmail = user?.email || record.email;
+          
+          if (userEmail) {
+            const ticketId = `TICKET-${(record._id as any).toString().slice(-8).toUpperCase()}`;
+            const eventDetails = "Insturix Creator's Summit 2025";
+            
+            const emailResult = await sendTicketConfirmationEmail(
+              userEmail,
+              userName,
+              ticketId,
+              eventDetails
+            );
+            
+            if (emailResult.success) {
+              await markEmailSent(record, 'confirmation');
+              console.log(`✅ Ticket confirmation email sent to ${userEmail}`);
+            } else {
+              console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+            }
+          }
+        }
+      } catch (emailError: any) {
+        // Don't fail the payment verification if email fails
+        console.error('Error sending ticket confirmation email:', emailError);
+      }
+    }
+    
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error('ICS25 verify error:', e);

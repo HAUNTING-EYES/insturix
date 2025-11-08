@@ -5,6 +5,10 @@ import Attendee from '@/schemas/ics25/Attendee';
 import Creator from '@/schemas/ics25/Creator';
 import Razorpay from 'razorpay';
 import { createRefund } from '@/lib/services/paymentService';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { sendTicketConfirmationEmail } from '@/lib/services/email';
+import { hasEmailBeenSent, markEmailSent } from '@/lib/services/email/ticket-email-tracking';
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID || '',
@@ -25,6 +29,45 @@ const VALID_UPGRADES: Record<string, string[]> = {
   gold: ['platinum', 'creators'],
   platinum: ['creators'],
 };
+
+/**
+ * Helper function to send ticket confirmation email after free upgrade
+ */
+async function sendConfirmationEmailIfNeeded(attendee: any, userId: string): Promise<void> {
+  try {
+    if (!hasEmailBeenSent(attendee, 'confirmation')) {
+      // Connect to production database to get user details
+      await connectToDatabase();
+      
+      // Get user details for email
+      const user = await User.findOne({ clerkUserId: userId }).lean();
+      const userName = user?.username || attendee.name || 'Valued User';
+      const userEmail = user?.email || attendee.email;
+      
+      if (userEmail) {
+        const ticketId = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
+        const eventDetails = "Insturix Creator's Summit 2025";
+        
+        const emailResult = await sendTicketConfirmationEmail(
+          userEmail,
+          userName,
+          ticketId,
+          eventDetails
+        );
+        
+        if (emailResult.success) {
+          await markEmailSent(attendee, 'confirmation');
+          console.log(`✅ Ticket confirmation email sent to ${userEmail} after free upgrade`);
+        } else {
+          console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+        }
+      }
+    }
+  } catch (emailError: any) {
+    // Don't fail the upgrade if email fails
+    console.error('Error sending ticket confirmation email after free upgrade:', emailError);
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -147,6 +190,8 @@ export async function POST(req: NextRequest) {
     if (refundAmount > 0 && !alreadyRefunded) {
       if (!paymentId) {
         await attendee.save();
+        // Send confirmation email for free upgrade
+        await sendConfirmationEmailIfNeeded(attendee, userId);
         return NextResponse.json({
           ok: true,
           requiresPayment: false,
@@ -189,6 +234,9 @@ export async function POST(req: NextRequest) {
 
         await attendee.save();
 
+        // Send confirmation email for free upgrade
+        await sendConfirmationEmailIfNeeded(attendee, userId);
+
         return NextResponse.json({
           ok: true,
           requiresPayment: false,
@@ -208,6 +256,9 @@ export async function POST(req: NextRequest) {
         attendee.markModified?.('refunds');
         await attendee.save();
 
+        // Send confirmation email for free upgrade
+        await sendConfirmationEmailIfNeeded(attendee, userId);
+
         return NextResponse.json({
           ok: true,
           requiresPayment: false,
@@ -221,6 +272,9 @@ export async function POST(req: NextRequest) {
     }
 
     await attendee.save();
+
+    // Send confirmation email for free upgrade
+    await sendConfirmationEmailIfNeeded(attendee, userId);
 
     return NextResponse.json({
       ok: true,

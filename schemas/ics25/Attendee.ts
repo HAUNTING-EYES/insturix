@@ -60,6 +60,17 @@ const BronzePromotionSchema = new Schema({
   reviewedBy: String,
 }, { _id: false });
 
+const EmailSentSchema = new Schema({
+  confirmationSent: { type: Boolean, default: false },
+  confirmationSentAt: Date,
+  reminder7DaysSent: { type: Boolean, default: false },
+  reminder7DaysSentAt: Date,
+  reminder1DaySent: { type: Boolean, default: false },
+  reminder1DaySentAt: Date,
+  reminder30MinSent: { type: Boolean, default: false },
+  reminder30MinSentAt: Date,
+}, { _id: false });
+
 const Ics25AttendeeSchema = new Schema({
   clerkUserId: { type: String, index: true, required: true },
   name: { type: String },
@@ -87,6 +98,7 @@ const Ics25AttendeeSchema = new Schema({
   upgradeIntent: { type: UpgradeIntentSchema },
   upgradePayments: { type: [UpgradePaymentSchema], default: [] },
   refunds: { type: [RefundSchema], default: [] },
+  emailSent: { type: EmailSentSchema, default: () => ({ confirmationSent: false, reminder7DaysSent: false, reminder1DaySent: false, reminder30MinSent: false }) },
 }, { timestamps: true });
 
 export type Ics25AttendeeDocument = InferSchemaType<typeof Ics25AttendeeSchema> & Document;

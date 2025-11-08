@@ -69,13 +69,40 @@ export async function sendPromotionalEmail(to: Recipient | Recipient[], name?: s
 /**
  * Send ticket confirmation email
  */
-export async function sendTicketConfirmationEmail(to: Recipient | Recipient[], name?: string, ticketId?: string, eventDetails?: string): Promise<SendResult> {
-  const { html, text } = ticketConfirmationEmailTemplate(name, ticketId, eventDetails);
+export async function sendTicketConfirmationEmail(
+  to: Recipient | Recipient[],
+  name?: string,
+  ticketId?: string,
+  eventDetails?: string,
+  timeUntilEvent?: string
+): Promise<SendResult> {
+  const { html, text, subject } = ticketConfirmationEmailTemplate(name, ticketId, eventDetails, timeUntilEvent);
   return mailer().send({
     to,
-    subject: "Your Ticket is Confirmed! - Insturix Creator's Summit 2025 🎉",
+    subject,
     htmlBody: html,
     textBody: text,
   });
+}
+
+/**
+ * Send ticket reminder email
+ */
+export async function sendTicketReminderEmail(
+  to: Recipient | Recipient[],
+  reminderType: 'reminder7Days' | 'reminder1Day' | 'reminder30Min',
+  name?: string,
+  ticketId?: string,
+  eventDetails?: string
+): Promise<SendResult> {
+  // Map reminder type to time string
+  const timeUntilEventMap = {
+    reminder7Days: '7 days',
+    reminder1Day: '1 day',
+    reminder30Min: '30 minutes',
+  };
+  
+  const timeUntilEvent = timeUntilEventMap[reminderType];
+  return sendTicketConfirmationEmail(to, name, ticketId, eventDetails, timeUntilEvent);
 }
 

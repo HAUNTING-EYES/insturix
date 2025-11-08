@@ -12,6 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useUser } from '@clerk/nextjs';
 import Link from 'next/link';
 import {
@@ -43,12 +44,18 @@ interface SendResult {
 }
 
 export default function MailingDashboard() {
+  const [activeTab, setActiveTab] = useState('testing');
   const [cooldownStatus, setCooldownStatus] = useState<CooldownStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [sendingTest, setSendingTest] = useState(false);
+  const [sendingIndividual, setSendingIndividual] = useState(false);
   const [selectedEmailType, setSelectedEmailType] = useState<string>('promotional');
+  const [selectedProdEmailType, setSelectedProdEmailType] = useState<string>('promotional');
   const [testEmail, setTestEmail] = useState<string>('');
+  const [individualEmail, setIndividualEmail] = useState<string>('');
+  const [eventDetails, setEventDetails] = useState<string>("Insturix Creator's Summit 2025");
+  const [prodEventDetails, setProdEventDetails] = useState<string>("Insturix Creator's Summit 2025");
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showFinalConfirmDialog, setShowFinalConfirmDialog] = useState(false);
   const { toast } = useToast();
@@ -58,7 +65,21 @@ export default function MailingDashboard() {
   const fetchCooldownStatus = async () => {
     try {
       setLoading(true);
-      const response = await fetch('/api/admin/mailing/promotional');
+      // Only bulk send for promotional and initial ticket confirmation
+      const isBulkSendType = selectedProdEmailType === 'promotional' || 
+                             selectedProdEmailType === 'ticket-confirmation' ||
+                             selectedProdEmailType === 'ticket-confirmation-initial';
+      
+      // Skip fetching cooldown for reminder types (they're sent via cron)
+      if (!isBulkSendType) {
+        setLoading(false);
+        return;
+      }
+      
+      const endpoint = selectedProdEmailType === 'promotional' 
+        ? '/api/admin/mailing/promotional'
+        : '/api/admin/mailing/ticket-confirmation';
+      const response = await fetch(endpoint);
       const data = await response.json();
 
       if (data.ok) {
@@ -82,12 +103,18 @@ export default function MailingDashboard() {
   };
 
   useEffect(() => {
-    fetchCooldownStatus();
+    if (activeTab === 'prod') {
+      fetchCooldownStatus();
+    } else {
+      // If on testing tab, set loading to false immediately
+      setLoading(false);
+    }
     // Pre-fill admin's email
     if (user?.primaryEmailAddress?.emailAddress) {
       setTestEmail(user.primaryEmailAddress.emailAddress);
+      setIndividualEmail(user.primaryEmailAddress.emailAddress);
     }
-  }, [user]);
+  }, [user, selectedProdEmailType, activeTab]);
 
   // Send test email
   const handleSendTestEmail = async () => {
@@ -150,6 +177,76 @@ export default function MailingDashboard() {
     }
   };
 
+  // Send individual production email
+  const handleSendIndividualEmail = async () => {
+    if (!individualEmail) {
+      toast({
+        title: 'Error',
+        description: 'Please enter an email address',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    if (!selectedProdEmailType) {
+      toast({
+        title: 'Error',
+        description: 'Please select an email type',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    // Validate event details for ticket confirmation types
+    if ((selectedProdEmailType === 'ticket-confirmation' || 
+         selectedProdEmailType === 'ticket-confirmation-initial' ||
+         selectedProdEmailType?.startsWith('ticket-confirmation-reminder')) && 
+        !prodEventDetails) {
+      toast({
+        title: 'Error',
+        description: 'Event details are required for ticket confirmation emails',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setSendingIndividual(true);
+      const response = await fetch('/api/admin/mailing/send-individual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emailType: selectedProdEmailType,
+          recipientEmail: individualEmail,
+          eventDetails: prodEventDetails,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
+        toast({
+          title: 'Email Sent! 📧',
+          description: data.message,
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: data.message || 'Failed to send email',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to send email',
+        variant: 'destructive',
+      });
+    } finally {
+      setSendingIndividual(false);
+    }
+  };
+
   // Step 1: Open first confirmation dialog
   const handleInitiateSend = () => {
     if (!cooldownStatus?.canSend) {
@@ -175,9 +272,18 @@ export default function MailingDashboard() {
 
     try {
       setSending(true);
-      const response = await fetch('/api/admin/mailing/promotional', {
+      const endpoint = selectedProdEmailType === 'promotional'
+        ? '/api/admin/mailing/promotional'
+        : '/api/admin/mailing/ticket-confirmation';
+      
+      const body = (selectedProdEmailType === 'ticket-confirmation' || selectedProdEmailType === 'ticket-confirmation-initial')
+        ? JSON.stringify({ eventDetails: prodEventDetails })
+        : undefined;
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body,
       });
 
       const data: SendResult = await response.json();
@@ -277,6 +383,21 @@ export default function MailingDashboard() {
             </div>
           </div>
 
+        {/* Tabs */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="testing">
+              <TestTube className="mr-2 h-4 w-4" />
+              Testing
+            </TabsTrigger>
+            <TabsTrigger value="prod">
+              <Send className="mr-2 h-4 w-4" />
+              Prod
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Testing Tab */}
+          <TabsContent value="testing" className="space-y-6 mt-6">
         {/* Test Email Section */}
         <Card>
           <CardHeader>
@@ -296,12 +417,25 @@ export default function MailingDashboard() {
                     <SelectTrigger id="email-type">
                       <SelectValue placeholder="Select email type" />
                     </SelectTrigger>
-                    <SelectContent>
+                    <SelectContent className="bg-black border-neutral-800">
                       <SelectItem value="promotional">
                         Promotional Email (ICS'25 Invitation)
                       </SelectItem>
+                      <SelectItem value="ticket-confirmation-initial">
+                        Ticket Confirmation Email (Initial)
+                      </SelectItem>
+                      <SelectItem value="ticket-confirmation-reminder-7days">
+                        Ticket Confirmation Email (7 Days Reminder)
+                      </SelectItem>
+                      <SelectItem value="ticket-confirmation-reminder-1day">
+                        Ticket Confirmation Email (1 Day Reminder)
+                      </SelectItem>
+                      <SelectItem value="ticket-confirmation-reminder-30min">
+                        Ticket Confirmation Email (30 Minutes Reminder)
+                      </SelectItem>
+                      {/* Legacy support */}
                       <SelectItem value="ticket-confirmation">
-                        Ticket Confirmation Email
+                        Ticket Confirmation Email (Legacy)
                       </SelectItem>
                     </SelectContent>
                   </Select>
@@ -318,6 +452,28 @@ export default function MailingDashboard() {
                   />
                 </div>
               </div>
+
+              {(selectedEmailType === 'ticket-confirmation' || 
+                selectedEmailType === 'ticket-confirmation-initial' ||
+                selectedEmailType?.startsWith('ticket-confirmation-reminder')) && (
+                <div className="space-y-2">
+                  <Label htmlFor="event-details">Event Details</Label>
+                  <Input
+                    id="event-details"
+                    type="text"
+                    placeholder="Insturix Creator's Summit 2025"
+                    value={eventDetails}
+                    onChange={(e) => setEventDetails(e.target.value)}
+                  />
+                  {selectedEmailType?.startsWith('ticket-confirmation-reminder') && (
+                    <p className="text-sm text-muted-foreground">
+                      {selectedEmailType === 'ticket-confirmation-reminder-7days' && 'Preview: Event starts in 7 days'}
+                      {selectedEmailType === 'ticket-confirmation-reminder-1day' && 'Preview: Event starts in 1 day'}
+                      {selectedEmailType === 'ticket-confirmation-reminder-30min' && 'Preview: Event starts in 30 minutes'}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <Alert>
                 <AlertCircle className="h-4 w-4" />
@@ -350,6 +506,113 @@ export default function MailingDashboard() {
               </Button>
             </CardContent>
           </Card>
+          </TabsContent>
+
+          {/* Prod Tab */}
+          <TabsContent value="prod" className="space-y-6 mt-6">
+            {/* Individual Mail Send Section */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  <CardTitle>Individual Mail Send</CardTitle>
+                </div>
+                <CardDescription>
+                  Send production emails to individual registered users
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="prod-email-type">Email Template</Label>
+                    <Select value={selectedProdEmailType} onValueChange={setSelectedProdEmailType}>
+                      <SelectTrigger id="prod-email-type">
+                        <SelectValue placeholder="Select email type" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-black border-neutral-800">
+                        <SelectItem value="promotional">
+                          Promotional Email (ICS'25 Invitation)
+                        </SelectItem>
+                        <SelectItem value="ticket-confirmation-initial">
+                          Ticket Confirmation Email (Initial)
+                        </SelectItem>
+                        <SelectItem value="ticket-confirmation-reminder-7days">
+                          Ticket Confirmation Email (7 Days Reminder)
+                        </SelectItem>
+                        <SelectItem value="ticket-confirmation-reminder-1day">
+                          Ticket Confirmation Email (1 Day Reminder)
+                        </SelectItem>
+                        <SelectItem value="ticket-confirmation-reminder-30min">
+                          Ticket Confirmation Email (30 Minutes Reminder)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="individual-email">Recipient Email (Must be registered)</Label>
+                    <Input
+                      id="individual-email"
+                      type="email"
+                      placeholder="user@example.com"
+                      value={individualEmail}
+                      onChange={(e) => setIndividualEmail(e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                {(selectedProdEmailType === 'ticket-confirmation-initial' ||
+                  selectedProdEmailType?.startsWith('ticket-confirmation-reminder')) && (
+                  <div className="space-y-2">
+                    <Label htmlFor="prod-event-details">Event Details</Label>
+                    <Input
+                      id="prod-event-details"
+                      type="text"
+                      placeholder="Insturix Creator's Summit 2025"
+                      value={prodEventDetails}
+                      onChange={(e) => setProdEventDetails(e.target.value)}
+                    />
+                    {selectedProdEmailType?.startsWith('ticket-confirmation-reminder') && (
+                      <p className="text-sm text-muted-foreground">
+                        {selectedProdEmailType === 'ticket-confirmation-reminder-7days' && 'Event starts in 7 days'}
+                        {selectedProdEmailType === 'ticket-confirmation-reminder-1day' && 'Event starts in 1 day'}
+                        {selectedProdEmailType === 'ticket-confirmation-reminder-30min' && 'Event starts in 30 minutes'}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>
+                    <ul className="list-disc list-inside space-y-1 text-sm">
+                      <li>Recipient must be a registered user</li>
+                      <li>This is a production email (no TEST prefix)</li>
+                      <li>Email will be sent immediately</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
+
+                <Button
+                  onClick={handleSendIndividualEmail}
+                  disabled={sendingIndividual || !individualEmail || !selectedProdEmailType}
+                  className="w-full"
+                  size="lg"
+                >
+                  {sendingIndividual ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Sending Email...
+                    </>
+                  ) : (
+                    <>
+                      <Mail className="mr-2 h-4 w-4" />
+                      Send Individual Email
+                    </>
+                  )}
+                </Button>
+              </CardContent>
+            </Card>
 
         {/* Cooldown Status Alert */}
         {cooldownStatus && !cooldownStatus.canSend && (
@@ -423,7 +686,10 @@ export default function MailingDashboard() {
           </Card>
         </div>
 
-        {/* Send Email Card */}
+        {/* Bulk Email Campaign - Only show for bulk send types */}
+        {(selectedProdEmailType === 'promotional' || 
+          selectedProdEmailType === 'ticket-confirmation' ||
+          selectedProdEmailType === 'ticket-confirmation-initial') && (
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
@@ -431,10 +697,25 @@ export default function MailingDashboard() {
               <CardTitle>Bulk Email Campaign</CardTitle>
             </div>
             <CardDescription>
-              Send ICS'25 promotional emails to {cooldownStatus?.totalUsers.toLocaleString() || 0} registered users
+              {selectedEmailType === 'promotional'
+                ? `Send ICS'25 promotional emails to ${cooldownStatus?.totalUsers.toLocaleString() || 0} registered users`
+                : `Send ticket confirmation emails to ${cooldownStatus?.totalUsers.toLocaleString() || 0} registered users`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {(selectedProdEmailType === 'ticket-confirmation' || selectedProdEmailType === 'ticket-confirmation-initial') && (
+              <div className="space-y-2">
+                <Label htmlFor="bulk-event-details">Event Details</Label>
+                <Input
+                  id="bulk-event-details"
+                  type="text"
+                  placeholder="Insturix Creator's Summit 2025"
+                  value={prodEventDetails}
+                  onChange={(e) => setProdEventDetails(e.target.value)}
+                />
+              </div>
+            )}
+
             <Alert>
               <AlertTriangle className="h-4 w-4" />
               <AlertTitle>Important Notice</AlertTitle>
@@ -442,7 +723,7 @@ export default function MailingDashboard() {
                 <ul className="list-disc list-inside space-y-1 text-sm mt-2">
                   <li>Emails will be sent to all {cooldownStatus?.totalUsers.toLocaleString()} registered users</li>
                   <li>This action cannot be undone once started</li>
-                  <li>After sending, you must wait {cooldownStatus?.cooldownDays || 3} days before sending again</li>
+                  <li>After sending, you must wait {cooldownStatus?.cooldownDays || 1} day{(cooldownStatus?.cooldownDays || 1) > 1 ? 's' : ''} before sending again</li>
                   <li>Failed sends will be logged for review</li>
                 </ul>
               </AlertDescription>
@@ -450,7 +731,7 @@ export default function MailingDashboard() {
 
             <Button
               onClick={handleInitiateSend}
-              disabled={!cooldownStatus?.canSend || sending}
+              disabled={!cooldownStatus?.canSend || sending || ((selectedProdEmailType === 'ticket-confirmation' || selectedProdEmailType === 'ticket-confirmation-initial') && !prodEventDetails)}
               className="w-full"
               size="lg"
             >
@@ -459,10 +740,15 @@ export default function MailingDashboard() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Sending Emails...
                 </>
-              ) : (
+              ) : selectedProdEmailType === 'promotional' ? (
                 <>
                   <Send className="mr-2 h-4 w-4" />
                   Send Promotional Emails to All Users
+                </>
+              ) : (
+                <>
+                  <Send className="mr-2 h-4 w-4" />
+                  Send Ticket Confirmation Emails to All Users
                 </>
               )}
             </Button>
@@ -475,6 +761,9 @@ export default function MailingDashboard() {
             )}
           </CardContent>
         </Card>
+        )}
+          </TabsContent>
+        </Tabs>
         </div>
       </div>
 
@@ -487,7 +776,15 @@ export default function MailingDashboard() {
               Confirm Email Send
             </DialogTitle>
             <DialogDescription className="pt-4 space-y-3">
-              <p>You are about to send promotional emails to:</p>
+              <p>
+                You are about to send{' '}
+                <strong>
+                  {selectedProdEmailType === 'promotional'
+                    ? 'promotional'
+                    : 'ticket confirmation'}{' '}
+                </strong>
+                emails to:
+              </p>
               <div className="bg-muted p-4 rounded-lg border">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Total Recipients:</span>
@@ -497,7 +794,9 @@ export default function MailingDashboard() {
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
-                This will send the ICS'25 promotional email to all registered users on the platform.
+                {selectedProdEmailType === 'promotional'
+                  ? 'This will send the ICS\'25 promotional email to all registered users on the platform.'
+                  : `This will send the ticket confirmation email with event details "${prodEventDetails}" to all registered users.`}
               </p>
             </DialogDescription>
           </DialogHeader>
@@ -537,8 +836,16 @@ export default function MailingDashboard() {
               <div className="space-y-2 text-sm">
                 <p className="font-medium">This will:</p>
                 <ul className="list-disc list-inside space-y-1 text-muted-foreground">
-                  <li>Send emails to {cooldownStatus?.totalUsers.toLocaleString()} users</li>
-                  <li>Activate a {cooldownStatus?.cooldownDays}-day cooldown period</li>
+                  <li>
+                    Send{' '}
+                    <strong>
+                      {selectedProdEmailType === 'promotional' ? 'promotional' : 'ticket confirmation'}
+                    </strong>{' '}
+                    emails to {cooldownStatus?.totalUsers.toLocaleString()} users
+                  </li>
+                  <li>
+                    Activate a {cooldownStatus?.cooldownDays} day{(cooldownStatus?.cooldownDays || 1) > 1 ? 's' : ''} cooldown period
+                  </li>
                   <li>Cannot be stopped once started</li>
                 </ul>
               </div>

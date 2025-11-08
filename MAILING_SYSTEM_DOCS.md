@@ -1,14 +1,18 @@
-# Promotional Mailing System - Complete Implementation
+# Email Marketing System - Complete Implementation
 
 ## Overview
-This document describes the complete promotional mailing system for sending ICS'25 (Insturix Creator's Summit 2025) promotional emails to registered users.
+This document describes the complete email marketing system for sending promotional and transactional emails. The system supports:
+- ICS'25 (Insturix Creator's Summit 2025) promotional emails
+- Ticket confirmation emails
+- Efficient batch processing with cooldown tracking
 
 ## Features
-1. **Admin Dashboard** - Send promotional emails to all users with a single click
-2. **Cooldown Mechanism** - 3-day cooldown period between bulk email sends to prevent spam
+1. **Admin Dashboard** - Send promotional or ticket confirmation emails to all users with a single click
+2. **Cooldown Mechanism** - Configurable cooldown periods between bulk email sends to prevent spam (3 days for promotional, 1 day for ticket confirmation)
 3. **New User Welcome Emails** - Automatic promotional emails to new signups (until Nov 22, 2025)
 4. **Batch Email Processing** - Efficient batch sending respecting AWS SES rate limits
-5. **Email Templates** - Professional HTML email templates for promotional and ticket confirmations
+5. **Email Templates** - Professional HTML email templates with modern design and S3-hosted images
+6. **Dynamic Email Content** - Support for event details and custom ticket information
 
 ## Architecture
 
@@ -46,38 +50,87 @@ Tracks when bulk promotional emails were sent to enforce cooldown periods:
 ### 3. Admin API Routes
 **Location:** `app/api/admin/mailing/`
 
-**GET /api/admin/mailing/promotional**
-- Check cooldown status
-- Returns: `canSend`, `lastSent`, `nextAvailable`, `totalUsers`
+**Promotional Emails:**
+- **GET /api/admin/mailing/promotional**
+  - Check cooldown status
+  - Returns: `canSend`, `lastSent`, `nextAvailable`, `totalUsers`, `cooldownDays: 3`
+- **POST /api/admin/mailing/promotional**
+  - Send promotional emails to all registered users
+  - Enforces 3-day cooldown period
+  - Sends emails in batches of 50 (respects AWS SES rate limits)
+  - Records send statistics
 
-**POST /api/admin/mailing/promotional**
-- Send promotional emails to all registered users
-- Enforces cooldown period (3 days)
-- Sends emails in batches of 50 (respects AWS SES rate limits)
-- Records send statistics
+**Ticket Confirmation Emails:**
+- **GET /api/admin/mailing/ticket-confirmation**
+  - Check cooldown status
+  - Returns: `canSend`, `lastSent`, `nextAvailable`, `totalUsers`, `cooldownDays: 1`
+- **POST /api/admin/mailing/ticket-confirmation**
+  - Send ticket confirmation emails to all registered users
+  - Requires `eventDetails` in request body
+  - Enforces 1-day cooldown period
+  - Generates unique ticket IDs for each user (format: TICKET-{userId})
+  - Sends emails in batches of 50 (respects AWS SES rate limits)
+  - Records send statistics
+  - Request body:
+    ```json
+    {
+      "eventDetails": "Insturix Creator's Summit 2025",
+      "cooldownDays": 1
+    }
+    ```
 
-**POST /api/admin/mailing/test**
-- Send test emails to admin for preview/testing
-- Supports: promotional, ticket-confirmation
-- Subject prefixed with [TEST]
-- No cooldown enforcement
+**Test Emails:**
+- **POST /api/admin/mailing/test**
+  - Send test emails to admin for preview/testing
+  - Supports: promotional, ticket-confirmation
+  - Subject prefixed with [TEST]
+  - No cooldown enforcement
+  - Request body:
+    ```json
+    {
+      "emailType": "promotional|ticket-confirmation",
+      "recipientEmail": "admin@insturix.com",
+      "testData": {
+        "name": "Test User",
+        "ticketId": "TEST-12345",
+        "eventDetails": "Event Name"
+      }
+    }
+    ```
 
 ### 4. Admin Dashboard UI
 **Location:** `app/admin/mailing/page.tsx`
 
 Features:
+- **Email Type Selection:**
+  - Dropdown to choose between "Promotional Email (ICS'25 Invitation)" and "Ticket Confirmation Email"
+  - Dynamically updates UI based on selection
+  
 - **Test Email Section:**
   - Select email type (promotional or ticket confirmation)
   - Enter recipient email (auto-filled with admin's email)
+  - Event details input (only shown for ticket confirmation)
   - Send test emails with [TEST] prefix
   - Preview email templates before bulk send
-- Real-time cooldown status display
-- Total user count
-- Last sent date/time
-- Next available send date
-- Send button (disabled during cooldown)
-- Success/failure statistics after send
-- Automatic refresh after send
+  
+- **Cooldown Status Display:**
+  - Real-time cooldown status with color coding
+  - Total user count
+  - Last sent date/time
+  - Next available send date (with countdown timer)
+  - Cooldown period (1 or 3 days depending on email type)
+  
+- **Bulk Campaign Section:**
+  - Email type-specific CTA
+  - Event details input (for ticket confirmation emails)
+  - Important notice about email send
+  - Send button (disabled during cooldown or when required fields empty)
+  - Automatic refresh after send
+  
+- **Confirmation Dialogs:**
+  - Initial confirmation with recipient count
+  - Final confirmation with risk acknowledgment
+  - Detailed statistics after completion
 
 **URL:** `https://insturix.com/admin/mailing`
 
@@ -107,14 +160,28 @@ When a new user signs up via Clerk:
 3. Check your inbox for the test email (subject prefixed with [TEST])
 4. Review the email content and design
 
-### For Admins - Bulk Email Send
+### For Admins - Bulk Email Send (Promotional)
 
 1. Navigate to `/admin/mailing`
-2. Check the cooldown status
-3. If "Ready to Send" is shown, click "Send Promotional Emails to All Users"
-4. Confirm the action
-5. Wait for completion (status will show in toast notification)
-6. Button will be disabled for 3 days
+2. Ensure "Promotional Email (ICS'25 Invitation)" is selected
+3. Check the cooldown status
+4. If "Ready to Send" is shown, click "Send Promotional Emails to All Users"
+5. Confirm the action (twice - initial and final)
+6. Wait for completion (status will show in toast notification)
+7. Button will be disabled for 3 days
+
+### For Admins - Bulk Email Send (Ticket Confirmation)
+
+1. Navigate to `/admin/mailing`
+2. Select "Ticket Confirmation Email" from the dropdown
+3. Enter the event details (e.g., "Insturix Creator's Summit 2025")
+4. Event details field appears in both test and bulk sections
+5. Check the cooldown status
+6. If "Ready to Send" is shown, click "Send Ticket Confirmation Emails to All Users"
+7. Confirm the action (twice - initial and final)
+8. Wait for completion (status will show in toast notification)
+9. Each user receives a unique ticket ID (format: TICKET-{userId})
+10. Button will be disabled for 1 day
 
 ### For Developers - Manual Email Send
 
@@ -220,11 +287,21 @@ Uses existing `User` schema from `schemas/user.ts`:
 **Subject:** "Your Ticket is Confirmed! - Insturix Creator's Summit 2025 🎉"
 
 **Content:**
-- Confirmation banner
-- Event details
-- QR code (if applicable)
-- Event date/time/location
-- CTA: "View Ticket" or "Visit Website"
+- Professional confirmation banner (main hero image)
+- Insturix logo
+- Ticket status and event details
+- Unique ticket ID per user (TICKET-{userId})
+- Event information section
+- CTA button: "Insturix Website"
+- Footer with unsubscribe link
+
+**Design:**
+- S3-hosted images for consistent display:
+  - Main banner: `99c379308c1a37e7e35b52c6f8a46ca3.png` (585x827px)
+  - Logo: `309a20274f057a8c9056e415a5ea8196.png` (109x110px)
+  - Event info: `7e317333aea8b5e6740a4f09c3fb646a.png` (216x53px)
+- Responsive design (mobile-friendly)
+- Professional color scheme with black CTA button
 
 ## Testing
 
@@ -351,16 +428,19 @@ db.emailcooldowns.find({ status: { $in: ['failed', 'partial'] } })
 ## Files Modified/Created
 
 ### Created Files
-- `schemas/EmailCooldown.ts`
-- `app/api/admin/mailing/promotional/route.ts`
-- `app/admin/mailing/page.tsx`
-- `lib/services/email/templates/promotional.ts` (already existed, verified)
-- `lib/services/email/templates/ticket-confirmation.ts` (already existed, verified)
+- `schemas/EmailCooldown.ts` - Email cooldown tracking schema
+- `app/api/admin/mailing/promotional/route.ts` - Promotional email API endpoint
+- `app/api/admin/mailing/ticket-confirmation/route.ts` - Ticket confirmation API endpoint (NEW)
+- `app/admin/mailing/page.tsx` - Admin dashboard UI
+- `lib/services/email/templates/promotional.ts` - Promotional email template
+- `lib/services/email/templates/ticket-confirmation.ts` - Ticket confirmation template (NEW)
 
 ### Modified Files
 - `app/api/webhooks/clerk/route.ts` - Added promotional email on signup
-- `lib/services/email/helpers.ts` - Added helper functions
+- `lib/services/email/helpers.ts` - Added helper functions for both email types
 - `lib/services/email/index.ts` - Exported new helpers
+- `app/admin/mailing/page.tsx` - Enhanced with ticket confirmation support (UPDATED)
+- `lib/services/email/templates/ticket-confirmation.ts` - Updated with new S3 image URLs (UPDATED)
 
 ## Future Enhancements
 
@@ -383,6 +463,41 @@ For issues or questions:
 
 ---
 
-**Last Updated:** November 7, 2025
-**Version:** 1.0.0
+## Summary of Changes (Latest Update)
+
+### New Ticket Confirmation Email System
+✅ **Updated ticket-confirmation.ts template**
+- Replaced with new professional design using S3-hosted images
+- Uses same design as provided in `email.html`
+- Images hosted at: `https://insturix-email-assets.s3.ap-south-1.amazonaws.com/tickets_confirmed_images/`
+- Dynamic event details support
+- Unique ticket ID generation per user
+
+✅ **Created /api/admin/mailing/ticket-confirmation endpoint**
+- GET: Check cooldown status (1-day cooldown)
+- POST: Send ticket confirmation emails to all users
+- Requires eventDetails in request body
+- Generates unique ticket IDs (TICKET-{userId})
+- Batch processing with rate limiting
+
+✅ **Enhanced admin dashboard**
+- Email type selector (Promotional or Ticket Confirmation)
+- Dynamic UI based on email type selection
+- Event details input field (ticket confirmation only)
+- Separate cooldown tracking per email type
+- Updated confirmation dialogs
+- Improved UX with dynamic button labels
+
+### Reusable Pattern
+Both promotional and ticket confirmation systems follow the same pattern:
+1. Email template with S3-hosted images
+2. Admin API endpoint with cooldown tracking
+3. Test email functionality
+4. Batch processing with rate limiting
+5. Admin dashboard controls
+
+---
+
+**Last Updated:** November 8, 2025
+**Version:** 2.0.0 - Ticket Confirmation System
 **Status:** ✅ Production Ready

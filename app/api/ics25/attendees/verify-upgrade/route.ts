@@ -3,6 +3,10 @@ import { auth } from '@clerk/nextjs/server';
 import { getIcs25Db } from '@/lib/ics25-mongo';
 import Attendee from '@/schemas/ics25/Attendee';
 import crypto from 'crypto';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { sendTicketConfirmationEmail } from '@/lib/services/email';
+import { hasEmailBeenSent, markEmailSent } from '@/lib/services/email/ticket-email-tracking';
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,6 +71,41 @@ export async function POST(req: NextRequest) {
     });
 
     await attendee.save();
+
+    // Send ticket confirmation email (only if not already sent)
+    try {
+      if (!hasEmailBeenSent(attendee, 'confirmation')) {
+        // Connect to production database to get user details
+        await connectToDatabase();
+        
+        // Get user details for email
+        const user = await User.findOne({ clerkUserId: userId }).lean();
+        const userName = user?.username || attendee.name || 'Valued User';
+        const userEmail = user?.email || attendee.email;
+        
+        if (userEmail) {
+          const ticketId = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
+          const eventDetails = "Insturix Creator's Summit 2025";
+          
+          const emailResult = await sendTicketConfirmationEmail(
+            userEmail,
+            userName,
+            ticketId,
+            eventDetails
+          );
+          
+          if (emailResult.success) {
+            await markEmailSent(attendee, 'confirmation');
+            console.log(`✅ Ticket confirmation email sent to ${userEmail} after upgrade`);
+          } else {
+            console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+          }
+        }
+      }
+    } catch (emailError: any) {
+      // Don't fail the upgrade if email fails
+      console.error('Error sending ticket confirmation email after upgrade:', emailError);
+    }
 
     return NextResponse.json({
       ok: true,

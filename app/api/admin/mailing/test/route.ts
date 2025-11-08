@@ -4,6 +4,7 @@ import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import { sendEmail } from '@/lib/services/email';
 import { promotionalEmailTemplate } from '@/lib/services/email/templates/promotional';
 import { ticketConfirmationEmailTemplate } from '@/lib/services/email/templates/ticket-confirmation';
+import { getSimulatedTimeUntilEvent } from '@/lib/utils/event-time';
 
 /**
  * POST /api/admin/mailing/test
@@ -42,8 +43,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let emailContent: { html: string; text: string };
+    let emailContent: { html: string; text: string; subject: string };
     let subject: string;
+    let timeUntilEvent: string | undefined;
 
     // Generate email content based on type
     switch (emailType) {
@@ -55,13 +57,56 @@ export async function POST(req: NextRequest) {
         subject = "You're Invited to ICS'25 - India's Largest Creator-Tech Summit! 🚀";
         break;
 
+      case 'ticket-confirmation-initial':
+        emailContent = ticketConfirmationEmailTemplate(
+          testData?.name || 'Test User',
+          testData?.ticketId || 'TEST-12345',
+          testData?.eventDetails || "Insturix Creator's Summit 2025"
+        );
+        subject = emailContent.subject;
+        break;
+
+      case 'ticket-confirmation-reminder-7days':
+        timeUntilEvent = getSimulatedTimeUntilEvent('reminder7Days');
+        emailContent = ticketConfirmationEmailTemplate(
+          testData?.name || 'Test User',
+          testData?.ticketId || 'TEST-12345',
+          testData?.eventDetails || "Insturix Creator's Summit 2025",
+          timeUntilEvent
+        );
+        subject = emailContent.subject;
+        break;
+
+      case 'ticket-confirmation-reminder-1day':
+        timeUntilEvent = getSimulatedTimeUntilEvent('reminder1Day');
+        emailContent = ticketConfirmationEmailTemplate(
+          testData?.name || 'Test User',
+          testData?.ticketId || 'TEST-12345',
+          testData?.eventDetails || "Insturix Creator's Summit 2025",
+          timeUntilEvent
+        );
+        subject = emailContent.subject;
+        break;
+
+      case 'ticket-confirmation-reminder-30min':
+        timeUntilEvent = getSimulatedTimeUntilEvent('reminder30Min');
+        emailContent = ticketConfirmationEmailTemplate(
+          testData?.name || 'Test User',
+          testData?.ticketId || 'TEST-12345',
+          testData?.eventDetails || "Insturix Creator's Summit 2025",
+          timeUntilEvent
+        );
+        subject = emailContent.subject;
+        break;
+
+      // Legacy support for 'ticket-confirmation'
       case 'ticket-confirmation':
         emailContent = ticketConfirmationEmailTemplate(
           testData?.name || 'Test User',
           testData?.ticketId || 'TEST-12345',
           testData?.eventDetails || "Insturix Creator's Summit 2025"
         );
-        subject = "Your Ticket is Confirmed! - Insturix Creator's Summit 2025 🎉";
+        subject = emailContent.subject;
         break;
 
       default:
