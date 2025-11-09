@@ -186,8 +186,17 @@ export function useVideoAnalysis() {
             reject(new Error("Upload cancelled"));
           };
 
+          // Open and configure XHR
           xhr.open("PUT", url);
+          
+          // CRITICAL: Only set Content-Type header to match signed URL
+          // Do not set Content-Length as it's automatically set by the browser
+          // Setting extra headers will cause CORS preflight to fail
           xhr.setRequestHeader("Content-Type", contentType);
+          
+          // Add custom metadata header that was included in signed URL
+          xhr.setRequestHeader("x-goog-meta-upload-source", "alyzitron-web");
+          
           xhr.send(file);
         });
 
