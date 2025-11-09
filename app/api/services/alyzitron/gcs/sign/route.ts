@@ -17,19 +17,64 @@ const storage = hasGCSConfig ? new Storage({
 
 const bucket = hasGCSConfig ? storage?.bucket(process.env.GCS_BUCKET_NAME!) : null;
 
-async function configureBucketCors() {
-  if (!bucket) return;
+// Track if CORS has been configured
+let corsConfigured = false;
+let corsConfiguring = false;
 
+async function ensureCorsConfigured() {
+  if (!bucket || corsConfigured || corsConfiguring) return;
+
+  corsConfiguring = true;
+  
   try {
+    // Build list of allowed origins
+    const allowedOrigins = [
+      // Production domains
+      'https://www.insturix.com',
+      'https://insturix.com',
+    ];
+
+    // Allow common localhost ports for development (3000-3010 covers most dev scenarios)
+    for (let port = 3000; port <= 3010; port++) {
+      allowedOrigins.push(`http://localhost:${port}`);
+      allowedOrigins.push(`https://localhost:${port}`);
+      allowedOrigins.push(`http://127.0.0.1:${port}`);
+    }
+
+    // Add environment-specific URL
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (appUrl && !allowedOrigins.includes(appUrl)) {
+      allowedOrigins.push(appUrl);
+    }
+
+    // Add all Vercel deployment URLs (these are dynamic)
+    const vercelUrls = [
+      process.env.VERCEL_URL,
+      process.env.VERCEL_BRANCH_URL,
+      process.env.NEXT_PUBLIC_VERCEL_URL,
+    ];
+
+    vercelUrls.forEach(url => {
+      if (url) {
+        const httpsUrl = `https://${url}`;
+        if (!allowedOrigins.includes(httpsUrl)) {
+          allowedOrigins.push(httpsUrl);
+        }
+      }
+    });
+
+    // For development/preview environments, also add wildcard Vercel pattern
+    // This will match ALL *.vercel.app domains
+    const isDev = process.env.NODE_ENV === 'development' || process.env.VERCEL_ENV === 'preview';
+    if (isDev || process.env.VERCEL_URL) {
+      allowedOrigins.push('https://*.vercel.app');
+    }
+
     await bucket.setCorsConfiguration([
       {
         maxAgeSeconds: 3600,
         method: ['PUT', 'GET', 'HEAD', 'POST', 'OPTIONS'],
-        origin: [
-          'http://localhost:3000',
-          'https://localhost:3000',
-          process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://www.insturix.com',
-        ],
+        origin: allowedOrigins,
         responseHeader: [
           'Content-Type',
           'Content-Length',
@@ -38,23 +83,32 @@ async function configureBucketCors() {
           'Authorization',
           'Host',
           'Access-Control-Allow-Origin',
-          'x-goog-*'
+          'Access-Control-Allow-Methods',
+          'Access-Control-Allow-Headers',
+          'x-goog-meta-upload-source'
         ],
       },
     ]);
 
-    logger.info('GCS CORS configuration updated successfully');
-  } catch (error) {
-    // Log but don't throw
-    logger.warn('Failed to update GCS CORS configuration', {
-      data: { error: error instanceof Error ? error.message : String(error) }
+    corsConfigured = true;
+    logger.info('GCS CORS configuration updated successfully', {
+      data: { 
+        bucket: process.env.GCS_BUCKET_NAME,
+        originsCount: allowedOrigins.length,
+        includesLocalhost: true,
+        includesVercelWildcard: allowedOrigins.includes('https://*.vercel.app')
+      }
     });
+  } catch (error) {
+    logger.error('Failed to update GCS CORS configuration', {
+      data: { 
+        bucket: process.env.GCS_BUCKET_NAME,
+        error: error instanceof Error ? error.message : String(error) 
+      }
+    });
+  } finally {
+    corsConfiguring = false;
   }
-}
-
-// Configure CORS on startup (but don't block)
-if (hasGCSConfig) {
-  configureBucketCors().catch(() => {});
 }
 
 export async function POST(request: Request) {
@@ -87,6 +141,9 @@ export async function POST(request: Request) {
       );
     }
 
+    // Ensure CORS is configured before generating signed URL
+    await ensureCorsConfigured();
+
     try {
       // Generate GCS path with timestamp for easy cleanup
       const timestamp = Date.now();
@@ -99,13 +156,15 @@ export async function POST(request: Request) {
       // Get signed URL
       const file = bucket.file(gcsPath);
 
-      // Basic signed URL config
+      // Signed URL config with explicit headers that will be sent by client
       const signUrlConfig: GetSignedUrlConfig = {
         version: 'v4',
         action: 'write',
         expires: Date.now() + 15 * 60 * 1000, // 15 minutes
         contentType: contentType,
-        queryParams: { 'X-Goog-Meta-Upload-Source': 'alyzitron-web' }
+        extensionHeaders: {
+          'x-goog-meta-upload-source': 'alyzitron-web'
+        }
       };
 
       const [signedUrl] = await file.getSignedUrl(signUrlConfig);
