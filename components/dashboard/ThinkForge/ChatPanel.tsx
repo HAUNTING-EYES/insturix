@@ -359,9 +359,12 @@ Describe the change you want:`;
   const sendChat = useCallback(async () => {
     // Do not allow sending until a valid session exists
     if (!sessionId) return;
-    const text = chatInput.trim();
-    if (!text) return;
-    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: text, ts: Date.now() };
+    const rawText = chatInput.trim();
+    if (!rawText) return;
+    
+    // Enrich vague instructions with project context before sending
+    const enrichedText = buildInstructionWithContext(rawText);
+    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', content: rawText, ts: Date.now() };
     setChatInput('');
     
     // Unified chat - backend decides workflow automatically
@@ -384,9 +387,9 @@ Describe the change you want:`;
     // Add user message to chat
     setChatMessages(prev => [...prev, userMsg]);
     
-    // Create assistant message placeholder
+    // Create assistant message placeholder with "Analysing.." immediately
     const assistantId = crypto.randomUUID();
-    setChatMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: '', ts: Date.now(), streaming: true }]);
+    setChatMessages(prev => [...prev, { id: assistantId, role: 'assistant', content: 'Analysing..', ts: Date.now(), streaming: true }]);
     setIsStreaming(true);
     setStreamingAssistantId(assistantId);
     
@@ -410,7 +413,7 @@ Describe the change you want:`;
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          prompt: text,
+          prompt: enrichedText,
           sessionId,
           script: scriptPayload,
           project: projectPayload,
@@ -439,27 +442,52 @@ Describe the change you want:`;
         if (value) {
           const chunk = decoder.decode(value, { stream: true });
           
-          // Check for script update marker
-          if (chunk.includes('<script_update>')) {
+          // Check for "Working on your script..." to show shimmer
+          if (chunk.includes('Working on your script') || chunk.includes('**Working on your script')) {
+            // Replace "Analysing.." with shimmer text if it's still there
+            setChatMessages(prev => prev.map(m => 
+              m.id === assistantId && (m.content === 'Analysing..' || m.content.startsWith('Analysing'))
+                ? { ...m, content: '**Working on your script...**' }
+                : m
+            ));
+          }
+          
+          // Check for script update marker start (handle split markers)
+          const scriptUpdateStartIdx = chunk.indexOf('<script_update>');
+          if (scriptUpdateStartIdx !== -1) {
             inScriptUpdate = true;
-            const parts = chunk.split('<script_update>');
-            if (parts[0]) {
-              assistantAccum += parts[0];
-              const chars = parts[0].replace(/\r\n/g, '\n').split('');
+            // Add content before marker to chat
+            if (scriptUpdateStartIdx > 0) {
+              const beforeMarker = chunk.substring(0, scriptUpdateStartIdx);
+              assistantAccum += beforeMarker;
+              const chars = beforeMarker.replace(/\r\n/g, '\n').split('');
               typingRef.current.queue.push(...chars);
               startTypingLoop(assistantId);
             }
-            scriptUpdateJson = parts[1] || '';
+            // Start collecting JSON after marker
+            scriptUpdateJson = chunk.substring(scriptUpdateStartIdx + '<script_update>'.length);
             continue;
           }
           
-          if (chunk.includes('</script_update>')) {
-            const parts = chunk.split('</script_update>');
-            scriptUpdateJson += parts[0];
+          // Check for script update marker end
+          const scriptUpdateEndIdx = chunk.indexOf('</script_update>');
+          if (scriptUpdateEndIdx !== -1) {
+            // Add JSON before end marker
+            scriptUpdateJson += chunk.substring(0, scriptUpdateEndIdx);
             
             // Parse and apply script update
             try {
+              console.log('Parsing script update JSON, length:', scriptUpdateJson.length);
               const updateData = JSON.parse(scriptUpdateJson);
+              console.log('Script update received:', { 
+                hasScript: !!updateData.script, 
+                hasBlocks: !!(updateData.script?.blocks), 
+                blocksCount: updateData.script?.blocks?.length || 0,
+                hasContent: !!updateData.script?.content,
+                contentLength: updateData.script?.content?.length || 0,
+                title: updateData.script?.title 
+              });
+              
               if (updateData.script && typeof onApplyEdit === 'function') {
                 const sanitized = sanitizeServerScript(updateData.script);
                 const newTitle: string = sanitized?.title || script?.title || 'Untitled Script';
@@ -475,30 +503,55 @@ Describe the change you want:`;
                     ? updateData.script.blocks
                     : undefined;
                 
-                onApplyEdit({ 
-                  ...(script || {}), 
+                console.log('Applying script edit:', { 
                   title: newTitle, 
-                  content: newContent, 
-                  body: htmlBody, 
-                  blocks: blocks,
-                  metadata: {
-                    workflow: metadata.workflow,
-                    thoughts: (sanitized as any)?.thoughts || metadata.thoughts,
-                    duration_ms: (sanitized as any)?.duration_ms || metadata.duration_ms,
-                    agent_steps: metadata.agent_steps,
-                    quality_metrics: metadata.quality_metrics,
-                  }
-                } as any);
+                  hasContent: !!newContent, 
+                  contentLength: newContent.length,
+                  hasBlocks: !!blocks, 
+                  blocksCount: blocks?.length || 0 
+                });
+                
+                if (!newContent && !blocks) {
+                  console.warn('Script update has no content or blocks, skipping apply');
+                } else {
+                  onApplyEdit({ 
+                    ...(script || {}), 
+                    title: newTitle, 
+                    content: newContent, 
+                    body: htmlBody, 
+                    blocks: blocks,
+                    metadata: {
+                      workflow: metadata.workflow,
+                      thoughts: (sanitized as any)?.thoughts || metadata.thoughts,
+                      duration_ms: (sanitized as any)?.duration_ms || metadata.duration_ms,
+                      agent_steps: metadata.agent_steps,
+                      quality_metrics: metadata.quality_metrics,
+                    }
+                  } as any);
+                  
+                  console.log('Script edit applied successfully');
+                }
+              } else {
+                console.warn('Script update missing script data or onApplyEdit function', { 
+                  hasScript: !!updateData.script, 
+                  hasOnApplyEdit: typeof onApplyEdit === 'function' 
+                });
               }
             } catch (e) {
-              console.error('Failed to parse script update', e);
+              console.error('Failed to parse script update', e, { 
+                scriptUpdateJsonLength: scriptUpdateJson.length,
+                scriptUpdateJsonPreview: scriptUpdateJson.substring(0, 500) 
+              });
             }
             
             inScriptUpdate = false;
-            if (parts[1]) {
-              // Continue with remaining content after marker
-              assistantAccum += parts[1];
-              const chars = parts[1].replace(/\r\n/g, '\n').split('');
+            scriptUpdateJson = '';
+            
+            // Continue with remaining content after marker
+            const afterMarker = chunk.substring(scriptUpdateEndIdx + '</script_update>'.length);
+            if (afterMarker) {
+              assistantAccum += afterMarker;
+              const chars = afterMarker.replace(/\r\n/g, '\n').split('');
               typingRef.current.queue.push(...chars);
               startTypingLoop(assistantId);
             }
@@ -510,7 +563,18 @@ Describe the change you want:`;
             continue;
           }
           
-          // Normal streaming
+          // Normal streaming - replace "Analysing.." with actual content when it starts
+          // But don't replace if we've already set "Working on your script..."
+          if (assistantAccum === '' && chunk.trim()) {
+            // First real content, replace "Analysing.." but preserve "Working on your script..."
+            setChatMessages(prev => prev.map(m => {
+              if (m.id === assistantId && m.content === 'Analysing..' && !m.content.includes('Working')) {
+                return { ...m, content: '' };
+              }
+              return m;
+            }));
+          }
+          
           assistantAccum += chunk;
           const chars = chunk.replace(/\r\n/g, '\n').split('');
           typingRef.current.queue.push(...chars);
@@ -533,7 +597,7 @@ Describe the change you want:`;
       setIsStreaming(false);
       setStreamingAssistantId(null);
     }
-  }, [chatInput, script, selectedIdea, sessionId, onApplyEdit, pendingSelection, composeHtml, sanitizeServerScript, startTypingLoop, flushQueueInstant]);
+  }, [chatInput, script, selectedIdea, sessionId, onApplyEdit, pendingSelection, composeHtml, sanitizeServerScript, startTypingLoop, flushQueueInstant, buildInstructionWithContext]);
 
   // Editing logic
   const beginEditMessage = (id: string, existing: string) => {
@@ -733,9 +797,13 @@ Describe the change you want:`;
                     </div>
                   ) : (
                     <>
-                      {isAssistantStreaming && /^Working/.test(m.content) ? (
+                      {isAssistantStreaming && (m.content === 'Analysing..' || /Working on your script/i.test(m.content) || /^Working/.test(m.content)) ? (
                         <div className="whitespace-pre-wrap break-words">
-                          <span className="shimmer-text">Working…</span>
+                          {m.content === 'Analysing..' ? (
+                            <span className="text-white/70">Analysing..</span>
+                          ) : (
+                            <span className="shimmer-text">Working on your script...</span>
+                          )}
                         </div>
                       ) : (
                         <div className="whitespace-pre-wrap break-words">{renderMessage(m.content)}</div>

@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { memo } from "react";
 import clsx from "clsx";
 
 type Block = any;
@@ -100,7 +100,7 @@ function RenderBlock({ block }: { block: Block }) {
 	return <p className="mb-2 text-white/90">{renderInline(text)}</p>;
 }
 
-export default function ScriptRenderer({
+const ScriptRenderer = memo(function ScriptRenderer({
 	title,
 	blocks,
 	className,
@@ -138,4 +138,6 @@ export default function ScriptRenderer({
 			<div>{rendered}</div>
 		</div>
 	);
-}
+});
+
+export default ScriptRenderer;

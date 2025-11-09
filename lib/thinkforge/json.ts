@@ -134,12 +134,44 @@ export function sanitizeServerScript(input: any): ScriptModel {
   const outline = typeof input?.outline === 'string' ? input.outline.slice(0, 4000) : (input?.outline ?? null);
   const content = typeof input?.content === 'string' ? input.content.slice(0, 20000) : (input?.content ?? null);
   const blocksArr = Array.isArray(input?.blocks) ? input.blocks : [];
+  
+  // Enhanced block validation and sanitization
   const blocks = blocksArr
     .slice(0, MAX_BLOCKS)
-    .map(sanitizeBlock)
-    .filter(Boolean)
-    // guarantee ids even if sanitizeBlock returned nullish id for any reason
-    .map((b: any) => ({ ...b, id: ensureBlockId(b?.id) })) as Block[];
+    .map((block: any, index: number) => {
+      // Ensure block is an object
+      if (!block || typeof block !== 'object') {
+        return null;
+      }
+      
+      // Sanitize block
+      const sanitized = sanitizeBlock(block);
+      if (!sanitized) {
+        return null;
+      }
+      
+      // Guarantee id exists
+      return {
+        ...sanitized,
+        id: ensureBlockId(sanitized?.id || block?.id)
+      };
+    })
+    .filter(Boolean) as Block[];
+  
+  // Validate block structure matches BlockNote schema
+  const validatedBlocks = blocks.map((block: any) => {
+    // Ensure required fields
+    if (!block.type || !block.content) {
+      return null;
+    }
+    
+    // Ensure content is string or array
+    if (typeof block.content !== 'string' && !Array.isArray(block.content)) {
+      block.content = String(block.content || '');
+    }
+    
+    return block;
+  }).filter(Boolean) as Block[];
   
   // Preserve metadata if present
   const metadata = input?.metadata ? {
@@ -153,7 +185,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
     } : undefined,
   } : null;
   
-  return { title, outline, content, blocks, metadata };
+  return { title, outline, content, blocks: validatedBlocks, metadata };
 }
 
 // ---- ID helpers ----

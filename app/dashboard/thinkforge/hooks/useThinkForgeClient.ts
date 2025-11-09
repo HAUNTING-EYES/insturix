@@ -173,11 +173,11 @@ export function useThinkForgeClient() {
   const setScriptAndQueueSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
       const next = typeof updater === "function" ? (updater as any)(prev) : updater;
-      // Local cache immediately for resilience
+      // Optimistic: Local cache immediately for resilience (instant UI update)
       if (sessionId) {
         saveLocal(sessionId, { script: next });
       }
-      // Queue autosave
+      // Debounced autosave (800ms as per plan)
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         void autosave(next);
@@ -190,21 +190,34 @@ export function useThinkForgeClient() {
     if (!sessionId) return;
     const payloadScript = scriptToSave ?? script;
     const snapshot = JSON.stringify(payloadScript || {});
-    if (snapshot === lastSavedSnapshotRef.current) return;
+    if (snapshot === lastSavedSnapshotRef.current) return; // Skip if unchanged
     lastSavedSnapshotRef.current = snapshot;
+    
+    // Optimistic: Show saving state immediately
     setIsSaving(true);
     setSaveError(null);
+    
     try {
+      // Use AbortController for request cancellation if needed
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+      
       const res = await fetch("/api/services/thinkforge/script/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
+        signal: controller.signal,
         body: JSON.stringify({ sessionId, script: payloadScript }),
       });
+      
+      clearTimeout(timeoutId);
+      
       if (!res.ok) throw new Error(`Save failed: ${res.status}`);
       // No-op on success; backend returns scriptId
     } catch (e: any) {
-      setSaveError(e?.message || "Failed to save");
+      if (e.name !== 'AbortError') {
+        setSaveError(e?.message || "Failed to save");
+      }
     } finally {
       setIsSaving(false);
     }

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
 import { motion } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { 
@@ -86,6 +86,7 @@ export default function ScriptEditor({
   const [importText, setImportText] = useState('');
   const [importErr, setImportErr] = useState<string | null>(null);
   const [showOrchestration, setShowOrchestration] = useState(false);
+  const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
 
@@ -97,59 +98,186 @@ export default function ScriptEditor({
     animations: true,
   });
 
+  // Memoized selection change handler (debounced 300ms)
+  const handleSelectionChange = useCallback(() => {
+    if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
+    selectionTimerRef.current = setTimeout(() => {
+      try {
+        const txt = (editor as any)?.getSelectedText?.() || '';
+        setSelectedText(txt);
+        if (txt && typeof window !== 'undefined') {
+          const sel = window.getSelection?.();
+          if (sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            const rect = range.getBoundingClientRect();
+            const container = containerRef.current;
+            if (container) {
+              const crect = container.getBoundingClientRect();
+              const scrollTop = container.scrollTop || 0;
+              const scrollLeft = container.scrollLeft || 0;
+              // Prefer positioning BELOW selection; flip above if not enough space
+              const offset = 8;
+              const approxBtnH = 32; // px
+              const spaceBelow = crect.bottom - rect.bottom;
+              const preferBelow = spaceBelow > (approxBtnH + offset + 8);
+              const top = preferBelow
+                ? (rect.bottom - crect.top) + scrollTop + offset
+                : (rect.top - crect.top) + scrollTop - (approxBtnH + offset);
+              // Center horizontally relative to the selection
+              let left = (rect.left + (rect.width / 2) - crect.left) + scrollLeft;
+              // Clamp within container bounds with small padding
+              const pad = 12;
+              const maxLeft = (crect.width || container.clientWidth) - pad;
+              left = Math.min(Math.max(left, pad), maxLeft);
+              setSelectionPos({ top: Math.max(4, top), left });
+            } else {
+              setSelectionPos(null);
+            }
+          } else {
+            setSelectionPos(null);
+          }
+        } else {
+          setSelectionPos(null);
+        }
+      } catch {}
+    }, 300);
+  }, [editor]);
+
   // Load content into editor after creation and whenever script changes
   useEffect(() => {
     const load = async () => {
       try {
-        // Prefer server-provided blocks
-        if (script?.blocks && Array.isArray(script.blocks) && (script.blocks as any[]).length > 0) {
-          editor.replaceBlocks(editor.document, script.blocks as any);
-          return;
+        // Prefer server-provided blocks (validate first)
+        if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
+          // Validate blocks before loading
+          const validBlocks = script.blocks
+            .filter((b: any) => b && typeof b === 'object' && b.type)
+            .map((b: any) => ({
+              ...b,
+              id: b.id || `b_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              content: b.content || '',
+            }));
+          
+          if (validBlocks.length > 0) {
+            editor.replaceBlocks(editor.document, validBlocks as any);
+            return;
+          }
         }
+        
         // Next, try parsing existing body HTML if available
         if (script?.body && script.body.trim().length > 0 && !looksLikeJSON(script.body)) {
-          const blocks = await editor.tryParseHTMLToBlocks(script.body);
-          editor.replaceBlocks(editor.document, blocks);
-          return;
+          try {
+            const blocks = await editor.tryParseHTMLToBlocks(script.body);
+            if (blocks && Array.isArray(blocks) && blocks.length > 0) {
+              editor.replaceBlocks(editor.document, blocks);
+              return;
+            }
+          } catch (htmlError) {
+            console.warn('Failed to parse HTML blocks:', htmlError);
+          }
         }
+        
         // Fallback: synthesize blocks from title + plain content
         const fallbackTitle = script?.title || 'Untitled Script';
-  const text = looksLikeJSON((script?.content || '').toString()) ? '' : (script?.content || '').toString();
-        const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-        const newBlocks: any[] = [
-          { type: 'heading', props: { level: 1 }, content: fallbackTitle },
-          ...paras.map(p => ({ type: 'paragraph', content: p }))
-        ];
-        editor.replaceBlocks(editor.document, newBlocks as any);
+        const text = looksLikeJSON((script?.content || '').toString()) 
+          ? '' 
+          : (script?.content || '').toString();
+        
+        if (text.trim()) {
+          const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+          const newBlocks: any[] = [
+            { 
+              type: 'heading', 
+              props: { level: 1 }, 
+              content: fallbackTitle,
+              id: `h1_${Date.now()}`
+            },
+            ...paras.map((p, idx) => ({ 
+              type: 'paragraph', 
+              content: p,
+              id: `p_${Date.now()}_${idx}`
+            }))
+          ];
+          editor.replaceBlocks(editor.document, newBlocks as any);
+        } else if (fallbackTitle) {
+          // At least show the title
+          editor.replaceBlocks(editor.document, [{
+            type: 'heading',
+            props: { level: 1 },
+            content: fallbackTitle,
+            id: `h1_${Date.now()}`
+          }] as any);
+        }
       } catch (error) {
-        console.error('Failed to load content into BlockNote.', error);
+        console.error('Failed to load content into BlockNote:', error);
+        // Last resort: show error message as a block
+        try {
+          editor.replaceBlocks(editor.document, [{
+            type: 'paragraph',
+            content: 'Failed to load script content. Please try refreshing.',
+            id: `error_${Date.now()}`
+          }] as any);
+        } catch (fallbackError) {
+          console.error('Failed to show error message:', fallbackError);
+        }
       }
     };
     load();
-  }, [editor, script]);
+  }, [editor, script?.blocks, script?.body, script?.content, script?.title]);
 
   // Note: We intentionally avoid injecting script.blocks directly to prevent malformed data from crashing BlockNote
 
-  // Handle content changes
+  // Convert BlockNote content back to Script format (defined early to be used in callbacks)
+  const convertBlocksToScript = useCallback(async (): Promise<Script> => {
+    const blocks = editor.document;
+    
+    // Extract title from HTML content (simpler approach)
+    const htmlContent = await editor.blocksToHTMLLossy(blocks);
+    const titleMatch = htmlContent.match(/<h1[^>]*>(.*?)<\/h1>/i);
+    const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : script?.title || 'Untitled Script';
+    
+    // Extract text content by converting to markdown first (simpler)
+    const textContent = await editor.blocksToMarkdownLossy(blocks);
+
+    return {
+      title,
+      body: htmlContent,
+      blocks: blocks, // Save native BlockNote document structure
+      content: textContent.replace(/[#*_`]/g, ''), // Remove markdown formatting for plain text
+      sections: script?.sections || [],
+      tips: script?.tips || [],
+      duration: script?.duration,
+      targetAudience: script?.targetAudience,
+      tone: script?.tone
+    };
+  }, [editor, script]);
+
+  // Handle content changes with optimistic updates
   const handleContentChange = useCallback(() => {
+    // Optimistic update: immediately mark as changed (no waiting)
     setHasUnsavedChanges(true);
-    // Delegate save cadence to the hook; do only a light debounce here to avoid heavy conversions each keystroke
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = setTimeout(async () => {
+    
+    // Optimistically update local script state for instant UI feedback
+    const updateOptimistic = async () => {
       try {
         const updatedScript = await convertBlocksToScript();
+        // Update local state immediately (optimistic)
         onEditScript(updatedScript);
-        // hasUnsavedChanges will flip off when isSaving completes (see effect below)
       } catch (e) {
-        console.error('Autosave prepare failed:', e);
+        console.error('Optimistic update failed:', e);
       }
-    }, 300);
-  }, [onEditScript]);
+    };
+    
+    // Debounce autosave (800ms as per plan)
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(updateOptimistic, 800);
+  }, [onEditScript, convertBlocksToScript]);
 
-  // Cleanup autosave timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+      if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
     };
   }, []);
 
@@ -165,12 +293,19 @@ export default function ScriptEditor({
     prevIsSavingRef.current = isSaving;
   }, [isSaving]);
 
-  // Handle AI improvement: inspector -> (answer | editor)
+  // Handle AI improvement: inspector -> (answer | editor) with optimistic updates
   const handleAIImprovement = async () => {
     if (!aiPrompt.trim()) return;
+    
+    // Optimistic: Show processing state immediately
     setIsProcessingAI(true);
     setAiPromptDialog(false);
-  // Chat shows thinking and summary; no local duplication
+    
+    // Store current state for rollback on error
+    const previousBlocks = editor.document;
+    const previousScript = script;
+    
+    // Chat shows thinking and summary; no local duplication
     try {
       // Gather current full script text for context
       const fullText = await editor.blocksToMarkdownLossy(editor.document);
@@ -298,38 +433,23 @@ export default function ScriptEditor({
       setHasUnsavedChanges(false);
     } catch (err) {
       console.error('AI improvement failed:', err);
-      alert('Failed to apply AI edit. Please try again.');
+      // Rollback optimistic update on error
+      try {
+        editor.replaceBlocks(editor.document, previousBlocks as any);
+        if (previousScript) {
+          onEditScript(previousScript);
+        }
+      } catch (rollbackErr) {
+        console.error('Rollback failed:', rollbackErr);
+      }
+      // Show user-friendly error notification
+      alert('Failed to apply AI edit. Changes have been reverted. Please try again.');
     } finally {
       setIsProcessingAI(false);
       setAiPrompt('');
   // no-op; thinking is in Chat
     }
   };
-
-  // Convert BlockNote content back to Script format
-  const convertBlocksToScript = useCallback(async (): Promise<Script> => {
-    const blocks = editor.document;
-    
-    // Extract title from HTML content (simpler approach)
-    const htmlContent = await editor.blocksToHTMLLossy(blocks);
-    const titleMatch = htmlContent.match(/<h1[^>]*>(.*?)<\/h1>/i);
-    const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : script?.title || 'Untitled Script';
-    
-    // Extract text content by converting to markdown first (simpler)
-    const textContent = await editor.blocksToMarkdownLossy(blocks);
-
-    return {
-      title,
-      body: htmlContent,
-      blocks: blocks, // Save native BlockNote document structure
-      content: textContent.replace(/[#*_`]/g, ''), // Remove markdown formatting for plain text
-      sections: script?.sections || [],
-      tips: script?.tips || [],
-      duration: script?.duration,
-      targetAudience: script?.targetAudience,
-      tone: script?.tone
-    };
-  }, [editor, script]);
 
   // Save changes
   const handleSave = async () => {
@@ -531,46 +651,7 @@ export default function ScriptEditor({
                   editor={editor as any}
                   editable={true}
                   onChange={handleContentChange}
-                  onSelectionChange={() => {
-                  try {
-                    const txt = (editor as any)?.getSelectedText?.() || '';
-                    setSelectedText(txt);
-                    if (txt && typeof window !== 'undefined') {
-                      const sel = window.getSelection?.();
-                      if (sel && sel.rangeCount > 0) {
-                        const range = sel.getRangeAt(0);
-                        const rect = range.getBoundingClientRect();
-                        const container = containerRef.current;
-                        if (container) {
-                          const crect = container.getBoundingClientRect();
-                          const scrollTop = container.scrollTop || 0;
-                          const scrollLeft = container.scrollLeft || 0;
-                          // Prefer positioning BELOW selection; flip above if not enough space
-                          const offset = 8;
-                          const approxBtnH = 32; // px
-                          const spaceBelow = crect.bottom - rect.bottom;
-                          const preferBelow = spaceBelow > (approxBtnH + offset + 8);
-                          const top = preferBelow
-                            ? (rect.bottom - crect.top) + scrollTop + offset
-                            : (rect.top - crect.top) + scrollTop - (approxBtnH + offset);
-                          // Center horizontally relative to the selection
-                          let left = (rect.left + (rect.width / 2) - crect.left) + scrollLeft;
-                          // Clamp within container bounds with small padding
-                          const pad = 12;
-                          const maxLeft = (crect.width || container.clientWidth) - pad;
-                          left = Math.min(Math.max(left, pad), maxLeft);
-                          setSelectionPos({ top: Math.max(4, top), left });
-                        } else {
-                          setSelectionPos(null);
-                        }
-                      } else {
-                        setSelectionPos(null);
-                      }
-                    } else {
-                      setSelectionPos(null);
-                    }
-                  } catch {}
-                }}
+                  onSelectionChange={handleSelectionChange}
                   theme="dark"
                   className="blocknote-editor-dark"
                 />
@@ -853,22 +934,58 @@ export default function ScriptEditor({
         }
         .blocknote-editor-dark .bn-menu-item:hover {
           background: #27272a !important;
+          transition: background-color 0.15s ease;
         }
         .blocknote-editor-dark .bn-side-menu {
           background: #18181b !important;
+          transition: all 0.2s ease;
         }
         /* Slash menu styling */
         .blocknote-editor-dark .bn-suggestion-menu {
           background: #18181b !important;
           border: 1px solid #3f3f46 !important;
           border-radius: 6px !important;
+          transition: all 0.2s ease;
         }
         .blocknote-editor-dark .bn-suggestion-menu-item {
           color: #f4f4f5 !important;
+          transition: all 0.15s ease;
         }
         .blocknote-editor-dark .bn-suggestion-menu-item:hover,
         .blocknote-editor-dark .bn-suggestion-menu-item.selected {
           background: #27272a !important;
+          transition: background-color 0.15s ease;
+        }
+        
+        /* Smooth button transitions */
+        button {
+          transition: all 0.2s ease !important;
+        }
+        button:hover {
+          transform: translateY(-1px);
+        }
+        button:active {
+          transform: translateY(0);
+        }
+        
+        /* Smooth card transitions */
+        .bg-black\\/40 {
+          transition: all 0.3s ease;
+        }
+        
+        /* Loading state smooth fade */
+        .animate-spin {
+          animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        
+        /* Smooth scroll */
+        .scrollbar-thin {
+          scroll-behavior: smooth;
         }
       `}</style>
     </motion.div>
