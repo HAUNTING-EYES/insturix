@@ -58,6 +58,7 @@ export default function MailingDashboard() {
   const [prodEventDetails, setProdEventDetails] = useState<string>("Insturix Creator's Summit 2025");
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showFinalConfirmDialog, setShowFinalConfirmDialog] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
 
@@ -319,6 +320,59 @@ export default function MailingDashboard() {
       });
     } finally {
       setSending(false);
+    }
+  };
+
+  // Reset cooldown timer
+  const handleResetCooldown = async () => {
+    if (!selectedProdEmailType) {
+      toast({
+        title: 'Error',
+        description: 'Please select an email type first',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    try {
+      setResetting(true);
+      const endpoint = selectedProdEmailType === 'promotional' 
+        ? '/api/admin/mailing/reset-cooldown'
+        : '/api/admin/mailing/reset-cooldown';
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          emailType: selectedProdEmailType === 'promotional' ? 'promotional' : 'ticket-confirmation',
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.ok) {
+        toast({
+          title: 'Cooldown Reset! 🔄',
+          description: data.message,
+        });
+
+        // Refresh cooldown status
+        await fetchCooldownStatus();
+      } else {
+        toast({
+          title: 'Error',
+          description: data.message || 'Failed to reset cooldown',
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: 'Error',
+        description: error?.message || 'Failed to reset cooldown',
+        variant: 'destructive',
+      });
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -754,10 +808,31 @@ export default function MailingDashboard() {
             </Button>
 
             {!cooldownStatus?.canSend && (
-              <p className="text-sm text-center text-muted-foreground">
-                Button will be enabled in{' '}
-                <strong>{getTimeUntilAvailable(cooldownStatus?.nextAvailable || null)}</strong>
-              </p>
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleResetCooldown}
+                  disabled={resetting}
+                  variant="outline"
+                  className="flex-1"
+                  size="lg"
+                >
+                  {resetting ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Resetting...
+                    </>
+                  ) : (
+                    <>
+                      <Clock className="mr-2 h-4 w-4" />
+                      Reset Timer
+                    </>
+                  )}
+                </Button>
+                <p className="text-sm text-center text-muted-foreground flex-1 flex items-center justify-center">
+                  Button will be enabled in{' '}
+                  <strong>{getTimeUntilAvailable(cooldownStatus?.nextAvailable || null)}</strong>
+                </p>
+              </div>
             )}
           </CardContent>
         </Card>

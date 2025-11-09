@@ -116,6 +116,32 @@ emailCooldownSchema.statics.recordEmailSent = async function (
   });
 };
 
+// Static method to reset cooldown by deleting the latest record
+emailCooldownSchema.statics.resetCooldown = async function (
+  emailType: string
+): Promise<{ success: boolean; message: string }> {
+  try {
+    const result = await this.deleteMany({ emailType });
+    
+    if (result.deletedCount > 0) {
+      return {
+        success: true,
+        message: `Cooldown reset successfully. Deleted ${result.deletedCount} record(s).`
+      };
+    } else {
+      return {
+        success: true,
+        message: 'No cooldown records found to reset.'
+      };
+    }
+  } catch (error: any) {
+    return {
+      success: false,
+      message: error?.message || 'Failed to reset cooldown'
+    };
+  }
+};
+
 export const EmailCooldown =
   mongoose.models.EmailCooldown ||
   mongoose.model<IEmailCooldown>("EmailCooldown", emailCooldownSchema);
