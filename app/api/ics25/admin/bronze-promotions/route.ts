@@ -4,6 +4,10 @@ import { getIcs25Db } from '@/lib/ics25-mongo';
 import BronzePromotionSubmission from '@/schemas/ics25/BronzePromotionSubmission';
 import Attendee from '@/schemas/ics25/Attendee';
 import { clerkClient } from '@clerk/nextjs/server';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { sendTicketConfirmationEmail } from '@/lib/services/email';
+import { hasEmailBeenSent, markEmailSent } from '@/lib/services/email/ticket-email-tracking';
 
 const BRONZE_STATUSES = ['submitted', 'verified', 'rejected'] as const;
 type BronzeStatus = (typeof BRONZE_STATUSES)[number];
@@ -326,6 +330,43 @@ export async function POST(req: NextRequest) {
         }
       }
       await attendee.save();
+
+      // Send ticket confirmation email when approving (only if not already sent)
+      if (action === 'approve') {
+        try {
+          if (!hasEmailBeenSent(attendee, 'confirmation')) {
+            // Connect to production database to get user details
+            await connectToDatabase();
+            
+            // Get user details for email
+            const user = await User.findOne({ clerkUserId: submission.clerkUserId }).lean();
+            const userName = user?.username || attendee.name || 'Valued User';
+            const userEmail = user?.email || attendee.email;
+            
+            if (userEmail) {
+              const ticketId = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
+              const eventDetails = "Insturix Creator's Summit 2025";
+              
+              const emailResult = await sendTicketConfirmationEmail(
+                userEmail,
+                userName,
+                ticketId,
+                eventDetails
+              );
+              
+              if (emailResult.success) {
+                await markEmailSent(attendee, 'confirmation');
+                console.log(`✅ Ticket confirmation email sent to ${userEmail} after bronze promotion approval`);
+              } else {
+                console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+              }
+            }
+          }
+        } catch (emailError: any) {
+          // Don't fail the approval if email fails
+          console.error('Error sending ticket confirmation email after bronze promotion approval:', emailError);
+        }
+      }
     }
 
     const attendeeObj = attendee ? (typeof attendee.toObject === 'function' ? attendee.toObject() : attendee) : undefined;

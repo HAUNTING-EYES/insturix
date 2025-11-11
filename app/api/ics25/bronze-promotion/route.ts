@@ -4,6 +4,10 @@ import { getIcs25Db } from '@/lib/ics25-mongo';
 import BronzePromotionSubmission from '@/schemas/ics25/BronzePromotionSubmission';
 import Attendee from '@/schemas/ics25/Attendee';
 import { applyAttendeeReferralCredit } from '@/lib/ics25/referrals';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { sendTicketConfirmationEmail } from '@/lib/services/email';
+import { hasEmailBeenSent, markEmailSent } from '@/lib/services/email/ticket-email-tracking';
 
 /**
  * GET /api/ics25/bronze-promotion
@@ -237,6 +241,41 @@ export async function POST(req: NextRequest) {
 
     if (applyReferralImmediately && referralReferrer) {
       await applyAttendeeReferralCredit(referralReferrer, attendee.clerkUserId);
+    }
+
+    // Send ticket confirmation email for new silver registrations (not bronze upgrades)
+    try {
+      if (!isBronzeUpgrade && !hasEmailBeenSent(attendee, 'confirmation')) {
+        // Connect to production database to get user details
+        await connectToDatabase();
+        
+        // Get user details for email
+        const user = await User.findOne({ clerkUserId: userId }).lean();
+        const userName = user?.username || attendee.name || 'Valued User';
+        const userEmail = user?.email || attendee.email;
+        
+        if (userEmail) {
+          const ticketId = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
+          const eventDetails = "Insturix Creator's Summit 2025";
+          
+          const emailResult = await sendTicketConfirmationEmail(
+            userEmail,
+            userName,
+            ticketId,
+            eventDetails
+          );
+          
+          if (emailResult.success) {
+            await markEmailSent(attendee, 'confirmation');
+            console.log(`✅ Ticket confirmation email sent to ${userEmail} for silver registration`);
+          } else {
+            console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+          }
+        }
+      }
+    } catch (emailError: any) {
+      // Don't fail the registration if email fails
+      console.error('Error sending ticket confirmation email for silver registration:', emailError);
     }
 
     if (submission) {

@@ -4,6 +4,10 @@ import { getIcs25Db } from '@/lib/ics25-mongo';
 import Attendee, { Ics25AttendeeDocument } from '@/schemas/ics25/Attendee';
 import BronzePromotionSubmission from '@/schemas/ics25/BronzePromotionSubmission';
 import { applyAttendeeReferralCredit, syncAttendeeTierWithReferralProgress } from '@/lib/ics25/referrals';
+import connectToDatabase from '@/schemas/ConnectToDatabase';
+import { User } from '@/schemas/user';
+import { sendTicketConfirmationEmail } from '@/lib/services/email';
+import { hasEmailBeenSent, markEmailSent } from '@/lib/services/email/ticket-email-tracking';
 
 export async function GET(req: NextRequest) {
   await getIcs25Db();
@@ -137,6 +141,42 @@ export async function POST(req: NextRequest) {
       if (applyReferralImmediately && referralReferrer) {
         await applyAttendeeReferralCredit(referralReferrer, saved.clerkUserId);
       }
+      
+      // Send ticket confirmation email for bronze and silver tier registrations (free tiers)
+      try {
+        if (!hasEmailBeenSent(saved, 'confirmation') && (attendeePassTier === 'bronze' || attendeePassTier === 'silver')) {
+          // Connect to production database to get user details
+          await connectToDatabase();
+          
+          // Get user details for email
+          const user = await User.findOne({ clerkUserId: userId }).lean();
+          const userName = user?.username || saved.name || 'Valued User';
+          const userEmail = user?.email || saved.email;
+          
+          if (userEmail) {
+            const ticketId = `TICKET-${(saved._id as any).toString().slice(-8).toUpperCase()}`;
+            const eventDetails = "Insturix Creator's Summit 2025";
+            
+            const emailResult = await sendTicketConfirmationEmail(
+              userEmail,
+              userName,
+              ticketId,
+              eventDetails
+            );
+            
+            if (emailResult.success) {
+              await markEmailSent(saved, 'confirmation');
+              console.log(`✅ Ticket confirmation email sent to ${userEmail} for ${attendeePassTier} registration`);
+            } else {
+              console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+            }
+          }
+        }
+      } catch (emailError: any) {
+        // Don't fail the registration if email fails
+        console.error('Error sending ticket confirmation email:', emailError);
+      }
+      
       console.log('Attendee updated successfully:', saved._id);
       return NextResponse.json({ ok: true, attendee: saved });
     }
@@ -181,6 +221,42 @@ export async function POST(req: NextRequest) {
     if (confirmImmediately && creationReferrer) {
       await applyAttendeeReferralCredit(creationReferrer, attendee.clerkUserId);
     }
+    
+    // Send ticket confirmation email for bronze and silver tier registrations (free tiers)
+    try {
+      if (!hasEmailBeenSent(attendee, 'confirmation') && (attendeePassTier === 'bronze' || attendeePassTier === 'silver')) {
+        // Connect to production database to get user details
+        await connectToDatabase();
+        
+        // Get user details for email
+        const user = await User.findOne({ clerkUserId: userId }).lean();
+        const userName = user?.username || attendee.name || 'Valued User';
+        const userEmail = user?.email || attendee.email;
+        
+        if (userEmail) {
+          const ticketId = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
+          const eventDetails = "Insturix Creator's Summit 2025";
+          
+          const emailResult = await sendTicketConfirmationEmail(
+            userEmail,
+            userName,
+            ticketId,
+            eventDetails
+          );
+          
+          if (emailResult.success) {
+            await markEmailSent(attendee, 'confirmation');
+            console.log(`✅ Ticket confirmation email sent to ${userEmail} for ${attendeePassTier} registration`);
+          } else {
+            console.error(`❌ Failed to send ticket confirmation email to ${userEmail}:`, emailResult.error);
+          }
+        }
+      }
+    } catch (emailError: any) {
+      // Don't fail the registration if email fails
+      console.error('Error sending ticket confirmation email:', emailError);
+    }
+    
     console.log('Attendee created successfully:', attendee._id);
     return NextResponse.json({ ok: true, attendee });
   } catch (e: any) {
