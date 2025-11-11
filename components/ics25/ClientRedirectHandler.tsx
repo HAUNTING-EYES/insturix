@@ -33,12 +33,10 @@ export default function ClientRedirectHandler() {
             return;
           }
 
-          if (attendee?.attendeePassTier) {
-            if (attendee.attendeePassTier === 'bronze' || attendee?.payment?.status === 'paid') {
-              router.push('/checkout/success');
-              return;
-            }
-          }
+          // NOTE: Don't redirect users away from the ICS25 page when they have a confirmed ticket.
+          // Users should be able to view the ICS25 landing page content after confirming their registration.
+          // Removing the redirect that was causing the continuous loop issue (redirecting to /checkout/success).
+          // The confirmation page is accessible from navigation/portal if needed.
         }
 
         // Check player status
