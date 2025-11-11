@@ -1,5 +1,4 @@
 import { Metadata } from "next";
-import { redirect } from "next/navigation";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import ICS25ClientContent from "@/components/ICS25ClientContent";
@@ -12,6 +11,7 @@ import {
   ics25FAQSchema,
   ics25BreadcrumbSchema,
 } from "@/lib/seo/ics25-schema";
+import ClientRedirectHandler from "@/components/ics25/ClientRedirectHandler";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "https://insturix.com";
 
@@ -71,48 +71,13 @@ export const metadata: Metadata = {
 };
 
 
-export default async function ICS25Page() {
-  // Check if user is already registered as an attendee
-  try {
-    const res = await fetch('/api/ics25/attendees', { cache: 'no-store', headers: { 'accept': 'application/json' } });
-    if (res.ok) {
-      const data = await res.json();
-      const attendee = data?.attendee;
-
-      if (attendee?.attendeePassTier === 'bronze' && attendee?.payment?.status === 'pending') {
-        redirect('/checkout/bronze/review');
-      }
-
-      if (attendee?.attendeePassTier) {
-        if (attendee.attendeePassTier === 'bronze') {
-          redirect('/checkout/success');
-        }
-
-        if (attendee?.payment?.status === 'paid') {
-          redirect('/checkout/success');
-        }
-      }
-    }
-  } catch {
-    // If check fails, continue to render landing page
-  }
-
-  // Auto-open portal when a signed-in player already has esports registration
-  // We call the same endpoint used elsewhere; cookies are forwarded in server components
-  try {
-    const res = await fetch('/api/ics25/players/me', { cache: 'no-store', headers: { 'accept': 'application/json' } });
-    if (res.ok) {
-      const data = await res.json();
-      if (data?.player) {
-        redirect('/ics25/my');
-      }
-    }
-    // If 401 or no player found, continue to render landing page
-  } catch {
-    // On any error (e.g., during build or missing route), gracefully fall through to landing page
-  }
+export default function ICS25Page() {
+  // Removed blocking server-side fetches - these will be handled client-side
+  // for better performance and instant page load
   return (
     <div className="relative min-h-screen bg-white dark:bg-zinc-900 overflow-x-hidden">
+      {/* Client-side redirect handler - runs in parallel with page render */}
+      <ClientRedirectHandler />
       {/* Structured Data for SEO */}
       <Script
         id="ics25-event-schema"

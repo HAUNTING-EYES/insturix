@@ -3,7 +3,9 @@ import DashboardClientLayout from "@/components/dashboard/DashboardClientLayout"
 import React, { Suspense } from "react";
 import { UniversalLoader } from "@/components/Loader/UniversalLoader";
 
-export const revalidate = 60;
+// Mark dashboard as dynamic since it requires authentication
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function DashboardLayout({
   children,

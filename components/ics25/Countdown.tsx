@@ -23,11 +23,37 @@ export default function Countdown({
 }) {
   const targetDate = useMemo(() => (typeof to === "string" ? new Date(to) : to), [to]);
   const [timeLeft, setTimeLeft] = useState(() => getTimeRemaining(targetDate));
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
+    setMounted(true);
+    // Update immediately on mount to sync with client time
+    setTimeLeft(getTimeRemaining(targetDate));
+  }, [targetDate]);
+
+  useEffect(() => {
+    if (!mounted) return;
     const id = setInterval(() => setTimeLeft(getTimeRemaining(targetDate)), 1000);
     return () => clearInterval(id);
-  }, [targetDate]);
+  }, [targetDate, mounted]);
+
+  // Don't render on server to avoid hydration mismatch
+  if (!mounted) {
+    return (
+      <div className={`inline-flex items-center gap-4 px-5 py-3 rounded-xl bg-white/70 dark:bg-white/5 backdrop-blur border border-white/60 dark:border-white/10 ${className}`}>
+        <span className="text-sm text-zinc-700 dark:text-zinc-300">{label}</span>
+        <div className="flex items-center gap-3 text-zinc-900 dark:text-zinc-100 font-semibold">
+          <TimeBox value={0} unit="days" />
+          <span className="opacity-40">:</span>
+          <TimeBox value={0} unit="hrs" />
+          <span className="opacity-40">:</span>
+          <TimeBox value={0} unit="min" />
+          <span className="opacity-40">:</span>
+          <TimeBox value={0} unit="sec" />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`inline-flex items-center gap-4 px-5 py-3 rounded-xl bg-white/70 dark:bg-white/5 backdrop-blur border border-white/60 dark:border-white/10 ${className}`}>
