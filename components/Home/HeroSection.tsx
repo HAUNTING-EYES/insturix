@@ -74,14 +74,14 @@ export default function HeroSection() {
   const heroMessages = HERO_MESSAGES;
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden select-none">
+    <div className="relative min-h-screen w-full overflow-hidden select-none" suppressHydrationWarning>
       <BackgroundEffects />
 
       {/* Floating elements for visual interest */}
       <div className="absolute top-1/4 left-1/6 w-24 h-24 rounded-full bg-gradient-to-r from-[rgb(var(--primary))/10] to-[rgb(var(--secondary))/10] blur-xl animate-float-slow" />
       <div className="absolute bottom-1/3 right-1/5 w-32 h-32 rounded-full bg-gradient-to-r from-[rgb(var(--secondary))/10] to-[rgb(var(--primary))/10] blur-xl animate-float" />
 
-      <div className="relative mx-auto w-full px-4 sm:px-6 lg:px-8">
+      <div className="relative mx-auto w-full px-4 sm:px-6 lg:px-8" suppressHydrationWarning>
         <div className="flex min-h-screen w-full flex-col items-center justify-center text-center py-8 sm:py-12">
           <motion.div
             className="w-full"

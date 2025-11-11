@@ -173,11 +173,7 @@ export default function BackgroundEffects() {
 
   // Don't render anything on server
   if (!mounted) {
-    return (
-      <div className="absolute inset-0 overflow-hidden -z-10">
-        <div className="absolute inset-0 bg-linear-to-b from-background/30 via-transparent to-background/30 z-0" />
-      </div>
-    );
+    return null;
   }
 
   return (
