@@ -1,9 +1,5 @@
-import { UniversalLoader } from "@/components/Loader/UniversalLoader";
+import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 
 export default function Loading() {
-  return (
-    <div className="flex h-screen w-full items-center justify-center">
-      <UniversalLoader />
-    </div>
-  );
+  return <LoadingScreen />;
 }

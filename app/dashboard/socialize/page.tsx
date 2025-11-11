@@ -3,7 +3,7 @@ import { Share2 } from "lucide-react";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import React, { Suspense } from "react";
-import { UniversalLoader } from "@/components/Loader/UniversalLoader";
+import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 import { fetchSocializeUser } from "@/lib/socialize/main";
 
 export const revalidate = 0; // Revalidate on every request
@@ -39,7 +39,7 @@ export default async function SocializePage() {
       </div>
 
       {/* Dashboard Content */}
-      <Suspense fallback={<UniversalLoader />}>
+      <Suspense fallback={<LoadingScreen />}>
         <SocializeDashboard initialData={initialData} />
       </Suspense>
     </div>
