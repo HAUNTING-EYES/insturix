@@ -2,10 +2,10 @@
 
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import { Instagram, Twitch, Twitter, Youtube, Linkedin } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import styles from "./Creators.module.css";
+import ImageWithSkeleton from "@/components/ics25/ImageWithSkeleton";
 
 // TODO: Replace with actual creator data
 const creators = [
@@ -263,8 +263,6 @@ function CreatorCard({
   index: number;
   shouldReduceMotion: boolean | null;
 }) {
-  const [imageError, setImageError] = useState(false);
-
   const blurb =
     (creator as any).description ||
     categoryBlurbs[creator.category as keyof typeof categoryBlurbs] ||
@@ -280,19 +278,15 @@ function CreatorCard({
       }}
     >
       <div className={`absolute inset-0 ${styles.imageWrap}`}>
-        {!imageError ? (
-          <Image
-            src={creator.avatar}
-            alt={creator.name}
-            fill
-            loading={index > 2 ? "lazy" : undefined}
-            priority={index === 0}
-            className="object-cover"
-            onError={() => setImageError(true)}
-          />
-        ) : (
-          <div className="h-full w-full bg-gradient-to-br from-[#3A9EFF]/40 via-[#7C4DFF]/25 to-[#FF2EE6]/35" />
-        )}
+        <ImageWithSkeleton
+          src={creator.avatar}
+          alt={creator.name}
+          fill
+          loading={index > 2 ? "lazy" : undefined}
+          priority={index === 0}
+          className="object-cover"
+          skeletonClassName="rounded-3xl"
+        />
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.16),transparent_55%)]" />
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-black/60 to-black/80" />
         <div className="absolute inset-x-0 bottom-0 h-[55%] bg-gradient-to-t from-black via-transparent to-transparent" />
