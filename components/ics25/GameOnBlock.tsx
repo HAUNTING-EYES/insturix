@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
-import Image from "next/image";
+import ImageWithSkeleton from "@/components/ics25/ImageWithSkeleton";
 
 export default function GameOnBlock() {
   return (
@@ -26,7 +26,14 @@ export default function GameOnBlock() {
           </div>
         </motion.div>
         <div className="relative min-h-48 rounded-2xl overflow-hidden border border-white/10">
-          <Image src="/ics25/gameon3.png" alt="GameOn arena" fill className="object-cover" priority />
+          <ImageWithSkeleton 
+            src="/ics25/gameon3.png" 
+            alt="GameOn arena" 
+            fill 
+            className="object-cover" 
+            priority 
+            skeletonClassName="rounded-2xl"
+          />
           <div className="absolute inset-0 bg-black/40" />
           <div className="absolute inset-0 bg-[radial-gradient(500px_circle_at_20%_20%,rgba(255,59,59,0.16),transparent_55%),radial-gradient(600px_circle_at_80%_80%,rgba(75,83,32,0.16),transparent_55%)]" />
           <div className="relative p-6 grid place-items-center text-center">

@@ -118,7 +118,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable}`}>
+  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
         <head>
           <meta
             name="google-site-verification"

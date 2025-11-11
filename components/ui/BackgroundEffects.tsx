@@ -20,6 +20,7 @@ export default function BackgroundEffects() {
   });
   const [circleOpacity, setCircleOpacity] = useState(0);
   const [blobs, setBlobs] = useState<Blob[]>([]);
+  const [mounted, setMounted] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const repulsionStrength = 0.1;
@@ -39,9 +40,20 @@ export default function BackgroundEffects() {
     []
   );
 
-  const isMobile = () => window.innerWidth <= 768;
+  // SSR-safe mobile check
+  const isMobile = () => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth <= 768;
+  };
+
+  // Set mounted state
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
+    if (!mounted) return;
+    
     const initialBlobs = Array.from({ length: blobCount }, (_, i) => ({
       id: i,
       x: isMobile()
@@ -74,10 +86,10 @@ export default function BackgroundEffects() {
         );
       }, index * (300 + Math.random() * 800)); // Random delay between 300ms and 1100ms
     });
-  }, [colors]);
+  }, [colors, mounted]);
 
   useEffect(() => {
-    if (isMobile()) return;
+    if (!mounted || isMobile()) return;
 
     const animateBlobs = () => {
       setBlobs((prevBlobs) =>
@@ -126,10 +138,10 @@ export default function BackgroundEffects() {
     };
 
     animateBlobs();
-  }, []);
+  }, [mounted]);
 
   useEffect(() => {
-    if (isMobile()) return;
+    if (!mounted || isMobile()) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (containerRef.current) {
@@ -157,7 +169,12 @@ export default function BackgroundEffects() {
     return () => {
       window.removeEventListener("mousemove", handleMouseMove);
     };
-  }, []);
+  }, [mounted]);
+
+  // Don't render anything on server
+  if (!mounted) {
+    return null;
+  }
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden -z-10">

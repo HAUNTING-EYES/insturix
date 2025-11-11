@@ -1,6 +1,18 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 
-export default clerkMiddleware({
+// Define routes that require authentication
+const isProtectedRoute = createRouteMatcher([
+  '/dashboard(.*)',
+  '/admin(.*)',
+]);
+
+export default clerkMiddleware(async (auth, req) => {
+  // Only protect routes that actually need authentication
+  if (isProtectedRoute(req)) {
+    await auth.protect();
+  }
+  // Public routes like /ics25, /, /products etc. skip auth checks entirely
+}, {
   afterSignInUrl: "/dashboard",
   afterSignUpUrl: "/dashboard",
 });
@@ -9,6 +21,5 @@ export const config = {
   matcher: [
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
     "/(api|trpc)(.*)",
-    "/dashboard(.*)",
   ],
 };
