@@ -1,106 +1,50 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
-import { getCollections } from '@/app/api/services/uploaderx/utils/mongodb';
+import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import connectToDatabase from "@/schemas/ConnectToDatabase";
+import UploaderX from "@/schemas/uploaderx";
 
-// Simple logger for UploaderX
-const logger = {
-  info: (message: string, data?: any) => console.log(`[UPLOADERX] ${message}`, data || ''),
-  warn: (message: string, data?: any) => console.warn(`[UPLOADERX] ${message}`, data || ''),
-  error: (message: string, data?: any) => console.error(`[UPLOADERX] ${message}`, data || ''),
-};
-
-// Track successful upload for UploaderX
 export async function POST(request: Request) {
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    const session = await auth();
+    if (!session?.userId) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const { uploadId, gcsPath, filename, fileSize, contentType, videoUuid } = await request.json();
+    const body = await request.json();
+    const { filename, gcsPath, fileSize, contentType, videoUuid, publicUrl, progress } = body;
 
-    if (!uploadId || !gcsPath || !filename || !videoUuid) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+
+    // 🟡 Case 1: Only progress update
+    if (progress !== undefined && (!filename || !gcsPath)) {
+     
+      return NextResponse.json({ success: true, message: "Progress updated" });
     }
 
-    const { uploadTracking } = await getCollections();
+    // 🟢 Case 2: Complete upload record
+    if (!filename || !gcsPath || !fileSize || !contentType || !videoUuid) {
+      console.error("⚠️ Missing required fields:", body);
+      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    }
 
-    const uploadRecord = {
-      uploadId,
-      userId,
-      gcsPath,
-      filename,
+    await connectToDatabase();
+
+    const upload = await UploaderX.create({
+      userId: session.userId,
       videoUuid,
-      fileSize: fileSize || 0,
+      filename,
+      gcsPath,
+      publicUrl,
+      size: fileSize,
+      contentType,
+      status: "uploaded",
       uploadedAt: new Date(),
-      status: 'uploaded',
-      service: 'uploaderx',
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
-      metadata: {
-        contentType: contentType || 'video/mp4',
-        originalName: filename,
-        uploadSource: 'uploaderx-web'
-      },
-    };
-
-    await uploadTracking.insertOne(uploadRecord);
-
-    logger.info('UploaderX upload tracked successfully', {
-      data: { uploadId, gcsPath, userId, videoUuid },
     });
 
-    return NextResponse.json({ success: true });
+   
+
+    return NextResponse.json({ success: true, data: upload });
   } catch (error) {
-    logger.error('Failed to track UploaderX upload', {
-      data: { error: error instanceof Error ? error.message : String(error) },
-    });
-    return NextResponse.json({ error: 'Failed to track upload' }, { status: 500 });
-  }
-}
-
-// Update upload status (when processing starts/completes)
-export async function PATCH(request: Request) {
-  try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const { uploadId, status, metadata } = await request.json();
-
-    if (!uploadId || !status) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
-
-    const { uploadTracking } = await getCollections();
-
-    const updateData: any = {
-      status,
-      updatedAt: new Date(),
-    };
-
-    if (metadata) {
-      updateData.metadata = { ...updateData.metadata, ...metadata };
-    }
-
-    const result = await uploadTracking.updateOne(
-      { uploadId, userId, service: 'uploaderx' },
-      { $set: updateData }
-    );
-
-    if (result.matchedCount === 0) {
-      return NextResponse.json({ error: 'Upload not found' }, { status: 404 });
-    }
-
-    logger.info('UploaderX upload status updated', {
-      data: { uploadId, status, userId },
-    });
-
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    logger.error('Failed to update UploaderX upload status', {
-      data: { error: error instanceof Error ? error.message : String(error) },
-    });
-    return NextResponse.json({ error: 'Failed to update upload status' }, { status: 500 });
+    console.error("❌ Error saving upload:", error);
+    return NextResponse.json({ success: false, error: "Failed to track upload" }, { status: 500 });
   }
 }

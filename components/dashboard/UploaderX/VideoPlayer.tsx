@@ -30,6 +30,10 @@ export function VideoPlayer({
   onDownload,
   isDeleting = false
 }: VideoPlayerProps) {
+  if (!videoUrl || !videoUuid) {
+    console.warn("⚠️ Missing video data in VideoPlayer:", { videoUrl, videoUuid });
+   
+  }
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);

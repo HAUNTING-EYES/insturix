@@ -14,6 +14,17 @@ interface UploadResult {
   publicUrl?: string;
   error?: string;
 }
+async function updateProgressInRedis(uploadId: string, progress: number) {
+  try {
+    await fetch('/api/services/uploaderx/gcs/track-upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uploadId, progress }),
+    });
+  } catch (err) {
+    console.warn('Failed to update progress in Redis:', err);
+  }
+}
 
 export function useUploaderXUpload() {
   const [isUploading, setIsUploading] = useState(false);
@@ -50,7 +61,7 @@ export function useUploaderXUpload() {
       }
 
       const { url: signedUrl, gcsPath, videoUuid, publicUrl } = await signResponse.json();
-
+console.log("✅ Signed URL data received:", { gcsPath, videoUuid, publicUrl });
       // Step 2: Upload file directly to GCS using signed URL
       const uploadResponse = await fetch(signedUrl, {
         method: 'PUT',
@@ -58,7 +69,9 @@ export function useUploaderXUpload() {
         headers: {
           'Content-Type': file.type,
         },
+        
       });
+console.log('✅ Upload successful!');
 
       if (!uploadResponse.ok) {
         throw new Error('Failed to upload file to GCS');
@@ -145,12 +158,14 @@ export function useUploaderXUpload() {
       }
 
       const { url: signedUrl, gcsPath, videoUuid, publicUrl } = await signResponse.json();
-
+const uploadId = crypto.randomUUID();
+// Initialize progress = 0 in Redis
+await updateProgressInRedis(uploadId, 0);
       // Step 2: Upload with progress tracking using XMLHttpRequest
       return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
 
-        xhr.upload.addEventListener('progress', (event) => {
+        xhr.upload.addEventListener('progress',async (event) => {
           if (event.lengthComputable) {
             const progress = {
               loaded: event.loaded,
@@ -159,6 +174,7 @@ export function useUploaderXUpload() {
             };
             setUploadProgress(progress);
             onProgress?.(progress);
+             await updateProgressInRedis(uploadId, progress.percentage);
           }
         });
 
@@ -227,9 +243,10 @@ export function useUploaderXUpload() {
             error: errorMessage,
           });
         });
+console.log('Uploading to:', signedUrl);
 
         xhr.open('PUT', signedUrl);
-        xhr.setRequestHeader('Content-Type', file.type);
+        // xhr.setRequestHeader('Content-Type', file.type);
         xhr.send(file);
       });
 

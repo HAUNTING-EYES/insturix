@@ -23,6 +23,15 @@ import {
   FileText,
   RefreshCw
 } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+
 
 interface VideoItem {
   videoUuid: string;
@@ -60,6 +69,8 @@ export function VideoManager({
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
+const [showUploadDialog, setShowUploadDialog] = useState(false);
+const [uploadedVideoLink, setUploadedVideoLink] = useState("");
 
   // Fetch videos from API
   useEffect(() => {
@@ -232,6 +243,61 @@ export function VideoManager({
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(1)} MB`;
   };
+// ================== 📺 Upload to YouTube ===================
+const handleYouTubeUpload = async (video: VideoItem) => {
+  try {
+    // 1. Get existing token or redirect to OAuth
+    let accessToken = localStorage.getItem("youtube_token");
+    if (!accessToken) {
+      toast({
+        title: "Connecting to YouTube...",
+        description: "Please authorize YouTube access in a new tab.",
+      });
+      window.location.href ="/api/services/uploaderx/youtube/auth"; // redirect to OAuth
+      return;
+    }
+
+    // 2. Send video details to backend route for YouTube upload
+    toast({
+      title: "Uploading to YouTube...",
+      description: `Sending ${video.filename} to your YouTube channel.`,
+    });
+
+    const res = await fetch("/api/services/uploaderx/youtube", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        gcsPath: video.gcsPath,
+        filename: video.filename,
+        videoUuid: video.videoUuid,
+        accessToken,
+      }),
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      toast({
+        title: "✅ Uploaded to YouTube",
+        description: `Your video is live on YouTube!`,
+      });
+
+      console.log("🎬 YouTube Link:", data.youtubeUrl);
+      // alert(`🎥 Video uploaded successfully!\n\nYouTube Link: ${data.youtubeUrl}`);
+      setUploadedVideoLink(data.youtubeUrl);
+setShowUploadDialog(true);
+
+    } else {
+      throw new Error(data.error || "Failed to upload to YouTube");
+    }
+  } catch (err) {
+    console.error("❌ YouTube upload error:", err);
+    toast({
+      title: "Upload failed",
+      description: err instanceof Error ? err.message : "YouTube upload failed",
+      variant: "destructive",
+    });
+  }
+};
 
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
@@ -398,6 +464,15 @@ export function VideoManager({
                         >
                           <Download className="h-4 w-4" />
                         </Button>
+                          <Button
+    variant="outline"
+    size="sm"
+    onClick={() => handleYouTubeUpload(video)}
+    className="flex-1 border-red-600 text-red-400 hover:bg-red-600/10"
+  >
+    <Video className="h-4 w-4 mr-2 text-red-500" />
+    Upload to YouTube
+  </Button>
                       </div>
                     </div>
                   </div>
@@ -482,9 +557,43 @@ export function VideoManager({
           </Card>
         </div>
       )}
-    </div>
+       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+        <DialogContent className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl text-white max-w-md mx-auto text-center">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-semibold text-emerald-400">
+               Video Uploaded Successfully!
+            </DialogTitle>
+            <DialogDescription className="text-zinc-400 mt-2">
+              Your video is now live on YouTube.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="mt-4 p-3 bg-zinc-900/60 border border-zinc-800 rounded-lg">
+            <p className="text-sm text-zinc-400 mb-1">YouTube Link:</p>
+            <a
+              href={uploadedVideoLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-400 font-medium hover:underline break-all"
+            >
+              {uploadedVideoLink}
+            </a>
+          </div>
+
+          <DialogFooter className="mt-6 flex justify-center">
+            <Button
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-6"
+              onClick={() => setShowUploadDialog(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div> 
   );
 }
+  
 
 export default VideoManager;
 
