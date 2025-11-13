@@ -464,15 +464,7 @@ setShowUploadDialog(true);
                         >
                           <Download className="h-4 w-4" />
                         </Button>
-                          <Button
-    variant="outline"
-    size="sm"
-    onClick={() => handleYouTubeUpload(video)}
-    className="flex-1 border-red-600 text-red-400 hover:bg-red-600/10"
-  >
-    <Video className="h-4 w-4 mr-2 text-red-500" />
-    Upload to YouTube
-  </Button>
+                         
                       </div>
                     </div>
                   </div>
