@@ -29,7 +29,7 @@ export class UserInitializationService {
     try {
       await connectToDatabase();
 
-      // Check if user already exists
+      // First, try to find existing user
       let user = await User.findOne({ clerkUserId });
       
       if (user) {
@@ -42,7 +42,7 @@ export class UserInitializationService {
         return { user, isNewUser: false };
       }
 
-      // User doesn't exist, create with default Free plan
+      // User doesn't exist, prepare to create with default Free plan
       console.log(`Creating new user account for Clerk ID: ${clerkUserId}`);
 
       let finalImageUrl = imageUrl;
@@ -74,52 +74,86 @@ export class UserInitializationService {
         throw new Error("Free plan not found in plans collection. Database setup is incomplete.");
       }
 
-      // Create new user with Free plan
-      user = new User({
-        clerkUserId,
-        email: email.toLowerCase().trim(),
-        username,
-        signUpDate: now,
-        currentPlan: {
-          planId: freePlan._id.toString(),
-          name: UserType.Free,
-          startDate: now,
-          endDate: null, // Free plan never expires
-          price: 0,
-          currency: "USD",
-          status: "active",
-          serviceLimits: freePlanLimits,
+      // Use findOneAndUpdate with upsert to atomically create or retrieve the user
+      // This prevents race conditions from concurrent requests
+      const userDoc = await User.findOneAndUpdate(
+        { clerkUserId }, // Filter
+        {
+          $setOnInsert: {
+            clerkUserId,
+            email: email.toLowerCase().trim(),
+            username,
+            signUpDate: now,
+            currentPlan: {
+              planId: freePlan._id.toString(),
+              name: UserType.Free,
+              startDate: now,
+              endDate: null, // Free plan never expires
+              price: 0,
+              currency: "USD",
+              status: "active",
+              serviceLimits: freePlanLimits,
+            },
+            planHistory: [],
+            payments: [],
+            trialUsed: false,
+            preferences: {
+              currency: "USD",
+              notifications: {
+                planExpiry: true,
+                paymentReminders: true,
+              },
+            },
+          }
         },
-        planHistory: [],
-        payments: [],
-        trialUsed: false,
-        preferences: {
-          currency: "USD",
-          notifications: {
-            planExpiry: true,
-            paymentReminders: true,
-          },
-        },
-      });
+        { 
+          upsert: true, // Create if doesn't exist
+          new: true,    // Return the new document
+          setDefaultsOnInsert: true // Apply schema defaults
+        }
+      );
 
-      await user.save();
+      user = userDoc;
+      const isNewUser = userDoc ? true : false;
       
-      console.log(`Successfully created user account for: ${email}`);
+      if (isNewUser) {
+        console.log(`Successfully created user account for: ${email}`);
+      }
 
-      // Create a corresponding document in the Socialize collection
-      const newSocializeProfile = new Socialize({
-        clerkUserId,
-        username,
-        profileImage: finalImageUrl,
-      });
-      await newSocializeProfile.save();
-      console.log(
-        `New Socialize profile created for user: ${clerkUserId}`
+      // Use upsert for Socialize profile as well to prevent race conditions
+      await Socialize.findOneAndUpdate(
+        { clerkUserId },
+        {
+          $setOnInsert: {
+            clerkUserId,
+            username,
+            profileImage: finalImageUrl,
+          }
+        },
+        { 
+          upsert: true,
+          new: true 
+        }
       );
       
-      return { user, isNewUser: true };
+      if (isNewUser) {
+        console.log(`New Socialize profile created for user: ${clerkUserId}`);
+      }
+      
+      return { user, isNewUser };
     } catch (error) {
       console.error("Error ensuring user exists:", error);
+      
+      // If we get a duplicate key error, the user was created by another request
+      // Just fetch and return the existing user
+      if (error && typeof error === 'object' && 'code' in error && error.code === 11000) {
+        console.log(`User already exists (created by concurrent request), fetching existing user: ${clerkUserId}`);
+        const existingUser = await User.findOne({ clerkUserId });
+        if (existingUser) {
+          return { user: existingUser, isNewUser: false };
+        }
+      }
+      
       return { 
         user: null, 
         isNewUser: false, 
