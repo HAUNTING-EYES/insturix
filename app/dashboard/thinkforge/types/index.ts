@@ -1,6 +1,11 @@
+import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
+
 export type WorkflowPhase = 'PROMPT' | 'IDEAS' | 'SELECTED' | 'CHAT' | 'SCRIPT';
 
 export type ThinkingHat = 'white' | 'red' | 'black' | 'yellow' | 'green' | 'blue';
+
+// Block ID type
+export type BlockId = string;
 
 export interface AnalyticsSummary {
   ideasGenerated: number;
@@ -26,8 +31,10 @@ export interface Script {
   tone?: ThinkingHat;
   // Rich text HTML body for the new editor
   body?: string;
-  // BlockNote document structure for better round-trip editing
-  blocks?: any[];
+  // Canonical block tree (new canonical format)
+  blocks?: BlockTree;
+  // Legacy BlockNote document structure (kept for migration)
+  blocksLegacy?: any[];
   sections?: Array<{
     name?: string;
     content?: string;
@@ -51,6 +58,32 @@ export interface Script {
       feedback?: string;
     };
   };
+}
+
+// Script metadata type
+export interface ScriptMetadata {
+  scriptId: string;
+  userId: string;
+  title: string;
+  blockIds: BlockId[];
+  updatedAt: string;
+  version: number;
+  metadata?: Record<string, unknown>;
+}
+
+// Streaming event type
+export type StreamingEvent = {
+  event: "block_start" | "block_chunk" | "block_end" | "error" | "done";
+  block?: import("@/lib/thinkforge/schemas/canonical").Block;
+  blockId?: string;
+  chunk?: string;
+  message?: string;
+};
+
+// Cursor position type
+export interface CursorPosition {
+  blockId: BlockId;
+  offset: number;
 }
 
 export interface ChatMessage {

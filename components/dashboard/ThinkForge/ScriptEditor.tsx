@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useRef, useEffect, useMemo, memo } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import dynamic from 'next/dynamic';
 import { 
@@ -24,7 +24,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Script, Idea } from '@/app/dashboard/thinkforge/types';
-import { pdfExportService } from '@/lib/services/pdfExportService';
 import { getToneColorClass } from '@/lib/thinkforge/tone';
 
 // Dynamic imports for BlockNote to prevent SSR issues
@@ -39,9 +38,20 @@ import "@blocknote/mantine/style.css";
 
 // Import BlockNote hooks and types
 import { useCreateBlockNote } from "@blocknote/react";
-import { Block, BlockNoteEditor } from "@blocknote/core";
 import ScriptRenderer from "./ScriptRenderer";
-import { looksLikeJSON } from "@/lib/thinkforge/json";
+
+// Import canonical mappers and types
+import { canonicalToBlockNote } from "@/lib/thinkforge/mappers/canonical-to-blocknote";
+import { blockNoteToCanonical } from "@/lib/thinkforge/mappers/blocknote-to-canonical";
+import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
+import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
+
+// Type aliases for cursor preservation
+type BlockId = string;
+interface CursorPosition {
+  blockId: BlockId;
+  offset: number;
+}
 
 interface ScriptEditorProps {
   script?: Script | null;
@@ -49,12 +59,9 @@ interface ScriptEditorProps {
   sessionId?: string;
   onBackToChat: () => void;
   onEditScript: (updatedScript: Script) => void;
-  onExportScript: () => void;
-  loading?: boolean;
   generatingScript?: boolean;
-  // Show autosaving state from the ThinkForge client hook
   isSaving?: boolean;
-  onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
+  onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
 }
 
 export default function ScriptEditor({
@@ -63,8 +70,6 @@ export default function ScriptEditor({
   sessionId,
   onBackToChat,
   onEditScript,
-  onExportScript,
-  loading = false,
   generatingScript = false,
   isSaving = false,
   onImportScript
@@ -72,10 +77,6 @@ export default function ScriptEditor({
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [aiPromptDialog, setAiPromptDialog] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [isProcessingAI, setIsProcessingAI] = useState(false);
-  // Thinking/summary are now shown in Chat; avoid duplication here
   const [copied, setCopied] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -87,48 +88,393 @@ export default function ScriptEditor({
   const [importErr, setImportErr] = useState<string | null>(null);
   const [showOrchestration, setShowOrchestration] = useState(false);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // No HTML composition: rely on blocks first, then synthesize simple blocks from title/content
-
-  // Create BlockNote editor with initial content
-  const editor = useCreateBlockNote({
-    // Do not pass initialContent to avoid BlockNote crashing on malformed blocks
-    defaultStyles: true,
-    trailingBlock: true,
-    animations: true,
+  const isUpdatingFromPropsRef = useRef(false);
+  
+  // Cursor preservation state
+  const cursorPositionRef = useRef<CursorPosition | null>(null);
+  
+  // Extract scriptId from script metadata or use sessionId (for API calls)
+  // Note: The API endpoint accepts both scriptId and sessionId
+  const scriptId = useMemo(() => {
+    // Use sessionId - the backend will look up the latest script for that session
+    return sessionId || null;
+  }, [sessionId]);
+  
+  // Streaming state (ready for integration when streaming endpoint is used)
+  const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
+  const streamingBlocks = useStreamingBlocks(streamingUrl, {
+    onComplete: () => {
+      setStreamingUrl(null);
+    },
+    onError: (error) => {
+      console.error("Streaming error:", error);
+      setStreamingUrl(null);
+    },
   });
 
-  // Memoized selection change handler (debounced 300ms)
+
+  // Prepare initial content for BlockNote
+  const initialContent = useMemo(() => {
+    if (!script?.blocks || !Array.isArray(script.blocks) || script.blocks.length === 0) {
+      return [{
+        type: 'heading',
+        props: { level: 1 },
+        content: script?.title || 'Untitled Script'
+      }];
+    }
+    
+    // Check if blocks are canonical format (have 'children' field)
+    const isCanonical = script.blocks.every(
+      (b: any) => b && typeof b === 'object' && 'id' in b && 'type' in b && 'children' in b
+    );
+    
+    if (isCanonical) {
+      // Convert canonical to BlockNote
+      try {
+        return canonicalToBlockNote(script.blocks as BlockTree);
+      } catch (error) {
+        console.error("Failed to convert canonical blocks on mount:", error);
+        // Fallback to empty heading
+        return [{
+          type: 'heading',
+          props: { level: 1 },
+          content: script?.title || 'Untitled Script'
+        }];
+      }
+    }
+    
+    // Legacy BlockNote format - convert to canonical first, then to BlockNote
+    // This ensures we normalize all blocks through canonical format
+    try {
+      // Convert legacy blocks to canonical (they may have content field)
+      const legacyBlocks = script.blocks.map((b: any) => {
+        if (b && typeof b === 'object' && 'type' in b) {
+          // If it has content but not children, it's legacy BlockNote format
+          if ('content' in b && !('children' in b)) {
+            // Convert legacy BlockNote block to canonical
+            return {
+              id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              type: b.type,
+              props: b.props,
+              children: Array.isArray(b.content) 
+                ? b.content.map((c: any) => ({ type: 'text' as const, text: typeof c === 'string' ? c : (c?.text || '') }))
+                : [{ type: 'text' as const, text: typeof b.content === 'string' ? b.content : '' }]
+            };
+          }
+        }
+        return b;
+      });
+      
+      // Now convert to BlockNote
+      return canonicalToBlockNote(legacyBlocks as BlockTree);
+    } catch (error) {
+      console.error("Failed to convert legacy blocks:", error);
+      // Final fallback
+      return [{
+        type: 'heading',
+        props: { level: 1 },
+        content: script?.title || 'Untitled Script'
+      }];
+    }
+  }, []); // Only on mount
+
+  // Create BlockNote editor
+  const editor = useCreateBlockNote({
+    initialContent: initialContent as any,
+    defaultStyles: true,
+    trailingBlock: true,
+  });
+
+  // Store cursor position before updates
+  const storeCursorPosition = useCallback(() => {
+    try {
+      // Get current selection from BlockNote editor
+      const selection = (editor as any)?.getSelection?.();
+      if (selection && selection.blocks && selection.blocks.length > 0) {
+        const block = selection.blocks[0];
+        const blockId = block.id as string;
+        // Get content length safely
+        const content = block.content;
+        const offset = Array.isArray(content) ? content.length : (typeof content === 'string' ? content.length : 0);
+        cursorPositionRef.current = { blockId, offset };
+      }
+    } catch (error) {
+      // Ignore errors in cursor tracking
+    }
+  }, [editor]);
+
+  // Restore cursor position after updates
+  const restoreCursorPosition = useCallback(() => {
+    if (!cursorPositionRef.current || !editor) {
+      return;
+    }
+
+    try {
+      const { blockId, offset } = cursorPositionRef.current;
+      const blocks = editor.document;
+      const targetBlock = blocks.find((b: any) => b.id === blockId);
+      
+      if (targetBlock) {
+        // Try to restore selection (BlockNote API may vary)
+        // This is a best-effort restoration
+        const content = targetBlock.content as any;
+        const maxOffset = Array.isArray(content) ? content.length : (typeof content === 'string' ? content.length : 0);
+        (editor as any)?.setSelection?.({
+          blocks: [targetBlock],
+          anchor: { block: targetBlock, offset: Math.min(offset, maxOffset) },
+          head: { block: targetBlock, offset: Math.min(offset, maxOffset) },
+        });
+      }
+    } catch (error) {
+      // Ignore errors in cursor restoration
+    }
+  }, [editor]);
+
+  // Load blocks from API or script.blocks prop
+  useEffect(() => {
+    const loadBlocks = async () => {
+      if (!editor) return;
+      
+      // Try to fetch from API if scriptId (sessionId) is available
+      if (scriptId) {
+        try {
+          // Use sessionId parameter - backend will look up latest script for that session
+          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`);
+          if (response.ok) {
+            const data = await response.json();
+            console.log('ScriptEditor: Fetched blocks from API:', {
+              blocksCount: data.blocks?.length || 0,
+              blocks: data.blocks,
+            });
+            if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
+              try {
+                // Convert canonical blocks to BlockNote
+                const blockNoteBlocks = canonicalToBlockNote(data.blocks as BlockTree);
+                console.log('ScriptEditor: Converted to BlockNote blocks:', {
+                  blockNoteBlocksCount: blockNoteBlocks.length,
+                  blockTypes: blockNoteBlocks.map(b => b.type),
+                  firstBlock: blockNoteBlocks[0],
+                });
+                if (blockNoteBlocks.length > 0) {
+                  isUpdatingFromPropsRef.current = true;
+                  editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+                  isUpdatingFromPropsRef.current = false;
+                  setHasUnsavedChanges(false);
+                  return;
+                }
+              } catch (conversionError) {
+                console.error('ScriptEditor: Failed to convert canonical blocks to BlockNote:', conversionError);
+                console.error('ScriptEditor: Blocks that failed:', data.blocks);
+              }
+            } else {
+              console.log('ScriptEditor: No blocks returned from API or empty array');
+            }
+          } else {
+            const errorText = await response.text().catch(() => '');
+            console.error('ScriptEditor: Failed to fetch blocks from API:', response.status, errorText);
+          }
+        } catch (error) {
+          console.error("Failed to fetch blocks from API:", error);
+          // Fall through to use script.blocks prop
+        }
+      }
+      
+      // Fallback: use script.blocks prop if available
+      if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
+        // Check if blocks are canonical format
+        const isCanonical = script.blocks.every(
+          (b: any) => b && typeof b === 'object' && 'id' in b && 'type' in b && 'children' in b
+        );
+        
+        if (isCanonical) {
+          // Convert canonical to BlockNote
+          try {
+            const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
+            if (blockNoteBlocks.length > 0) {
+              // Check if content is actually different (avoid unnecessary updates)
+              const currentBlocks = editor.document;
+              const currentJson = JSON.stringify(currentBlocks);
+              const newJson = JSON.stringify(blockNoteBlocks);
+              
+              if (currentJson === newJson) {
+                return;
+              }
+
+              // Skip update if user has made changes very recently
+              if (hasUnsavedChanges && autosaveTimerRef.current) {
+                console.log('ScriptEditor: Skipping update, user is actively editing');
+                return;
+              }
+              
+              isUpdatingFromPropsRef.current = true;
+              editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+              console.log('ScriptEditor: Updated editor with', blockNoteBlocks.length, 'canonical blocks');
+              setHasUnsavedChanges(false);
+              isUpdatingFromPropsRef.current = false;
+              
+              // Restore cursor after update
+              setTimeout(() => restoreCursorPosition(), 100);
+            }
+          } catch (error) {
+            console.error("Failed to convert canonical blocks:", error);
+          }
+        }
+      }
+    };
+    
+    if (script && editor) {
+      loadBlocks();
+    }
+  }, [script?.blocks, scriptId, editor, hasUnsavedChanges, restoreCursorPosition]);
+
+  // Integrate streaming blocks into editor when they arrive
+  useEffect(() => {
+    if (streamingBlocks.blocks.length > 0 && editor) {
+      try {
+        // Convert canonical streaming blocks to BlockNote
+        const blockNoteBlocks = canonicalToBlockNote(streamingBlocks.blocks);
+        if (blockNoteBlocks.length > 0) {
+          // Incrementally update editor with new blocks
+          const currentBlocks = editor.document;
+          const existingIds = new Set(currentBlocks.map((b: any) => b.id));
+          const newBlocks = blockNoteBlocks.filter((b: any) => !existingIds.has(b.id));
+          
+          if (newBlocks.length > 0) {
+            isUpdatingFromPropsRef.current = true;
+            editor.replaceBlocks(editor.document, [...currentBlocks, ...newBlocks] as any);
+            isUpdatingFromPropsRef.current = false;
+          }
+        }
+      } catch (error) {
+        console.error("Failed to integrate streaming blocks:", error);
+      }
+    }
+  }, [streamingBlocks.blocks, editor]);
+
+  // Convert BlockNote content back to Script format (with canonical conversion)
+  const convertBlocksToScript = useCallback(async (): Promise<Script> => {
+    const blocks = editor.document;
+    
+    // Store cursor before conversion
+    storeCursorPosition();
+    
+    // Convert BlockNote to canonical format
+    let canonicalBlocks: BlockTree;
+    try {
+      canonicalBlocks = blockNoteToCanonical(blocks);
+    } catch (error) {
+      console.error("Failed to convert to canonical:", error);
+      // Fallback to legacy format
+      canonicalBlocks = blocks as any;
+    }
+    
+    // Extract title from HTML content
+    const htmlContent = await editor.blocksToHTMLLossy(blocks);
+    const titleMatch = htmlContent.match(/<h1[^>]*>(.*?)<\/h1>/i);
+    const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : script?.title || 'Untitled Script';
+    
+    // Extract text content
+    const textContent = await editor.blocksToMarkdownLossy(blocks);
+
+    return {
+      title,
+      body: htmlContent,
+      blocks: canonicalBlocks, // Use canonical format
+      content: textContent.replace(/[#*_`]/g, ''),
+      sections: script?.sections || [],
+      tips: script?.tips || [],
+      duration: script?.duration,
+      targetAudience: script?.targetAudience,
+      tone: script?.tone,
+      metadata: script?.metadata
+    };
+  }, [editor, script, storeCursorPosition]);
+
+  // Handle content changes with debounced autosave
+  const handleContentChange = useCallback(() => {
+    // Skip if this is an update from props
+    if (isUpdatingFromPropsRef.current) {
+      return;
+    }
+
+    setHasUnsavedChanges(true);
+    
+    // Debounce autosave
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+    }
+    
+    autosaveTimerRef.current = setTimeout(async () => {
+      try {
+        const updatedScript = await convertBlocksToScript();
+        
+        // Send canonical blocks to backend if scriptId is available
+        if (scriptId && updatedScript.blocks) {
+          try {
+            const response = await fetch(`/api/services/thinkforge/script/blocks`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                scriptId: scriptId,
+                blocks: updatedScript.blocks,
+              }),
+            });
+            
+            if (!response.ok) {
+              console.error('Failed to save blocks to backend');
+            }
+          } catch (error) {
+            console.error('Error saving blocks to backend:', error);
+          }
+        }
+        
+        onEditScript(updatedScript);
+        
+        // Restore cursor after save
+        setTimeout(() => restoreCursorPosition(), 100);
+      } catch (error) {
+        console.error('Autosave failed:', error);
+      }
+    }, 800);
+  }, [convertBlocksToScript, onEditScript, restoreCursorPosition]);
+
+  // Handle selection changes
   const handleSelectionChange = useCallback(() => {
-    if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
+    if (selectionTimerRef.current) {
+      clearTimeout(selectionTimerRef.current);
+    }
+    
     selectionTimerRef.current = setTimeout(() => {
       try {
         const txt = (editor as any)?.getSelectedText?.() || '';
         setSelectedText(txt);
+        
         if (txt && typeof window !== 'undefined') {
           const sel = window.getSelection?.();
           if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             const container = containerRef.current;
+            
             if (container) {
               const crect = container.getBoundingClientRect();
               const scrollTop = container.scrollTop || 0;
               const scrollLeft = container.scrollLeft || 0;
-              // Prefer positioning BELOW selection; flip above if not enough space
+              
               const offset = 8;
-              const approxBtnH = 32; // px
+              const approxBtnH = 32;
               const spaceBelow = crect.bottom - rect.bottom;
               const preferBelow = spaceBelow > (approxBtnH + offset + 8);
+              
               const top = preferBelow
                 ? (rect.bottom - crect.top) + scrollTop + offset
                 : (rect.top - crect.top) + scrollTop - (approxBtnH + offset);
-              // Center horizontally relative to the selection
+              
               let left = (rect.left + (rect.width / 2) - crect.left) + scrollLeft;
-              // Clamp within container bounds with small padding
               const pad = 12;
               const maxLeft = (crect.width || container.clientWidth) - pad;
               left = Math.min(Math.max(left, pad), maxLeft);
+              
               setSelectionPos({ top: Math.max(4, top), left });
             } else {
               setSelectionPos(null);
@@ -136,142 +482,22 @@ export default function ScriptEditor({
           } else {
             setSelectionPos(null);
           }
-        } else {
+      } else {
           setSelectionPos(null);
         }
       } catch {}
     }, 300);
   }, [editor]);
 
-  // Load content into editor after creation and whenever script changes
+  // Detect when saving completes
   useEffect(() => {
-    const load = async () => {
-      try {
-        // Prefer server-provided blocks (validate first)
-        if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
-          // Validate blocks before loading
-          const validBlocks = script.blocks
-            .filter((b: any) => b && typeof b === 'object' && b.type)
-            .map((b: any) => ({
-              ...b,
-              id: b.id || `b_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              content: b.content || '',
-            }));
-          
-          if (validBlocks.length > 0) {
-            editor.replaceBlocks(editor.document, validBlocks as any);
-            return;
-          }
-        }
-        
-        // Next, try parsing existing body HTML if available
-        if (script?.body && script.body.trim().length > 0 && !looksLikeJSON(script.body)) {
-          try {
-            const blocks = await editor.tryParseHTMLToBlocks(script.body);
-            if (blocks && Array.isArray(blocks) && blocks.length > 0) {
-              editor.replaceBlocks(editor.document, blocks);
-              return;
-            }
-          } catch (htmlError) {
-            console.warn('Failed to parse HTML blocks:', htmlError);
-          }
-        }
-        
-        // Fallback: synthesize blocks from title + plain content
-        const fallbackTitle = script?.title || 'Untitled Script';
-        const text = looksLikeJSON((script?.content || '').toString()) 
-          ? '' 
-          : (script?.content || '').toString();
-        
-        if (text.trim()) {
-          const paras = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-          const newBlocks: any[] = [
-            { 
-              type: 'heading', 
-              props: { level: 1 }, 
-              content: fallbackTitle,
-              id: `h1_${Date.now()}`
-            },
-            ...paras.map((p, idx) => ({ 
-              type: 'paragraph', 
-              content: p,
-              id: `p_${Date.now()}_${idx}`
-            }))
-          ];
-          editor.replaceBlocks(editor.document, newBlocks as any);
-        } else if (fallbackTitle) {
-          // At least show the title
-          editor.replaceBlocks(editor.document, [{
-            type: 'heading',
-            props: { level: 1 },
-            content: fallbackTitle,
-            id: `h1_${Date.now()}`
-          }] as any);
-        }
-      } catch (error) {
-        console.error('Failed to load content into BlockNote:', error);
-        // Last resort: show error message as a block
-        try {
-          editor.replaceBlocks(editor.document, [{
-            type: 'paragraph',
-            content: 'Failed to load script content. Please try refreshing.',
-            id: `error_${Date.now()}`
-          }] as any);
-        } catch (fallbackError) {
-          console.error('Failed to show error message:', fallbackError);
-        }
-      }
-    };
-    load();
-  }, [editor, script?.blocks, script?.body, script?.content, script?.title]);
-
-  // Note: We intentionally avoid injecting script.blocks directly to prevent malformed data from crashing BlockNote
-
-  // Convert BlockNote content back to Script format (defined early to be used in callbacks)
-  const convertBlocksToScript = useCallback(async (): Promise<Script> => {
-    const blocks = editor.document;
-    
-    // Extract title from HTML content (simpler approach)
-    const htmlContent = await editor.blocksToHTMLLossy(blocks);
-    const titleMatch = htmlContent.match(/<h1[^>]*>(.*?)<\/h1>/i);
-    const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : script?.title || 'Untitled Script';
-    
-    // Extract text content by converting to markdown first (simpler)
-    const textContent = await editor.blocksToMarkdownLossy(blocks);
-
-    return {
-      title,
-      body: htmlContent,
-      blocks: blocks, // Save native BlockNote document structure
-      content: textContent.replace(/[#*_`]/g, ''), // Remove markdown formatting for plain text
-      sections: script?.sections || [],
-      tips: script?.tips || [],
-      duration: script?.duration,
-      targetAudience: script?.targetAudience,
-      tone: script?.tone
-    };
-  }, [editor, script]);
-
-  // Handle content changes with optimistic updates
-  const handleContentChange = useCallback(() => {
-    // Optimistic update: immediately mark as changed (no waiting)
-    setHasUnsavedChanges(true);
-    
-    // Optimistically update local script state for instant UI feedback
-    const updateOptimistic = async () => {
-      try {
-        const updatedScript = await convertBlocksToScript();
-        // Update local state immediately (optimistic)
-        onEditScript(updatedScript);
-      } catch (e) {
-        console.error('Optimistic update failed:', e);
-      }
-    };
-    
-    // Debounce autosave (800ms as per plan)
-    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
-    autosaveTimerRef.current = setTimeout(updateOptimistic, 800);
-  }, [onEditScript, convertBlocksToScript]);
+    if (prevIsSavingRef.current && !isSaving) {
+      setJustSaved(true);
+      setHasUnsavedChanges(false);
+      setTimeout(() => setJustSaved(false), 2000);
+    }
+    prevIsSavingRef.current = isSaving;
+  }, [isSaving]);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -281,192 +507,9 @@ export default function ScriptEditor({
     };
   }, []);
 
-  // When external saving completes, flash a Saved check and clear unsaved flag
-  useEffect(() => {
-    const prev = prevIsSavingRef.current;
-    if (prev && !isSaving) {
-      setHasUnsavedChanges(false);
-      setJustSaved(true);
-      const t = setTimeout(() => setJustSaved(false), 1500);
-      return () => clearTimeout(t);
-    }
-    prevIsSavingRef.current = isSaving;
-  }, [isSaving]);
-
-  // Handle AI improvement: inspector -> (answer | editor) with optimistic updates
-  const handleAIImprovement = async () => {
-    if (!aiPrompt.trim()) return;
-    
-    // Optimistic: Show processing state immediately
-    setIsProcessingAI(true);
-    setAiPromptDialog(false);
-    
-    // Store current state for rollback on error
-    const previousBlocks = editor.document;
-    const previousScript = script;
-    
-    // Chat shows thinking and summary; no local duplication
-    try {
-      // Gather current full script text for context
-      const fullText = await editor.blocksToMarkdownLossy(editor.document);
-      const scriptPayload = {
-        title: script?.title || 'Untitled Script',
-        content: fullText,
-        // Provide blocks so server can resolve selection → indices accurately
-        blocks: editor.document as any
-      } as any;
-      const projectPayload = {
-        idea: selectedIdea?.idea,
-        purpose: (selectedIdea as any)?.purpose,
-        style: (selectedIdea as any)?.style,
-        format: (selectedIdea as any)?.format,
-        platform: (selectedIdea as any)?.platform,
-        tone: selectedIdea?.tone
-      };
-
-      // Build prompt for inspector, include selection if present
-      const prompt = selectedText
-        ? `Edit the following selection within the script:\n---\n${selectedText}\n---\nInstruction: ${aiPrompt}`
-        : aiPrompt;
-
-      const inspectRes = await fetch('/api/services/thinkforge/script/inspect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, script: scriptPayload, project: projectPayload, sessionId })
-      });
-      if (!inspectRes.ok) throw new Error(`inspect ${inspectRes.status}`);
-      const inspect = await inspectRes.json();
-
-      if (inspect?.action !== 'edit') {
-        // Not an edit; provide quick answer via alert for now
-        alert('This request was classified as an answer, not an edit. Please use chat mode for answers.');
-        return;
-      }
-
-      // Kick off a quick 'think' to show reasoning while editing
-      // Thinking streamed in Chat; skip here
-
-      const instruction = selectedText
-        ? `Apply this change ONLY to the selected part. Selection is below, then the change.\nSelection:\n${selectedText}\nChange:\n${aiPrompt}`
-        : aiPrompt;
-
-      // Use block-targeted edit endpoint; pass selection to resolve indices server-side
-      const editRes = await fetch('/api/services/thinkforge/script/edit-blocks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction, script: scriptPayload, project: projectPayload, sessionId, selection: selectedText || undefined })
-      });
-      if (!editRes.ok) throw new Error(`edit ${editRes.status}`);
-      const edited = await editRes.json();
-      const newTitle: string = edited?.title || script?.title || 'Untitled Script';
-  const newContent: string = (edited?.content || fullText || '').toString();
-  const looksLikeJSON = /\{[\s\S]*\}/.test(newContent.trim()) && (newContent.includes('"blocks"') || newContent.includes('"title"'));
-      const serverBlocks: any[] | undefined = edited?.blocks;
-      if (Array.isArray(serverBlocks) && serverBlocks.length > 0) {
-        // Prefer minimal updates when lengths match: patch by id
-        try {
-          const cur: any[] = (editor as any).document as any[];
-          const sameLen = Array.isArray(cur) && cur.length === serverBlocks.length;
-          if (sameLen) {
-            const byId: Record<string, number> = Object.create(null);
-            cur.forEach((b: any, i: number) => { if (b?.id) byId[String(b.id)] = i; });
-            let changed = 0;
-            for (let i = 0; i < serverBlocks.length; i++) {
-              const nb: any = serverBlocks[i];
-              const id = nb?.id ? String(nb.id) : '';
-              const idx = id && byId[id] !== undefined ? byId[id] : i;
-              if (idx >= 0 && idx < cur.length) {
-                // Replace block at idx
-                (editor as any).replaceBlocks([cur[idx]], [nb]);
-                changed++;
-              }
-            }
-            if (changed > 0) {
-              // Minimal patch applied
-            } else {
-              editor.replaceBlocks(editor.document, serverBlocks as any);
-            }
-          } else {
-            editor.replaceBlocks(editor.document, serverBlocks as any);
-          }
-        } catch {
-          editor.replaceBlocks(editor.document, serverBlocks as any);
-        }
-      } else if (!looksLikeJSON) {
-        // Fallback to composing from content
-        const paras = newContent.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
-        const newBlocks: any[] = [
-          { type: 'heading', props: { level: 1 }, content: newTitle },
-          ...paras.map(p => ({ type: 'paragraph', content: p }))
-        ];
-        editor.replaceBlocks(editor.document, newBlocks as any);
-      } else {
-        // Avoid injecting half-JSON; keep current document
-      }
-
-      const updatedScript = await convertBlocksToScript();
-      onEditScript(updatedScript);
-      // Append a concise summary to chat to reflect analyze → edit → patch
-      try {
-        if (sessionId) {
-          const sumRes = await fetch('/api/services/thinkforge/think/summary', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              instruction,
-              scriptBefore: { title: scriptPayload.title, content: fullText },
-              scriptAfter: { title: newTitle, content: newContent },
-              project: projectPayload,
-              sessionId
-            })
-          });
-          if (sumRes.ok) {
-            const summaryText = await sumRes.text();
-            if (summaryText) {
-              void fetch('/api/services/thinkforge/chat/append', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sessionId, role: 'assistant', content: 'Summary: ' + summaryText })
-              });
-            }
-          }
-        }
-      } catch {}
-      setHasUnsavedChanges(false);
-    } catch (err) {
-      console.error('AI improvement failed:', err);
-      // Rollback optimistic update on error
-      try {
-        editor.replaceBlocks(editor.document, previousBlocks as any);
-        if (previousScript) {
-          onEditScript(previousScript);
-        }
-      } catch (rollbackErr) {
-        console.error('Rollback failed:', rollbackErr);
-      }
-      // Show user-friendly error notification
-      alert('Failed to apply AI edit. Changes have been reverted. Please try again.');
-    } finally {
-      setIsProcessingAI(false);
-      setAiPrompt('');
-  // no-op; thinking is in Chat
-    }
-  };
-
-  // Save changes
-  const handleSave = async () => {
-    try {
-      const updatedScript = await convertBlocksToScript();
-      onEditScript(updatedScript);
-      setHasUnsavedChanges(false);
-    } catch (error) {
-      console.error('Failed to save script:', error);
-      alert('Failed to save script. Please try again.');
-    }
-  };
-
-  // Copy content to clipboard
+  // Copy to clipboard
   const handleCopy = async () => {
     try {
-      // Use BlockNote's built-in method to get markdown, then convert to plain text
       const markdownContent = await editor.blocksToMarkdownLossy(editor.document);
       const textContent = markdownContent.replace(/[#*_`]/g, '').replace(/\n\s*\n/g, '\n\n');
       
@@ -484,7 +527,6 @@ export default function ScriptEditor({
       const htmlContent = await editor.blocksToHTMLLossy(editor.document);
       const title = script?.title || 'Script';
       
-      // Create a simple PDF export using browser print
       const printWindow = window.open('', '_blank');
       if (printWindow) {
         printWindow.document.write(`
@@ -492,14 +534,24 @@ export default function ScriptEditor({
             <head>
               <title>${title}</title>
               <style>
-                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.6; margin: 2cm; }
+                body { 
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
+                  line-height: 1.6; 
+                  margin: 2cm; 
+                  color: #000;
+                }
                 h1 { color: #333; font-size: 24px; margin-bottom: 20px; }
                 h2 { color: #555; font-size: 20px; margin: 20px 0 10px 0; }
                 h3 { color: #666; font-size: 16px; margin: 15px 0 8px 0; }
                 p { margin: 8px 0; }
                 ul, ol { margin: 8px 0; padding-left: 20px; }
                 li { margin: 4px 0; }
-                blockquote { border-left: 3px solid #ddd; margin: 10px 0; padding-left: 15px; font-style: italic; }
+                blockquote { 
+                  border-left: 3px solid #ddd; 
+                  margin: 10px 0; 
+                  padding-left: 15px; 
+                  font-style: italic; 
+                }
               </style>
             </head>
             <body>
@@ -513,6 +565,42 @@ export default function ScriptEditor({
     } catch (error) {
       console.error('Failed to export PDF:', error);
       alert('Failed to export PDF. Please try again.');
+    }
+  };
+
+  // Handle import
+  const handleImport = async () => {
+    setImportErr(null);
+    try {
+      const raw = importText.trim();
+      if (!raw) {
+        setImportErr('Please paste JSON');
+        return;
+      }
+      
+      let obj: any;
+      try {
+        obj = JSON.parse(raw);
+      } catch (e) {
+        setImportErr('Invalid JSON');
+        return;
+      }
+      
+      if (!obj || typeof obj !== 'object') {
+        setImportErr('JSON must be an object');
+        return;
+      }
+      
+      const res = await onImportScript?.(obj);
+      if (!res || res.ok !== true) {
+        setImportErr(res?.error || 'Failed to import');
+        return;
+      }
+      
+      setImportOpen(false);
+      setImportText('');
+    } catch (err: any) {
+      setImportErr(err?.message || 'Import failed');
     }
   };
 
@@ -556,7 +644,11 @@ export default function ScriptEditor({
           {/* Import JSON */}
           {typeof onImportScript === 'function' && (
             <Button
-              onClick={() => { setImportErr(null); setImportText(''); setImportOpen(true); }}
+              onClick={() => {
+                setImportErr(null);
+                setImportText('');
+                setImportOpen(true);
+              }}
               variant="outline"
               size="sm"
               className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
@@ -564,6 +656,7 @@ export default function ScriptEditor({
               Import JSON
             </Button>
           )}
+          
           {/* Preview/Edit Toggle */}
           <div className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-zinc-400" />
@@ -595,13 +688,9 @@ export default function ScriptEditor({
             variant="outline"
             size="sm"
             className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-            disabled={loading}
+            disabled={generatingScript && !script}
           >
-            {loading ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Download className="h-4 w-4 mr-2" />
-            )}
+            <Download className="h-4 w-4 mr-2" />
             Export PDF
           </Button>
 
@@ -609,7 +698,7 @@ export default function ScriptEditor({
           {isSaving ? (
             <div className="flex items-center gap-2 text-xs text-zinc-400">
               <Loader2 className="h-4 w-4 animate-spin" />
-              Autosaving...
+              Saving...
             </div>
           ) : justSaved ? (
             <div className="flex items-center gap-2 text-xs text-green-400">
@@ -617,9 +706,9 @@ export default function ScriptEditor({
               Saved
             </div>
           ) : hasUnsavedChanges ? (
-            <div className="text-xs text-amber-400">Unsaved changes</div>
+            <div className="text-xs text-amber-400">Unsaved</div>
           ) : (
-            <div className="text-xs text-zinc-500">All changes saved</div>
+            <div className="text-xs text-zinc-500">All saved</div>
           )}
         </div>
       </div>
@@ -641,10 +730,16 @@ export default function ScriptEditor({
       {!generatingScript || script ? (
         <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
           <CardContent className="p-0">
-            <div ref={containerRef} className="relative min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+            <div 
+              ref={containerRef} 
+              className="relative min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
+            >
               {isPreviewMode ? (
                 <div className="p-6">
-                  <ScriptRenderer title={script?.title} blocks={(script as any)?.blocks || []} />
+                  <ScriptRenderer 
+                    title={script?.title} 
+                    blocks={script?.blocks || []}
+                  />
                 </div>
               ) : (
                 <BlockNoteView 
@@ -656,25 +751,37 @@ export default function ScriptEditor({
                   className="blocknote-editor-dark"
                 />
               )}
-              {selectedText && selectedText.trim().length > 0 && selectionPos ? (
+              
+              {/* Selection floating button */}
+              {selectedText && selectedText.trim().length > 0 && selectionPos && (
                 <button
                   type="button"
-                  onMouseDown={(e) => { e.preventDefault(); }}
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
                     try {
                       if (typeof window !== 'undefined') {
-                        window.dispatchEvent(new CustomEvent('tf-selection-to-chat', { detail: { text: selectedText } } as any));
+                        window.dispatchEvent(
+                          new CustomEvent('tf-selection-to-chat', { 
+                            detail: { text: selectedText } 
+                          } as any)
+                        );
                       }
                     } catch {}
                   }}
-                  className="absolute z-50 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-red-600/95 hover:bg-red-700 text-white shadow-xl border border-white/10 backdrop-blur-sm"
-                  style={{ top: selectionPos.top, left: selectionPos.left, transform: 'translateX(-50%)' }}
+                  className="absolute z-50 px-2.5 py-1.5 rounded-md text-[11px] font-medium bg-red-600/95 hover:bg-red-700 text-white shadow-xl border border-white/10 backdrop-blur-sm transition-all"
+                  style={{ 
+                    top: selectionPos.top, 
+                    left: selectionPos.left, 
+                    transform: 'translateX(-50%)' 
+                  }}
                   aria-label="Improve selected text with ForgeAI"
                 >
-                  <span className="inline-flex items-center gap-1"><Sparkles className="h-3.5 w-3.5" /> Edit in Chat</span>
+                  <span className="inline-flex items-center gap-1">
+                    <Sparkles className="h-3.5 w-3.5" /> 
+                    Edit in Chat
+                  </span>
                 </button>
-              ) : null}
-              {/* Thinking and summary are now displayed in Chat */}
+              )}
             </div>
           </CardContent>
         </Card>
@@ -728,7 +835,7 @@ export default function ScriptEditor({
                       <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Agent Steps</span>
                     </div>
                     <div className="space-y-2">
-                      {script.metadata.agent_steps.map((step, idx) => (
+                      {script.metadata.agent_steps.map((step: any, idx: number) => (
                         <div key={idx} className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
                           {step.agent && (
                             <div className="text-xs font-semibold text-blue-300 mb-1">{step.agent}</div>
@@ -768,100 +875,40 @@ export default function ScriptEditor({
         </Card>
       )}
 
-      {/* AI Enhancement Dialog */}
-      <Dialog open={aiPromptDialog} onOpenChange={setAiPromptDialog}>
-        <DialogContent className="bg-black/95 border-zinc-800 text-zinc-100">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-red-500" />
-              Improve with ForgeAI
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <p className="text-sm text-zinc-400 mb-2">Selected text:</p>
-              <div className="bg-zinc-800/50 p-3 rounded-lg text-sm">
-                "{selectedText}"
-              </div>
-            </div>
-            <div>
-              <p className="text-sm text-zinc-400 mb-2">How would you like to improve this text?</p>
-              <Textarea
-                value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
-                placeholder="e.g., make it more engaging, add examples, simplify the language..."
-                className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
-                rows={3}
-              />
-            </div>
-            <div className="flex gap-2 justify-end">
-              <Button
-                variant="outline"
-                onClick={() => setAiPromptDialog(false)}
-                className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={handleAIImprovement}
-                disabled={!aiPrompt.trim() || isProcessingAI}
-                className="bg-red-600 hover:bg-red-700"
-              >
-                {isProcessingAI ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <Sparkles className="h-4 w-4 mr-2" />
-                )}
-                Improve Text
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-
       {/* Import JSON Dialog */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
         <DialogContent className="bg-black/95 border-zinc-800 text-zinc-100 max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileText className="h-5 w-5 text-red-500" />
-              Import Script JSON (title + blocks)
+              Import Script JSON
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <p className="text-sm text-zinc-400">Paste the JSON object containing a title and blocks array. This will replace the current editor content.</p>
+            <p className="text-sm text-zinc-400">
+              Paste JSON containing title and blocks. This will replace the current content.
+            </p>
             <Textarea
               value={importText}
               onChange={(e) => setImportText(e.target.value)}
               rows={10}
               placeholder='{"title":"My Script","blocks":[...]}'
-              className="bg-zinc-800/50 border-zinc-700 text-zinc-100"
+              className="bg-zinc-800/50 border-zinc-700 text-zinc-100 font-mono text-xs"
             />
-            {importErr && <div className="text-xs text-red-400">{importErr}</div>}
+            {importErr && (
+              <div className="text-xs text-red-400">{importErr}</div>
+            )}
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setImportOpen(false)} className="border-zinc-700 text-zinc-300 hover:bg-zinc-800">Cancel</Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setImportOpen(false)} 
+                className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+              >
+                Cancel
+              </Button>
               <Button
                 className="bg-red-600 hover:bg-red-700"
-                onClick={async () => {
-                  setImportErr(null);
-                  try {
-                    const raw = importText.trim();
-                    if (!raw) { setImportErr('Please paste JSON'); return; }
-                    let obj: any;
-                    try { obj = JSON.parse(raw); } catch (e) { setImportErr('Invalid JSON'); return; }
-                    if (!obj || (typeof obj !== 'object')) { setImportErr('JSON must be an object'); return; }
-                    const res = await (onImportScript as any)?.(obj);
-                    if (!res || res.ok !== true) {
-                      setImportErr(res?.error || 'Failed to import');
-                      return;
-                    }
-                    // Close and reset; editor content will refresh via props/state
-                    setImportOpen(false);
-                    setImportText('');
-                  } catch (err: any) {
-                    setImportErr(err?.message || 'Import failed');
-                  }
-                }}
+                onClick={handleImport}
               >
                 Apply Import
               </Button>
@@ -870,6 +917,7 @@ export default function ScriptEditor({
         </DialogContent>
       </Dialog>
 
+      {/* Styles */}
       <style jsx global>{`
         .blocknote-editor-dark {
           background: transparent !important;
@@ -923,7 +971,6 @@ export default function ScriptEditor({
           color: #f4f4f5 !important;
           margin-bottom: 0.25rem !important;
         }
-        /* BlockNote menu styling for dark theme */
         .blocknote-editor-dark .bn-menu {
           background: #18181b !important;
           border: 1px solid #3f3f46 !important;
@@ -934,30 +981,23 @@ export default function ScriptEditor({
         }
         .blocknote-editor-dark .bn-menu-item:hover {
           background: #27272a !important;
-          transition: background-color 0.15s ease;
         }
         .blocknote-editor-dark .bn-side-menu {
           background: #18181b !important;
-          transition: all 0.2s ease;
         }
-        /* Slash menu styling */
         .blocknote-editor-dark .bn-suggestion-menu {
           background: #18181b !important;
           border: 1px solid #3f3f46 !important;
           border-radius: 6px !important;
-          transition: all 0.2s ease;
         }
         .blocknote-editor-dark .bn-suggestion-menu-item {
           color: #f4f4f5 !important;
-          transition: all 0.15s ease;
         }
         .blocknote-editor-dark .bn-suggestion-menu-item:hover,
         .blocknote-editor-dark .bn-suggestion-menu-item.selected {
           background: #27272a !important;
-          transition: background-color 0.15s ease;
         }
         
-        /* Smooth button transitions */
         button {
           transition: all 0.2s ease !important;
         }
@@ -968,22 +1008,6 @@ export default function ScriptEditor({
           transform: translateY(0);
         }
         
-        /* Smooth card transitions */
-        .bg-black\\/40 {
-          transition: all 0.3s ease;
-        }
-        
-        /* Loading state smooth fade */
-        .animate-spin {
-          animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-        
-        /* Smooth scroll */
         .scrollbar-thin {
           scroll-behavior: smooth;
         }

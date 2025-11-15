@@ -136,7 +136,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
   const blocksArr = Array.isArray(input?.blocks) ? input.blocks : [];
   
   // Enhanced block validation and sanitization
-  const blocks = blocksArr
+  let blocks = blocksArr
     .slice(0, MAX_BLOCKS)
     .map((block: any, index: number) => {
       // Ensure block is an object
@@ -150,28 +150,77 @@ export function sanitizeServerScript(input: any): ScriptModel {
         return null;
       }
       
-      // Guarantee id exists
+      // Guarantee id exists with better generation
+      const blockId = ensureBlockId(sanitized?.id || block?.id);
+      
       return {
         ...sanitized,
-        id: ensureBlockId(sanitized?.id || block?.id)
+        id: blockId
       };
     })
     .filter(Boolean) as Block[];
   
   // Validate block structure matches BlockNote schema
-  const validatedBlocks = blocks.map((block: any) => {
+  const validatedBlocks = blocks.map((block: any, index: number) => {
     // Ensure required fields
-    if (!block.type || !block.content) {
+    if (!block || !block.type || block.content === undefined) {
       return null;
     }
     
-    // Ensure content is string or array
+    // Ensure content is string or array (BlockNote accepts both)
     if (typeof block.content !== 'string' && !Array.isArray(block.content)) {
       block.content = String(block.content || '');
     }
     
+    // Ensure ID is valid
+    if (!block.id || typeof block.id !== 'string' || block.id.length < 6) {
+      block.id = ensureBlockId(block.id);
+    }
+    
+    // Ensure props for headings
+    if (block.type === 'heading' && !block.props) {
+      block.props = { level: 1 };
+    } else if (block.type === 'heading' && block.props && typeof block.props.level !== 'number') {
+      block.props.level = 1;
+    }
+    
     return block;
   }).filter(Boolean) as Block[];
+  
+  // Fallback: If no blocks but content exists, create blocks from content
+  if (validatedBlocks.length === 0 && content && content.trim().length > 0) {
+    console.log('sanitizeServerScript: No blocks but content exists, creating blocks from content');
+    const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+    if (paras.length > 0) {
+      validatedBlocks.push({
+        id: ensureBlockId(null),
+        type: 'heading',
+        props: { level: 1 },
+        content: title || 'Untitled Script'
+      });
+      
+      for (const para of paras.slice(0, MAX_BLOCKS - 1)) {
+        if (para && para !== title) {
+          validatedBlocks.push({
+            id: ensureBlockId(null),
+            type: 'paragraph',
+            content: para.slice(0, 4000)
+          });
+        }
+      }
+      console.log(`sanitizeServerScript: Created ${validatedBlocks.length} blocks from content`);
+    }
+  }
+  
+  // Final fallback: At least ensure we have a title block if title exists
+  if (validatedBlocks.length === 0 && title) {
+    validatedBlocks.push({
+      id: ensureBlockId(null),
+      type: 'heading',
+      props: { level: 1 },
+      content: title
+    });
+  }
   
   // Preserve metadata if present
   const metadata = input?.metadata ? {

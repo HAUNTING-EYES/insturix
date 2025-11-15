@@ -5,7 +5,7 @@ import clsx from 'clsx';
 import { Bot, Square, Pencil, X, Check } from 'lucide-react';
 import { Idea, Script } from '@/app/dashboard/thinkforge/types';
 import { toast } from '@/hooks/use-toast';
-import { looksLikeJSON, parseJsonLenient, sanitizeServerScript, extractBalancedJson } from '@/lib/thinkforge/json';
+import { looksLikeJSON, parseJsonLenient, sanitizeServerScript, extractBalancedJson, ensureBlockId } from '@/lib/thinkforge/json';
 
 export interface ChatMessage { id: string; role: 'user' | 'assistant'; content: string; ts: number; streaming?: boolean }
 
@@ -375,6 +375,14 @@ Describe the change you want:`;
       blocks: (script as any)?.blocks || undefined,
     } : undefined;
     
+    // Debug logging
+    console.log('ChatPanel: Sending chat request', {
+      hasScript: !!scriptPayload,
+      hasBlocks: !!(scriptPayload?.blocks),
+      blocksCount: Array.isArray(scriptPayload?.blocks) ? scriptPayload.blocks.length : 0,
+      title: scriptPayload?.title
+    });
+    
     const projectPayload = {
       idea: selectedIdea?.idea,
       purpose: (selectedIdea as any)?.purpose,
@@ -477,62 +485,157 @@ Describe the change you want:`;
             
             // Parse and apply script update
             try {
-              console.log('Parsing script update JSON, length:', scriptUpdateJson.length);
+              console.log('ChatPanel: Parsing script update JSON, length:', scriptUpdateJson.length);
               const updateData = JSON.parse(scriptUpdateJson);
-              console.log('Script update received:', { 
+              console.log('ChatPanel: Script update received from backend:', { 
                 hasScript: !!updateData.script, 
                 hasBlocks: !!(updateData.script?.blocks), 
                 blocksCount: updateData.script?.blocks?.length || 0,
                 hasContent: !!updateData.script?.content,
                 contentLength: updateData.script?.content?.length || 0,
-                title: updateData.script?.title 
+                title: updateData.script?.title,
+                firstBlockType: updateData.script?.blocks?.[0]?.type,
+                firstBlockId: updateData.script?.blocks?.[0]?.id
               });
               
               if (updateData.script && typeof onApplyEdit === 'function') {
-                const sanitized = sanitizeServerScript(updateData.script);
-                const newTitle: string = sanitized?.title || script?.title || 'Untitled Script';
-                const newContent: string = sanitized?.content || script?.content || '';
-                const htmlBody = composeHtml(newTitle, newContent, (sanitized as any)?.html);
-                // Include metadata from orchestration
-                const metadata = updateData.metadata || {};
-                
-                // Ensure blocks are properly set - prefer sanitized blocks, fallback to updateData.script.blocks
-                const blocks = (sanitized?.blocks && Array.isArray(sanitized.blocks) && sanitized.blocks.length > 0) 
-                  ? sanitized.blocks 
-                  : (updateData.script?.blocks && Array.isArray(updateData.script.blocks) && updateData.script.blocks.length > 0)
-                    ? updateData.script.blocks
-                    : undefined;
-                
-                console.log('Applying script edit:', { 
-                  title: newTitle, 
-                  hasContent: !!newContent, 
-                  contentLength: newContent.length,
-                  hasBlocks: !!blocks, 
-                  blocksCount: blocks?.length || 0 
-                });
-                
-                if (!newContent && !blocks) {
-                  console.warn('Script update has no content or blocks, skipping apply');
-                } else {
-                  onApplyEdit({ 
-                    ...(script || {}), 
-                    title: newTitle, 
-                    content: newContent, 
-                    body: htmlBody, 
-                    blocks: blocks,
-                    metadata: {
-                      workflow: metadata.workflow,
-                      thoughts: (sanitized as any)?.thoughts || metadata.thoughts,
-                      duration_ms: (sanitized as any)?.duration_ms || metadata.duration_ms,
-                      agent_steps: metadata.agent_steps,
-                      quality_metrics: metadata.quality_metrics,
-                    }
-                  } as any);
+                try {
+                  const sanitized = sanitizeServerScript(updateData.script);
                   
-                  console.log('Script edit applied successfully');
+                  // Validate sanitized result
+                  if (!sanitized) {
+                    console.error('ChatPanel: sanitizeServerScript returned null/undefined');
+                    return;
+                  }
+                  
+                  const newTitle: string = sanitized?.title || script?.title || 'Untitled Script';
+                  const newContent: string = sanitized?.content || script?.content || '';
+                  const htmlBody = composeHtml(newTitle, newContent, (sanitized as any)?.html);
+                  
+                  // Include metadata from orchestration
+                  const metadata = updateData.metadata || {};
+                  
+                  // Ensure blocks are properly set - sanitizeServerScript should always return valid blocks array
+                  let blocks = sanitized?.blocks;
+                  if (!Array.isArray(blocks)) {
+                    console.warn('ChatPanel: sanitized blocks is not an array, using empty array');
+                    blocks = [];
+                  }
+                  
+                  // Ensure blocks have IDs (sanitizeServerScript should handle this, but double-check)
+                  blocks = blocks.map((block: any, index: number) => {
+                    if (!block || typeof block !== 'object') {
+                      return null;
+                    }
+                    if (!block.id || typeof block.id !== 'string' || block.id.length < 6) {
+                      block.id = ensureBlockId(block.id);
+                    }
+                    return block;
+                  }).filter(Boolean);
+                  
+                  console.log('ChatPanel: Applying script edit:', { 
+                    title: newTitle, 
+                    hasContent: !!newContent, 
+                    contentLength: newContent.length,
+                    hasBlocks: !!blocks, 
+                    blocksCount: blocks?.length || 0,
+                    blocksValid: blocks.every((b: any) => b && b.id && b.type && b.content !== undefined)
+                  });
+                  
+                  // Always apply edit if we have blocks, even if title/content are empty
+                  // This ensures blocks are never lost
+                  if (blocks && blocks.length > 0) {
+                    const scriptUpdate: Script = {
+                      ...(script || {}), 
+                      title: newTitle || script?.title || 'Untitled Script', 
+                      content: newContent || script?.content || '', 
+                      body: htmlBody || script?.body || '', 
+                      blocks: blocks, // Always include blocks if they exist
+                      metadata: {
+                        workflow: metadata.workflow,
+                        thoughts: (sanitized as any)?.thoughts || metadata.thoughts,
+                        duration_ms: (sanitized as any)?.duration_ms || metadata.duration_ms,
+                        agent_steps: metadata.agent_steps,
+                        quality_metrics: metadata.quality_metrics,
+                      }
+                    } as any;
+                    
+                    console.log('ChatPanel: Calling onApplyEdit with:', {
+                      title: scriptUpdate.title,
+                      hasContent: !!scriptUpdate.content,
+                      contentLength: scriptUpdate.content?.length || 0,
+                      hasBlocks: !!(scriptUpdate.blocks && Array.isArray(scriptUpdate.blocks)),
+                      blocksCount: scriptUpdate.blocks?.length || 0,
+                      blocksPreview: scriptUpdate.blocks?.slice(0, 3).map((b: any) => ({
+                        id: b.id,
+                        type: b.type,
+                        hasContent: b.content !== undefined,
+                        contentLength: typeof b.content === 'string' ? b.content.length : Array.isArray(b.content) ? b.content.length : 0
+                      }))
+                    });
+                    
+                    try {
+                      onApplyEdit(scriptUpdate);
+                      console.log('ChatPanel: Script edit applied successfully');
+                    } catch (applyError) {
+                      console.error('ChatPanel: Error calling onApplyEdit:', applyError);
+                    }
+                  } else if (newTitle || newContent) {
+                    // Fallback: apply even without blocks if we have title/content
+                    const scriptUpdate: Script = {
+                      ...(script || {}), 
+                      title: newTitle, 
+                      content: newContent, 
+                      body: htmlBody, 
+                      blocks: undefined,
+                      metadata: {
+                        workflow: metadata.workflow,
+                        thoughts: (sanitized as any)?.thoughts || metadata.thoughts,
+                        duration_ms: (sanitized as any)?.duration_ms || metadata.duration_ms,
+                        agent_steps: metadata.agent_steps,
+                        quality_metrics: metadata.quality_metrics,
+                      }
+                    } as any;
+                    console.log('ChatPanel: Applying script update without blocks (fallback)');
+                    try {
+                      onApplyEdit(scriptUpdate);
+                    } catch (applyError) {
+                      console.error('ChatPanel: Error calling onApplyEdit (fallback):', applyError);
+                    }
+                  } else {
+                    console.warn('ChatPanel: Script update has no title, content, or blocks, skipping apply', {
+                      newTitle,
+                      hasContent: !!newContent,
+                      contentLength: newContent.length,
+                      hasBlocks: !!(blocks && blocks.length > 0),
+                      blocksCount: blocks?.length || 0,
+                      sanitizedBlocks: sanitized?.blocks,
+                      sanitizedBlocksType: typeof sanitized?.blocks,
+                      sanitizedBlocksIsArray: Array.isArray(sanitized?.blocks)
+                    });
+                  }
+                } catch (sanitizeError) {
+                  console.error('ChatPanel: Error sanitizing or applying script update:', sanitizeError);
+                  // Try to apply with raw data as fallback
+                  try {
+                    const rawScript = updateData.script;
+                    if (rawScript && (rawScript.title || rawScript.content || rawScript.blocks)) {
+                      console.log('ChatPanel: Attempting fallback apply with raw script data');
+                      onApplyEdit({
+                        ...(script || {}),
+                        title: rawScript.title || script?.title || 'Untitled Script',
+                        content: rawScript.content || script?.content || '',
+                        body: composeHtml(rawScript.title || script?.title || 'Untitled Script', rawScript.content || '', rawScript.html),
+                        blocks: Array.isArray(rawScript.blocks) ? rawScript.blocks : undefined,
+                        metadata: updateData.metadata || {}
+                      } as any);
+                    }
+                  } catch (fallbackError) {
+                    console.error('ChatPanel: Fallback apply also failed:', fallbackError);
+                  }
                 }
               } else {
-                console.warn('Script update missing script data or onApplyEdit function', { 
+                console.warn('ChatPanel: Script update missing script data or onApplyEdit function', { 
                   hasScript: !!updateData.script, 
                   hasOnApplyEdit: typeof onApplyEdit === 'function' 
                 });

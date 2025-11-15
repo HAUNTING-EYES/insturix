@@ -22,7 +22,6 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
         sessionId={sessionId || undefined}
         onBackToChat={onBack}
         onEditScript={onUpdate}
-        onExportScript={()=>{}}
         isSaving={isSaving}
         onImportScript={onImportScript}
       />

@@ -202,28 +202,67 @@ export default function ThinkForgeLanding() {
 		const content = m.content || '';
 		const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 		const htmlBody = [`<h1>${title}</h1>`, ...paras.map(p => `<p>${p}</p>`)].join('\n');
-		return {
+		const script: Script = {
 			title,
 			content,
 			body: htmlBody,
-			blocks: (m.blocks as any) || undefined,
+			blocks: Array.isArray(m.blocks) && m.blocks.length > 0 ? (m.blocks as any) : undefined,
 			metadata: m.metadata || undefined,
 			sections: [], tips: [], duration: undefined, targetAudience: undefined, tone: undefined
 		} as Script;
+		console.log('page.tsx: modelToScript conversion:', {
+			inputBlocks: m.blocks,
+			inputBlocksType: typeof m.blocks,
+			inputBlocksIsArray: Array.isArray(m.blocks),
+			inputBlocksLength: Array.isArray(m.blocks) ? m.blocks.length : 0,
+			outputBlocks: script.blocks,
+			outputBlocksType: typeof script.blocks,
+			outputBlocksIsArray: Array.isArray(script.blocks),
+			outputBlocksLength: Array.isArray(script.blocks) ? script.blocks.length : 0
+		});
+		return script;
 	}, []);
 
 	const scriptFromHook: Script | null = useMemo(() => modelToScript(tf.script), [tf.script, modelToScript]);
 
-	const scriptToModel = useCallback((s: Script): ScriptModel => ({
-		title: s.title,
-		content: s.content || '',
-		blocks: (s as any).blocks || null,
-		metadata: s.metadata || null,
-	}), []);
+	const scriptToModel = useCallback((s: Script): ScriptModel => {
+		const model: ScriptModel = {
+			title: s.title,
+			content: s.content || '',
+			blocks: Array.isArray((s as any).blocks) && (s as any).blocks.length > 0 ? (s as any).blocks : null,
+			metadata: s.metadata || null,
+		};
+		console.log('page.tsx: scriptToModel conversion:', {
+			inputBlocks: (s as any).blocks,
+			inputBlocksType: typeof (s as any).blocks,
+			inputBlocksIsArray: Array.isArray((s as any).blocks),
+			inputBlocksLength: Array.isArray((s as any).blocks) ? (s as any).blocks.length : 0,
+			outputBlocks: model.blocks,
+			outputBlocksType: typeof model.blocks,
+			outputBlocksIsArray: Array.isArray(model.blocks),
+			outputBlocksLength: Array.isArray(model.blocks) ? model.blocks.length : 0
+		});
+		return model;
+	}, []);
 
 	// Handlers using autosave hook
 	const handleApplyEdit = useCallback((updated: Script) => {
-		tf.setScriptAndQueueSave(scriptToModel(updated));
+		console.log('page.tsx: handleApplyEdit called with:', {
+			title: updated.title,
+			hasContent: !!updated.content,
+			contentLength: updated.content?.length || 0,
+			hasBlocks: !!(updated.blocks && Array.isArray(updated.blocks)),
+			blocksCount: updated.blocks?.length || 0
+		});
+		const model = scriptToModel(updated);
+		console.log('page.tsx: Converted to model:', {
+			title: model.title,
+			hasContent: !!model.content,
+			contentLength: model.content?.length || 0,
+			hasBlocks: !!(model.blocks && Array.isArray(model.blocks)),
+			blocksCount: model.blocks?.length || 0
+		});
+		tf.setScriptAndQueueSave(model);
 	}, [tf, scriptToModel]);
 
 	const handleUpdateScript = useCallback((updated: Script | null) => {
