@@ -60,13 +60,7 @@ export async function GET(req: NextRequest) {
     } as const;
 
     // Fetch Passes data
-    const allAttendees = await Ics25Attendee.find({}).lean();
-
-    // Filter out attendees with rejected or failed payment status for total count
-    const validAttendees = allAttendees.filter((a: any) => {
-      const status = a.payment?.status;
-      return status !== 'rejected' && status !== 'failed';
-    });
+    const totalAttendees = await Ics25Attendee.countDocuments({ 'payment.status': { $nin: ['rejected', 'failed'] } });
 
     const tiers: Array<"bronze" | "silver" | "gold" | "platinum" | "creators"> = [
       'bronze',
@@ -76,20 +70,20 @@ export async function GET(req: NextRequest) {
       'creators',
     ];
 
-    const byTier = tiers.reduce((acc, t) => {
-      const list = validAttendees.filter((a: any) => a.attendeePassTier === t);
-      const paid = list.filter((a: any) => a.payment?.status === 'paid').length;
-      const pending = list.filter((a: any) => a.payment?.status === 'pending').length;
-      (acc as any)[t] = { total: list.length, paid, pending };
-      return acc;
-    }, {} as Record<string, { total: number; paid: number; pending: number }>);
+    const byTier = {} as Record<string, { total: number; paid: number; pending: number }>;
+    for (const t of tiers) {
+      const total = await Ics25Attendee.countDocuments({ attendeePassTier: t, 'payment.status': { $nin: ['rejected', 'failed'] } });
+      const paid = await Ics25Attendee.countDocuments({ attendeePassTier: t, 'payment.status': 'paid' });
+      const pending = await Ics25Attendee.countDocuments({ attendeePassTier: t, 'payment.status': 'pending' });
+      byTier[t] = { total, paid, pending };
+    }
 
     const passesData = {
-      totalAttendees: validAttendees.length,
+      totalAttendees,
       byTier,
       byPaymentStatus: {
-        paid: validAttendees.filter((a: any) => a.payment?.status === 'paid').length,
-        pending: validAttendees.filter((a: any) => a.payment?.status === 'pending').length,
+        paid: await Ics25Attendee.countDocuments({ 'payment.status': 'paid' }),
+        pending: await Ics25Attendee.countDocuments({ 'payment.status': 'pending' }),
       },
       pricing: ICS25_PASS_PRICES,
     } as const;
