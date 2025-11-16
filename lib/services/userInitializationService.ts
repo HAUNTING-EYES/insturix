@@ -29,7 +29,7 @@ export class UserInitializationService {
     try {
       await connectToDatabase();
 
-      // Check if user already exists
+      // First, try to find existing user
       let user = await User.findOne({ clerkUserId });
       
       if (user) {
@@ -42,7 +42,7 @@ export class UserInitializationService {
         return { user, isNewUser: false };
       }
 
-      // User doesn't exist, create with default Free plan
+      // User doesn't exist, prepare to create with default Free plan
       console.log(`Creating new user account for Clerk ID: ${clerkUserId}`);
 
       let finalImageUrl = imageUrl;
@@ -74,52 +74,202 @@ export class UserInitializationService {
         throw new Error("Free plan not found in plans collection. Database setup is incomplete.");
       }
 
-      // Create new user with Free plan
-      user = new User({
-        clerkUserId,
-        email: email.toLowerCase().trim(),
-        username,
-        signUpDate: now,
-        currentPlan: {
-          planId: freePlan._id.toString(),
-          name: UserType.Free,
-          startDate: now,
-          endDate: null, // Free plan never expires
-          price: 0,
-          currency: "USD",
-          status: "active",
-          serviceLimits: freePlanLimits,
-        },
-        planHistory: [],
-        payments: [],
-        trialUsed: false,
-        preferences: {
-          currency: "USD",
-          notifications: {
-            planExpiry: true,
-            paymentReminders: true,
+      // Use findOneAndUpdate with upsert to atomically create or retrieve the user
+      // This prevents race conditions from concurrent requests
+      let userDoc;
+      let isNewUser = false;
+      
+      try {
+        userDoc = await User.findOneAndUpdate(
+          { clerkUserId }, // Filter
+          {
+            $setOnInsert: {
+              clerkUserId,
+              email: email.toLowerCase().trim(),
+              username,
+              signUpDate: now,
+              currentPlan: {
+                planId: freePlan._id.toString(),
+                name: UserType.Free,
+                startDate: now,
+                endDate: null, // Free plan never expires
+                price: 0,
+                currency: "USD",
+                status: "active",
+                serviceLimits: freePlanLimits,
+              },
+              planHistory: [],
+              payments: [],
+              trialUsed: false,
+              preferences: {
+                currency: "USD",
+                notifications: {
+                  planExpiry: true,
+                  paymentReminders: true,
+                },
+              },
+            }
           },
-        },
-      });
+          { 
+            upsert: true, // Create if doesn't exist
+            new: true,    // Return the new document
+            setDefaultsOnInsert: true // Apply schema defaults
+          }
+        );
 
-      await user.save();
-      
-      console.log(`Successfully created user account for: ${email}`);
+        user = userDoc;
+        isNewUser = true;
+        
+        console.log(`Successfully created user account for: ${email}`);
+      } catch (upsertError: unknown) {
+        // Handle duplicate username error
+        if (upsertError && typeof upsertError === 'object' && 'code' in upsertError && upsertError.code === 11000) {
+          // Check if it's a username conflict vs clerkUserId conflict
+          const errorMessage = upsertError && 'message' in upsertError ? String(upsertError.message) : '';
+          
+          if (errorMessage.includes('username_1')) {
+            // Username conflict - the username exists for a different clerkUserId
+            // Check if the conflicting user has a different clerkUserId
+            const conflictingUser = await User.findOne({ username });
+            
+            if (conflictingUser && conflictingUser.clerkUserId !== clerkUserId) {
+              console.log(`Deleting old user with username "${username}" and different clerkUserId: ${conflictingUser.clerkUserId}`);
+              
+              // Delete the old user's Socialize profile first (before User deletion)
+              await Socialize.deleteOne({ clerkUserId: conflictingUser.clerkUserId });
+              
+              // Also delete any Socialize profile with this username (in case of orphaned data)
+              await Socialize.deleteOne({ username });
+              
+              // Delete the old user from User collection
+              await User.deleteOne({ _id: conflictingUser._id });
+              
+              console.log(`Deleted old user and socialize profile for conflicting username: ${username}`);
+              
+              // Retry the upsert now that the conflict is resolved
+              userDoc = await User.findOneAndUpdate(
+                { clerkUserId },
+                {
+                  $setOnInsert: {
+                    clerkUserId,
+                    email: email.toLowerCase().trim(),
+                    username,
+                    signUpDate: now,
+                    currentPlan: {
+                      planId: freePlan._id.toString(),
+                      name: UserType.Free,
+                      startDate: now,
+                      endDate: null,
+                      price: 0,
+                      currency: "USD",
+                      status: "active",
+                      serviceLimits: freePlanLimits,
+                    },
+                    planHistory: [],
+                    payments: [],
+                    trialUsed: false,
+                    preferences: {
+                      currency: "USD",
+                      notifications: {
+                        planExpiry: true,
+                        paymentReminders: true,
+                      },
+                    },
+                  }
+                },
+                { 
+                  upsert: true,
+                  new: true,
+                  setDefaultsOnInsert: true
+                }
+              );
+              
+              user = userDoc;
+              isNewUser = true;
+              console.log(`Successfully created user account for: ${email} after resolving username conflict`);
+            } else {
+              // Same clerkUserId, this shouldn't happen but handle gracefully
+              throw new Error(`Username conflict for same clerkUserId - unexpected state`);
+            }
+          } else if (errorMessage.includes('clerkUserId_1')) {
+            // ClerkUserId conflict - user was created by concurrent request
+            console.log(`User already exists (created by concurrent request), fetching existing user: ${clerkUserId}`);
+            const existingUser = await User.findOne({ clerkUserId });
+            if (existingUser) {
+              user = existingUser;
+              isNewUser = false;
+            } else {
+              throw upsertError;
+            }
+          } else {
+            // Unknown duplicate key error
+            throw upsertError;
+          }
+        } else {
+          throw upsertError;
+        }
+      }
 
-      // Create a corresponding document in the Socialize collection
-      const newSocializeProfile = new Socialize({
-        clerkUserId,
-        username,
-        profileImage: finalImageUrl,
-      });
-      await newSocializeProfile.save();
-      console.log(
-        `New Socialize profile created for user: ${clerkUserId}`
-      );
+      // Use upsert for Socialize profile as well to prevent race conditions
+      try {
+        await Socialize.findOneAndUpdate(
+          { clerkUserId },
+          {
+            $setOnInsert: {
+              clerkUserId,
+              username,
+              profileImage: finalImageUrl,
+            }
+          },
+          { 
+            upsert: true,
+            new: true 
+          }
+        );
+        
+        if (isNewUser) {
+          console.log(`New Socialize profile created for user: ${clerkUserId}`);
+        }
+      } catch (socializeError: unknown) {
+        // Handle Socialize username conflict
+        if (socializeError && typeof socializeError === 'object' && 'code' in socializeError && socializeError.code === 11000) {
+          const errorMessage = socializeError && 'message' in socializeError ? String(socializeError.message) : '';
+          
+          if (errorMessage.includes('username_1')) {
+            console.log(`Socialize username conflict detected for "${username}", cleaning up orphaned profile`);
+            
+            // Delete orphaned Socialize profile with this username
+            await Socialize.deleteOne({ username, clerkUserId: { $ne: clerkUserId } });
+            
+            // Retry the upsert
+            await Socialize.findOneAndUpdate(
+              { clerkUserId },
+              {
+                $setOnInsert: {
+                  clerkUserId,
+                  username,
+                  profileImage: finalImageUrl,
+                }
+              },
+              { 
+                upsert: true,
+                new: true 
+              }
+            );
+            
+            console.log(`Socialize profile created after cleaning up orphaned data for: ${clerkUserId}`);
+          } else {
+            throw socializeError;
+          }
+        } else {
+          throw socializeError;
+        }
+      }
       
-      return { user, isNewUser: true };
+      return { user, isNewUser };
     } catch (error) {
       console.error("Error ensuring user exists:", error);
+      
       return { 
         user: null, 
         isNewUser: false, 

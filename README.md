@@ -12,7 +12,7 @@ A modern full-stack web application built with Next.js 15.3, React 19.1, and Typ
   - Shield: Digital protection for creators
   - Socialize: Social media landing page builder
   - Kundli: Data analysis
-    
+   
 - **Authentication**: Secure user authentication powered by Clerk
 - **Payment System**: Multi-tier subscription management with Razorpay integration
 - **Data Management**: Efficient data fetching and caching with React Query 5
