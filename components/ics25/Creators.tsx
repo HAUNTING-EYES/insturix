@@ -118,6 +118,58 @@ const creators = [
     },
     description: "Ekansh Taneja is an award-winning fitness coach, ICN Gold medalist, and certified sports nutrition specialist who transformed his own health by losing over 37 kg, now helping thousands achieve dramatic results through flexible dieting, evidence-based programs, and social media influence across India.",
   },
+  {
+    id: 9,
+    name: "Uday Sharma",
+    handle: "@udaysharmaaaaa",
+    avatar: "/creators/uday.jpg",
+    category: "Tech Content Creator, Hackathon Mentor, Entrepreneur",
+    followers: "500K+",
+    socials: {
+      youtube: "https://www.youtube.com/@udaysharmaminivlog",
+      instagram: "https://www.instagram.com/udaysharmaaaaa/",
+    },
+    description: "Uday Sharma is a leading tech creator, entrepreneur, and hackathon mentor, empowering India’s youth in AI, freelancing, and digital business through his influential social platforms and community leadership.",
+  },
+  {
+    id: 10,
+    name: "Dolly Pathak",
+    handle: "@dollypathak__",
+    avatar: "/creators/dolly.jpg",
+    category: "Comedy & Lifestyle Content Creator, Social Media Influencer",
+    followers: "300K+",
+    socials: {
+      youtube: "https://www.youtube.com/@dollypathak796",
+      instagram: "https://www.instagram.com/dollypathak__",
+    },
+    description: "Dolly Pathak is a rising comedy and lifestyle creator known for her engaging sketches and relatable reels, entertaining over 200,000 followers across Instagram and YouTube with a vibrant digitaldigital persona.",
+  },
+  {
+    id: 11,
+    name: "Anuj Singh",
+    handle: "@anujsinghviines",
+    avatar: "/creators/anuj.jpg",
+    category: "Comedy Sketch Creator, Social Media Entertainer",
+    followers: "2M+",
+    socials: {
+      youtube: "https://www.youtube.com/@anujsinghviness",
+      instagram: "https://www.instagram.com/anujsinghviines",
+    },
+    description: "Anuj Singh is a prominent Indian digital comedian and content creator, widely recognized for his viral sketches and character-driven humor, engaging over 1.3 million followers across Instagram and YouTube with relatable and entertaining content.",
+  },
+  {
+    id: 12,
+    name: "Taiyab Alam",
+    handle: "@taiyabalam0",
+    avatar: "/creators/alam.jpg",
+    category: "Comedy Creator & Digital Visual Artist",
+    followers: "400K+",
+    socials: {
+      youtube: "https://www.youtube.com/@avtaarcreation9414",
+      instagram: "https://www.instagram.com/taiyabalam0",
+    },
+    description: "Taiyab Alam is a creative comedy creator and digital visual artist, known for his relatable humor and artistic storytelling that engages over 280,000 Instagram followers and a growing audience on his YouTube channel Avtaar Creation.",
+  },
 ];
 
 const categoryBlurbs: Record<string, string> = {
