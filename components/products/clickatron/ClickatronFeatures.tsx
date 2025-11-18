@@ -2,43 +2,50 @@
 
 import React, { useRef } from "react";
 import { easeInOut, motion, useScroll, useTransform } from "framer-motion";
-import { Sparkles, Image, Edit, Palette, Layers } from "lucide-react";
+import { Sparkles, Image, Edit, Palette, Layers, Cloud } from "lucide-react";
 
 const features = [
   {
-    icon: Image,
-    title: "AI Image & Thumbnail Generation",
-    description: "Generate stunning YouTube thumbnails and images in seconds using advanced AI.",
+    icon: Sparkles,
+    title: "Intelligent Prompt Engine",
+    description: "Briefly describe the idea and watch AI expand it into multiple creative directions optimized for engagement.",
     gradient: "from-purple-400 to-fuchsia-500",
     delay: 0.1,
   },
   {
-    icon: Edit,
-    title: "Smart Editing Tools",
-    description: "Edit, enhance, and customize images with intuitive AI-powered tools.",
+    icon: Image,
+    title: "High-Fidelity Renders",
+    description: "A reliable render pipeline produces crisp, high-contrast thumbnails tailored for attention and clarity.",
     gradient: "from-fuchsia-400 to-purple-400",
     delay: 0.2,
   },
   {
-    icon: Palette,
-    title: "Custom Styles & Color Schemes",
-    description: "Choose or generate unique styles, moods, and color palettes for your images.",
+    icon: Edit,
+    title: "Inline AI Editor",
+    description: "Tweak faces, swap text, or recolor scenes without leaving the canvas using AI-assisted brushes.",
     gradient: "from-purple-500 to-fuchsia-400",
     delay: 0.3,
   },
   {
-    icon: Layers,
-    title: "Layered Editing",
-    description: "Work with multiple layers for advanced composition and effects.",
+    icon: Palette,
+    title: "Brand Palettes & Presets",
+    description: "Lock in brand-safe typography, LUTs, and gradient systems so every export feels consistent.",
     gradient: "from-fuchsia-500 to-purple-300",
     delay: 0.4,
   },
   {
-    icon: Sparkles,
-    title: "AI Suggestions & Enhancements",
-    description: "Get smart suggestions and automatic enhancements to make your images pop.",
+    icon: Layers,
+    title: "Realtime Task Tracking",
+    description: "Follow generation progress through Firebase streams and never wonder if a render stalled again.",
     gradient: "from-purple-400 to-fuchsia-400",
     delay: 0.5,
+  },
+  {
+    icon: Cloud,
+    title: "Cloud-Native Delivery",
+    description: "Final assets are versioned in Google Cloud Storage and ready to sync with the Insturix dashboard.",
+    gradient: "from-fuchsia-400 to-purple-500",
+    delay: 0.6,
   },
 ];
 
@@ -150,7 +157,7 @@ export default function ClickatronFeatures() {
               transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
               className="inline-flex"
             >
-              <Sparkles className="w-5 h-5 text-purple-500" />
+              <Image className="w-5 h-5 text-purple-500" />
             </motion.span>
             <span className="text-neutral-700 dark:text-neutral-300 font-medium">
               Ready to create your next viral thumbnail?

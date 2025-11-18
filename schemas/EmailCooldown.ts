@@ -7,7 +7,7 @@ import mongoose, { Document, Schema } from "mongoose";
  */
 
 export interface IEmailCooldown extends Document {
-  emailType: 'promotional' | 'newsletter' | 'announcement';
+  emailType: 'promotional' | 'newsletter' | 'announcement' | 'ticket-confirmation' | 'custom-mailing';
   lastSentAt: Date;
   cooldownPeriodDays: number;
   sentBy: string; // Admin user ID who triggered the send
@@ -26,7 +26,7 @@ const emailCooldownSchema = new Schema<IEmailCooldown>(
   {
     emailType: {
       type: String,
-      enum: ['promotional', 'newsletter', 'announcement'],
+      enum: ['promotional', 'newsletter', 'announcement', 'ticket-confirmation', 'custom-mailing'],
       required: true,
     },
     lastSentAt: {

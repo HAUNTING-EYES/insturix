@@ -91,6 +91,7 @@ const menuItems = [
     href: "/products",
     subItems: [
       { title: "Alyzitron", href: "/products/alyzitron" },
+      { title: "Clickatron", href: "/products/clickatron" },
       { title: "Musitron", href: "/products/musitron" },
       { title: "Socialize", href: "/products/socialize" },
       { title: "Editron", href: "/products/editron" },
