@@ -256,14 +256,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   };
 
   return (
-    <UISidebarProvider 
-      defaultOpen={true}
-      style={
-        {
-          "--sidebar-width": "350px",
-        } as React.CSSProperties
-      }
-    >
+    <UISidebarProvider defaultOpen={false} className="relative isolate h-[calc(100vh-4rem)] w-full overflow-hidden">
       <EditorSidebarProvider>
         <KeyframeProvider>
           <TimelineProvider>

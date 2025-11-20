@@ -57,7 +57,7 @@ import { AIChatPanel } from "../ai-chat/ai-chat-panel";
  * @param props - Props extending from the base Sidebar component
  */
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  const { activePanel, setActivePanel, setIsOpen } = useSidebar();
+  const { activePanel, setActivePanel, setIsOpen, isOpen } = useSidebar();
   const { setSelectedOverlayId, selectedOverlayId } = useEditorContext();
 
   const getPanelTitle = (type: OverlayType): string => {
@@ -176,31 +176,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   return (
     <Sidebar
       collapsible="icon"
-      className="overflow-hidden [&>[data-sidebar=sidebar]]:flex-row border-r border-1 bg-background"
+      className="!relative !block !h-full !z-10 !w-auto [&>div.fixed]:!relative [&>div.fixed]:!h-full [&>div.fixed]:!w-[--sidebar-width] [&>div.relative]:!hidden overflow-hidden [&>[data-sidebar=sidebar]]:flex-row border-r border-1 bg-black"
       {...props}
     >
       {/* First sidebar */}
-      <Sidebar
+        <Sidebar
         collapsible="none"
-        className="!w-[calc(var(--sidebar-width-icon)_+_1px)] bg-background border-r"
+        className="!w-[calc(var(--sidebar-width-icon)_+_1px)] bg-black border-r"
       >
-        <SidebarHeader className="">
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton size="lg" asChild className="md:h-8 md:py-4">
-                <a href="#">
-                  <div className="flex aspect-square size-9 items-center justify-center rounded-lg">
-                    <Image
-                      src="/icons/logo.svg"
-                      alt="Logo"
-                      width={27}
-                      height={27}
-                    />
-                  </div>
-                </a>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
+        <SidebarHeader className="h-0 p-0">
         </SidebarHeader>
         <SidebarContent>
           <SidebarGroup>
@@ -210,8 +194,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <TooltipTrigger asChild>
                     <SidebarMenuButton
                       onClick={() => {
-                        setActivePanel(item.panel);
-                        setIsOpen(true);
+                        if (activePanel === item.panel && isOpen) {
+                          setIsOpen(false);
+                        } else {
+                          setActivePanel(item.panel);
+                          setIsOpen(true);
+                        }
                       }}
                       size="lg"
                       className={`flex flex-col items-center gap-2 px-1.5 py-2 ${
@@ -246,8 +234,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   <TooltipTrigger asChild>
                     <SidebarMenuButton
                       onClick={() => {
-                        setActivePanel(OverlayType.AI_CHAT);
-                        setIsOpen(true);
+                        if (activePanel === OverlayType.AI_CHAT && isOpen) {
+                          setIsOpen(false);
+                        } else {
+                          setActivePanel(OverlayType.AI_CHAT);
+                          setIsOpen(true);
+                        }
                       }}
                       size="lg"
                       className={`flex flex-col items-center gap-2 px-1.5 py-2 relative overflow-hidden ${
@@ -283,34 +275,27 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       </Sidebar>
 
       {/* Second sidebar */}
-      <Sidebar
-        collapsible="none"
-        className="hidden flex-1 md:flex bg-background border-r"
-      >
-        <SidebarHeader className="gap-3.5 border-b px-4 py-[12px]">
-          <div className="flex w-full items-center justify-between">
-            <div className="flex items-center gap-2">
-              {selectedOverlayId !== null && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6"
-                  onClick={() => setSelectedOverlayId(null)}
-                  aria-label="Back"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-              )}
-              <div className="text-base font-medium text-foreground">
-                {activePanel ? getPanelTitle(activePanel) : ""}
+      <div className="transition-all duration-300 ease-in-out overflow-hidden" style={{ width: isOpen ? 'var(--sidebar-width)' : '0px' }}>
+        {isOpen && (
+            <Sidebar
+            collapsible="none"
+            className="flex-1 md:flex bg-black border-r"
+          >
+            <SidebarHeader className="gap-3.5 border-b px-4 py-[12px] bg-black">
+              <div className="flex w-full items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="text-base font-medium text-foreground">
+                    {activePanel ? getPanelTitle(activePanel) : ""}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </SidebarHeader>
-        <SidebarContent className="text-foreground bg-background">
-          {renderActivePanel()}
-        </SidebarContent>
-      </Sidebar>
+            </SidebarHeader>
+            <SidebarContent className="text-foreground bg-black">
+              {renderActivePanel()}
+            </SidebarContent>
+          </Sidebar>
+        )}
+      </div>
     </Sidebar>
   );
 }

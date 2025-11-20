@@ -24,6 +24,7 @@ export const useSidebar = () => {
   return {
     ...context,
     setIsOpen: uiSidebar.setOpen,
+    isOpen: uiSidebar.open,
   };
 };
 
@@ -31,7 +32,7 @@ export const useSidebar = () => {
 export const SidebarProvider: React.FC<React.PropsWithChildren> = ({
   children,
 }) => {
-  const [activePanel, setActivePanel] = useState<OverlayType>(OverlayType.TEXT);
+  const [activePanel, setActivePanel] = useState<OverlayType>(OverlayType.VIDEO);
   const { setOpen } = useUISidebar();
 
   const value = {

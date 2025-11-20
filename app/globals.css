@@ -1350,3 +1350,36 @@
   background: linear-gradient(90deg, rgba(58, 158, 255, 0.0), rgba(58, 158, 255, 0.35), rgba(255, 46, 230, 0.35), rgba(58, 158, 255, 0.0));
   opacity: 0.6;
 }
+/* Editron editor fullscreen layout fixes */
+[data-editron-fullscreen] .abcdefg {
+  min-height: 100% !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+[data-editron-fullscreen] main {
+  min-height: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+}
+
+[data-editron-fullscreen] [data-sidebar="sidebar"] {
+  height: 100vh !important;
+}
+
+/* Editron editor fullscreen layout fixes */
+[data-editron-fullscreen] .abcdefg {
+  min-height: 100% !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+[data-editron-fullscreen] main {
+  min-height: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+}
+
+[data-editron-fullscreen] [data-sidebar="sidebar"] {
+  height: 100vh !important;
+}
