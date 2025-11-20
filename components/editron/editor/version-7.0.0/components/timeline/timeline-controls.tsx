@@ -310,9 +310,9 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
                 className="h-7 bg-muted hover:bg-accent dark:bg-muted dark:hover:bg-accent"
               >
                 {isPlaying ? (
-                  <Pause className="h-3 w-3 text-foreground dark:text-foreground" />
+                  <Pause className="h-3 w-3 text-foreground dark:text-white" />
                 ) : (
-                  <Play className="h-3 w-3 text-foreground dark:text-foreground" />
+                  <Play className="h-3 w-3 text-foreground dark:text-white" />
                 )}
               </Button>
             </TooltipTrigger>

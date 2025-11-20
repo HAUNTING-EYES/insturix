@@ -104,6 +104,35 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
                 height: compositionHeight,
               }}
               errorFallback={() => <></>}
+              // Render a custom white play/pause icon for the overlay controls so
+              // it's clearly visible over the black video background in light
+              // mode (and still visible in dark mode as well).
+              renderPlayPauseButton={({ playing }: { playing: boolean }) =>
+                playing ? (
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-black/60">
+                    <svg
+                      className="w-4 h-4 text-white"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <rect x="6" y="5" width="3" height="14" fill="currentColor" />
+                      <rect x="15" y="5" width="3" height="14" fill="currentColor" />
+                    </svg>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-black/60">
+                    <svg
+                      className="w-4 h-4 text-white"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path d="M8 5v14l11-7L8 5z" fill="currentColor" />
+                    </svg>
+                  </div>
+                )
+              }
               overflowVisible
               acknowledgeRemotionLicense
             />
