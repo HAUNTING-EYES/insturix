@@ -9,6 +9,7 @@ import {
   getProgress as lambdaGetProgress,
   renderVideo as lambdaRenderVideo,
 } from "../lambda-helpers/api";
+import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
 
 // Define possible states for the rendering process
 export type State =
@@ -112,7 +113,7 @@ export const useRendering = (
             setState({
               status: "error",
               renderId: renderId,
-              error: new Error(result.message),
+              error: new Error(getUserFriendlyErrorMessage(result.message)),
             });
             pending = false;
             break;
@@ -144,7 +145,7 @@ export const useRendering = (
       console.error("Unexpected error during rendering:", err);
       setState({
         status: "error",
-        error: err as Error,
+        error: new Error(getUserFriendlyErrorMessage(err)),
         renderId: null,
       });
     }

@@ -20,6 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/editron/use-toast';
+import { getUserFriendlyErrorMessage } from '@/lib/editron/utils/error-handling';
 
 interface Project {
   projectId: string;
@@ -62,7 +63,7 @@ export default function ProjectDashboard() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to load projects',
+        description: getUserFriendlyErrorMessage(error),
       });
     } finally {
       setLoading(false);
@@ -109,7 +110,7 @@ export default function ProjectDashboard() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: error.message || 'Failed to create project',
+        description: getUserFriendlyErrorMessage(error),
       });
     } finally {
       setCreating(false);
@@ -136,7 +137,7 @@ export default function ProjectDashboard() {
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to delete project',
+        description: getUserFriendlyErrorMessage(error),
       });
     } finally {
       setDeleteProjectId(null);

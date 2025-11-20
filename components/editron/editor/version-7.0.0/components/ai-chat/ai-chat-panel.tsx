@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/editron/use-toast";
+import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
 
 interface ChatMessage {
   role: "user" | "assistant" | "tool";
@@ -270,7 +271,7 @@ export function AIChatPanel() {
       console.error("LLM Error:", error);
       const errorMsg: ChatMessage = {
         role: "assistant",
-        content: `❌ Error: ${error.message || "Failed to process request"}`,
+        content: `❌ Error: ${getUserFriendlyErrorMessage(error)}`,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, errorMsg]);
