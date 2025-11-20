@@ -200,7 +200,7 @@ const TimeMarkers = ({
 
   return (
     <div
-      className="relative w-full h-12  
+      className="relative w-full h-full  
         cursor-pointer
         z-10"
       data-timeline-marker="root"

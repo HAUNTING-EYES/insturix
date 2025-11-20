@@ -378,8 +378,8 @@ const Timeline: React.FC<TimelineProps> = ({
           </div>
         </div>
         {/* Timeline header */}
-        <div ref={headerScrollRef} className="flex-1 overflow-x-auto scrollbar-hide" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
-          <div className="h-[1.3rem]" style={{ width: `${100 * zoomScale}%`, minWidth: "100%" }}>
+  <div ref={headerScrollRef} className="flex-1 overflow-x-auto overflow-y-hidden scrollbar-hide" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+    <div className="h-[1.3rem]" style={{ width: `${100 * zoomScale}%`, minWidth: "100%", overflow: "hidden" }}>
             <TimeMarkers
               durationInFrames={durationInFrames}
               handleTimelineClick={setCurrentFrame}
