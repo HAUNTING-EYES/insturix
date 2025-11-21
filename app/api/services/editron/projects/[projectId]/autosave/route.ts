@@ -22,7 +22,17 @@ export async function POST(
       );
     }
     const { projectId } = await params;
-    const state = await request.json();
+    
+    // Check if body exists
+    const text = await request.text();
+    if (!text) {
+      return NextResponse.json(
+        { success: false, error: 'Empty request body' },
+        { status: 400 }
+      );
+    }
+    
+    const state = JSON.parse(text);
 
     await projectService.autosaveProject(userId, projectId, state);
 

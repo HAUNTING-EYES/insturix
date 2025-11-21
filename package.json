@@ -112,6 +112,7 @@
     "gray-matter": "^4.0.3",
     "gsap": "^3.13.0",
     "html-react-parser": "^5.2.10",
+    "html2canvas": "^1.4.1",
     "idb": "^8.0.3",
     "immer": "^10.2.0",
     "langchain": "^1.0.6",

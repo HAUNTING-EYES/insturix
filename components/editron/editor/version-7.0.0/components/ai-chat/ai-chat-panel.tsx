@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/editron/use-toast";
 import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
+import html2canvas from "html2canvas";
+import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
 
 interface ChatMessage {
   role: "user" | "assistant" | "tool";
@@ -54,7 +56,9 @@ interface ChatSession {
 }
 
 export function AIChatPanel() {
-  const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions } = useEditorContext();
+  const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject, 
+    setIsAIProcessing
+  } = useEditorContext();
   const { toast } = useToast();
   const userId = getUserId();
   
@@ -202,79 +206,187 @@ export function AIChatPanel() {
     }
   };
 
-  const handleSendMessage = async () => {
-    if (!inputMessage.trim() || !currentSessionId || isProcessing) return;
+  const addLog = useAIDebugStore((state) => state.addLog);
+
+  const handleSendMessage = async (overrideMessage?: string) => {
+    const messageToSend = overrideMessage || inputMessage;
+    if (!messageToSend.trim() || !currentSessionId || isProcessing) return;
 
     setIsProcessing(true);
-    const userMessage = inputMessage;
+    setIsAIProcessing(true); // Lock editor
     setInputMessage("");
+    
+    // Force save current state before sending to AI to ensure it sees the latest data
+    if (saveProject) {
+      await saveProject();
+    }
+
+    addLog('info', 'Sending message', { message: messageToSend, sessionId: currentSessionId });
 
     // Add user message immediately
     const userMsg: ChatMessage = {
       role: "user",
-      content: userMessage,
+      content: messageToSend,
       timestamp: new Date(),
     };
     setMessages((prev) => [...prev, userMsg]);
 
+    // Create placeholder assistant message
+    // We need a unique ID to reliably update this message in the state
+    const assistantMsgId = Date.now(); 
+    const assistantMsg: ChatMessage = {
+      role: "assistant",
+      content: "",
+      timestamp: new Date(assistantMsgId), // Use timestamp as ID for now since interface doesn't have ID
+      toolCalls: [],
+    };
+    setMessages((prev) => [...prev, assistantMsg]);
+
     try {
-      // Get actual composition dimensions (not preview player dimensions)
-      const { width: compositionWidth, height: compositionHeight } = getAspectRatioDimensions();
-      
-      // Call LLM API
-      const state = {
-        overlays,
-        width: compositionWidth,   // Use composition dimensions for positioning
-        height: compositionHeight, // Use composition dimensions for positioning
-        fps: 30,
-        durationInFrames,
-      };
-
-      const llmMessages = messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      }));
-      llmMessages.push({ role: "user", content: userMessage });
-
-      const res = await fetch('/api/llm/chat', {
+      const response = await fetch('/api/services/editron/chat/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: llmMessages,
-          state,
-          sessionId: currentSessionId,
+          message: messageToSend,
           projectId,
+          sessionId: currentSessionId,
         }),
       });
 
-      const data = await res.json();
+      if (!response.ok) throw new Error('Failed to start stream');
+      if (!response.body) throw new Error('No response body');
 
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to process request');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      let currentToolCalls: any[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6));
+
+              if (data.type === 'token') {
+                assistantContent += data.content;
+                // Update message by matching timestamp (which acts as ID)
+                setMessages((prev) => prev.map(msg => 
+                  (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
+                    ? { ...msg, content: assistantContent }
+                    : msg
+                ));
+              } else if (data.type === 'tool_start') {
+                addLog('tool_start', `Tool started: ${data.tool}`, { args: data.args });
+                currentToolCalls.push({ name: data.tool, id: `tool_${Date.now()}`, args: data.args });
+                setMessages((prev) => prev.map(msg => 
+                  (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
+                    ? { ...msg, toolCalls: [...currentToolCalls] }
+                    : msg
+                ));
+              } else if (data.type === 'tool_end') {
+                addLog('tool_end', `Tool finished: ${data.tool}`, data);
+                // Update the tool call with output
+                const toolCallIndex = currentToolCalls.findIndex(tc => tc.name === data.tool);
+                if (toolCallIndex !== -1) {
+                  currentToolCalls[toolCallIndex].output = data.output;
+                  // Force update state to ensure re-render if needed
+                   setMessages((prev) => prev.map(msg => 
+                    (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
+                      ? { ...msg, toolCalls: [...currentToolCalls] }
+                      : msg
+                  ));
+                }
+
+                // Reload project data immediately after a modifying tool finishes
+                const modifyingTools = [
+                  'apply_project_patch', 
+                  'add_text_overlay', 
+                  'add_image_overlay', 
+                  'add_video_overlay', 
+                  'add_audio_overlay', 
+                  'update_overlay', 
+                  'delete_overlay'
+                ];
+                
+                if (modifyingTools.includes(data.tool)) {
+                   try {
+                     const projectRes = await fetch(`/api/services/editron/projects/${projectId}`);
+                     if (projectRes.ok) {
+                       const projectData = await projectRes.json();
+                       if (projectData.project && projectData.project.overlays) {
+                         setOverlays(projectData.project.overlays);
+                       }
+                     }
+                   } catch (e) {
+                     console.error("Failed to reload project data", e);
+                   }
+                }
+
+              } else if (data.type === 'done') {
+                 addLog('info', 'Stream finished');
+                 // Final reload check removed as it's handled per-tool now
+              } else if (data.type === 'error') {
+                addLog('error', 'Stream error', data);
+                throw new Error(data.error);
+              }
+            } catch (e) {
+              console.error('Error parsing stream chunk', e);
+            }
+          }
+        }
       }
 
-      // Add assistant message
-      const assistantMsg: ChatMessage = {
-        role: "assistant",
-        content: data.text,
-        timestamp: new Date(),
-        toolCalls: data.toolCalls?.map((tc: any) => ({
-          id: `tool_${Date.now()}`,
-          name: tc.toolName,
-          args: tc.args,
-        })),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      // Check for pending client actions (capture_frame)
+      const captureActionTool = currentToolCalls.find(tc => tc.name === 'visual_inspect_frame');
+      if (captureActionTool && captureActionTool.output) {
+        try {
+          const output = JSON.parse(captureActionTool.output);
+          if (output.action === 'capture_frame') {
+            const { frame, question } = output;
+            addLog('client_action', 'Capturing frame', { frame, question });
+            
+            // 1. Seek to frame
+            if (playerRef?.current) {
+              playerRef.current.seekTo(frame);
+              
+              // 2. Wait for seek/render (short delay)
+              await new Promise(resolve => setTimeout(resolve, 800));
+              
+              // 3. Capture
+              const element = document.getElementById("remotion-player-container");
+              if (element) {
+                const canvas = await html2canvas(element, {
+                  useCORS: true,
+                  scale: 0.5, // Reduce resolution for speed/token usage
+                });
+                const base64Image = canvas.toDataURL('image/jpeg', 0.7);
+                
+                const imageMessage = `[System: Frame ${frame} captured]\nHere is the visual snapshot you requested:\n${base64Image}\n\nQuestion was: ${question}`;
+                
+                addLog('client_action', 'Frame captured, sending back to AI');
 
-      // Update overlays if changed
-      if (data.overlays) {
-        setOverlays(data.overlays);
+                setTimeout(() => {
+                   handleSendMessage(imageMessage);
+                }, 100);
+                return; // Exit this execution
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Failed to handle capture action", e);
+          addLog('error', 'Failed to handle capture action', e);
+        }
       }
 
-      // Reload messages from server to ensure sync
-      await loadSessionMessages(currentSessionId);
     } catch (error: any) {
       console.error("LLM Error:", error);
+      addLog('error', 'LLM Error', error);
       const errorMsg: ChatMessage = {
         role: "assistant",
         content: `❌ Error: ${getUserFriendlyErrorMessage(error)}`,
@@ -283,6 +395,7 @@ export function AIChatPanel() {
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
       setIsProcessing(false);
+      setIsAIProcessing(false); // Unlock editor when done
     }
   };
 
@@ -533,9 +646,14 @@ export function AIChatPanel() {
                             {msg.toolCalls.map((call, i) => (
                               <div
                                 key={i}
-                                className="flex items-center gap-2 text-xs bg-background/50 rounded-md px-2 py-1.5 border border-border/50"
+                                className="flex flex-col gap-1 text-xs bg-background/50 rounded-md px-2 py-1.5 border border-border/50"
                               >
-                                <span className="font-mono opacity-80">{call.name}</span>
+                                <span className="font-mono opacity-80 font-semibold">{call.name}</span>
+                                {call.args && Object.keys(call.args).length > 0 && (
+                                  <pre className="text-[10px] opacity-60 overflow-x-auto">
+                                    {JSON.stringify(call.args, null, 2)}
+                                  </pre>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -581,7 +699,7 @@ export function AIChatPanel() {
                 disabled={isProcessing}
               />
               <Button
-                onClick={handleSendMessage}
+                onClick={() => handleSendMessage()}
                 disabled={!inputMessage.trim() || isProcessing}
                 size="icon"
                 className="h-[50px] w-[50px] shrink-0"

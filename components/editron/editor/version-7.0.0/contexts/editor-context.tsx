@@ -69,6 +69,13 @@ interface EditorContextProps {
 
   // Add renderType to the context
   renderType: "ssr" | "lambda";
+
+  // Debugging
+  getProjectState: () => any;
+
+  // AI Processing State
+  isAIProcessing: boolean;
+  setIsAIProcessing: (isProcessing: boolean) => void;
 }
 
 // Create the context with undefined as default value

@@ -109,6 +109,13 @@ export class ProjectService {
     // Strip URLs before saving (keep only assetIds)
     const cleanOverlays = assetResolver.stripUrlsForLLM(state.overlays);
 
+    // Validate playerDimensions
+    const dimensions = (state.playerDimensions && 
+                        typeof state.playerDimensions.width === 'number' && 
+                        typeof state.playerDimensions.height === 'number')
+                        ? state.playerDimensions
+                        : { width: 1920, height: 1080 };
+
     const db = await getDatabase();
     
     // Update existing project only - project must exist
@@ -118,7 +125,7 @@ export class ProjectService {
         $set: {
           overlays: cleanOverlays,
           aspectRatio: state.aspectRatio,
-          playerDimensions: state.playerDimensions,
+          playerDimensions: dimensions,
           fps: state.fps || 30,
           durationInFrames: state.durationInFrames || 0,
           updatedAt: new Date(),
@@ -138,6 +145,13 @@ export class ProjectService {
     // Strip URLs before saving
     const cleanOverlays = assetResolver.stripUrlsForLLM(state.overlays);
 
+    // Validate playerDimensions
+    const dimensions = (state.playerDimensions && 
+                        typeof state.playerDimensions.width === 'number' && 
+                        typeof state.playerDimensions.height === 'number')
+                        ? state.playerDimensions
+                        : { width: 1920, height: 1080 };
+
     const db = await getDatabase();
     
     // Update existing project only (no upsert for autosave)
@@ -148,7 +162,7 @@ export class ProjectService {
         $set: {
           overlays: cleanOverlays,
           aspectRatio: state.aspectRatio,
-          playerDimensions: state.playerDimensions,
+          playerDimensions: dimensions,
           fps: state.fps || 30,
           durationInFrames: state.durationInFrames || 0,
           lastAutosaveAt: new Date(),
@@ -247,6 +261,76 @@ export class ProjectService {
           name,
           updatedAt: new Date(),
         },
+      }
+    );
+  }
+
+  /**
+   * Add an overlay atomically
+   */
+  async addOverlay(userId: string, projectId: string, overlay: Overlay): Promise<void> {
+    const db = await getDatabase();
+    await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId, userId },
+      { 
+        $push: { overlays: overlay } as any,
+        $set: { updatedAt: new Date() }
+      }
+    );
+  }
+
+  /**
+   * Update an overlay atomically
+   */
+  async updateOverlay(userId: string, projectId: string, overlayId: number, updates: Partial<Overlay>): Promise<void> {
+    const db = await getDatabase();
+    
+    // Construct dot notation for nested updates to avoid overwriting entire objects
+    const setOperations: Record<string, any> = { updatedAt: new Date() };
+    
+    for (const [key, value] of Object.entries(updates)) {
+      if (key === 'styles' && typeof value === 'object') {
+        // For styles, we might want to merge, but for now let's replace or use dot notation if needed.
+        // To keep it simple and robust, we'll replace the styles object if provided, 
+        // or we could flatten it. Given the tool sends "styles" as a partial, 
+        // we should probably merge it. But MongoDB $set on "overlays.$[elem].styles" replaces it.
+        // To merge, we'd need "overlays.$[elem].styles.color": value.color
+        // Let's assume for now we replace the styles object or the tool sends the full merged styles?
+        // Actually, the tool sends partial styles. 
+        // If we want to merge, we need to read-modify-write OR use dot notation for every style prop.
+        // Let's use dot notation for top-level properties.
+        setOperations[`overlays.$[elem].${key}`] = value;
+      } else {
+        setOperations[`overlays.$[elem].${key}`] = value;
+      }
+    }
+
+    // Special handling for styles merging if needed:
+    // If 'styles' is present, we might want to use dot notation for its children to avoid wiping other styles.
+    if (updates.styles) {
+       for (const [styleKey, styleValue] of Object.entries(updates.styles)) {
+         setOperations[`overlays.$[elem].styles.${styleKey}`] = styleValue;
+       }
+       delete setOperations[`overlays.$[elem].styles`]; // Remove the full object replacement
+    }
+
+    await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId, userId },
+      { $set: setOperations },
+      { arrayFilters: [{ "elem.id": overlayId }] }
+    );
+  }
+
+  /**
+   * Delete an overlay atomically
+   */
+  async deleteOverlay(userId: string, projectId: string, overlayId: number): Promise<void> {
+    const db = await getDatabase();
+    await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId, userId },
+      { 
+        $pull: { overlays: { id: overlayId } } as any,
+        $set: { updatedAt: new Date() }
       }
     );
   }

@@ -80,21 +80,22 @@ export const useAutosave = (
     if (!projectId || !userId) return;
 
     const saveIfChanged = async () => {
-      const currentStateString = JSON.stringify(state);
+      const body = JSON.stringify(state);
+      if (!body) return;
 
       // Only save if state has changed since last save
-      if (currentStateString !== lastSavedStateRef.current) {
+      if (body !== lastSavedStateRef.current) {
         try {
           const response = await fetch(`/api/services/editron/projects/${projectId}/autosave`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify(state),
+            body,
           });
 
           if (response.ok) {
-            lastSavedStateRef.current = currentStateString;
+            lastSavedStateRef.current = body;
             if (onSave) onSave();
           } else {
             console.error("Autosave failed:", await response.text());

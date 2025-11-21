@@ -15,7 +15,7 @@ if (!process.env.MONGODB_DB_NAME) {
 }
 
 const uri = process.env.MONGODB_URI;
-const dbName = process.env.MONGODB_DB_NAME;
+const dbName = process.env.EDITRON_MONGODB_DB_NAME || process.env.MONGODB_DB_NAME;
 
 let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;

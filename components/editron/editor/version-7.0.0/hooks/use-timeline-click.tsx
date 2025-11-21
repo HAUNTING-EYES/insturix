@@ -2,7 +2,7 @@ import { useCallback } from "react";
 
 type PlayerRef = React.RefObject<{
   seekTo: (time: number) => void;
-}>;
+} | null>;
 
 /**
  * A custom hook that creates a click handler for timeline/progress bar interactions.

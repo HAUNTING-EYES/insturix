@@ -8,7 +8,9 @@ export const useCompositionDuration = (overlays: Overlay[]) => {
     if (!overlays.length) return FPS * 1; // Default minimum duration (1 second)
 
     const maxEndFrame = overlays.reduce((maxEnd, overlay) => {
-      const endFrame = overlay.from + overlay.durationInFrames;
+      const from = Number.isFinite(overlay.from) ? overlay.from : 0;
+      const duration = Number.isFinite(overlay.durationInFrames) ? overlay.durationInFrames : FPS;
+      const endFrame = from + duration;
       return Math.max(maxEnd, endFrame);
     }, 0);
 

@@ -42,10 +42,10 @@ export const SortedOutlines: React.FC<{
     [overlays]
   );
 
-  return overlaysToDisplay.map((overlay) => {
+  return overlaysToDisplay.map((overlay, index) => {
     return (
       <Sequence
-        key={overlay.id}
+        key={`${overlay.id}-${index}`}
         from={overlay.from}
         durationInFrames={overlay.durationInFrames}
         layout="none"

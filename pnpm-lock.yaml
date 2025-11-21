@@ -272,6 +272,9 @@ importers:
       html-react-parser:
         specifier: ^5.2.10
         version: 5.2.10(@types/react@19.2.6)(react@19.1.1)
+      html2canvas:
+        specifier: ^1.4.1
+        version: 1.4.1
       idb:
         specifier: ^8.0.3
         version: 8.0.3

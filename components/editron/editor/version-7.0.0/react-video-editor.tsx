@@ -49,6 +49,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   const [lastSaveTime, setLastSaveTime] = useState<number | null>(null);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
+  const [isAIProcessing, setIsAIProcessing] = useState(false);
 
   // Overlay management hooks
   const {
@@ -115,7 +116,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   const editorState = {
     overlays,
     aspectRatio,
-    playerDimensions,
+    playerDimensions: getAspectRatioDimensions(),
   };
 
   // Implment load state
@@ -253,6 +254,19 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
 
     // Autosave
     saveProject: handleManualSave,
+
+    // Debugging
+    getProjectState: () => ({
+      overlays,
+      aspectRatio,
+      playerDimensions,
+      durationInFrames,
+      fps: FPS,
+    }),
+
+    // AI Processing State
+    isAIProcessing,
+    setIsAIProcessing,
   };
 
   return (
@@ -264,8 +278,15 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
               <LocalMediaProvider>
                 <AssetLoadingProvider>
                   <AppSidebar />
-                  <SidebarInset>
+                  <SidebarInset className="relative">
                     <Editor />
+                    {/* AI Processing Overlay */}
+                    <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm transition-opacity duration-300 ${isAIProcessing ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
+                      <div className="flex flex-col items-center gap-4 rounded-lg bg-card p-8 shadow-lg border border-border">
+                        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+                        <p className="text-lg font-medium text-foreground">Editron is editing...</p>
+                      </div>
+                    </div>
                   </SidebarInset>
 
                   {/* Autosave Status Indicator */}
@@ -289,6 +310,8 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
                   {process.env.NODE_ENV === "development" && (
                     <AIToolsDebugPanel />
                   )}
+
+
                 </AssetLoadingProvider>
               </LocalMediaProvider>
             </EditorProvider>

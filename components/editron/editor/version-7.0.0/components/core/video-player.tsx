@@ -63,6 +63,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     <div className="w-full h-full overflow-hidden">
       {/* Grid background container */}
       <div
+        id="remotion-player-container"
         className="z-0 video-container relative w-full h-full
         bg-zinc-100/90 dark:bg-zinc-900
         bg-[linear-gradient(to_right,#71717a15_1px,transparent_1px),linear-gradient(to_bottom,#71717a15_1px,transparent_1px)] 
@@ -75,8 +76,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
           <div
             className="relative mx-2 sm:mx-0"
             style={{
-              width: Math.min(playerDimensions.width, compositionWidth),
-              height: Math.min(playerDimensions.height, compositionHeight),
+              width: Math.min(Number.isFinite(playerDimensions.width) ? playerDimensions.width : 0, Number.isFinite(compositionWidth) ? compositionWidth : 0) || "100%",
+              height: Math.min(Number.isFinite(playerDimensions.height) ? playerDimensions.height : 0, Number.isFinite(compositionHeight) ? compositionHeight : 0) || "100%",
               maxWidth: "100%",
               maxHeight: "100%",
             }}

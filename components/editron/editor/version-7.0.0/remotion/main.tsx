@@ -80,10 +80,10 @@ export const Main: React.FC<MainProps> = ({
       onPointerDown={onPointerDown}
     >
       <AbsoluteFill style={layerContainer}>
-        {overlays.map((overlay) => {
+        {overlays.map((overlay, index) => {
           return (
             <Layer
-              key={overlay.id}
+              key={`${overlay.id}-${index}`}
               overlay={overlay}
               selectedOverlayId={selectedOverlayId}
               baseUrl={baseUrl}
