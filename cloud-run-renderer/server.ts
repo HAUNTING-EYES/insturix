@@ -11,6 +11,15 @@ const port = process.env.PORT || 8080;
 
 app.use(express.json());
 
+// Health check endpoint for Cloud Run
+app.get('/', (req: Request, res: Response) => {
+  res.json({ status: 'ok', service: 'remotion-cloud-run-renderer', timestamp: new Date().toISOString() });
+});
+
+app.get('/health', (req: Request, res: Response) => {
+  res.json({ status: 'healthy' });
+});
+
 const storage = new Storage();
 
 app.post('/render', async (req: Request, res: Response) => {
