@@ -23,5 +23,18 @@ app/dashboard/musitron/task/[id]/reference_ui
 .vscode/settings.json
 
 *.env
-react-video-editor-main
+react-video-editor-pro-main
 tsconfig.tsbuildinfo
+
+# Cloud Run Renderer - Ignore copied files during deployment
+/cloud-run-renderer/app/
+/cloud-run-renderer/components/
+/cloud-run-renderer/lib/
+/cloud-run-renderer/public/
+/cloud-run-renderer/tailwind.config.ts
+/cloud-run-renderer/postcss.config.mjs
+/cloud-run-renderer/postcss.config.js
+/cloud-run-renderer/remotion.config.ts
+/cloud-run-renderer/node_modules/
+/cloud-run-renderer/dist/
+/cloud-run-renderer/package-lock.json
