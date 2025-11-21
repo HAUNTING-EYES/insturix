@@ -26,11 +26,8 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 
 interface CooldownStatus {
-  canSend: boolean;
   lastSent: string | null;
-  nextAvailable: string | null;
   totalUsers: number;
-  cooldownDays: number;
 }
 
 interface SendResult {
@@ -327,14 +324,6 @@ export default function MailingDashboard() {
 
   // Step 1: Open first confirmation dialog
   const handleInitiateSend = () => {
-    if (!cooldownStatus?.canSend) {
-      toast({
-        title: 'Cooldown Active',
-        description: 'Please wait until the cooldown period expires',
-        variant: 'destructive',
-      });
-      return;
-    }
     setShowConfirmDialog(true);
   };
 
@@ -359,7 +348,8 @@ export default function MailingDashboard() {
       };
 
       // Add event details if ticket confirmation template is selected
-      if (bulkEmailTemplate === 'ticket-confirmation') {
+      if (bulkEmailTemplate === 'ticket-confirmation-initial' ||
+          bulkEmailTemplate?.startsWith('ticket-confirmation-reminder')) {
         bodyData.eventDetails = prodEventDetails;
       }
 
@@ -1021,41 +1011,33 @@ export default function MailingDashboard() {
             </Card>
 
         {/* Cooldown Status Alert */}
-        {cooldownStatus && !cooldownStatus.canSend && (
-          <Alert variant="destructive">
-            <Clock className="h-4 w-4" />
-            <AlertTitle>Cooldown Active</AlertTitle>
-            <AlertDescription>
-              Next email can be sent in{' '}
-              <strong>{getTimeUntilAvailable(cooldownStatus.nextAvailable)}</strong>
-              <br />
-              Available on: {formatDate(cooldownStatus.nextAvailable)}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {cooldownStatus && cooldownStatus.canSend && (
+        {cooldownStatus && cooldownStatus.lastSent && (
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
-            <AlertTitle>Ready to Send</AlertTitle>
+            <AlertTitle>Last Sent</AlertTitle>
             <AlertDescription>
-              You can now send promotional emails to all users
+              Bulk emails were last sent on {formatDate(cooldownStatus.lastSent)}
             </AlertDescription>
           </Alert>
         )}
 
         {/* Statistics Cards */}
-        <div className="grid gap-4 md:grid-cols-3 mt-8">
+        <div className="grid gap-4 md:grid-cols-2 mt-8">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Users</CardTitle>
+              <CardTitle className="text-sm font-medium">Total Recipients</CardTitle>
               <Users className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
                 {cooldownStatus?.totalUsers.toLocaleString() || 0}
               </div>
-              <p className="text-xs text-muted-foreground">Registered users</p>
+              <p className="text-xs text-muted-foreground">
+                {(bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                  bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                  ? 'ICS\'25 Attendees'
+                  : 'Registered users'}
+              </p>
             </CardContent>
           </Card>
 
@@ -1075,19 +1057,6 @@ export default function MailingDashboard() {
                   ? formatDate(cooldownStatus.lastSent).split(',')[1]
                   : 'No emails sent yet'}
               </p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Cooldown Period</CardTitle>
-              <Clock className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {cooldownStatus?.cooldownDays || 3} days
-              </div>
-              <p className="text-xs text-muted-foreground">Between email sends</p>
             </CardContent>
           </Card>
         </div>
@@ -1182,7 +1151,7 @@ export default function MailingDashboard() {
 
             <Button
               onClick={handleInitiateSend}
-              disabled={!cooldownStatus?.canSend || sending || 
+              disabled={sending || 
                 ((bulkEmailTemplate === 'ticket-confirmation-initial' ||
                   bulkEmailTemplate?.startsWith('ticket-confirmation-reminder')) && !prodEventDetails)}
               className="w-full"
@@ -1205,34 +1174,6 @@ export default function MailingDashboard() {
                 </>
               )}
             </Button>
-
-            {!cooldownStatus?.canSend && (
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleResetCooldown}
-                  disabled={resetting}
-                  variant="outline"
-                  className="flex-1"
-                  size="lg"
-                >
-                  {resetting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Resetting...
-                    </>
-                  ) : (
-                    <>
-                      <Clock className="mr-2 h-4 w-4" />
-                      Reset Timer
-                    </>
-                  )}
-                </Button>
-                <p className="text-sm text-center text-muted-foreground flex-1 flex items-center justify-center">
-                  Button will be enabled in{' '}
-                  <strong>{getTimeUntilAvailable(cooldownStatus?.nextAvailable || null)}</strong>
-                </p>
-              </div>
-            )}
           </CardContent>
         </Card>
         )}

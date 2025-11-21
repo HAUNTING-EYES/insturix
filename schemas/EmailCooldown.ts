@@ -7,7 +7,7 @@ import mongoose, { Document, Schema } from "mongoose";
  */
 
 export interface IEmailCooldown extends Document {
-  emailType: 'promotional' | 'newsletter' | 'announcement' | 'ticket-confirmation' | 'custom-mailing';
+  emailType: 'promotional' | 'newsletter' | 'announcement' | 'ticket-confirmation' | 'custom-mailing' | 'bulk-template';
   lastSentAt: Date;
   cooldownPeriodDays: number;
   sentBy: string; // Admin user ID who triggered the send
@@ -26,7 +26,7 @@ const emailCooldownSchema = new Schema<IEmailCooldown>(
   {
     emailType: {
       type: String,
-      enum: ['promotional', 'newsletter', 'announcement', 'ticket-confirmation', 'custom-mailing'],
+      enum: ['promotional', 'newsletter', 'announcement', 'ticket-confirmation', 'custom-mailing', 'bulk-template'],
       required: true,
     },
     lastSentAt: {
@@ -141,6 +141,11 @@ emailCooldownSchema.statics.resetCooldown = async function (
     };
   }
 };
+
+// Delete cached model to ensure schema updates are applied
+if (mongoose.models.EmailCooldown) {
+  delete mongoose.models.EmailCooldown;
+}
 
 export const EmailCooldown =
   mongoose.models.EmailCooldown ||

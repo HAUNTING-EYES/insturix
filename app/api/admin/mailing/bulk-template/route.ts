@@ -44,8 +44,9 @@ export async function GET(req: NextRequest) {
   try {
     await connectToProdDatabase();
 
-    // Check cooldown status (using 'bulk-template' as the email type)
-    const cooldownCheck = await (EmailCooldown as any).canSendEmail('bulk-template', 1);
+    // Get last sent time for display only (no enforcement)
+    const cooldownRecord = await EmailCooldown.findOne({ emailType: 'bulk-template' });
+    const lastSent = cooldownRecord?.lastSent || null;
 
     // Get total user count based on template type
     let totalUsers = 0;
@@ -65,11 +66,8 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      canSend: cooldownCheck.canSend,
-      lastSent: cooldownCheck.lastSent || null,
-      nextAvailable: cooldownCheck.nextAvailable || null,
+      lastSent: lastSent,
       totalUsers,
-      cooldownDays: 1,
     });
   } catch (error: any) {
     console.error('GET /api/admin/mailing/bulk-template error:', error);
@@ -112,21 +110,6 @@ export async function POST(req: NextRequest) {
     }
 
     await connectToProdDatabase();
-
-    // Check cooldown status
-    const cooldownCheck = await (EmailCooldown as any).canSendEmail('bulk-template', 1);
-
-    if (!cooldownCheck.canSend) {
-      return NextResponse.json(
-        {
-          ok: false,
-          message: 'Cooldown period has not passed yet',
-          lastSent: cooldownCheck.lastSent,
-          nextAvailable: cooldownCheck.nextAvailable,
-        },
-        { status: 429 } // Too Many Requests
-      );
-    }
 
     // Determine if we're sending to attendees or all users
     const isTicketConfirmation = template === 'ticket-confirmation-initial' || 
@@ -210,9 +193,8 @@ export async function POST(req: NextRequest) {
               }
               const ticketData = ticketConfirmationEmailTemplate(
                 userName,
-                recipient.email,
-                eventDetails,
                 `TICKET-${recipient._id}`,
+                eventDetails,
                 timeUntilEvent
               );
               emailContent = ticketData;
