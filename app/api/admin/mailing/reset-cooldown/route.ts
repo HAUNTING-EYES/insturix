@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate emailType
-    const validTypes = ['promotional', 'ticket-confirmation', 'custom-mailing'];
+    const validTypes = ['promotional', 'ticket-confirmation', 'custom-mailing', 'bulk-template'];
     if (!validTypes.includes(emailType)) {
       return NextResponse.json(
         { ok: false, message: 'Invalid emailType. Must be one of: ' + validTypes.join(', ') },

@@ -71,6 +71,7 @@ export default function MailingDashboard() {
   const [showCustomConfirmDialog, setShowCustomConfirmDialog] = useState(false);
   const [showCustomFinalConfirmDialog, setShowCustomFinalConfirmDialog] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [bulkEmailTemplate, setBulkEmailTemplate] = useState<string>('promotional');
   const { toast } = useToast();
   const { user } = useUser();
 
@@ -89,9 +90,8 @@ export default function MailingDashboard() {
         return;
       }
       
-      const endpoint = selectedProdEmailType === 'promotional' 
-        ? '/api/admin/mailing/promotional'
-        : '/api/admin/mailing/ticket-confirmation';
+      // Use the new bulk-template endpoint for cooldown status
+      const endpoint = '/api/admin/mailing/bulk-template';
       const response = await fetch(endpoint);
       const data = await response.json();
 
@@ -349,18 +349,23 @@ export default function MailingDashboard() {
 
     try {
       setSending(true);
-      const endpoint = selectedProdEmailType === 'promotional'
-        ? '/api/admin/mailing/promotional'
-        : '/api/admin/mailing/ticket-confirmation';
       
-      const body = (selectedProdEmailType === 'ticket-confirmation' || selectedProdEmailType === 'ticket-confirmation-initial')
-        ? JSON.stringify({ eventDetails: prodEventDetails })
-        : undefined;
+      // Use the new bulk-template endpoint
+      const endpoint = '/api/admin/mailing/bulk-template';
+      
+      const bodyData: any = {
+        template: bulkEmailTemplate,
+      };
+
+      // Add event details if ticket confirmation template is selected
+      if (bulkEmailTemplate === 'ticket-confirmation') {
+        bodyData.eventDetails = prodEventDetails;
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body,
+        body: JSON.stringify(bodyData),
       });
 
       const data: SendResult = await response.json();
@@ -401,10 +406,10 @@ export default function MailingDashboard() {
 
   // Reset cooldown timer
   const handleResetCooldown = async () => {
-    if (!selectedProdEmailType) {
+    if (!bulkEmailTemplate) {
       toast({
         title: 'Error',
-        description: 'Please select an email type first',
+        description: 'Please select a template first',
         variant: 'destructive',
       });
       return;
@@ -412,15 +417,13 @@ export default function MailingDashboard() {
 
     try {
       setResetting(true);
-      const endpoint = selectedProdEmailType === 'promotional' 
-        ? '/api/admin/mailing/reset-cooldown'
-        : '/api/admin/mailing/reset-cooldown';
+      const endpoint = '/api/admin/mailing/reset-cooldown';
       
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          emailType: selectedProdEmailType === 'promotional' ? 'promotional' : 'ticket-confirmation',
+          emailType: 'bulk-template',
         }),
       });
 
@@ -1099,13 +1102,36 @@ export default function MailingDashboard() {
               <CardTitle>Bulk Email Campaign</CardTitle>
             </div>
             <CardDescription>
-              {selectedEmailType === 'promotional'
-                ? `Send ICS'25 promotional emails to ${cooldownStatus?.totalUsers.toLocaleString() || 0} registered users`
-                : `Send ticket confirmation emails to ${cooldownStatus?.totalUsers.toLocaleString() || 0} registered users`}
+              Send emails using selected template to {cooldownStatus?.totalUsers.toLocaleString() || 0} registered users
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {(selectedProdEmailType === 'ticket-confirmation' || selectedProdEmailType === 'ticket-confirmation-initial') && (
+            {/* Template Selection */}
+            <div className="space-y-2">
+              <Label htmlFor="bulk-template">Select Email Template</Label>
+              <Select value={bulkEmailTemplate} onValueChange={setBulkEmailTemplate}>
+                <SelectTrigger id="bulk-template">
+                  <SelectValue placeholder="Choose template" />
+                </SelectTrigger>
+                <SelectContent className="bg-black border-neutral-800">
+                  <SelectItem value="promotional">
+                    🎉 Promotional - ICS'25 Summit Invitation
+                  </SelectItem>
+                  <SelectItem value="ticket-confirmation">
+                    🎫 Ticket Confirmation - Event Details
+                  </SelectItem>
+                  <SelectItem value="welcome">
+                    👋 Welcome - New User Welcome Email
+                  </SelectItem>
+                  <SelectItem value="notification">
+                    📢 Notification - General Announcement
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Event Details - Show only for ticket confirmation */}
+            {bulkEmailTemplate === 'ticket-confirmation' && (
               <div className="space-y-2">
                 <Label htmlFor="bulk-event-details">Event Details</Label>
                 <Input
@@ -1133,7 +1159,7 @@ export default function MailingDashboard() {
 
             <Button
               onClick={handleInitiateSend}
-              disabled={!cooldownStatus?.canSend || sending || ((selectedProdEmailType === 'ticket-confirmation' || selectedProdEmailType === 'ticket-confirmation-initial') && !prodEventDetails)}
+              disabled={!cooldownStatus?.canSend || sending || (bulkEmailTemplate === 'ticket-confirmation' && !prodEventDetails)}
               className="w-full"
               size="lg"
             >
@@ -1142,15 +1168,12 @@ export default function MailingDashboard() {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Sending Emails...
                 </>
-              ) : selectedProdEmailType === 'promotional' ? (
-                <>
-                  <Send className="mr-2 h-4 w-4" />
-                  Send Promotional Emails to All Users
-                </>
               ) : (
                 <>
                   <Send className="mr-2 h-4 w-4" />
-                  Send Ticket Confirmation Emails to All Users
+                  Send {bulkEmailTemplate === 'promotional' ? 'Promotional' : 
+                       bulkEmailTemplate === 'ticket-confirmation' ? 'Ticket Confirmation' :
+                       bulkEmailTemplate === 'welcome' ? 'Welcome' : 'Notification'} Emails to All Users
                 </>
               )}
             </Button>
@@ -1392,9 +1415,9 @@ export default function MailingDashboard() {
             <p>
               You are about to send{' '}
               <strong>
-                {selectedProdEmailType === 'promotional'
-                  ? 'promotional'
-                  : 'ticket confirmation'}{' '}
+                {bulkEmailTemplate === 'promotional' ? 'promotional' : 
+                 bulkEmailTemplate === 'ticket-confirmation' ? 'ticket confirmation' :
+                 bulkEmailTemplate === 'welcome' ? 'welcome' : 'notification'}{' '}
               </strong>
               emails to:
             </p>
@@ -1407,9 +1430,13 @@ export default function MailingDashboard() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground">
-              {selectedProdEmailType === 'promotional'
+              {bulkEmailTemplate === 'promotional'
                 ? 'This will send the ICS\'25 promotional email to all registered users on the platform.'
-                : `This will send the ticket confirmation email with event details "${prodEventDetails}" to all registered users.`}
+                : bulkEmailTemplate === 'ticket-confirmation'
+                ? `This will send the ticket confirmation email with event details "${prodEventDetails}" to all registered users.`
+                : bulkEmailTemplate === 'welcome'
+                ? 'This will send a welcome email to all registered users.'
+                : 'This will send a notification email to all registered users.'}
             </p>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -1452,7 +1479,9 @@ export default function MailingDashboard() {
                 <li>
                   Send{' '}
                   <strong>
-                    {selectedProdEmailType === 'promotional' ? 'promotional' : 'ticket confirmation'}
+                    {bulkEmailTemplate === 'promotional' ? 'promotional' : 
+                     bulkEmailTemplate === 'ticket-confirmation' ? 'ticket confirmation' :
+                     bulkEmailTemplate === 'welcome' ? 'welcome' : 'notification'}
                   </strong>{' '}
                   emails to {cooldownStatus?.totalUsers.toLocaleString()} users
                 </li>
