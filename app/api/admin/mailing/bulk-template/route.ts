@@ -7,7 +7,8 @@ import { EmailCooldown } from '@/schemas/EmailCooldown';
 import { sendEmail } from '@/lib/services/email';
 import { promotionalEmailTemplate } from '@/lib/services/email/templates/promotional';
 import { ticketConfirmationEmailTemplate } from '@/lib/services/email/templates/ticket-confirmation';
-import { renderTemplate } from '@/lib/services/email/templates/index';
+import { getIcs25Db } from '@/lib/ics25-mongo';
+import Attendee from '@/schemas/ics25/Attendee';
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 const PROD_DB_NAME = 'insturix_prod'; // Production database for user data
@@ -46,8 +47,21 @@ export async function GET(req: NextRequest) {
     // Check cooldown status (using 'bulk-template' as the email type)
     const cooldownCheck = await (EmailCooldown as any).canSendEmail('bulk-template', 1);
 
-    // Get total user count
-    const totalUsers = await User.countDocuments();
+    // Get total user count based on template type
+    let totalUsers = 0;
+    const { searchParams } = new URL(req.url);
+    const templatePreview = searchParams.get('template');
+    
+    // If template is ticket confirmation, count ICS'25 attendees, otherwise count all users
+    if (templatePreview && (templatePreview === 'ticket-confirmation-initial' || 
+        templatePreview.startsWith('ticket-confirmation-reminder'))) {
+      await getIcs25Db();
+      totalUsers = await Attendee.countDocuments({ 
+        'payment.status': { $nin: ['rejected', 'failed'] } 
+      });
+    } else {
+      totalUsers = await User.countDocuments();
+    }
 
     return NextResponse.json({
       ok: true,
@@ -114,34 +128,70 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch all users from insturix_prod database
-    const users = await User.find(
-      {},
-      { email: 1, username: 1, clerkUserId: 1, _id: 1 }
-    ).lean();
+    // Determine if we're sending to attendees or all users
+    const isTicketConfirmation = template === 'ticket-confirmation-initial' || 
+                                  template?.startsWith('ticket-confirmation-reminder');
+    
+    let recipients: any[] = [];
+    
+    if (isTicketConfirmation) {
+      // Fetch ICS'25 attendees with approved payment status
+      await getIcs25Db();
+      recipients = await Attendee.find(
+        { 'payment.status': { $nin: ['rejected', 'failed'] } },
+        { email: 1, name: 1, clerkUserId: 1, _id: 1 }
+      ).lean();
+      
+      if (recipients.length === 0) {
+        return NextResponse.json(
+          { ok: false, message: 'No ICS\'25 attendees found to send emails to' },
+          { status: 404 }
+        );
+      }
+      
+      console.log(`📧 Starting bulk ticket confirmation email send to ${recipients.length} ICS'25 attendees...`);
+    } else {
+      // Fetch all users from insturix_prod database
+      recipients = await User.find(
+        {},
+        { email: 1, username: 1, clerkUserId: 1, _id: 1 }
+      ).lean();
 
-    if (users.length === 0) {
-      return NextResponse.json(
-        { ok: false, message: 'No users found to send emails to' },
-        { status: 404 }
-      );
+      if (recipients.length === 0) {
+        return NextResponse.json(
+          { ok: false, message: 'No users found to send emails to' },
+          { status: 404 }
+        );
+      }
+      
+      console.log(`📧 Starting bulk email send (${template}) to ${recipients.length} users...`);
     }
-
-    console.log(`📧 Starting bulk email send (${template}) to ${users.length} users...`);
 
     // Send emails in batches to respect rate limits
     const batchSize = 50; // AWS SES can handle ~14 emails/second, so batching helps
     const results: { email: string; success: boolean; error?: string }[] = [];
 
-    for (let i = 0; i < users.length; i += batchSize) {
-      const batch = users.slice(i, i + batchSize);
+    for (let i = 0; i < recipients.length; i += batchSize) {
+      const batch = recipients.slice(i, i + batchSize);
 
       // Send emails in parallel within each batch
-      const batchPromises = batch.map(async (user) => {
+      const batchPromises = batch.map(async (recipient) => {
         try {
-          const userName = user.username || user.email?.split('@')[0] || 'Valued User';
+          const userName = recipient.username || recipient.name || recipient.email?.split('@')[0] || 'Valued User';
           let emailContent: { html: string; text: string; subject?: string };
           let subject: string;
+          
+          // Determine time until event for reminder emails
+          let timeUntilEvent: string | undefined;
+          if (template?.startsWith('ticket-confirmation-reminder')) {
+            if (template === 'ticket-confirmation-reminder-7days') {
+              timeUntilEvent = '7 days';
+            } else if (template === 'ticket-confirmation-reminder-1day') {
+              timeUntilEvent = '1 day';
+            } else if (template === 'ticket-confirmation-reminder-30min') {
+              timeUntilEvent = '30 minutes';
+            }
+          }
 
           // Generate email content based on template
           switch (template) {
@@ -151,45 +201,22 @@ export async function POST(req: NextRequest) {
               subject = "You're Invited to ICS'25 - India's Largest Creator-Tech Summit! 🚀";
               break;
 
-            case 'ticket-confirmation':
+            case 'ticket-confirmation-initial':
+            case 'ticket-confirmation-reminder-7days':
+            case 'ticket-confirmation-reminder-1day':
+            case 'ticket-confirmation-reminder-30min':
               if (!eventDetails) {
                 throw new Error('Event details are required for ticket confirmation');
               }
               const ticketData = ticketConfirmationEmailTemplate(
                 userName,
-                user.email,
+                recipient.email,
                 eventDetails,
-                `TICKET-${user._id}`
+                `TICKET-${recipient._id}`,
+                timeUntilEvent
               );
               emailContent = ticketData;
-              subject = `Your Ticket for ${eventDetails} 🎫`;
-              break;
-
-            case 'welcome':
-              const welcomeData = renderTemplate('welcome', {
-                name: userName,
-                dashboardUrl: 'https://www.insturix.com/dashboard',
-              });
-              emailContent = {
-                html: welcomeData.html,
-                text: welcomeData.text || '',
-              };
-              subject = welcomeData.subject || 'Welcome to Insturix';
-              break;
-
-            case 'notification':
-              const notificationData = renderTemplate('notification', {
-                name: userName,
-                title: 'Important Update',
-                message: 'Thank you for being part of the Insturix community.',
-                actionUrl: 'https://www.insturix.com',
-                actionText: 'Visit Insturix',
-              });
-              emailContent = {
-                html: notificationData.html,
-                text: notificationData.text || '',
-              };
-              subject = notificationData.subject || 'Notification from Insturix';
+              subject = ticketData.subject || `Your Ticket for ${eventDetails} 🎫`;
               break;
 
             default:
@@ -197,23 +224,23 @@ export async function POST(req: NextRequest) {
           }
 
           const result = await sendEmail({
-            to: user.email,
+            to: recipient.email,
             subject,
             htmlBody: emailContent.html,
             textBody: emailContent.text,
           });
 
           if (result.success) {
-            console.log(`✅ Sent to ${user.email}`);
-            return { email: user.email, success: true };
+            console.log(`✅ Sent to ${recipient.email}`);
+            return { email: recipient.email, success: true };
           } else {
-            console.error(`❌ Failed to send to ${user.email}:`, result.error);
-            return { email: user.email, success: false, error: result.error };
+            console.error(`❌ Failed to send to ${recipient.email}:`, result.error);
+            return { email: recipient.email, success: false, error: result.error };
           }
         } catch (error: any) {
-          console.error(`❌ Error sending to ${user.email}:`, error);
+          console.error(`❌ Error sending to ${recipient.email}:`, error);
           return {
-            email: user.email,
+            email: recipient.email,
             success: false,
             error: error?.message || 'Unknown error',
           };
@@ -224,7 +251,7 @@ export async function POST(req: NextRequest) {
       results.push(...batchResults);
 
       // Add a small delay between batches to respect rate limits
-      if (i + batchSize < users.length) {
+      if (i + batchSize < recipients.length) {
         await new Promise((resolve) => setTimeout(resolve, 1000)); // 1 second delay
       }
     }
@@ -240,12 +267,13 @@ export async function POST(req: NextRequest) {
     await (EmailCooldown as any).recordEmailSent(
       'bulk-template',
       userId,
-      users.length,
+      recipients.length,
       status,
       {
         successCount,
         failedCount,
         template,
+        recipientType: isTicketConfirmation ? 'ics25-attendees' : 'all-users',
         errorMessage:
           failedCount > 0
             ? `${failedCount} emails failed to send`
@@ -254,14 +282,14 @@ export async function POST(req: NextRequest) {
     );
 
     console.log(
-      `📧 Bulk email send (${template}) complete: ${successCount}/${users.length} successful`
+      `📧 Bulk email send (${template}) complete: ${successCount}/${recipients.length} successful`
     );
 
     return NextResponse.json({
       ok: true,
-      message: `Bulk emails sent to ${successCount}/${users.length} users using ${template} template`,
+      message: `Bulk emails sent to ${successCount}/${recipients.length} ${isTicketConfirmation ? 'ICS\'25 attendees' : 'users'} using ${template} template`,
       stats: {
-        total: users.length,
+        total: recipients.length,
         successful: successCount,
         failed: failedCount,
       },

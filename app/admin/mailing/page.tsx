@@ -91,7 +91,8 @@ export default function MailingDashboard() {
       }
       
       // Use the new bulk-template endpoint for cooldown status
-      const endpoint = '/api/admin/mailing/bulk-template';
+      // Pass the current template to get the correct recipient count
+      const endpoint = `/api/admin/mailing/bulk-template?template=${bulkEmailTemplate}`;
       const response = await fetch(endpoint);
       const data = await response.json();
 
@@ -127,7 +128,7 @@ export default function MailingDashboard() {
       setTestEmail(user.primaryEmailAddress.emailAddress);
       setIndividualEmail(user.primaryEmailAddress.emailAddress);
     }
-  }, [user, selectedProdEmailType, activeTab]);
+  }, [user, selectedProdEmailType, activeTab, bulkEmailTemplate]);
 
   // Send test email
   const handleSendTestEmail = async () => {
@@ -1102,7 +1103,10 @@ export default function MailingDashboard() {
               <CardTitle>Bulk Email Campaign</CardTitle>
             </div>
             <CardDescription>
-              Send emails using selected template to {cooldownStatus?.totalUsers.toLocaleString() || 0} registered users
+              {(bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                ? `Send ticket confirmation emails to ${cooldownStatus?.totalUsers.toLocaleString() || 0} ICS'25 attendees`
+                : `Send emails using selected template to ${cooldownStatus?.totalUsers.toLocaleString() || 0} registered users`}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1115,23 +1119,27 @@ export default function MailingDashboard() {
                 </SelectTrigger>
                 <SelectContent className="bg-black border-neutral-800">
                   <SelectItem value="promotional">
-                    🎉 Promotional - ICS'25 Summit Invitation
+                    Promotional Email (ICS'25 Invitation)
                   </SelectItem>
-                  <SelectItem value="ticket-confirmation">
-                    🎫 Ticket Confirmation - Event Details
+                  <SelectItem value="ticket-confirmation-initial">
+                    Ticket Confirmation Email (Initial)
                   </SelectItem>
-                  <SelectItem value="welcome">
-                    👋 Welcome - New User Welcome Email
+                  <SelectItem value="ticket-confirmation-reminder-7days">
+                    Ticket Confirmation Email (7 Days Reminder)
                   </SelectItem>
-                  <SelectItem value="notification">
-                    📢 Notification - General Announcement
+                  <SelectItem value="ticket-confirmation-reminder-1day">
+                    Ticket Confirmation Email (1 Day Reminder)
+                  </SelectItem>
+                  <SelectItem value="ticket-confirmation-reminder-30min">
+                    Ticket Confirmation Email (30 Minutes Reminder)
                   </SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {/* Event Details - Show only for ticket confirmation */}
-            {bulkEmailTemplate === 'ticket-confirmation' && (
+            {(bulkEmailTemplate === 'ticket-confirmation-initial' ||
+              bulkEmailTemplate?.startsWith('ticket-confirmation-reminder')) && (
               <div className="space-y-2">
                 <Label htmlFor="bulk-event-details">Event Details</Label>
                 <Input
@@ -1141,6 +1149,13 @@ export default function MailingDashboard() {
                   value={prodEventDetails}
                   onChange={(e) => setProdEventDetails(e.target.value)}
                 />
+                {bulkEmailTemplate?.startsWith('ticket-confirmation-reminder') && (
+                  <p className="text-sm text-muted-foreground">
+                    {bulkEmailTemplate === 'ticket-confirmation-reminder-7days' && 'Event starts in 7 days'}
+                    {bulkEmailTemplate === 'ticket-confirmation-reminder-1day' && 'Event starts in 1 day'}
+                    {bulkEmailTemplate === 'ticket-confirmation-reminder-30min' && 'Event starts in 30 minutes'}
+                  </p>
+                )}
               </div>
             )}
 
@@ -1149,7 +1164,15 @@ export default function MailingDashboard() {
               <AlertTitle>Important Notice</AlertTitle>
               <AlertDescription>
                 <ul className="list-disc list-inside space-y-1 text-sm mt-2">
-                  <li>Emails will be sent to all {cooldownStatus?.totalUsers.toLocaleString()} registered users</li>
+                  {(bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                    bulkEmailTemplate?.startsWith('ticket-confirmation-reminder')) ? (
+                    <>
+                      <li>Emails will be sent to all {cooldownStatus?.totalUsers.toLocaleString()} ICS'25 approved attendees only</li>
+                      <li>Only attendees with paid or pending payment status will receive emails</li>
+                    </>
+                  ) : (
+                    <li>Emails will be sent to all {cooldownStatus?.totalUsers.toLocaleString()} registered users</li>
+                  )}
                   <li>This action cannot be undone once started</li>
                   <li>After sending, you must wait {cooldownStatus?.cooldownDays || 1} day{(cooldownStatus?.cooldownDays || 1) > 1 ? 's' : ''} before sending again</li>
                   <li>Failed sends will be logged for review</li>
@@ -1159,7 +1182,9 @@ export default function MailingDashboard() {
 
             <Button
               onClick={handleInitiateSend}
-              disabled={!cooldownStatus?.canSend || sending || (bulkEmailTemplate === 'ticket-confirmation' && !prodEventDetails)}
+              disabled={!cooldownStatus?.canSend || sending || 
+                ((bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                  bulkEmailTemplate?.startsWith('ticket-confirmation-reminder')) && !prodEventDetails)}
               className="w-full"
               size="lg"
             >
@@ -1171,9 +1196,12 @@ export default function MailingDashboard() {
               ) : (
                 <>
                   <Send className="mr-2 h-4 w-4" />
-                  Send {bulkEmailTemplate === 'promotional' ? 'Promotional' : 
-                       bulkEmailTemplate === 'ticket-confirmation' ? 'Ticket Confirmation' :
-                       bulkEmailTemplate === 'welcome' ? 'Welcome' : 'Notification'} Emails to All Users
+                  {bulkEmailTemplate === 'promotional' 
+                    ? 'Send Promotional Emails to All Users'
+                    : (bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                       bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                    ? 'Send Ticket Confirmation Emails to ICS\'25 Attendees'
+                    : 'Send Emails to All Users'}
                 </>
               )}
             </Button>
@@ -1415,9 +1443,12 @@ export default function MailingDashboard() {
             <p>
               You are about to send{' '}
               <strong>
-                {bulkEmailTemplate === 'promotional' ? 'promotional' : 
-                 bulkEmailTemplate === 'ticket-confirmation' ? 'ticket confirmation' :
-                 bulkEmailTemplate === 'welcome' ? 'welcome' : 'notification'}{' '}
+                {bulkEmailTemplate === 'promotional' 
+                  ? 'promotional'
+                  : (bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                     bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                  ? 'ticket confirmation'
+                  : bulkEmailTemplate}{' '}
               </strong>
               emails to:
             </p>
@@ -1432,11 +1463,10 @@ export default function MailingDashboard() {
             <p className="text-sm text-muted-foreground">
               {bulkEmailTemplate === 'promotional'
                 ? 'This will send the ICS\'25 promotional email to all registered users on the platform.'
-                : bulkEmailTemplate === 'ticket-confirmation'
-                ? `This will send the ticket confirmation email with event details "${prodEventDetails}" to all registered users.`
-                : bulkEmailTemplate === 'welcome'
-                ? 'This will send a welcome email to all registered users.'
-                : 'This will send a notification email to all registered users.'}
+                : (bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                   bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                ? `This will send the ticket confirmation email to all approved ICS'25 attendees with event details "${prodEventDetails}".`
+                : 'This will send emails to the specified recipients.'}
             </p>
           </div>
           <DialogFooter className="gap-2 sm:gap-0">
@@ -1479,11 +1509,17 @@ export default function MailingDashboard() {
                 <li>
                   Send{' '}
                   <strong>
-                    {bulkEmailTemplate === 'promotional' ? 'promotional' : 
-                     bulkEmailTemplate === 'ticket-confirmation' ? 'ticket confirmation' :
-                     bulkEmailTemplate === 'welcome' ? 'welcome' : 'notification'}
+                    {bulkEmailTemplate === 'promotional' 
+                      ? 'promotional'
+                      : (bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                         bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                      ? 'ticket confirmation'
+                      : bulkEmailTemplate}
                   </strong>{' '}
-                  emails to {cooldownStatus?.totalUsers.toLocaleString()} users
+                  emails to {cooldownStatus?.totalUsers.toLocaleString()} {
+                    (bulkEmailTemplate === 'ticket-confirmation-initial' ||
+                     bulkEmailTemplate?.startsWith('ticket-confirmation-reminder'))
+                    ? 'ICS\'25 attendees' : 'users'}
                 </li>
                 <li>
                   Activate a {cooldownStatus?.cooldownDays} day{(cooldownStatus?.cooldownDays || 1) > 1 ? 's' : ''} cooldown period
