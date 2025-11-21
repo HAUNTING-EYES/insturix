@@ -711,177 +711,10 @@ export default function Calendar({
 
   return (
     <div className="fixed inset-0 left-16 bg-neutral-950 flex flex-col overflow-hidden z-30">
-      {/* Toolbar Header */}
-      <div className="flex-shrink-0 border-b border-red-900/30 bg-neutral-950/95 backdrop-blur-xl relative z-10">
-        <div className="px-6 py-3.5 flex items-center justify-between gap-4">
-          {/* Left: Month/Year Navigation & Today */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1.5 relative">
-              <button
-                onClick={goToPreviousMonth}
-                className="p-1.5 rounded-lg border border-neutral-800/70 bg-neutral-900/50 hover:bg-neutral-800/70 text-neutral-400 hover:text-white transition-all hover:border-red-800/60 focus:outline-none focus:ring-2 focus:ring-red-700/40"
-                aria-label="Previous month"
-              >
-                <ChevronLeft size={18} />
-              </button>
-              
-              <div
-                ref={triggerRef}
-                onClick={() => {
-                  setShowDatePicker(prev => {
-                    const next = !prev;
-                    if (!prev) {
-                      setPickerDate(currentDate);
-                      requestAnimationFrame(() => updatePickerPosition());
-                    }
-                    return next;
-                  });
-                }}
-                className="date-picker-trigger flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-neutral-900/60 transition-colors cursor-pointer group relative"
-              >
-                <CalendarIcon size={16} className="text-red-400/70 group-hover:text-red-400 transition-colors" />
-                <h1 className="text-xl font-semibold bg-gradient-to-br from-red-200 via-red-100 to-neutral-200 bg-clip-text text-transparent tracking-tight group-hover:from-red-100 group-hover:to-red-200 transition-all">
-                  {format(currentDate, 'MMMM yyyy')}
-                </h1>
-                
-                {/* Floating Date Picker */}
-                <AnimatePresence>
-                  {showDatePicker && <FloatingDatePicker />}
-                </AnimatePresence>
-              </div>
-              
-              <button
-                onClick={goToNextMonth}
-                className="p-1.5 rounded-lg border border-neutral-800/70 bg-neutral-900/50 hover:bg-neutral-800/70 text-neutral-400 hover:text-white transition-all hover:border-red-800/60 focus:outline-none focus:ring-2 focus:ring-red-700/40"
-                aria-label="Next month"
-              >
-                <ChevronRight size={18} />
-              </button>
-            </div>
-            
-            <div className="h-5 w-px bg-neutral-800/70" />
-            
-            <button
-              onClick={goToToday}
-              className="px-3 py-1.5 text-xs font-medium bg-neutral-900/60 border border-neutral-800/70 text-neutral-300 rounded-lg hover:bg-neutral-800/70 hover:text-white hover:border-red-800/60 transition-all"
-            >
-              Today
-            </button>
-          </div>
-
-          {/* Center: Search */}
-          <div className="flex-1 max-w-sm mx-6">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500" />
-              <input
-                type="text"
-                placeholder="Search content..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-neutral-900/50 border border-neutral-800/70 rounded-lg text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-red-800/60 focus:bg-neutral-900/70 transition-all backdrop-blur-sm"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-neutral-800/70 text-neutral-400 hover:text-white transition-colors"
-                  aria-label="Clear search"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Right: Filter & Actions */}
-          <div className="flex items-center gap-2">
-            {/* Filter Dropdown */}
-            <div className="filter-menu-container relative">
-              <button
-                onClick={() => setShowFilterMenu(!showFilterMenu)}
-                className={`px-3 py-2 rounded-lg border text-xs font-medium flex items-center gap-2 transition-all ${
-                  filterStatus
-                    ? 'bg-red-600/20 border-red-500/40 text-red-200'
-                    : 'bg-neutral-900/60 border-neutral-800/70 text-neutral-300 hover:bg-neutral-800/70 hover:text-white hover:border-red-800/60'
-                }`}
-              >
-                <Filter size={14} />
-                <span>{filterStatus ? statusOptions.find(s => s.value === filterStatus)?.label : 'Filter'}</span>
-                <ChevronDown size={12} className={`transition-transform ${showFilterMenu ? 'rotate-180' : ''}`} />
-              </button>
-              
-              <AnimatePresence>
-                {showFilterMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -8 }}
-                    className="absolute right-0 top-full mt-1.5 w-48 bg-neutral-950/98 backdrop-blur-xl border border-neutral-800/70 rounded-lg shadow-xl z-50 overflow-hidden"
-                  >
-                    {statusOptions.map((option) => (
-                      <button
-                        key={option.value || 'all'}
-                        onClick={() => {
-                          setFilterStatus(option.value);
-                          setShowFilterMenu(false);
-                        }}
-                        className={`w-full text-left px-3 py-2 text-xs font-medium transition-colors flex items-center justify-between ${
-                          filterStatus === option.value
-                            ? 'bg-red-600/20 text-red-200'
-                            : 'text-neutral-300 hover:bg-neutral-800/70'
-                        }`}
-                      >
-                        <span>{option.label}</span>
-                        {filterStatus === option.value && <Check size={12} />}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            
-            {/* New Card Button */}
-            <button
-              onClick={handleCreateNewCard}
-              className="px-3 py-2 rounded-lg bg-gradient-to-br from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white transition-all text-xs font-medium flex items-center gap-1.5 shadow-lg shadow-red-900/30"
-            >
-              <Plus size={14} />
-              <span>New</span>
-            </button>
-            
-            {/* Close Button */}
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="p-2 rounded-lg border border-neutral-800/70 bg-neutral-900/60 hover:bg-neutral-800/70 text-neutral-400 hover:text-white transition-all"
-                aria-label="Close calendar"
-              >
-                <X size={16} />
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Weekday Headers - Fixed */}
-      <div className="flex-shrink-0 border-b border-neutral-800/50 bg-neutral-950/40 relative z-10">
-        <div className="grid grid-cols-7">
-          {weekDays.map((day, idx) => (
-            <div
-              key={day}
-              className={`px-4 py-3 text-center text-xs font-semibold text-neutral-500 uppercase tracking-wider ${
-                idx < 6 ? 'border-r border-neutral-800/50' : ''
-              }`}
-            >
-              {day}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Calendar Grid - Scrollable with fade effect */}
+      {/* Calendar Grid - Disabled Background */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto bg-neutral-950 relative pb-24"
+        className="flex-1 overflow-auto bg-neutral-950 relative pb-24 pointer-events-none"
       >
         {/* Fade overlays */}
         <div className="pointer-events-none fixed inset-0 left-16 z-20">
@@ -922,7 +755,6 @@ export default function Calendar({
                   {monthDays.map(({ day, month }, idx) => {
                     const dateKey = format(day, 'yyyy-MM-dd');
                     const dayEvents = eventsByDate.get(dateKey) || [];
-                    // Use the month from the tracking object, not currentDate
                     const isCurrentMonth = isSameMonth(day, month);
                     const isTodayDate = isToday(day);
                     const maxChips = 3;
@@ -936,30 +768,10 @@ export default function Calendar({
                           group relative min-h-[140px] p-3 border-r border-b border-neutral-800/40
                           ${isCurrentMonth ? 'bg-neutral-950' : 'bg-neutral-900/20'}
                           ${isTodayDate ? 'bg-red-950/20 border-red-900/40 shadow-[inset_0_0_0_1px_rgba(127,29,29,0.25)]' : ''}
-                          hover:bg-neutral-900/40 transition-all duration-200 cursor-pointer
                           ${idx % 7 === 6 ? 'border-r-0' : ''}
-                          focus-within:ring-2 focus-within:ring-red-500/50 focus-within:ring-offset-2 focus-within:ring-offset-neutral-950
                         `}
-                        onClick={() => {
-                          if (dayEvents.length === 0 && onCreateCard) {
-                            onCreateCard(day);
-                          } else {
-                            onCellClick?.(day);
-                          }
-                        }}
                         role="gridcell"
                         aria-label={format(day, 'MMMM d, yyyy')}
-                        tabIndex={0}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            if (dayEvents.length === 0 && onCreateCard) {
-                              onCreateCard(day);
-                            } else {
-                              onCellClick?.(day);
-                            }
-                          }
-                        }}
                       >
                         {/* Day number */}
                         <div className="flex items-start justify-between mb-2">
@@ -976,43 +788,25 @@ export default function Calendar({
                           >
                             {format(day, 'd')}
                           </span>
-                          
-                          {/* AI overlay placeholder */}
-                          {dayEvents.length === 0 && isCurrentMonth && (
-                            <div className="opacity-0 hover:opacity-100 transition-opacity">
-                              <Sparkles size={14} className="text-red-500/50" />
-                            </div>
-                          )}
                         </div>
 
                         {/* Events */}
                         <div className="space-y-1.5">
                           <AnimatePresence mode="popLayout">
                             {visible.map(event => (
-                              <motion.button
+                              <motion.div
                                 key={event.id}
                                 initial={{ opacity: 0, scale: 0.9, y: -4 }}
                                 animate={{ opacity: 1, scale: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.9, y: -4 }}
                                 transition={{ duration: 0.15 }}
-                                className="w-full text-left focus:outline-none focus:ring-2 focus:ring-red-500/50 rounded"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if ('customTags' in event && 'plannedDates' in event) {
-                                    setSelectedCard(event as ContentCard);
-                                  } else {
-                                    setOpenEventId(event.id);
-                                  }
-                                  onEventClick?.(event);
-                                }}
-                                aria-label={`Open ${event.title} content card`}
                               >
                                 <EventChip
                                   event={event}
                                   onClick={() => {}}
-                                  onDragEnd={onEventDrop}
+                                  onDragEnd={() => {}}
                                 />
-                              </motion.button>
+                              </motion.div>
                             ))}
                             {overflow > 0 && (
                               <motion.div
@@ -1024,11 +818,6 @@ export default function Calendar({
                               </motion.div>
                             )}
                           </AnimatePresence>
-                          {dayEvents.length === 0 && isCurrentMonth && (
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-neutral-600 text-center py-1">
-                              Click to add
-                            </div>
-                          )}
                         </div>
                       </div>
                     );
@@ -1037,6 +826,57 @@ export default function Calendar({
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Coming Soon Overlay */}
+      <div 
+        className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-neutral-950/70 via-neutral-950/60 to-neutral-950/70 backdrop-blur-md z-50"
+      >
+        <div className="text-center space-y-8 px-8 max-w-2xl">
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+            className="space-y-6"
+          >
+            {/* Icon Container */}
+            <div className="flex justify-center">
+              <motion.div 
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.2, type: "spring", stiffness: 200, damping: 15 }}
+                className="relative"
+              >
+                <div className="absolute inset-0 bg-red-500/20 blur-2xl rounded-full animate-pulse" />
+                <div className="relative p-6 rounded-3xl bg-gradient-to-br from-red-600/30 via-red-500/20 to-neutral-900/60 border-2 border-red-500/40 shadow-2xl shadow-red-900/20 backdrop-blur-xl">
+                  <CalendarIcon size={56} className="text-red-400/90 drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]" />
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Title */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3 }}
+            >
+              <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-br from-red-200 via-red-100 to-neutral-100 bg-clip-text text-transparent tracking-tight mb-3">
+                Calendar Coming Soon
+              </h2>
+              <div className="h-1 w-24 bg-gradient-to-r from-transparent via-red-500/50 to-transparent mx-auto rounded-full" />
+            </motion.div>
+
+            {/* Description */}
+            <motion.p 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="text-neutral-300 max-w-lg mx-auto text-lg leading-relaxed"
+            >
+              We're building an intelligent content calendar to help you plan, schedule, and manage your content across all platforms.
+            </motion.p>
+          </motion.div>
         </div>
       </div>
 

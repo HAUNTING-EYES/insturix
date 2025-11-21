@@ -148,24 +148,76 @@ export default function Dock({
 }: DockProps) {
   const mouseX = useMotionValue(Infinity);
   const isHovered = useMotionValue(0);
+  const [isDockHovered, setIsDockHovered] = useState(false);
 
   const maxHeight = useMemo(() => Math.max(dockHeight, magnification + magnification / 2 + 4), [magnification, dockHeight]);
   const heightRow = useTransform(isHovered, [0, 1], [panelHeight, panelHeight]); // Keep constant height
   const height = useSpring(heightRow, spring);
 
+  // Animation states: 0 = hidden (down), 0.5 = half-visible, 1 = fully visible
+  const dockVisibility = useMotionValue(0.5); // Start at half-visible
+  const dockY = useTransform(dockVisibility, [0, 0.5, 1], [100, 50, 0]); // translateY percentage
+  const dockOpacity = useTransform(dockVisibility, [0, 0.5, 1], [0.3, 0.5, 1]);
+  
+  const animatedY = useSpring(dockY, spring);
+  const animatedOpacity = useSpring(dockOpacity, spring);
+
+  // Handle mouse enter/leave on dock area
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      const dockElement = document.querySelector('[data-dock-container]') as HTMLElement;
+      if (!dockElement) return;
+      
+      const rect = dockElement.getBoundingClientRect();
+      const padding = 50; // Extra padding around dock
+      const isNearDock = (
+        e.clientX >= rect.left - padding &&
+        e.clientX <= rect.right + padding &&
+        e.clientY >= rect.top - padding &&
+        e.clientY <= rect.bottom + padding
+      );
+      
+      if (isNearDock && !isDockHovered) {
+        setIsDockHovered(true);
+        dockVisibility.set(1);
+      } else if (!isNearDock && isDockHovered) {
+        setIsDockHovered(false);
+        dockVisibility.set(0.5);
+      }
+    };
+
+    // Initialize dock visibility
+    dockVisibility.set(0.5);
+    
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, [isDockHovered, dockVisibility]);
+
   return (
-    <motion.div style={{ height, scrollbarWidth: 'none' }} className="mx-2 flex max-w-full items-center pointer-events-none">
+    <motion.div 
+      style={{ height, scrollbarWidth: 'none' }} 
+      className="mx-2 flex max-w-full items-center pointer-events-none"
+    >
       <motion.div
+        data-dock-container
         onMouseMove={({ pageX }) => {
           isHovered.set(1);
           mouseX.set(pageX);
+          setIsDockHovered(true);
+          dockVisibility.set(1);
         }}
         onMouseLeave={() => {
           isHovered.set(0);
           mouseX.set(Infinity);
+          setIsDockHovered(false);
+          dockVisibility.set(0.5);
+        }}
+        style={{ 
+          height: panelHeight, 
+          y: animatedY, 
+          opacity: animatedOpacity 
         }}
         className={`${className} fixed bottom-6 left-1/2 transform -translate-x-1/2 flex items-end w-fit gap-3 rounded-2xl border border-neutral-600/40 bg-gradient-to-br from-neutral-800/60 via-neutral-900/80 to-neutral-950/90 backdrop-blur-2xl pb-2 px-4 shadow-2xl shadow-neutral-900/60 before:absolute before:inset-0 before:rounded-2xl before:bg-gradient-to-br before:from-white/5 before:via-transparent before:to-black/30 before:pointer-events-none pointer-events-auto z-40`}
-        style={{ height: panelHeight }}
         role="toolbar"
         aria-label="ThinkForge dock"
       >

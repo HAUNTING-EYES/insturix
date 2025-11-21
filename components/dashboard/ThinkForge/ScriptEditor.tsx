@@ -89,6 +89,7 @@ export default function ScriptEditor({
   const [showOrchestration, setShowOrchestration] = useState(false);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
+  const lastLoadedBlocksRef = useRef<string>(''); // Track last loaded blocks to avoid unnecessary reloads
   
   // Cursor preservation state
   const cursorPositionRef = useRef<CursorPosition | null>(null);
@@ -235,15 +236,20 @@ export default function ScriptEditor({
     const loadBlocks = async () => {
       if (!editor) return;
       
-      // Try to fetch from API if scriptId (sessionId) is available
+      // Try to fetch from API if scriptId (sessionId) is available - ALWAYS try API first
       if (scriptId) {
         try {
+          console.log('ScriptEditor: Loading blocks from API for sessionId:', scriptId);
           // Use sessionId parameter - backend will look up latest script for that session
-          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`);
+          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' }
+          });
           if (response.ok) {
             const data = await response.json();
             console.log('ScriptEditor: Fetched blocks from API:', {
               blocksCount: data.blocks?.length || 0,
+              hasBlocks: !!(data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0),
               blocks: data.blocks,
             });
             if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
@@ -256,10 +262,17 @@ export default function ScriptEditor({
                   firstBlock: blockNoteBlocks[0],
                 });
                 if (blockNoteBlocks.length > 0) {
-                  isUpdatingFromPropsRef.current = true;
-                  editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-                  isUpdatingFromPropsRef.current = false;
-                  setHasUnsavedChanges(false);
+                  const blocksHash = JSON.stringify(blockNoteBlocks);
+                  if (blocksHash !== lastLoadedBlocksRef.current) {
+                    isUpdatingFromPropsRef.current = true;
+                    editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+                    isUpdatingFromPropsRef.current = false;
+                    setHasUnsavedChanges(false);
+                    lastLoadedBlocksRef.current = blocksHash;
+                    console.log('ScriptEditor: Successfully loaded blocks from API');
+                  } else {
+                    console.log('ScriptEditor: Blocks unchanged, skipping update');
+                  }
                   return;
                 }
               } catch (conversionError) {
@@ -274,13 +287,17 @@ export default function ScriptEditor({
             console.error('ScriptEditor: Failed to fetch blocks from API:', response.status, errorText);
           }
         } catch (error) {
-          console.error("Failed to fetch blocks from API:", error);
+          console.error("ScriptEditor: Failed to fetch blocks from API:", error);
           // Fall through to use script.blocks prop
         }
       }
       
       // Fallback: use script.blocks prop if available
       if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
+        console.log('ScriptEditor: Loading blocks from script prop:', {
+          blocksCount: script.blocks.length,
+          firstBlock: script.blocks[0]
+        });
         // Check if blocks are canonical format
         const isCanonical = script.blocks.every(
           (b: any) => b && typeof b === 'object' && 'id' in b && 'type' in b && 'children' in b
@@ -297,6 +314,7 @@ export default function ScriptEditor({
               const newJson = JSON.stringify(blockNoteBlocks);
               
               if (currentJson === newJson) {
+                console.log('ScriptEditor: Blocks unchanged, skipping update');
                 return;
               }
 
@@ -308,7 +326,7 @@ export default function ScriptEditor({
               
               isUpdatingFromPropsRef.current = true;
               editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-              console.log('ScriptEditor: Updated editor with', blockNoteBlocks.length, 'canonical blocks');
+              console.log('ScriptEditor: Updated editor with', blockNoteBlocks.length, 'canonical blocks from prop');
               setHasUnsavedChanges(false);
               isUpdatingFromPropsRef.current = false;
               
@@ -316,37 +334,91 @@ export default function ScriptEditor({
               setTimeout(() => restoreCursorPosition(), 100);
             }
           } catch (error) {
-            console.error("Failed to convert canonical blocks:", error);
+            console.error("ScriptEditor: Failed to convert canonical blocks:", error);
           }
         }
+      } else {
+        console.log('ScriptEditor: No blocks in script prop');
       }
     };
     
-    if (script && editor) {
+    // Load blocks whenever editor is ready OR scriptId changes OR script.blocks changes
+    if (editor) {
       loadBlocks();
     }
-  }, [script?.blocks, scriptId, editor, hasUnsavedChanges, restoreCursorPosition]);
+  }, [script?.blocks, scriptId, editor, restoreCursorPosition]);
+
+  // Poll for blocks when script is being generated OR when we have a sessionId (refresh every 2 seconds)
+  useEffect(() => {
+    if (!scriptId || !editor) return;
+    
+    // Poll more aggressively when generating, less when not
+    const pollInterval = generatingScript ? 1500 : 3000;
+    
+    const interval = setInterval(async () => {
+      try {
+        console.log('ScriptEditor: Polling for blocks, generatingScript:', generatingScript);
+        const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          console.log('ScriptEditor: Polling response:', {
+            hasBlocks: !!(data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0),
+            blocksCount: data.blocks?.length || 0
+          });
+          if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
+            try {
+              const blockNoteBlocks = canonicalToBlockNote(data.blocks as BlockTree);
+              if (blockNoteBlocks.length > 0) {
+                // Check if blocks are different before updating
+                const currentBlocks = editor.document;
+                const currentJson = JSON.stringify(currentBlocks);
+                const newJson = JSON.stringify(blockNoteBlocks);
+                
+              if (currentJson !== newJson) {
+                const blocksHash = JSON.stringify(blockNoteBlocks);
+                if (blocksHash !== lastLoadedBlocksRef.current) {
+                  isUpdatingFromPropsRef.current = true;
+                  editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+                  isUpdatingFromPropsRef.current = false;
+                  setHasUnsavedChanges(false);
+                  lastLoadedBlocksRef.current = blocksHash;
+                  console.log('ScriptEditor: Updated blocks from polling');
+                }
+              }
+              }
+            } catch (error) {
+              console.error('ScriptEditor: Failed to convert blocks during polling:', error);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('ScriptEditor: Polling error:', error);
+      }
+    }, pollInterval);
+    
+    return () => clearInterval(interval);
+  }, [scriptId, editor, generatingScript]);
 
   // Integrate streaming blocks into editor when they arrive
   useEffect(() => {
     if (streamingBlocks.blocks.length > 0 && editor) {
       try {
+        console.log('ScriptEditor: Integrating streaming blocks:', streamingBlocks.blocks.length);
         // Convert canonical streaming blocks to BlockNote
         const blockNoteBlocks = canonicalToBlockNote(streamingBlocks.blocks);
         if (blockNoteBlocks.length > 0) {
-          // Incrementally update editor with new blocks
-          const currentBlocks = editor.document;
-          const existingIds = new Set(currentBlocks.map((b: any) => b.id));
-          const newBlocks = blockNoteBlocks.filter((b: any) => !existingIds.has(b.id));
-          
-          if (newBlocks.length > 0) {
-            isUpdatingFromPropsRef.current = true;
-            editor.replaceBlocks(editor.document, [...currentBlocks, ...newBlocks] as any);
-            isUpdatingFromPropsRef.current = false;
-          }
+          // Replace all blocks with streaming blocks
+          isUpdatingFromPropsRef.current = true;
+          editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+          isUpdatingFromPropsRef.current = false;
+          setHasUnsavedChanges(false);
+          console.log('ScriptEditor: Integrated streaming blocks successfully');
         }
       } catch (error) {
-        console.error("Failed to integrate streaming blocks:", error);
+        console.error("ScriptEditor: Failed to integrate streaming blocks:", error);
       }
     }
   }, [streamingBlocks.blocks, editor]);
