@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { assetResolver } from '@/lib/services/asset-resolver';
+import { assetResolver } from '@/lib/editron/services/asset-resolver';
 
 /**
  * POST /api/services/editron/assets/create-public

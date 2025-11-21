@@ -4,14 +4,21 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { projectService } from '@/lib/services/project-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+import { projectService } from '@/lib/editron/services/project-service';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = getUserId();
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     
     const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get('page') || '1', 10);

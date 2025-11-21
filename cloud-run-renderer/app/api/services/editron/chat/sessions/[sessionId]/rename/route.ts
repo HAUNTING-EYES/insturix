@@ -1,15 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chatService } from '@/lib/services/chat-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+import { chatService } from '@/lib/editron/services/chat-service';
+import { auth } from '@clerk/nextjs/server';
 
 export async function PATCH(
   request: NextRequest,
   { params }: { params: { sessionId: string } }
 ) {
   try {
-    const { sessionId } = params;
+    const { sessionId } = await params;
     const { name } = await request.json();
-    const userId = getUserId();
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return NextResponse.json(

@@ -4,13 +4,21 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { checkpointService } from '@/lib/services/checkpoint-service';
+import { checkpointService } from '@/lib/editron/services/checkpoint-service';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const sessionId = searchParams.get('sessionId');
 
     if (!sessionId) {

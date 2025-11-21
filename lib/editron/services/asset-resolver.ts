@@ -184,12 +184,27 @@ export class AssetResolver {
   /**
    * Strip URLs from overlays (keep assetIds only)
    * Use this before sending to LLM or saving to database
+   * IMPORTANT: Preserves public/external URLs (Pexels, etc.) but removes GCS signed URLs
    */
   stripUrlsForLLM(overlays: Overlay[]): Overlay[] {
     return overlays.map(overlay => {
-      // Remove 'src' property if it exists
-      const { src, ...rest } = overlay as any;
-      return rest as Overlay;
+      // If there's a src field, check if it's a GCS signed URL that needs to be stripped
+      if ('src' in overlay && overlay.src) {
+        const src = overlay.src as string;
+        
+        // Only strip GCS signed URLs (temporary URLs that will be regenerated)
+        // Keep public URLs like Pexels, direct HTTP links, etc.
+        const isGCSSignedUrl = src.includes('storage.googleapis.com') && src.includes('X-Goog-Signature');
+        
+        if (isGCSSignedUrl) {
+          // Remove src, rely on assetId for regeneration
+          const { src: _, ...rest } = overlay as any;
+          return rest as Overlay;
+        }
+      }
+      
+      // Keep the overlay as-is (including src if it's a public URL)
+      return overlay;
     });
   }
 

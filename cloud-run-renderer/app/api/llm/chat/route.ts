@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { ProjectState } from '@/components/editor/version-7.0.0/ai-tools';
+import type { ProjectState } from '@/components/editron/editor/version-7.0.0/ai-tools';
 import type { CoreMessage } from 'ai';
-import { getCheckpoints } from '@/components/editor/version-7.0.0/checkpoint-manager';
+import { getCheckpoints } from '@/components/editron/editor/version-7.0.0/checkpoint-manager';
 import { HumanMessage, AIMessage } from '@langchain/core/messages';
 import {
   createVideoEditorGraph,
   streamGraphExecution,
   type StreamEvent,
-} from '@/components/editor/version-7.0.0/langgraph-workflow';
-import { assetResolver } from '@/lib/services/asset-resolver';
-import { chatService } from '@/lib/services/chat-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+} from '@/components/editron/editor/version-7.0.0/langgraph-workflow';
+import { assetResolver } from '@/lib/editron/services/asset-resolver';
+import { chatService } from '@/lib/editron/services/chat-service';
+import { auth } from '@clerk/nextjs/server';
 
 // Use Node.js runtime to support all imports
 export const runtime = 'nodejs';
@@ -39,7 +39,13 @@ export async function POST(request: NextRequest) {
       projectId?: string;
     };
 
-    const userId = getUserId();
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const actualProjectId = projectId || sessionId;
 
     // Ensure session exists in database

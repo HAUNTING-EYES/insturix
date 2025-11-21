@@ -4,14 +4,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { checkpointService } from '@/lib/services/checkpoint-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+import { checkpointService } from '@/lib/editron/services/checkpoint-service';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = getUserId();
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const body = await request.json();
     const { checkpointId } = body;
 

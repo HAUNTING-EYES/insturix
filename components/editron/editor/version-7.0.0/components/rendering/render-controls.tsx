@@ -109,18 +109,39 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         a.click();
         document.body.removeChild(a);
       } else {
-        // For Cloud Run/Lambda, fetch the blob to force download
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const blobUrl = window.URL.createObjectURL(blob);
-        
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = "rendered-video.mp4";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        window.URL.revokeObjectURL(blobUrl);
+        // For Cloud Run/Lambda with GCS URLs
+        // Check if it's a GCS signed URL
+        if (url.includes('storage.googleapis.com') || url.includes('storage.cloud.google.com')) {
+          // GCS signed URLs can be downloaded directly by opening in new tab
+          // The browser will handle the download with proper authentication via the signed URL
+          window.open(url, '_blank');
+        } else {
+          // For other URLs, try to fetch and download as blob
+          const response = await fetch(url);
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch video: ${response.status} ${response.statusText}`);
+          }
+          
+          const blob = await response.blob();
+          
+          // Check if blob is valid (not just a few bytes)
+          if (blob.size < 1000) {
+            console.warn('Downloaded blob is suspiciously small, opening URL directly instead');
+            window.open(url, '_blank');
+            return;
+          }
+          
+          const blobUrl = window.URL.createObjectURL(blob);
+          
+          const a = document.createElement("a");
+          a.href = blobUrl;
+          a.download = "rendered-video.mp4";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(blobUrl);
+        }
       }
     } catch (error) {
       console.error("Download failed:", error);

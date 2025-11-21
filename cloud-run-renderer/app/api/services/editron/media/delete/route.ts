@@ -4,19 +4,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, COLLECTIONS } from '@/lib/db/mongodb';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
-import { deleteFromGCS } from '@/lib/services/gcs-service';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { auth } from '@clerk/nextjs/server';
+import { deleteFromGCS } from '@/lib/editron/services/gcs-service';
 
 export const runtime = 'nodejs';
 
 export async function DELETE(request: NextRequest) {
   try {
-    const userId = getUserId();
+    const { userId } = await auth();
     
     if (!userId) {
       return NextResponse.json(
-        { success: false, error: 'User not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }

@@ -138,7 +138,8 @@ export const VideoOverlayPanel: React.FC = () => {
         isDragging: false,
         type: OverlayType.VIDEO,
         content: video.image,
-        assetId, // Use assetId instead of src
+        src: videoFile.link, // Set src to the actual video URL for VideoLayerContent
+        assetId, // Keep assetId for tracking
         videoStartTime: 0,
         styles: {
           opacity: 1,
@@ -164,24 +165,37 @@ export const VideoOverlayPanel: React.FC = () => {
     <div className="flex flex-col gap-4 p-4 bg-background h-full">
       {!localOverlay ? (
         <>
-          <form onSubmit={handleSearch} className="flex gap-2">
-            <Input
-              placeholder="Search videos..."
-              value={searchQuery}
-              className="bg-muted border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
-              onChange={(e) => setSearchQuery(e.target.value)}
-              // NOTE: Stops zooming in on input focus on iPhone
-              style={{ fontSize: "16px" }}
-            />
-            <Button
-              type="submit"
-              variant="default"
-              disabled={isLoading}
-              className="bg-muted hover:bg-accent text-foreground border-border"
-            >
-              <Search className="h-4 w-4" />
-            </Button>
-          </form>
+          <div className="space-y-3">
+            <form onSubmit={handleSearch} className="flex gap-2">
+              <Input
+                placeholder="Search videos..."
+                value={searchQuery}
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground focus-visible:ring-ring"
+                onChange={(e) => setSearchQuery(e.target.value)}
+                // NOTE: Stops zooming in on input focus on iPhone
+                style={{ fontSize: "16px" }}
+              />
+              <Button
+                type="submit"
+                variant="default"
+                disabled={isLoading}
+                className="bg-muted hover:bg-accent text-foreground border-border"
+              >
+                <Search className="h-4 w-4" />
+              </Button>
+            </form>
+            
+            <div className="flex items-center justify-center">
+              <a
+                href="https://www.pexels.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground/80 transition-colors"
+              >
+                Powered by Pexels
+              </a>
+            </div>
+          </div>
 
           <div className="columns-2 sm:columns-2 gap-3 space-y-3">
             {isLoading ? (
@@ -208,10 +222,18 @@ export const VideoOverlayPanel: React.FC = () => {
                   </div>
                 </button>
               ))
-            ) : (
-              <div className="col-span-full flex flex-col items-center justify-center py-8 text-gray-500"></div>
-            )}
+            ) : null}
           </div>
+          
+          {!isLoading && videos.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground gap-3">
+              <Search className="h-12 w-12 opacity-20" />
+              <div className="space-y-1">
+                <p className="text-sm font-medium">No videos yet</p>
+                <p className="text-xs opacity-70">Search for videos above to get started</p>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         <VideoDetails

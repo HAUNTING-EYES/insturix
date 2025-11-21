@@ -1,86 +1,72 @@
-import type { Config } from "tailwindcss";
-import { fontFamily } from "tailwindcss/defaultTheme";
+import type { Config } from 'tailwindcss';
 
 const config: Config = {
-  darkMode: ["class"],
   content: [
-    "./pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./components/**/*.{js,ts,jsx,tsx,mdx}",
-    "./app/**/*.{js,ts,jsx,tsx,mdx}",
+    './pages/**/*.{js,ts,jsx,tsx,mdx}',
+    './components/**/*.{js,ts,jsx,tsx,mdx}',
+    './app/**/*.{js,ts,jsx,tsx,mdx}',
   ],
   theme: {
     extend: {
-      fontFamily: {
-        sans: ["Inter", ...fontFamily.sans],
-        serif: ["Merriweather", ...fontFamily.serif],
-        mono: ["Roboto Mono", ...fontFamily.mono],
-        display: ["Playfair Display", ...fontFamily.serif],
-        handwriting: ["Caveat", ...fontFamily.sans],
-        futuristic: ["Orbitron", ...fontFamily.sans],
-        retro: ["VT323", ...fontFamily.mono],
-        elegant: ["Cormorant Garamond", ...fontFamily.serif],
-        quirky: ["Fredoka One", ...fontFamily.sans],
-        geometric: ["Montserrat", ...fontFamily.sans],
+      screens: {
+        'xs': '475px',
+        'mobile': { 'max': '640px' },
+        'tablet': { 'min': '641px', 'max': '1024px' },
       },
-      colors: {
-        border: "hsl(var(--border))",
-        input: "hsl(var(--input))",
-        ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
-        foreground: "hsl(var(--foreground))",
-        primary: {
-          DEFAULT: "hsl(var(--primary))",
-          foreground: "hsl(var(--primary-foreground))",
+      spacing: {
+        'mobile': '1rem',
+        'tablet': '1.5rem',
+        'desktop': '2rem',
+      },
+      fontSize: {
+        'mobile-xs': ['0.75rem', { lineHeight: '1.4' }],
+        'mobile-sm': ['0.875rem', { lineHeight: '1.5' }],
+        'mobile-base': ['1rem', { lineHeight: '1.5' }],
+        'mobile-lg': ['1.125rem', { lineHeight: '1.4' }],
+        'mobile-xl': ['1.25rem', { lineHeight: '1.3' }],
+      },
+      keyframes: {
+        progress: {
+          "0%": { transform: "translateX(-100%)" },
+          "50%": { transform: "translateX(0%)" },
+          "100%": { transform: "translateX(100%)" }
         },
-        secondary: {
-          DEFAULT: "hsl(var(--secondary))",
-          foreground: "hsl(var(--secondary-foreground))",
+        shine: {
+          '0%': { left: '-75%' },
+          '100%': { left: '125%' },
         },
-        destructive: {
-          DEFAULT: "hsl(var(--destructive))",
-          foreground: "hsl(var(--destructive-foreground))",
+        'mobile-bounce': {
+          '0%, 100%': { 
+            transform: 'translateY(0)',
+            animationTimingFunction: 'cubic-bezier(0.8, 0, 1, 1)'
+          },
+          '50%': { 
+            transform: 'translateY(-2px)',
+            animationTimingFunction: 'cubic-bezier(0, 0, 0.2, 1)'
+          },
         },
-        muted: {
-          DEFAULT: "hsl(var(--muted))",
-          foreground: "hsl(var(--muted-foreground))",
-        },
-        accent: {
-          DEFAULT: "hsl(var(--accent))",
-          foreground: "hsl(var(--accent-foreground))",
-        },
-        popover: {
-          DEFAULT: "hsl(var(--popover))",
-          foreground: "hsl(var(--popover-foreground))",
-        },
-        card: {
-          DEFAULT: "hsl(var(--card))",
-          foreground: "hsl(var(--card-foreground))",
-        },
-        chart: {
-          "1": "hsl(var(--chart-1))",
-          "2": "hsl(var(--chart-2))",
-          "3": "hsl(var(--chart-3))",
-          "4": "hsl(var(--chart-4))",
-          "5": "hsl(var(--chart-5))",
-        },
-        sidebar: {
-          DEFAULT: "hsl(var(--sidebar-background))",
-          foreground: "hsl(var(--sidebar-foreground))",
-          primary: "hsl(var(--sidebar-primary))",
-          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
-          accent: "hsl(var(--sidebar-accent))",
-          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
-          border: "hsl(var(--sidebar-border))",
-          ring: "hsl(var(--sidebar-ring))",
+        'fade-in-up': {
+          '0%': {
+            opacity: '0',
+            transform: 'translateY(10px)'
+          },
+          '100%': {
+            opacity: '1',
+            transform: 'translateY(0)'
+          },
         },
       },
-      borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
-        sm: "calc(var(--radius) - 4px)",
+      animation: {
+        progress: "progress 2s ease-in-out infinite",
+        shine: "shine 1s linear infinite",
+        'mobile-bounce': 'mobile-bounce 0.3s ease-in-out',
+        'fade-in-up': 'fade-in-up 0.5s ease-out',
       },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [
+    require('@tailwindcss/line-clamp'),
+  ],
 };
+
 export default config;

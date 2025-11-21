@@ -4,20 +4,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, COLLECTIONS } from '@/lib/db/mongodb';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
-import { assetResolver } from '@/lib/services/asset-resolver';
-import type { MediaAsset } from '@/lib/services/asset-resolver';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { auth } from '@clerk/nextjs/server';
+import { assetResolver } from '@/lib/editron/services/asset-resolver';
+import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = getUserId();
+    const { userId } = await auth();
     
     if (!userId) {
       return NextResponse.json(
-        { success: false, error: 'User not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }

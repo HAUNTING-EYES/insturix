@@ -4,10 +4,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToGCS } from '@/lib/services/gcs-service';
-import { getDatabase, COLLECTIONS } from '@/lib/db/mongodb';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
-import type { MediaAsset } from '@/lib/services/asset-resolver';
+import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
+import { auth } from '@clerk/nextjs/server';
+import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
 
@@ -20,7 +20,14 @@ export const config = {
 
 export async function POST(request: NextRequest) {
   try {
-    const userId = getUserId();
+    const { userId } = await auth();
+    
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     
     // Parse form data
     const formData = await request.formData();
@@ -75,6 +82,7 @@ export async function POST(request: NextRequest) {
       userId,
       projectId: projectId || undefined,
       type: fileType,
+      source: 'user-upload',
       filename: file.name,
       gcsPath: uploadResult.gcsPath,
       cachedUrl: uploadResult.signedUrl,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { assetResolver } from '@/lib/services/asset-resolver';
-import type { Overlay } from '@/components/editor/version-7.0.0/types';
+import { assetResolver } from '@/lib/editron/services/asset-resolver';
+import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
 
 /**
  * POST /api/services/editron/assets/validate

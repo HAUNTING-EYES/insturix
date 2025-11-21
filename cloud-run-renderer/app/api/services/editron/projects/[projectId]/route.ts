@@ -4,8 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { projectService } from '@/lib/services/project-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+import { projectService } from '@/lib/editron/services/project-service';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
@@ -14,8 +14,14 @@ export async function GET(
   { params }: { params: { projectId: string } }
 ) {
   try {
-    const userId = getUserId();
-    const { projectId } = params;
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    const { projectId } = await params;
 
     const project = await projectService.loadProject(userId, projectId);
 
@@ -44,8 +50,14 @@ export async function DELETE(
   { params }: { params: { projectId: string } }
 ) {
   try {
-    const userId = getUserId();
-    const { projectId } = params;
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+    const { projectId } = await params;
 
     await projectService.deleteProject(userId, projectId);
 

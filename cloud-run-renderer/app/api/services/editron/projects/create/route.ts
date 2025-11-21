@@ -4,8 +4,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { projectService } from '@/lib/services/project-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+import { projectService } from '@/lib/editron/services/project-service';
+import { auth } from '@clerk/nextjs/server';
 
 export const runtime = 'nodejs';
 
@@ -14,8 +14,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, templateId } = body;
 
-    // Get user ID (for now using the existing utility, can be replaced with auth later)
-    const userId = getUserId();
+    const { userId } = await auth();
+
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
     if (!name) {
       return NextResponse.json(

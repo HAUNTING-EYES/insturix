@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { chatService } from '@/lib/services/chat-service';
-import { getUserId } from '@/components/editor/version-7.0.0/utils/user-id';
+import { chatService } from '@/lib/editron/services/chat-service';
+import { auth } from '@clerk/nextjs/server';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const projectId = searchParams.get('projectId');
-    const userId = getUserId();
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
 
     if (!projectId) {
       return NextResponse.json(
