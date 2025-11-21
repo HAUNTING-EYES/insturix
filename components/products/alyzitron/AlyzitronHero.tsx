@@ -125,7 +125,7 @@ export default function AlyzitronHero() {
           variants={itemVariants}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
         >
-          <Link href="/dashboard">
+          <Link href="/dashboard/alyzitron">
             <Button
               size="lg"
               className="bg-blue-600 text-white hover:bg-blue-700 border border-transparent px-8 py-3 text-lg font-semibold transition-colors duration-200"

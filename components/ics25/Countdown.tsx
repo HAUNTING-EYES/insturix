@@ -40,7 +40,7 @@ export default function Countdown({
   // Don't render on server to avoid hydration mismatch
   if (!mounted) {
     return (
-      <div className={`inline-flex items-center gap-4 px-5 py-3 rounded-xl bg-white/70 dark:bg-white/5 backdrop-blur border border-white/60 dark:border-white/10 ${className}`}>
+      <div className={`inline-flex items-center gap-4 px-5 py-3 rounded-xl bg-white/70 dark:bg-white/5 backdrop-blur border border-white/60 dark:border-white/10 hover:shadow-[0_0_30px_rgba(255,46,230,0.2),0_0_60px_rgba(58,158,255,0.1)] transition-all duration-300 ${className}`}>
         <span className="text-sm text-zinc-700 dark:text-zinc-300">{label}</span>
         <div className="flex items-center gap-3 text-zinc-900 dark:text-zinc-100 font-semibold">
           <TimeBox value={0} unit="days" />
@@ -56,7 +56,7 @@ export default function Countdown({
   }
 
   return (
-    <div className={`inline-flex items-center gap-4 px-5 py-3 rounded-xl bg-white/70 dark:bg-white/5 backdrop-blur border border-white/60 dark:border-white/10 ${className}`}>
+    <div className={`inline-flex items-center gap-4 px-5 py-3 rounded-xl bg-white/70 dark:bg-white/5 backdrop-blur border border-white/60 dark:border-white/10 hover:shadow-[0_0_30px_rgba(255,46,230,0.2),0_0_60px_rgba(58,158,255,0.1)] transition-all duration-300 ${className}`}>
       <span className="text-sm text-zinc-700 dark:text-zinc-300">{label}</span>
       <div className="flex items-center gap-3 text-zinc-900 dark:text-zinc-100 font-semibold">
         <TimeBox value={timeLeft.days} unit="days" />

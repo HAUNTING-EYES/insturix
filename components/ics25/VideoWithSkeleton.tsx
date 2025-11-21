@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
@@ -15,10 +15,16 @@ interface VideoWithSkeletonProps extends React.VideoHTMLAttributes<HTMLVideoElem
 export default function VideoWithSkeleton({
   className,
   skeletonClassName,
+  autoPlay,
   ...props
 }: VideoWithSkeletonProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   if (hasError) {
     return (
@@ -40,6 +46,7 @@ export default function VideoWithSkeleton({
       )}
       <video
         {...props}
+        autoPlay={isClient ? autoPlay : false}
         className={cn(
           "transition-opacity duration-300",
           isLoading ? "opacity-0" : "opacity-100",
@@ -50,6 +57,7 @@ export default function VideoWithSkeleton({
           setIsLoading(false);
           setHasError(true);
         }}
+        suppressHydrationWarning
       />
     </div>
   );

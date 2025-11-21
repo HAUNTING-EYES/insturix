@@ -125,7 +125,7 @@ export default function ShieldHero() {
           variants={itemVariants}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
         >
-          <LinkNext href="/products/shield/contact">
+          <LinkNext href="/dashboard/shield">
             <Button
               size="lg"
               className="bg-purple-500 text-white hover:bg-purple-600 border border-transparent px-8 py-3 text-lg font-semibold transition-colors duration-200"

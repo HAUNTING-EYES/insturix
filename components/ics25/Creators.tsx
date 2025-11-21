@@ -170,6 +170,19 @@ const creators = [
     },
     description: "Taiyab Alam is a creative comedy creator and digital visual artist, known for his relatable humor and artistic storytelling that engages over 280,000 Instagram followers and a growing audience on his YouTube channel Avtaar Creation.",
   },
+  {
+    id: 13,
+    name: "Har Parkash",
+    handle: "@harparkashofficial",
+    avatar: "/creators/harparkash.jpg",
+    category: "Punjabi Singer, Lyricist, Performer",
+    followers: "800K+",
+    socials: {
+      youtube: "https://www.youtube.com/channel/UChEALt-eYb7Eo4v-rg1Moyw",
+      instagram: "https://www.instagram.com/harparkashofficial",
+    },
+    description: "Har Parkash is a rising Punjabi singer, lyricist, and performer, captivating audiences with original music and energetic performances for over 250,000 followers on Instagram and YouTube.",
+  },
 ];
 
 const categoryBlurbs: Record<string, string> = {
