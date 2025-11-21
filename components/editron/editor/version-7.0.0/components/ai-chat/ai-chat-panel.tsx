@@ -15,8 +15,10 @@ import {
   Check,
   X,
   History,
-  Sparkles,
   ChevronLeft,
+  Terminal,
+  Bot,
+  User,
 } from "lucide-react";
 import { useEditorContext } from "../../contexts/editor-context";
 import { getUserId } from "../../utils/user-id";
@@ -65,6 +67,7 @@ export function AIChatPanel() {
   const [showHistory, setShowHistory] = useState(false);
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [isLoadingSessions, setIsLoadingSessions] = useState(true);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() || 'default' : 'default';
@@ -72,7 +75,7 @@ export function AIChatPanel() {
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, isProcessing]);
 
   // Load sessions on mount
   useEffect(() => {
@@ -88,6 +91,7 @@ export function AIChatPanel() {
 
   const loadSessions = async () => {
     try {
+      setIsLoadingSessions(true);
       const res = await fetch(`/api/services/editron/chat/sessions/list?projectId=${projectId}`);
       const data = await res.json();
       if (data.success) {
@@ -99,6 +103,8 @@ export function AIChatPanel() {
       }
     } catch (error) {
       console.error("Failed to load sessions:", error);
+    } finally {
+      setIsLoadingSessions(false);
     }
   };
 
@@ -417,11 +423,11 @@ export function AIChatPanel() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background">
+    <div className="flex flex-col h-full bg-background animate-in fade-in-0 duration-300">
       {/* Chat Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-purple-500" />
+          <Bot className="h-5 w-5 text-primary" />
           <div>
             <h3 className="font-semibold text-sm">
               {currentSession?.name || "AI Assistant"}
@@ -454,10 +460,17 @@ export function AIChatPanel() {
         </div>
       </div>
 
-      {!currentSessionId ? (
+      {isLoadingSessions ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center space-y-4 p-8">
-            <Sparkles className="h-12 w-12 text-purple-500 mx-auto" />
+            <Loader2 className="h-8 w-8 text-muted-foreground mx-auto animate-spin" />
+            <p className="text-sm text-muted-foreground">Loading chats...</p>
+          </div>
+        </div>
+      ) : !currentSessionId ? (
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center space-y-4 p-8">
+            <Bot className="h-12 w-12 text-muted-foreground mx-auto opacity-50" />
             <h3 className="font-semibold text-lg">Start a new chat</h3>
             <p className="text-sm text-muted-foreground max-w-sm">
               Create a new chat session to start editing your video with AI assistance
@@ -472,10 +485,9 @@ export function AIChatPanel() {
         <>
           {/* Messages */}
           <ScrollArea className="flex-1 p-4">
-            <div className="space-y-4">
+            <div className="space-y-6">
               {messages.length === 0 ? (
                 <div className="text-center text-muted-foreground text-sm py-12">
-                  <Sparkles className="h-8 w-8 mx-auto mb-3 text-purple-500" />
                   <p>Ask me anything about your video</p>
                 </div>
               ) : (
@@ -483,55 +495,47 @@ export function AIChatPanel() {
                   <div
                     key={idx}
                     className={cn(
-                      "flex",
-                      msg.role === "user" ? "justify-end" : "justify-start"
+                      "flex gap-3",
+                      msg.role === "user" ? "flex-row-reverse" : "flex-row"
                     )}
                   >
+                    {/* Avatar */}
+                    <div className={cn(
+                      "h-8 w-8 rounded-full flex items-center justify-center shrink-0",
+                      msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted border"
+                    )}>
+                      {msg.role === "user" ? (
+                        <User className="h-4 w-4" />
+                      ) : (
+                        <Bot className="h-4 w-4" />
+                      )}
+                    </div>
+
+                    {/* Message Bubble */}
                     <div
                       className={cn(
-                        "max-w-[85%] rounded-lg px-4 py-3",
+                        "max-w-[85%] rounded-2xl px-4 py-3 text-sm",
                         msg.role === "user"
-                          ? "bg-purple-500 text-white"
-                          : "bg-muted border"
+                          ? "bg-primary text-primary-foreground rounded-tr-sm"
+                          : "bg-muted/50 border rounded-tl-sm"
                       )}
                     >
-                      <div className="flex items-center gap-2 mb-1">
-                        <span
-                          className={cn(
-                            "text-xs font-semibold uppercase tracking-wide",
-                            msg.role === "user"
-                              ? "text-purple-100"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          {msg.role === "user" ? "You" : "AI"}
-                        </span>
-                        <span
-                          className={cn(
-                            "text-xs",
-                            msg.role === "user"
-                              ? "text-purple-200"
-                              : "text-muted-foreground"
-                          )}
-                        >
-                          {msg.timestamp.toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="text-sm whitespace-pre-wrap">
+                      <div className="whitespace-pre-wrap leading-relaxed">
                         {msg.content}
                       </div>
                       {msg.toolCalls && msg.toolCalls.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-purple-400/20">
-                          <div className="text-xs font-semibold mb-2 opacity-75">
-                            🔧 Actions ({msg.toolCalls.length})
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <div className="text-xs font-medium mb-2 opacity-70 flex items-center gap-1">
+                            <Terminal className="h-3 w-3" />
+                            Actions Performed
                           </div>
-                          <div className="space-y-1">
+                          <div className="space-y-1.5">
                             {msg.toolCalls.map((call, i) => (
                               <div
                                 key={i}
-                                className="flex items-center gap-2 text-xs bg-purple-400/10 rounded px-2 py-1"
+                                className="flex items-center gap-2 text-xs bg-background/50 rounded-md px-2 py-1.5 border border-border/50"
                               >
-                                <span className="font-mono">{call.name}</span>
+                                <span className="font-mono opacity-80">{call.name}</span>
                               </div>
                             ))}
                           </div>
@@ -541,6 +545,21 @@ export function AIChatPanel() {
                   </div>
                 ))
               )}
+              
+              {/* Loading Indicator */}
+              {isProcessing && (
+                <div className="flex gap-3">
+                  <div className="h-8 w-8 rounded-full bg-muted border flex items-center justify-center shrink-0">
+                    <Bot className="h-4 w-4" />
+                  </div>
+                  <div className="bg-muted/50 border rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-1">
+                    <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:-0.3s]" />
+                    <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:-0.15s]" />
+                    <div className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce" />
+                  </div>
+                </div>
+              )}
+              
               <div ref={messagesEndRef} />
             </div>
           </ScrollArea>
@@ -558,14 +577,14 @@ export function AIChatPanel() {
                   }
                 }}
                 placeholder="Ask AI to edit your video..."
-                className="min-h-[60px] resize-none"
+                className="min-h-[50px] max-h-[200px] resize-none"
                 disabled={isProcessing}
               />
               <Button
                 onClick={handleSendMessage}
                 disabled={!inputMessage.trim() || isProcessing}
                 size="icon"
-                className="h-[60px] w-[60px] shrink-0 bg-purple-500 hover:bg-purple-600"
+                className="h-[50px] w-[50px] shrink-0"
               >
                 {isProcessing ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
@@ -574,8 +593,8 @@ export function AIChatPanel() {
                 )}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground text-center">
-              AI can help you add, edit, and organize your video elements
+            <p className="text-[10px] text-muted-foreground text-center opacity-70">
+              AI can make mistakes. Please review generated edits.
             </p>
           </div>
         </>

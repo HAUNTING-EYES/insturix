@@ -11,7 +11,7 @@ import {
   Sticker,
   Layout,
   ChevronLeft,
-  Sparkles,
+  MessageSquare,
 } from "lucide-react";
 import Image from "next/image";
 import {
@@ -227,7 +227,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               </TooltipProvider>
             ))}
             
-            {/* AI Chat Button - Distinct Design */}
+            {/* AI Chat Button - Standard Design */}
             <div className="mt-2 pt-2 border-t border-border">
               <TooltipProvider delayDuration={0}>
                 <Tooltip>
@@ -242,30 +242,26 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                         }
                       }}
                       size="lg"
-                      className={`flex flex-col items-center gap-2 px-1.5 py-2 relative overflow-hidden ${
+                      className={`flex flex-col items-center gap-2 px-1.5 py-2 ${
                         activePanel === OverlayType.AI_CHAT
-                          ? "bg-gradient-to-br from-purple-500 to-pink-500 text-white hover:from-purple-600 hover:to-pink-600"
-                          : "bg-gradient-to-br from-purple-500/10 to-pink-500/10 text-purple-600 dark:text-purple-400 hover:from-purple-500/20 hover:to-pink-500/20"
+                          ? "bg-accent text-foreground hover:bg-accent"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       }`}
                     >
-                      <Sparkles
-                        className={`h-4 w-4 font-light ${
-                          activePanel === OverlayType.AI_CHAT
-                            ? "animate-pulse"
-                            : ""
-                        }`}
+                      <MessageSquare
+                        className="h-4 w-4 text-foreground dark:text-foreground font-light"
                         strokeWidth={1.25}
                       />
-                      <span className="text-[8px] font-semibold leading-none">
+                      <span className="text-[8px] font-medium leading-none">
                         AI Chat
                       </span>
                     </SidebarMenuButton>
                   </TooltipTrigger>
                   <TooltipContent
                     side="right"
-                    className="border bg-gradient-to-br from-purple-500 to-pink-500 text-white"
+                    className="border bg-background text-foreground"
                   >
-                    AI Chat Assistant
+                    AI Chat
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
