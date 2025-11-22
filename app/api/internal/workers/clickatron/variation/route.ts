@@ -31,8 +31,9 @@ const workerRequestSchema = z.object({
     contrast: z.number(),
     saturation: z.number(),
   }).optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
   referenceImageRefs: z.array(z.string()).optional(), // GCS URIs of reference images
+  aspectRatio: z.string().optional(),
 });
 
 // Parse aspect ratio string to width and height

@@ -192,10 +192,13 @@ export class ClickatronGCSManager {
         filePath = filePath.split('?')[0];
       }
       
+      // Decode the file path to handle special characters
+      filePath = decodeURIComponent(filePath);
+      
       console.log('Extracted file path:', filePath);
       const file = bucket.file(filePath);
 
-      // Generate a signed URL for temporary access
+      // Generate a signed URL for temporary access (even if file doesn't exist)
       const [signedUrl] = await file.getSignedUrl({
         action: 'read',
         expires: Date.now() + 60 * 60 * 1000, // 1-hour expiration
