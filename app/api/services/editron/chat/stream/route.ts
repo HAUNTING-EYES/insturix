@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createAgent } from '@/lib/editron/agent/agent-graph';
-import { HumanMessage, AIMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
 import { chatService } from '@/lib/editron/services/chat-service';
 
 export const maxDuration = 60; // Allow longer timeout for agent execution
@@ -32,18 +32,37 @@ export async function POST(req: NextRequest) {
     const history = await chatService.getSessionHistory(actualSessionId);
     
     // Convert history to LangChain format
-    // We only take the last N messages to avoid context limit if needed, 
-    // but Flash has huge context so full history is likely fine.
-    const langchainHistory = history.map(msg => {
-      if (msg.role === 'user') return new HumanMessage(msg.content);
-      if (msg.role === 'assistant') return new AIMessage(msg.content);
-      // Tool messages are tricky if we don't store them perfectly.
-      // For now, let's just feed text history or simplify.
-      // Ideally we should store the full trace.
-      // If we just store text, the agent might get confused about previous tool calls.
-      // For this MVP, let's just send the text content as context if it's simple,
-      // or rely on the fact that we are starting a "fresh" turn with history.
-      return new HumanMessage(msg.content); // Fallback for now
+    const langchainHistory: (HumanMessage | AIMessage | ToolMessage)[] = [];
+    
+    history.forEach(msg => {
+      if (msg.role === 'user') {
+        langchainHistory.push(new HumanMessage(msg.content));
+      } else if (msg.role === 'assistant') {
+        // 1. Add the assistant message (with tool calls if any)
+        const toolCalls = msg.toolCalls?.map(tc => ({
+          id: tc.id,
+          name: tc.name,
+          args: tc.args,
+          type: 'tool_call' as const, // Explicitly cast to literal type
+        }));
+
+        langchainHistory.push(new AIMessage({
+          content: msg.content,
+          tool_calls: toolCalls,
+        }));
+
+        // 2. Add separate ToolMessages for results if they exist
+        // These must come immediately after the AIMessage that requested them
+        if (msg.toolResults && msg.toolResults.length > 0) {
+          msg.toolResults.forEach(tr => {
+            langchainHistory.push(new ToolMessage({
+              tool_call_id: tr.toolCallId,
+              name: tr.toolName,
+              content: typeof tr.result === 'string' ? tr.result : JSON.stringify(tr.result),
+            }));
+          });
+        }
+      }
     });
 
     // Initialize agent
@@ -73,10 +92,11 @@ export async function POST(req: NextRequest) {
         });
 
         let finalResponse = "";
+        const toolCalls: any[] = [];
+        const toolResults: any[] = [];
 
         for await (const event of eventStream) {
           const eventType = event.event;
-          console.log("Event:", eventType, event.name, event.data?.chunk?.content ? "has content" : "no content");
           
           if (eventType === "on_chat_model_stream") {
             const content = event.data.chunk.content;
@@ -86,20 +106,41 @@ export async function POST(req: NextRequest) {
             }
           } else if (eventType === "on_tool_start") {
              console.log("Tool start:", event.name);
-             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: event.name })}\n\n`));
+             // Store tool call info
+             // Note: We might get multiple chunks for args, but usually on_tool_start has the initial call info
+             // Actually, on_chat_model_stream might emit tool_calls chunks too.
+             // But on_tool_start is cleaner for our tracking.
+             // We need to generate an ID if one isn't provided, but usually it is.
+             // LangGraph events usually have run_id or similar.
+             // Let's use the event data.
+             toolCalls.push({
+               id: event.run_id, // Use run_id as tool call id
+               name: event.name,
+               args: event.data.input
+             });
+             
+             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: event.name, args: event.data.input })}\n\n`));
           } else if (eventType === "on_tool_end") {
-             console.log("Tool end:", event.name, event.data.output);
+             console.log("Tool end:", event.name);
+             
+             // Store tool result
+             toolResults.push({
+               toolCallId: event.run_id, // Match with start
+               toolName: event.name,
+               result: event.data.output
+             });
+
              await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: event.name, output: event.data.output })}\n\n`));
           }
         }
 
-        // Save assistant response
-        if (finalResponse) {
-          await chatService.saveMessage(actualSessionId, {
-            role: 'assistant',
-            content: finalResponse,
-          });
-        }
+        // Save assistant response with tool info
+        await chatService.saveMessage(actualSessionId, {
+          role: 'assistant',
+          content: finalResponse,
+          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+          toolResults: toolResults.length > 0 ? toolResults : undefined,
+        });
 
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: actualSessionId })}\n\n`));
       } catch (error: any) {

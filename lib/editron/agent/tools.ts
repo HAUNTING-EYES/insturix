@@ -35,7 +35,7 @@ export const createTools = (userId: string, projectId: string) => {
         const project = await loadProject();
 
         // Canonicalize
-        const canonical = JSON.stringify(project, Object.keys(project).sort(), 2);
+        const canonical = JSON.stringify(project, null, 2);
 
         // Calculate canonical dimensions
         let width = project.playerDimensions?.width || 1920;

@@ -19,7 +19,10 @@ import {
   Terminal,
   Bot,
   User,
+  Settings2,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useEditorContext } from "../../contexts/editor-context";
 import { getUserId } from "../../utils/user-id";
 import { cn } from "@/lib/utils";
@@ -54,6 +57,22 @@ interface ChatSession {
   createdAt: Date;
   updatedAt: Date;
 }
+
+const TOOL_FRIENDLY_NAMES: Record<string, string> = {
+  read_project_file: "Reading project file",
+  list_project_files: "Listing project files",
+  apply_project_patch: "Applying changes",
+  add_text_overlay: "Adding text",
+  add_image_overlay: "Adding image",
+  add_video_overlay: "Adding video",
+  add_audio_overlay: "Adding audio",
+  update_overlay: "Updating element",
+  delete_overlay: "Removing element",
+  visual_inspect_frame: "Inspecting video frame",
+  get_video_duration: "Checking duration",
+  search_web: "Searching web",
+  generate_image: "Generating image",
+};
 
 export function AIChatPanel() {
   const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject, 
@@ -633,27 +652,49 @@ export function AIChatPanel() {
                           : "bg-muted/50 border rounded-tl-sm"
                       )}
                     >
-                      <div className="whitespace-pre-wrap leading-relaxed">
-                        {msg.content}
+                      <div className="text-sm leading-relaxed">
+                        {msg.role === "user" ? (
+                          <div className="whitespace-pre-wrap">{msg.content}</div>
+                        ) : (
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                              li: ({ children }) => <li>{children}</li>,
+                              code: ({ className, children, ...props }: any) => {
+                                const match = /language-(\w+)/.exec(className || "");
+                                const isInline = !match && !className?.includes("language-");
+                                return isInline ? (
+                                  <code className="bg-black/10 dark:bg-white/10 rounded px-1 py-0.5 font-mono text-xs" {...props}>
+                                    {children}
+                                  </code>
+                                ) : (
+                                  <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
+                                    {children}
+                                  </code>
+                                );
+                              },
+                              pre: ({ children }) => <pre className="m-0">{children}</pre>,
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        )}
                       </div>
                       {msg.toolCalls && msg.toolCalls.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-border/50">
-                          <div className="text-xs font-medium mb-2 opacity-70 flex items-center gap-1">
-                            <Terminal className="h-3 w-3" />
-                            Actions Performed
-                          </div>
-                          <div className="space-y-1.5">
+                        <div className="mt-2 pt-2 border-t border-border/30">
+                          <div className="space-y-1">
                             {msg.toolCalls.map((call, i) => (
                               <div
                                 key={i}
-                                className="flex flex-col gap-1 text-xs bg-background/50 rounded-md px-2 py-1.5 border border-border/50"
+                                className="flex items-center gap-2 text-[10px] text-muted-foreground/70 px-1 py-0.5"
                               >
-                                <span className="font-mono opacity-80 font-semibold">{call.name}</span>
-                                {call.args && Object.keys(call.args).length > 0 && (
-                                  <pre className="text-[10px] opacity-60 overflow-x-auto">
-                                    {JSON.stringify(call.args, null, 2)}
-                                  </pre>
-                                )}
+                                <Settings2 className="h-3 w-3 opacity-50" />
+                                <span className="font-medium">
+                                  {TOOL_FRIENDLY_NAMES[call.name] || call.name}
+                                </span>
                               </div>
                             ))}
                           </div>
