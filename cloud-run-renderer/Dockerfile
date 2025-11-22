@@ -1,4 +1,4 @@
-FROM node:18-bullseye
+FROM node:18-bookworm
 
 # Install Google Chrome Stable and fonts
 # Note: We use the official signing key and repository

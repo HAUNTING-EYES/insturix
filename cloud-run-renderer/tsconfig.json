@@ -2,12 +2,25 @@
     "compilerOptions": {
         "target": "es2020",
         "module": "commonjs",
+        "lib": [
+            "dom",
+            "dom.iterable",
+            "esnext"
+        ],
         "outDir": "./dist",
         "rootDir": "./",
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true
+        "forceConsistentCasingInFileNames": true,
+        "jsx": "react-jsx",
+        "resolveJsonModule": true,
+        "moduleResolution": "node",
+        "paths": {
+            "@/*": [
+                "./*"
+            ]
+        }
     },
     "include": [
         "server.ts"

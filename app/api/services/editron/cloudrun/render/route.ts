@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { GoogleAuth } from 'google-auth-library';
 
 export async function POST(request: Request) {
   try {
@@ -18,11 +19,17 @@ export async function POST(request: Request) {
 
     console.log('Triggering render on Cloud Run:', cloudRunUrl);
 
+    // Create an authentication client
+    const auth = new GoogleAuth();
+    const client = await auth.getIdTokenClient(cloudRunUrl);
+    const clientHeaders = await client.getRequestHeaders();
+
     // Call the custom renderer service
     const response = await fetch(`${cloudRunUrl}/render`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': (clientHeaders as any)['Authorization'] || '',
       },
       body: JSON.stringify({
         id: id || compositionId, // The server expects 'id' as the composition ID

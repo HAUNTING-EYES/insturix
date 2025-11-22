@@ -49,7 +49,17 @@ app.post('/render', async (req: Request, res: Response) => {
     console.log('Bundling...');
     const bundled = await bundle({
       entryPoint,
-      // If you have a webpack config, you might need to pass it here
+      webpackOverride: (config) => {
+        // Configure webpack to resolve path aliases
+        config.resolve = {
+          ...config.resolve,
+          alias: {
+            ...config.resolve?.alias,
+            '@': path.resolve(__dirname, '..'),
+          },
+        };
+        return config;
+      },
     });
 
     console.log('Selecting composition...');
