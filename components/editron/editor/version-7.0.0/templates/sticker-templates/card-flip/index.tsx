@@ -98,7 +98,7 @@ export const cardFlip: StickerTemplate = {
     defaultProps: {
       frontColor: "linear-gradient(45deg, #1e3a8a, #3b82f6)",
       backColor: "linear-gradient(45deg, #1e3a8a, #3b82f6)",
-      frontText: "React Video Editor!",
+      frontText: "Editron!",
       backText: "Flip me!",
     },
     isPro: true,

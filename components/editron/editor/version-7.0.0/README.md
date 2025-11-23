@@ -1,4 +1,4 @@
-# React Video Editor Pro
+# Editron
 
 ## New Features
 

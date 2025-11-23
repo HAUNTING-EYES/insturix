@@ -113,23 +113,11 @@ export const Editor: React.FC = () => {
     return (
       <div className="flex items-center justify-center h-screen bg-white dark:bg-gray-900 p-6">
         <div className="text-center text-gray-900 dark:text-white">
-          <h2 className="text-xl font-bold mb-3">React Video Editor</h2>
+          <h2 className="text-xl font-bold mb-3">Editron</h2>
           <p className="text-sm text-gray-600 dark:text-gray-400 font-light mb-4">
-            Currently, React Video Editor is designed as a full-screen desktop
+            Currently, Editron is designed as a full-screen desktop
             experience. We&apos;re actively working on making it
             mobile-friendly! 👀
-          </p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 font-light">
-            Want mobile support? Let us know by voting{" "}
-            <a
-              href="https://reactvideoeditor.featurebase.app/p/bulb-mobile-layout-version-2"
-              className="text-primary font-medium hover:underline"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              here
-            </a>
-            !
           </p>
         </div>
       </div>

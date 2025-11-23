@@ -12,10 +12,10 @@ export default function Navbar() {
             <img
               src="/icons/logo.svg"
               className="h-9"
-              alt="React Video Editor Logo"
+              alt="Editron Logo"
             />
             <span className="self-center text-xl md:text-2xl font-light whitespace-nowrap text-white">
-              RVE
+              Editron
             </span>
           </Link>
         
