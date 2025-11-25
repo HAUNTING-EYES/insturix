@@ -12,6 +12,7 @@ export interface BlogPost {
   tags: string[];
   readTime: number;
   content: string;
+  audioUrl?: string;
 }
 
 export function formatDate(dateString: string): string {

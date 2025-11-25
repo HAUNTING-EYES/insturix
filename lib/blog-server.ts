@@ -29,6 +29,11 @@ export async function getAllBlogPosts(): Promise<BlogPost[]> {
 }
 
 export async function getBlogPost(id: string): Promise<BlogPost | null> {
+  // Filter out invalid slugs (favicon.ico, manifest.json, etc.)
+  if (!id || id.includes('.') || id.includes('/')) {
+    return null;
+  }
+  
   try {
     const filePath = path.join(BLOGS_DIRECTORY, `${id}.json`);
     const fileContents = fs.readFileSync(filePath, 'utf8');
