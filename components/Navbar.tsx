@@ -133,10 +133,6 @@ const menuItems = [
   {
     title:"Partner with us",
     href:"/contactus",
-  },
-  {
-    title: "ICS’25",
-    href: "/ics25",
   }
 ];
 

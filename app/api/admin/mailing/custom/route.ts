@@ -5,9 +5,7 @@ import mongoose from 'mongoose';
 import { User } from '@/schemas/user';
 import { EmailCooldown } from '@/schemas/EmailCooldown';
 import { sendEmail } from '@/lib/services/email';
-import { customUserMailingTemplate, customIcs25MailingTemplate } from '@/lib/services/email/templates/custom-mailing';
-import { getIcs25Db } from '@/lib/ics25-mongo';
-import Attendee from '@/schemas/ics25/Attendee';
+import { customUserMailingTemplate } from '@/lib/services/email/templates/custom-mailing';
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 const PROD_DB_NAME = 'insturix_prod'; // Production database for user data
@@ -50,16 +48,8 @@ export async function GET(req: NextRequest) {
     // Check cooldown status (1 day cooldown for custom mailing)
     const cooldownCheck = await (EmailCooldown as any).canSendEmail('custom-mailing', 1);
 
-    // Get recipient count based on type
-    let recipientCount = 0;
-
-    if (recipientType === 'ics25-attendees') {
-      await getIcs25Db();
-      recipientCount = await Attendee.countDocuments();
-    } else {
-      // all-users
-      recipientCount = await User.countDocuments();
-    }
+    // Get recipient count (all users only)
+    const recipientCount = await User.countDocuments();
 
     return NextResponse.json({
       ok: true,
@@ -68,7 +58,6 @@ export async function GET(req: NextRequest) {
       nextAvailable: cooldownCheck.nextAvailable || null,
       recipientCount,
       cooldownDays: 1,
-      recipientType,
     });
   } catch (error: any) {
     console.error('GET /api/admin/mailing/custom error:', error);
@@ -101,7 +90,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { recipientType = 'all-users', subject, message, testMode = false, testEmail } = body;
+    const { subject, message, testMode = false, testEmail } = body;
 
     // Validate required fields
     if (!subject || !message) {
@@ -126,14 +115,6 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
-    } else {
-      // Production mode validation
-      if (recipientType !== 'all-users' && recipientType !== 'ics25-attendees') {
-        return NextResponse.json(
-          { ok: false, message: 'Invalid recipientType. Must be all-users or ics25-attendees' },
-          { status: 400 }
-        );
-      }
     }
 
     await connectToProdDatabase();
@@ -141,10 +122,8 @@ export async function POST(req: NextRequest) {
     // If test mode, send to single email address
     if (testMode) {
       try {
-        // Determine which template to use
-        const template = recipientType === 'ics25-attendees'
-          ? customIcs25MailingTemplate('Test User', message, subject)
-          : customUserMailingTemplate('Test User', message, subject);
+        // Use standard user template
+        const template = customUserMailingTemplate('Test User', message, subject);
 
         const result = await sendEmail({
           to: testEmail,
@@ -187,25 +166,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Fetch recipients based on type
-    let recipients: any[] = [];
-    let recipientLabel = '';
-
-    if (recipientType === 'ics25-attendees') {
-      await getIcs25Db();
-      recipients = await Attendee.find(
-        {},
-        { email: 1, name: 1, _id: 1 }
-      ).lean();
-      recipientLabel = 'ICS25 attendees';
-    } else {
-      // all-users
-      recipients = await User.find(
-        {},
-        { email: 1, username: 1, _id: 1 }
-      ).lean();
-      recipientLabel = 'registered users';
-    }
+    // Fetch all registered users
+    const recipients = await User.find(
+      {},
+      { email: 1, username: 1, _id: 1 }
+    ).lean();
+    const recipientLabel = 'registered users';
 
     if (recipients.length === 0) {
       return NextResponse.json(
@@ -230,15 +196,9 @@ export async function POST(req: NextRequest) {
       // Send emails in parallel within each batch
       const batchPromises = batch.map(async (recipient) => {
         try {
-          // Get recipient name
-          const recipientName = recipientType === 'ics25-attendees'
-            ? recipient.name || 'Attendee'
-            : recipient.username || 'User';
-
-          // Use appropriate template
-          const template = recipientType === 'ics25-attendees'
-            ? customIcs25MailingTemplate(recipientName, message, subject)
-            : customUserMailingTemplate(recipientName, message, subject);
+          // Get recipient name and use standard user template
+          const recipientName = recipient.username || 'User';
+          const template = customUserMailingTemplate(recipientName, message, subject);
 
           const result = await sendEmail({
             to: recipient.email,
@@ -289,7 +249,7 @@ export async function POST(req: NextRequest) {
       {
         successCount,
         failedCount,
-        recipientType,
+        recipientType: 'all-users',
         errorMessage:
           failedCount > 0
             ? `${failedCount} emails failed to send`

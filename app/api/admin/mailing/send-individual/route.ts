@@ -3,12 +3,9 @@ import { auth } from '@clerk/nextjs/server';
 import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
 import { User } from '@/schemas/user';
-import { getIcs25Db } from '@/lib/ics25-mongo';
-import Attendee from '@/schemas/ics25/Attendee';
 import { sendEmail } from '@/lib/services/email';
 import { promotionalEmailTemplate } from '@/lib/services/email/templates/promotional';
-import { ticketConfirmationEmailTemplate } from '@/lib/services/email/templates/ticket-confirmation';
-import { getSimulatedTimeUntilEvent } from '@/lib/utils/event-time';
+
 
 /**
  * POST /api/admin/mailing/send-individual
@@ -47,9 +44,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Connect to databases
+    // Connect to database
     await connectToDatabase();
-    await getIcs25Db();
 
     // Verify recipient is a registered user
     const user = await User.findOne({ email: recipientEmail }).lean();
@@ -61,144 +57,24 @@ export async function POST(req: NextRequest) {
     }
 
     const userName = name || user.username || user.email?.split('@')[0] || 'Valued User';
-    let emailContent: { html: string; text: string; subject: string };
-    let subject: string;
-    let timeUntilEvent: string | undefined;
 
-    // Generate email content based on type
-    switch (emailType) {
-      case 'promotional':
-        emailContent = promotionalEmailTemplate(userName);
-        // Set subject explicitly without any TEST prefix
-        subject = "You're Invited to ICS'25 - India's Largest Creator-Tech Summit! 🚀";
-        // Ensure no TEST text
-        subject = subject.replace(/\[TEST\]/gi, '').trim();
-        break;
-
-      case 'ticket-confirmation-initial':
-        // Generate ticketId from user._id or attendee._id if found
-        let finalTicketId = ticketId;
-        if (!finalTicketId) {
-          const attendee = await Attendee.findOne({ clerkUserId: user.clerkUserId }).lean();
-          if (attendee?._id) {
-            finalTicketId = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
-          } else if (user._id) {
-            finalTicketId = `TICKET-${(user._id as any).toString().slice(-8).toUpperCase()}`;
-          } else {
-            // Generate a random ticketId if no ID found
-            finalTicketId = `TICKET-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-          }
-        }
-        
-        emailContent = ticketConfirmationEmailTemplate(
-          userName,
-          finalTicketId,
-          eventDetails || "Insturix Creator's Summit 2025"
-        );
-        subject = emailContent.subject;
-        // Ensure no TEST text
-        subject = subject.replace(/\[TEST\]/gi, '').trim();
-        break;
-
-      case 'ticket-confirmation-reminder-7days':
-        timeUntilEvent = getSimulatedTimeUntilEvent('reminder7Days');
-        // Generate ticketId from attendee if found
-        let ticketId7Days = ticketId;
-        if (!ticketId7Days) {
-          const attendee = await Attendee.findOne({ clerkUserId: user.clerkUserId }).lean();
-          if (attendee?._id) {
-            ticketId7Days = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
-          } else if (user._id) {
-            ticketId7Days = `TICKET-${(user._id as any).toString().slice(-8).toUpperCase()}`;
-          } else {
-            ticketId7Days = `TICKET-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-          }
-        }
-        
-        emailContent = ticketConfirmationEmailTemplate(
-          userName,
-          ticketId7Days,
-          eventDetails || "Insturix Creator's Summit 2025",
-          timeUntilEvent
-        );
-        subject = emailContent.subject;
-        // Ensure no TEST text
-        subject = subject.replace(/\[TEST\]/gi, '').trim();
-        break;
-
-      case 'ticket-confirmation-reminder-1day':
-        timeUntilEvent = getSimulatedTimeUntilEvent('reminder1Day');
-        // Generate ticketId from attendee if found
-        let ticketId1Day = ticketId;
-        if (!ticketId1Day) {
-          const attendee = await Attendee.findOne({ clerkUserId: user.clerkUserId }).lean();
-          if (attendee?._id) {
-            ticketId1Day = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
-          } else if (user._id) {
-            ticketId1Day = `TICKET-${(user._id as any).toString().slice(-8).toUpperCase()}`;
-          } else {
-            ticketId1Day = `TICKET-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-          }
-        }
-        
-        emailContent = ticketConfirmationEmailTemplate(
-          userName,
-          ticketId1Day,
-          eventDetails || "Insturix Creator's Summit 2025",
-          timeUntilEvent
-        );
-        subject = emailContent.subject;
-        // Ensure no TEST text
-        subject = subject.replace(/\[TEST\]/gi, '').trim();
-        break;
-
-      case 'ticket-confirmation-reminder-30min':
-        timeUntilEvent = getSimulatedTimeUntilEvent('reminder30Min');
-        // Generate ticketId from attendee if found
-        let ticketId30Min = ticketId;
-        if (!ticketId30Min) {
-          const attendee = await Attendee.findOne({ clerkUserId: user.clerkUserId }).lean();
-          if (attendee?._id) {
-            ticketId30Min = `TICKET-${(attendee._id as any).toString().slice(-8).toUpperCase()}`;
-          } else if (user._id) {
-            ticketId30Min = `TICKET-${(user._id as any).toString().slice(-8).toUpperCase()}`;
-          } else {
-            ticketId30Min = `TICKET-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-          }
-        }
-        
-        emailContent = ticketConfirmationEmailTemplate(
-          userName,
-          ticketId30Min,
-          eventDetails || "Insturix Creator's Summit 2025",
-          timeUntilEvent
-        );
-        subject = emailContent.subject;
-        // Ensure no TEST text
-        subject = subject.replace(/\[TEST\]/gi, '').trim();
-        break;
-
-      default:
-        return NextResponse.json(
-          { ok: false, message: `Unknown email type: ${emailType}` },
-          { status: 400 }
-        );
+    // Only support promotional emails now
+    if (emailType !== 'promotional') {
+      return NextResponse.json(
+        { ok: false, message: 'Only promotional emails are supported' },
+        { status: 400 }
+      );
     }
 
-    // Send the production email (NO TEST prefix)
-    // Ensure subject doesn't contain TEST prefix anywhere
-    let finalSubject = subject;
-    // Remove [TEST] prefix if present
-    finalSubject = finalSubject.replace(/^\s*\[TEST\]\s*/i, '').trim();
-    // Remove any other TEST text patterns
-    finalSubject = finalSubject.replace(/\s*\[TEST\]\s*/gi, '').trim();
+    const emailContent = promotionalEmailTemplate(userName);
+    const subject = "You're Invited - Join Insturix! 🚀";
     
     console.log(`📧 Sending production ${emailType} email to ${recipientEmail}...`);
-    console.log(`📧 Subject: ${finalSubject}`);
+    console.log(`📧 Subject: ${subject}`);
 
     const result = await sendEmail({
       to: recipientEmail,
-      subject: finalSubject,
+      subject: subject,
       htmlBody: emailContent.html,
       textBody: emailContent.text,
     });

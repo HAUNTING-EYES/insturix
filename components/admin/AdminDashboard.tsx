@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/tabs";
 import { useAuth } from "@clerk/nextjs";
 import { motion } from "framer-motion";
-import ICS25Dashboard from "./ICS25Dashboard";
+
 import AnalyticsTab from "./AnalyticsTab";
 
 interface AdminDashboardProps {
@@ -20,7 +20,7 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState("ics25");
+  const [activeTab, setActiveTab] = useState("analytics");
   const { signOut } = useAuth();
   const router = useRouter();
 
@@ -143,13 +143,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
       >
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
           <TabsList className="inline-flex items-center gap-2 mb-8 bg-white/50 dark:bg-zinc-900/50 border border-white/20 dark:border-zinc-800/50 p-1 rounded-xl">
-            <TabsTrigger
-              value="ics25"
-              className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-sky-500 data-[state=active]:to-blue-500 data-[state=active]:text-white rounded-lg px-4 py-2"
-            >
-              <Calendar className="w-4 h-4" />
-              <span>ICS'25</span>
-            </TabsTrigger>
+
             <TabsTrigger
               value="analytics"
               className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-fuchsia-500 data-[state=active]:to-purple-500 data-[state=active]:text-white rounded-lg px-4 py-2"
@@ -166,16 +160,7 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
             </TabsTrigger>
           </TabsList>
 
-          {/* ICS'25 Tab */}
-          <TabsContent value="ics25" className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
-              <ICS25Dashboard />
-            </motion.div>
-          </TabsContent>
+
 
           {/* Analytics Tab */}
           <TabsContent value="analytics" className="space-y-6">

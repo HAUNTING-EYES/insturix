@@ -7,8 +7,7 @@ import { useState, useEffect } from "react";
 import { ArrowRight, Users, Sparkles } from "lucide-react";
 import TypingAnimation from "@/components/ui/TypingAnimation";
 import BackgroundEffects from "@/components/ui/BackgroundEffects";
-import ICS25Popup from "@/components/ICS25Popup";
-import ICS25Banner from "@/components/ICS25Banner";
+
 import CountUp from "@/components/CountUp";
 
 // Keep messages stable between renders to avoid resetting timers/animations
@@ -25,24 +24,10 @@ const HERO_MESSAGES = [
 
 export default function HeroSection() {
   const [isHovering, setIsHovering] = useState(false);
-  const [showICS25Popup, setShowICS25Popup] = useState(false);
   const [countEnded, setCountEnded] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // ICS25 Popup logic
-  useEffect(() => {
-    // Check if user has seen the popup before
-    const hasSeenPopup = localStorage.getItem('ics25-popup-seen');
 
-    if (!hasSeenPopup) {
-      // Show popup after a shorter delay
-      const timer = setTimeout(() => {
-        setShowICS25Popup(true);
-      }, 800); // Reduced from 2000ms to 800ms
-
-      return () => clearTimeout(timer);
-    }
-  }, []);
 
   useEffect(() => {
     // Throttle animation start if first load is fast
@@ -51,11 +36,7 @@ export default function HeroSection() {
     return () => clearTimeout(t);
   }, []);
 
-  const handleCloseICS25Popup = () => {
-    setShowICS25Popup(false);
-    // Mark as seen for this session
-    localStorage.setItem('ics25-popup-seen', 'true');
-  };
+
 
   // Fetch user count using TanStack React Query
   // const { data: userCountData, isLoading } = useQuery({
@@ -113,7 +94,7 @@ export default function HeroSection() {
               <div className="relative z-10 w-full">
                 {/* Beautified CountUp on top of rotating text */}
                 <motion.div
-                  className="mb-6 sm:mb-8 md:mb-1 mt-4 sm:mt-6 md:mt-8 flex w-full items-center justify-center"
+                  className="mb-6 sm:mb-8 md:mb-1 sm:mt-6 md:mt-8 flex w-full items-center justify-center"
                   initial={{ opacity: 0, y: -6, scale: 0.98 }}
                   animate={mounted ? { opacity: 1, y: 0, scale: 1 } : {}}
                   transition={{ duration: 0.6, ease: "easeOut" }}
@@ -290,14 +271,7 @@ export default function HeroSection() {
         </div>
       </div>
 
-      {/* ICS25 Banner */}
-      <ICS25Banner />
 
-      {/* ICS25 Popup */}
-      <ICS25Popup
-        isOpen={showICS25Popup}
-        onClose={handleCloseICS25Popup}
-      />
     </div>
   );
 }
