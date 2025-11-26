@@ -94,7 +94,7 @@ export default function ShieldHero() {
           variants={itemVariants}
           className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
-          Shield is your digital safeguard—AI-powered copyright, legal, and reputation support for creators, influencers, and online businesses.
+          Shield is your digital safeguard, AI-powered copyright, legal, and reputation support for creators, influencers, and online businesses.
         </motion.p>
 
         {/* Stats */}

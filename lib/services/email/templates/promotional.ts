@@ -52,9 +52,9 @@ export function promotionalEmailTemplate(
             <tr>
               <td align="center" style="padding:10px 30px;">
                 <p style="font-size:18px; line-height:1.4; color:#000;">
-                  As a valued Insturix user, you’re invited to the <b>Insturix Creators Summit 2025 (ICS'25)</b> — 
+                  As a valued Insturix user, you’re invited to the <b>Insturix Creators Summit 2025 (ICS'25)</b> ,  
                   India’s largest Creator-Tech Summit, absolutely <b>FREE!</b><br>
-                  Don’t miss out — spots are limited!
+                  Don’t miss out ,  spots are limited!
                 </p>
               </td>
             </tr>

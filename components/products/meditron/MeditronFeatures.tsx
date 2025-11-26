@@ -107,7 +107,7 @@ export default function MeditronFeatures() {
             </span>
           </h2>
           <p className="text-lg text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto leading-relaxed">
-            Meditron is your creator-business hub. Find sponsors, connect with brands, and track your growth—all in one place.
+            Meditron is your creator-business hub. Find sponsors, connect with brands, and track your growth, all in one place.
           </p>
         </motion.div>
 

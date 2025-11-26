@@ -4,6 +4,7 @@ import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import WhoWeAre from "@/components/WhoWeAre";
 import { WhyUs } from "@/components/WhyUs";
+import BentoGrid from "@/components/Home/BentoGrid";
 import Script from "next/script";
 import { Suspense } from "react";
 import { LoadingScreen } from "@/components/Loader/LoadingScreen";
@@ -95,7 +96,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative overflow-x-hidden w-full">
+    <div className="relative w-full bg-neutral-950">
       <Script 
         id="organization-structured-data"
         type="application/ld+json"
@@ -111,6 +112,9 @@ export default function Home() {
       <Suspense fallback={<LoadingScreen />}>
         <ClientHeroSection />
       </Suspense>
+      <div id="features">
+        <BentoGrid />
+      </div>
       <WhoWeAre />
       <WhyUs />
       {/* <Testimo /> */}

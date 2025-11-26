@@ -417,4 +417,4 @@ Added AI-powered prompt enhancement feature:
 
 ---
 
-**Clickatron** represents the evolution from simple AI tools to intelligent creative partners. It's not just about generating images—it's about empowering creators with AI that understands context, maintains creative history, and delivers professional results through an intuitive, powerful interface.
+**Clickatron** represents the evolution from simple AI tools to intelligent creative partners. It's not just about generating images, it's about empowering creators with AI that understands context, maintains creative history, and delivers professional results through an intuitive, powerful interface.

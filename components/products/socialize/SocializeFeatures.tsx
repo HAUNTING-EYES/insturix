@@ -114,7 +114,7 @@ export default function SocializeFeatures() {
             </span>
           </h2>
           <p className="text-lg text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto leading-relaxed">
-            Socialize is more than a link-in-bio. It’s your personal hub for sharing, analytics, and career growth—all in one beautiful page.
+            Socialize is more than a link-in-bio. It’s your personal hub for sharing, analytics, and career growth, all in one beautiful page.
           </p>
         </motion.div>
 
