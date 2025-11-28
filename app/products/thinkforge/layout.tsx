@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "ThinkForge | AI Content Ideation & Scripting Tool",
-    description: "Create viral-worthy content with ThinkForge — the AI tool for ideation, scripting, and planning your next big post.",
+    description: "Create viral-worthy content with ThinkForge ,  the AI tool for ideation, scripting, and planning your next big post.",
     images: ["/icons/products/thinkforge-twitter-image.jpg"],
   },
 };

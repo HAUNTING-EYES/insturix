@@ -589,6 +589,28 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     updateCanvas(newCanvas);
   }, [updateCanvas]); // Removed canvas from deps since we're using ref
 
+  const handleCurvesChange = useCallback((
+    variationId: string,
+    curves: any // Using any to avoid import cycle or complex type here, validated in component
+  ) => {
+    if (!canvasRef.current) return;
+
+    const newCanvas = produce(canvasRef.current, (draft) => {
+      const variation = draft.variations.find((v) => v.id === variationId);
+      if (variation) {
+        if (!variation.fineTuning) {
+          variation.fineTuning = {
+            brightness: 100,
+            contrast: 100,
+            saturation: 100,
+          };
+        }
+        variation.fineTuning.curves = curves;
+      }
+    });
+    updateCanvas(newCanvas);
+  }, [updateCanvas]);
+
   const handleResetFinetuning = useCallback(() => {
     if (!localActiveVariation || !canvasRef.current) {
       console.log('handleResetFinetuning - no active variation or canvas ref');
@@ -604,6 +626,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           brightness: 100,
           contrast: 100,
           saturation: 100,
+          curves: undefined,
         };
       }
     });
@@ -869,7 +892,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               animate="visible"
               exit="exit"
               transition={{ duration: 0.3, ease: "easeOut" }}
-              className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-hidden flex flex-col h-full"
+              className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-hidden flex flex-col max-h-[calc(100vh-10rem)]"
             >
               <div className="flex items-center justify-between p-4 border-b border-zinc-800/80 bg-zinc-900/50">
                 <h3 className="text-sm font-medium text-zinc-200">Fine Tuning</h3>
@@ -887,6 +910,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   brightness={activeVariation.fineTuning.brightness}
                   contrast={activeVariation.fineTuning.contrast}
                   saturation={activeVariation.fineTuning.saturation}
+                  curves={activeVariation.fineTuning.curves}
                   aspectRatio={aspectRatio}
                   isBlankVariation={activeVariation.status === "blank"}
                   onBrightnessChange={(val) =>
@@ -897,6 +921,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   }
                   onSaturationChange={(val) =>
                     handleFinetuningChange(localActiveVariation!, "saturation", val)
+                  }
+                  onCurvesChange={(curves) =>
+                    activeVariation && handleCurvesChange(activeVariation.id, curves)
                   }
                   onAspectRatioChange={handleAspectRatioChange}
                   onReset={handleResetFinetuning}
@@ -941,6 +968,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             brightness={activeVariation.fineTuning.brightness}
             contrast={activeVariation.fineTuning.contrast}
             saturation={activeVariation.fineTuning.saturation}
+            curves={activeVariation.fineTuning.curves}
             aspectRatio={aspectRatio}
             isBlankVariation={activeVariation.status === "blank"}
             onBrightnessChange={(val) =>
@@ -951,6 +979,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             }
             onSaturationChange={(val) =>
               handleFinetuningChange(localActiveVariation!, "saturation", val)
+            }
+            onCurvesChange={(curves) =>
+              activeVariation && handleCurvesChange(activeVariation.id, curves)
             }
             onAspectRatioChange={handleAspectRatioChange}
             onReset={handleResetFinetuning}

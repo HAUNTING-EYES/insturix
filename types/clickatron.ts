@@ -53,10 +53,23 @@ export interface Variation {
   referenceImageRefs?: string[];
 }
 
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+
+export interface ColorCurves {
+  master: CurvePoint[];
+  red: CurvePoint[];
+  green: CurvePoint[];
+  blue: CurvePoint[];
+}
+
 export interface FineTuningControls {
   brightness: number;
   contrast: number;
   saturation: number;
+  curves?: ColorCurves;
 }
 
 

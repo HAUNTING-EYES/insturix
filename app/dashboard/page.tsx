@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Insturix Dashboard | Creator & Brand Command Center",
-    description: "All your Insturix tools and insights—now in one smart dashboard. Track performance, manage deals, and grow faster with AI.",
+    description: "All your Insturix tools and insights, now in one smart dashboard. Track performance, manage deals, and grow faster with AI.",
     images: ["/icons/products/insturix-dashboard-twitter-image.jpg"],
   },
 };

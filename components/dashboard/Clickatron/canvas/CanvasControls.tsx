@@ -7,17 +7,21 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
+import { CurveEditor } from './CurveEditor';
+import { ColorCurves } from '@/types/clickatron';
 import { CanvasPresetSelector } from '../CanvasPresetSelector';
 
 interface CanvasControlsProps {
     brightness: number;
     contrast: number;
     saturation: number;
+    curves?: ColorCurves;
     aspectRatio: string;
     isBlankVariation: boolean;
     onBrightnessChange: (value: number) => void;
     onContrastChange: (value: number) => void;
     onSaturationChange: (value: number) => void;
+    onCurvesChange?: (curves: ColorCurves) => void;
     onAspectRatioChange: (value: string) => void;
     onReset?: () => void;
     disabled?: boolean;
@@ -29,11 +33,13 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
     brightness,
     contrast,
     saturation,
+    curves,
     aspectRatio,
     isBlankVariation,
     onBrightnessChange,
     onContrastChange,
     onSaturationChange,
+    onCurvesChange,
     onAspectRatioChange,
     onReset,
     disabled = false,
@@ -153,6 +159,27 @@ export const CanvasControls: React.FC<CanvasControlsProps> = ({
                         step={1}
                         disabled={disabled}
                         className="w-full"
+                    />
+                </div>
+
+                <Separator className="bg-zinc-700/20" />
+
+                {/* Curves */}
+                <div className="space-y-2">
+                    <Label className="text-xs font-medium text-zinc-300 flex items-center gap-1.5">
+                        <div className="w-2 h-2 rounded-full bg-purple-400/60" />
+                        Curves
+                    </Label>
+                    <CurveEditor
+                        curves={curves || {
+                            master: [], red: [], green: [], blue: []
+                        }}
+                        onChange={(newCurves) => {
+                            if (!disabled && onCurvesChange) {
+                                onCurvesChange(newCurves);
+                            }
+                        }}
+                        disabled={disabled}
                     />
                 </div>
             </div>

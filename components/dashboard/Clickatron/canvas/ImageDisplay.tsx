@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, forwardRef, useRef } from "react";
+import React, { useState, useEffect, forwardRef, useRef, useMemo } from "react";
 import { Loader2, AlertTriangle, Sparkles, Plus } from "lucide-react";
 import {
   TransformWrapper,
@@ -8,6 +8,7 @@ import {
   ReactZoomPanPinchRef,
 } from "react-zoom-pan-pinch";
 import { fetchImageWithCache } from "@/lib/frontend/services/clickatron-image-cache";
+import { ColorCurves, CurvePoint } from "@/types/clickatron";
 
 // Helper function to get aspect ratio dimensions
 const getAspectRatioDimensions = (
@@ -40,6 +41,7 @@ interface ImageDisplayProps {
     brightness: number;
     contrast: number;
     saturation: number;
+    curves?: ColorCurves;
   };
   aspectRatio?: string;
   /**
@@ -149,6 +151,63 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         setIsLoading(false);
       }
     }, [imageRef, status]);
+
+    // Generate SVG table values from curve points
+    const getCurveTableValues = (points: CurvePoint[] | undefined) => {
+        if (!points || points.length < 2) return "0 1"; // Linear default
+
+        // Sort points by x
+        const sortedPoints = [...points].sort((a, b) => a.x - b.x);
+        
+        // Generate lookup table (256 values)
+        const values = [];
+        for (let i = 0; i < 256; i++) {
+            const x = i / 255;
+            
+            // Find segment
+            let p0 = sortedPoints[0];
+            let p1 = sortedPoints[1];
+            
+            for (let j = 0; j < sortedPoints.length - 1; j++) {
+                if (x >= sortedPoints[j].x && x <= sortedPoints[j+1].x) {
+                    p0 = sortedPoints[j];
+                    p1 = sortedPoints[j+1];
+                    break;
+                }
+            }
+            
+            // Linear interpolation for now (matching editor visualization)
+            // Can be upgraded to spline if editor uses spline
+            const t = (x - p0.x) / (p1.x - p0.x || 1);
+            const y = p0.y + t * (p1.y - p0.y);
+            
+            values.push(Math.max(0, Math.min(1, y)));
+        }
+        
+        return values.join(" ");
+    };
+
+    // Combine master curve with channel curves
+    const getChannelValues = (channelPoints: CurvePoint[] | undefined, masterPoints: CurvePoint[] | undefined) => {
+        // This is a simplification. True combination requires applying master curve to RGB, 
+        // but SVG filters apply them in parallel or sequentially.
+        // A common way is to chain filters, but here we can try to combine them mathematically 
+        // or just apply channel curves if master is default, etc.
+        // Better approach for SVG:
+        // Use feComponentTransfer for R, G, B channels.
+        // Master curve affects all channels. We can't easily combine two table lookups in one feComponentTransfer primitive 
+        // without complex math or multiple filter primitives.
+        // Let's use two feComponentTransfer primitives: one for channels, one for master.
+        
+        return getCurveTableValues(channelPoints);
+    };
+
+    const masterValues = useMemo(() => getCurveTableValues(fineTuning.curves?.master), [fineTuning.curves?.master]);
+    const redValues = useMemo(() => getCurveTableValues(fineTuning.curves?.red), [fineTuning.curves?.red]);
+    const greenValues = useMemo(() => getCurveTableValues(fineTuning.curves?.green), [fineTuning.curves?.green]);
+    const blueValues = useMemo(() => getCurveTableValues(fineTuning.curves?.blue), [fineTuning.curves?.blue]);
+
+    const filterId = `curves-${variationId || 'default'}`;
 
 
     if (isLoading) {
@@ -286,7 +345,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     const imageStyle: React.CSSProperties = {
       filter: [
         status === 'generating' && imageRef ? 'blur(16px)' : '',
-        `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`
+        `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`,
+        `url(#${filterId})`
       ].filter(Boolean).join(' '),
     };
   
@@ -343,6 +403,26 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     return (
       <div className="relative w-full h-full">
+        {/* SVG Filters for Curves */}
+        <svg className="absolute w-0 h-0">
+            <defs>
+                <filter id={filterId} colorInterpolationFilters="sRGB">
+                    {/* Channel Curves */}
+                    <feComponentTransfer>
+                        <feFuncR type="table" tableValues={redValues} />
+                        <feFuncG type="table" tableValues={greenValues} />
+                        <feFuncB type="table" tableValues={blueValues} />
+                    </feComponentTransfer>
+                    {/* Master Curve (applied to all channels equally) */}
+                    <feComponentTransfer>
+                        <feFuncR type="table" tableValues={masterValues} />
+                        <feFuncG type="table" tableValues={masterValues} />
+                        <feFuncB type="table" tableValues={masterValues} />
+                    </feComponentTransfer>
+                </filter>
+            </defs>
+        </svg>
+
         {/* Main image container with overlay inside for proper positioning */}
         {/* If interactive is disabled, render a plain img to avoid zoom/pan controls */}
         {interactive ? (

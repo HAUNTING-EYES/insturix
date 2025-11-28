@@ -247,6 +247,7 @@ export function VariationsGallery({
                     <ImageDisplay
                       imageRef={variation.imageRef}
                       status={variation.status}
+                      variationId={variation.id}
                       className="w-full h-full object-cover"
                       interactive={false}
                       fallback={<div className="w-full h-full bg-gradient-to-br from-purple-500/30 to-blue-500/30" />}

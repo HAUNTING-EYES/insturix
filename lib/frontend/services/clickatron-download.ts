@@ -24,9 +24,77 @@ function toProxyUrl(url: string): string {
  * @param fineTuning - The fine-tuning parameters to apply
  * @param filename - The filename for the downloaded image
  */
+import { ColorCurves, CurvePoint } from "@/types/clickatron";
+
+/**
+ * Generate a 256-value lookup table from curve points using linear interpolation
+ */
+function generateLUT(points: CurvePoint[]): Uint8Array {
+  const lut = new Uint8Array(256);
+  
+  // If no points or invalid, return identity mapping
+  if (!points || points.length < 2) {
+    for (let i = 0; i < 256; i++) lut[i] = i;
+    return lut;
+  }
+
+  // Sort points by x just in case
+  const sortedPoints = [...points].sort((a, b) => a.x - b.x);
+
+  for (let i = 0; i < 256; i++) {
+    const x = i / 255;
+    
+    // Find the segment that contains x
+    let p0 = sortedPoints[0];
+    let p1 = sortedPoints[sortedPoints.length - 1];
+    
+    if (x <= p0.x) {
+      // Before first point
+      p1 = p0;
+    } else if (x >= p1.x) {
+      // After last point
+      p0 = p1;
+    } else {
+      // Find the segment
+      for (let j = 0; j < sortedPoints.length - 1; j++) {
+        if (x >= sortedPoints[j].x && x <= sortedPoints[j + 1].x) {
+          p0 = sortedPoints[j];
+          p1 = sortedPoints[j + 1];
+          break;
+        }
+      }
+    }
+
+    // Interpolate y
+    let y;
+    if (p0 === p1) {
+      y = p0.y;
+    } else {
+      const t = (x - p0.x) / (p1.x - p0.x);
+      y = p0.y + t * (p1.y - p0.y);
+    }
+    
+    // Clamp and scale to 0-255
+    lut[i] = Math.max(0, Math.min(255, Math.round(y * 255)));
+  }
+  
+  return lut;
+}
+
+/**
+ * Download an image with applied fine-tuning parameters including curves
+ * @param imageUrl - The URL of the image to download
+ * @param fineTuning - The fine-tuning parameters to apply
+ * @param filename - The filename for the downloaded image
+ */
 export async function downloadImageWithFineTuning(
   imageUrl: string,
-  fineTuning: { brightness: number; contrast: number; saturation: number },
+  fineTuning: { 
+    brightness: number; 
+    contrast: number; 
+    saturation: number;
+    curves?: ColorCurves;
+  },
   filename: string = "clickatron-variation.png"
 ): Promise<void> {
   try {
@@ -67,12 +135,40 @@ export async function downloadImageWithFineTuning(
     canvas.width = img.width;
     canvas.height = img.height;
     
-    // Apply fine-tuning filters
-    const { brightness, contrast, saturation } = fineTuning;
+    // Apply basic filters (brightness, contrast, saturation) first
+    const { brightness, contrast, saturation, curves } = fineTuning;
     ctx.filter = `brightness(${brightness}%) contrast(${contrast}%) saturate(${saturation}%)`;
     
-    // Draw image with filters applied
+    // Draw image with basic filters applied
     ctx.drawImage(img, 0, 0);
+    
+    // Apply Curves if present
+    if (curves) {
+      // Get pixel data
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imageData.data;
+      
+      // Generate LUTs
+      const masterLUT = generateLUT(curves.master);
+      const redLUT = generateLUT(curves.red);
+      const greenLUT = generateLUT(curves.green);
+      const blueLUT = generateLUT(curves.blue);
+      
+      // Apply LUTs to every pixel
+      // Order: Channel curves first, then Master curve (matching SVG feComponentTransfer order)
+      for (let i = 0; i < data.length; i += 4) {
+        // Red
+        data[i] = masterLUT[redLUT[data[i]]];
+        // Green
+        data[i + 1] = masterLUT[greenLUT[data[i + 1]]];
+        // Blue
+        data[i + 2] = masterLUT[blueLUT[data[i + 2]]];
+        // Alpha (unchanged)
+      }
+      
+      // Put processed data back
+      ctx.putImageData(imageData, 0, 0);
+    }
     
     // Create download link
     const dataUrl = canvas.toDataURL("image/png");
