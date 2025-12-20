@@ -34,19 +34,6 @@ const products = [
     )
   },
   {
-    title: "Shield",
-    description: "Digital rights management & insurance.",
-    icon: Shield,
-    className: "md:col-span-1",
-    href: "/products/shield",
-    color: "#9333EA", // Purple
-    visual: (
-      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-10 transition-opacity duration-500">
-        <Shield className="w-32 h-32 text-purple-500/10" />
-      </div>
-    )
-  },
-  {
     title: "Alyzitron",
     description: "Pre-upload insights and post-upload analytics to maximize content performance.",
     icon: BarChart3,
