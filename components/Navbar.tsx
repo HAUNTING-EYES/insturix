@@ -101,6 +101,14 @@ const menuItems = [
     ],
   },
   {
+    title: "Enterprise",
+    href: "/enterprise",
+    subItems: [
+      { title: "Enterprise", href: "/enterprise" },
+      { title: "Contact Sales", href: "/contact-sales" },
+    ],
+  },
+  {
     title: "About",
     href: "/about",
     subItems: [
