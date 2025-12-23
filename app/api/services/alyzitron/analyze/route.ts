@@ -41,18 +41,24 @@ try {
   if (!process.env.QSTASH_TOKEN) {
     throw new Error("QSTASH_TOKEN environment variable is not set");
   }
-  const qstashBaseUrl =
-    process.env.NODE_ENV === "development"
-      ? "http://127.0.0.1:8080"
-      : undefined; // Use default for production
+  
+  // Use local QStash URL for development
+  const qstashBaseUrl = process.env.QSTASH_URL || 
+    (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8080" : undefined);
 
   qstash = new Client({
     token: process.env.QSTASH_TOKEN!,
     baseUrl: qstashBaseUrl,
   });
+  
+  console.log('✅ QStash client initialized', {
+    baseUrl: qstashBaseUrl || 'default (production)',
+    tokenPrefix: process.env.QSTASH_TOKEN.substring(0, 20) + '...'
+  });
+  
 } catch (error) {
   console.error("Failed to initialize QStash client:", error);
-  // We'll handle this error when trying to publish
+  throw error;
 }
 
 function normalizeContext(context: any): ContextValues {
@@ -388,36 +394,31 @@ export async function POST(request: Request) {
         process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
       const processorUrl = `${baseUrl}/api/services/alyzitron/processor`;
 
-      console.log("Calling processor:", processorUrl);
-      console.log("Processor payload:", {
+      console.log("Publishing to QStash:", processorUrl);
+      console.log("QStash payload:", {
         taskId: taskId.toString(),
         userId: session.userId,
+        videoUrl: finalVideoUrl,
+        context: parsedContext,
+        metadata: finalMetadata,
+        videoDuration,
+        usageMinutes,
       });
 
-      const processorResponse = await fetch(processorUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-development-bypass": "true",
-        },
-        body: JSON.stringify({
+      // Publish to QStash
+      await qstash.publishJSON({
+        url: processorUrl,
+        body: {
           taskId: taskId.toString(),
           userId: session.userId,
-        }),
+          videoUrl: finalVideoUrl,
+          context: parsedContext,
+          metadata: finalMetadata,
+          videoDuration,
+          usageMinutes,
+        },
+        retries: 1,
       });
-
-      console.log("Processor response status:", processorResponse.status);
-
-      if (!processorResponse.ok) {
-        const errorText = await processorResponse.text();
-        console.error("Processor failed with:", errorText);
-        throw new Error(
-          `Processor returned ${processorResponse.status}: ${errorText}`
-        );
-      }
-
-      const processorResult = await processorResponse.json();
-      console.log("Processor result:", processorResult);
 
       logger.info("Analysis task created and queued successfully", {
         data: {

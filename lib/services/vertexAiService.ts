@@ -1,62 +1,85 @@
-import { VertexAI, HarmCategory, HarmBlockThreshold } from '@google-cloud/vertexai';
+import {
+  VertexAI,
+  HarmCategory,
+  HarmBlockThreshold,
+} from "@google-cloud/vertexai";
 
-console.log('=== 🔧 VERTEX AI SERVICE LOADING ===');
+console.log("=== 🔧 VERTEX AI SERVICE LOADING ===");
 
 // Check credentials
 if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
-  console.error('❌ GOOGLE_CLOUD_CREDENTIALS not set in environment');
-  console.log('Current env vars with "GOOGLE":', Object.keys(process.env).filter(k => k.includes('GOOGLE')));
+  console.error("❌ GOOGLE_CLOUD_CREDENTIALS not set in environment");
+  console.log(
+    'Current env vars with "GOOGLE":',
+    Object.keys(process.env).filter((k) => k.includes("GOOGLE"))
+  );
 } else {
-  console.log('✅ GOOGLE_CLOUD_CREDENTIALS is set');
-  console.log('Credentials length:', process.env.GOOGLE_CLOUD_CREDENTIALS.length);
+  console.log("✅ GOOGLE_CLOUD_CREDENTIALS is set");
+  console.log(
+    "Credentials length:",
+    process.env.GOOGLE_CLOUD_CREDENTIALS.length
+  );
 }
 
-let vertexAI: any = null;
+let vertexAI: VertexAI | null = null;
 let credentials;
 
 try {
   if (process.env.GOOGLE_CLOUD_CREDENTIALS) {
     // Decode base64 credentials
-    console.log('🔧 Decoding credentials...');
-    const decoded = Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS, 'base64').toString();
-    console.log('Decoded length:', decoded.length);
-    
+    console.log("🔧 Decoding credentials...");
+    const decoded = Buffer.from(
+      process.env.GOOGLE_CLOUD_CREDENTIALS,
+      "base64"
+    ).toString();
+    console.log("Decoded length:", decoded.length);
+
     credentials = JSON.parse(decoded);
-    console.log('✅ Credentials parsed');
-    console.log('Project ID:', credentials.project_id);
-    console.log('Client email:', credentials.client_email?.substring(0, 20) + '...');
-    
+    console.log("✅ Credentials parsed");
+    console.log("Project ID:", credentials.project_id);
+    console.log(
+      "Client email:",
+      credentials.client_email?.substring(0, 20) + "..."
+    );
+
     vertexAI = new VertexAI({
       project: credentials.project_id,
-      location: 'us-central1',
+      location: "us-central1",
       credentials,
     });
-    console.log('✅ VertexAI client created');
+    console.log("✅ VertexAI client created");
   } else {
-    console.log('⚠️ Using mock VertexAI (no credentials)');
+    console.log("⚠️ Using mock VertexAI (no credentials)");
   }
 } catch (error) {
-  console.error('❌ Failed to initialize VertexAI:', error);
-  console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
+  console.error("❌ Failed to initialize VertexAI:", error);
+  console.error(
+    "Error stack:",
+    error instanceof Error ? error.stack : "No stack"
+  );
 }
 
-const model = 'gemini-1.5-flash';
+const model = "gemini-3.0-flash";
 
-export async function analyzeVideoWithGemini(videoUrl: string, context: any, metadata: any) {
-  console.log('\n=== 🎬 VERTEX AI ANALYSIS START ===');
-  console.log('Video URL:', videoUrl);
-  console.log('Context:', context);
-  console.log('Metadata:', metadata);
-  console.log('VertexAI initialized:', !!vertexAI);
-  
+export async function analyzeVideoWithGemini(
+  videoUrl: string,
+  context: any,
+  metadata: any
+) {
+  console.log("\n=== 🎬 VERTEX AI ANALYSIS START ===");
+  console.log("Video URL:", videoUrl);
+  console.log("Context:", context);
+  console.log("Metadata:", metadata);
+  console.log("VertexAI initialized:", !!vertexAI);
+
   // If no VertexAI client, return mock data
   if (!vertexAI) {
-    console.log('⚠️ No VertexAI client, returning mock data');
+    console.log("⚠️ No VertexAI client, returning mock data");
     return getMockAnalysis(context, metadata);
   }
 
   try {
-    console.log('🔧 Creating generative model...');
+    console.log("🔧 Creating generative model...");
     const generativeModel = vertexAI.getGenerativeModel({
       model,
       generationConfig: {
@@ -83,100 +106,162 @@ export async function analyzeVideoWithGemini(videoUrl: string, context: any, met
           threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
         },
       ],
+      systemInstruction: {
+        parts: [
+          {
+            text: "You are a professional video analysis AI. Analyze the provided video and return structured JSON with insights about content, quality, and recommendations based on the user's context.",
+          },
+        ],
+      },
     });
-    
-    console.log('✅ Generative model created');
+
+    console.log("✅ Generative model created");
 
     // Create analysis prompt
     const prompt = `
-    Analyze this video and provide a structured JSON response.
+    Analyze this video and provide a structured JSON response based on the video content.
     
     VIDEO METADATA:
     - Duration: ${metadata.videoDuration} seconds
     - Title: ${metadata.originalFilename}
+    - Video URL: ${videoUrl}
     
     USER CONTEXT:
     - Niche: ${context.niche}
     - Audience: ${context.audience}
     - Tone: ${context.tone}
-    - Additional Details: ${context.additionalDetails || 'None'}
+    - Additional Details: ${context.additionalDetails || "None"}
+    
+    IMPORTANT: Analyze the actual video content. Provide specific insights about:
+    1. What happens in the video (scenes, topics discussed, key points)
+    2. Key moments with timestamps
+    3. Quality assessment (video/audio quality, pacing, engagement)
+    4. Recommendations for improvement based on the user's niche and audience
+    5. Content warnings if applicable
     
     Return a valid JSON object with this structure:
     {
-      "summary": "string",
+      "summary": "string (detailed summary of video content)",
       "keyMoments": [{"timestamp": "string", "description": "string"}],
       "qualityAssessment": {"score": number, "notes": "string"},
       "recommendations": ["string"],
       "contentWarnings": ["string"],
       "analysisTime": "ISO timestamp"
     }
+    
+    Be specific and reference actual content from the video.
     `;
 
-    console.log('📝 Prompt created (length:', prompt.length, 'chars)');
-    console.log('🔧 Making Vertex AI API call...');
-    
+    console.log("📝 Prompt created (length:", prompt.length, "chars)");
+    console.log("🔧 Making Vertex AI API call with video...");
+
+    // Prepare request with video file
     const request = {
       contents: [
         {
-          role: 'user',
-          parts: [{ text: prompt }],
+          role: "user",
+          parts: [
+            {
+              fileData: {
+                fileUri: videoUrl,
+                mimeType: metadata.mimeType || "video/mp4",
+              },
+            },
+            {
+              text: prompt,
+            },
+          ],
         },
       ],
     };
 
+    console.log("📤 Sending video for analysis:", videoUrl);
     const result = await generativeModel.generateContent(request);
-    console.log('✅ Vertex AI API call succeeded');
-    
-    const responseText = result.response.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
-    console.log('Response text length:', responseText.length);
-    
+    console.log("✅ Vertex AI API call succeeded");
+
+    const responseText =
+      result.response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    console.log("Response text length:", responseText.length);
+    console.log("Response preview:", responseText.substring(0, 200) + "...");
+
     try {
       const parsed = JSON.parse(responseText);
-      console.log('✅ JSON parsed successfully');
-      return parsed;
+      console.log("✅ JSON parsed successfully");
+
+      // Ensure all required fields exist
+      const finalResult = {
+        ...parsed,
+        analysisTime: parsed.analysisTime || new Date().toISOString(),
+        videoUrl,
+        modelUsed: model,
+      };
+
+      return finalResult;
     } catch (parseError) {
-      console.error('❌ Failed to parse JSON:', parseError);
-      console.log('Response preview:', responseText.substring(0, 200));
+      console.error("❌ Failed to parse JSON:", parseError);
+      console.log("Full response:", responseText);
       return {
-        summary: responseText.substring(0, 500),
+        summary: `Analysis completed but couldn't parse structured response. Raw insights: ${responseText.substring(0, 1000)}`,
         analysisTime: new Date().toISOString(),
-        parseError: true
+        parseError: true,
+        rawResponse: responseText,
       };
     }
-    
   } catch (error) {
-    console.error('❌ Vertex AI analysis failed:', error);
-    console.error('Error name:', error instanceof Error ? error.name : 'Unknown');
-    console.error('Error message:', error instanceof Error ? error.message : 'Unknown');
-    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
-    
+    console.error("❌ Vertex AI analysis failed:", error);
+    console.error(
+      "Error name:",
+      error instanceof Error ? error.name : "Unknown"
+    );
+    console.error(
+      "Error message:",
+      error instanceof Error ? error.message : "Unknown"
+    );
+    console.error(
+      "Error stack:",
+      error instanceof Error ? error.stack : "No stack"
+    );
+
+    // Check if it's an authentication error
+    if (
+      error instanceof Error &&
+      error.message.includes("Unable to authenticate")
+    ) {
+      console.error(
+        "🔐 AUTHENTICATION ERROR: Check your GOOGLE_CLOUD_CREDENTIALS"
+      );
+      console.error("1. Ensure GOOGLE_CLOUD_CREDENTIALS is set in .env.local");
+      console.error("2. Ensure it's a base64 encoded service account JSON");
+      console.error("3. The service account needs Vertex AI API access");
+    }
+
     // Return mock data as fallback
-    console.log('🔄 Falling back to mock analysis');
+    console.log("🔄 Falling back to mock analysis");
     return getMockAnalysis(context, metadata);
   }
 }
 
 function getMockAnalysis(context: any, metadata: any) {
-  console.log('🎭 Generating mock analysis');
+  console.log("🎭 Generating mock analysis");
   return {
-    summary: `Mock analysis for "${metadata?.originalFilename || 'video'}" targeting ${context.audience} in ${context.niche} niche`,
+    summary: `Mock analysis for "${metadata?.originalFilename || "video"}" targeting ${context.audience} in ${context.niche} niche`,
     keyMoments: [
-      { timestamp: '00:30', description: 'Introduction to topic' },
-      { timestamp: '01:45', description: 'Key demonstration or example' },
-      { timestamp: '03:20', description: 'Conclusion and summary' }
+      { timestamp: "00:30", description: "Introduction to topic" },
+      { timestamp: "01:45", description: "Key demonstration or example" },
+      { timestamp: "03:20", description: "Conclusion and summary" },
     ],
     qualityAssessment: {
       score: 8,
-      notes: 'Good production quality with clear audio and visuals'
+      notes: "Good production quality with clear audio and visuals",
     },
     recommendations: [
-      'Add chapter markers for key sections',
-      'Include more visual examples',
-      'Improve lighting in outdoor shots'
+      "Add chapter markers for key sections",
+      "Include more visual examples",
+      "Improve lighting in outdoor shots",
     ],
     contentWarnings: [],
     analysisTime: new Date().toISOString(),
-    modelUsed: 'gemini-1.5-flash-mock',
-    mock: true
+    modelUsed: "gemini-1.5-flash-mock",
+    mock: true,
   };
 }
