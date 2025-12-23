@@ -16,17 +16,18 @@ let vertexAI: VertexAI | null = null;
 
 function initVertexAI(): VertexAI {
   if (vertexAI) return vertexAI;
-  
+
   if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
     throw new Error("GOOGLE_CLOUD_CREDENTIALS environment variable is not set");
   }
-  
-  // Decode base64 credentials
-  console.log("🔧 Decoding credentials...");
-  const decoded = Buffer.from(
-    process.env.GOOGLE_CLOUD_CREDENTIALS,
-    "base64"
-  ).toString();
+
+  try {
+    // Decode base64 credentials
+    console.log("🔧 Decoding credentials...");
+    const decoded = Buffer.from(
+      process.env.GOOGLE_CLOUD_CREDENTIALS,
+      "base64"
+    ).toString();
 
     const credentials = JSON.parse(decoded);
     console.log("✅ Credentials parsed");
@@ -46,18 +47,17 @@ function initVertexAI(): VertexAI {
       },
     });
     console.log("✅ VertexAI client created");
-  } else {
-    console.log("⚠️ Using mock VertexAI (no credentials)");
+    return vertexAI;
+  } catch (error) {
+    console.error("❌ Failed to initialize VertexAI:", error);
+    console.error(
+      "Error stack:",
+      error instanceof Error ? error.stack : "No stack"
+    );
+    throw error;
   }
-} catch (error) {
-  console.error("❌ Failed to initialize VertexAI:", error);
-  console.error(
-    "Error stack:",
-    error instanceof Error ? error.stack : "No stack"
-  );
 }
 
-const model = "gemini-2.5-flash";
 const model = "gemini-2.5-flash";
 
 export async function analyzeVideoWithGemini(
@@ -76,20 +76,51 @@ export async function analyzeVideoWithGemini(
 
   try {
     console.log("🔧 Creating generative model with structured output...");
-    
+
     // Define the response schema for structured output
     const responseSchema = {
       type: SchemaType.OBJECT,
       properties: {
-        category: { type: SchemaType.STRING, description: "Video category (e.g., Entertainment, Education, Vlog)" },
-        overall_score: { type: SchemaType.INTEGER, description: "Overall quality score 1-100" },
-        overview: { type: SchemaType.STRING, description: "2-3 sentence summary" },
-        remarks: { type: SchemaType.STRING, description: "Brief professional assessment" },
-        target_audience: { type: SchemaType.STRING, description: "Who this video appeals to" },
-        titles: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "3 suggested titles" },
-        descriptions: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "2 suggested descriptions" },
-        strengths: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "Video strengths" },
-        weaknesses: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "Areas for improvement" },
+        category: {
+          type: SchemaType.STRING,
+          description: "Video category (e.g., Entertainment, Education, Vlog)",
+        },
+        overall_score: {
+          type: SchemaType.INTEGER,
+          description: "Overall quality score 1-100",
+        },
+        overview: {
+          type: SchemaType.STRING,
+          description: "2-3 sentence summary",
+        },
+        remarks: {
+          type: SchemaType.STRING,
+          description: "Brief professional assessment",
+        },
+        target_audience: {
+          type: SchemaType.STRING,
+          description: "Who this video appeals to",
+        },
+        titles: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "3 suggested titles",
+        },
+        descriptions: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "2 suggested descriptions",
+        },
+        strengths: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "Video strengths",
+        },
+        weaknesses: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "Areas for improvement",
+        },
         analysis: {
           type: SchemaType.ARRAY,
           items: {
@@ -103,14 +134,14 @@ export async function analyzeVideoWithGemini(
                   properties: {
                     name: { type: SchemaType.STRING },
                     score: { type: SchemaType.INTEGER },
-                    description: { type: SchemaType.STRING }
+                    description: { type: SchemaType.STRING },
                   },
-                  required: ["name", "score", "description"]
-                }
-              }
+                  required: ["name", "score", "description"],
+                },
+              },
             },
-            required: ["category_name", "metrics"]
-          }
+            required: ["category_name", "metrics"],
+          },
         },
         compliance_risks: {
           type: SchemaType.ARRAY,
@@ -119,15 +150,22 @@ export async function analyzeVideoWithGemini(
             properties: {
               name: { type: SchemaType.STRING },
               score: { type: SchemaType.INTEGER },
-              description: { type: SchemaType.STRING }
+              description: { type: SchemaType.STRING },
             },
-            required: ["name", "score", "description"]
-          }
-        }
+            required: ["name", "score", "description"],
+          },
+        },
       },
-      required: ["category", "overall_score", "overview", "strengths", "weaknesses", "analysis"]
+      required: [
+        "category",
+        "overall_score",
+        "overview",
+        "strengths",
+        "weaknesses",
+        "analysis",
+      ],
     };
-    
+
     const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
@@ -284,7 +322,10 @@ Be specific and reference actual content from the video.
 
       return finalResult;
     } catch (parseError) {
-      console.error("❌ Failed to parse JSON:", parseError instanceof Error ? parseError.message : String(parseError));
+      console.error(
+        "❌ Failed to parse JSON:",
+        parseError instanceof Error ? parseError.message : String(parseError)
+      );
 
       // Try to extract JSON from the response if it's wrapped in text
       try {
@@ -322,7 +363,9 @@ Be specific and reference actual content from the video.
       } catch (extractError) {
         console.error(
           "Couldn't extract JSON:",
-          extractError instanceof Error ? extractError.message : String(extractError)
+          extractError instanceof Error
+            ? extractError.message
+            : String(extractError)
         );
       }
 
@@ -413,4 +456,3 @@ function getMockAnalysis(context: any, metadata: any) {
     mock: true,
   };
 }
-
