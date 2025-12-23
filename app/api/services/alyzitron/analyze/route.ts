@@ -42,17 +42,13 @@ try {
     throw new Error("QSTASH_TOKEN environment variable is not set");
   }
   
-  // Use local QStash URL for development
-  const qstashBaseUrl = process.env.QSTASH_URL || 
-    (process.env.NODE_ENV === "development" ? "http://127.0.0.1:8080" : undefined);
-
   qstash = new Client({
     token: process.env.QSTASH_TOKEN!,
-    baseUrl: qstashBaseUrl,
+    baseUrl: process.env.QSTASH_URL,
   });
   
   console.log('✅ QStash client initialized', {
-    baseUrl: qstashBaseUrl || 'default (production)',
+    baseUrl: process.env.QSTASH_URL || 'default (production)',
     tokenPrefix: process.env.QSTASH_TOKEN.substring(0, 20) + '...'
   });
   

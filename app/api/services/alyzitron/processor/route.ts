@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   if (!isDevelopmentBypass) {
     // Production: Verify QStash signature
     try {
-      await verifySignatureAppRouter(request);
+      verifySignatureAppRouter(request);
       console.log("✅ QStash signature verified");
     } catch (error) {
       console.error("❌ Invalid QStash signature:", error);
@@ -137,14 +137,15 @@ export async function POST(request: Request) {
         );
 
         console.log("✅ Vertex AI analysis completed");
+        const isMock = "mock" in analysisResults ? analysisResults.mock : false;
         console.log("Analysis results structure:", {
           hasSummary: !!analysisResults.summary,
           hasKeyMoments: !!analysisResults.keyMoments,
-          isMock: analysisResults.mock || false,
+          isMock,
         });
 
         logger.info("Vertex AI analysis completed", {
-          data: { taskId, userId, isMock: analysisResults.mock || false },
+          data: { taskId, userId, isMock },
         });
 
         // 4. Save results and mark as completed (MongoDB)
@@ -180,7 +181,7 @@ export async function POST(request: Request) {
           success: true,
           taskId,
           status: "completed",
-          isMock: analysisResults.mock || false,
+          isMock,
         });
       } catch (vertexError) {
         console.error("❌ Vertex AI service error:", vertexError);
