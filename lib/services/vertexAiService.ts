@@ -2,6 +2,7 @@ import {
   VertexAI,
   HarmCategory,
   HarmBlockThreshold,
+  SchemaType,
 } from "@google-cloud/vertexai";
 
 console.log("=== 🔧 VERTEX AI SERVICE LOADING ===");
@@ -9,29 +10,23 @@ console.log("=== 🔧 VERTEX AI SERVICE LOADING ===");
 // Check credentials
 if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
   console.error("❌ GOOGLE_CLOUD_CREDENTIALS not set in environment");
-  console.log(
-    'Current env vars with "GOOGLE":',
-    Object.keys(process.env).filter((k) => k.includes("GOOGLE"))
-  );
-} else {
-  console.log("✅ GOOGLE_CLOUD_CREDENTIALS is set");
-  console.log(
-    "Credentials length:",
-    process.env.GOOGLE_CLOUD_CREDENTIALS.length
-  );
 }
 
 let vertexAI: VertexAI | null = null;
 
-try {
-  if (process.env.GOOGLE_CLOUD_CREDENTIALS) {
-    // Decode base64 credentials
-    console.log("🔧 Decoding credentials...");
-    const decoded = Buffer.from(
-      process.env.GOOGLE_CLOUD_CREDENTIALS,
-      "base64"
-    ).toString();
-    console.log("Decoded length:", decoded.length);
+function initVertexAI(): VertexAI {
+  if (vertexAI) return vertexAI;
+  
+  if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
+    throw new Error("GOOGLE_CLOUD_CREDENTIALS environment variable is not set");
+  }
+  
+  // Decode base64 credentials
+  console.log("🔧 Decoding credentials...");
+  const decoded = Buffer.from(
+    process.env.GOOGLE_CLOUD_CREDENTIALS,
+    "base64"
+  ).toString();
 
     const credentials = JSON.parse(decoded);
     console.log("✅ Credentials parsed");
@@ -63,6 +58,7 @@ try {
 }
 
 const model = "gemini-2.5-flash";
+const model = "gemini-2.5-flash";
 
 export async function analyzeVideoWithGemini(
   videoUrl: string,
@@ -73,23 +69,74 @@ export async function analyzeVideoWithGemini(
   console.log("Video URL:", videoUrl);
   console.log("Context:", context);
   console.log("Metadata:", metadata);
-  console.log("VertexAI initialized:", !!vertexAI);
 
-  // If no VertexAI client, return mock data
-  if (!vertexAI) {
-    console.log("⚠️ No VertexAI client, returning mock data");
-    return getMockAnalysis(context, metadata);
-  }
+  // Initialize VertexAI lazily
+  const client = initVertexAI();
+  console.log("VertexAI initialized:", !!client);
 
   try {
-    console.log("🔧 Creating generative model...");
-    const generativeModel = vertexAI.getGenerativeModel({
+    console.log("🔧 Creating generative model with structured output...");
+    
+    // Define the response schema for structured output
+    const responseSchema = {
+      type: SchemaType.OBJECT,
+      properties: {
+        category: { type: SchemaType.STRING, description: "Video category (e.g., Entertainment, Education, Vlog)" },
+        overall_score: { type: SchemaType.INTEGER, description: "Overall quality score 1-100" },
+        overview: { type: SchemaType.STRING, description: "2-3 sentence summary" },
+        remarks: { type: SchemaType.STRING, description: "Brief professional assessment" },
+        target_audience: { type: SchemaType.STRING, description: "Who this video appeals to" },
+        titles: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "3 suggested titles" },
+        descriptions: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "2 suggested descriptions" },
+        strengths: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "Video strengths" },
+        weaknesses: { type: SchemaType.ARRAY, items: { type: SchemaType.STRING }, description: "Areas for improvement" },
+        analysis: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              category_name: { type: SchemaType.STRING },
+              metrics: {
+                type: SchemaType.ARRAY,
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    name: { type: SchemaType.STRING },
+                    score: { type: SchemaType.INTEGER },
+                    description: { type: SchemaType.STRING }
+                  },
+                  required: ["name", "score", "description"]
+                }
+              }
+            },
+            required: ["category_name", "metrics"]
+          }
+        },
+        compliance_risks: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              name: { type: SchemaType.STRING },
+              score: { type: SchemaType.INTEGER },
+              description: { type: SchemaType.STRING }
+            },
+            required: ["name", "score", "description"]
+          }
+        }
+      },
+      required: ["category", "overall_score", "overview", "strengths", "weaknesses", "analysis"]
+    };
+    
+    const generativeModel = client.getGenerativeModel({
       model,
       generationConfig: {
         maxOutputTokens: 8192,
         temperature: 0.4,
         topP: 0.95,
         topK: 40,
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
       },
       safetySettings: [
         {
@@ -366,3 +413,4 @@ function getMockAnalysis(context: any, metadata: any) {
     mock: true,
   };
 }
+
