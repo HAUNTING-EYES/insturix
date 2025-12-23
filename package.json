@@ -36,6 +36,7 @@
     "@fal-ai/client": "^1.7.2",
     "@google-cloud/pubsub": "^5.2.0",
     "@google-cloud/storage": "^7.17.3",
+    "@google-cloud/vertexai": "^1.10.0",
     "@google/genai": "^1.30.0",
     "@hookform/resolvers": "^5.2.2",
     "@langchain/core": "^1.0.6",

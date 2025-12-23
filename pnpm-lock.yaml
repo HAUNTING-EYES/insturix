@@ -44,6 +44,9 @@ importers:
       '@google-cloud/storage':
         specifier: ^7.17.3
         version: 7.17.3
+      '@google-cloud/vertexai':
+        specifier: ^1.10.0
+        version: 1.10.0
       '@google/genai':
         specifier: ^1.30.0
         version: 1.30.0
@@ -2316,6 +2319,10 @@ packages:
   '@google-cloud/storage@7.17.3':
     resolution: {integrity: sha512-gOnCAbFgAYKRozywLsxagdevTF7Gm+2Ncz5u5CQAuOv/2VCa0rdGJWvJFDOftPx1tc+q8TXiC2pEJfFKu+yeMQ==}
     engines: {node: '>=14'}
+
+  '@google-cloud/vertexai@1.10.0':
+    resolution: {integrity: sha512-HqYqoivNtkq59po8m7KI0n+lWKdz4kabENncYQXZCX/hBWJfXtKAfR/2nUQsP+TwSfHKoA7zDL2RrJYIv/j3VQ==}
+    engines: {node: '>=18.0.0'}
 
   '@google/genai@1.30.0':
     resolution: {integrity: sha512-3MRcgczBFbUat1wIlZoLJ0vCCfXgm7Qxjh59cZi2X08RgWLtm9hKOspzp7TOg1TV2e26/MLxR2GR5yD5GmBV2w==}
@@ -12313,6 +12320,13 @@ snapshots:
       retry-request: 7.0.2
       teeny-request: 9.0.0
       uuid: 8.3.2
+    transitivePeerDependencies:
+      - encoding
+      - supports-color
+
+  '@google-cloud/vertexai@1.10.0':
+    dependencies:
+      google-auth-library: 9.15.1
     transitivePeerDependencies:
       - encoding
       - supports-color

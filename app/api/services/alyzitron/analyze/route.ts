@@ -1,22 +1,19 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { logger } from '../utils/logger';
-import { validateYouTubeVideo } from '../utils/youtube';
-import { GCSManager } from '../utils/gcs';
+import { logger } from "../utils/logger";
+import { validateYouTubeVideo } from "../utils/youtube";
+import { GCSManager } from "../utils/gcs";
 import {
   checkAlyzitronLimits,
   incrementAlyzitronUsage,
-  createAlyzitronLimitResponse
-} from '@/lib/middleware/services/alyzitron';
-
+  createAlyzitronLimitResponse,
+} from "@/lib/middleware/services/alyzitron";
+import { getCollections } from "../utils/mongodb";
+import { AlyzitronRTDBManager } from "@/lib/services/rtdb/alyzitron-rtdb";
+import { ObjectId } from "mongodb";
+import { Client } from "@upstash/qstash";
+import { processRefund } from "@/lib/services/tasks/simple-refund";
 import { ContextValues } from "@/components/dashboard/Alyzitron/ContextSelector";
-
-interface AlyzitronGenerateRequest {
-  clerkUserId: string;
-  videoUrl: string;
-  context: ContextValues;
-  metadata: MetadataModel;
-}
 
 interface MetadataModel {
   originalFilename: string;
@@ -24,10 +21,12 @@ interface MetadataModel {
   videoDuration: number;
   mimeType: string;
   isPublic: boolean;
+  filename?: string;
+  fileSize?: number;
+  duration?: number;
 }
 
 function getGcsUrl(gcsPath: string): string {
-  // Ensure GCS_BUCKET_NAME is defined before using it
   const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) {
     logger.error("GCS_BUCKET_NAME environment variable is not set.");
@@ -36,155 +35,280 @@ function getGcsUrl(gcsPath: string): string {
   return `gs://${bucketName}/${gcsPath}`;
 }
 
+// Initialize QStash client
+let qstash: Client;
+try {
+  if (!process.env.QSTASH_TOKEN) {
+    throw new Error("QSTASH_TOKEN environment variable is not set");
+  }
+  const qstashBaseUrl =
+    process.env.NODE_ENV === "development"
+      ? "http://127.0.0.1:8080"
+      : undefined; // Use default for production
+
+  qstash = new Client({
+    token: process.env.QSTASH_TOKEN!,
+    baseUrl: qstashBaseUrl,
+  });
+} catch (error) {
+  console.error("Failed to initialize QStash client:", error);
+  // We'll handle this error when trying to publish
+}
+
+function normalizeContext(context: any): ContextValues {
+  if (typeof context === "object" && context !== null) {
+    return {
+      niche: context.niche || "",
+      audience: context.audience || "",
+      tone: context.tone || "",
+      additionalDetails: context.additionalDetails || context.details || "",
+    };
+  }
+  return { niche: "", audience: "", tone: "", additionalDetails: "" };
+}
+
+function normalizeMetadata(
+  metadata: any,
+  isGCS: boolean,
+  isYouTube: boolean,
+  videoDuration: number,
+  title?: string
+): MetadataModel {
+  // If metadata is provided, use it with fallbacks
+  if (metadata && typeof metadata === "object") {
+    return {
+      originalFilename:
+        metadata.originalFilename ||
+        metadata.filename ||
+        title ||
+        "Untitled Video",
+      videoSize: metadata.videoSize || metadata.fileSize || 0,
+      videoDuration:
+        metadata.videoDuration || metadata.duration || videoDuration,
+      mimeType: metadata.mimeType || "video/mp4",
+      isPublic: metadata.isPublic || false,
+      filename:
+        metadata.filename ||
+        metadata.originalFilename ||
+        title ||
+        "Untitled Video",
+      fileSize: metadata.fileSize || metadata.videoSize || 0,
+      duration: metadata.duration || metadata.videoDuration || videoDuration,
+    };
+  }
+
+  // Default metadata
+  return {
+    originalFilename: title || "Untitled Video",
+    videoSize: 0,
+    videoDuration: videoDuration,
+    mimeType: "video/mp4",
+    isPublic: false,
+    filename: title || "Untitled Video",
+    fileSize: 0,
+    duration: videoDuration,
+  };
+}
 
 export async function POST(request: Request) {
   try {
+    console.log("=== ALYZITRON ANALYZE API CALLED ===");
+
     const session = await auth();
     if (!session?.userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      console.log("No session or userId found");
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const { video_url, context, metadata } = await request.json();
+    console.log("User authenticated:", session.userId);
 
-    // Ensure context is properly typed as ContextValues
-    const parsedContext: ContextValues = {
-      niche: context.niche,
-      audience: context.audience,
-      tone: context.tone,
-      additionalDetails: context.additionalDetails
-    };
+    const body = await request.json();
+    console.log("Request body received:", JSON.stringify(body, null, 2));
+
+    const { video_url, context, metadata } = body;
+
+    // Normalize context and metadata
+    const parsedContext = normalizeContext(context);
+    console.log("Parsed context:", parsedContext);
 
     if (!video_url) {
+      console.log("Missing video_url in request");
       return NextResponse.json(
-        { error: 'Missing required field: video_url' },
+        { error: "Missing required field: video_url" },
         { status: 400 }
       );
     }
 
     // Determine if it's a GCS path or a potential YouTube URL
-    const isGCS = video_url.startsWith('gs://') || (video_url.startsWith('user_') && video_url.includes('/alyzitron-uploads/'));
-    const isMaybeYouTube = !isGCS && (video_url.includes('youtube.com') || video_url.includes('youtu.be'));
+    const isGCS =
+      video_url.startsWith("gs://") ||
+      (video_url.startsWith("user_") &&
+        video_url.includes("/alyzitron-uploads/"));
+    const isMaybeYouTube =
+      !isGCS &&
+      (video_url.includes("youtube.com") || video_url.includes("youtu.be"));
 
-    // Get video duration from metadata (for uploaded files) or validate YouTube URL
+    console.log("Video URL analysis:", {
+      video_url,
+      isGCS,
+      isMaybeYouTube,
+      startsWithGs: video_url.startsWith("gs://"),
+      startsWithUser: video_url.startsWith("user_"),
+      hasAlyzitronPath: video_url.includes("/alyzitron-uploads/"),
+    });
+
+    // Get video duration from metadata or YouTube validation
     let videoDuration = 0;
 
-    if (isGCS && metadata?.duration) {
-      // Use duration from uploaded file metadata
-      if (!metadata.duration || metadata.duration <= 0) {
-        logger.warn('Uploaded file duration is invalid or missing.', { data: { url: video_url, duration: metadata.duration } });
+    if (isGCS) {
+      // For GCS files, use metadata duration or default
+      videoDuration = metadata?.duration || metadata?.videoDuration || 0;
+      if (videoDuration <= 0) {
+        console.log("GCS video has invalid duration:", videoDuration);
+        logger.warn("Uploaded file duration is invalid or missing.", {
+          data: { url: video_url, duration: videoDuration },
+        });
         return NextResponse.json(
           {
             success: false,
             error: {
-              type: 'INVALID_VIDEO_DURATION',
-              message: 'Video duration is invalid or missing. Please provide a valid video.',
-            }
+              type: "INVALID_VIDEO_DURATION",
+              message:
+                "Video duration is invalid or missing. Please provide a valid video.",
+            },
           },
           { status: 400 }
         );
       }
-      videoDuration = Math.ceil(metadata.duration);
+      videoDuration = Math.ceil(videoDuration);
     } else if (isMaybeYouTube) {
-      // Validate YouTube URL and get duration
-      const validationResult = await validateYouTubeVideo(video_url);
-      if (!validationResult.valid) {
-        logger.warn('YouTube URL validation failed.', { data: { url: video_url, error: validationResult.error } });
+      console.log("Validating YouTube URL:", video_url);
+      try {
+        const validationResult = await validateYouTubeVideo(video_url);
+        console.log("YouTube validation result:", validationResult);
+
+        if (!validationResult.valid) {
+          logger.warn("YouTube URL validation failed.", {
+            data: { url: video_url, error: validationResult.error },
+          });
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                type: validationResult.error || "YOUTUBE_VALIDATION_FAILED",
+                message: `YouTube video validation failed: ${validationResult.error}`,
+              },
+            },
+            { status: 400 }
+          );
+        }
+
+        if (!validationResult.duration || validationResult.duration <= 0) {
+          logger.warn("YouTube video duration is invalid or missing.", {
+            data: { url: video_url, duration: validationResult.duration },
+          });
+          return NextResponse.json(
+            {
+              success: false,
+              error: {
+                type: "INVALID_VIDEO_DURATION",
+                message:
+                  "Video duration is invalid or missing. Please provide a valid video.",
+              },
+            },
+            { status: 400 }
+          );
+        }
+
+        videoDuration = Math.ceil(validationResult.duration);
+      } catch (youtubeError) {
+        console.error("YouTube validation error:", youtubeError);
         return NextResponse.json(
           {
             success: false,
             error: {
-              type: validationResult.error || 'YOUTUBE_VALIDATION_FAILED',
-              message: `YouTube video validation failed: ${validationResult.error}`,
-            }
+              type: "YOUTUBE_API_ERROR",
+              message: "Failed to validate YouTube video",
+            },
           },
           { status: 400 }
         );
       }
-      
-      // Ensure duration is available and valid
-      if (!validationResult.duration || validationResult.duration <= 0) {
-        logger.warn('YouTube video duration is invalid or missing.', { data: { url: video_url, duration: validationResult.duration } });
-        return NextResponse.json(
-          {
-            success: false,
-            error: {
-              type: 'INVALID_VIDEO_DURATION',
-              message: 'Video duration is invalid or missing. Please provide a valid video.',
-            }
-          },
-          { status: 400 }
-        );
+    } else {
+      // For other URLs, try to get duration from metadata
+      videoDuration = metadata?.duration || metadata?.videoDuration || 0;
+      if (videoDuration <= 0) {
+        console.log("No valid duration found for video");
+        videoDuration = 60; // Default fallback
       }
-      
-      videoDuration = Math.ceil(validationResult.duration);
     }
 
-    // Check service limits using enhanced middleware
+    console.log("Determined video duration:", videoDuration, "seconds");
+
+    // Check service limits
     const requestData = {
       video_url,
       context: parsedContext,
-      videoDuration
+      videoDuration,
     };
+
+    console.log("Checking service limits...");
 
     const limitCheck = await checkAlyzitronLimits(requestData);
 
     if (!limitCheck.success || !limitCheck.hasAccess) {
-      logger.warn('Service limit check failed', {
+      console.log("Service limit check failed:", limitCheck);
+      logger.warn("Service limit check failed", {
         data: {
           userId: session.userId,
           limitInfo: limitCheck.limitInfo,
-          error: limitCheck.error
-        }
+          error: limitCheck.error,
+        },
       });
 
       return createAlyzitronLimitResponse(limitCheck);
     }
 
-    // Increment usage duration BEFORE creating task to ensure proper limit enforcement
-    // Convert seconds to minutes for usage tracking
+    console.log("Service limits OK");
+
+    // Increment usage
     const usageMinutes = Math.ceil(videoDuration / 60);
-    const usageResult = await incrementAlyzitronUsage(requestData, usageMinutes);
+    console.log("Usage minutes to deduct:", usageMinutes);
+
+    const usageResult = await incrementAlyzitronUsage(
+      requestData,
+      usageMinutes
+    );
 
     if (!usageResult.success) {
-      logger.error('Failed to increment Alyzitron usage', {
+      console.error("Failed to increment usage:", usageResult);
+      logger.error("Failed to increment Alyzitron usage", {
         data: {
           userId: session.userId,
-          error: usageResult.error
-        }
+          error: usageResult.error,
+        },
       });
 
-      // If usage increment fails, don't start the task
       return NextResponse.json(
         {
-          error: 'Unable to process request. Please try again later.',
-          success: false
+          error: "Unable to process request. Please try again later.",
+          success: false,
         },
         { status: 403 }
       );
     }
 
-    // If it's a GCS file, format the videoUrl as gs://${bucketName}/${gcsPath}
+    console.log("Usage incremented successfully");
+
+    // Format video URL for GCS
     const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
+    console.log("Final video URL:", finalVideoUrl);
 
-    // Generate appropriate title and prepare metadata
+    // Determine title
     let title: string;
-    let finalMetadata: MetadataModel;
-
-    if (isGCS && metadata) {
-      // For uploaded files, use the metadata from frontend
-      title = metadata.filename || 'Uploaded Video';
-      finalMetadata = {
-        originalFilename: title,
-        videoSize: metadata.fileSize || 0,
-        videoDuration: Math.ceil(videoDuration),
-        mimeType: 'video/mp4',
-        isPublic: false,
-      };
+    if (isGCS && metadata?.filename) {
+      title = metadata.filename;
     } else if (isMaybeYouTube) {
-      // For YouTube URLs, try to get title from oEmbed API
       try {
         const oEmbedResponse = await fetch(
           `https://www.youtube.com/oembed?url=${encodeURIComponent(video_url)}&format=json`
@@ -198,120 +322,179 @@ export async function POST(request: Request) {
       } catch {
         title = video_url;
       }
-
-      finalMetadata = {
-        originalFilename: title,
-        videoSize: 0,
-        videoDuration: Math.ceil(videoDuration),
-        mimeType: 'video/mp4',
-        isPublic: false,
-      };
     } else {
       title = video_url;
-      finalMetadata = {
-        originalFilename: title,
-        videoSize: 0,
-        videoDuration: Math.ceil(videoDuration),
-        mimeType: 'video/mp4',
-        isPublic: false,
-      };
     }
 
-    try {
-      // Call monolithic backend for task processing
-      const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
-      if (!monolithicUrl) {
-        console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
-        return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
-      }
+    console.log("Determined title:", title);
 
-      // Create properly typed request body using the interface
-      const generateRequest: AlyzitronGenerateRequest = {
+    // Create final metadata using normalized function
+    const finalMetadata = normalizeMetadata(
+      metadata,
+      isGCS,
+      isMaybeYouTube,
+      videoDuration,
+      title
+    );
+    console.log("Final metadata:", finalMetadata);
+    console.log("Creating task in MongoDB...");
+
+    try {
+      console.log("=== STARTING TASK CREATION ===");
+      console.log("Creating task with:", {
+        userId: session.userId,
+        videoUrl: finalVideoUrl,
+        videoDuration,
+        usageMinutes,
+        finalMetadata,
+      });
+
+      // 1. Create task in MongoDB
+      const { analyses } = await getCollections();
+      const taskId = new ObjectId();
+
+      console.log("Generated taskId:", taskId.toString());
+
+      const taskData = {
+        _id: taskId,
         clerkUserId: session.userId,
         videoUrl: finalVideoUrl,
         context: parsedContext,
         metadata: finalMetadata,
+        status: "listed",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        taskId: taskId.toString(),
+        videoDuration: videoDuration,
+        usageMinutes: usageMinutes,
       };
 
-      const backendResponse = await fetch(`${monolithicUrl}/alyzitron/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
-        },
-        body: JSON.stringify(generateRequest),
+      console.log("Inserting into MongoDB...");
+      const insertResult = await analyses.insertOne(taskData);
+      console.log("MongoDB insert result:", insertResult);
+
+      // 2. Create RTDB entry
+      console.log("Creating RTDB entry...");
+      await AlyzitronRTDBManager.createTask(
+        session.userId,
+        taskId.toString(),
+        finalMetadata.originalFilename,
+        `Video analysis for ${finalMetadata.originalFilename}`
+      );
+      console.log("RTDB entry created");
+
+      // 3. Call Processor
+      const baseUrl =
+        process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const processorUrl = `${baseUrl}/api/services/alyzitron/processor`;
+
+      console.log("Calling processor:", processorUrl);
+      console.log("Processor payload:", {
+        taskId: taskId.toString(),
+        userId: session.userId,
       });
 
-      const backendData = await backendResponse.json();
+      const processorResponse = await fetch(processorUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-development-bypass": "true",
+        },
+        body: JSON.stringify({
+          taskId: taskId.toString(),
+          userId: session.userId,
+        }),
+      });
 
-      if (!backendResponse.ok || !backendData.success) {
-        const errorType = backendData.error?.type || 'UNKNOWN_ERROR';
-        const errorMessage = backendData.error?.message || 'Task processing failed';
-        console.error('Error from monolithic backend:', backendData);
-        return NextResponse.json({
-          success: false,
-          error: {
-            type: errorType,
-            message: errorMessage
-          }
-        }, { status: 500 });
+      console.log("Processor response status:", processorResponse.status);
+
+      if (!processorResponse.ok) {
+        const errorText = await processorResponse.text();
+        console.error("Processor failed with:", errorText);
+        throw new Error(
+          `Processor returned ${processorResponse.status}: ${errorText}`
+        );
       }
 
-      logger.info('Analysis task created and queued successfully', {
+      const processorResult = await processorResponse.json();
+      console.log("Processor result:", processorResult);
+
+      logger.info("Analysis task created and queued successfully", {
         data: {
           userId: session.userId,
-          taskId: backendData.taskId
-        }
+          taskId: taskId.toString(),
+        },
       });
 
       return NextResponse.json({
         success: true,
-        taskId: backendData.taskId,
+        taskId: taskId.toString(),
       });
-
     } catch (processingError) {
-      logger.error('Analysis post-save processing failed', {
+      console.error("=== TASK CREATION FAILED ===");
+      console.error("Error:", processingError);
+      console.error(
+        "Error message:",
+        processingError instanceof Error
+          ? processingError.message
+          : String(processingError)
+      );
+      console.error(
+        "Stack:",
+        processingError instanceof Error ? processingError.stack : "No stack"
+      );
+      logger.error("Analysis task creation failed", {
         data: {
-          error: processingError instanceof Error ? processingError.message : String(processingError)
-        }
+          error:
+            processingError instanceof Error
+              ? processingError.message
+              : String(processingError),
+          userId: session.userId,
+        },
       });
 
-      // Check if this is a GCS video URL and clean it up if the analysis failed
+      // Clean up GCS file if it was an uploaded video
       if (isGCS && finalVideoUrl) {
         try {
-          // Extract GCS path from the URL
-          const gcsPath = finalVideoUrl.replace(`gs://${process.env.GCS_BUCKET_NAME}/`, '');
-
-          // Delete the GCS file locally
+          const gcsPath = finalVideoUrl.replace(
+            `gs://${process.env.GCS_BUCKET_NAME}/`,
+            ""
+          );
           await GCSManager.deleteFile(gcsPath);
-
-          logger.info('Successfully cleaned up GCS file after analysis failure', {
-            data: {
-              userId: session.userId,
-              gcsPath,
-              videoUrl: finalVideoUrl,
-            }
+          logger.info("Cleaned up GCS file after task creation failure", {
+            data: { gcsPath },
           });
-        } catch (deleteError) {
-          logger.error('Failed to clean up GCS file after analysis failure', {
+        } catch (cleanupError) {
+          logger.error("Failed to clean up GCS file", {
             data: {
-              error: deleteError instanceof Error ? deleteError.message : String(deleteError),
-              videoUrl: finalVideoUrl,
-            }
+              error:
+                cleanupError instanceof Error
+                  ? cleanupError.message
+                  : String(cleanupError),
+            },
           });
         }
       }
 
-      // Refund usage duration if task processing failed
-      // Convert seconds to minutes for usage tracking (same as increment)
-      const refundMinutes = Math.ceil(videoDuration / 60);
-      const refundResult = await incrementAlyzitronUsage(requestData, -refundMinutes);
-      if (!refundResult.success) {
-        logger.error('Failed to refund Alyzitron usage', {
+      // Refund usage if task creation failed
+      try {
+        await processRefund(
+          "alyzitron",
+          "analysis",
+          session.userId,
+          usageMinutes
+        );
+        logger.info("Credits refunded after task creation failure", {
+          data: { userId: session.userId, minutes: usageMinutes },
+        });
+      } catch (refundError) {
+        logger.error("Failed to refund credits", {
           data: {
-            userId: session.userId,
-            error: refundResult.error
-          }
+            error:
+              refundError instanceof Error
+                ? refundError.message
+                : String(refundError),
+          },
         });
       }
 
@@ -319,28 +502,29 @@ export async function POST(request: Request) {
         {
           success: false,
           error: {
-            type: 'ANALYSIS_PROCESSING_ERROR',
-            message: 'Failed to queue analysis for processing',
-          }
+            type: "TASK_CREATION_ERROR",
+            message: "Failed to queue analysis for processing",
+          },
         },
         { status: 500 }
       );
     }
   } catch (error) {
-    logger.error('Request processing failed', {
+    console.error("Unexpected error in analyze endpoint:", error);
+    logger.error("Request processing failed", {
       data: {
-        error: error instanceof Error ? error.message : String(error)
-      }
+        error: error instanceof Error ? error.message : String(error),
+      },
     });
 
     return NextResponse.json(
       {
         success: false,
         error: {
-          type: 'REQUEST_PROCESSING_ERROR',
-          message: 'Failed to process request',
-          action: 'Please try again later'
-        }
+          type: "REQUEST_PROCESSING_ERROR",
+          message: "Failed to process request",
+          action: "Please try again later",
+        },
       },
       { status: 500 }
     );
