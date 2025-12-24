@@ -61,16 +61,11 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    console.log("=== 📝 UPLOAD TRACKING PATCH ===");
 
     // Optional: Get user ID but don't require it
     const session = await auth();
     const userId = session?.userId;
-
-    console.log("User ID from auth:", userId);
-
     const body = await request.json();
-    console.log("Request body:", JSON.stringify(body, null, 2));
 
     const { uploadId, analysisId, status } = body;
 
@@ -128,22 +123,11 @@ export async function PATCH(request: Request) {
       query.userId = userId;
     }
 
-    console.log("Query for update:", JSON.stringify(query, null, 2));
-
     // Try to update
     const result = await uploadTracking.updateOne(query, { $set: updateData });
 
-    console.log("Update result:", {
-      matchedCount: result.matchedCount,
-      modifiedCount: result.modifiedCount,
-    });
-
     // If no match, try creating a new record for YouTube links
     if (result.matchedCount === 0) {
-      console.log(
-        "No existing upload record found, creating one for YouTube link..."
-      );
-
       // For YouTube links, we might not have an upload record
       // Create a minimal record for tracking
       const newRecord: any = {
@@ -164,16 +148,13 @@ export async function PATCH(request: Request) {
       }
 
       const insertResult = await uploadTracking.insertOne(newRecord);
-      console.log("Created new tracking record:", insertResult.insertedId);
-
       return NextResponse.json({
         success: true,
         message: "Created new tracking record for YouTube link",
         recordId: insertResult.insertedId,
       });
     }
-
-    logger.info("Upload status updated", {
+     logger.info("Upload status updated", {
       data: { uploadId, status, analysisId, userId },
     });
 
@@ -182,7 +163,6 @@ export async function PATCH(request: Request) {
       message: "Upload status updated successfully",
     });
   } catch (error) {
-    console.error("Upload tracking error:", error);
     logger.error("Upload tracking error", {
       data: { error: error instanceof Error ? error.message : String(error) },
     });
@@ -196,17 +176,14 @@ export async function PATCH(request: Request) {
 // Delete upload tracking record
 export async function DELETE(request: Request) {
   try {
-    console.log("🗑️ DELETE request received for track-upload");
     const { userId } = await auth();
     if (!userId) {
-      console.log("❌ Unauthorized DELETE request");
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { gcsPath } = await request.json();
 
     if (!gcsPath) {
-      console.log("❌ Missing gcsPath in DELETE request");
       return NextResponse.json({ error: "Missing gcsPath" }, { status: 400 });
     }
 
@@ -219,21 +196,16 @@ export async function DELETE(request: Request) {
     });
 
     if (result.deletedCount === 0) {
-      console.log("❌ Upload tracking record not found for deletion");
       return NextResponse.json(
         { error: "Upload tracking record not found" },
         { status: 404 }
       );
     }
-
-    logger.info("Upload tracking record deleted successfully", {
+     logger.info("Upload tracking record deleted successfully", {
       data: { gcsPath, userId },
     });
-
-    console.log("✅ Upload tracking record deleted successfully");
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("❌ Failed to delete upload tracking record:", error);
     logger.error("Failed to delete upload tracking record", {
       data: { error: error instanceof Error ? error.message : String(error) },
     });
