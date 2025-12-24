@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 import { auth } from '@clerk/nextjs/server';
-import { getUserData } from '@/lib/services/getUserData';
+import { getSessionState, appendChatMessage } from '@/lib/thinkforge/state/session-state';
+import { chatAgent } from '@/lib/thinkforge/agents/chat-agent';
 
-// Streaming proxy to monolith thinkforge /ask endpoint with sessionId forwarding for chat persistence
+// Simple chat endpoint - Q&A without script editing
 export async function POST(req: Request) {
   const { userId } = await auth();
   if (!userId) return new NextResponse('Unauthorized', { status: 401 });
@@ -24,46 +25,53 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
   }
 
-  const base = process.env.MONOLITHIC_BACKEND_URL;
-  const secret = process.env.MONOLITHIC_BACKEND_SECRET;
-  if (!base || !secret) {
-    return NextResponse.json({ error: 'Server not configured' }, { status: 500 });
-  }
-
   try {
-  const user = await getUserData();
-  const planName = (user?.currentPlan?.name || 'Free');
-  const upstreamBody = { prompt, sessionId, userId, skipPersistUser, planName };
-    const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/ask`, {
-      method: 'POST',
-      cache: 'no-store',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${secret}`,
-        // Ask upstream to avoid compression that can buffer
-        'Accept-Encoding': 'identity'
+    // Load session state if sessionId provided
+    const sessionState = sessionId ? await getSessionState(sessionId, userId) : null;
+    
+    // Persist user message unless skipped
+    if (sessionId && sessionState && !skipPersistUser) {
+      await appendChatMessage(sessionId, userId, 'user', prompt);
+    }
+    
+    // Generate chat response
+    const chatStream = await chatAgent(prompt, {
+      sessionState: sessionState || {
+        sessionId: sessionId || 'temp',
+        userId,
+        chat: [],
+        script: null,
+        ideas: [],
+        metadata: {},
+        version: 1,
+        lastUpdated: new Date()
       },
-      body: JSON.stringify(upstreamBody)
+      script: null,
+      project: null,
+      selection: null,
+      skipPersistUser
     });
-
-    if (upstream.status === 429) {
-      let body: any = null;
-      try { body = await upstream.json(); } catch { body = { error: 'Rate limit' }; }
-      return NextResponse.json(body, { status: 429 });
+    
+    // Persist assistant message after streaming (best effort)
+    if (sessionId && sessionState && !skipPersistUser) {
+      setTimeout(async () => {
+        try {
+          await appendChatMessage(sessionId!, userId, 'assistant', '[Response streamed]');
+        } catch (error) {
+          console.error('Error persisting assistant message:', error);
+        }
+      }, 100);
     }
-
-    if (!upstream.ok || !upstream.body) {
-      const text = await upstream.text().catch(()=> '');
-      return NextResponse.json({ error: 'Upstream error', status: upstream.status, body: text.slice(0,500) }, { status: 502 });
-    }
-
-    return new Response(upstream.body, { headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      // Disable proxy buffering (nginx, etc.)
-      'X-Accel-Buffering': 'no'
-    }});
+    
+    return new Response(chatStream, {
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': 'no-cache, no-transform',
+        'X-Accel-Buffering': 'no'
+      }
+    });
   } catch (e: any) {
-    return NextResponse.json({ error: 'Proxy failure', details: e?.message }, { status: 500 });
+    console.error('Error in ask endpoint:', e);
+    return NextResponse.json({ error: 'Ask failure', details: e?.message }, { status: 500 });
   }
 }
