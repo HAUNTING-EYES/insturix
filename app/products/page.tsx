@@ -15,6 +15,8 @@ function ElegantShape({
     height = 100,
     rotate = 0,
     gradient = "from-white/5",
+    mobileWidth,
+    mobileHeight,
 }: {
     className?: string;
     delay?: number;
@@ -22,6 +24,8 @@ function ElegantShape({
     height?: number;
     rotate?: number;
     gradient?: string;
+    mobileWidth?: number;
+    mobileHeight?: number;
 }) {
     return (
         <motion.div
@@ -52,23 +56,48 @@ function ElegantShape({
                     repeat: Number.POSITIVE_INFINITY,
                     ease: "easeInOut",
                 }}
-                style={{
-                    width,
-                    height,
-                }}
                 className="relative"
             >
+                {/* Mobile size */}
                 <div
-                    className={cn(
-                        "absolute inset-0 rounded-full",
-                        "bg-linear-to-r to-transparent",
-                        gradient,
-                        "backdrop-blur-[2px] border-2 border-white/15",
-                        "shadow-[0_8px_32px_0_rgba(255,255,255,0.1)]",
-                        "after:absolute after:inset-0 after:rounded-full",
-                        "after:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.2),transparent_70%)]"
-                    )}
-                />
+                    style={{
+                        width: mobileWidth || width * 0.5,
+                        height: mobileHeight || height * 0.5,
+                    }}
+                    className="md:hidden relative"
+                >
+                    <div
+                        className={cn(
+                            "absolute inset-0 rounded-full",
+                            "bg-linear-to-r to-transparent",
+                            gradient,
+                            "backdrop-blur-[2px] border-2 border-white/15",
+                            "shadow-[0_8px_32px_0_rgba(255,255,255,0.1)]",
+                            "after:absolute after:inset-0 after:rounded-full",
+                            "after:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.2),transparent_70%)]"
+                        )}
+                    />
+                </div>
+                {/* Desktop size */}
+                <div
+                    style={{
+                        width,
+                        height,
+                    }}
+                    className="hidden md:block relative"
+                >
+                    <div
+                        className={cn(
+                            "absolute inset-0 rounded-full",
+                            "bg-linear-to-r to-transparent",
+                            gradient,
+                            "backdrop-blur-[2px] border-2 border-white/15",
+                            "shadow-[0_8px_32px_0_rgba(255,255,255,0.1)]",
+                            "after:absolute after:inset-0 after:rounded-full",
+                            "after:bg-[radial-gradient(circle_at_50%_50%,rgba(255,255,255,0.2),transparent_70%)]"
+                        )}
+                    />
+                </div>
             </motion.div>
         </motion.div>
     );
@@ -240,46 +269,56 @@ export default function ProductsPage() {
                         delay={0.3}
                         width={600}
                         height={140}
+                        mobileWidth={280}
+                        mobileHeight={70}
                         rotate={12}
                         gradient="from-indigo-500/15"
-                        className="left-[-10%] md:left-[-5%] top-[15%] md:top-[20%]"
+                        className="left-[-20%] md:left-[-5%] top-[15%] md:top-[20%]"
                     />
                     <ElegantShape
                         delay={0.5}
                         width={500}
                         height={120}
+                        mobileWidth={240}
+                        mobileHeight={60}
                         rotate={-15}
                         gradient="from-rose-500/15"
-                        className="right-[-5%] md:right-[0%] top-[70%] md:top-[75%]"
+                        className="right-[-15%] md:right-[0%] top-[60%] md:top-[75%]"
                     />
                     <ElegantShape
                         delay={0.4}
                         width={300}
                         height={80}
+                        mobileWidth={180}
+                        mobileHeight={50}
                         rotate={-8}
                         gradient="from-violet-500/15"
-                        className="left-[5%] md:left-[10%] bottom-[5%] md:bottom-[10%]"
+                        className="hidden sm:block left-[5%] md:left-[10%] bottom-[5%] md:bottom-[10%]"
                     />
                     <ElegantShape
                         delay={0.6}
                         width={200}
                         height={60}
+                        mobileWidth={120}
+                        mobileHeight={35}
                         rotate={20}
                         gradient="from-amber-500/15"
-                        className="right-[15%] md:right-[20%] top-[10%] md:top-[15%]"
+                        className="hidden sm:block right-[15%] md:right-[20%] top-[10%] md:top-[15%]"
                     />
                     <ElegantShape
                         delay={0.7}
                         width={150}
                         height={40}
+                        mobileWidth={100}
+                        mobileHeight={25}
                         rotate={-25}
                         gradient="from-cyan-500/15"
-                        className="left-[20%] md:left-[25%] top-[5%] md:top-[10%]"
+                        className="hidden md:block left-[20%] md:left-[25%] top-[5%] md:top-[10%]"
                     />
                 </div>
 
                 {/* Hero Content */}
-                <div className="relative z-10 container mx-auto px-4 md:px-6 pt-32 pb-20 md:pt-40 md:pb-24">
+                <div className="relative z-10 container mx-auto px-4 md:px-6 pt-24 pb-12 md:pt-40 md:pb-24">
                     <div className="max-w-3xl mx-auto text-center">
                         <motion.div
                             custom={1}
@@ -287,7 +326,7 @@ export default function ProductsPage() {
                             initial="hidden"
                             animate="visible"
                         >
-                            <h1 className="text-4xl sm:text-6xl md:text-8xl font-bold mb-6 md:mb-8 tracking-tight">
+                            <h1 className="text-3xl sm:text-5xl md:text-8xl font-bold mb-4 md:mb-8 tracking-tight leading-tight">
                                 <span className="bg-clip-text text-transparent bg-linear-to-b from-white to-white/80">
                                     Empower Your
                                 </span>
@@ -308,7 +347,7 @@ export default function ProductsPage() {
                             initial="hidden"
                             animate="visible"
                         >
-                            <p className="text-base sm:text-lg md:text-xl text-white/40 mb-8 leading-relaxed font-light tracking-wide max-w-xl mx-auto px-4">
+                            <p className="text-sm sm:text-base md:text-xl text-white/40 mb-6 md:mb-8 leading-relaxed font-light tracking-wide max-w-xl mx-auto">
                                 Crafting exceptional digital experiences through
                                 innovative design and cutting-edge technology.
                             </p>
@@ -318,8 +357,8 @@ export default function ProductsPage() {
             </div>
 
             {/* Products Bento Grid */}
-            <div className="relative z-10 container mx-auto px-4 md:px-6 pb-32">
-                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 auto-rows-[300px]">
+            <div className="relative z-10 container mx-auto px-4 md:px-6 pb-16 md:pb-32">
+                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4 auto-rows-[240px] md:auto-rows-[300px]">
                     {products.map((product, i) => (
                         <Spotlight
                             key={product.id}
@@ -327,14 +366,14 @@ export default function ProductsPage() {
                             spotlightColor={product.color + "26"} // ~15% opacity hex
                         >
                             <Link href={product.href} className="block h-full group relative">
-                                <div className="relative h-full p-8 flex flex-col z-20">
-                                    <div className="flex items-start justify-between mb-6">
+                                <div className="relative h-full p-5 md:p-8 flex flex-col z-20">
+                                    <div className="flex items-start justify-between mb-4 md:mb-6">
                                         <div 
-                                            className="p-3 rounded-2xl bg-neutral-950 border border-neutral-800 transition-all duration-300 group-hover:scale-110"
+                                            className="p-2 md:p-3 rounded-xl md:rounded-2xl bg-neutral-950 border border-neutral-800 transition-all duration-300 group-hover:scale-110"
                                             style={{ borderColor: `${product.color}30` }}
                                         >
                                             <product.icon 
-                                                className="w-6 h-6 transition-colors duration-300" 
+                                                className="w-5 h-5 md:w-6 md:h-6 transition-colors duration-300" 
                                                 style={{ color: product.color }}
                                             />
                                         </div>
@@ -344,10 +383,10 @@ export default function ProductsPage() {
                                     </div>
                                     
                                     <div className="mt-auto">
-                                        <h3 className="text-2xl font-bold mb-3 text-neutral-100 group-hover:text-white transition-colors">
+                                        <h3 className="text-xl md:text-2xl font-bold mb-2 md:mb-3 text-neutral-100 group-hover:text-white transition-colors">
                                             {product.title}
                                         </h3>
-                                        <p className="text-neutral-400 text-sm md:text-base leading-relaxed max-w-[95%] group-hover:text-neutral-300 transition-colors">
+                                        <p className="text-neutral-400 text-xs sm:text-sm md:text-base leading-relaxed max-w-[95%] group-hover:text-neutral-300 transition-colors">
                                             {product.description}
                                         </p>
                                     </div>

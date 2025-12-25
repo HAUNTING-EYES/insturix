@@ -643,15 +643,15 @@ export default function ContactSalesForm() {
           )}
         </div>
 
-        <div className="flex items-start gap-2 pt-1">
+        <div className="flex items-start gap-3 pt-2 -ml-1 cursor-pointer" onClick={() => formik.setFieldValue("agreeToContact", !formik.values.agreeToContact)}>
           <input
             type="checkbox"
             id={`agreeToContact${idPrefix}`}
             checked={formik.values.agreeToContact}
-            onChange={formik.handleChange}
-            className="mt-0.5 h-3.5 w-3.5 rounded border-neutral-700 bg-neutral-900 text-[#ff5722] focus:ring-[#ff5722]/20 accent-[#ff5722]"
+            onChange={(e) => formik.setFieldValue("agreeToContact", e.target.checked)}
+            className="mt-1 h-5 w-5 rounded border-neutral-700 bg-neutral-900 text-[#ff5722] focus:ring-[#ff5722]/20 accent-[#ff5722] cursor-pointer shrink-0 pointer-events-none"
           />
-          <Label htmlFor={`agreeToContact${idPrefix}`} className="text-xs text-neutral-400 cursor-pointer font-normal leading-relaxed">
+          <Label htmlFor={`agreeToContact${idPrefix}`} className="text-xs text-neutral-400 cursor-pointer font-normal leading-relaxed pt-0.5 select-none">
             I agree to allow Insturix to store and process my personal data to handle my request.
           </Label>
         </div>
@@ -840,9 +840,8 @@ export default function ContactSalesForm() {
       {!isSubmitted && (
         <section className="relative flex-1">
           <div className="container mx-auto px-4 py-8 md:py-16 relative z-10">
-            {/* Navigation / Top Bar */}
-
-            <div className="lg:flex lg:gap-24">
+            {/* Desktop Layout - Side by side */}
+            <div className="hidden lg:flex lg:gap-24">
               {/* LEFT SIDE - Scrollable Story */}
               <div className="relative flex-1 lg:min-w-0">
                 {/* INSTURIX x Brand - vertically aligned with form middle */}
@@ -850,24 +849,24 @@ export default function ContactSalesForm() {
                   <div className="text-white flex items-center w-full transition-all duration-300">
                     {/* INSTURIX - using Blanka font */}
                     <span 
-                      className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-2xl sm:text-3xl md:text-4xl lg:text-5xl"
+                      className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-5xl"
                       style={{ fontFamily: 'Blanka, sans-serif' }}
                     >
                       {xText.slice(0, 8)}
                     </span>
                     {/* Spacer */}
-                    <span className="shrink-0 w-3 sm:w-4 md:w-5 lg:w-6">{xText.length > 8 ? '' : ''}</span>
+                    <span className="shrink-0 w-6">{xText.length > 8 ? '' : ''}</span>
                     {/* x - smaller, vertically centered */}
                     {xText.length > 10 && (
-                      <span className="font-bold shrink-0 text-base sm:text-lg md:text-xl lg:text-2xl">
+                      <span className="font-bold shrink-0 text-2xl">
                         x
                       </span>
                     )}
                     {/* Spacer */}
-                    <span className="shrink-0 w-3 sm:w-4 md:w-5 lg:w-6"></span>
+                    <span className="shrink-0 w-6"></span>
                     {/* Brand - same size as INSTURIX, word-wraps when needed */}
                     <span 
-                      className="font-bold min-w-0 flex-1 transition-all duration-200 text-2xl sm:text-3xl md:text-4xl lg:text-5xl break-words"
+                      className="font-bold min-w-0 flex-1 transition-all duration-200 text-5xl break-words"
                       style={{ lineHeight: '1.1' }}
                     >
                       {companyNameForHeader}
@@ -881,7 +880,7 @@ export default function ContactSalesForm() {
               </div>
 
               {/* RIGHT SIDE - Sticky Form */}
-              <div className="hidden lg:block lg:w-[480px] lg:shrink-0">
+              <div className="lg:w-[480px] lg:shrink-0">
                 <div className="sticky top-20">
                   <Card className="p-4 sm:p-5 bg-neutral-900/60 backdrop-blur-md border border-neutral-800/80 shadow-[0_25px_120px_rgba(255,87,34,0.05)]">
                     {renderFormContent("")}
@@ -900,22 +899,57 @@ export default function ContactSalesForm() {
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* Mobile Form - Shown on smaller screens */}
-          <div className="lg:hidden container mx-auto px-4 py-8 relative z-10">
-            <Card className="p-6 sm:p-8 bg-neutral-900/60 backdrop-blur-md border border-neutral-800/80 shadow-[0_25px_120px_rgba(255,87,34,0.05)]">
-              {renderFormContent("-mobile")}
-            </Card>
-
-            <div className="mt-8 flex justify-center gap-8 text-neutral-500">
-              <div className="flex items-center gap-2">
-                <Mail className="h-4 w-4" />
-                <span className="text-sm">support@insturix.com</span>
+            {/* Mobile Layout - Stacked (Header → Form → Hero) */}
+            <div className="lg:hidden">
+              {/* INSTURIX x Brand Header */}
+              <div className="flex items-center justify-center mb-8">
+                <div className="text-white flex items-center flex-wrap justify-center gap-2 transition-all duration-300">
+                  {/* INSTURIX - using Blanka font */}
+                  <span 
+                    className="shrink-0 tracking-[0.3em] whitespace-nowrap leading-none text-2xl sm:text-3xl md:text-4xl"
+                    style={{ fontFamily: 'Blanka, sans-serif' }}
+                  >
+                    {xText.slice(0, 8)}
+                  </span>
+                  {/* x - smaller, vertically centered */}
+                  {xText.length > 10 && (
+                    <span className="font-bold shrink-0 text-base sm:text-lg md:text-xl mx-2 sm:mx-4">
+                      x
+                    </span>
+                  )}
+                  {/* Brand - same size as INSTURIX */}
+                  <span 
+                    className="font-bold transition-all duration-200 text-2xl sm:text-3xl md:text-4xl break-words text-center"
+                    style={{ lineHeight: '1.1' }}
+                  >
+                    {companyNameForHeader}
+                    <span className="animate-blink text-[#ff5722]">|</span>
+                  </span>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Phone className="h-4 w-4" />
-                <span className="text-sm">+91 92201-21372</span>
+
+              {/* Form - Centered */}
+              <div className="max-w-xl mx-auto mb-12">
+                <Card className="p-6 sm:p-8 bg-neutral-900/60 backdrop-blur-md border border-neutral-800/80 shadow-[0_25px_120px_rgba(255,87,34,0.05)]">
+                  {renderFormContent("-mobile")}
+                </Card>
+
+                <div className="mt-4 flex justify-center gap-6 text-neutral-500">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-4 w-4" />
+                    <span className="text-sm">support@insturix.com</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Phone className="h-4 w-4" />
+                    <span className="text-sm">+91 92201-21372</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* WordHeroSection - below form */}
+              <div className="relative">
+                <WordHeroSection />
               </div>
             </div>
           </div>

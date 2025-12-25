@@ -115,7 +115,7 @@ export default function EnterpriseBenefits() {
           className="mb-20 text-center max-w-3xl mx-auto"
         >
           <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
-            How Business scale up with Insturix ?
+            How Businesses scale up with Insturix ?
           </h2>
           <p className="text-lg text-neutral-400">
             Discover the unique advantages that set us apart from the competition.
