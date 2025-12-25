@@ -85,14 +85,6 @@ const quickLinks = [
     color: "text-green-500",
     bgColor: "bg-green-500/10",
   },
-  {
-    title: "Tutorials",
-    description: "Step-by-step guides to help you",
-    icon: Zap,
-    link: "/resources/tutorials",
-    color: "text-red-500",
-    bgColor: "bg-red-500/10",
-  },
 ];
 
 export default function SupportContent() {
