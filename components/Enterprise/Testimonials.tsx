@@ -78,7 +78,7 @@ export default function Testimonials() {
             Built by makers, loved by thousands of teams
           </h2>
           <p className="text-lg text-neutral-400">
-            Insturix is evolving to be more than just a tool suite. It's the infrastructure that helps creators and businesses innovate at scale.
+            Insturix is evolving to be more than just a tool suite. It's the infrastructure that helps businesses innovate at scale.
           </p>
         </motion.div>
 

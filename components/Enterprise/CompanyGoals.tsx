@@ -1,7 +1,8 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CpuArchitecture } from "@/components/ui/CpuArchitecture";
+import { Suspense, lazy } from "react";
+const CpuArchitecture = lazy(() => import("@/components/ui/CpuArchitecture").then(module => ({ default: module.CpuArchitecture })));
 
 export default function CompanyGoals() {
   return (
@@ -29,7 +30,9 @@ export default function CompanyGoals() {
           transition={{ duration: 1 }}
           className="w-full h-[400px] md:h-[600px] flex items-center justify-center -mt-12"
         >
-          <CpuArchitecture />
+          <Suspense fallback={<div className="w-full h-[400px] md:h-[600px] flex items-center justify-center">Loading...</div>}>
+            <CpuArchitecture />
+          </Suspense>
         </motion.div>
       </div>
     </section>

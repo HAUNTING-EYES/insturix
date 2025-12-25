@@ -8,33 +8,33 @@ import {
   BarChart3,
   Layers,
   ArrowRight,
+  FastForward,
   Lock,
   Zap,
   Headphones,
   BrainCircuit,
+  HeartHandshake,
 } from "lucide-react";
 
 const benefits = [
   {
     title: "Scale Content Production",
-    description: "Produce 50% more content without increasing headcount. Editron and Musitron automate the heavy lifting of production.",
+    description: "Produce 300% more content without increasing headcount, Thinkforge, Editron, Clickatron and Alyzitron automate the heavy lifting of production.",
     icon: TrendingUp,
     color: "text-emerald-500",
     bg: "bg-emerald-500/10",
-    stat: "50%",
-    statLabel: "More Output",
-    href: "/products/editron",
+    stat: "300% More Output",
+    href: "/products",
     className: "md:col-span-2",
   },
   {
     title: "Protect Brand IP",
-    description: "Secure your digital assets with Shield. Automated monitoring and rights management ensure your brand stays safe.",
+    description: "Your digital assets Stay Secured with end-to-end encryption. Automated monitoring and rights management ensure your brand stays safe.",
     icon: Shield,
     color: "text-blue-500",
     bg: "bg-blue-500/10",
-    stat: "100%",
-    statLabel: "Monitored",
-    href: "/products/shield",
+    stat: "100% Brand Safety",
+    href: "/legal/privacy#storage-security",
     className: "md:col-span-1",
   },
   {
@@ -43,64 +43,59 @@ const benefits = [
     icon: BarChart3,
     color: "text-amber-500",
     bg: "bg-amber-500/10",
-    stat: "3x",
-    statLabel: "Engagement",
+    stat: "3x More Engagement",
     href: "/products/alyzitron",
     className: "md:col-span-1",
   },
   {
     title: "Unified Workflow",
-    description: "One platform for the entire content lifecycle. From ThinkForge ideation to Socialize distribution.",
+    description: "One platform for the entire content lifecycle. From ideation to Upload.",
     icon: Layers,
     color: "text-violet-500",
     bg: "bg-violet-500/10",
-    stat: "All-in-1",
-    statLabel: "Ecosystem",
-    href: "/enterprise",
+    stat: "All-in-1 Ecosystem",
+    href: "/products",
     className: "md:col-span-1",
   },
   {
-    title: "Global Compliance",
-    description: "Ensure your data and content adhere to global standards. SOC 2 Type 2, GDPR, and CCPA compliance built-in.",
-    icon: Lock,
+    title: "Accelerate Your Content Journey",
+    description: "Turn ideas into revenue faster—so every piece ships sooner and travels further.",
+    icon: FastForward,
     color: "text-red-500",
     bg: "bg-red-500/10",
-    stat: "100%",
-    statLabel: "Compliant",
-    href: "/enterprise",
+    stat: "10x Faster Lifecycle",
+    href: "/products",
     className: "md:col-span-1",
   },
   {
     title: "Cost Optimization",
-    description: "Reduce production overhead by 40%. Automate repetitive tasks and eliminate expensive fragmented toolchains.",
+    description: "Reduce production overhead by 50%. Automate repetitive tasks and eliminate expensive fragmented toolchains.",
     icon: Zap,
-    color: "text-cyan-500",
-    bg: "bg-cyan-500/10",
-    stat: "40%",
-    statLabel: "Savings",
-    href: "/enterprise",
-    className: "md:col-span-2",
-  },
-  {
-    title: "Priority Support",
-    description: "Get 24/7 access to our enterprise support team with guaranteed response times under one hour.",
-    icon: Headphones,
     color: "text-orange-500",
     bg: "bg-orange-500/10",
-    stat: "<1hr",
-    statLabel: "Response",
-    href: "/enterprise",
+    stat: "50% Cost Savings",
+    href: "/products",
     className: "md:col-span-2",
   },
   {
-    title: "Brand-Specific AI",
-    description: "Train our AI models on your brand voice and style guides for perfectly aligned content every time.",
+    title: "Discover the right creators, fast",
+    description: "One place to search, evaluate, and book verified and authentic creators for your promotions and brand campaigns—so every collaboration is on-brand and built to perform.",
+    icon: HeartHandshake,
+    color: "text-[#ff5722]",
+    bg: "bg-[#ff5722]/10",
+    stat: "10x Faster Creator Discovery",
+    href: "/meditron",
+    className: "md:col-span-2",
+  },
+  {
+    title: "Automate the Heavy Lifting of Creation",
+    description: "Let AI handle ideating, scripting, editing, thumbnails, and management while your team focuses on strategy and storytelling, not production grunt work.",
     icon: BrainCircuit,
-    color: "text-indigo-500",
-    bg: "bg-indigo-500/10",
-    stat: "Custom",
+    color: "text-orange-600",
+    bg: "bg-orange-600/10",
+    stat: "Automation of Creation",
     statLabel: "AI Models",
-    href: "/enterprise",
+    href: "/products",
     className: "md:col-span-2",
   },
 ];
@@ -120,7 +115,7 @@ export default function EnterpriseBenefits() {
           className="mb-20 text-center max-w-3xl mx-auto"
         >
           <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
-            Why Choose Insturix Enterprise?
+            How Business scale up with Insturix ?
           </h2>
           <p className="text-lg text-neutral-400">
             Discover the unique advantages that set us apart from the competition.
@@ -148,11 +143,6 @@ export default function EnterpriseBenefits() {
                       <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${benefit.bg}`}>
                         <benefit.icon className={`w-7 h-7 ${benefit.color}`} />
                       </div>
-                      <div className="text-right opacity-0 group-hover/pin:opacity-100 transition-opacity duration-500 transform translate-y-2 group-hover/pin:translate-y-0">
-                        <span className="text-xs font-bold uppercase tracking-wider text-white bg-white/10 px-2 py-1 rounded-md">
-                          {benefit.statLabel}
-                        </span>
-                      </div>
                     </div>
                     
                     <h3 className="text-2xl font-bold text-white mb-3">
@@ -162,10 +152,6 @@ export default function EnterpriseBenefits() {
                     <p className="text-base text-neutral-400 leading-relaxed">
                       {benefit.description}
                     </p>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 text-sm font-medium text-white/50 group-hover/pin:text-white transition-colors mt-6">
-                    Learn more <ArrowRight className="w-4 h-4" />
                   </div>
                   
                   <div className="absolute bottom-0 left-0 w-full h-1/2 bg-gradient-to-t from-black/50 to-transparent rounded-b-[1.5rem] pointer-events-none" />

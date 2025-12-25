@@ -117,7 +117,7 @@ export default function SecurityCompliance() {
         >
           <Spotlight
             className="rounded-2xl p-8 bg-neutral-900/50 border-neutral-800"
-            spotlightColor="rgba(99, 102, 241, 0.1)"
+            spotlightColor="rgba(255, 87, 34, 0.1)"
           >
             <p className="text-neutral-300 mb-4">
               <strong className="text-white">Robust data protection:</strong> AES-256 encryption at rest and TLS 1.2+ in transit.

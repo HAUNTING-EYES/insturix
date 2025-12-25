@@ -21,13 +21,13 @@ export default function EnterpriseCTA() {
         >
           <Spotlight
             className="rounded-3xl p-8 md:p-12 border-neutral-800 bg-neutral-900/90 backdrop-blur-xl shadow-2xl text-center"
-            spotlightColor="rgba(99, 102, 241, 0.15)"
+            spotlightColor="rgba(255, 87, 34, 0.15)"
           >
             <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold mb-6 text-white">
-              Get started with Insturix Enterprise
+              Get started with Insturix Business
             </h2>
             <p className="text-lg sm:text-xl text-neutral-300 mb-8 max-w-2xl mx-auto">
-              Join thousands of enterprises scaling their content operations with our AI-powered creator ecosystem.
+              Join thousands of Businesses scaling their content operations with our AI-powered creator ecosystem.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
               <Link href="/contact-sales" className="w-full sm:w-auto group">
@@ -36,7 +36,7 @@ export default function EnterpriseCTA() {
                     Contact Sales
                     <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                   </span>
-                  <div className="absolute inset-0 bg-gradient-to-r from-indigo-500 via-cyan-500 to-indigo-500 opacity-0 group-hover:opacity-10 transition-opacity duration-300" />
+                  <div className="absolute inset-0 bg-gradient-to-r from-[#ff5722] via-orange-500 to-[#ff5722] opacity-0 group-hover:opacity-10 transition-opacity duration-300" />
                 </button>
               </Link>
               <Link href="/products" className="w-full sm:w-auto">
@@ -46,7 +46,7 @@ export default function EnterpriseCTA() {
               </Link>
             </div>
             <p className="text-sm text-neutral-500 mt-6">
-              Questions? <Link href="/contactus" className="text-indigo-400 hover:text-indigo-300 underline">Contact our team</Link>
+              Questions? <Link href="/contactus" className="text-[#ff5722] hover:text-[#ff5722]/80 underline">Contact our team</Link>
             </p>
           </Spotlight>
         </motion.div>

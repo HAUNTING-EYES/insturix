@@ -12,8 +12,7 @@ const TrustedBy = dynamic(() => import("@/components/Enterprise/TrustedBy"), { s
 const CompanyGoals = dynamic(() => import("@/components/Enterprise/CompanyGoals"), { ssr: true });
 const EnterpriseFeatures = dynamic(() => import("@/components/Enterprise/EnterpriseFeatures"), { ssr: true });
 const EnterpriseBenefits = dynamic(() => import("@/components/Enterprise/EnterpriseBenefits"), { ssr: true });
-const Testimonials = dynamic(() => import("@/components/Enterprise/Testimonials"), { ssr: true });
-const SecurityCompliance = dynamic(() => import("@/components/Enterprise/SecurityCompliance"), { ssr: true });
+// const Testimonials = dynamic(() => import("@/components/Enterprise/Testimonials"), { ssr: true });
 const StatsSection = dynamic(() => import("@/components/Enterprise/StatsSection"), { ssr: true });
 const EnterpriseCTA = dynamic(() => import("@/components/Enterprise/EnterpriseCTA"), { ssr: true });
 
@@ -49,19 +48,10 @@ export default function EnterprisePage() {
         <TrustedBy />
       </Suspense>
       <Suspense fallback={<LoadingScreen />}>
-        <CompanyGoals />
-      </Suspense>
-      <Suspense fallback={<LoadingScreen />}>
         <EnterpriseFeatures />
       </Suspense>
       <Suspense fallback={<LoadingScreen />}>
         <EnterpriseBenefits />
-      </Suspense>
-      <Suspense fallback={<LoadingScreen />}>
-        <Testimonials />
-      </Suspense>
-      <Suspense fallback={<LoadingScreen />}>
-        <SecurityCompliance />
       </Suspense>
       <Suspense fallback={<LoadingScreen />}>
         <StatsSection />

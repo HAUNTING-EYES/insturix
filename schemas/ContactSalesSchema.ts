@@ -22,6 +22,7 @@ const contactSalesSchema = new Schema<IContactSales>(
     companyName: {
       type: String,
       required: true,
+      maxlength: 40,
     },
     phone: {
       type: String,
@@ -38,6 +39,7 @@ const contactSalesSchema = new Schema<IContactSales>(
   },
   {
     timestamps: true,
+    collection: 'agencies', // Store in 'agencies' collection
   }
 );
 

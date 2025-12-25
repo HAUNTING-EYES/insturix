@@ -55,12 +55,17 @@ const config: Config = {
             transform: 'translateY(0)'
           },
         },
+        'blink': {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
+        },
       },
       animation: {
         progress: "progress 2s ease-in-out infinite",
         shine: "shine 1s linear infinite",
         'mobile-bounce': 'mobile-bounce 0.3s ease-in-out',
         'fade-in-up': 'fade-in-up 0.5s ease-out',
+        'blink': 'blink 1s step-end infinite',
       },
     },
   },

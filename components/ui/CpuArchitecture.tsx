@@ -17,14 +17,14 @@ export interface CpuArchitectureSvgProps {
 }
 
 const goals = [
-  { id: 1, label: "Plan", x: 10, y: 20, anchor: "end", dx: -5 },
-  { id: 2, label: "Scale", x: 180, y: 10, anchor: "start", dx: 5 },
-  { id: 3, label: "Protect", x: 130, y: 20, anchor: "start", dx: 5 },
-  { id: 4, label: "Analyze", x: 170, y: 80, anchor: "start", dx: 5 },
-  { id: 5, label: "Automate", x: 118, y: 72, anchor: "start", dx: 5 },
-  { id: 6, label: "Grow", x: 94.8, y: 95, anchor: "middle", dy: 8 },
-  { id: 7, label: "Secure", x: 88, y: 88, anchor: "end", dx: -5 },
-  { id: 8, label: "Create", x: 30, y: 30, anchor: "end", dx: -5 },
+  { id: 1, label: "Ideation", x: 10, y: 20, anchor: "end", dx: -5 },
+  { id: 2, label: "Creation", x: 180, y: 10, anchor: "start", dx: 5 },
+  { id: 3, label: "Distribution", x: 130, y: 20, anchor: "start", dx: 5 },
+  { id: 4, label: "Analytics", x: 170, y: 80, anchor: "start", dx: 5 },
+  { id: 5, label: "Automation", x: 115, y: 72, anchor: "start", dx: 5 },
+  { id: 6, label: "Monetization", x: 94.8, y: 95, anchor: "middle", dy: 8 },
+  { id: 7, label: "Planning", x: 88, y: 88, anchor: "end", dx: -5 },
+  { id: 8, label: "Storyboarding", x: 30, y: 30, anchor: "end", dx: -5 },
 ];
 
 const CpuArchitecture = ({

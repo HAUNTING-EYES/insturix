@@ -29,7 +29,9 @@ export default function ContactSalesPage() {
     <>
       <ProgressBarWrapper />
       <Navbar />
+      <div>
       <ContactSalesForm />
+      </div>
       <Footer />
     </>
   );

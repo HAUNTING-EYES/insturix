@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Lock, Globe, Video, BarChart3, Music, Shield, Zap, Users, BrainCircuit, CheckCircle2, Layers } from "lucide-react";
+import { Lock, Globe, Video, BarChart3, Music, Shield, Zap, Users, BrainCircuit, CheckCircle2, Layers, ChartNoAxesColumnIncreasing } from "lucide-react";
 
 function AiGeneration() {
   const [scale, setScale] = useState(1);
@@ -17,7 +17,7 @@ function AiGeneration() {
   return (
     <div className="flex items-center justify-center h-full">
       <div className="relative">
-        <div className="absolute inset-0 bg-indigo-500/20 blur-2xl rounded-full" />
+        <div className="absolute inset-0 bg-[#ff5722]/20 blur-2xl rounded-full" />
         <motion.span
           className="relative text-6xl md:text-8xl text-white font-bold tracking-tighter"
           animate={{ scale }}
@@ -80,7 +80,7 @@ function AnalyticsLoader() {
           {loading ? (
             <motion.div
               key="loader"
-              className="h-8 w-24 bg-indigo-500/20 rounded"
+              className="h-8 w-24 bg-[#ff5722]/20 rounded"
               initial={{ opacity: 0.5 }}
               animate={{ opacity: [0.4, 0.7, 0.4] }}
               exit={{ opacity: 0, y: -20, position: 'absolute' }}
@@ -101,7 +101,7 @@ function AnalyticsLoader() {
       <span className="text-sm text-zinc-400">Production Velocity</span>
       <div className="w-full max-w-[120px] h-1.5 bg-zinc-800 rounded-full overflow-hidden">
         <motion.div
-          className="h-full bg-indigo-500 rounded-full"
+          className="h-full bg-[#ff5722] rounded-full"
           initial={{ width: 0 }}
           animate={{ width: loading ? 0 : "100%" }}
           transition={{ type: "spring", stiffness: 100, damping: 15, mass: 1 }}
@@ -137,12 +137,12 @@ function SecurityBadges() {
         <motion.div
           key={shield.id}
           className={`w-14 h-14 rounded-xl flex items-center justify-center border transition-colors duration-300 ${
-            shield.active ? 'bg-indigo-500/20 border-indigo-500/50' : 'bg-zinc-800/50 border-zinc-700/50'
+            shield.active ? 'bg-[#ff5722]/20 border-[#ff5722]/50' : 'bg-zinc-800/50 border-zinc-700/50'
           }`}
           animate={{ scale: shield.active ? 1.05 : 1 }}
           transition={{ duration: 0.3 }}
         >
-          <Lock className={`w-6 h-6 ${shield.active ? 'text-indigo-400' : 'text-zinc-600'}`} />
+          <Lock className={`w-6 h-6 ${shield.active ? 'text-[#ff5722]' : 'text-zinc-600'}`} />
         </motion.div>
       ))}
     </div>
@@ -154,13 +154,13 @@ function GlobalMonitor() {
 
   return (
     <div className="flex items-center justify-center h-full relative">
-      <div className="relative z-10 bg-zinc-950 p-2 rounded-full border border-indigo-500/30">
-        <Globe className="w-12 h-12 text-indigo-400" />
+      <div className="relative z-10 bg-zinc-950 p-2 rounded-full border border-[#ff5722]/30">
+        <Globe className="w-12 h-12 text-[#ff5722]" />
       </div>
       {pulses.map((pulse) => (
         <motion.div
           key={pulse}
-          className="absolute border border-indigo-500/20 rounded-full"
+          className="absolute border border-[#ff5722]/20 rounded-full"
           initial={{ width: "3rem", height: "3rem", opacity: 0.8 }}
           animate={{ width: "12rem", height: "12rem", opacity: 0 }}
           transition={{
@@ -185,8 +185,8 @@ export default function EnterpriseFeatures() {
           viewport={{ once: true }}
           className="mb-12 text-left"
         >
-          <p className="text-indigo-400 text-sm uppercase tracking-widest font-medium mb-4">
-            Enterprise Features
+          <p className="text-[#ff5722] text-sm uppercase tracking-widest font-medium mb-4">
+            Business Features
           </p>
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight mb-4">
             Everything needed to scale.
@@ -212,7 +212,7 @@ export default function EnterpriseFeatures() {
             </div>
             <div className="mt-6 relative z-10">
               <h3 className="text-xl text-white font-semibold flex items-center gap-2 mb-2">
-                <Video className="w-5 h-5 text-indigo-400" />
+                <Video className="w-5 h-5 text-[#ff5722]" />
                 AI Video Production
               </h3>
               <p className="text-zinc-400 text-sm leading-relaxed">
@@ -235,11 +235,11 @@ export default function EnterpriseFeatures() {
             </div>
             <div className="mt-4">
               <h3 className="text-lg text-white font-semibold flex items-center gap-2 mb-1">
-                <Layers className="w-4 h-4 text-cyan-400" />
+                <Layers className="w-4 h-4 text-orange-400" />
                 Asset Generation
               </h3>
               <p className="text-zinc-400 text-sm">
-                Generate infinite thumbnails & music.
+              Create endless on-brand thumbnails and video variants in seconds.
               </p>
             </div>
           </motion.div>
@@ -260,11 +260,11 @@ export default function EnterpriseFeatures() {
             </div>
             <div className="mt-auto relative z-20 bg-zinc-900/80 backdrop-blur-md rounded-2xl p-4 border border-zinc-800">
               <h3 className="text-xl text-white flex items-center gap-2 font-semibold mb-1">
-                <Shield className="w-5 h-5 text-indigo-400" />
-                Global Protection
+                <ChartNoAxesColumnIncreasing className="w-5 h-5 text-[#ff5722]" />
+                Global Trends
               </h3>
               <p className="text-zinc-400 text-sm">
-                24/7 automated rights management and brand safety monitoring across all platforms.
+              Stay ahead of what’s trending worldwide with ThinkForge ideation—so your next concept is already aligned with where the culture is going.
               </p>
             </div>
           </motion.div>
@@ -283,7 +283,7 @@ export default function EnterpriseFeatures() {
             </div>
             <div className="mt-4">
               <h3 className="text-lg text-white font-semibold flex items-center gap-2 mb-1">
-                <BarChart3 className="w-4 h-4 text-emerald-400" />
+                <BarChart3 className="w-4 h-4 text-orange-400" />
                 Market Intelligence
               </h3>
               <p className="text-zinc-400 text-sm">
@@ -306,11 +306,11 @@ export default function EnterpriseFeatures() {
             </div>
             <div className="mt-4">
               <h3 className="text-xl text-white flex items-center gap-2 font-semibold mb-2">
-                <Lock className="w-5 h-5 text-indigo-400" />
-                Enterprise Security
+                <Lock className="w-5 h-5 text-[#ff5722]" />
+                Business Security
               </h3>
               <p className="text-zinc-400 text-sm">
-                Bank-grade encryption, SOC 2 Type 2 certification, and zero data retention policies.
+                Bank-grade encryption and zero data retention policies.
               </p>
             </div>
           </motion.div>
@@ -326,10 +326,10 @@ export default function EnterpriseFeatures() {
           >
             <div className="flex-1 flex items-center justify-center">
               <div className="relative">
-                 <div className="absolute inset-0 bg-cyan-500/20 blur-xl rounded-full opacity-50" />
-                 <Users className="w-16 h-16 text-cyan-200 relative z-10" />
+                 <div className="absolute inset-0 bg-orange-500/20 blur-xl rounded-full opacity-50" />
+                 <Users className="w-16 h-16 text-orange-200 relative z-10" />
                  <motion.div 
-                    className="absolute -top-4 -right-4 w-8 h-8 bg-indigo-500 rounded-full border-2 border-zinc-900 flex items-center justify-center text-xs font-bold"
+                    className="absolute -top-4 -right-4 w-8 h-8 bg-[#ff5722] rounded-full border-2 border-zinc-900 flex items-center justify-center text-xs font-bold"
                     animate={{ y: [0, -5, 0] }}
                     transition={{ duration: 2, repeat: Infinity }}
                  >
@@ -339,11 +339,11 @@ export default function EnterpriseFeatures() {
             </div>
             <div className="mt-4">
               <h3 className="text-xl text-white font-semibold flex items-center gap-2 mb-2">
-                <BrainCircuit className="w-5 h-5 text-cyan-400" />
+                <BrainCircuit className="w-5 h-5 text-orange-400" />
                 Team Collaboration
               </h3>
               <p className="text-zinc-400 text-sm">
-                ThinkForge workspace for seamless ideation, approval workflows, and asset management.
+                Team workspace for seamless ideation, approval workflows, and asset management.
               </p>
             </div>
           </motion.div>

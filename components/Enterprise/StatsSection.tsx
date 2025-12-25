@@ -7,20 +7,20 @@ const stats = [
   {
     value: 500,
     suffix: "+",
-    label: "Enterprise brands trusting Insturix",
-    color: "#6366F1",
+    label: "Business brands trusting Insturix",
+    color: "#ff5722",
   },
   {
-    value: 10,
-    suffix: "M+",
+    value: 500,
+    suffix: "K+",
     label: "Content assets generated & protected",
     color: "#10B981",
   },
   {
-    value: 1,
-    suffix: "B+",
+    value: 50,
+    suffix: "M+",
     label: "Views powered by our optimization tools",
-    color: "#06B6D4",
+    color: "#fb923c",
   },
 ];
 
@@ -75,7 +75,7 @@ export default function StatsSection() {
           className="mb-16 text-center"
         >
           <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
-            AI is changing how software is built
+            AI is changing how content is created
           </h2>
         </motion.div>
 

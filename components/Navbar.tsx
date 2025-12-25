@@ -101,14 +101,6 @@ const menuItems = [
     ],
   },
   {
-    title: "Enterprise",
-    href: "/enterprise",
-    subItems: [
-      { title: "Enterprise", href: "/enterprise" },
-      { title: "Contact Sales", href: "/contact-sales" },
-    ],
-  },
-  {
     title: "About",
     href: "/about",
     subItems: [
@@ -135,13 +127,9 @@ const menuItems = [
     href: "/contactus",
   },
   {
-    title: "Contribute",
-    href: "/contribute",
+    title: "Insturix Creatives Agency",
+    href: "/insturix-creatives-agency",
   },
-  {
-    title:"Partner with us",
-    href:"/contactus",
-  }
 ];
 
 export default function Navbar() {
