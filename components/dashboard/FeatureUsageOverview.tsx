@@ -51,12 +51,6 @@ const serviceDisplayData: Record<string, {
     color: 'from-teal-500/10 to-teal-600/10 border-teal-200/20', // #14b8a6
     path: '/dashboard/editron',
   },
-  shield: {
-    name: 'Shield',
-    icon: <Shield className="w-4 h-4" />,
-    color: 'from-purple-500/10 to-purple-600/10 border-purple-200/20', // #a855f7
-    path: '/dashboard/shield',
-  },
   thinkforge: {
     name: 'ThinkForge',
     icon: <MessageSquare className="w-4 h-4" />,
