@@ -59,6 +59,7 @@ interface ChatSession {
 }
 
 const TOOL_FRIENDLY_NAMES: Record<string, string> = {
+  // Legacy tools
   read_project_file: "Reading project file",
   list_project_files: "Listing project files",
   apply_project_patch: "Applying changes",
@@ -72,6 +73,13 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   get_video_duration: "Checking duration",
   search_web: "Searching web",
   generate_image: "Generating image",
+  // New unified tools
+  add_overlay: "Adding element",
+  batch_update_overlays: "Batch updating",
+  split_overlay: "Splitting clip",
+  trim_overlay: "Trimming clip",
+  sync_style: "Syncing styles",
+  get_timeline_view: "Getting timeline",
 };
 
 export function AIChatPanel() {
@@ -324,13 +332,20 @@ export function AIChatPanel() {
 
                 // Reload project data immediately after a modifying tool finishes
                 const modifyingTools = [
+                  // Legacy tools (may still be in use)
                   'apply_project_patch', 
                   'add_text_overlay', 
                   'add_image_overlay', 
                   'add_video_overlay', 
                   'add_audio_overlay', 
                   'update_overlay', 
-                  'delete_overlay'
+                  'delete_overlay',
+                  // New unified tools
+                  'add_overlay',
+                  'batch_update_overlays',
+                  'split_overlay',
+                  'trim_overlay',
+                  'sync_style',
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {

@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createAgent } from '@/lib/editron/agent/agent-graph';
-import { HumanMessage, AIMessage, ToolMessage } from '@langchain/core/messages';
+import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from '@langchain/core/messages';
 import { chatService } from '@/lib/editron/services/chat-service';
+import { projectService } from '@/lib/editron/services/project-service';
+import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 
 export const maxDuration = 60; // Allow longer timeout for agent execution
 
@@ -65,8 +67,18 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // Initialize agent
-    const agent = createAgent(userId);
+    // Load project for context injection
+    const project = await projectService.loadProject(userId, projectId);
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+    
+    // Generate project summary for smart context
+    const summary = generateProjectSummary(project);
+    const contextMessage = formatSummaryForPrompt(summary);
+
+    // Initialize agent with project context
+    const agent = createAgent(userId, contextMessage);
 
     // Create a stream
     const stream = new TransformStream();
