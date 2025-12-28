@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Inter, Space_Grotesk, Caveat } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import ThemeProvider from "@/providers/ThemeProvider";
@@ -13,6 +13,8 @@ import { keywords } from "@/lib/seo/keywords";
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], display: "swap", variable: "--font-space-grotesk" });
+const caveat = Caveat({ subsets: ["latin"], display: "swap", variable: "--font-caveat" });
+
 
 
 export const viewport: Viewport = {
@@ -118,7 +120,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
+  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable} ${caveat.variable}`} suppressHydrationWarning>
         <head>
           <meta
             name="google-site-verification"
