@@ -11,7 +11,7 @@ import {
 
 export interface product {
     Id?: number;
-    Icon: React.ElementType;
+    Icon: React.ComponentType<any>;
     name: string;
     description: string; // Keep for backward compatibility or small cards
     longDescription: string;

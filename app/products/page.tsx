@@ -1,14 +1,20 @@
 "use client";
 
-import { Metadata } from "next";
 import dynamic from "next/dynamic";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import ProductPageWrapper from "@/components/ProductPageWrapper";
 import CursorEffect from "@/components/ui/CursorEffect";
 
+import UniversalLoader from "@/components/Loader/UniversalLoader";
+
 const ClientProductsPage = dynamic(() => import("@/components/ProductPages"), {
-  ssr: true,
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center min-h-[70vh]">
+      <UniversalLoader />
+    </div>
+  ),
 });
 
 export default function Products() {

@@ -1,6 +1,6 @@
 "use client";
 
-import { motion, MotionValue, useTransform } from "framer-motion";
+import { motion, MotionValue, useTransform, useMotionValue } from "framer-motion";
 import { Products } from "./data/product-data";
 import { cn } from "@/lib/utils";
 
@@ -19,9 +19,12 @@ interface ProductFlowDiagramProps {
 }
 
 export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) => {
-  const lineProgress = scrollProgress 
-    ? useTransform(scrollProgress, [0.10, 0.18], [0, 1])
-    : undefined;
+  const fallbackProgress = useMotionValue(0);
+  const lineProgress = useTransform(
+    scrollProgress || fallbackProgress,
+    [0.10, 0.18],
+    [0, 1]
+  );
 
   return (
     <div className="relative w-full max-w-7xl mx-auto px-4 pt-0 md:pt-0">
@@ -69,7 +72,7 @@ export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) 
           />
           
           {/* Progress path */}
-          {lineProgress && (
+          {scrollProgress && (
             <motion.path
               d="M 100,70 C 200,70 200,350 300,350 S 400,70 500,70 S 600,350 700,350 S 800,70 900,70 S 1000,350 1100,350"
               fill="none"
@@ -92,7 +95,7 @@ export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) 
                 key={product.Id}
                 className={cn(
                   "flex flex-col items-center",
-                  isTop ? "self-start -mt-4" : "self-end translate-y-8"
+                  isTop ? "self-start -mt-4" : "self-end translate-y-12"
                 )}
               >
                 {/* Label above icon for top row */}
@@ -142,7 +145,7 @@ export const ProductFlowDiagram = ({ scrollProgress }: ProductFlowDiagramProps) 
             {/* Background line */}
             <div className="absolute inset-0 bg-white/10" />
             {/* Progress line */}
-            {lineProgress && (
+            {scrollProgress && (
               <motion.div
                 className="absolute top-0 left-0 right-0 bg-white shadow-[0_0_8px_2px_rgba(255,255,255,0.5)]"
                 style={{ 
