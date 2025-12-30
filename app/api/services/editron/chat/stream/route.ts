@@ -111,6 +111,25 @@ export async function POST(req: NextRequest) {
           const eventType = event.event;
           
           if (eventType === "on_chat_model_stream") {
+            // IMPORTANT: Only stream tokens from the MAIN agent, not from nested sub-agents inside tools
+            // Sub-agent events have different metadata. We check if this is from the main "agent" node.
+            // LangGraph events include the node name in event.metadata or tags.
+            const tags = event.tags || [];
+            const metadata = event.metadata || {};
+            
+            // Skip if this event is from a tool execution (sub-agent)
+            // The main agent runs in the "agent" node, sub-agents run during "tools" node
+            const isFromToolNode = tags.includes('seq:step:2') || metadata.langgraph_node === 'tools';
+            const isFromSubAgent = event.name?.includes('ChatGoogleGenerativeAI') && isFromToolNode;
+            
+            // Also check: if we're currently between tool_start and tool_end, skip streaming
+            const isInsideToolExecution = toolCalls.length > toolResults.length;
+            
+            if (isInsideToolExecution) {
+              // Skip streaming while a tool is executing (this catches sub-agent output)
+              continue;
+            }
+            
             const content = event.data.chunk.content;
             if (content) {
               finalResponse += content;

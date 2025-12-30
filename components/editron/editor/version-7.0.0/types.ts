@@ -10,6 +10,7 @@ export enum OverlayType {
   STICKER = "sticker",
   TEMPLATE = "template",
   AI_CHAT = "ai-chat", // AI Chat panel
+  HTML_SCENE = "html-scene", // HTML generated content
 }
 // Base overlay properties
 type BaseOverlay = {
@@ -34,10 +35,11 @@ type BaseStyles = {
   transform?: string;
 };
 
-// Base animation type
-type AnimationConfig = {
+// Base animation type - extended to be compatible with CSSProperties potentially
+export type AnimationConfig = {
   enter?: string;
   exit?: string;
+  duration?: number;
 };
 
 // Text overlay specific
@@ -193,6 +195,20 @@ export type StickerOverlay = BaseOverlay & {
   };
 };
 
+// HTML Scene overlay specific
+export type HtmlSceneOverlay = BaseOverlay & {
+  type: OverlayType.HTML_SCENE;
+  content: string; // The generated HTML content
+  prompt?: string; // The prompt used to generate this
+  styles: BaseStyles & {
+    backgroundColor?: string;
+    borderRadius?: string;
+    boxShadow?: string;
+    border?: string;
+    animation?: AnimationConfig;
+  };
+};
+
 export interface TemplateCreator {
   id: string;
   name: string;
@@ -220,7 +236,8 @@ export type Overlay =
   | ClipOverlay
   | SoundOverlay
   | CaptionOverlay
-  | StickerOverlay;
+  | StickerOverlay
+  | HtmlSceneOverlay;
 
 export type MainProps = {
   readonly overlays: Overlay[];

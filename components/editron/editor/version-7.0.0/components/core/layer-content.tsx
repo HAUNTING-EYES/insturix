@@ -7,6 +7,7 @@ import { VideoLayerContent } from "../overlays/video/video-layer-content";
 import { ImageLayerContent } from "../overlays/images/image-layer-content";
 import { SoundLayerContent } from "../overlays/captions/sound-layer-content";
 import { StickerLayerContent } from "../overlays/stickers/sticker-layer-content";
+import { HtmlSceneLayerContent } from "../overlays/html/html-scene-layer-content";
 
 /**
  * Props for the LayerContent component
@@ -100,6 +101,13 @@ export const LayerContent: React.FC<LayerContentProps> = ({
       return (
         <div style={{ ...commonStyle }}>
           <StickerLayerContent overlay={overlay} isSelected={false} />
+        </div>
+      );
+
+    case OverlayType.HTML_SCENE:
+      return (
+        <div style={{ ...commonStyle }}>
+          <HtmlSceneLayerContent overlay={overlay} />
         </div>
       );
 

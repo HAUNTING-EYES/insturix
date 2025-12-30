@@ -1,5 +1,5 @@
 import React from "react";
-import { Type, Film, Image, Volume2, Sticker } from "lucide-react";
+import { Type, Film, Image, Volume2, Sticker, Code } from "lucide-react";
 import { OverlayType, Overlay } from "../../types";
 import { DISABLE_VIDEO_KEYFRAMES } from "../../constants";
 
@@ -43,6 +43,8 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
         return <Volume2 className="w-2 h-2 mr-0.5" />;
       case OverlayType.STICKER:
         return <Sticker className="w-2 h-2 mr-0.5" />;
+      case OverlayType.HTML_SCENE:
+        return <Code className="w-2 h-2 mr-0.5" />;
       case OverlayType.CAPTION:
         return <></>;
       default:
@@ -65,6 +67,10 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
     }
     if (item.type === OverlayType.TEXT && typeof item.content === "string") {
       return item.content;
+    }
+    if (item.type === OverlayType.HTML_SCENE) {
+      // Show description or simple label
+      return item.prompt || "HTML Scene";
     }
     if ("src" in item && item.src) {
       const filename = item.src.split("/").pop() || "";
@@ -96,6 +102,8 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
             ? "bg-purple-200/30 text-white dark:bg-purple-200/30 dark:text-white"
             : item.type === OverlayType.IMAGE
             ? "bg-emerald-100/80 text-emerald-900 dark:bg-emerald-700/90 dark:text-emerald-100"
+            : item.type === OverlayType.HTML_SCENE
+            ? "bg-cyan-100/80 text-cyan-900 dark:bg-cyan-700/90 dark:text-cyan-100"
             : "bg-gray-100/80 text-gray-900 dark:bg-gray-700/90 dark:text-gray-200"
         }`}
           >

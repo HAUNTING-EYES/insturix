@@ -1,4 +1,6 @@
 import { tool } from '@langchain/core/tools';
+import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
+import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { projectService } from '../services/project-service';
 import { generateTimelineView } from '../utils/timeline-utils';
@@ -753,7 +755,145 @@ TYPE-SPECIFIC FIELDS:
     }
   );
 
-  // Return all tools
+
+  // 7. Generate HTML Scene
+  const generateHtmlSceneSchema = z.object({
+    start: z.number().describe("Start frame (0-based)"),
+    duration: z.number().describe("Duration in frames"),
+    row: z.number().optional().describe("Row index"),
+    description: z.string().describe("Detailed description of the scene to generate (e.g., 'Retro vaporwave grid background with animated sun')"),
+    x: z.number().optional().describe("Center X position"),
+    y: z.number().optional().describe("Center Y position"),
+    width: z.number().optional().describe("Width in pixels"),
+    height: z.number().optional().describe("Height in pixels"),
+    rotation: z.number().optional().default(0),
+  });
+
+  const generateHtmlScene = tool(
+    async (input: z.infer<typeof generateHtmlSceneSchema>) => {
+      try {
+        const project = await loadProject(); // Load project to get dimensions
+        const { width, height, aspectRatio } = project.playerDimensions 
+          ? { ...project.playerDimensions, aspectRatio: project.aspectRatio } 
+          : { width: 1920, height: 1080, aspectRatio: "16:9" };
+        const safeWidth = width || 1920;
+        const safeHeight = height || 1080;
+
+        const id = Date.now() + Math.floor(Math.random() * 10000);
+
+        // Call Sub-Agent
+        const model = new ChatGoogleGenerativeAI({
+          model: 'gemini-2.5-flash',
+          apiKey: process.env.GEMINI_API_KEY,
+          temperature: 0.7, // Higher temp for creativity
+        });
+
+        const durationSeconds = Math.round(input.duration / 30);
+        
+        const systemPrompt = `You are a world-class motion graphics designer and creative coder.
+Generate a self-contained HTML/CSS/JS fragment for video production.
+
+═══════════════════════════════════════════════════════════════════
+CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '16:9'} | Duration: ~${durationSeconds}s
+═══════════════════════════════════════════════════════════════════
+
+▸ LAYOUT RULES (CRITICAL):
+  • Outer wrapper: \`position:absolute; inset:0; width:100%; height:100%; overflow:hidden;\`
+  • NO viewport units (\`vw\`, \`vh\`, \`vmin\`, \`vmax\`) - they break in video render
+  • Use \`%\` for layout, \`px\` for fixed elements scaled to ${safeWidth}×${safeHeight}
+
+▸ ANIMATION SYNC:
+  • CSS variables available: \`--time\` (seconds), \`--progress\` (0→1), \`--duration\`
+  • Use CSS @keyframes - host controls timing via animation-delay
+  • For looping backgrounds: \`animation: x ${durationSeconds}s linear infinite;\`
+
+▸ ALLOWED CDN RESOURCES:
+  ✓ Google Fonts: \`<link href="https://fonts.googleapis.com/css2?family=...">\`
+  ✓ Heroicons/Lucide SVGs: \`<img src="https://unpkg.com/lucide-static@latest/icons/...">\`
+  ✓ Placeholder images: \`https://picsum.photos/800/600\` or \`https://placehold.co/\`
+  ✓ Lottie animations: \`https://unpkg.com/@lottiefiles/lottie-player@latest\`
+  ✓ Simple utility libs: GSAP from \`https://cdnjs.cloudflare.com/ajax/libs/gsap/\`
+
+▸ AVOID:
+  ✗ Three.js / heavy 3D libraries (performance issues in render)
+  ✗ External API calls / fetch requests
+  ✗ User input elements (forms, buttons with handlers)
+  ✗ Audio elements (handled by separate audio tracks)
+  ✗ localStorage / cookies / IndexedDB
+  ✗ \`document.addEventListener("DOMContentLoaded")\` - code runs immediately
+
+▸ CAPABILITIES:
+  • Inline SVG graphics (icons, shapes, illustrations)
+  • Canvas API for generative art / particles / data viz
+  • CSS gradients, masks, clip-paths, filters, backdrop-blur
+  • Keyframe animations, transitions, transforms
+  • Text effects (gradients, shadows, animations)
+  • Pseudo-elements (::before, ::after)
+  • Google Fonts for typography
+
+▸ QUALITY:
+  • Premium, polished, "wow factor" design
+  • Smooth 60fps animations
+  • Professional color palettes
+  • Modern typography
+
+▸ OUTPUT FORMAT:
+  Return ONLY the raw HTML string starting with \`<\`. 
+  NO markdown fences. NO explanations. NO comments outside code.`;
+
+        const result = await model.invoke([
+          new SystemMessage(systemPrompt),
+          new HumanMessage(`Create: ${input.description}`)
+        ]);
+
+        const generatedHtml = result.content as string;
+        const cleanHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
+
+        // Create overlay that fills the entire canvas by default
+        const overlayWidth = input.width ?? safeWidth;
+        const overlayHeight = input.height ?? safeHeight;
+        
+        const newOverlay = {
+          id,
+          type: 'html-scene',
+          from: input.start,
+          durationInFrames: input.duration,
+          content: cleanHtml,
+          prompt: input.description,
+          row: input.row ?? 2,
+          // Position at 0,0 for full-screen scenes (unless user specifies x/y)
+          left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
+          top: input.y !== undefined ? (input.y - overlayHeight / 2) : 0,
+          width: overlayWidth,
+          height: overlayHeight,
+          rotation: input.rotation ?? 0,
+          isDragging: false,
+          styles: {
+            animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
+          }
+        };
+
+        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        
+        // Return a SANITIZED message to the main agent so it doesn't see (and repeat) the code.
+        return JSON.stringify({ 
+          status: 'success', 
+          id, 
+          message: `Generated HTML scene for "${input.description}". Resolution: ${safeWidth}x${safeHeight}. Code length: ${cleanHtml.length} chars. (Code hidden from chat log)` 
+        });
+      } catch (e: any) {
+         console.error("HTML Generation Error:", e);
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'generate_html_scene',
+      description: 'Generate a custom, creative HTML/CSS animated scene, background, or infographic using AI. Returns the track ID.',
+      schema: generateHtmlSceneSchema
+    }
+  );
+
+>>>>>>> Stashed changes
   return [
     readProjectFile,
     getTimelineView,
@@ -764,6 +904,7 @@ TYPE-SPECIFIC FIELDS:
     trimOverlay,          // NEW: Trim tool
     deleteOverlay,
     syncStyle,            // NEW: Style sync
-    visualInspectFrame
+    visualInspectFrame,
+    generateHtmlScene
   ];
 };

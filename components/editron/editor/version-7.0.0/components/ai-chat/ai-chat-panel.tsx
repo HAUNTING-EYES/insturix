@@ -346,6 +346,7 @@ export function AIChatPanel() {
                   'split_overlay',
                   'trim_overlay',
                   'sync_style',
+                  'generate_html_scene'
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {
