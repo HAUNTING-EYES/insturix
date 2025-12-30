@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useEditorContext } from "../../../contexts/editor-context";
 import { OverlayType, HtmlSceneOverlay } from "../../../types";
-import { Code, Sparkles, Send, Loader2 } from "lucide-react";
+import { Sparkles, Send, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -92,10 +92,10 @@ export const HtmlScenePanel: React.FC = () => {
   if (!localOverlay) {
     return (
       <div className="p-4 h-full flex flex-col items-center justify-center text-center">
-        <Code className="h-12 w-12 text-muted-foreground/50 mb-4" />
-        <h3 className="font-medium text-foreground mb-2">No HTML Scene Selected</h3>
+        <Sparkles className="h-12 w-12 text-muted-foreground/50 mb-4" />
+        <h3 className="font-medium text-foreground mb-2">No Scene Selected</h3>
         <p className="text-sm text-muted-foreground">
-          Select an HTML scene track on the timeline to view its properties and edit it.
+          Select a custom scene track on the timeline to view and edit it.
         </p>
       </div>
     );
@@ -107,67 +107,29 @@ export const HtmlScenePanel: React.FC = () => {
         {/* Header */}
         <div className="flex items-center gap-2">
           <div className="p-2 rounded-lg bg-cyan-500/10">
-            <Code className="h-5 w-5 text-cyan-500" />
+            <Sparkles className="h-5 w-5 text-cyan-500" />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">HTML Scene</h3>
-            <p className="text-xs text-muted-foreground">ID: {localOverlay.id}</p>
-          </div>
-        </div>
-
-        <Separator />
-
-        {/* Original Prompt */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Original Prompt</Label>
-          <div className="p-3 rounded-lg bg-muted/50 border">
-            <p className="text-sm text-foreground">
-              {localOverlay.prompt || "No prompt recorded"}
+            <h3 className="font-semibold text-foreground">Custom Scene</h3>
+            <p className="text-xs text-muted-foreground truncate max-w-[180px]">
+              {localOverlay.prompt?.split(' ').slice(0, 4).join(' ')}...
             </p>
           </div>
         </div>
 
-        {/* Properties */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Duration</Label>
-            <div className="text-sm font-medium">
-              {Math.round(localOverlay.durationInFrames / 30)}s ({localOverlay.durationInFrames} frames)
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Position</Label>
-            <div className="text-sm font-medium">
-              {localOverlay.left}, {localOverlay.top}
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Size</Label>
-            <div className="text-sm font-medium">
-              {localOverlay.width} × {localOverlay.height}
-            </div>
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Start Frame</Label>
-            <div className="text-sm font-medium">
-              {localOverlay.from}
-            </div>
-          </div>
-        </div>
-
         <Separator />
 
-        {/* Edit with AI */}
+        {/* Edit with AI - Now at the top */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-cyan-500" />
-            <Label className="font-medium">Edit with AI</Label>
+            <Label className="font-medium">Refine with AI</Label>
           </div>
           <p className="text-xs text-muted-foreground">
-            Describe changes you want to make to this scene. The AI will modify the HTML accordingly.
+            Describe changes to this scene and the AI will update it for you.
           </p>
           <Textarea
-            placeholder="e.g., Make the text larger, change colors to blue theme, add more animation..."
+            placeholder="e.g., Make the text larger, change to blue theme, add more animation..."
             value={editPrompt}
             onChange={(e) => setEditPrompt(e.target.value)}
             rows={3}
@@ -181,7 +143,7 @@ export const HtmlScenePanel: React.FC = () => {
             {isEditing ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Editing...
+                Updating...
               </>
             ) : (
               <>
@@ -194,19 +156,31 @@ export const HtmlScenePanel: React.FC = () => {
 
         <Separator />
 
-        {/* Code Preview (collapsed) */}
-        <details className="group">
-          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground flex items-center gap-2">
-            <Code className="h-4 w-4" />
-            View Generated Code
-          </summary>
-          <div className="mt-2 p-3 rounded-lg bg-muted/30 border overflow-x-auto">
-            <pre className="text-xs text-muted-foreground whitespace-pre-wrap break-all max-h-[200px] overflow-y-auto">
-              {localOverlay.content.substring(0, 1000)}
-              {localOverlay.content.length > 1000 && "..."}
-            </pre>
+        {/* Original Prompt */}
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Description</Label>
+          <div className="p-3 rounded-lg bg-muted/50 border">
+            <p className="text-sm text-foreground">
+              {localOverlay.prompt || "No description"}
+            </p>
           </div>
-        </details>
+        </div>
+
+        {/* Properties */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Duration</Label>
+            <div className="text-sm font-medium">
+              {Math.round(localOverlay.durationInFrames / 30)}s
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs text-muted-foreground">Start</Label>
+            <div className="text-sm font-medium">
+              {Math.round(localOverlay.from / 30)}s
+            </div>
+          </div>
+        </div>
       </div>
     </ScrollArea>
   );

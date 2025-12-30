@@ -82,7 +82,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       case OverlayType.AI_CHAT:
         return "AI Chat";
       case OverlayType.HTML_SCENE:
-        return "HTML Scene";
+        return "Custom Scene";
       default:
         return "Unknown";
     }

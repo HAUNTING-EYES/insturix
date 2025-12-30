@@ -80,6 +80,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   trim_overlay: "Trimming clip",
   sync_style: "Syncing styles",
   get_timeline_view: "Getting timeline",
+  generate_html_scene: "Creating custom scene",
 };
 
 export function AIChatPanel() {

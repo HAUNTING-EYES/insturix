@@ -69,8 +69,9 @@ export const TimelineItemLabel: React.FC<TimelineItemLabelProps> = ({
       return item.content;
     }
     if (item.type === OverlayType.HTML_SCENE) {
-      // Show description or simple label
-      return item.prompt || "HTML Scene";
+      // Show truncated description or simple label
+      const desc = item.prompt?.split(' ').slice(0, 3).join(' ');
+      return desc ? `${desc}...` : "Custom Scene";
     }
     if ("src" in item && item.src) {
       const filename = item.src.split("/").pop() || "";
