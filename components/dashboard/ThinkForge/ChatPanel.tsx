@@ -66,7 +66,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
       if (!sessionId) {
         // Fallback greeting if no session yet
         if (chatMessages.length === 0 && selectedIdea) {
-          setChatMessages([{ id: 'greet', role: 'assistant', content: `Let's refine your idea: "${selectedIdea.idea}". Ask for expansions, rewrites, hooks, or structure—I'm ready.`, ts: Date.now() }]);
+          setChatMessages([{ id: 'greet', role: 'assistant', content: `Let's refine your idea: "${selectedIdea.idea}". Ask for expansions, rewrites, hooks, or structure, I'm ready.`, ts: Date.now() }]);
           seedSuggestions();
         }
         return;
@@ -100,7 +100,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ selectedIdea, script, onAp
       } catch {
         // ignore; fallback greeting below if empty
         if (chatMessages.length === 0 && selectedIdea) {
-          setChatMessages([{ id: 'greet', role: 'assistant', content: `Let's refine your idea: "${selectedIdea.idea}". Ask for expansions, rewrites, hooks, or structure—I'm ready.`, ts: Date.now() }]);
+          setChatMessages([{ id: 'greet', role: 'assistant', content: `Let's refine your idea: "${selectedIdea.idea}". Ask for expansions, rewrites, hooks, or structure, I'm ready.`, ts: Date.now() }]);
           seedSuggestions();
         }
       }

@@ -31,8 +31,9 @@ const workerRequestSchema = z.object({
     contrast: z.number(),
     saturation: z.number(),
   }).optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
   referenceImageRefs: z.array(z.string()).optional(), // GCS URIs of reference images
+  aspectRatio: z.string().optional(),
 });
 
 // Parse aspect ratio string to width and height
@@ -530,7 +531,10 @@ async function handler(req: Request) {
 }
 
 // Add error handling for signature verification
-const protectedHandler = verifySignatureAppRouter(handler);
+// Only enable signature verification if QStash keys are available
+const protectedHandler = process.env.QSTASH_CURRENT_SIGNING_KEY 
+  ? verifySignatureAppRouter(handler)
+  : handler;
 
 export const POST = async (req: Request) => {
   try {

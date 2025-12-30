@@ -35,7 +35,23 @@ import {
 
 import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
 import { BannerCustomizer } from "./BannerCustomizer";
+import { getExpiresAtFromDuration, isNotificationExpired } from "@/lib/utils/notification";
 
+
+
+// interface ISocialize {
+//   clerkUserId: string;
+//   username: string;
+//   profileImage: string;
+//   bio: string;
+//   links: SocializeLink[];
+//   banner?: BannerConfig;
+//   uniqueUsername?: string;
+//   notifications?: { message: string; duration: number }[];
+//   createdAt: Date;
+//   updatedAt: Date;
+// }
+// Add the necessary fields to the notification object type within ISocialize
 interface ISocialize {
   clerkUserId: string;
   username: string;
@@ -44,7 +60,14 @@ interface ISocialize {
   links: SocializeLink[];
   banner?: BannerConfig;
   uniqueUsername?: string;
-  notifications?: { message: string; duration: number }[];
+  notifications?: { 
+    message: string; 
+    duration: number;
+    // --- ADD THESE TWO FIELDS ---
+    timestamp?: string; 
+    expiresAt?: string;
+    // ----------------------------
+  }[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -64,6 +87,15 @@ const api = axios.create({
   // Prevent long hangs on slow endpoints and avoid blocking initial paint
   timeout: 4000,
 });
+
+// Response interceptor to ensure consistent response format
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error("API Error:", error);
+    return Promise.reject(error);
+  }
+);
 
 export default function SocializeDashboard({
   initialData,
@@ -89,6 +121,7 @@ export default function SocializeDashboard({
   );
   const [editingLink, setEditingLink] = useState<SocializeLink | null>(null);
   const [editingLinkIndex, setEditingLinkIndex] = useState<number | null>(null);
+  const [editingNotificationIndex, setEditingNotificationIndex] = useState<number | null>(null);
   const [showEditLinkModal, setShowEditLinkModal] = useState(false);
   const [bio, setBio] = useState("");
   const [showEditBioModal, setShowEditBioModal] = useState(false);
@@ -192,8 +225,11 @@ export default function SocializeDashboard({
         ...data,
       });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["userData", uniqueUsername] });
+    onSuccess: (response) => {
+      queryClient.setQueryData(['userData', uniqueUsername], response.data.profile);
+      // Force re-render to update UI immediately
+      setMessage("");
+      setDuration(1);
     },
     onError: (error) => {
       toast({
@@ -203,6 +239,44 @@ export default function SocializeDashboard({
         duration: 4000,
       });
       console.error("Update error:", error);
+    },
+  });
+
+  const deleteNotificationMutation = useMutation({
+    mutationFn: async ({ notificationIndex }: { notificationIndex: number }) => {
+      return api.delete("/services/socialize", {
+        data: {
+          username: uniqueUsername,
+          notificationIndex,
+        },
+      });
+    },
+    onSuccess: (response) => {
+      queryClient.setQueryData(['userData', uniqueUsername], response.data.profile);
+      // Update the local state to reflect the changes immediately
+      setLinks(response.data.profile.links || []);
+      setBio(response.data.profile.bio || "");
+      setBanner(response.data.profile.banner || {
+        type: 'color',
+        value: '#0e6b9c',
+        gradientType: 'linear',
+        gradientColors: []
+      });
+      toast({
+        title: "Success",
+        description: "Notification deleted successfully",
+        variant: "default",
+        duration: 4000,
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to delete notification",
+        variant: "destructive",
+        duration: 4000,
+      });
+      console.error("Delete notification error:", error);
     },
   });
 
@@ -217,9 +291,18 @@ export default function SocializeDashboard({
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
-        onSuccess: () => {
+        onSuccess: (response) => {
           setShowAddModal(false);
           setNewLink({ platform: "youtube", url: "", title: "" });
+          // Update the local state to reflect the changes immediately
+          setLinks(response.data.profile.links || []);
+          setBio(response.data.profile.bio || "");
+          setBanner(response.data.profile.banner || {
+            type: 'color',
+            value: '#0e6b9c',
+            gradientType: 'linear',
+            gradientColors: []
+          });
           toast({
             title: "Success",
             description: "Link added successfully",
@@ -248,10 +331,19 @@ export default function SocializeDashboard({
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
-        onSuccess: () => {
+        onSuccess: (response) => {
           if (selectedLinkIndex === indexToRemove) {
             setSelectedLinkIndex(null);
           }
+          // Update the local state to reflect the changes immediately
+          setLinks(response.data.profile.links || []);
+          setBio(response.data.profile.bio || "");
+          setBanner(response.data.profile.banner || {
+            type: 'color',
+            value: '#0e6b9c',
+            gradientType: 'linear',
+            gradientColors: []
+          });
           toast({
             title: "Success",
             description: "Link removed",
@@ -261,7 +353,7 @@ export default function SocializeDashboard({
         },
       }
     );
-  };
+ };
 
   const handleEditLink = (index: number) => {
     if (!links) return;
@@ -279,10 +371,19 @@ export default function SocializeDashboard({
     updateUserDataMutation.mutate(
       { links: updatedLinks },
       {
-        onSuccess: () => {
+        onSuccess: (response) => {
           setShowEditLinkModal(false);
           setEditingLink(null);
           setEditingLinkIndex(null);
+          // Update the local state to reflect the changes immediately
+          setLinks(response.data.profile.links || []);
+          setBio(response.data.profile.bio || "");
+          setBanner(response.data.profile.banner || {
+            type: 'color',
+            value: '#0e6b9c',
+            gradientType: 'linear',
+            gradientColors: []
+          });
           toast({
             title: "Success",
             description: "Link updated successfully",
@@ -292,14 +393,23 @@ export default function SocializeDashboard({
         },
       }
     );
-  };
+ };
 
   const handleSaveBio = async () => {
     updateUserDataMutation.mutate(
       { bio },
       {
-        onSuccess: () => {
+        onSuccess: (response) => {
           setShowEditBioModal(false);
+          // Update the local state to reflect the changes immediately
+          setBio(response.data.profile.bio || "");
+          setLinks(response.data.profile.links || []);
+          setBanner(response.data.profile.banner || {
+            type: 'color',
+            value: '#0e6b9c',
+            gradientType: 'linear',
+            gradientColors: []
+          });
           toast({
             title: "Success",
             description: "Bio updated successfully",
@@ -311,6 +421,31 @@ export default function SocializeDashboard({
     );
   };
 
+  // const handleAddUpdate = async () => {
+  //   if (
+  //     duration === "" ||
+  //     Number(duration) < 1 ||
+  //     Number(duration) > 24 ||
+  //     !message.trim()
+  //   )
+  //     return;
+  //   updateUserDataMutation.mutate(
+  //     {
+  //       notifications: [{ message, duration: Number(duration) }],
+  //     },
+  //     {
+  //       onSuccess: () => {
+  //         setShowUpdatePopup(false);
+  //         toast({
+  //           title: "Success",
+  //           description: "Notification updated",
+  //           variant: "default",
+  //           duration: 4000,
+  //         });
+  //       },
+  //     }
+  //   );
+  // };
   const handleAddUpdate = async () => {
     if (
       duration === "" ||
@@ -319,16 +454,53 @@ export default function SocializeDashboard({
       !message.trim()
     )
       return;
+
+    const now = new Date().toISOString();
+    const expiresAt = getExpiresAtFromDuration(Number(duration));
+
+    let updatedNotifications;
+    const existingNotifications = userData?.notifications?.filter(n => !isNotificationExpired(n)) || [];
+
+    if (editingNotificationIndex !== null) {
+      // Editing an existing notification
+      updatedNotifications = [...existingNotifications];
+      updatedNotifications[editingNotificationIndex] = {
+        ...updatedNotifications[editingNotificationIndex],
+        message,
+        duration: Number(duration),
+        timestamp: now,
+        expiresAt,
+      };
+    } else {
+      // Adding a new notification
+      updatedNotifications = [
+        ...existingNotifications,
+        { message, duration: Number(duration), timestamp: now, expiresAt },
+      ];
+    }
+
     updateUserDataMutation.mutate(
       {
-        notifications: [{ message, duration: Number(duration) }],
+        notifications: updatedNotifications,
       },
       {
-        onSuccess: () => {
+        onSuccess: (response) => {
           setShowUpdatePopup(false);
+          setMessage(""); // Reset message after successful update
+          setDuration(1); // Reset duration after successful update
+          setEditingNotificationIndex(null); // Reset editing index
+          // Update the local state to reflect the changes immediately
+          setLinks(response.data.profile.links || []);
+          setBio(response.data.profile.bio || "");
+          setBanner(response.data.profile.banner || {
+            type: 'color',
+            value: '#0e6b9c',
+            gradientType: 'linear',
+            gradientColors: []
+          });
           toast({
             title: "Success",
-            description: "Notification updated",
+            description: `Notification ${editingNotificationIndex !== null ? 'updated' : 'added'} successfully`,
             variant: "default",
             duration: 4000,
           });
@@ -336,6 +508,7 @@ export default function SocializeDashboard({
       }
     );
   };
+
   const handleSelectLink = (index: number) => {
     setSelectedLinkIndex(index);
   };
@@ -364,8 +537,38 @@ export default function SocializeDashboard({
 
   const handleBannerChange = (newBanner: BannerConfig) => {
     setBanner(newBanner);
-    updateUserDataMutation.mutate({ banner: newBanner });
+    updateUserDataMutation.mutate({ banner: newBanner }, {
+      onSuccess: (response) => {
+        // Update the local state to reflect the changes immediately
+        setBanner(response.data.profile.banner || {
+          type: 'color',
+          value: '#0e6b9c',
+          gradientType: 'linear',
+          gradientColors: []
+        });
+        setLinks(response.data.profile.links || []);
+        setBio(response.data.profile.bio || "");
+      }
+    });
   };
+  // console.log("Notifications:", userData?.updates);
+//      const activeNotification =
+//   userData?.notifications?.find((n) => !isNotificationExpired(n)) ?? null;
+// // Force re-check every minute to auto-hide expired notifications
+// Auto-filter out expired notifications
+const activeNotification =
+  (userData?.notifications ?? []).filter((n) => !isNotificationExpired(n))[0] ??
+  null;
+
+// Re-render every minute to re-check expiry
+const [, forceRender] = useState(0);
+useEffect(() => {
+  const interval = setInterval(() => forceRender((v) => v + 1), 10_000);
+  return () => clearInterval(interval);
+}, []);
+
+
+
 
   return (
     <div className="relative">
@@ -409,7 +612,7 @@ export default function SocializeDashboard({
               }}
             />
             <SocializeAddLinkButton onClick={() => setShowAddModal(true)} />
-            {userData?.notifications?.[0]?.message ? (
+            {/* {userData?.notifications?.[0]?.message ? (
               <SocializeNotificationCard
                 message={userData.notifications[0].message}
                 duration={userData.notifications[0].duration}
@@ -426,7 +629,60 @@ export default function SocializeDashboard({
                   Add a New Update
                 </Button>
               </div>
-            )}
+            )} */}
+         
+{userData?.notifications && userData.notifications.length > 0 ? (
+  <div className="mb-6 space-y-3">
+    {userData.notifications.filter((n) => !isNotificationExpired(n)).map((notification, index) => (
+      <SocializeNotificationCard
+        key={`${index}-${notification.message}`}
+        message={notification.message}
+        duration={notification.duration}
+        timestamp={notification.timestamp}
+        expiresAt={notification.expiresAt}
+        onEdit={() => {
+          setEditingNotificationIndex(index);
+          setMessage(notification.message);
+          setDuration(notification.duration);
+          setShowUpdatePopup(true);
+        }}
+        onDelete={() => deleteNotificationMutation.mutate({ notificationIndex: index })}
+        isDeleting={deleteNotificationMutation.isPending && deleteNotificationMutation.variables?.notificationIndex === index}
+      />
+    ))}
+    <Button
+      variant="outline"
+      className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+      onClick={() => {
+        setEditingNotificationIndex(null);
+        setMessage("");
+        setDuration(1);
+        setShowUpdatePopup(true);
+      }}
+    >
+      <Bell className="w-4 h-4 mr-2" />
+      Add Another Update
+    </Button>
+  </div>
+) : (
+  <div className="mb-6">
+    <Button
+      variant="outline"
+      className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+      onClick={() => {
+        setEditingNotificationIndex(null);
+        setMessage("");
+        setDuration(1);
+        setShowUpdatePopup(true);
+      }}
+    >
+      <Bell className="w-4 h-4 mr-2" />
+      Add a New Update
+    </Button>
+  </div>
+)}
+
+
             <SocializeLinksCard
               links={links}
               selectedLinkIndex={selectedLinkIndex}
@@ -535,13 +791,13 @@ export default function SocializeDashboard({
             </Button>
             <Button
               onClick={handleAddLink}
-              disabled={!newLink.url.trim()}
+              disabled={!newLink.url.trim() || updateUserDataMutation.isPending}
               className={`${newLink.url.trim()
                 ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
                 : "bg-gray-800 text-gray-400 cursor-not-allowed"
                 }`}
             >
-              Add Link
+              {updateUserDataMutation.isPending ? "Adding..." : "Add Link"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -580,9 +836,10 @@ export default function SocializeDashboard({
             </Button>
             <Button
               onClick={handleSaveBio}
+              disabled={updateUserDataMutation.isPending}
               className="bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
             >
-              Save Changes
+              {updateUserDataMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -652,7 +909,8 @@ export default function SocializeDashboard({
                 !message ||
                 duration === "" ||
                 Number(duration) < 1 ||
-                Number(duration) > 24
+                Number(duration) > 24 ||
+                updateUserDataMutation.isPending
               }
               className={`${message &&
                 duration !== "" &&
@@ -662,7 +920,7 @@ export default function SocializeDashboard({
                 : "bg-gray-800 text-gray-400 cursor-not-allowed"
                 }`}
             >
-              Save Notification
+              {updateUserDataMutation.isPending ? "Saving..." : "Save Notification"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -751,13 +1009,13 @@ export default function SocializeDashboard({
             </Button>
             <Button
               onClick={handleUpdateLink}
-              disabled={!editingLink?.url.trim()}
+              disabled={!editingLink?.url.trim() || updateUserDataMutation.isPending}
               className={`${editingLink?.url.trim()
                 ? "bg-gradient-to-r from-[#0e6b9c] to-[#0e6b9c]/70 text-white"
                 : "bg-gray-800 text-gray-400 cursor-not-allowed"
                 }`}
             >
-              Save Changes
+              {updateUserDataMutation.isPending ? "Saving..." : "Save Changes"}
             </Button>
           </DialogFooter>
         </DialogContent>

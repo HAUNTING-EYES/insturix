@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, type ReactNode } from 'react';
-import { useInView, useMotionValue, useSpring } from 'motion/react';
+// Use framer-motion hooks (stable export) instead of 'motion/react'
+import { useInView, useMotionValue, useSpring } from 'framer-motion';
 
 interface CountUpProps {
   to: number;

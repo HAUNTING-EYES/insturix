@@ -1,11 +1,11 @@
 export const companyData = {
   name: "Insturix",
   mission:
-    "To empower social media users, influencers, and content creators by safeguarding their digital presence, simplifying their growth journey, and providing them with tools to focus on what they do best—creating impactful content thus creating a whole ecosystem for the creators.",
+    "To empower the creator economy by providing the essential infrastructure to build, protect, and scale. We are creating a unified ecosystem where creativity meets sustainability, allowing you to focus on what matters most: your content.",
   vision:
-    "We strive to revolutionize the influencer ecosystem with protection, innovation, and growth, ensuring creators feel secure. By unifying social media platforms, we offer seamless experiences and plan to integrate General AI, empowering tools to help creators achieve their goals.",
+    "A world where creativity is a sustainable, secure, and scalable career. We envision a future where every creator has access to enterprise-grade tools, protection, and analytics, leveling the playing field for digital entrepreneurs everywhere.",
   story:
-    "Insturix was born out of a simple realization: creators face endless challenges—from copyright claims to community guideline strikes—that can jeopardize their hard work. Recognizing the need for a robust safety net, we set out to design a platform that not only protects creators but also enhances their journey toward success.",
+    "Insturix was born from the struggle of managing multiple fragmented tools. We realized creators needed more than just apps; they needed an operating system. So we built the platform we wished we had, one that combines AI innovation with robust protection.",
   values: [
     { name: "Empowerment", icon: "Zap" },
     { name: "Innovation", icon: "BrainCircuit" },

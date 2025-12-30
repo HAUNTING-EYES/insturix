@@ -1,6 +1,8 @@
 import { UserInitializationService } from "@/lib/services/userInitializationService";
 import { NextRequest } from "next/server";
 import { Webhook } from "svix";
+import { sendEmail } from '@/lib/services/email';
+import { promotionalEmailTemplate } from '@/lib/services/email/templates/promotional';
 
 interface WebhookPayload {
   type: string;
@@ -66,6 +68,37 @@ export async function POST(req: NextRequest) {
         
         if (initResult.isNewUser) {
           console.log("User created successfully:", clerkUserId);
+          
+          // Send promotional email to new users (only until Nov 22, 2025)
+          const cutoffDate = new Date('2025-11-22T23:59:59Z');
+          const currentDate = new Date();
+          
+          if (currentDate <= cutoffDate && primaryEmail) {
+            try {
+              const { html, text } = promotionalEmailTemplate(username || 'Valued User');
+              
+              // Send email asynchronously (non-blocking)
+              sendEmail({
+                to: primaryEmail,
+                subject: "Welcome to Insturix! You're Invited to ICS'25 🚀",
+                htmlBody: html,
+                textBody: text,
+              }).then((result) => {
+                if (result.success) {
+                  console.log(`✅ Promotional email sent to new user: ${primaryEmail}`);
+                } else {
+                  console.error(`❌ Failed to send promotional email to ${primaryEmail}:`, result.error);
+                }
+              }).catch((error) => {
+                console.error(`❌ Error sending promotional email to ${primaryEmail}:`, error);
+              });
+            } catch (emailError) {
+              // Log error but don't fail the webhook
+              console.error(`Error preparing promotional email for ${primaryEmail}:`, emailError);
+            }
+          } else if (currentDate > cutoffDate) {
+            console.log(`⏰ Promotional email not sent to ${primaryEmail} - cutoff date passed (Nov 22, 2025)`);
+          }
         } else {
           console.log(`User with email ${primaryEmail} already exists, skipping creation`);
         }

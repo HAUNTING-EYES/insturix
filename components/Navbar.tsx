@@ -6,7 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useTheme } from "next-themes";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, ChevronDown, LogOut } from "lucide-react";
+import { Menu, X, ChevronDown, LogOut, Shield } from "lucide-react";
 import {
   NavigationMenu,
   NavigationMenuContent,
@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import DarkLogo from "@/public/brand/insturix_black.png";
 import LightLogo from "@/public/brand/insturix_white.png";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { usePathname } from "next/navigation";
 
 const LogoAnimation = () => {
@@ -87,17 +87,8 @@ const LogoAnimation = () => {
 
 const menuItems = [
   {
-    title: "Product",
+    title: "Products",
     href: "/products",
-    subItems: [
-      { title: "Alyzitron", href: "/products/alyzitron" },
-      { title: "Musitron", href: "/products/musitron" },
-      { title: "Socialize", href: "/products/socialize" },
-      { title: "Editron", href: "/products/editron" },
-      { title: "Shield", href: "/products/shield" },
-      { title: "ThinkForge", href: "/products/thinkforge" },
-      { title: "Meditron", href: "/products/meditron" },
-    ],
   },
   {
     title: "About",
@@ -111,7 +102,6 @@ const menuItems = [
     title: "Resources",
     href: "/resources",
     subItems: [
-      { title: "Tutorials", href: "/resources/tutorials" },
       { title: "Blogs", href: "/resources/blogs" },
       { title: "Support", href: "/resources/support" },
       { title: "FAQ", href: "/resources/faq" },
@@ -126,17 +116,9 @@ const menuItems = [
     href: "/contactus",
   },
   {
-    title: "Contribute",
-    href: "/contribute",
+    title: "Insturix Creatives Agency",
+    href: "/insturix-creatives-agency",
   },
-  {
-    title:"Partner with us",
-    href:"/contactus",
-  },
-  {
-    title: "ICS’25",
-    href: "/ics25",
-  }
 ];
 
 export default function Navbar() {
@@ -355,6 +337,21 @@ export default function Navbar() {
 
 function UserMenu() {
   const { isSignedIn, signOut } = useAuth();
+  const { user } = useUser();
+  const [isAdmin, setIsAdmin] = React.useState(false);
+
+  // Check if user is admin
+  React.useEffect(() => {
+    if (user) {
+      const userEmail = user.emailAddresses[0]?.emailAddress?.toLowerCase();
+      const adminEmailsEnv = process.env.NEXT_PUBLIC_ADMIN_EMAILS;
+      
+      if (userEmail && adminEmailsEnv) {
+        const adminEmails = adminEmailsEnv.split(",").map((e) => e.trim().toLowerCase());
+        setIsAdmin(adminEmails.includes(userEmail));
+      }
+    }
+  }, [user]);
 
   const handleSignOut = async () => {
     try {
@@ -368,6 +365,20 @@ function UserMenu() {
     <>
       {isSignedIn ? (
         <div className="flex items-center space-x-2">
+          {isAdmin && (
+            <Link href="/admin/dashboard">
+              <Button
+                variant="ghost"
+                className="touch-feedback bg-transparent focus:bg-transparent focus-visible:ring-0 flex items-center gap-1.5"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                }}
+              >
+                <Shield className="h-4 w-4" />
+                <span className="hidden lg:inline">Admin</span>
+              </Button>
+            </Link>
+          )}
           <Link href="/dashboard">
             <Button
               variant="ghost"

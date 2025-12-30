@@ -1,15 +1,19 @@
+
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Bell, X } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { motion, AnimatePresence } from "framer-motion"
+// Import the utility function
+import { isNotificationExpired } from "@/lib/utils/notification"
 
 interface Notification {
   message: string
   duration: number
-  timestamp?: Date
+  timestamp?: string
+  expiresAt?: string // Added field for explicit expiry time
 }
 
 interface NotificationPanelProps {
@@ -18,11 +22,51 @@ interface NotificationPanelProps {
 }
 
 export function NotificationPanel({ notifications, onClose }: NotificationPanelProps) {
+  const [filteredNotifications, setFilteredNotifications] = useState<Notification[]>([])
   const [currentPage, setCurrentPage] = useState(0)
   const pageSize = 3
-  const totalPages = Math.ceil(notifications.length / pageSize)
 
-  const currentNotifications = notifications.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
+  /**
+   * Effect to filter expired notifications and set up a periodic re-check.
+   */
+  // useEffect(() => {
+  //   const filterValidNotifications = () => {
+  //     // Filter out notifications where the isNotificationExpired utility returns true
+  //     const valid = notifications.filter((n) => !isNotificationExpired(n))
+  //     setFilteredNotifications(valid)
+  //     // Reset page if current page index is now invalid
+  //     if (currentPage >= Math.ceil(valid.length / pageSize)) {
+  //       setCurrentPage(0);
+  //     }
+  //   }
+
+  useEffect(() => {
+  const filterValidNotifications = () => {
+    const valid = notifications.filter((n) => !isNotificationExpired(n))
+    setFilteredNotifications(valid)
+    if (currentPage >= Math.ceil(valid.length / pageSize)) {
+      setCurrentPage(0)
+    }
+  }
+
+  filterValidNotifications()
+  const interval = setInterval(filterValidNotifications, 30 * 1000)
+  return () => clearInterval(interval)
+}, [notifications]) // ✅ only depends on notifications
+
+
+    // filterValidNotifications()
+
+    // Periodically re-check expiration (e.g., every 30 seconds)
+  //   const interval = setInterval(filterValidNotifications, 30 * 1000) 
+  //   return () => clearInterval(interval) // Cleanup function
+  // }, [notifications, currentPage]) // Dependency on notifications and currentPage
+
+  const totalPages = Math.ceil(filteredNotifications.length / pageSize)
+  const currentNotifications = filteredNotifications.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize
+  )
 
   const formatTime = (notification: Notification) => {
     if (notification.timestamp) {
@@ -52,6 +96,7 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
             <span className="sr-only">Close</span>
           </Button>
         </CardHeader>
+
         <CardContent className="px-4 pb-4 pt-0">
           <AnimatePresence mode="wait">
             <div className="space-y-3">
@@ -72,6 +117,12 @@ export function NotificationPanel({ notifications, onClose }: NotificationPanelP
                   </div>
                 </motion.div>
               ))}
+
+              {filteredNotifications.length === 0 && (
+                <p className="text-gray-400 text-center text-sm mt-4">
+                  No active notifications
+                </p>
+              )}
             </div>
           </AnimatePresence>
 

@@ -1,132 +1,108 @@
-/**
- * Email Service Helper Utilities
- * 
- * High-level email sending functions for common use cases
- * Combines SES client with email templates for easy usage
- */
+import type { BatchOptions, MailMessage, Recipient, SendResult, SendTemplateOptions } from './types';
+import type { TemplateId, TemplatePayloads } from './templates';
+import { getDefaultMailer } from './mailer';
+import { promotionalEmailTemplate } from './templates/promotional';
+import { ticketConfirmationEmailTemplate } from './templates/ticket-confirmation';
 
-import { sendEmail, EmailParams } from './ses-client';
-import {
-  welcomeEmail,
-  verificationEmail,
-  passwordResetEmail,
-  orderConfirmationEmail,
-  notificationEmail,
-  securityAlertEmail,
-} from './templates';
+const mailer = () => getDefaultMailer();
 
-/**
- * Send welcome email to new user
- */
-export async function sendWelcomeEmail(to: string, userName: string) {
-  const { html, text } = welcomeEmail(userName);
-  
-  return await sendEmail({
-    to,
-    subject: 'Welcome to Insturix!',
-    htmlBody: html,
-    textBody: text,
-  });
+export async function sendEmail(message: MailMessage): Promise<SendResult> {
+  return mailer().send(message);
 }
 
-/**
- * Send email verification link
- */
-export async function sendVerificationEmail(
-  to: string,
-  userName: string,
-  verificationLink: string
+export async function sendWelcomeEmail(to: Recipient | Recipient[], name: string, dashboardUrl?: string) {
+  return mailer().sendWelcomeEmail({ to, name, dashboardUrl });
+}
+
+export async function sendVerificationEmail(to: Recipient | Recipient[], name: string, verificationLink: string, expiresInHours?: number) {
+  return mailer().sendVerificationEmail({ to, name, verificationLink, expiresInHours });
+}
+
+export async function sendPasswordResetEmail(to: Recipient | Recipient[], name: string, resetLink: string, expiresInMinutes?: number) {
+  return mailer().sendPasswordResetEmail({ to, name, resetLink, expiresInMinutes });
+}
+
+export async function sendOrderConfirmationEmail(to: Recipient | Recipient[], name: string, orderNumber: string, items: { item: string; price: string; }[], detailsUrl?: string) {
+  return mailer().sendOrderConfirmationEmail({ to, name, orderNumber, items, detailsUrl });
+}
+
+export async function sendNotificationEmail(to: Recipient | Recipient[], name: string, title: string, message: string, actionUrl?: string, actionText?: string) {
+  return mailer().sendNotificationEmail({ to, name, title, message, actionUrl, actionText });
+}
+
+export async function sendSecurityAlertEmail(to: Recipient | Recipient[], name: string, alertType: string, details: string, remediationUrl?: string) {
+  return mailer().sendSecurityAlertEmail({ to, name, alertType, details, remediationUrl });
+}
+
+export async function sendBatchEmails(messages: MailMessage[], options?: BatchOptions) {
+  return mailer().sendBatch(messages, options);
+}
+
+export async function sendBatchEmailsManaged(
+  messages: MailMessage[],
+  options?: BatchOptions & { onProgress?: (progress: any) => void }
 ) {
-  const { html, text } = verificationEmail(userName, verificationLink);
-  
-  return await sendEmail({
+  return mailer().sendBatchManaged(messages, options);
+}
+
+export async function verifySESConfiguration() {
+  return mailer().verifyConfiguration();
+}
+
+export async function sendTemplateEmail<K extends TemplateId>(templateId: K, options: SendTemplateOptions<TemplatePayloads[K]>) {
+  return mailer().sendTemplate(templateId, options);
+}
+
+/**
+ * Send promotional email (ICS'25 invitation)
+ */
+export async function sendPromotionalEmail(to: Recipient | Recipient[], name?: string, registrationLink?: string): Promise<SendResult> {
+  const { html, text } = promotionalEmailTemplate(name, registrationLink);
+  return mailer().send({
     to,
-    subject: 'Verify Your Insturix Email Address',
+    subject: "You're Invited to ICS'25 - India's Largest Creator-Tech Summit! 🚀",
     htmlBody: html,
     textBody: text,
   });
 }
 
 /**
- * Send password reset email
+ * Send ticket confirmation email
  */
-export async function sendPasswordResetEmail(
-  to: string,
-  userName: string,
-  resetLink: string
-) {
-  const { html, text } = passwordResetEmail(userName, resetLink);
-  
-  return await sendEmail({
+export async function sendTicketConfirmationEmail(
+  to: Recipient | Recipient[],
+  name?: string,
+  ticketId?: string,
+  eventDetails?: string,
+  timeUntilEvent?: string
+): Promise<SendResult> {
+  const { html, text, subject } = ticketConfirmationEmailTemplate(name, ticketId, eventDetails, timeUntilEvent);
+  return mailer().send({
     to,
-    subject: 'Reset Your Insturix Password',
+    subject,
     htmlBody: html,
     textBody: text,
   });
 }
 
 /**
- * Send order confirmation email
+ * Send ticket reminder email
  */
-export async function sendOrderConfirmationEmail(
-  to: string,
-  userName: string,
-  orderNumber: string,
-  orderDetails: { item: string; price: string }[]
-) {
-  const { html, text } = orderConfirmationEmail(userName, orderNumber, orderDetails);
+export async function sendTicketReminderEmail(
+  to: Recipient | Recipient[],
+  reminderType: 'reminder7Days' | 'reminder1Day' | 'reminder30Min',
+  name?: string,
+  ticketId?: string,
+  eventDetails?: string
+): Promise<SendResult> {
+  // Map reminder type to time string
+  const timeUntilEventMap = {
+    reminder7Days: '7 days',
+    reminder1Day: '1 day',
+    reminder30Min: '30 minutes',
+  };
   
-  return await sendEmail({
-    to,
-    subject: `Order Confirmation - #${orderNumber}`,
-    htmlBody: html,
-    textBody: text,
-  });
+  const timeUntilEvent = timeUntilEventMap[reminderType];
+  return sendTicketConfirmationEmail(to, name, ticketId, eventDetails, timeUntilEvent);
 }
 
-/**
- * Send generic notification email
- */
-export async function sendNotificationEmail(
-  to: string,
-  userName: string,
-  title: string,
-  message: string,
-  actionUrl?: string,
-  actionText?: string
-) {
-  const { html, text } = notificationEmail(userName, title, message, actionUrl, actionText);
-  
-  return await sendEmail({
-    to,
-    subject: title,
-    htmlBody: html,
-    textBody: text,
-  });
-}
-
-/**
- * Send security alert email
- */
-export async function sendSecurityAlertEmail(
-  to: string,
-  userName: string,
-  alertType: string,
-  details: string
-) {
-  const { html, text } = securityAlertEmail(userName, alertType, details);
-  
-  return await sendEmail({
-    to,
-    subject: `Security Alert: ${alertType}`,
-    htmlBody: html,
-    textBody: text,
-  });
-}
-
-/**
- * Send custom email with template wrapper
- */
-export async function sendCustomEmail(params: EmailParams) {
-  return await sendEmail(params);
-}

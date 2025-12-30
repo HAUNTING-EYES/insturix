@@ -6,6 +6,7 @@ import { Metadata } from "next";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import BlogContent from "@/components/BlogContent";
+import BlogAudioPlayer from "@/components/BlogAudioPlayer";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -62,7 +63,8 @@ export default async function BlogPost({ params }: { params: tParams }) {
   const resolvedParams = await params;
   const post = await getBlogPost(resolvedParams.slug);
 
-  if (!post) {
+  // Handle invalid slugs (like favicon.ico) by redirecting to 404
+  if (!post || !resolvedParams.slug || resolvedParams.slug.includes('.') || resolvedParams.slug === 'favicon') {
     notFound();
   }
 
@@ -155,6 +157,14 @@ export default async function BlogPost({ params }: { params: tParams }) {
               />
               <div className="absolute inset-0 bg-black/20"></div>
             </div>
+
+            {/* Audio Player */}
+            {post.audioUrl && (
+              <BlogAudioPlayer
+                audioUrl={post.audioUrl}
+                title="Listen to this article"
+              />
+            )}
 
             {/* Content */}
             <div className="prose prose-lg prose-invert max-w-none">

@@ -14,6 +14,7 @@ import {
   sendSecurityAlertEmail,
   sendEmail,
   sendBatchEmails,
+  sendTemplateEmail,
 } from '@/lib/services/email';
 
 /**
@@ -45,6 +46,29 @@ export async function handleUserRegistration(userId: string, email: string, name
     console.error('Error in handleUserRegistration:', error);
     throw error;
   }
+}
+
+/**
+ * Example 1b: Ad-hoc template usage
+ * Demonstrates sending a notification email with dynamic payload
+ */
+export async function notifyTeamOfDeployment(version: string, deployedBy: string) {
+  const subject = `Deployment ${version} completed`;
+
+  return sendTemplateEmail('notification', {
+    to: ['devops@insturix.com', 'product@insturix.com'],
+    payload: {
+      name: 'Insturix Team',
+      title: subject,
+      message: `Version ${version} was deployed by ${deployedBy}.`,
+      actionUrl: 'https://insturix.com/status',
+      actionText: 'View Status Page',
+    },
+    tags: {
+      context: 'deployment',
+      version,
+    },
+  });
 }
 
 /**
@@ -186,7 +210,7 @@ export async function sendAnnouncementToAllUsers(
     }));
     
     // Send in batches
-    const results = await sendBatchEmails(emails, 10);
+  const results = await sendBatchEmails(emails, { batchSize: 10 });
     
     const successCount = results.filter(r => r.success).length;
     console.log(`Announcement sent: ${successCount}/${users.length} successful`);

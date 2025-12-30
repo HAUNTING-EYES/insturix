@@ -725,7 +725,7 @@ export function PlanSelection({
                               </span>
                             </div>
                           ) : (
-                            <span className="text-gray-500">—</span>
+                            <span className="text-gray-500">, </span>
                           )}
                         </td>
                       ))}

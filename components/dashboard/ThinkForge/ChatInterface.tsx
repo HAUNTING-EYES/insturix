@@ -137,7 +137,7 @@ export default function ChatInterface({
     }
   };
 
-  // Map thinking hat to circle background — simple extraction to avoid
+  // Map thinking hat to circle background ,  simple extraction to avoid
   // inline switch later; can be moved to toneUtils if reused elsewhere.
   const toneBgMap: Record<string, string> = {
     white: 'bg-white border border-gray-300',

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Storage } from '@google-cloud/storage';
-import { Readable } from 'stream';
 
-const storage = new Storage({
-  projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-  credentials: JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS || '', 'base64').toString()),
-});
-
-const bucket = storage.bucket(process.env.GCS_BUCKET_NAME || '');
+function getStorageBucket() {
+  const storage = new Storage({
+    projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
+    credentials: JSON.parse(Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS || '', 'base64').toString()),
+  });
+  return storage.bucket(process.env.GCS_BUCKET_NAME || '');
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing path parameter' }, { status: 400 });
     }
 
+    const bucket = getStorageBucket();
     const file = bucket.file(decodeURIComponent(gcsPath));
     const [exists] = await file.exists();
     if (!exists) {

@@ -43,7 +43,7 @@ const features = [
   {
     icon: Sparkles,
     title: "Royalty-Free & Copyright-Free",
-    description: "Use your generated music anywhere—no copyright worries, ever.",
+    description: "Use your generated music anywhere, no copyright worries, ever.",
     gradient: "from-yellow-400 to-amber-300",
     delay: 0.6,
   },

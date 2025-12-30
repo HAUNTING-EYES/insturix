@@ -1,5 +1,4 @@
 import {
-  Shield,
   Music,
   Scissors,
   Brain,
@@ -67,15 +66,6 @@ export const growthLegalTools: Product[] = [
     description: "Social Media Manager",
     color: "#0ea5e9",
     hoverColor: "#38bdf8",
-    isPro: false,
-  },
-  {
-    name: "Shield",
-    path: "/dashboard/shield",
-    icon: Shield,
-    description: "Security Solution",
-    color: "#a855f7",
-    hoverColor: "#c084fc",
     isPro: false,
   },
 ]

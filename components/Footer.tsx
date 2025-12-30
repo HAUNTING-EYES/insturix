@@ -27,7 +27,6 @@ const supportLinks = [
     label: "Help Center",
     heading: "Support",
     links: [
-      { label: "Tutorials", link: "/resources/tutorials" },
       { label: "FAQs", link: "/resources/faq" },
       { label: "Contact Support", link: "/contactus" },
     ],

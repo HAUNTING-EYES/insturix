@@ -16,3 +16,14 @@ declare global {
     };
   }
 }
+
+// CSS Module declarations to suppress TypeScript warnings
+declare module '*.css' {
+  const content: Record<string, string>;
+  export default content;
+}
+
+declare module './globals.css' {
+  const content: Record<string, string>;
+  export default content;
+}

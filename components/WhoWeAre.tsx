@@ -1,204 +1,157 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { motion, useScroll, useTransform, useSpring } from "framer-motion";
+import { useRef } from "react";
 import { companyData } from "@/components/data/Company-Data";
-import { Zap, BrainCircuit, Blocks, Users } from "lucide-react";
-import { useEffect, useState } from "react";
-import { HoverCard } from "./ui/HoverCard";
-
-const iconComponents = {
-  Zap,
-  BrainCircuit,
-  Blocks,
-  Users,
-};
-
-function CardHeading({ children }: { children: React.ReactNode }) {
-  return (
-    <h2 className="text-2xl font-semibold relative after:content-[''] after:absolute after:-bottom-2 after:left-0 after:w-12 after:h-0.5 after:bg-neutral-300 dark:after:bg-neutral-700">
-      {children}
-    </h2>
-  );
-}
-
-{
-  /*function DecorativeHeading({ children, centered = false }: { children: React.ReactNode, centered?: boolean }) {
-  return (
-    <div className={`flex flex-col ${centered ? 'items-center' : ''} space-y-2`}>
-      <h2 className="text-3xl font-semibold">{children}</h2>
-      <div className="flex items-center space-x-3">
-        <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
-        <div className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-600" />
-        <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
-      </div>
-    </div>
-  );
-} */
-}
+import Spotlight from "@/components/ui/Spotlight";
+import DotGrid from "@/components/DotGrid";
 
 export default function WhoWeAre() {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({
+    target: containerRef,
+    offset: ["start start", "end end"],
+  });
+
+  // Smooth progress
+  const smoothProgress = useSpring(scrollYProgress, {
+    stiffness: 100,
+    damping: 30,
+    restDelta: 0.001
+  });
+
+  // Target Board Animations (Synced with Card Transitions)
+  const bullseyeScale = useTransform(smoothProgress, [0, 0.2], [0, 1]);
+  const bullseyeOpacity = useTransform(smoothProgress, [0, 0.1], [0, 1]);
+  
+  const innerRingProgress = useTransform(smoothProgress, [0.3, 0.5], [0, 1]);
+  const outerRingProgress = useTransform(smoothProgress, [0.6, 0.8], [0, 1]);
+
+  // Card Animations (Stacking Effect)
+  // Card 1 (Mission): Base layer, scales down slightly as Card 2 enters
+  const card1Scale = useTransform(smoothProgress, [0.3, 0.5], [1, 0.9]);
+  const card1Opacity = useTransform(smoothProgress, [0.3, 0.5], [1, 0.5]);
+
+  // Card 2 (Vision): Enters from bottom, covers Card 1
+  const card2Y = useTransform(smoothProgress, [0.3, 0.5], ["100%", "0%"]);
+  const card2Opacity = useTransform(smoothProgress, [0.3, 0.4], [0, 1]);
+  const card2Scale = useTransform(smoothProgress, [0.6, 0.8], [1, 0.9]); // Scales down for Card 3
+
+  // Card 3 (Story): Enters from bottom, covers Card 2
+  const card3Y = useTransform(smoothProgress, [0.6, 0.8], ["100%", "0%"]);
+  const card3Opacity = useTransform(smoothProgress, [0.6, 0.7], [0, 1]);
+
   return (
-    <div className="relative mt-[calc(-200px-5vh)]">
-      <div className="h-[200px] bg-linear-to-b from-transparent via-[rgb(var(--surface-0))]/40 to-[rgb(var(--surface-0))]" />
-      <div className="bg-[rgb(var(--surface-0))]">
-        <div className="container mx-auto px-4 sm:px-6 py-6 sm:py-8 md:py-12 space-y-6 sm:space-y-8 md:space-y-12 pt-[60px] sm:pt-[80px] md:pt-[100px]">
-          <Header />
-          <MissionVision />
-          <Story />
-          <Values />
+    <section ref={containerRef} className="relative h-[300vh] bg-neutral-950 text-neutral-50">
+      <div className="sticky top-0 h-screen w-full overflow-hidden">
+        {/* Background Effects */}
+        <div className="absolute inset-0 z-0 opacity-30 pointer-events-none">
+          <DotGrid 
+            baseColor="#404040" 
+            activeColor="#737373" 
+            dotSize={2} 
+            gap={24} 
+            proximity={100} 
+            shockRadius={150}
+          />
         </div>
-      </div>
-    </div>
-  );
-}
 
-function Header() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-      className="text-center space-y-4 sm:space-y-6"
-    >
-      <div className="flex flex-col items-center space-y-2">
-        <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
-          Who We Are
-        </h1>
-        <div className="flex items-center space-x-4">
-          <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
-          <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
-          <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
-        </div>
-      </div>
-      <motion.p
-        className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto px-4 sm:px-0"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 1, delay: 0.2 }}
-      >
-        {companyData.name} is building the future of technology
-      </motion.p>
-    </motion.div>
-  );
-}
+        <div className="container mx-auto px-4 sm:px-6 h-full flex flex-col lg:flex-row relative z-10">
+          
+          {/* Left: Target Board */}
+          <div className="hidden lg:flex lg:w-1/2 h-full items-center justify-center">
+            <div className="relative w-[400px] h-[400px]">
+              {/* Base Structure */}
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100">
+                <line x1="50" y1="0" x2="50" y2="100" stroke="#262626" strokeWidth="0.5" />
+                <line x1="0" y1="50" x2="100" y2="50" stroke="#262626" strokeWidth="0.5" />
+                <circle cx="50" cy="50" r="45" fill="none" stroke="#262626" strokeWidth="0.5" />
+                <circle cx="50" cy="50" r="30" fill="none" stroke="#262626" strokeWidth="0.5" />
+                <circle cx="50" cy="50" r="15" fill="none" stroke="#262626" strokeWidth="0.5" />
+              </svg>
 
-function MissionVision() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      transition={{ duration: 1 }}
-      viewport={{ once: true }}
-      className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4"
-    >
-      {[
-        { title: "Our Mission", content: companyData.mission },
-        { title: "Our Vision", content: companyData.vision },
-      ].map((item) => (
-        <HoverCard key={item.title}>
-          <CardHeading>{item.title}</CardHeading>
-          <p className="text-muted-foreground leading-relaxed mt-8">
-            {item.content}
-          </p>
-        </HoverCard>
-      ))}
-    </motion.div>
-  );
-}
+              {/* Animated Elements */}
+              <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 100 100">
+                <motion.circle 
+                  cx="50" cy="50" r="45" 
+                  fill="none" 
+                  stroke="#ffffff" 
+                  strokeWidth="1.5"
+                  style={{ pathLength: outerRingProgress }}
+                  strokeDasharray="1 1"
+                  strokeLinecap="round"
+                  className="drop-shadow-[0_0_8px_rgba(255,255,255,0.3)]"
+                />
+                <motion.circle 
+                  cx="50" cy="50" r="30" 
+                  fill="none" 
+                  stroke="#d4d4d4" 
+                  strokeWidth="2"
+                  style={{ pathLength: innerRingProgress }}
+                  strokeDasharray="1 1"
+                  strokeLinecap="round"
+                  className="drop-shadow-[0_0_8px_rgba(255,255,255,0.2)]"
+                />
+              </svg>
 
-function Story() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 50 }}
-      whileInView={{
-        opacity: 1,
-        y: 0,
-        transition: {
-          type: "spring",
-          duration: 0.8,
-        },
-      }}
-      viewport={{ once: true, amount: 0.3 }}
-      className="relative"
-    >
-      <HoverCard className="overflow-hidden">
-        <CardHeading>Our Story</CardHeading>
-        <motion.p
-          className="text-muted-foreground leading-relaxed mt-8"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          {companyData.story}
-        </motion.p>
-        <motion.div
-          className="absolute -bottom-20 -right-20 w-40 h-40 bg-primary/10 rounded-full blur-3xl"
-          animate={{
-            scale: [1, 1.2, 1],
-            opacity: [0.3, 0.5, 0.3],
-          }}
-          transition={{
-            duration: 4,
-            repeat: Infinity,
-            ease: "easeInOut",
-          }}
-        />
-      </HoverCard>
-    </motion.div>
-  );
-}
-
-function Values() {
-  const [isTouchDevice, setIsTouchDevice] = useState(false);
-
-  useEffect(() => {
-    setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
-  }, []);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      whileInView={{
-        opacity: 1,
-        transition: { duration: 0.5 },
-      }}
-      viewport={{ once: true, amount: 0.05, margin: "100px" }}
-      className="space-y-6 pb-12 sm:pb-16 overflow-visible"
-    >
-      <div className="flex flex-col items-center space-y-2">
-        <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
-          Our Values
-        </h2>
-        <div className="flex items-center space-x-3">
-          <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
-          <div className="h-1 w-1 rounded-full bg-neutral-400 dark:bg-neutral-600" />
-          <div className="h-[1px] w-8 bg-neutral-300 dark:bg-neutral-700" />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-        {companyData.values.map((value) => {
-          const IconComponent =
-            iconComponents[value.icon as keyof typeof iconComponents];
-          return (
-            <HoverCard key={value.name} className="relative overflow-hidden">
-              <div className="relative z-10 flex flex-col items-center py-4 sm:py-6 md:py-8 px-2">
-                <motion.div
-                  className="p-2 rounded-lg bg-primary/10"
-                  whileHover={
-                    !isTouchDevice ? { scale: 1.1, rotate: 5 } : undefined
-                  }
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <IconComponent className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-primary" />
-                </motion.div>
-                <h3 className="text-sm sm:text-base md:text-lg font-medium text-center mt-2 sm:mt-3 md:mt-4 leading-tight">
-                  {value.name}
-                </h3>
+              {/* Center Bullseye */}
+              <div className="absolute inset-0 flex items-center justify-center">
+                <motion.div 
+                  style={{ scale: bullseyeScale, opacity: bullseyeOpacity }}
+                  className="w-[30px] h-[30px] bg-white rounded-full shadow-[0_0_20px_rgba(255,255,255,0.5)]"
+                />
               </div>
-            </HoverCard>
-          );
-        })}
+            </div>
+          </div>
+
+          {/* Right: Stacking Cards */}
+          <div className="w-full lg:w-1/2 h-full flex items-center justify-center relative">
+            
+            {/* Mission Card (Base) */}
+            <motion.div 
+              style={{ scale: card1Scale, opacity: card1Opacity }}
+              className="absolute w-full max-w-lg"
+            >
+              <Spotlight 
+                className="rounded-3xl p-8 border-neutral-800 bg-neutral-900/90 backdrop-blur-xl shadow-2xl"
+                spotlightColor="rgba(255, 255, 255, 0.05)"
+              >
+                <h3 className="text-3xl sm:text-4xl font-bold mb-6 text-white">Our Mission</h3>
+                <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed">{companyData.mission}</p>
+              </Spotlight>
+            </motion.div>
+
+            {/* Vision Card (Overlay 1) */}
+            <motion.div 
+              style={{ y: card2Y, opacity: card2Opacity, scale: card2Scale }}
+              className="absolute w-full max-w-lg"
+            >
+              <Spotlight 
+                className="rounded-3xl p-8 border-neutral-800 bg-neutral-900/90 backdrop-blur-xl shadow-2xl"
+                spotlightColor="rgba(255, 255, 255, 0.05)"
+              >
+                <h3 className="text-3xl sm:text-4xl font-bold mb-6 text-white">Our Vision</h3>
+                <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed">{companyData.vision}</p>
+              </Spotlight>
+            </motion.div>
+
+            {/* Story Card (Overlay 2) */}
+            <motion.div 
+              style={{ y: card3Y, opacity: card3Opacity }}
+              className="absolute w-full max-w-lg"
+            >
+              <Spotlight 
+                className="rounded-3xl p-8 border-neutral-800 bg-neutral-900/90 backdrop-blur-xl shadow-2xl"
+                spotlightColor="rgba(255, 255, 255, 0.05)"
+              >
+                <h3 className="text-3xl sm:text-4xl font-bold mb-6 text-white">The Story</h3>
+                <p className="text-lg sm:text-xl text-neutral-300 leading-relaxed">{companyData.story}</p>
+              </Spotlight>
+            </motion.div>
+
+          </div>
+        </div>
       </div>
-    </motion.div>
+    </section>
   );
 }

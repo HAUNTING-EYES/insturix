@@ -53,10 +53,23 @@ export interface Variation {
   referenceImageRefs?: string[];
 }
 
+export interface CurvePoint {
+  x: number;
+  y: number;
+}
+
+export interface ColorCurves {
+  master: CurvePoint[];
+  red: CurvePoint[];
+  green: CurvePoint[];
+  blue: CurvePoint[];
+}
+
 export interface FineTuningControls {
   brightness: number;
   contrast: number;
   saturation: number;
+  curves?: ColorCurves;
 }
 
 
@@ -92,7 +105,7 @@ export interface CreateVariationRequest {
 
 export const CreateVariationRequestSchema = z.object({
   prompt: z.string().min(1, "Prompt is required"),
-  modelId: z.string().min(1, "Model ID is required"),
+  modelId: z.string().min(1, "Model ID is required").optional(),
   aspectRatio: z
     .string()
     .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'")
@@ -100,12 +113,13 @@ export const CreateVariationRequestSchema = z.object({
   parentVariationId: z.string().optional(), // For editing existing variations
   updateExistingBlank: z.boolean().optional(), // For generating on an existing blank variation
   fineTuning: z.object({
-    brightness: z.number().min(0).max(200).default(100),
-    contrast: z.number().min(0).max(200).default(100),
-    saturation: z.number().min(0).max(200).default(100),
+    brightness: z.number().min(0).max(200),
+    contrast: z.number().min(0).max(200),
+    saturation: z.number().min(0).max(200),
   }).optional(),
   referenceImages: z.array(z.string()).optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
+  sessionId: z.string().optional(), // Added to match route validation
 });
 
 // PATCH /api/services/clickatron/session/[id]/variation/[varId]
@@ -124,7 +138,7 @@ export const UpdateVariationRequestSchema = z.object({
     contrast: z.number().min(0).max(200),
     saturation: z.number().min(0).max(200),
   }).optional(),
-  metadata: z.record(z.any()).optional(),
+  metadata: z.record(z.string(), z.any()).optional(),
 }).refine((data) => Object.keys(data).length > 0, {
   message: "At least one field must be provided for update",
 });

@@ -1,9 +1,11 @@
 import { getUserData } from "@/lib/services/getUserData";
 import DashboardClientLayout from "@/components/dashboard/DashboardClientLayout";
 import React, { Suspense } from "react";
-import { UniversalLoader } from "@/components/Loader/UniversalLoader";
+import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 
-export const revalidate = 60;
+// Mark dashboard as dynamic since it requires authentication
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function DashboardLayout({
   children,
@@ -21,7 +23,7 @@ export default async function DashboardLayout({
 
   return (
     <DashboardClientLayout initialUserData={userData ? JSON.parse(JSON.stringify(userData)) : null}>
-      <Suspense fallback={<UniversalLoader />}>
+      <Suspense fallback={<LoadingScreen />}>
         {children}
       </Suspense>
     </DashboardClientLayout>

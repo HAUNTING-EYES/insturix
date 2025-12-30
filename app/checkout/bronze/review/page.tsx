@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ export default function BronzeReviewPage() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string | null>(null);
   const [rejectionReason, setRejectionReason] = useState<string | null>(null);
+  const hasRedirectedRef = useRef(false);
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -23,6 +24,9 @@ export default function BronzeReviewPage() {
     }
 
     const checkStatus = async () => {
+      // Prevent multiple redirects
+      if (hasRedirectedRef.current) return;
+      
       try {
         const res = await fetch("/api/ics25/bronze-promotion");
         if (res.ok) {
@@ -31,19 +35,22 @@ export default function BronzeReviewPage() {
           
           if (!bronzePromotion || bronzePromotion.status === 'none') {
             // No submission yet, redirect to promotion page
-            router.push("/checkout/bronze/promotion");
+            if (!hasRedirectedRef.current) {
+              hasRedirectedRef.current = true;
+              router.push("/checkout/bronze/promotion");
+            }
             return;
           }
 
           setStatus(bronzePromotion.status);
           setRejectionReason(bronzePromotion.rejectionReason || null);
 
-          // If verified, can proceed to complete registration
-          if (bronzePromotion.status === 'verified') {
-            // Optionally auto-redirect after a short delay
-            setTimeout(() => {
-              router.push("/checkout?tier=bronze");
-            }, 2000);
+          // If verified, automatically redirect to confirmation (registration is complete)
+          if (bronzePromotion.status === 'verified' && !hasRedirectedRef.current) {
+            hasRedirectedRef.current = true;
+            // Immediately redirect to confirmation page
+            router.push("/checkout/ics25/confirmation");
+            return;
           }
         }
         
@@ -56,8 +63,12 @@ export default function BronzeReviewPage() {
 
     checkStatus();
 
-    // Poll for status updates every 30 seconds
-    const interval = setInterval(checkStatus, 30000);
+    // Poll for status updates every 30 seconds (but don't redirect if already redirected)
+    const interval = setInterval(() => {
+      if (!hasRedirectedRef.current) {
+        checkStatus();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, [isSignedIn, router]);
 
@@ -108,10 +119,6 @@ export default function BronzeReviewPage() {
                     </li>
                     <li className="flex items-start gap-2">
                       <span className="text-amber-600 mt-0.5">•</span>
-                      <span>After approval, complete your Bronze Pass registration</span>
-                    </li>
-                    <li className="flex items-start gap-2">
-                      <span className="text-amber-600 mt-0.5">•</span>
                       <span>This page will automatically update when your status changes</span>
                     </li>
                   </ul>
@@ -135,20 +142,13 @@ export default function BronzeReviewPage() {
                   Promotion Approved! 🎉
                 </h1>
                 <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-                  Congratulations! Your promotional tasks have been verified. You can now complete your Bronze Pass registration.
+                  Congratulations! Your promotional tasks have been verified. Your Silver Pass registration is complete.
                 </p>
                 <div className="rounded-2xl border border-emerald-600/30 bg-emerald-500/10 p-4 mb-6">
                   <p className="text-sm text-zinc-700 dark:text-zinc-300">
-                    Click below to complete your <strong>free</strong> Bronze Pass registration for ICS'25
+                    Redirecting you to your confirmation page...
                   </p>
                 </div>
-                <Button
-                  onClick={() => router.push("/checkout?tier=bronze")}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold"
-                >
-                  Complete Registration
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
               </>
             )}
 

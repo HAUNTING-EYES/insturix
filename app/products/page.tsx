@@ -1,47 +1,31 @@
-import { Metadata } from "next";
+"use client";
+
 import dynamic from "next/dynamic";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import ProductPageWrapper from "@/components/ProductPageWrapper";
+import CursorEffect from "@/components/ui/CursorEffect";
+
+import UniversalLoader from "@/components/Loader/UniversalLoader";
 
 const ClientProductsPage = dynamic(() => import("@/components/ProductPages"), {
-  ssr: true,
+  ssr: false,
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center min-h-[70vh]">
+      <UniversalLoader />
+    </div>
+  ),
 });
-
-export const metadata: Metadata = {
-  title: "Products | Insturix",
-  description:
-    "Discover Insturix's suite of AI-powered tools for content creators, including video editing, analytics, influencer protection, and brand collaborations.",
-  alternates: {
-    canonical: "/products",
-  },
-  openGraph: {
-    title: "Products | Insturix",
-    description:
-      "Discover Insturix's suite of AI-powered tools for content creators, including video editing, analytics, influencer protection, and brand collaborations.",
-    url: "/products",
-    type: "website",
-    images: [
-      {
-        url: "/icons/products-og.jpg",
-        width: 1200,
-        height: 630,
-        alt: "Insturix Products",
-      },
-    ],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Products | Insturix",
-    description:
-      "Discover Insturix's suite of AI-powered tools for content creators, including video editing, analytics, influencer protection, and brand collaborations.",
-    images: ["/icons/products-twitter.jpg"],
-  },
-};
 
 export default function Products() {
   return (
-    <div className="flex flex-col min-h-screen">
+    <div className="flex flex-col min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))]">
+       <CursorEffect
+              variant="glow"
+              color="rgba(59, 130, 246, 0.15)"
+              size={500}
+              blur={100}
+            />
       <Navbar />
       <ProductPageWrapper>
         <ClientProductsPage />

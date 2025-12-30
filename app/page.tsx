@@ -2,16 +2,15 @@ import { Metadata } from "next";
 import dynamic from "next/dynamic";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
-import PopupTrigger from "@/components/ics25/PopupTrigger";
 import WhoWeAre from "@/components/WhoWeAre";
 import { WhyUs } from "@/components/WhyUs";
+import BentoGrid from "@/components/Home/BentoGrid";
 import Script from "next/script";
+import { Suspense } from "react";
+import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 
 // Dynamically import client components
 const ClientHeroSection = dynamic(() => import("@/components/Home/HeroSection"), { ssr: true });
-// Remove the dynamic import with ssr: false
-// const ClientProgressBar = dynamic(() => import("@/components/ProgressBar"), { ssr: false });
-// Import the ProgressBar normally
 import ProgressBarWrapper from "@/components/ProgressBarWrapper";
 
 export const metadata: Metadata = {
@@ -97,7 +96,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative overflow-x-hidden w-full">
+    <div className="relative w-full bg-neutral-950">
       <Script 
         id="organization-structured-data"
         type="application/ld+json"
@@ -109,9 +108,13 @@ export default function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteStructuredData) }}
       />
       <ProgressBarWrapper />
-  <Navbar />
-  <PopupTrigger context="home" />
-  <ClientHeroSection />
+      <Navbar />
+      <Suspense fallback={<LoadingScreen />}>
+        <ClientHeroSection />
+      </Suspense>
+      <div id="features">
+        <BentoGrid />
+      </div>
       <WhoWeAre />
       <WhyUs />
       {/* <Testimo /> */}

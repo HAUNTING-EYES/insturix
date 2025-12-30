@@ -1,12 +1,12 @@
 # Admin API Reference
 
-This document provides a comprehensive guide for administrators to manage the unified service limits configuration, plans, and perform data migrations.
+This document provides a comprehensive guide for administrators to manage the unified service limits configuration, plans, and perform data migrations. 
 
 ## Table of Contents
 
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
-- [API Endpoints](#api-endpoints)
+- [API Endpoints](#api-endpoints) 
   - [Migrate Service Limits](#migrate-service-limits)
   - [Plan Management](#plan-management)
     - [Seed Plans](#seed-plans)

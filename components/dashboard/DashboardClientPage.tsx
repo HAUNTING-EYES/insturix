@@ -1,6 +1,7 @@
 "use client";
 
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
+
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import("@/components/dashboard/Dashboard"));
@@ -21,6 +22,8 @@ const THEME = {
 };
 
 export default function DashboardClientPage() {
+
+
   return (
     <>
       <Suspense
@@ -35,6 +38,8 @@ export default function DashboardClientPage() {
       >
         <Dashboard />
       </Suspense>
+
+
 
       <Suspense fallback={null}>
         <CursorEffect

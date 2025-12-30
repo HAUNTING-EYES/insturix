@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { sendEmail, sendBatchEmails, EmailParams } from '@/lib/services/email/ses-client';
+import { sendEmail, sendBatchEmails, type EmailParams } from '@/lib/services/email';
 
 /**
  * Rate limiting: Consider implementing request-level rate limiting
@@ -84,7 +84,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Single email sending
-    const { to, subject, htmlBody, textBody, replyTo, cc, bcc } = body;
+  const { to, subject, htmlBody, textBody, replyTo, cc, bcc, tags } = body;
 
     // Validate required fields
     if (!to || !subject || (!htmlBody && !textBody)) {
@@ -103,8 +103,9 @@ export async function POST(request: NextRequest) {
       htmlBody,
       textBody,
       replyTo,
-      cc,
-      bcc,
+  cc,
+  bcc,
+  tags,
     });
 
     if (result.success) {

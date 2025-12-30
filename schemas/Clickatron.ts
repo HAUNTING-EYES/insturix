@@ -1,9 +1,20 @@
 import mongoose, { Document, Schema, Types } from 'mongoose';
 
+const CurvePointSchema = new Schema({
+  x: { type: Number, required: true },
+  y: { type: Number, required: true },
+}, { _id: false });
+
 const FineTuningSchema = new Schema({
   brightness: { type: Number, default: 100 },
   contrast: { type: Number, default: 100 },
   saturation: { type: Number, default: 100 },
+  curves: {
+    master: { type: [CurvePointSchema], default: [] },
+    red: { type: [CurvePointSchema], default: [] },
+    green: { type: [CurvePointSchema], default: [] },
+    blue: { type: [CurvePointSchema], default: [] },
+  },
 }, { _id: false });
 
 const VariationSchema = new Schema({

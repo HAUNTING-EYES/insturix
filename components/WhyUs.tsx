@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { HoverCard } from "./ui/HoverCard";
+import Spotlight from "@/components/ui/Spotlight";
 import {
   Lightbulb,
   Rocket,
@@ -13,111 +13,95 @@ import {
 
 const reasons = [
   {
-    title: "Innovative Solutions",
-    description:
-      "We leverage cutting-edge technology to solve complex problems.",
+    title: "Creator-First Architecture",
+    description: "Built specifically for the unique needs of digital creators, not generic businesses.",
     icon: Lightbulb,
+    color: "#6366F1", // Indigo
   },
   {
-    title: "Rapid Deployment",
-    description:
-      "Our streamlined processes ensure quick implementation of solutions.",
+    title: "Rapid Implementation",
+    description: "Get up and running in minutes with our intuitive, AI-driven onboarding.",
     icon: Rocket,
+    color: "#10B981", // Emerald
   },
   {
-    title: "Customer-Centric Approach",
-    description:
-      "Your success is our priority. We tailor our services to your needs.",
+    title: "Community Powered",
+    description: "Join a thriving network of creators sharing insights, growth hacks, and support.",
     icon: Users,
+    color: "#F59E0B", // Amber
   },
   {
-    title: "Robust Security",
-    description:
-      "We implement state-of-the-art security measures to protect your data.",
+    title: "Enterprise Security",
+    description: "Bank-grade protection for your accounts and digital assets. Sleep soundly.",
     icon: Shield,
+    color: "#F43F5E", // Rose
   },
   {
-    title: "24/7 Support",
-    description: "Our dedicated team is always available to assist you.",
+    title: "24/7 Expert Support",
+    description: "Real humans who understand the creator economy, available whenever you need them.",
     icon: Clock,
+    color: "#06B6D4", // Cyan
   },
   {
-    title: "Proven Track Record",
-    description:
-      "Years of successful projects and satisfied clients speak for themselves.",
+    title: "Proven Growth",
+    description: "Our tools are backed by data and proven to increase engagement and revenue.",
     icon: HeartHandshake,
+    color: "#8B5CF6", // Violet
   },
 ];
 
 export function WhyUs() {
   return (
-    <div className="py-6 sm:py-12 md:py-16 bg-[rgb(var(--surface-0))]">
-      <section className="container mx-auto px-4 sm:px-6 space-y-6 sm:space-y-8">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
-          className="text-center space-y-4 sm:space-y-6 mb-8"
-        >
-          <div className="flex flex-col items-center space-y-2">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">
-              Why Choose Us?
-            </h1>
-            <div className="flex items-center space-x-4">
-              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
-              <div className="h-1.5 w-1.5 rounded-full bg-neutral-400 dark:bg-neutral-600" />
-              <div className="h-[1px] w-12 bg-neutral-300 dark:bg-neutral-700" />
-            </div>
-          </div>
-          <motion.p
-            className="text-base sm:text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto px-6 sm:px-4 md:px-0"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 1, delay: 0.2 }}
-          >
-            Discover the unique advantages that set us apart
-          </motion.p>
-        </motion.div>
+    <section className="py-24 bg-neutral-950 text-neutral-50 relative overflow-hidden">
+      {/* Background Grid */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] pointer-events-none " />
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 md:gap-6 pb-12 sm:pb-16 md:pb-20 overflow-visible">
+      <div className="container mx-auto px-4 sm:px-6 relative z-10">
+        <div className="mb-16 text-center max-w-3xl mx-auto b">
+          <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
+            Why Choose Us?
+          </h2>
+          <p className="text-lg text-neutral-400">
+            Discover the unique advantages that set us apart from the competition.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {reasons.map((reason, index) => (
-            <motion.div
+            <Spotlight
               key={index}
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{
-                opacity: 1,
-                y: 0,
-                transition: {
-                  type: "spring",
-                  duration: 0.8,
-                  delay: index * 0.1,
-                },
-              }}
-              viewport={{ once: true, amount: 0.05, margin: "100px" }}
-              className="h-full touch-hover"
+              className="rounded-2xl p-8 min-h-[280px] flex flex-col justify-between group"
+              spotlightColor={reason.color + "26"} // 15% opacity
             >
-              <HoverCard className="h-full relative overflow-hidden">
-                <div className="relative z-10 h-full flex flex-col p-1 sm:p-0">
-                  <div className="flex items-start sm:items-center gap-3 mb-3 sm:mb-4">
-                    <motion.div
-                      className="p-2 rounded-lg bg-primary/10 touch-feedback flex-shrink-0"
-                      whileHover={{ scale: 1.1, rotate: 5 }}
-                      whileTap={{ scale: 0.95 }}
-                      transition={{ duration: 0.2 }}
-                    >
-                      <reason.icon className="w-5 h-5 sm:w-6 sm:h-6 text-primary" />
-                    </motion.div>
-                    <h3 className="text-lg sm:text-xl font-semibold leading-tight">{reason.title}</h3>
-                  </div>
-                  <p className="text-sm sm:text-base text-muted-foreground grow leading-relaxed">
-                    {reason.description}
-                  </p>
+              <div 
+                className="absolute top-4 right-6 text-9xl font-bold select-none pointer-events-none transition-colors duration-500"
+                style={{ color: `${reason.color}10` }} // Very faint number
+              >
+                {String(index + 1).padStart(2, '0')}
+              </div>
+              
+              <div className="relative z-10">
+                <div 
+                  className="w-12 h-12 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-6 transition-colors duration-300"
+                  style={{ borderColor: `${reason.color}30` }}
+                >
+                  <reason.icon 
+                    className="w-6 h-6 transition-colors duration-300" 
+                    style={{ color: reason.color }}
+                  />
                 </div>
-              </HoverCard>
-            </motion.div>
+                
+                <h3 className="text-xl font-semibold mb-3 group-hover:text-white transition-colors">
+                  {reason.title}
+                </h3>
+                <p className="text-neutral-400 leading-relaxed group-hover:text-neutral-300 transition-colors">
+                  {reason.description}
+                </p>
+              </div>
+            </Spotlight>
           ))}
         </div>
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }

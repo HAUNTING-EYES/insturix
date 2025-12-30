@@ -14,27 +14,17 @@ export default function ThemeProvider({
     setMounted(true);
   }, []);
 
-  if (!mounted) {
-    return null;
-  }
-
+  // Render children immediately but with a wrapper to prevent hydration mismatch
+  // The key is to render the same on server and client initially
   return (
-    <>
-      <NextThemesProvider
-        attribute="class"
-        defaultTheme="dark"
-        // enableSystem
-        disableTransitionOnChange
-      >
-        {children}
-      </NextThemesProvider>
-    </>
+    <NextThemesProvider
+      attribute="class"
+      defaultTheme="dark"
+      disableTransitionOnChange
+      enableSystem={false}
+      forcedTheme={mounted ? undefined : "dark"}
+    >
+      {children}
+    </NextThemesProvider>
   );
-
-  // For simplicity, we are returning a div with dark class for now
-  // return (
-  //   <div>
-  //     {children}
-  //   </div>
-  // );
 }

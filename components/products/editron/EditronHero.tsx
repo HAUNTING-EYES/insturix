@@ -94,7 +94,7 @@ export default function EditronHero() {
           variants={itemVariants}
           className="text-lg md:text-xl text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto mb-8 leading-relaxed"
         >
-          Automate video post-production, generate and edit content, and create viral videos with AI-powered tools—fast, easy, and scalable.
+          Automate video post-production, generate and edit content, and create viral videos with AI-powered tools, fast, easy, and scalable.
         </motion.p>
 
         {/* Stats */}
