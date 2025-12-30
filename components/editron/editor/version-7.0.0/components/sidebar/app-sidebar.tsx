@@ -10,25 +10,20 @@ import {
   FolderOpen,
   Sticker,
   Layout,
-  ChevronLeft,
   MessageSquare,
 } from "lucide-react";
 import Image from "next/image";
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarHeader,
-  SidebarMenu,
   SidebarMenuButton,
-  SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { useSidebar } from "../../contexts/sidebar-context";
 import { VideoOverlayPanel } from "../overlays/video/video-overlay-panel";
 import { TextOverlaysPanel } from "../overlays/text/text-overlays-panel";
 import SoundsPanel from "../overlays/sounds/sounds-panel";
-import Link from "next/link";
 import { OverlayType } from "../../types";
 import { CaptionsPanel } from "../overlays/captions/captions-panel";
 import {
@@ -43,7 +38,6 @@ import { StickersPanel } from "../overlays/stickers/stickers-panel";
 import { TemplateOverlayPanel } from "../overlays/templates/template-overlay-panel";
 import { HtmlScenePanel } from "../overlays/html/html-scene-panel";
 import { useEditorContext } from "../../contexts/editor-context";
-import { Button } from "@/components/ui/button";
 import { AIChatPanel } from "../ai-chat/ai-chat-panel";
 
 /**

@@ -1,7 +1,6 @@
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { HumanMessage, BaseMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
+import { SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
-import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { createTools } from './tools';
 
 // Define the agent state
@@ -33,7 +32,11 @@ export const createAgent = (userId: string, projectContext?: string) => {
     const tools = createToolsWithProject(projectId);
     const modelWithTools = model.bindTools(tools);
     
-    const messages = state.messages;
+    const messages = state.messages || [];
+    
+    if (messages.length === 0) {
+      console.warn('[AGENT-GRAPH] No messages in state');
+    }
     
     const SYSTEM_MESSAGE = `You are Editron AI, an intelligent video editing assistant integrated into the Editron web-based video editor.
 
@@ -64,7 +67,6 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - Do not be robotic.
     - **CRITICAL**: When using \`generate_html_scene\`, do NOT output the HTML code in the chat. Just confirm you are generating it. The tool serves the result to the timeline directly.
 
-
 **Available Tools**:
 - \`add_overlay\`: Add any overlay type (text, image, video, sound, shape, sticker). Smart placement by default.
 - \`update_overlay\`: Update a single overlay's properties.
@@ -75,6 +77,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
 - \`sync_style\`: Copy styles from one overlay to others.
 - \`read_project_file\`: Read full project JSON if needed.
 - \`get_timeline_view\`: Get ASCII timeline view.
+- \`generate_html_scene\`: Create custom animated scenes, backgrounds, infographics, or visual effects. Use this when the user wants rich visuals, animations, or custom graphics. Just provide description and duration.
 
 **Smart Placement**: When adding overlays, you usually DON'T need to specify \`row\`. The Physics Engine auto-places:
 - Videos/Audio: Pack from bottom (row 0, 1...)

@@ -893,7 +893,6 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
     }
   );
 
->>>>>>> Stashed changes
   return [
     readProjectFile,
     getTimelineView,
