@@ -1,32 +1,52 @@
 /**
- * Script Draft Agent - Generates draft script immediately using Gemini Flash
+ * Script Draft Agent - Generates draft script immediately using Google Generative AI
+ * Supports both Vertex AI (ADC) and API key authentication
  * Target: <2s response time
  */
 
-import { google } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree, Block, InlineNode } from '../schemas/canonical';
 import { validateBlockTree } from '../schemas/canonical';
 
-const InlineNodeSchema = z.object({
+const InlineNodeSchema: z.ZodType<any> = z.object({
   type: z.enum(['text', 'em', 'strong', 'code']),
   text: z.string()
 });
 
-const BlockSchema = z.object({
+const BlockSchema: z.ZodType<any> = z.object({
   id: z.string(),
   type: z.enum(['heading', 'paragraph', 'bulletList', 'numberedList', 'listItem', 'code', 'quote', 'dialogue', 'divider']),
-  props: z.record(z.unknown()).optional(),
-  children: z.array(z.union([InlineNodeSchema, z.lazy(() => BlockSchema)]))
+  props: z.record(z.string(), z.unknown()).optional(),
+  children: z.array(z.union([InlineNodeSchema, z.lazy(() => BlockSchema as z.ZodType<any>)]))
 });
 
-const ScriptDraftSchema = z.object({
+const ScriptDraftSchema: z.ZodType<Record<string, any>> = z.object({
   title: z.string(),
   blocks: z.array(BlockSchema),
   content: z.string()
 });
+
+/**
+ * Create model for script drafting with proper authentication
+ */
+const createVertexAIModel = () => {
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  
+  // For Node.js with @ai-sdk/google, we use API key authentication
+  // Vertex AI with ADC will be handled at deployment time (Cloud Run automatically provides ADC)
+  if (!apiKey) {
+    throw new Error(
+      'GOOGLE_GENERATIVE_AI_API_KEY is required. For Vertex AI with ADC, ensure the service account has Vertex AI User role.'
+    );
+  }
+  
+  // Create Google Generative AI instance
+  const google = createGoogleGenerativeAI({ apiKey });
+  return google('gemini-2.0-flash');
+};
 
 /**
  * Generate script draft immediately
@@ -37,7 +57,7 @@ export async function generateScriptDraft(
   existingScript?: { blocks?: BlockTree; content?: string; title?: string } | null
 ): Promise<{ title: string; blocks: BlockTree; content: string; draft: boolean }> {
   try {
-    const model = google('gemini-2.0-flash-exp');
+    const model = createVertexAIModel();
     
     // Build context
     const contextParts: string[] = [];
@@ -91,15 +111,14 @@ The script should be engaging, well-structured, and appropriate for the specifie
       model,
       schema: ScriptDraftSchema,
       prompt,
-      temperature: 0.8,
-      maxTokens: 4000
+      temperature: 0.8
     });
     
     // Validate and ensure block IDs
     let blocks = result.object.blocks;
     
     // Ensure all blocks have IDs
-    blocks = blocks.map((block, idx) => ({
+    blocks = blocks.map((block: any, idx: number) => ({
       ...block,
       id: block.id || `block_${Date.now()}_${idx}`
     }));

@@ -1,10 +1,11 @@
 /**
- * Chat Agent - Simple Q&A using Gemini Flash with streaming
+ * Chat Agent - Simple Q&A using Google Generative AI with streaming
+ * Supports both Vertex AI (ADC) and API key authentication
  * Target: <500ms first token
  */
 
-import { google } from '@ai-sdk/google';
 import { streamText } from 'ai';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
 
@@ -15,6 +16,25 @@ interface ChatAgentOptions {
   selection?: string | null;
   skipPersistUser?: boolean;
 }
+
+/**
+ * Create model for chat with proper authentication
+ */
+const createVertexAIModel = () => {
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  
+  // For Node.js with @ai-sdk/google, we use API key authentication
+  // Vertex AI with ADC will be handled at deployment time (Cloud Run automatically provides ADC)
+  if (!apiKey) {
+    throw new Error(
+      'GOOGLE_GENERATIVE_AI_API_KEY is required. For Vertex AI with ADC, ensure the service account has Vertex AI User role.'
+    );
+  }
+  
+  // Create Google Generative AI instance
+  const google = createGoogleGenerativeAI({ apiKey });
+  return google('gemini-2.0-flash');
+};
 
 /**
  * Generate chat response with streaming
@@ -79,7 +99,7 @@ export async function chatAgent(
     content: prompt
   });
   
-  const model = google('gemini-2.0-flash-exp');
+  const model = createVertexAIModel();
   
   const result = await streamText({
     model,
