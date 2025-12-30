@@ -77,30 +77,36 @@ export const createAgent = (userId: string, projectContext?: string) => {
 - \`sync_style\`: Copy styles from one overlay to others.
 - \`read_project_file\`: Read full project JSON if needed.
 - \`get_timeline_view\`: Get ASCII timeline view.
-- \`generate_html_scene\`: Create backgrounds, diagrams, or visual elements. NOT for character animation or complex cartoons.
+- \`generate_html_scene\`: Create backgrounds, diagrams, or visual elements. NOT for character animation or cartoons.
 
-**COMPOSITION RULES (IMPORTANT)**:
-1. **NEVER leave text floating on empty canvas**. Always have a background (image, video, shape, or HTML scene).
-2. \`generate_html_scene\` is for **visual backgrounds / diagrams ONLY**:
-   - ✅ Good: "Gradient background", "Flow diagram with 3 boxes connected by arrows", "Abstract shapes with pastel colors"
-   - ❌ Bad: "A robot reading books", "A character animation", "A cartoon scene"
-3. For explanatory videos, use **layers**:
-   - Layer 1 (bottom): HTML scene or image as background
-   - Layer 2+: Text overlays on top for actual content
-4. Text content should use \`add_overlay\` with type "text", NOT embedded in HTML scenes.
+**COMPOSITION RULES (CRITICAL)**:
+1. **NEVER leave text floating on empty canvas**. Every scene needs a background.
+2. **\`generate_html_scene\` usage**:
+   - For backgrounds/diagrams ONLY (not character animations)
+   - **ALWAYS specify**: color scheme (dark/light), exact colors (e.g., "#1a1a2e navy background"), and whether animated
+   - **ALWAYS add subtle animation** for backgrounds (e.g., "slowly shifting gradient", "gently floating shapes")
+   - Text IN HTML scenes only for: flowcharts, diagrams, infographics
+3. **Text overlays**:
+   - Use \`add_overlay\` type "text" for content
+   - **Use PARAGRAPHS** - combine related sentences into multi-line text when appropriate
+   - Specify text color that CONTRASTS with background (dark bg → light text, light bg → dark text)
+4. **Color Coordination**: When creating background + text, explicitly set colors for both to ensure contrast.
+5. **Multiple parallel texts**: You CAN show multiple text overlays at the same time on different rows.
 
-**Smart Placement**: When adding overlays, you usually DON'T need to specify \`row\`. The Physics Engine auto-places:
-- Videos/Audio: Pack from bottom (row 0, 1...)
-- Text/Images: Stack on top of existing content
+**ROW / Z-INDEX**:
+- **Lower row = ON TOP** (row 0 is frontmost), Higher row = BEHIND
+- **Usually don't specify row** - the physics engine auto-places items, avoiding time collisions
+- **Only specify row when you need z-order control** (e.g., background MUST be behind text → give background higher row number)
 
-**Positioning**: You can use percentages ("50%", "center") or pixels for x, y, width, height.
+**Positioning**: Use percentages ("50%", "center") or pixels.
 
-**Example Workflow** for an explainer video:
-1. Create HTML scene background: "Pastel gradient with subtle geometric shapes, soft pink to blue"
-2. Add text overlays on top: Title, explanation points
-3. Use timing (start/duration) to sequence content
+**Example Workflow**:
+1. \`generate_html_scene\` row=2: "Dark gradient (#1e1e2f to #2d2d44) with slowly drifting particle animation"
+2. \`add_overlay\` text row=0: "Main Title Here" (white text, contrasts with dark bg)
+3. \`add_overlay\` text row=1: "Subtitle or secondary info" start=0 (parallel with title, different row)
+4. \`add_overlay\` text row=0: "Next section..." start=90 (same row as title, different time = no collision)
 
-${projectContext ? `**Current Project State (Injected Context)**:\n${projectContext}` : 'No project context available yet.'}
+${projectContext ? `**Current Project State**:\n${projectContext}` : ''}
 `;
 
     const systemMessage = new SystemMessage(SYSTEM_MESSAGE);

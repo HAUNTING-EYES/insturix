@@ -20,6 +20,7 @@ export const OverlayType = {
   STICKER: "sticker",
   TEMPLATE: "template",
   AI_CHAT: "ai-chat",
+  HTML_SCENE: "html-scene",
 } as const;
 export type OverlayType = typeof OverlayType[keyof typeof OverlayType];
 
@@ -111,40 +112,15 @@ export function findBestRow(
     ? Math.max(...existingOverlays.map(o => o.row))
     : -1; // -1 means no overlays yet
 
-  // Types that go on BOTTOM (background content)
-  const bottomTypes: OverlayType[] = [OverlayType.VIDEO, OverlayType.SOUND];
-  
-  // Types that go on TOP (foreground content)
-  const topTypes: OverlayType[] = [
-    OverlayType.TEXT, 
-    OverlayType.IMAGE, 
-    OverlayType.STICKER, 
-    OverlayType.SHAPE,
-    OverlayType.CAPTION
-  ];
-
-  if (bottomTypes.includes(type)) {
-    // Pack from bottom: find first row without collision
-    for (let row = 0; row <= maxUsedRow + 1; row++) {
-      if (!hasCollisionOnRow(row, timeRange, existingOverlays)) {
-        return row;
-      }
+  // Simple logic: find the first row (starting from 0) without a time collision
+  // LLM can override with forceRow if it wants specific z-ordering
+  for (let row = 0; row <= maxUsedRow + 1; row++) {
+    if (!hasCollisionOnRow(row, timeRange, existingOverlays)) {
+      return row;
     }
-    // Fallback: new row at bottom
-    return maxUsedRow + 1;
-  } else if (topTypes.includes(type)) {
-    // Stack on top: start from one row above max and find first without collision
-    // If no overlays exist, start at row 0
-    const startRow = maxUsedRow >= 0 ? maxUsedRow + 1 : 0;
-    for (let row = startRow; row <= startRow + 10; row++) { // Check up to 10 rows ahead
-      if (!hasCollisionOnRow(row, timeRange, existingOverlays)) {
-        return row;
-      }
-    }
-    return startRow;
   }
-
-  // Default: just put it on the next available row
+  
+  // Fallback: next row after max
   return maxUsedRow + 1;
 }
 

@@ -855,6 +855,11 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
         const overlayWidth = input.width ?? safeWidth;
         const overlayHeight = input.height ?? safeHeight;
         
+        // Use physics engine for row placement (HTML_SCENE is a bottom type, so starts at row 0)
+        const existingOverlays = toExistingOverlays(project.overlays || []);
+        const timeRange = { from: input.start, duration: input.duration };
+        const assignedRow = input.row ?? findBestRow('html-scene' as any, timeRange, existingOverlays);
+        
         const newOverlay = {
           id,
           type: 'html-scene',
@@ -862,7 +867,7 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
           durationInFrames: input.duration,
           content: cleanHtml,
           prompt: input.description,
-          row: input.row ?? 2,
+          row: assignedRow,
           // Position at 0,0 for full-screen scenes (unless user specifies x/y)
           left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
           top: input.y !== undefined ? (input.y - overlayHeight / 2) : 0,
