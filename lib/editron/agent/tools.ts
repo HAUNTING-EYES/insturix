@@ -821,19 +821,21 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
   ✗ Audio elements (handled by separate audio tracks)
   ✗ localStorage / cookies / IndexedDB
   ✗ \`document.addEventListener("DOMContentLoaded")\` - code runs immediately
+  ✗ Complex/detailed SVG graphics (low rendering accuracy - keep SVGs simple)
+  ✗ Excessive animations - prefer subtle, purposeful motion over flashy effects
 
 ▸ CAPABILITIES:
-  • Inline SVG graphics (icons, shapes, illustrations)
-  • Canvas API for generative art / particles / data viz
+  • Simple inline SVG graphics (basic icons, shapes - NOT complex illustrations)
   • CSS gradients, masks, clip-paths, filters, backdrop-blur
   • Keyframe animations, transitions, transforms
   • Text effects (gradients, shadows, animations)
   • Pseudo-elements (::before, ::after)
   • Google Fonts for typography
+  • Great for: backgrounds, title cards, lower thirds, simple infographics
 
 ▸ QUALITY:
-  • Premium, polished, "wow factor" design
-  • Smooth 60fps animations
+  • Clean, polished, professional design
+  • Subtle, intentional animations (not distracting)
   • Professional color palettes
   • Modern typography
 

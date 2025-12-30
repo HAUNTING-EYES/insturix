@@ -77,7 +77,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
 - \`sync_style\`: Copy styles from one overlay to others.
 - \`read_project_file\`: Read full project JSON if needed.
 - \`get_timeline_view\`: Get ASCII timeline view.
-- \`generate_html_scene\`: Create custom animated scenes, backgrounds, infographics, or visual effects. Use this when the user wants rich visuals, animations, or custom graphics. Just provide description and duration.
+- \`generate_html_scene\`: Create custom scenes, animated backgrounds, infographics, or title cards. Great for video backgrounds that span the entire duration. Keep visuals clean—avoid heavy SVG complexity and unnecessary animations.
 
 **Smart Placement**: When adding overlays, you usually DON'T need to specify \`row\`. The Physics Engine auto-places:
 - Videos/Audio: Pack from bottom (row 0, 1...)
