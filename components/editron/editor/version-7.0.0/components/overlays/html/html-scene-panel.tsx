@@ -10,6 +10,9 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 
+// Track editing state per overlay ID (persists across panel switches)
+const editingOverlays = new Set<number>();
+
 export const HtmlScenePanel: React.FC = () => {
   const { selectedOverlayId, overlays, setOverlays } = useEditorContext();
   const [localOverlay, setLocalOverlay] = useState<HtmlSceneOverlay | null>(null);
@@ -18,6 +21,13 @@ export const HtmlScenePanel: React.FC = () => {
   
   // Get projectId from URL
   const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() || '' : '';
+
+  // Sync isEditing state with global tracking on mount/overlay change
+  useEffect(() => {
+    if (localOverlay) {
+      setIsEditing(editingOverlays.has(localOverlay.id));
+    }
+  }, [localOverlay]);
 
   // Update local overlay when selected overlay changes
   useEffect(() => {
@@ -39,8 +49,13 @@ export const HtmlScenePanel: React.FC = () => {
 
   const handleEditWithAI = async () => {
     if (!editPrompt.trim() || !localOverlay || !projectId) return;
+    
+    // Prevent parallel requests for the same overlay
+    if (editingOverlays.has(localOverlay.id)) return;
 
+    editingOverlays.add(localOverlay.id);
     setIsEditing(true);
+    
     try {
       const response = await fetch('/api/services/editron/html-scene/edit', {
         method: 'POST',
@@ -69,6 +84,7 @@ export const HtmlScenePanel: React.FC = () => {
     } catch (error) {
       console.error("Failed to edit HTML scene:", error);
     } finally {
+      editingOverlays.delete(localOverlay.id);
       setIsEditing(false);
     }
   };
