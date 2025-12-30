@@ -41,6 +41,7 @@ import { ImageOverlayPanel } from "../overlays/images/image-overlay-panel";
 import { LocalMediaPanel } from "../overlays/local-media/local-media-panel";
 import { StickersPanel } from "../overlays/stickers/stickers-panel";
 import { TemplateOverlayPanel } from "../overlays/templates/template-overlay-panel";
+import { HtmlScenePanel } from "../overlays/html/html-scene-panel";
 import { useEditorContext } from "../../contexts/editor-context";
 import { Button } from "@/components/ui/button";
 import { AIChatPanel } from "../ai-chat/ai-chat-panel";
@@ -80,6 +81,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return "Template";
       case OverlayType.AI_CHAT:
         return "AI Chat";
+      case OverlayType.HTML_SCENE:
+        return "HTML Scene";
       default:
         return "Unknown";
     }
@@ -168,6 +171,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return <TemplateOverlayPanel />;
       case OverlayType.AI_CHAT:
         return <AIChatPanel />;
+      case OverlayType.HTML_SCENE:
+        return <HtmlScenePanel />;
       default:
         return null;
     }
