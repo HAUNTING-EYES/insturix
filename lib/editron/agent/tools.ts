@@ -247,22 +247,44 @@ export const createTools = (userId: string, projectId: string) => {
         let newOverlay: any;
         
         switch (input.type) {
-          case 'text':
+          case 'text': {
+            const fontSize = input.styles?.fontSize ?? 32;
+            const textContent = input.text || '';
+            const lines = textContent.split('\n');
+            const maxLineChars = Math.max(...lines.map(l => l.length), 1);
+            
+            // Auto-calculate width/height if not specified
+            const autoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
+            const autoHeight = lines.length * fontSize * 1.4;
+            
+            // Use auto-calculated if not specified, otherwise use resolved coords
+            const textWidth = input.width === undefined ? autoWidth : coords.width;
+            const textHeight = input.height === undefined ? autoHeight : coords.height;
+            const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : coords.left;
+            const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : coords.top;
+            
             newOverlay = {
               ...baseOverlay,
-              content: input.text,
+              left: textLeft,
+              top: textTop,
+              width: textWidth,
+              height: textHeight,
+              content: textContent,
               styles: {
-                fontSize: input.styles?.fontSize ?? 60,
-                fontFamily: input.styles?.fontFamily ?? "Inter",
-                fontWeight: input.styles?.fontWeight ?? 700,
+                fontSize: `${fontSize}`,
+                fontFamily: input.styles?.fontFamily ?? "font-sans",
+                fontWeight: `${input.styles?.fontWeight ?? 700}`,
                 textAlign: input.styles?.textAlign ?? "center",
                 color: input.styles?.color ?? "#ffffff",
                 backgroundColor: input.styles?.backgroundColor ?? "transparent",
+                fontStyle: "normal",
+                textDecoration: "none",
                 opacity: input.styles?.opacity ?? 1,
                 animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
               }
             };
             break;
+          }
             
           case 'image':
             newOverlay = {

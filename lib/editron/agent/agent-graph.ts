@@ -88,7 +88,9 @@ export const createAgent = (userId: string, projectContext?: string) => {
    - Text IN HTML scenes only for: flowcharts, diagrams, infographics
 3. **Text overlays**:
    - Use \`add_overlay\` type "text" for content
-   - **Use PARAGRAPHS** - combine related sentences into multi-line text when appropriate
+   - **fontSize** (px): Controls text size directly. e.g., 24 for body, 48 for title, 72 for big headers
+   - **width/height**: Auto-calculated from content + fontSize. Only specify if you need specific dimensions.
+   - **Use PARAGRAPHS** - combine related sentences with \\n for multi-line text
    - Specify text color that CONTRASTS with background (dark bg → light text, light bg → dark text)
 4. **Color Coordination**: When creating background + text, explicitly set colors for both to ensure contrast.
 5. **Multiple parallel texts**: You CAN show multiple text overlays at the same time on different rows.

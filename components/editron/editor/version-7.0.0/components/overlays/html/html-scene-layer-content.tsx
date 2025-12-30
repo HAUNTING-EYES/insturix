@@ -66,13 +66,12 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
         `;
         shadow.appendChild(styleReset);
 
-        // Content Wrapper
+        // Content Wrapper - must be positioned for absolute children
         const wrapper = document.createElement('div');
         wrapper.style.width = '100%';
         wrapper.style.height = '100%';
-        wrapper.style.display = 'flex';
-        wrapper.style.justifyContent = 'center';
-        wrapper.style.alignItems = 'center';
+        wrapper.style.position = 'relative';
+        wrapper.style.overflow = 'hidden';
         wrapper.innerHTML = overlay.content;
         
         shadow.appendChild(wrapper);

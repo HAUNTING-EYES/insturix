@@ -89,49 +89,8 @@ export const TextLayerContent: React.FC<TextLayerContentProps> = ({
         )
       : {};
 
-  // Calculate base font size using a more sophisticated approach
-  const calculateFontSize = () => {
-    // // If fontSize is explicitly provided in styles, use it directly
-    // if (overlay.styles.fontSize) {
-    //   const fontSize = typeof overlay.styles.fontSize === 'string' 
-    //     ? parseInt(overlay.styles.fontSize) 
-    //     : overlay.styles.fontSize;
-    //   // Return the parsed fontSize if it's a valid number
-    //   if (!isNaN(fontSize) && fontSize > 0) {
-    //     return fontSize;
-    //   }
-    // }
-
-    // // Otherwise, fall back to dynamic calculation based on container dimensions
-    const aspectRatio = overlay.width / overlay.height;
-    const lines = overlay.content.split("\n");
-    const numLines = lines.length;
-    const maxLineLength = Math.max(...lines.map((line) => line.length));
-
-    // Base size on container dimensions
-    const areaBasedSize = Math.sqrt(
-      (overlay.width * overlay.height) / (maxLineLength * numLines)
-    );
-    let fontSize = areaBasedSize * 1.2; // Scaling factor
-
-    // Adjust for number of lines
-    if (numLines > 1) {
-      fontSize *= Math.max(0.5, 1 - numLines * 0.1);
-    }
-
-    // Adjust for line length
-    if (maxLineLength > 20) {
-      fontSize *= Math.max(0.6, 1 - (maxLineLength - 20) / 100);
-    }
-
-    // Adjust for extreme aspect ratios
-    if (aspectRatio > 2 || aspectRatio < 0.5) {
-      fontSize *= 0.8;
-    }
-
-    // Set minimum and maximum bounds
-    return Math.max(12, Math.min(fontSize, (overlay.height / numLines) * 0.8));
-  };
+  // Use fontSize directly from styles (professional behavior - no auto-scaling)
+  const fontSize = overlay.styles.fontSize || 32;
 
   const containerStyle: React.CSSProperties = {
     width: "100%",
@@ -145,7 +104,7 @@ export const TextLayerContent: React.FC<TextLayerContentProps> = ({
         : overlay.styles.textAlign === "right"
         ? "flex-end"
         : "flex-start",
-    overflow: "hidden",
+    overflow: "visible", // Don't clip text
     ...(isExitPhase ? exitAnimation : enterAnimation),
   };
 
@@ -154,12 +113,12 @@ export const TextLayerContent: React.FC<TextLayerContentProps> = ({
   const textStyle: React.CSSProperties = {
     ...restStyles,
     animation: undefined,
-    fontSize: `${calculateFontSize()}px`,
+    fontSize: `${fontSize}px`,
     fontFamily: getFontFamily(overlay.styles.fontFamily),
     maxWidth: "100%",
     wordWrap: "break-word",
     whiteSpace: "pre-wrap",
-    lineHeight: "1.2",
+    lineHeight: "1.4",
     padding: "0.1em",
     ...(isExitPhase ? exitAnimation : enterAnimation),
   };

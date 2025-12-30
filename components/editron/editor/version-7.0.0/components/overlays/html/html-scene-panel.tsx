@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useEditorContext } from "../../../contexts/editor-context";
 import { OverlayType, HtmlSceneOverlay } from "../../../types";
-import { Sparkles, Send, Loader2 } from "lucide-react";
+import { Sparkles, Send, Loader2, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -13,11 +13,15 @@ import { Separator } from "@/components/ui/separator";
 // Track editing state per overlay ID (persists across panel switches)
 const editingOverlays = new Set<number>();
 
+// Check if in development mode
+const isDev = process.env.NODE_ENV === 'development';
+
 export const HtmlScenePanel: React.FC = () => {
   const { selectedOverlayId, overlays, setOverlays } = useEditorContext();
   const [localOverlay, setLocalOverlay] = useState<HtmlSceneOverlay | null>(null);
   const [editPrompt, setEditPrompt] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   
   // Get projectId from URL
   const projectId = typeof window !== 'undefined' ? window.location.pathname.split('/').pop() || '' : '';
@@ -181,6 +185,30 @@ export const HtmlScenePanel: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Dev Mode: Code Preview */}
+        {isDev && (
+          <>
+            <Separator />
+            <div className="space-y-2">
+              <button
+                onClick={() => setShowCode(!showCode)}
+                className="flex items-center gap-2 text-xs text-yellow-500 hover:text-yellow-400 transition-colors"
+              >
+                <Code className="h-4 w-4" />
+                <span>DEV: View Generated Code</span>
+                {showCode ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+              </button>
+              {showCode && (
+                <div className="p-3 rounded-lg bg-zinc-900 border border-yellow-500/30 max-h-[300px] overflow-auto">
+                  <pre className="text-xs text-green-400 whitespace-pre-wrap font-mono">
+                    {localOverlay.content || "No HTML content"}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </ScrollArea>
   );
