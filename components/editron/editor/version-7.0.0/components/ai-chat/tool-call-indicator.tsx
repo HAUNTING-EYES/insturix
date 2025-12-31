@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Sparkles, Loader2, CheckCircle2, Wand2, Palette, Music, Film } from "lucide-react";
+import { Sparkles, CheckCircle2, Wand2, Palette, Music, Film, Zap, Scissors, Copy, Trash2, Eye, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ToolCallIndicatorProps {
@@ -10,53 +10,80 @@ interface ToolCallIndicatorProps {
   className?: string;
 }
 
-// Magical loading messages for different tools
-const TOOL_MESSAGES: Record<string, string[]> = {
+// Fun loading messages for generative/slow tools only
+const GENERATIVE_MESSAGES: Record<string, string[]> = {
   generate_html_scene: [
-    "Crafting your visual magic...",
-    "Painting with pixels...",
-    "Weaving colors and shapes...",
-    "Bringing your vision to life...",
-    "Adding the finishing touches...",
+    "Crafting your scene",
+    "Painting with code",
+    "Weaving magic",
+    "Almost ready",
   ],
-  add_overlay: [
-    "Placing your element...",
-    "Positioning perfectly...",
-    "Adding to timeline...",
+  generate_html_sticker: [
+    "Creating sticker",
+    "Adding sparkle",
+    "Making it pop",
+    "Finishing up",
   ],
   generate_image: [
-    "Imagining possibilities...",
-    "Creating your visual...",
-    "Rendering artwork...",
+    "Imagining visuals",
+    "Rendering art",
+    "Creating magic",
   ],
-  default: [
-    "Working on it...",
-    "Processing...",
-    "Almost there...",
-  ],
+};
+
+// Classify tools: 'quick' (instant), 'generative' (slow, needs fun messages)
+const TOOL_TYPE: Record<string, "quick" | "generative"> = {
+  // Quick tools - minimal UI
+  add_overlay: "quick",
+  update_overlay: "quick",
+  delete_overlay: "quick",
+  batch_update_overlays: "quick",
+  trim_overlay: "quick",
+  split_overlay: "quick",
+  sync_style: "quick",
+  read_project_file: "quick",
+  get_timeline_view: "quick",
+  visual_inspect_frame: "quick",
+  
+  // Generative tools - show fun messages
+  generate_html_scene: "generative",
+  generate_html_sticker: "generative",
+  generate_image: "generative",
 };
 
 // Icons for different tools
 const TOOL_ICONS: Record<string, React.ReactNode> = {
-  generate_html_scene: <Palette className="h-5 w-5" />,
-  add_overlay: <Wand2 className="h-5 w-5" />,
-  generate_image: <Sparkles className="h-5 w-5" />,
-  add_video_overlay: <Film className="h-5 w-5" />,
-  add_sound_overlay: <Music className="h-5 w-5" />,
+  generate_html_scene: <Palette className="h-3.5 w-3.5" />,
+  generate_html_sticker: <Sparkles className="h-3.5 w-3.5" />,
+  add_overlay: <Wand2 className="h-3.5 w-3.5" />,
+  update_overlay: <Zap className="h-3.5 w-3.5" />,
+  delete_overlay: <Trash2 className="h-3.5 w-3.5" />,
+  generate_image: <Sparkles className="h-3.5 w-3.5" />,
+  add_video_overlay: <Film className="h-3.5 w-3.5" />,
+  add_sound_overlay: <Music className="h-3.5 w-3.5" />,
+  trim_overlay: <Scissors className="h-3.5 w-3.5" />,
+  split_overlay: <Scissors className="h-3.5 w-3.5" />,
+  sync_style: <Copy className="h-3.5 w-3.5" />,
+  visual_inspect_frame: <Eye className="h-3.5 w-3.5" />,
+  read_project_file: <FileText className="h-3.5 w-3.5" />,
+  get_timeline_view: <FileText className="h-3.5 w-3.5" />,
 };
 
-// Friendly names for tools
+// Short friendly names
 const TOOL_NAMES: Record<string, string> = {
-  generate_html_scene: "Creating Custom Scene",
-  add_overlay: "Adding Element",
-  update_overlay: "Updating Element",
-  delete_overlay: "Removing Element",
-  batch_update_overlays: "Batch Update",
-  generate_image: "Generating Image",
-  trim_overlay: "Trimming Clip",
-  split_overlay: "Splitting Clip",
-  sync_style: "Syncing Styles",
-  get_timeline_view: "Analyzing Timeline",
+  generate_html_scene: "Scene",
+  generate_html_sticker: "Sticker",
+  add_overlay: "Add",
+  update_overlay: "Update",
+  delete_overlay: "Remove",
+  batch_update_overlays: "Batch",
+  generate_image: "Image",
+  trim_overlay: "Trim",
+  split_overlay: "Split",
+  sync_style: "Sync",
+  get_timeline_view: "Timeline",
+  read_project_file: "Read",
+  visual_inspect_frame: "Inspect",
 };
 
 export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
@@ -65,129 +92,100 @@ export const ToolCallIndicator: React.FC<ToolCallIndicatorProps> = ({
   className,
 }) => {
   const [messageIndex, setMessageIndex] = useState(0);
-  const [dots, setDots] = useState("");
-
-  const messages = TOOL_MESSAGES[toolName] || TOOL_MESSAGES.default;
-  const icon = TOOL_ICONS[toolName] || <Sparkles className="h-5 w-5" />;
+  
+  const toolType = TOOL_TYPE[toolName] || "quick";
+  const isGenerative = toolType === "generative";
+  const messages = GENERATIVE_MESSAGES[toolName] || ["Working"];
+  const icon = TOOL_ICONS[toolName] || <Zap className="h-3.5 w-3.5" />;
   const friendlyName = TOOL_NAMES[toolName] || toolName.replace(/_/g, " ");
 
-  // Cycle through messages for long-running tools
+  // Cycle through messages for generative tools only
   useEffect(() => {
-    if (isComplete) return;
+    if (isComplete || !isGenerative) return;
     
     const interval = setInterval(() => {
       setMessageIndex((prev) => (prev + 1) % messages.length);
-    }, 2500);
+    }, 2000);
 
     return () => clearInterval(interval);
-  }, [messages.length, isComplete]);
+  }, [messages.length, isComplete, isGenerative]);
 
-  // Animate dots
-  useEffect(() => {
-    if (isComplete) return;
-    
-    const interval = setInterval(() => {
-      setDots((prev) => (prev.length >= 3 ? "" : prev + "."));
-    }, 400);
+  // Quick tools: ultra minimal pill
+  if (!isGenerative) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs transition-colors",
+          isComplete
+            ? "bg-emerald-500/10 text-emerald-500"
+            : "bg-muted text-muted-foreground",
+          className
+        )}
+      >
+        {isComplete ? (
+          <CheckCircle2 className="h-3 w-3" />
+        ) : (
+          icon
+        )}
+        <span className="font-medium">{friendlyName}</span>
+        {isComplete && <span className="opacity-60">✓</span>}
+      </span>
+    );
+  }
 
-    return () => clearInterval(interval);
-  }, [isComplete]);
-
+  // Generative tools: slightly more prominent with rotating message
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-xl border transition-all duration-500",
+        "rounded-lg border transition-all duration-300",
         isComplete
-          ? "bg-gradient-to-r from-emerald-500/10 to-cyan-500/10 border-emerald-500/30"
-          : "bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-cyan-500/10 border-violet-500/30",
+          ? "bg-emerald-500/5 border-emerald-500/20"
+          : "bg-muted/50 border-border",
         className
       )}
     >
-      {/* Animated background shimmer */}
-      {!isComplete && (
-        <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-      )}
-
-      <div className="relative p-4">
-        <div className="flex items-center gap-3">
-          {/* Icon with animation */}
-          <div
-            className={cn(
-              "p-2.5 rounded-lg transition-all duration-300",
-              isComplete
-                ? "bg-emerald-500/20 text-emerald-400"
-                : "bg-violet-500/20 text-violet-400"
-            )}
-          >
-            {isComplete ? (
-              <CheckCircle2 className="h-5 w-5 animate-in zoom-in-50 duration-300" />
-            ) : (
-              <div className="animate-pulse">{icon}</div>
-            )}
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span
-                className={cn(
-                  "font-semibold text-sm",
-                  isComplete ? "text-emerald-400" : "text-violet-300"
-                )}
-              >
-                {friendlyName}
-              </span>
-              {!isComplete && (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400/70" />
-              )}
-            </div>
-
-            <p className="text-xs text-muted-foreground/80 mt-0.5 truncate">
-              {isComplete ? (
-                <span className="text-emerald-400/70">✓ Complete</span>
-              ) : (
-                <span className="animate-in fade-in duration-300" key={messageIndex}>
-                  {messages[messageIndex]}{dots}
-                </span>
-              )}
-            </p>
-          </div>
+      <div className="px-3 py-2 flex items-center gap-2.5">
+        {/* Icon */}
+        <div
+          className={cn(
+            "p-1.5 rounded-md transition-colors",
+            isComplete
+              ? "bg-emerald-500/10 text-emerald-500"
+              : "bg-primary/10 text-primary"
+          )}
+        >
+          {isComplete ? (
+            <CheckCircle2 className="h-3.5 w-3.5" />
+          ) : (
+            <div className="animate-pulse">{icon}</div>
+          )}
         </div>
 
-        {/* Progress bar for incomplete */}
-        {!isComplete && (
-          <div className="mt-3 h-1 rounded-full bg-white/10 overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-violet-500 via-fuchsia-500 to-cyan-500 animate-[progress_2s_ease-in-out_infinite] w-1/2 rounded-full" />
-          </div>
-        )}
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <span
+            className={cn(
+              "text-sm font-medium",
+              isComplete ? "text-emerald-500" : "text-foreground"
+            )}
+          >
+            {friendlyName}
+          </span>
+          
+          {!isComplete && (
+            <p 
+              className="text-xs text-muted-foreground animate-pulse" 
+              key={messageIndex}
+            >
+              {messages[messageIndex]}...
+            </p>
+          )}
+          
+          {isComplete && (
+            <p className="text-xs text-emerald-500/70">Done</p>
+          )}
+        </div>
       </div>
     </div>
   );
 };
-
-// Add keyframes to tailwind config or use inline styles
-const styles = `
-@keyframes shimmer {
-  100% {
-    transform: translateX(100%);
-  }
-}
-@keyframes progress {
-  0% {
-    transform: translateX(-100%);
-  }
-  50% {
-    transform: translateX(100%);
-  }
-  100% {
-    transform: translateX(-100%);
-  }
-}
-`;
-
-// Inject styles
-if (typeof document !== "undefined") {
-  const styleSheet = document.createElement("style");
-  styleSheet.textContent = styles;
-  document.head.appendChild(styleSheet);
-}
