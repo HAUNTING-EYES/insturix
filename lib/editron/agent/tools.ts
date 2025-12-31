@@ -161,12 +161,49 @@ export const createTools = (userId: string, projectId: string) => {
     // Styles (all optional, type-specific fields ignored if not applicable)
     styles: z.object({
       // Text styles
-      fontSize: z.number().optional().describe("Font size in pixels (for text)"),
-      fontFamily: z.string().optional().describe("Font family (for text)"),
-      fontWeight: z.number().optional().describe("Font weight (for text)"),
-      color: z.string().optional().describe("Text color hex (for text)"),
-      textAlign: z.enum(['left', 'center', 'right']).optional().describe("Text alignment (for text)"),
-      backgroundColor: z.string().optional().describe("Background color (for text)"),
+      fontSize: z.number().optional().describe("Font size in pixels (for text). e.g., 32 for body, 48 for title"),
+      fontFamily: z.enum([
+        'font-sans',      // Inter (modern sans-serif)
+        'font-serif',     // Merriweather (elegant serif)
+        'font-mono',      // Roboto Mono (code/technical)
+        'font-retro',     // VT323 (retro pixel style)
+        'font-league-spartan', // League Spartan (bold display)
+        'font-bungee-inline'   // Bungee Inline (fun/playful)
+      ]).optional().describe("Font family (for text). Default: font-sans"),
+      fontWeight: z.number().optional().describe("Font weight 400-900 (for text). Default: 700"),
+      color: z.string().optional().describe("Text color hex (for text). Default: #ffffff"),
+      textAlign: z.enum(['left', 'center', 'right']).optional().describe("Text alignment. Default: center"),
+      backgroundColor: z.string().optional().describe("Background color (for text). Default: transparent"),
+      
+      // Animation (for text - recommended to use fade by default)
+      animation: z.object({
+        enter: z.enum([
+          'fade',       // Simple fade in (default, recommended)
+          'slideUp',    // Slide from bottom
+          'slideRight', // Slide from left
+          'scale',      // Scale up
+          'bounce',     // Elastic bounce
+          'floatIn',    // Smooth floating
+          'flipX',      // 3D flip
+          'zoomBlur',   // Zoom with blur
+          'snapRotate', // Quick rotate
+          'glitch',     // Digital glitch
+          'swipeReveal' // Swipe reveal
+        ]).optional().describe("Entry animation. Default: fade"),
+        exit: z.enum([
+          'fade',       // Simple fade out (default, recommended)
+          'slideUp',
+          'slideRight',
+          'scale',
+          'bounce',
+          'floatIn',
+          'flipX',
+          'zoomBlur',
+          'snapRotate',
+          'glitch',
+          'swipeReveal'
+        ]).optional().describe("Exit animation. Default: fade"),
+      }).optional().describe("Animation config. Recommended: use fade for smooth transitions"),
       
       // Media styles
       objectFit: z.enum(['cover', 'contain', 'fill']).optional().describe("Object fit (for image/video)"),
@@ -250,15 +287,26 @@ export const createTools = (userId: string, projectId: string) => {
           case 'text': {
             const fontSize = input.styles?.fontSize ?? 32;
             const textContent = input.text || '';
-            const lines = textContent.split('\n');
-            const maxLineChars = Math.max(...lines.map(l => l.length), 1);
+            const explicitLines = textContent.split('\n');
+            const maxLineChars = Math.max(...explicitLines.map(l => l.length), 1);
             
-            // Auto-calculate width/height if not specified
-            const autoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
-            const autoHeight = lines.length * fontSize * 1.4;
+            // Cap width to 90% of canvas to prevent overflow
+            const maxAllowedWidth = canvas.width * 0.9;
             
-            // Use auto-calculated if not specified, otherwise use resolved coords
-            const textWidth = input.width === undefined ? autoWidth : coords.width;
+            // Calculate width: auto-fit to content but cap to canvas
+            const rawAutoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
+            const autoWidth = Math.min(rawAutoWidth, maxAllowedWidth);
+            
+            // If text needs to wrap, calculate wrapped height
+            const charsPerLine = Math.max(1, Math.floor(autoWidth / (fontSize * 0.6)));
+            let totalVisualLines = 0;
+            for (const line of explicitLines) {
+              totalVisualLines += line.length === 0 ? 1 : Math.ceil(line.length / charsPerLine);
+            }
+            const autoHeight = totalVisualLines * fontSize * 1.4;
+            
+            // Use auto-calculated if not specified, otherwise use resolved coords (also capped)
+            const textWidth = input.width === undefined ? autoWidth : Math.min(coords.width, maxAllowedWidth);
             const textHeight = input.height === undefined ? autoHeight : coords.height;
             const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : coords.left;
             const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : coords.top;
@@ -280,7 +328,11 @@ export const createTools = (userId: string, projectId: string) => {
                 fontStyle: "normal",
                 textDecoration: "none",
                 opacity: input.styles?.opacity ?? 1,
-                animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
+                animation: { 
+                  enter: input.styles?.animation?.enter ?? "fade", 
+                  exit: input.styles?.animation?.exit ?? "fade", 
+                  duration: 15 
+                }
               }
             };
             break;

@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/editron/use-toast";
+import { ToolCallIndicator } from "./tool-call-indicator";
 import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
 import html2canvas from "html2canvas";
 import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
@@ -45,6 +46,7 @@ interface ChatMessage {
     id: string;
     name: string;
     args: any;
+    output?: string;
   }>;
 }
 
@@ -640,7 +642,10 @@ export function AIChatPanel() {
                   <p>Ask me anything about your video</p>
                 </div>
               ) : (
-                messages.map((msg, idx) => (
+                messages
+                  // Filter out empty assistant messages (no content AND no tool calls)
+                  .filter(msg => msg.role === "user" || msg.content.trim() || (msg.toolCalls && msg.toolCalls.length > 0))
+                  .map((msg, idx) => (
                   <div
                     key={idx}
                     className={cn(
@@ -669,52 +674,48 @@ export function AIChatPanel() {
                           : "bg-muted/50 border rounded-tl-sm"
                       )}
                     >
-                      <div className="text-sm leading-relaxed">
-                        {msg.role === "user" ? (
-                          <div className="whitespace-pre-wrap">{msg.content}</div>
-                        ) : (
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={{
-                              p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                              ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                              ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                              li: ({ children }) => <li>{children}</li>,
-                              code: ({ className, children, ...props }: any) => {
-                                const match = /language-(\w+)/.exec(className || "");
-                                const isInline = !match && !className?.includes("language-");
-                                return isInline ? (
-                                  <code className="bg-black/10 dark:bg-white/10 rounded px-1 py-0.5 font-mono text-xs" {...props}>
-                                    {children}
-                                  </code>
-                                ) : (
-                                  <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
-                                    {children}
-                                  </code>
-                                );
-                              },
-                              pre: ({ children }) => <pre className="m-0">{children}</pre>,
-                            }}
-                          >
-                            {msg.content}
-                          </ReactMarkdown>
-                        )}
-                      </div>
+                      {/* Only render content div if there's content */}
+                      {msg.content.trim() && (
+                        <div className="text-sm leading-relaxed">
+                          {msg.role === "user" ? (
+                            <div className="whitespace-pre-wrap">{msg.content}</div>
+                          ) : (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 pl-1">{children}</ul>,
+                                ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 pl-1">{children}</ol>,
+                                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                                code: ({ className, children, ...props }) => {
+                                  const isInline = !className;
+                                  return isInline ? (
+                                    <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                      {children}
+                                    </code>
+                                  ) : (
+                                    <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
+                                      {children}
+                                    </code>
+                                  );
+                                },
+                                pre: ({ children }) => <pre className="m-0">{children}</pre>,
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          )}
+                        </div>
+                      )}
                       {msg.toolCalls && msg.toolCalls.length > 0 && (
-                        <div className="mt-2 pt-2 border-t border-border/30">
-                          <div className="space-y-1">
-                            {msg.toolCalls.map((call, i) => (
-                              <div
-                                key={i}
-                                className="flex items-center gap-2 text-[10px] text-muted-foreground/70 px-1 py-0.5"
-                              >
-                                <Settings2 className="h-3 w-3 opacity-50" />
-                                <span className="font-medium">
-                                  {TOOL_FRIENDLY_NAMES[call.name] || call.name}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                        <div className={cn("space-y-2", msg.content.trim() && "mt-3")}>
+                          {msg.toolCalls.map((call, i) => (
+                            <ToolCallIndicator
+                              key={i}
+                              toolName={call.name}
+                              isComplete={!!call.output}
+                            />
+                          ))}
                         </div>
                       )}
                     </div>
