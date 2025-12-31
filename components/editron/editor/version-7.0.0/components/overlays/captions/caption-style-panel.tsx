@@ -5,7 +5,12 @@ import { CaptionOverlay, CaptionStyles, HighlightEffect, HighlightAnimation } fr
 import { captionTemplates } from "../../../templates/caption-templates";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -13,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronDown, ChevronRight, Type, Palette, Sparkles, Box, Layout } from "lucide-react";
+import { ChevronDown, ChevronRight, Type, Sparkles, Layout, Layers, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CaptionStylePanelProps {
@@ -113,438 +118,438 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
     });
   };
 
+  const applyTemplate = (key: string, template: typeof captionTemplates[string]) => {
+    setLocalOverlay({
+      ...localOverlay,
+      template: key,
+      styles: template.styles,
+    });
+  };
+
   return (
-    <div className="space-y-4">
-      {/* Quick Presets */}
-      <div className="space-y-2">
-        <Label className="text-xs text-muted-foreground">Quick Presets</Label>
-        <div className="flex gap-2 flex-wrap">
-          {Object.entries(captionTemplates).slice(0, 6).map(([key, template]) => (
+    <Tabs defaultValue="templates" className="w-full">
+      {/* Tab Navigation */}
+      <TabsList className="w-full grid grid-cols-2 bg-muted/50 backdrop-blur-sm rounded-sm border border-border gap-1 mb-4">
+        <TabsTrigger
+          value="templates"
+          className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
+            rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
+        >
+          <span className="flex items-center gap-2 text-xs">
+            <Layers className="w-3 h-3" />
+            Templates
+          </span>
+        </TabsTrigger>
+        <TabsTrigger
+          value="styling"
+          className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
+            rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
+        >
+          <span className="flex items-center gap-2 text-xs">
+            <Settings2 className="w-3 h-3" />
+            Styling
+          </span>
+        </TabsTrigger>
+      </TabsList>
+
+      {/* Templates Tab */}
+      <TabsContent value="templates" className="space-y-4 mt-0 focus-visible:outline-none">
+        <div className="grid grid-cols-2 gap-3">
+          {Object.entries(captionTemplates).map(([key, template]) => (
             <button
               key={key}
-              onClick={() => {
-                setLocalOverlay({
-                  ...localOverlay,
-                  template: key,
-                  styles: template.styles,
-                });
-              }}
-              className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
+              onClick={() => applyTemplate(key, template)}
+              className={cn(
+                "p-3 text-left rounded-lg border transition-all hover:scale-[1.02]",
                 localOverlay.template === key
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-muted/50 border-border hover:border-primary/50"
-              }`}
+                  ? "bg-primary/10 border-primary ring-1 ring-primary/20"
+                  : "bg-muted/30 border-border hover:border-primary/50 hover:bg-muted/50"
+              )}
             >
-              {template.name}
+              <div className="font-medium text-sm mb-1">{template.name}</div>
+              <div className="text-[11px] text-muted-foreground">{template.preview}</div>
             </button>
           ))}
         </div>
-      </div>
+      </TabsContent>
 
-      {/* Typography Section */}
-      <CollapsibleSection
-        title="Typography"
-        icon={<Type className="w-3.5 h-3.5" />}
-        defaultOpen={true}
-      >
-        {/* Font Family */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Font Family</Label>
-          <Select
-            value={styles.fontFamily}
-            onValueChange={(value) => updateStyles({ fontFamily: value })}
-          >
-            <SelectTrigger className="w-full text-xs">
-              <SelectValue placeholder="Select font" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
-              {fonts.map((font) => (
-                <SelectItem key={font.value} value={font.value} className={`${font.value} text-xs`}>
-                  {font.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Font Size */}
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Font Size</Label>
-            <span className="text-xs text-muted-foreground">{styles.fontSize}</span>
-          </div>
-          <Slider
-            value={[parseFloat(styles.fontSize) || 2]}
-            min={1}
-            max={5}
-            step={0.1}
-            onValueChange={([value]) => updateStyles({ fontSize: `${value}rem` })}
-          />
-        </div>
-
-        {/* Font Weight */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Font Weight</Label>
-          <Select
-            value={String(styles.fontWeight || 500)}
-            onValueChange={(value) => updateStyles({ fontWeight: parseInt(value) })}
-          >
-            <SelectTrigger className="w-full text-xs">
-              <SelectValue placeholder="Select weight" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
-              {fontWeights.map((weight) => (
-                <SelectItem key={weight.value} value={String(weight.value)} className="text-xs">
-                  {weight.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Text Color */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Text Color</Label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={styles.color}
-              onChange={(e) => updateStyles({ color: e.target.value })}
-              className="w-8 h-8 rounded border cursor-pointer"
-            />
-            <input
-              type="text"
-              value={styles.color}
-              onChange={(e) => updateStyles({ color: e.target.value })}
-              className="flex-1 px-2 py-1 text-xs rounded border bg-background"
-            />
-          </div>
-        </div>
-
-        {/* Text Align */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Text Align</Label>
-          <div className="flex gap-1">
-            {textAlignOptions.map((opt) => (
-              <button
-                key={opt.value}
-                onClick={() => updateStyles({ textAlign: opt.value as "left" | "center" | "right" })}
-                className={cn(
-                  "flex-1 px-3 py-1.5 text-xs rounded border transition-all",
-                  styles.textAlign === opt.value
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-muted/50 border-border hover:border-primary/50"
-                )}
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Line Height */}
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Line Height</Label>
-            <span className="text-xs text-muted-foreground">{(styles.lineHeight || 1.4).toFixed(1)}</span>
-          </div>
-          <Slider
-            value={[styles.lineHeight || 1.4]}
-            min={0.8}
-            max={2.5}
-            step={0.1}
-            onValueChange={([value]) => updateStyles({ lineHeight: value })}
-          />
-        </div>
-
-        {/* Letter Spacing */}
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Letter Spacing</Label>
-            <span className="text-xs text-muted-foreground">{styles.letterSpacing || "0em"}</span>
-          </div>
-          <Slider
-            value={[parseFloat(styles.letterSpacing || "0") * 100]}
-            min={-5}
-            max={20}
-            step={1}
-            onValueChange={([value]) => updateStyles({ letterSpacing: `${value / 100}em` })}
-          />
-        </div>
-
-        {/* Text Shadow */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Text Shadow</Label>
-          <input
-            type="text"
-            value={styles.textShadow || ""}
-            onChange={(e) => updateStyles({ textShadow: e.target.value })}
-            placeholder="e.g., 2px 2px 4px rgba(0,0,0,0.5)"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-      </CollapsibleSection>
-
-      {/* Background & Layout Section */}
-      <CollapsibleSection
-        title="Background & Layout"
-        icon={<Layout className="w-3.5 h-3.5" />}
-        defaultOpen={false}
-      >
-        {/* Background Color */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Background Color</Label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={styles.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#000000') || "#000000"}
-              onChange={(e) => updateStyles({ backgroundColor: e.target.value })}
-              className="w-8 h-8 rounded border cursor-pointer"
-            />
-            <input
-              type="text"
-              value={styles.backgroundColor || ""}
-              onChange={(e) => updateStyles({ backgroundColor: e.target.value })}
-              placeholder="transparent or rgba(0,0,0,0.5)"
-              className="flex-1 px-2 py-1 text-xs rounded border bg-background"
-            />
-          </div>
-        </div>
-
-        {/* Background Gradient */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Background Gradient</Label>
-          <input
-            type="text"
-            value={styles.background || ""}
-            onChange={(e) => updateStyles({ background: e.target.value })}
-            placeholder="e.g., linear-gradient(135deg, #667eea, #764ba2)"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-
-        {/* Backdrop Blur */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Backdrop Blur</Label>
-          <input
-            type="text"
-            value={styles.backdropFilter || ""}
-            onChange={(e) => updateStyles({ backdropFilter: e.target.value })}
-            placeholder="e.g., blur(8px)"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-
-        {/* Padding */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Padding</Label>
-          <input
-            type="text"
-            value={styles.padding || ""}
-            onChange={(e) => updateStyles({ padding: e.target.value })}
-            placeholder="e.g., 12px or 8px 16px"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-
-        {/* Border Radius */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Border Radius</Label>
-          <input
-            type="text"
-            value={styles.borderRadius || ""}
-            onChange={(e) => updateStyles({ borderRadius: e.target.value })}
-            placeholder="e.g., 8px or 50%"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-      </CollapsibleSection>
-
-      {/* Word Highlight Section */}
-      <CollapsibleSection
-        title="Word Highlight"
-        icon={<Sparkles className="w-3.5 h-3.5" />}
-        defaultOpen={true}
-      >
-        {/* Highlight Color */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Highlight Color</Label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={highlight?.color || "#FFFFFF"}
-              onChange={(e) => updateHighlight({ color: e.target.value })}
-              className="w-8 h-8 rounded border cursor-pointer"
-            />
-            <input
-              type="text"
-              value={highlight?.color || "#FFFFFF"}
-              onChange={(e) => updateHighlight({ color: e.target.value })}
-              className="flex-1 px-2 py-1 text-xs rounded border bg-background"
-            />
-          </div>
-        </div>
-
-        {/* Highlight Background */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Highlight Background</Label>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              value={highlight?.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#3B82F6') || "#3B82F6"}
-              onChange={(e) => updateHighlight({ backgroundColor: e.target.value })}
-              className="w-8 h-8 rounded border cursor-pointer"
-            />
-            <input
-              type="text"
-              value={highlight?.backgroundColor || "rgba(59, 130, 246, 0.92)"}
-              onChange={(e) => updateHighlight({ backgroundColor: e.target.value })}
-              className="flex-1 px-2 py-1 text-xs rounded border bg-background"
-            />
-          </div>
-        </div>
-
-        {/* Highlight Font Weight */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Highlight Font Weight</Label>
-          <Select
-            value={String(highlight?.fontWeight || 600)}
-            onValueChange={(value) => updateHighlight({ fontWeight: parseInt(value) })}
-          >
-            <SelectTrigger className="w-full text-xs">
-              <SelectValue placeholder="Select weight" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
-              {fontWeights.map((weight) => (
-                <SelectItem key={weight.value} value={String(weight.value)} className="text-xs">
-                  {weight.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Scale */}
-        <div className="space-y-2">
-          <div className="flex justify-between">
-            <Label className="text-xs text-muted-foreground">Scale Effect</Label>
-            <span className="text-xs text-muted-foreground">{(highlight?.scale || 1).toFixed(2)}x</span>
-          </div>
-          <Slider
-            value={[highlight?.scale || 1]}
-            min={1}
-            max={1.3}
-            step={0.02}
-            onValueChange={([value]) => updateHighlight({ scale: value })}
-          />
-        </div>
-
-        {/* Effect Type */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Effect Type</Label>
-          <Select
-            value={highlight?.effect || "box"}
-            onValueChange={(value) => updateHighlight({ effect: value as HighlightEffect })}
-          >
-            <SelectTrigger className="w-full text-xs">
-              <SelectValue placeholder="Select effect" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
-              {effects.map((effect) => (
-                <SelectItem key={effect.value} value={effect.value} className="text-xs">
-                  {effect.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Animation */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Animation</Label>
-          <Select
-            value={highlight?.animation || "scale"}
-            onValueChange={(value) => updateHighlight({ animation: value as HighlightAnimation })}
-          >
-            <SelectTrigger className="w-full text-xs">
-              <SelectValue placeholder="Select animation" />
-            </SelectTrigger>
-            <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
-              {animations.map((anim) => (
-                <SelectItem key={anim.value} value={anim.value} className="text-xs">
-                  {anim.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Highlight Text Shadow */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Highlight Text Shadow</Label>
-          <input
-            type="text"
-            value={highlight?.textShadow || ""}
-            onChange={(e) => updateHighlight({ textShadow: e.target.value })}
-            placeholder="e.g., 2px 2px 4px rgba(0,0,0,0.4)"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-
-        {/* Highlight Padding */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Highlight Padding</Label>
-          <input
-            type="text"
-            value={highlight?.padding || ""}
-            onChange={(e) => updateHighlight({ padding: e.target.value })}
-            placeholder="e.g., 4px 12px"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-
-        {/* Highlight Border Radius */}
-        <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Highlight Border Radius</Label>
-          <input
-            type="text"
-            value={highlight?.borderRadius || ""}
-            onChange={(e) => updateHighlight({ borderRadius: e.target.value })}
-            placeholder="e.g., 6px"
-            className="w-full px-2 py-1 text-xs rounded border bg-background"
-          />
-        </div>
-      </CollapsibleSection>
-
-      {/* More Templates */}
-      <CollapsibleSection
-        title="More Templates"
-        icon={<Palette className="w-3.5 h-3.5" />}
-        defaultOpen={false}
-      >
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(captionTemplates).slice(6).map(([key, template]) => (
-            <button
-              key={key}
-              onClick={() => {
-                setLocalOverlay({
-                  ...localOverlay,
-                  template: key,
-                  styles: template.styles,
-                });
-              }}
-              className={`p-2 text-xs rounded-lg border transition-all ${
-                localOverlay.template === key
-                  ? "bg-primary/10 border-primary"
-                  : "bg-muted/30 border-border hover:border-primary/50"
-              }`}
+      {/* Styling Tab */}
+      <TabsContent value="styling" className="space-y-4 mt-0 focus-visible:outline-none">
+        {/* Typography Section */}
+        <CollapsibleSection
+          title="Typography"
+          icon={<Type className="w-3.5 h-3.5" />}
+          defaultOpen={true}
+        >
+          {/* Font Family */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Font Family</Label>
+            <Select
+              value={styles.fontFamily}
+              onValueChange={(value) => updateStyles({ fontFamily: value })}
             >
-              <div className="font-medium">{template.name}</div>
-              <div className="text-[10px] text-muted-foreground">{template.preview}</div>
-            </button>
-          ))}
-        </div>
-      </CollapsibleSection>
-    </div>
+              <SelectTrigger className="w-full text-xs">
+                <SelectValue placeholder="Select font" />
+              </SelectTrigger>
+              <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
+                {fonts.map((font) => (
+                  <SelectItem key={font.value} value={font.value} className={`${font.value} text-xs`}>
+                    {font.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Font Size */}
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-xs text-muted-foreground">Font Size</Label>
+              <span className="text-xs text-muted-foreground">{styles.fontSize}</span>
+            </div>
+            <Slider
+              value={[parseFloat(styles.fontSize) || 2]}
+              min={1}
+              max={5}
+              step={0.1}
+              onValueChange={([value]) => updateStyles({ fontSize: `${value}rem` })}
+            />
+          </div>
+
+          {/* Font Weight */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Font Weight</Label>
+            <Select
+              value={String(styles.fontWeight || 500)}
+              onValueChange={(value) => updateStyles({ fontWeight: parseInt(value) })}
+            >
+              <SelectTrigger className="w-full text-xs">
+                <SelectValue placeholder="Select weight" />
+              </SelectTrigger>
+              <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
+                {fontWeights.map((weight) => (
+                  <SelectItem key={weight.value} value={String(weight.value)} className="text-xs">
+                    {weight.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Text Color */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Text Color</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={styles.color}
+                onChange={(e) => updateStyles({ color: e.target.value })}
+                className="w-8 h-8 rounded border cursor-pointer"
+              />
+              <input
+                type="text"
+                value={styles.color}
+                onChange={(e) => updateStyles({ color: e.target.value })}
+                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+              />
+            </div>
+          </div>
+
+          {/* Text Align */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Text Align</Label>
+            <div className="flex gap-1">
+              {textAlignOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => updateStyles({ textAlign: opt.value as "left" | "center" | "right" })}
+                  className={cn(
+                    "flex-1 px-3 py-1.5 text-xs rounded border transition-all",
+                    styles.textAlign === opt.value
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-muted/50 border-border hover:border-primary/50"
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Line Height */}
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-xs text-muted-foreground">Line Height</Label>
+              <span className="text-xs text-muted-foreground">{(styles.lineHeight || 1.4).toFixed(1)}</span>
+            </div>
+            <Slider
+              value={[styles.lineHeight || 1.4]}
+              min={0.8}
+              max={2.5}
+              step={0.1}
+              onValueChange={([value]) => updateStyles({ lineHeight: value })}
+            />
+          </div>
+
+          {/* Letter Spacing */}
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-xs text-muted-foreground">Letter Spacing</Label>
+              <span className="text-xs text-muted-foreground">{styles.letterSpacing || "0em"}</span>
+            </div>
+            <Slider
+              value={[parseFloat(styles.letterSpacing || "0") * 100]}
+              min={-5}
+              max={20}
+              step={1}
+              onValueChange={([value]) => updateStyles({ letterSpacing: `${value / 100}em` })}
+            />
+          </div>
+
+          {/* Text Shadow */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Text Shadow</Label>
+            <input
+              type="text"
+              value={styles.textShadow || ""}
+              onChange={(e) => updateStyles({ textShadow: e.target.value })}
+              placeholder="e.g., 2px 2px 4px rgba(0,0,0,0.5)"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+        </CollapsibleSection>
+
+        {/* Background & Layout Section */}
+        <CollapsibleSection
+          title="Background & Layout"
+          icon={<Layout className="w-3.5 h-3.5" />}
+          defaultOpen={false}
+        >
+          {/* Background Color */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Background Color</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={styles.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#000000') || "#000000"}
+                onChange={(e) => updateStyles({ backgroundColor: e.target.value })}
+                className="w-8 h-8 rounded border cursor-pointer"
+              />
+              <input
+                type="text"
+                value={styles.backgroundColor || ""}
+                onChange={(e) => updateStyles({ backgroundColor: e.target.value })}
+                placeholder="transparent or rgba(0,0,0,0.5)"
+                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+              />
+            </div>
+          </div>
+
+          {/* Background Gradient */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Background Gradient</Label>
+            <input
+              type="text"
+              value={styles.background || ""}
+              onChange={(e) => updateStyles({ background: e.target.value })}
+              placeholder="e.g., linear-gradient(135deg, #667eea, #764ba2)"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+
+          {/* Backdrop Blur */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Backdrop Blur</Label>
+            <input
+              type="text"
+              value={styles.backdropFilter || ""}
+              onChange={(e) => updateStyles({ backdropFilter: e.target.value })}
+              placeholder="e.g., blur(8px)"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+
+          {/* Padding */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Padding</Label>
+            <input
+              type="text"
+              value={styles.padding || ""}
+              onChange={(e) => updateStyles({ padding: e.target.value })}
+              placeholder="e.g., 12px or 8px 16px"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+
+          {/* Border Radius */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Border Radius</Label>
+            <input
+              type="text"
+              value={styles.borderRadius || ""}
+              onChange={(e) => updateStyles({ borderRadius: e.target.value })}
+              placeholder="e.g., 8px or 50%"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+        </CollapsibleSection>
+
+        {/* Word Highlight Section */}
+        <CollapsibleSection
+          title="Word Highlight"
+          icon={<Sparkles className="w-3.5 h-3.5" />}
+          defaultOpen={true}
+        >
+          {/* Highlight Color */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Highlight Color</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={highlight?.color || "#FFFFFF"}
+                onChange={(e) => updateHighlight({ color: e.target.value })}
+                className="w-8 h-8 rounded border cursor-pointer"
+              />
+              <input
+                type="text"
+                value={highlight?.color || "#FFFFFF"}
+                onChange={(e) => updateHighlight({ color: e.target.value })}
+                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+              />
+            </div>
+          </div>
+
+          {/* Highlight Background */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Highlight Background</Label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={highlight?.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#3B82F6') || "#3B82F6"}
+                onChange={(e) => updateHighlight({ backgroundColor: e.target.value })}
+                className="w-8 h-8 rounded border cursor-pointer"
+              />
+              <input
+                type="text"
+                value={highlight?.backgroundColor || "rgba(59, 130, 246, 0.92)"}
+                onChange={(e) => updateHighlight({ backgroundColor: e.target.value })}
+                className="flex-1 px-2 py-1 text-xs rounded border bg-background"
+              />
+            </div>
+          </div>
+
+          {/* Highlight Font Weight */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Highlight Font Weight</Label>
+            <Select
+              value={String(highlight?.fontWeight || 600)}
+              onValueChange={(value) => updateHighlight({ fontWeight: parseInt(value) })}
+            >
+              <SelectTrigger className="w-full text-xs">
+                <SelectValue placeholder="Select weight" />
+              </SelectTrigger>
+              <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
+                {fontWeights.map((weight) => (
+                  <SelectItem key={weight.value} value={String(weight.value)} className="text-xs">
+                    {weight.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Scale */}
+          <div className="space-y-2">
+            <div className="flex justify-between">
+              <Label className="text-xs text-muted-foreground">Scale Effect</Label>
+              <span className="text-xs text-muted-foreground">{(highlight?.scale || 1).toFixed(2)}x</span>
+            </div>
+            <Slider
+              value={[highlight?.scale || 1]}
+              min={1}
+              max={1.3}
+              step={0.02}
+              onValueChange={([value]) => updateHighlight({ scale: value })}
+            />
+          </div>
+
+          {/* Effect Type */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Effect Type</Label>
+            <Select
+              value={highlight?.effect || "box"}
+              onValueChange={(value) => updateHighlight({ effect: value as HighlightEffect })}
+            >
+              <SelectTrigger className="w-full text-xs">
+                <SelectValue placeholder="Select effect" />
+              </SelectTrigger>
+              <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
+                {effects.map((effect) => (
+                  <SelectItem key={effect.value} value={effect.value} className="text-xs">
+                    {effect.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Animation */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Animation</Label>
+            <Select
+              value={highlight?.animation || "scale"}
+              onValueChange={(value) => updateHighlight({ animation: value as HighlightAnimation })}
+            >
+              <SelectTrigger className="w-full text-xs">
+                <SelectValue placeholder="Select animation" />
+              </SelectTrigger>
+              <SelectContent className="bg-white dark:bg-zinc-900 border-border shadow-lg">
+                {animations.map((anim) => (
+                  <SelectItem key={anim.value} value={anim.value} className="text-xs">
+                    {anim.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Highlight Text Shadow */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Highlight Text Shadow</Label>
+            <input
+              type="text"
+              value={highlight?.textShadow || ""}
+              onChange={(e) => updateHighlight({ textShadow: e.target.value })}
+              placeholder="e.g., 2px 2px 4px rgba(0,0,0,0.4)"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+
+          {/* Highlight Padding */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Highlight Padding</Label>
+            <input
+              type="text"
+              value={highlight?.padding || ""}
+              onChange={(e) => updateHighlight({ padding: e.target.value })}
+              placeholder="e.g., 4px 12px"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+
+          {/* Highlight Border Radius */}
+          <div className="space-y-2">
+            <Label className="text-xs text-muted-foreground">Highlight Border Radius</Label>
+            <input
+              type="text"
+              value={highlight?.borderRadius || ""}
+              onChange={(e) => updateHighlight({ borderRadius: e.target.value })}
+              placeholder="e.g., 6px"
+              className="w-full px-2 py-1 text-xs rounded border bg-background"
+            />
+          </div>
+        </CollapsibleSection>
+      </TabsContent>
+    </Tabs>
   );
 };

@@ -155,8 +155,8 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     <div
       className="absolute inset-0 flex items-center justify-center p-4"
       style={{
-        backgroundColor: styles.backgroundColor,
-        background: styles.background,
+        // Use background (gradient) if set, otherwise fall back to backgroundColor
+        background: styles.background || styles.backgroundColor || undefined,
         backdropFilter: styles.backdropFilter,
         borderRadius: styles.borderRadius,
         padding: styles.padding,
