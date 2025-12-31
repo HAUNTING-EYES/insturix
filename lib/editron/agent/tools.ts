@@ -974,6 +974,188 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
     }
   );
 
+  // 8. Generate HTML Sticker
+  const generateHtmlStickerSchema = z.object({
+    start: z.number().describe("Start frame (0-based)"),
+    duration: z.number().describe("Duration in frames"),
+    description: z.string().describe("Description of the sticker/element (e.g., 'Glowing fire emoji', 'Animated subscribe badge', 'Sparkle burst effect')"),
+    
+    // Position (flexible - supports % or px, defaults to center)
+    x: z.union([z.number(), z.string()]).optional().describe("X position: number for pixels, '50%' for center. Default: center"),
+    y: z.union([z.number(), z.string()]).optional().describe("Y position: number for pixels, '50%' for center. Default: center"),
+    
+    // Size (customizable - defaults to 200x200)
+    width: z.number().optional().describe("Width in pixels. Default: 200"),
+    height: z.number().optional().describe("Height in pixels. Default: 200"),
+    
+    // Animations
+    enterAnimation: z.enum([
+      "fade", "pop", "bounce", "slideUp", "slideDown", 
+      "slideLeft", "slideRight", "scale", "spin", "elastic"
+    ]).optional().describe("Entry animation. Default: pop"),
+    exitAnimation: z.enum([
+      "fade", "pop", "shrink", "slideUp", "slideDown",
+      "slideLeft", "slideRight", "scale", "spin"
+    ]).optional().describe("Exit animation. Default: fade"),
+    
+    // Optional
+    rotation: z.number().optional().default(0),
+    row: z.number().optional().describe("Force specific row. If omitted, auto-placed above other content."),
+  });
+
+  const generateHtmlSticker = tool(
+    async (input: z.infer<typeof generateHtmlStickerSchema>) => {
+      try {
+        const project = await loadProject();
+        const canvas = getCanvasDimensions(project);
+        
+        const id = Date.now() + Math.floor(Math.random() * 10000);
+        
+        // Default dimensions
+        const stickerWidth = input.width ?? 200;
+        const stickerHeight = input.height ?? 200;
+        
+        // Resolve position using physics engine
+        const coords = resolveCoordinates(
+          { 
+            x: input.x ?? '50%', 
+            y: input.y ?? '50%', 
+            width: stickerWidth, 
+            height: stickerHeight 
+          },
+          canvas,
+          { width: stickerWidth, height: stickerHeight }
+        );
+        
+        // Animation settings
+        const enterAnim = input.enterAnimation ?? "pop";
+        const exitAnim = input.exitAnimation ?? "fade";
+        const durationSeconds = Math.round(input.duration / 30);
+        
+        // Call Sub-Agent for HTML generation
+        const model = new ChatGoogleGenerativeAI({
+          model: 'gemini-2.5-flash',
+          apiKey: process.env.GEMINI_API_KEY,
+          temperature: 0.8, // Higher creativity for stickers
+        });
+        
+        const systemPrompt = `You are a creative motion graphics designer specializing in animated stickers and elements.
+Generate a SELF-CONTAINED HTML/CSS animated sticker element with TRANSPARENT background.
+
+═══════════════════════════════════════════════════════════════════
+STICKER SIZE: ${stickerWidth}×${stickerHeight}px | Duration: ~${durationSeconds}s
+═══════════════════════════════════════════════════════════════════
+
+▸ CRITICAL REQUIREMENTS:
+  • Outer wrapper MUST have: \`background: transparent; position: absolute; inset: 0;\`
+  • Content must stay WITHIN ${stickerWidth}×${stickerHeight}px bounds
+  • Glow/shadow effects CAN extend beyond bounds (no overflow:hidden)
+  • Animation should LOOP smoothly for visual interest
+
+▸ ENTRY/EXIT ANIMATIONS (Host-controlled):
+  The host will apply these CSS classes:
+  • Entry: \`${enterAnim}\` animation
+  • Exit: \`${exitAnim}\` animation
+  
+  You should include LOOPING animations for the sticker's idle state.
+  Use CSS @keyframes with \`animation: name ${durationSeconds}s ease-in-out infinite;\`
+
+▸ DESIGN TIPS:
+  • Bold, eye-catching visuals work best
+  • Emojis, badges, icons, particles, glows, sparkles
+  • Subtle pulsing, rotating, or breathing effects
+  • Use CSS gradients, shadows, filters for polish
+  • Google Fonts allowed: \`<link href="https://fonts.googleapis.com/css2?family=...">\`
+  • Simple SVG icons allowed (basic shapes only)
+  • Lucide icons: \`https://unpkg.com/lucide-static@latest/icons/{name}.svg\`
+
+▸ AVOID:
+  ✗ Complex/detailed SVGs (render poorly)
+  ✗ Three.js or heavy libraries
+  ✗ External API calls
+  ✗ Viewport units (vw, vh, vmin, vmax)
+  ✗ Audio elements
+
+▸ OUTPUT:
+  Return ONLY the raw HTML string starting with \`<\`.
+  NO markdown fences. NO explanations.`;
+
+        const result = await model.invoke([
+          new SystemMessage(systemPrompt),
+          new HumanMessage(`Create: ${input.description}`)
+        ]);
+
+        const generatedHtml = result.content as string;
+        const cleanHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
+
+        // Smart row placement - stickers go on top
+        const existingOverlays = toExistingOverlays(project.overlays || []);
+        const assignedRow = input.row ?? findBestRow(
+          OverlayType.STICKER, 
+          { from: input.start, duration: input.duration }, 
+          existingOverlays
+        );
+
+        const newOverlay = {
+          id,
+          type: 'html-sticker',
+          from: input.start,
+          durationInFrames: input.duration,
+          content: cleanHtml,
+          prompt: input.description,
+          row: assignedRow,
+          left: coords.left,
+          top: coords.top,
+          width: stickerWidth,
+          height: stickerHeight,
+          rotation: input.rotation ?? 0,
+          isDragging: false,
+          styles: {
+            animation: { 
+              enter: enterAnim, 
+              exit: exitAnim, 
+              duration: 15 
+            }
+          }
+        };
+
+        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        
+        return JSON.stringify({ 
+          status: 'success', 
+          id,
+          row: assignedRow,
+          position: { left: coords.left, top: coords.top, width: stickerWidth, height: stickerHeight },
+          animations: { enter: enterAnim, exit: exitAnim },
+          message: `Generated HTML sticker "${input.description}". Size: ${stickerWidth}×${stickerHeight}px. (Code hidden)` 
+        });
+      } catch (e: any) {
+        console.error("HTML Sticker Generation Error:", e);
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'generate_html_sticker',
+      description: `Generate a custom animated HTML/CSS sticker or decorative element with TRANSPARENT background.
+
+USE FOR: Emojis, badges, icons, sparkles, callouts, pop-up elements, decorative effects.
+
+FEATURES:
+- Transparent background (overlays on video)
+- Customizable size (default 200×200px)
+- Flexible positioning (% or px)
+- Entry animations: pop, bounce, spin, elastic, slideUp/Down/Left/Right
+- Exit animations: fade, shrink, spin, slideUp/Down/Left/Right
+
+EXAMPLE PROMPTS:
+- "Glowing fire emoji with pulse effect"
+- "Animated subscribe button with sparkles"
+- "Rotating star burst effect"
+- "Bouncing thumbs up emoji"`,
+      schema: generateHtmlStickerSchema
+    }
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -985,6 +1167,7 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
     deleteOverlay,
     syncStyle,            // NEW: Style sync
     visualInspectFrame,
-    generateHtmlScene
+    generateHtmlScene,
+    generateHtmlSticker   // NEW: Animated stickers
   ];
 };
