@@ -155,21 +155,56 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
       {/* Templates Tab */}
       <TabsContent value="templates" className="space-y-4 mt-0 focus-visible:outline-none">
         <div className="grid grid-cols-2 gap-3">
-          {Object.entries(captionTemplates).map(([key, template]) => (
-            <button
-              key={key}
-              onClick={() => applyTemplate(key, template)}
-              className={cn(
-                "p-3 text-left rounded-lg border transition-all hover:scale-[1.02]",
-                localOverlay.template === key
-                  ? "bg-primary/10 border-primary ring-1 ring-primary/20"
-                  : "bg-muted/30 border-border hover:border-primary/50 hover:bg-muted/50"
-              )}
-            >
-              <div className="font-medium text-sm mb-1">{template.name}</div>
-              <div className="text-[11px] text-muted-foreground">{template.preview}</div>
-            </button>
-          ))}
+          {Object.entries(captionTemplates).map(([key, template]) => {
+            const s = template.styles;
+            const h = s.highlight;
+            return (
+              <button
+                key={key}
+                onClick={() => applyTemplate(key, template)}
+                className={cn(
+                  "p-3 text-left rounded-lg border transition-all hover:scale-[1.02] overflow-hidden",
+                  localOverlay.template === key
+                    ? "bg-primary/10 border-primary ring-1 ring-primary/20"
+                    : "bg-muted/30 border-border hover:border-primary/50 hover:bg-muted/50"
+                )}
+              >
+                {/* Visual Preview */}
+                <div 
+                  className="mb-2 p-2 rounded bg-zinc-900 flex items-center justify-center min-h-[40px] overflow-hidden"
+                  style={{
+                    background: s.background || s.backgroundColor || "#18181b",
+                  }}
+                >
+                  <span
+                    className={`${s.fontFamily} inline-block`}
+                    style={{
+                      fontSize: "0.75rem",
+                      fontWeight: s.fontWeight as number,
+                      color: s.color,
+                      textShadow: s.textShadow,
+                    }}
+                  >
+                    Hello{" "}
+                    <span
+                      style={{
+                        color: h.color,
+                        backgroundColor: h.backgroundColor,
+                        fontWeight: h.fontWeight as number,
+                        padding: "1px 4px",
+                        borderRadius: h.borderRadius || "2px",
+                        textShadow: h.textShadow,
+                      }}
+                    >
+                      World
+                    </span>
+                  </span>
+                </div>
+                <div className="font-medium text-sm">{template.name}</div>
+                <div className="text-[10px] text-muted-foreground">{template.preview}</div>
+              </button>
+            );
+          })}
         </div>
       </TabsContent>
 
