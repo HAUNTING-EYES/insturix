@@ -137,20 +137,14 @@ export async function POST(req: NextRequest) {
             }
           } else if (eventType === "on_tool_start") {
              console.log("Tool start:", event.name);
-             // Store tool call info
-             // Note: We might get multiple chunks for args, but usually on_tool_start has the initial call info
-             // Actually, on_chat_model_stream might emit tool_calls chunks too.
-             // But on_tool_start is cleaner for our tracking.
-             // We need to generate an ID if one isn't provided, but usually it is.
-             // LangGraph events usually have run_id or similar.
-             // Let's use the event data.
+             // Store tool call info with run_id for matching
              toolCalls.push({
                id: event.run_id, // Use run_id as tool call id
                name: event.name,
                args: event.data.input
              });
              
-             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: event.name, args: event.data.input })}\n\n`));
+             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: event.name, id: event.run_id, args: event.data.input })}\n\n`));
           } else if (eventType === "on_tool_end") {
              console.log("Tool end:", event.name);
              
@@ -161,7 +155,7 @@ export async function POST(req: NextRequest) {
                result: event.data.output
              });
 
-             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: event.name, output: event.data.output })}\n\n`));
+             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: event.name, id: event.run_id, output: event.data.output })}\n\n`));
           }
         }
 

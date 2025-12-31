@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useEditorContext } from "../../../contexts/editor-context";
-import { OverlayType, HtmlSceneOverlay } from "../../../types";
+import { OverlayType, HtmlSceneOverlay, HtmlStickerOverlay } from "../../../types";
 import { Sparkles, Send, Loader2, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,7 +18,7 @@ const isDev = process.env.NODE_ENV === 'development';
 
 export const HtmlScenePanel: React.FC = () => {
   const { selectedOverlayId, overlays, setOverlays } = useEditorContext();
-  const [localOverlay, setLocalOverlay] = useState<HtmlSceneOverlay | null>(null);
+  const [localOverlay, setLocalOverlay] = useState<HtmlSceneOverlay | HtmlStickerOverlay | null>(null);
   const [editPrompt, setEditPrompt] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [showCode, setShowCode] = useState(false);
@@ -44,8 +44,8 @@ export const HtmlScenePanel: React.FC = () => {
       (overlay) => overlay.id === selectedOverlayId
     );
 
-    if (selectedOverlay?.type === OverlayType.HTML_SCENE) {
-      setLocalOverlay(selectedOverlay as HtmlSceneOverlay);
+    if (selectedOverlay?.type === OverlayType.HTML_SCENE || selectedOverlay?.type === OverlayType.HTML_STICKER) {
+      setLocalOverlay(selectedOverlay as HtmlSceneOverlay | HtmlStickerOverlay);
     } else {
       setLocalOverlay(null);
     }
@@ -110,11 +110,13 @@ export const HtmlScenePanel: React.FC = () => {
       <div className="p-4 space-y-4">
         {/* Header */}
         <div className="flex items-center gap-2">
-          <div className="p-2 rounded-lg bg-cyan-500/10">
-            <Sparkles className="h-5 w-5 text-cyan-500" />
+          <div className={`p-2 rounded-lg ${localOverlay.type === OverlayType.HTML_STICKER ? 'bg-pink-500/10' : 'bg-cyan-500/10'}`}>
+            <Sparkles className={`h-5 w-5 ${localOverlay.type === OverlayType.HTML_STICKER ? 'text-pink-500' : 'text-cyan-500'}`} />
           </div>
           <div>
-            <h3 className="font-semibold text-foreground">Custom Scene</h3>
+            <h3 className="font-semibold text-foreground">
+              {localOverlay.type === OverlayType.HTML_STICKER ? 'Custom Sticker' : 'Custom Scene'}
+            </h3>
             <p className="text-xs text-muted-foreground truncate max-w-[180px]">
               {localOverlay.prompt?.split(' ').slice(0, 4).join(' ')}...
             </p>
@@ -126,11 +128,11 @@ export const HtmlScenePanel: React.FC = () => {
         {/* Edit with AI - Now at the top */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-cyan-500" />
+            <Sparkles className={`h-4 w-4 ${localOverlay.type === OverlayType.HTML_STICKER ? 'text-pink-500' : 'text-cyan-500'}`} />
             <Label className="font-medium">Refine with AI</Label>
           </div>
           <p className="text-xs text-muted-foreground">
-            Describe changes to this scene and the AI will update it for you.
+            Describe changes to this {localOverlay.type === OverlayType.HTML_STICKER ? 'sticker' : 'scene'} and the AI will update it for you.
           </p>
           <Textarea
             placeholder="e.g., Make the text larger, change to blue theme, add more animation..."

@@ -313,7 +313,8 @@ export function AIChatPanel() {
                 ));
               } else if (data.type === 'tool_start') {
                 addLog('tool_start', `Tool started: ${data.tool}`, { args: data.args });
-                currentToolCalls.push({ name: data.tool, id: `tool_${Date.now()}`, args: data.args });
+                // Use server-provided ID for reliable matching
+                currentToolCalls.push({ name: data.tool, id: data.id || `tool_${Date.now()}`, args: data.args });
                 setMessages((prev) => prev.map(msg => 
                   (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
                     ? { ...msg, toolCalls: [...currentToolCalls] }
@@ -321,8 +322,10 @@ export function AIChatPanel() {
                 ));
               } else if (data.type === 'tool_end') {
                 addLog('tool_end', `Tool finished: ${data.tool}`, data);
-                // Update the tool call with output
-                const toolCallIndex = currentToolCalls.findIndex(tc => tc.name === data.tool);
+                // Match by ID (reliable) or fallback to name without output
+                const toolCallIndex = data.id 
+                  ? currentToolCalls.findIndex(tc => tc.id === data.id)
+                  : currentToolCalls.findIndex(tc => tc.name === data.tool && !tc.output);
                 if (toolCallIndex !== -1) {
                   currentToolCalls[toolCallIndex].output = data.output;
                   // Force update state to ensure re-render if needed
@@ -349,7 +352,8 @@ export function AIChatPanel() {
                   'split_overlay',
                   'trim_overlay',
                   'sync_style',
-                  'generate_html_scene'
+                  'generate_html_scene',
+                  'generate_html_sticker'
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {

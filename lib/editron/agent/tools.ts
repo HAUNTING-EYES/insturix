@@ -864,12 +864,34 @@ TYPE-SPECIFIC FIELDS:
 
         const durationSeconds = Math.round(input.duration / 30);
         
-        const systemPrompt = `You are a world-class motion graphics designer and creative coder.
+        const systemPrompt = `You are a world-class motion graphics designer creating AESTHETIC VIDEO BACKGROUNDS.
 Generate a self-contained HTML/CSS/JS fragment for video production.
 
 ═══════════════════════════════════════════════════════════════════
 CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '16:9'} | Duration: ~${durationSeconds}s
 ═══════════════════════════════════════════════════════════════════
+
+▸ DESIGN PHILOSOPHY (CRITICAL):
+  • Create SEAMLESS, PROFESSIONAL backgrounds that enhance video content
+  • Subtle, non-distracting motion - the background supports, not competes
+  • Harmonious 2-3 color palette max (use HSL for sophisticated colors)
+  • SOFT gradients, blur effects, and organic movement
+
+▸ PREFERRED STYLES (pick one or combine):
+  ✓ Smooth multi-stop gradients (linear, radial, conic) with subtle animation
+  ✓ Soft-blurred floating shapes (circles, blobs with filter:blur)
+  ✓ Grid/dot patterns (subtle, low opacity)
+  ✓ SVG mesh gradient effects
+  ✓ Glassmorphism with backdrop-blur
+  ✓ Noise/grain texture overlays
+  ✓ Particle systems with glow (small, blurred, slow-moving)
+
+▸ AVOID:
+  ✗ Sharp-edged random shapes without blur (looks cheap)
+  ✗ Too many colors (overwhelming)
+  ✗ Fast, distracting animations
+  ✗ Overly complex patterns
+  ✗ Harsh color contrasts
 
 ▸ LAYOUT RULES (CRITICAL):
   • Outer wrapper: \`position:absolute; inset:0; width:100%; height:100%; overflow:hidden;\`
@@ -896,7 +918,6 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
   ✗ localStorage / cookies / IndexedDB
   ✗ \`document.addEventListener("DOMContentLoaded")\` - code runs immediately
   ✗ Complex/detailed SVG graphics (low rendering accuracy - keep SVGs simple)
-  ✗ Excessive animations - prefer subtle, purposeful motion over flashy effects
 
 ▸ CAPABILITIES:
   • Simple inline SVG graphics (basic icons, shapes - NOT complex illustrations)
@@ -906,12 +927,6 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
   • Pseudo-elements (::before, ::after)
   • Google Fonts for typography
   • Great for: backgrounds, title cards, lower thirds, simple infographics
-
-▸ QUALITY:
-  • Clean, polished, professional design
-  • Subtle, intentional animations (not distracting)
-  • Professional color palettes
-  • Modern typography
 
 ▸ OUTPUT FORMAT:
   Return ONLY the raw HTML string starting with \`<\`. 
@@ -1039,46 +1054,61 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
           temperature: 0.8, // Higher creativity for stickers
         });
         
-        const systemPrompt = `You are a creative motion graphics designer specializing in animated stickers and elements.
-Generate a SELF-CONTAINED HTML/CSS animated sticker element with TRANSPARENT background.
+        const systemPrompt = `You are a creative motion graphics designer creating ANIMATED STICKER ELEMENTS.
+Generate a SELF-CONTAINED HTML/CSS sticker with LOOPING ANIMATION.
 
 ═══════════════════════════════════════════════════════════════════
-STICKER SIZE: ${stickerWidth}×${stickerHeight}px | Duration: ~${durationSeconds}s
+STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.height ? '' : ' (default size - adjust if needed)'} | Duration: ~${durationSeconds}s
 ═══════════════════════════════════════════════════════════════════
 
-▸ CRITICAL REQUIREMENTS:
-  • Outer wrapper MUST have: \`background: transparent; position: absolute; inset: 0;\`
-  • Content must stay WITHIN ${stickerWidth}×${stickerHeight}px bounds
-  • Glow/shadow effects CAN extend beyond bounds (no overflow:hidden)
-  • Animation should LOOP smoothly for visual interest
+▸ LAYOUT RULES (CRITICAL):
+  • Outer wrapper: \`position: absolute; inset: 0; width: 100%; height: 100%; background: transparent;\`
+  • Use \`display: flex; justify-content: center; align-items: center;\` for centering
+  • Main content: size at 60-80% of container for breathing room
+  • Glow/shadow CAN extend beyond bounds (no overflow:hidden)
 
-▸ ENTRY/EXIT ANIMATIONS (Host-controlled):
-  The host will apply these CSS classes:
-  • Entry: \`${enterAnim}\` animation
-  • Exit: \`${exitAnim}\` animation
+▸ ANIMATION IS MANDATORY ❗
+  • EVERY sticker MUST have a looping idle animation
+  • Use CSS @keyframes with \`animation: name 2-3s ease-in-out infinite;\`
+  • Animation ideas: pulse, glow, float, wiggle, spin, breathe, flicker
+  • Host handles entry (\`${enterAnim}\`) and exit (\`${exitAnim}\`) - YOU handle IDLE loop
+
+▸ WHEN TO USE WHAT (IMPORTANT):
+  📝 EMOJI CHARACTERS (best for reactions):
+     • Use actual emoji: 🔥 ✨ 💯 🎉 👍 etc.
+     • Style with: font-size, text-shadow, filter:drop-shadow
+     • Always add animation (pulse, bounce, glow)
+     • Example: \`<span style="font-size: 80px; animation: pulse 2s infinite;">🔥</span>\`
   
-  You should include LOOPING animations for the sticker's idle state.
-  Use CSS @keyframes with \`animation: name ${durationSeconds}s ease-in-out infinite;\`
+  🎨 CSS SHAPES (best for badges, bubbles, abstract):
+     • Use div + border-radius, gradients, shadows
+     • Great for: badges, callouts, circles, rectangles
+     • Use pseudo-elements (::before, ::after) for layered effects
+     • Example: Subscribe badge, Like button, notification bubble
+  
+  ✏️ SIMPLE SVG (best for icons, symbols, custom shapes):
+     • Use for: arrows, checkmarks, stars, simple icons
+     • Keep SVG paths simple (< 10 path commands)
+     • Animate with CSS (transform, opacity, stroke-dashoffset)
+     • Inline SVG only, NOT external files
+  
+  🖼️ LUCIDE ICONS (best for UI elements):
+     • URL: \`https://unpkg.com/lucide-static@latest/icons/{name}.svg\`
+     • Names: heart, star, thumbs-up, check, x, play, pause, etc.
+     • Load as img, style with CSS filters for color
+     • Example: \`<img src="https://unpkg.com/lucide-static@latest/icons/heart.svg" style="filter: invert(1);">\`
 
-▸ DESIGN TIPS:
-  • Bold, eye-catching visuals work best
-  • Emojis, badges, icons, particles, glows, sparkles
-  • Subtle pulsing, rotating, or breathing effects
-  • Use CSS gradients, shadows, filters for polish
-  • Google Fonts allowed: \`<link href="https://fonts.googleapis.com/css2?family=...">\`
-  • Simple SVG icons allowed (basic shapes only)
-  • Lucide icons: \`https://unpkg.com/lucide-static@latest/icons/{name}.svg\`
-
-▸ AVOID:
-  ✗ Complex/detailed SVGs (render poorly)
-  ✗ Three.js or heavy libraries
-  ✗ External API calls
-  ✗ Viewport units (vw, vh, vmin, vmax)
-  ✗ Audio elements
+▸ DO NOT USE:
+  ✗ Complex SVGs (break rendering)
+  ✗ External fonts (slow loading)
+  ✗ Three.js / heavy libraries
+  ✗ Fixed pixel sizes (use % for scalability)
+  ✗ Viewport units (vw, vh)
+  ✗ Static content with no animation
 
 ▸ OUTPUT:
-  Return ONLY the raw HTML string starting with \`<\`.
-  NO markdown fences. NO explanations.`;
+  Return ONLY raw HTML starting with \`<\`.
+  NO markdown. NO explanation.`;
 
         const result = await model.invoke([
           new SystemMessage(systemPrompt),
@@ -1088,10 +1118,12 @@ STICKER SIZE: ${stickerWidth}×${stickerHeight}px | Duration: ~${durationSeconds
         const generatedHtml = result.content as string;
         const cleanHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
 
-        // Smart row placement - stickers go on top
+        console.log('[HTML-STICKER] Generated HTML length:', cleanHtml.length);
+
+        // Smart row placement - stickers go on top (use TEXT type for physics since html-sticker isn't in physics enum)
         const existingOverlays = toExistingOverlays(project.overlays || []);
         const assignedRow = input.row ?? findBestRow(
-          OverlayType.STICKER, 
+          OverlayType.TEXT,  // Use TEXT for physics - stickers stack like text
           { from: input.start, duration: input.duration }, 
           existingOverlays
         );
@@ -1119,7 +1151,11 @@ STICKER SIZE: ${stickerWidth}×${stickerHeight}px | Duration: ~${durationSeconds
           }
         };
 
+        console.log('[HTML-STICKER] Creating overlay:', JSON.stringify(newOverlay, null, 2));
+        
         await projectService.addOverlay(userId, projectId, newOverlay as any);
+        
+        console.log('[HTML-STICKER] Overlay added successfully, ID:', id);
         
         return JSON.stringify({ 
           status: 'success', 
