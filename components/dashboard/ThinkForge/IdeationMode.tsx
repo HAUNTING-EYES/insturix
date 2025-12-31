@@ -22,6 +22,8 @@ interface IdeationModeProps {
   onUpdateIdea: (updated: IdeaCardData) => void;
   onManualSetup: () => void;
   isVisible: boolean;
+  /** Total project count for default naming */
+  projectCount?: number;
 }
 
 export default function IdeationMode({
@@ -39,7 +41,8 @@ export default function IdeationMode({
   onGoBackToIdeas,
   onUpdateIdea,
   onManualSetup,
-  isVisible
+  isVisible,
+  projectCount = 0
 }: IdeationModeProps) {
   return (
     <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
@@ -73,11 +76,13 @@ export default function IdeationMode({
               style: selectedIdea.style,
               format: selectedIdea.format,
               platform: selectedIdea.platform,
-              tone: selectedIdea.tone as any
+              tone: selectedIdea.tone as any,
+              projectName: selectedIdea.projectName
             }}
             onProceedToChat={onProceedToChat}
             onGoBack={onGoBackToIdeas}
             onUpdateIdea={(upd) => onUpdateIdea({ ...upd, id: String(upd.id) })}
+            projectCount={projectCount}
           />
         </div>
       )}

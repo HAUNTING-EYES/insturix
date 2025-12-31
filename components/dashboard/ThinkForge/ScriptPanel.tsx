@@ -14,11 +14,12 @@ interface ScriptPanelProps {
   sessionId?: string | null;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
+  onNewScript?: () => void;
 }
 
 type PanelMode = 'scripting' | 'whiteboard';
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving, onImportScript }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving, onImportScript, onNewScript }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
 
   return (
@@ -65,6 +66,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   onEditScript={onUpdate}
                   isSaving={isSaving}
                   onImportScript={onImportScript}
+                  onNewScript={onNewScript}
                 />
              </div>
           ) : (

@@ -21,6 +21,7 @@ export interface Idea {
   format: string;
   platform: string;
   tone: ThinkingHat;
+  projectName?: string;
 }
 
 export interface Script {

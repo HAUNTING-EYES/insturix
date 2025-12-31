@@ -16,6 +16,8 @@ interface ProjectMetadataSettingsProps {
   onUpdateIdea: (updatedIdea: Idea) => void;
   /** When true, hides the navigation buttons (used when opened from chat settings) */
   hideNavigation?: boolean;
+  /** Total project count for default naming (used for "Project #N") */
+  projectCount?: number;
 }
 
 // Small pill buttons for tone selection
@@ -39,8 +41,10 @@ const FORMAT_OPTIONS = [
   'Short-form Video','Long-form Video','Blog Post','Tweet Thread','Carousel','Podcast Episode','Newsletter Issue','Script Outline','Listicle','Case Study','How-To Guide','Explainer'
 ];
 
-export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false }: ProjectMetadataSettingsProps) {
-  const [localIdea, setLocalIdea] = useState<Idea>(idea);
+export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false, projectCount = 0 }: ProjectMetadataSettingsProps) {
+  // Generate default project name if not set
+  const defaultProjectName = idea.projectName || `Project #${projectCount + 1}`;
+  const [localIdea, setLocalIdea] = useState<Idea>({ ...idea, projectName: idea.projectName || defaultProjectName });
   const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean');
   // Multi-value chip states (parsed from idea on mount)
   const [platforms, setPlatforms] = useState<string[]>(() => idea.platform.split(/,\s*/).filter(Boolean));
@@ -201,7 +205,7 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
             )}
           </AnimatePresence>
           
-          {/* Begin Storyboarding Button - only show when not hideNavigation */}
+          {/* Create Project Button - only show when not hideNavigation */}
           {!hideNavigation && (
             <Button
               onClick={onProceedToChat}
@@ -209,7 +213,7 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
             >
               <span className="relative z-10 flex items-center gap-2">
                 <Play className="h-4 w-4 fill-current" /> 
-                Begin Storyboarding
+                Create Project
               </span>
               <span className="absolute inset-0 -z-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.3),transparent_60%)]" />
             </Button>
@@ -228,10 +232,24 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,0,0,0.15),transparent_60%)] opacity-50" />
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_80%,rgba(59,130,246,0.1),transparent_70%)] opacity-30" />
           <div className="relative z-10 backdrop-blur-3xl rounded-[inherit] p-8 space-y-8">
-            {/* Core Concept (Now Editable) */}
+            {/* Project Name Field */}
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                  <div className={`h-4 w-4 flex-shrink-0 rounded-full ${getToneColorClass(localIdea.tone)}`}></div>
+                 <h3 className="text-lg font-semibold leading-snug text-white/90">Project Name</h3>
+              </div>
+              <EditableArea
+                label="Project Name"
+                placeholder="Enter a name for your project..."
+                value={localIdea.projectName || ''}
+                onChange={handleChange('projectName')}
+                rows={1}
+              />
+            </div>
+
+            {/* Core Concept (Now Editable) */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-4">
                  <h3 className="text-lg font-semibold leading-snug text-white/90">Title (Core Concept)</h3>
               </div>
               <EditableArea
@@ -310,9 +328,10 @@ interface EditableAreaProps {
   value: string;
   onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
+  rows?: number;
 }
 
-function EditableArea({ label, value, onChange, placeholder }: EditableAreaProps) {
+function EditableArea({ label, value, onChange, placeholder, rows = 3 }: EditableAreaProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -328,9 +347,9 @@ function EditableArea({ label, value, onChange, placeholder }: EditableAreaProps
         <textarea
           value={value}
           onChange={onChange}
-          rows={3}
+          rows={rows}
           placeholder={placeholder}
-          className="w-full resize-none bg-transparent text-sm leading-relaxed text-white/90 outline-none placeholder:text-white/30 focus-visible:ring-0 h-20 max-h-40 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-colors"
+          className={`w-full resize-none bg-transparent text-sm leading-relaxed text-white/90 outline-none placeholder:text-white/30 focus-visible:ring-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-colors ${rows === 1 ? 'h-8 max-h-8' : 'h-20 max-h-40'}`}
         />
       </div>
     </motion.div>

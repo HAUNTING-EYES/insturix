@@ -21,6 +21,7 @@ export interface IdeaCardData {
   format: string;
   platform: string;
   tone: string;
+  projectName?: string;
 }
 
 export interface ProjectMeta {
@@ -30,6 +31,7 @@ export interface ProjectMeta {
   format?: string;
   platform?: string;
   tone?: string;
+  projectName?: string;
   preferences?: Record<string, any>;
 }
 

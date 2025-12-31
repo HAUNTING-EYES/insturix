@@ -80,26 +80,112 @@ export function parseJsonLenient(input: string): any {
   }
 }
 
-const ALLOWED_TYPES = new Set([
+// Allowed types for canonical format (with children)
+const ALLOWED_CANONICAL_TYPES = new Set([
+  'heading', 'paragraph', 'bulletList', 'numberedList', 'listItem', 'dialogue', 'code', 'quote', 'divider'
+]);
+
+// Allowed types for legacy BlockNote format (with content)
+const ALLOWED_LEGACY_TYPES = new Set([
   'heading', 'paragraph', 'bulletListItem', 'numberedListItem', 'quote', 'code'
 ]);
 
+// Valid inline node types for canonical format
+const INLINE_TYPES = new Set(['text', 'em', 'strong', 'code']);
+
+/**
+ * Sanitize inline nodes for canonical format
+ */
+function sanitizeInlineNodes(nodes: any[]): any[] {
+  if (!Array.isArray(nodes)) return [{ type: 'text', text: '' }];
+  
+  const sanitized = nodes.map((node: any) => {
+    if (!node || typeof node !== 'object') {
+      return typeof node === 'string' ? { type: 'text', text: node } : null;
+    }
+    
+    const type = String(node.type || 'text').toLowerCase();
+    if (!INLINE_TYPES.has(type)) {
+      // Try to extract text from non-inline node
+      const text = node.text ?? node.content ?? '';
+      return { type: 'text', text: String(text) };
+    }
+    
+    return {
+      type,
+      text: String(node.text ?? '')
+    };
+  }).filter(Boolean);
+  
+  return sanitized.length > 0 ? sanitized : [{ type: 'text', text: '' }];
+}
+
+/**
+ * Check if a block is in canonical format (has children array with inline nodes)
+ */
+function isCanonicalBlock(raw: any): boolean {
+  if (!raw || typeof raw !== 'object') return false;
+  if (!Array.isArray(raw.children)) return false;
+  
+  // Empty children array is valid canonical format
+  if (raw.children.length === 0) return true;
+  
+  // Check if children look like inline nodes or nested blocks
+  return raw.children.every((child: any) => {
+    if (!child || typeof child !== 'object') return false;
+    // Inline node: has type and text, no id (text can be empty string)
+    if ('type' in child && 'text' in child && !('id' in child)) return true;
+    // Nested block: has id, type, and children
+    if ('id' in child && 'type' in child && 'children' in child) return true;
+    return false;
+  });
+}
+
+/**
+ * Sanitize a block, preserving canonical format if present
+ */
 export function sanitizeBlock(raw: any): any | null {
   try {
     const MAX_TEXT = 4000;
-    const t = String(raw?.type ?? raw?.kind ?? 'paragraph').toLowerCase();
-    const type = ALLOWED_TYPES.has(t) ? t : 'paragraph';
+    const rawType = String(raw?.type ?? raw?.kind ?? 'paragraph').toLowerCase();
+    
+    // Determine if this is canonical format
+    const hasChildren = Array.isArray(raw?.children);
+    const isCanonical = hasChildren && isCanonicalBlock(raw);
+    
+    // Map type
+    let type: string;
+    if (isCanonical) {
+      type = ALLOWED_CANONICAL_TYPES.has(rawType) ? rawType : 'paragraph';
+    } else {
+      type = ALLOWED_LEGACY_TYPES.has(rawType) ? rawType : 'paragraph';
+    }
+    
+    // Ensure stable id
+    const id = ensureBlockId(raw?.id);
 
-    // props
+    // Handle props
     const props: any = {};
     if (type === 'heading') {
       let lvl = Number(raw?.props?.level ?? raw?.level ?? 1);
       if (!Number.isFinite(lvl)) lvl = 1;
-      lvl = Math.max(1, Math.min(3, Math.floor(lvl)));
+      lvl = Math.max(1, Math.min(6, Math.floor(lvl)));
       props.level = lvl;
+    } else if (type === 'code' && raw?.props?.language) {
+      props.language = String(raw.props.language);
     }
 
-    // extract text content best-effort
+    // For canonical format, preserve children structure
+    if (isCanonical) {
+      const children = sanitizeInlineNodes(raw.children);
+      const result: any = { id, type, children };
+      if (Object.keys(props).length > 0) {
+        result.props = props;
+      }
+      return result;
+    }
+
+    // Legacy format: extract text content best-effort
     const extractText = (node: any): string => {
       if (!node) return '';
       if (typeof node === 'string') return node;
@@ -116,12 +202,10 @@ export function sanitizeBlock(raw: any): any | null {
 
     const text = extractText(raw?.content ?? raw?.children ?? raw?.text ?? raw) || '';
     const content = String(text).slice(0, MAX_TEXT);
-    if (!content) return null;
-
-    // ensure stable id
-    const id = ensureBlockId(raw?.id);
+    if (!content && type !== 'divider') return null;
 
     if (type === 'heading') return { id, type, props, content };
+    if (type === 'divider') return { id, type, content: '' };
     return { id, type, content };
   } catch {
     return null;
@@ -160,16 +244,20 @@ export function sanitizeServerScript(input: any): ScriptModel {
     })
     .filter(Boolean) as Block[];
   
-  // Validate block structure matches BlockNote schema
+  // Validate block structure - supports both canonical (children) and legacy (content) formats
   const validatedBlocks = blocks.map((block: any, index: number) => {
     // Ensure required fields
-    if (!block || !block.type || block.content === undefined) {
+    if (!block || !block.type) {
       return null;
     }
     
-    // Ensure content is string or array (BlockNote accepts both)
-    if (typeof block.content !== 'string' && !Array.isArray(block.content)) {
-      block.content = String(block.content || '');
+    // Check if canonical format (has children array)
+    const hasChildren = Array.isArray(block.children);
+    const hasContent = block.content !== undefined;
+    
+    // Block must have either children (canonical) or content (legacy)
+    if (!hasChildren && !hasContent) {
+      return null;
     }
     
     // Ensure ID is valid
@@ -187,7 +275,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
     return block;
   }).filter(Boolean) as Block[];
   
-  // Fallback: If no blocks but content exists, create blocks from content
+  // Fallback: If no blocks but content exists, create blocks from content (canonical format)
   if (validatedBlocks.length === 0 && content && content.trim().length > 0) {
     console.log('sanitizeServerScript: No blocks but content exists, creating blocks from content');
     const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
@@ -196,7 +284,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
         id: ensureBlockId(null),
         type: 'heading',
         props: { level: 1 },
-        content: title || 'Untitled Script'
+        children: [{ type: 'text', text: title || 'Untitled Script' }]
       });
       
       for (const para of paras.slice(0, MAX_BLOCKS - 1)) {
@@ -204,7 +292,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
           validatedBlocks.push({
             id: ensureBlockId(null),
             type: 'paragraph',
-            content: para.slice(0, 4000)
+            children: [{ type: 'text', text: para.slice(0, 4000) }]
           });
         }
       }
@@ -218,7 +306,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
       id: ensureBlockId(null),
       type: 'heading',
       props: { level: 1 },
-      content: title
+      children: [{ type: 'text', text: title }]
     });
   }
   

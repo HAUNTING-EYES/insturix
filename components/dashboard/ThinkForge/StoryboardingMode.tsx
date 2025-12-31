@@ -24,6 +24,7 @@ interface StoryboardingModeProps {
   onGoToIdeation: () => void;
   onUpdateIdea?: (idea: IdeaCardData) => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
+  onNewScript?: () => void;
 }
 
 const MIN_WIDTH = 300;
@@ -44,7 +45,8 @@ export default function StoryboardingMode({
   onImportScript,
   onGoToIdeation,
   onUpdateIdea,
-  onSwitchSession
+  onSwitchSession,
+  onNewScript
 }: StoryboardingModeProps) {
   const [chatWidth, setChatWidth] = useState(DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
@@ -188,6 +190,7 @@ export default function StoryboardingMode({
                 onUpdate={onUpdateScript}
                 onBack={onBack}
                 onImportScript={onImportScript}
+                onNewScript={onNewScript}
               />
             </div>
           </div>
@@ -228,7 +231,8 @@ export default function StoryboardingMode({
                         style: selectedIdea.style,
                         format: selectedIdea.format,
                         platform: selectedIdea.platform,
-                        tone: selectedIdea.tone as any
+                        tone: selectedIdea.tone as any,
+                        projectName: selectedIdea.projectName
                       }}
                       onProceedToChat={handleCloseSettings}
                       onGoBack={onGoToIdeation}

@@ -217,7 +217,8 @@ export default function ThinkForgeLanding() {
 						style: (selectedIdea as any)?.style,
 						format: (selectedIdea as any)?.format,
 						platform: (selectedIdea as any)?.platform,
-						tone: selectedIdea.tone
+						tone: selectedIdea.tone,
+						projectName: (selectedIdea as any)?.projectName
 					}
 				});
 				if (created?.sessionId) {
@@ -403,6 +404,7 @@ export default function ThinkForgeLanding() {
 							format: pm.format || '',
 							platform: pm.platform || '',
 							tone: (pm.tone || 'blue') as any,
+							projectName: pm.projectName || undefined,
 						} as any;
 						setSelectedIdea(ideaObj);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
@@ -443,6 +445,7 @@ export default function ThinkForgeLanding() {
 				onUpdateIdea={handleUpdateIdea}
 				onManualSetup={handleJumpToSettings}
 				isVisible={workspaceMode === 'ideation'}
+				projectCount={sessions.length}
 			/>
 
 			<StoryboardingMode
@@ -464,6 +467,15 @@ export default function ThinkForgeLanding() {
 					setPrompt("");
 					setIdeationPhase('PROMPT');
 					setWorkspaceMode('ideation');
+				}}
+				onNewScript={() => {
+					// Clear the current script to start fresh
+					scriptHook.setScriptWithoutSave({
+						title: selectedIdea?.idea || 'New Script',
+						content: '',
+						blocks: null,
+						metadata: null,
+					});
 				}}
 				onImportScript={async (data) => {
 					try {
@@ -508,6 +520,7 @@ export default function ThinkForgeLanding() {
 							format: pm.format || '',
 							platform: pm.platform || '',
 							tone: (pm.tone || 'blue') as any,
+							projectName: pm.projectName || undefined,
 						} as any;
 						setSelectedIdea(ideaObj);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
@@ -563,6 +576,7 @@ export default function ThinkForgeLanding() {
 									format: pm.format || '',
 									platform: pm.platform || '',
 									tone: (pm.tone || 'blue') as any,
+									projectName: pm.projectName || undefined,
 								} as any;
 								setSelectedIdea(ideaObj);
 							}

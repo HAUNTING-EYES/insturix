@@ -213,6 +213,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
         sessionId={sessionId || null}
         currentMessages={formattedMessages}
         onSwitchSession={onSwitchSession}
+        currentProjectMeta={{
+          idea: selectedIdea?.idea,
+          purpose: (selectedIdea as any)?.purpose,
+          tone: selectedIdea?.tone,
+          projectName: (selectedIdea as any)?.projectName,
+        }}
+        onNewChat={handleNewChat}
       />
     </div>
   );

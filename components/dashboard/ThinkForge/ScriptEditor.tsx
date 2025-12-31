@@ -13,13 +13,31 @@ import {
   Eye,
   Edit,
   FileText,
-  GitBranch
+  GitBranch,
+  Plus,
+  History,
+  MoreVertical,
+  FileDown,
+  Import
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { Script, Idea } from '@/app/dashboard/thinkforge/types';
 import { getToneColorClass } from '@/lib/thinkforge/tone';
 
@@ -65,6 +83,7 @@ interface ScriptEditorProps {
   generatingScript?: boolean;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
+  onNewScript?: () => void;
 }
 
 export default function ScriptEditor({
@@ -75,7 +94,8 @@ export default function ScriptEditor({
   onEditScript,
   generatingScript = false,
   isSaving = false,
-  onImportScript
+  onImportScript,
+  onNewScript
 }: ScriptEditorProps) {
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
@@ -127,59 +147,64 @@ export default function ScriptEditor({
       }];
     }
     
-    // Check if blocks are canonical format (have 'children' field)
-    const isCanonical = script.blocks.every(
-      (b: any) => b && typeof b === 'object' && 'id' in b && 'type' in b && 'children' in b
-    );
-    
-    if (isCanonical) {
-      // Convert canonical to BlockNote
-      try {
-        return canonicalToBlockNote(script.blocks as BlockTree);
-      } catch (error) {
-        console.error("Failed to convert canonical blocks on mount:", error);
-        // Fallback to empty heading
-        return [{
-          type: 'heading',
-          props: { level: 1 },
-          content: script?.title || 'Untitled Script'
-        }];
-      }
-    }
-    
-    // Legacy BlockNote format - convert to canonical first, then to BlockNote
-    // This ensures we normalize all blocks through canonical format
+    // Normalize all blocks to canonical format, then convert to BlockNote
+    // This handles both canonical (children) and legacy (content) formats
     try {
-      // Convert legacy blocks to canonical (they may have content field)
-      const legacyBlocks = script.blocks.map((b: any) => {
-        if (b && typeof b === 'object' && 'type' in b) {
-          // If it has content but not children, it's legacy BlockNote format
-          if ('content' in b && !('children' in b)) {
-            // Convert legacy BlockNote block to canonical
-            return {
-              id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-              type: b.type,
-              props: b.props,
-              children: Array.isArray(b.content) 
-                ? b.content.map((c: any) => ({ type: 'text' as const, text: typeof c === 'string' ? c : (c?.text || '') }))
-                : [{ type: 'text' as const, text: typeof b.content === 'string' ? b.content : '' }]
-            };
-          }
+      const normalizedBlocks = script.blocks.map((b: any) => {
+        if (!b || typeof b !== 'object' || !('type' in b)) {
+          return null;
         }
-        return b;
-      });
+        
+        // Already canonical format (has children array)
+        if ('children' in b && Array.isArray(b.children)) {
+          return {
+            id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: b.type,
+            props: b.props,
+            children: b.children
+          };
+        }
+        
+        // Legacy BlockNote format (has content field)
+        if ('content' in b) {
+          return {
+            id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: b.type,
+            props: b.props,
+            children: Array.isArray(b.content) 
+              ? b.content.map((c: any) => ({ 
+                  type: 'text' as const, 
+                  text: typeof c === 'string' ? c : (c?.text || '') 
+                }))
+              : [{ 
+                  type: 'text' as const, 
+                  text: typeof b.content === 'string' ? b.content : '' 
+                }]
+          };
+        }
+        
+        // Block with neither - create empty paragraph
+        return {
+          id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          type: b.type || 'paragraph',
+          props: b.props,
+          children: [{ type: 'text', text: '' }]
+        };
+      }).filter(Boolean);
       
-      // Now convert to BlockNote
-      return canonicalToBlockNote(legacyBlocks as BlockTree);
+      if (normalizedBlocks.length > 0) {
+        return canonicalToBlockNote(normalizedBlocks as BlockTree);
+      }
     } catch (error) {
-      console.error("Failed to convert legacy blocks:", error);
-      // Final fallback
-      return [{
-        type: 'heading',
-        props: { level: 1 },
-        content: script?.title || 'Untitled Script'
-      }];
+      console.error("Failed to convert blocks on mount:", error);
     }
+    
+    // Final fallback
+    return [{
+      type: 'heading',
+      props: { level: 1 },
+      content: script?.title || 'Untitled Script'
+    }];
   }, []); // Only on mount
 
   // Create BlockNote editor
@@ -258,7 +283,25 @@ export default function ScriptEditor({
             const data = await response.json();
             if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
               try {
-                const blockNoteBlocks = canonicalToBlockNote(data.blocks as BlockTree);
+                // Normalize blocks to canonical format
+                const normalizedBlocks = data.blocks.map((b: any) => {
+                  if (!b || typeof b !== 'object' || !('type' in b)) return null;
+                  if ('children' in b && Array.isArray(b.children)) {
+                    return { id: b.id, type: b.type, props: b.props, children: b.children };
+                  }
+                  if ('content' in b) {
+                    return {
+                      id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                      type: b.type, props: b.props,
+                      children: Array.isArray(b.content)
+                        ? b.content.map((c: any) => ({ type: 'text', text: typeof c === 'string' ? c : (c?.text || '') }))
+                        : [{ type: 'text', text: typeof b.content === 'string' ? b.content : '' }]
+                    };
+                  }
+                  return { id: b.id, type: b.type || 'paragraph', props: b.props, children: [{ type: 'text', text: '' }] };
+                }).filter(Boolean);
+                
+                const blockNoteBlocks = canonicalToBlockNote(normalizedBlocks as BlockTree);
                 if (blockNoteBlocks.length > 0) {
                   const blocksHash = JSON.stringify(blockNoteBlocks);
                   // Only update if blocks actually changed
@@ -274,7 +317,7 @@ export default function ScriptEditor({
                   return;
                 }
               } catch (conversionError) {
-                console.error('ScriptEditor: Failed to convert canonical blocks:', conversionError);
+                console.error('ScriptEditor: Failed to convert blocks:', conversionError);
               }
             }
           }
@@ -285,28 +328,40 @@ export default function ScriptEditor({
       
       // Fallback: use script.blocks prop if available and no API data
       if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
-        const isCanonical = script.blocks.every(
-          (b: any) => b && typeof b === 'object' && 'id' in b && 'type' in b && 'children' in b
-        );
-        
-        if (isCanonical) {
-          try {
-            const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
-            if (blockNoteBlocks.length > 0) {
-              const blocksHash = JSON.stringify(blockNoteBlocks);
-              if (blocksHash !== lastLoadedBlocksRef.current) {
-                isUpdatingFromPropsRef.current = true;
-                editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-                isUpdatingFromPropsRef.current = false;
-                setHasUnsavedChanges(false);
-                lastLoadedBlocksRef.current = blocksHash;
-                initialLoadDoneRef.current = true;
-                console.log('ScriptEditor: Loaded blocks from prop');
-              }
+        try {
+          // Normalize blocks to canonical format
+          const normalizedBlocks = script.blocks.map((b: any) => {
+            if (!b || typeof b !== 'object' || !('type' in b)) return null;
+            if ('children' in b && Array.isArray(b.children)) {
+              return { id: b.id, type: b.type, props: b.props, children: b.children };
             }
-          } catch (error) {
-            console.error("ScriptEditor: Failed to convert canonical blocks:", error);
+            if ('content' in b) {
+              return {
+                id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                type: b.type, props: b.props,
+                children: Array.isArray(b.content)
+                  ? b.content.map((c: any) => ({ type: 'text', text: typeof c === 'string' ? c : (c?.text || '') }))
+                  : [{ type: 'text', text: typeof b.content === 'string' ? b.content : '' }]
+              };
+            }
+            return { id: b.id, type: b.type || 'paragraph', props: b.props, children: [{ type: 'text', text: '' }] };
+          }).filter(Boolean);
+          
+          const blockNoteBlocks = canonicalToBlockNote(normalizedBlocks as BlockTree);
+          if (blockNoteBlocks.length > 0) {
+            const blocksHash = JSON.stringify(blockNoteBlocks);
+            if (blocksHash !== lastLoadedBlocksRef.current) {
+              isUpdatingFromPropsRef.current = true;
+              editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+              isUpdatingFromPropsRef.current = false;
+              setHasUnsavedChanges(false);
+              lastLoadedBlocksRef.current = blocksHash;
+              initialLoadDoneRef.current = true;
+              console.log('ScriptEditor: Loaded blocks from prop');
+            }
           }
+        } catch (error) {
+          console.error("ScriptEditor: Failed to convert blocks:", error);
         }
       }
     };
@@ -339,6 +394,7 @@ export default function ScriptEditor({
   // Handle script.blocks updates from AI generation (via chat)
   // This is separate from initial load - it's for when AI generates new content
   const prevScriptBlocksRef = useRef<string>('');
+  const prevMetadataRef = useRef<string>('');
   
   useEffect(() => {
     if (!editor || !script?.blocks || !Array.isArray(script.blocks) || script.blocks.length === 0) {
@@ -355,22 +411,52 @@ export default function ScriptEditor({
     }
     
     const scriptBlocksHash = JSON.stringify(script.blocks);
+    const metadataHash = JSON.stringify(script.metadata);
     
-    // Skip if blocks haven't changed
-    if (scriptBlocksHash === prevScriptBlocksRef.current) {
+    // Skip if this exact script+metadata was already processed
+    if (scriptBlocksHash === prevScriptBlocksRef.current && metadataHash === prevMetadataRef.current) {
       return;
     }
     
-    // Skip if user is actively editing
-    if (hasUnsavedChanges || autosaveTimerRef.current) {
-      console.log('ScriptEditor: Skipping AI update, user is editing');
-      return;
-    }
+    // NOTE: We DO NOT skip when hasUnsavedChanges is true for AI-generated content.
+    // When the user explicitly asks the AI to edit/create, the AI result should take precedence.
+    // The previous check was blocking legitimate AI updates.
     
     prevScriptBlocksRef.current = scriptBlocksHash;
+    prevMetadataRef.current = metadataHash;
     
     try {
-      const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
+      // Clear any pending autosave timer since AI content takes precedence
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+      
+      // Normalize blocks to canonical format (handle both canonical and legacy)
+      const normalizedBlocks = script.blocks.map((b: any) => {
+        if (!b || typeof b !== 'object' || !('type' in b)) return null;
+        
+        // Already canonical format (has children array)
+        if ('children' in b && Array.isArray(b.children)) {
+          return { id: b.id, type: b.type, props: b.props, children: b.children };
+        }
+        
+        // Legacy format (has content field)
+        if ('content' in b) {
+          return {
+            id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            type: b.type,
+            props: b.props,
+            children: Array.isArray(b.content)
+              ? b.content.map((c: any) => ({ type: 'text', text: typeof c === 'string' ? c : (c?.text || '') }))
+              : [{ type: 'text', text: typeof b.content === 'string' ? b.content : '' }]
+          };
+        }
+        
+        return { id: b.id, type: b.type || 'paragraph', props: b.props, children: [{ type: 'text', text: '' }] };
+      }).filter(Boolean);
+      
+      const blockNoteBlocks = canonicalToBlockNote(normalizedBlocks as BlockTree);
       if (blockNoteBlocks.length > 0) {
         const blocksHash = JSON.stringify(blockNoteBlocks);
         if (blocksHash !== lastLoadedBlocksRef.current) {
@@ -385,7 +471,7 @@ export default function ScriptEditor({
     } catch (error) {
       console.error('ScriptEditor: Failed to apply AI-generated blocks:', error);
     }
-  }, [script?.blocks, script?.metadata, editor, hasUnsavedChanges]);
+  }, [script?.blocks, script?.metadata, editor]);
 
   // Poll for blocks ONLY when script is being generated (not during normal editing)
   useEffect(() => {
@@ -738,90 +824,9 @@ export default function ScriptEditor({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="space-y-6 relative max-w-5xl mx-auto"
+      className="space-y-4 relative max-w-5xl mx-auto"
     >
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
-          {generatingScript && !script && (
-            <span className="text-sm text-zinc-400">Generating...</span>
-          )}
-        </div>
-        
-        <div className="flex items-center gap-4">
-          {/* Tools Group: Preview/Edit Toggle */}
-          <div className="flex items-center gap-2">
-            <Eye className="h-4 w-4 text-zinc-400" />
-            <Switch
-              checked={!isPreviewMode}
-              onCheckedChange={(checked) => setIsPreviewMode(!checked)}
-              disabled={generatingScript && !script}
-            />
-            <Edit className="h-4 w-4 text-zinc-400" />
-          </div>
-
-          {/* Tools Group: Action Buttons */}
-          <div className="flex items-center gap-2 border-l border-zinc-700 pl-4">
-            <Button
-              onClick={handleCopy}
-              variant="outline"
-              size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-            >
-              {copied ? (
-                <Check className="h-4 w-4 mr-2 text-green-400" />
-              ) : (
-                <Copy className="h-4 w-4 mr-2" />
-              )}
-              {copied ? 'Copied!' : 'Copy'}
-            </Button>
-
-            <Button
-              onClick={handleExportPDF}
-              variant="outline"
-              size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-              disabled={generatingScript && !script}
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Export PDF
-            </Button>
-
-            <Button
-              onClick={() => setShowBranchEditor(true)}
-              variant="outline"
-              size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-              disabled={generatingScript && !script}
-            >
-              <GitBranch className="h-4 w-4 mr-2" />
-              History
-            </Button>
-          </div>
-
-          {/* Autosave indicator */}
-          <div className="flex items-center border-l border-zinc-700 pl-4">
-            {isSaving ? (
-              <div className="flex items-center gap-2 text-xs text-zinc-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Saving...
-              </div>
-            ) : justSaved ? (
-              <div className="flex items-center gap-2 text-xs text-green-400">
-                <Check className="h-4 w-4" />
-                Saved
-              </div>
-            ) : hasUnsavedChanges ? (
-              <div className="text-xs text-amber-400">Unsaved</div>
-            ) : (
-              <div className="text-xs text-zinc-500">All saved</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Format Toolbar - Show when not in preview mode and script exists */}
+      {/* Format Toolbar - Always at top when editing */}
       {!isPreviewMode && (!generatingScript || script) && (
         <div className="flex justify-center">
           <FormatToolbar 
@@ -830,6 +835,164 @@ export default function ScriptEditor({
           />
         </div>
       )}
+
+      {/* Header - All Tools Consolidated */}
+      <div className="flex items-center justify-between px-2">
+        {/* Left section: Tone indicator + New Script + History */}
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
+          {generatingScript && !script && (
+            <span className="text-sm text-zinc-400">Generating...</span>
+          )}
+          
+          {/* New Script Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={onNewScript}
+                  variant="outline"
+                  size="sm"
+                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                  disabled={!onNewScript}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>New Script</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* History/Version Button */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={() => setShowBranchEditor(true)}
+                  variant="outline"
+                  size="sm"
+                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                  disabled={generatingScript && !script}
+                >
+                  <History className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Script History</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        
+        {/* Center section: Edit Mode Toggle */}
+        <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg px-3 py-1.5 border border-zinc-800">
+          <Eye className={`h-4 w-4 ${isPreviewMode ? 'text-red-400' : 'text-zinc-500'}`} />
+          <Switch
+            checked={!isPreviewMode}
+            onCheckedChange={(checked) => setIsPreviewMode(!checked)}
+            disabled={generatingScript && !script}
+            className="data-[state=checked]:bg-red-600"
+          />
+          <Edit className={`h-4 w-4 ${!isPreviewMode ? 'text-red-400' : 'text-zinc-500'}`} />
+        </div>
+
+        {/* Right section: Actions + Save Status */}
+        <div className="flex items-center gap-2">
+          {/* Quick Actions */}
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleCopy}
+                  variant="outline"
+                  size="sm"
+                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                >
+                  {copied ? (
+                    <Check className="h-4 w-4 text-green-400" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{copied ? 'Copied!' : 'Copy to Clipboard'}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  onClick={handleExportPDF}
+                  variant="outline"
+                  size="sm"
+                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                  disabled={generatingScript && !script}
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Export PDF</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+
+          {/* More Actions Dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-700">
+              <DropdownMenuItem
+                onClick={() => setImportOpen(true)}
+                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+              >
+                <Import className="h-4 w-4 mr-2" />
+                Import JSON
+              </DropdownMenuItem>
+              <DropdownMenuSeparator className="bg-zinc-700" />
+              <DropdownMenuItem
+                onClick={() => setShowBranchEditor(true)}
+                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                disabled={generatingScript && !script}
+              >
+                <GitBranch className="h-4 w-4 mr-2" />
+                Branches & Versions
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Save Status Indicator */}
+          <div className="flex items-center pl-2 border-l border-zinc-700 ml-1">
+            {isSaving ? (
+              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <span>Saving</span>
+              </div>
+            ) : justSaved ? (
+              <div className="flex items-center gap-1.5 text-xs text-green-400">
+                <Check className="h-3.5 w-3.5" />
+                <span>Saved</span>
+              </div>
+            ) : hasUnsavedChanges ? (
+              <div className="text-xs text-amber-400">Unsaved</div>
+            ) : (
+              <div className="text-xs text-zinc-500">Saved</div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* Loading State */}
       {generatingScript && !script && (

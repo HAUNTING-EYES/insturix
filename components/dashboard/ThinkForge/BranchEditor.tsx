@@ -173,6 +173,71 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
     );
   }
 
+  // Handle missing sessionId
+  if (!sessionId) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+          <div className="flex items-center gap-3">
+            <GitBranch className="h-5 w-5 text-red-500" />
+            <h2 className="text-lg font-semibold text-zinc-100">Script History</h2>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="text-zinc-400 hover:text-zinc-100"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
+          <History className="h-12 w-12 text-zinc-600 mb-4" />
+          <h3 className="text-lg font-medium text-zinc-300 mb-2">No Session Active</h3>
+          <p className="text-sm text-zinc-500 mb-4">
+            Start working on a script to enable version history.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle errors
+  if (versionManager.error) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+          <div className="flex items-center gap-3">
+            <GitBranch className="h-5 w-5 text-red-500" />
+            <h2 className="text-lg font-semibold text-zinc-100">Script History</h2>
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            className="text-zinc-400 hover:text-zinc-100"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
+          <History className="h-12 w-12 text-red-500/50 mb-4" />
+          <h3 className="text-lg font-medium text-zinc-300 mb-2">Error Loading History</h3>
+          <p className="text-sm text-red-400 mb-4">
+            {versionManager.error}
+          </p>
+          <Button
+            onClick={() => window.location.reload()}
+            variant="outline"
+            className="border-zinc-700 text-zinc-300"
+          >
+            Reload Page
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -211,9 +276,9 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
 
       {/* Main content */}
       {versionManager.hasVersions && (
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Version list */}
-          <div className="w-1/2 border-r border-zinc-800">
+          <div className="w-1/2 border-r border-zinc-800 flex flex-col">
             {/* View mode tabs */}
             <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
               <TabsList className="w-full bg-zinc-900/50 p-1">
@@ -233,7 +298,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
             </Tabs>
 
             {/* Version list */}
-            <ScrollArea className="h-[400px]">
+            <ScrollArea className="flex-1">
               <div className="p-2 space-y-1">
                 {history.map((item, index) => (
                   <button
