@@ -1,7 +1,7 @@
 import React from "react";
 import { useCurrentFrame } from "remotion";
-import { Caption, CaptionOverlay, HighlightEffect, HighlightAnimation } from "../../../types";
-import { defaultCaptionStyles } from "./default-caption-styles";
+import { Caption, CaptionOverlay, CaptionWord, HighlightEffect, HighlightAnimation, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
+import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
 
 /**
  * Props for the CaptionLayerContent component
@@ -80,6 +80,7 @@ const getAnimationStyles = (
 /**
  * CaptionLayerContent Component
  * Renders animated captions with word-by-word highlighting and customizable effects
+ * Supports multiple display modes: word-by-word, phrase, karaoke, subtitle
  */
 export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   overlay,
@@ -88,6 +89,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   const frameMs = (frame / 30) * 1000;
   const styles = overlay.styles || defaultCaptionStyles;
   const highlight = styles.highlight || styles.highlightStyle || defaultCaptionStyles.highlight;
+  const displayConfig = overlay.displayConfig || defaultDisplayConfig;
 
   // Find current caption based on frame timestamp
   const currentCaption = overlay.captions.find(
@@ -97,22 +99,72 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   if (!currentCaption) return null;
 
   /**
+   * Determines which words to display based on display mode
+   */
+  const getWordsToDisplay = (caption: Caption): { word: CaptionWord; state: "active" | "visible" | "faded" }[] => {
+    const { mode, showPreviousWords, fadeOutPreviousWords } = displayConfig;
+    const words = caption.words || [];
+    
+    // Find the currently active word index
+    const activeWordIndex = words.findIndex(
+      (word) => frameMs >= word.startMs && frameMs <= word.endMs
+    );
+
+    if (mode === "word-by-word") {
+      // Only show the current word
+      if (activeWordIndex === -1) return [];
+      return [{ word: words[activeWordIndex], state: "active" }];
+    }
+
+    if (mode === "phrase") {
+      // Show words around the active word based on wordsPerGroup
+      const halfWindow = Math.floor(displayConfig.wordsPerGroup / 2);
+      const start = Math.max(0, activeWordIndex - halfWindow);
+      const end = Math.min(words.length, start + displayConfig.wordsPerGroup);
+      
+      return words.slice(start, end).map((word, i) => ({
+        word,
+        state: (start + i) === activeWordIndex ? "active" : "visible",
+      }));
+    }
+
+    // karaoke and subtitle modes - show all words in the caption
+    return words.map((word, index) => {
+      const isActive = frameMs >= word.startMs && frameMs <= word.endMs;
+      const isPast = frameMs > word.endMs;
+      
+      if (isActive) return { word, state: "active" as const };
+      
+      if (isPast && showPreviousWords) {
+        return { word, state: fadeOutPreviousWords ? "faded" as const : "visible" as const };
+      }
+      
+      // Future words - show but not highlighted
+      return { word, state: "visible" as const };
+    });
+  };
+
+  /**
    * Renders individual words with highlight animations and effects
    */
   const renderWords = (caption: Caption) => {
-    return caption?.words?.map((word, index) => {
-      const isHighlighted = frameMs >= word.startMs && frameMs <= word.endMs;
+    const wordsToDisplay = getWordsToDisplay(caption);
+    
+    return wordsToDisplay.map(({ word, state }, index) => {
+      const isActive = state === "active";
+      const isFaded = state === "faded";
+      
       // Calculate progress within the word's duration for smooth animations
       const wordDuration = word.endMs - word.startMs;
-      const progress = isHighlighted
+      const progress = isActive
         ? (frameMs - word.startMs) / Math.max(wordDuration, 100)
         : 0;
 
-      const effectStyles = getEffectStyles(highlight.effect, isHighlighted);
-      const animationStyles = getAnimationStyles(highlight.animation, isHighlighted, progress);
+      const effectStyles = getEffectStyles(highlight.effect, isActive);
+      const animationStyles = getAnimationStyles(highlight.animation, isActive, progress);
 
       // Build the base transform
-      let baseTransform = isHighlighted
+      let baseTransform = isActive
         ? `scale(${1 + (highlight.scale - 1) * Math.min(progress * 3, 1)})`
         : "scale(1)";
 
@@ -126,16 +178,16 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
           key={`${word.word}-${index}`}
           className={`inline-block ${styles.fontFamily}`}
           style={{
-            color: isHighlighted ? highlight.color : styles.color,
-            backgroundColor: isHighlighted
+            color: isActive ? highlight.color : styles.color,
+            backgroundColor: isActive
               ? highlight.backgroundColor
               : "transparent",
-            opacity: isHighlighted ? 1 : 0.85,
+            opacity: isFaded ? 0.5 : (isActive ? 1 : 0.85),
             transform: baseTransform,
-            fontWeight: isHighlighted
+            fontWeight: isActive
               ? highlight.fontWeight || 600
               : styles.fontWeight || 400,
-            textShadow: isHighlighted
+            textShadow: isActive
               ? highlight.textShadow
               : styles.textShadow,
             padding: highlight.padding || "4px 8px",

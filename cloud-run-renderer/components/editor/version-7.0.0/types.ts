@@ -10,6 +10,7 @@ export enum OverlayType {
   STICKER = "sticker",
   TEMPLATE = "template",
   AI_CHAT = "ai-chat", // AI Chat panel
+  HTML_SCENE = "html-scene", // HTML generated content
 }
 // Base overlay properties
 type BaseOverlay = {
@@ -34,10 +35,11 @@ type BaseStyles = {
   transform?: string;
 };
 
-// Base animation type
-type AnimationConfig = {
+// Base animation type - extended to be compatible with CSSProperties potentially
+export type AnimationConfig = {
   enter?: string;
   exit?: string;
+  duration?: number;
 };
 
 // Text overlay specific
@@ -133,42 +135,107 @@ export type Caption = {
   words: CaptionWord[];
 };
 
-// Update CaptionOverlay to include styling for highlighted words
-export interface CaptionStyles {
-  fontFamily: string;
-  fontSize: string;
-  lineHeight: number;
-  textAlign: "left" | "center" | "right";
+// Caption display modes for different content types
+export type CaptionDisplayMode = "word-by-word" | "phrase" | "karaoke" | "subtitle";
+
+/**
+ * Display configuration for captions
+ * Controls how words are grouped and displayed
+ */
+export interface CaptionDisplayConfig {
+  /** Display mode: word-by-word (1 word), phrase (3-4), karaoke (5-6), subtitle (8-12) */
+  mode: CaptionDisplayMode;
+  /** Number of words to show at once (1-12) */
+  wordsPerGroup: number;
+  /** Maximum words per line before wrapping */
+  maxWordsPerLine: number;
+  /** Keep previous words visible (progressive reveal) */
+  showPreviousWords: boolean;
+  /** Fade/dim previous words when progressive reveal is on */
+  fadeOutPreviousWords: boolean;
+}
+
+/** Default display configs for each mode */
+export const DEFAULT_DISPLAY_CONFIGS: Record<CaptionDisplayMode, CaptionDisplayConfig> = {
+  "word-by-word": {
+    mode: "word-by-word",
+    wordsPerGroup: 1,
+    maxWordsPerLine: 1,
+    showPreviousWords: false,
+    fadeOutPreviousWords: false,
+  },
+  "phrase": {
+    mode: "phrase",
+    wordsPerGroup: 4,
+    maxWordsPerLine: 4,
+    showPreviousWords: false,
+    fadeOutPreviousWords: false,
+  },
+  "karaoke": {
+    mode: "karaoke",
+    wordsPerGroup: 5,
+    maxWordsPerLine: 6,
+    showPreviousWords: true,
+    fadeOutPreviousWords: true,
+  },
+  "subtitle": {
+    mode: "subtitle",
+    wordsPerGroup: 10,
+    maxWordsPerLine: 12,
+    showPreviousWords: true,
+    fadeOutPreviousWords: false,
+  },
+};
+
+// Enhanced CaptionStyles for full customization
+export type HighlightEffect = "none" | "glow" | "box" | "underline" | "pop";
+export type HighlightAnimation = "none" | "bounce" | "pulse" | "scale";
+
+export interface CaptionHighlightStyle {
   color: string;
+  backgroundColor: string;
+  scale: number;  // 1.0 - 1.3
+  fontWeight?: number;
+  textShadow?: string;
+  padding?: string;
+  borderRadius?: string;
+  effect: HighlightEffect;
+  animation: HighlightAnimation;
+}
+
+export interface CaptionStyles {
+  // Typography (matches text overlay pattern)
+  fontFamily: string;  // font-sans, font-serif, font-mono, etc.
+  fontSize: string;
+  fontWeight: number | string;
+  color: string;
+  textAlign: "left" | "center" | "right";
+  lineHeight: number;
+  letterSpacing?: string;
+  textShadow?: string;
+  
+  // Background
   backgroundColor?: string;
   background?: string;
   backdropFilter?: string;
   padding?: string;
-  fontWeight?: number | string;
-  letterSpacing?: string;
-  textShadow?: string;
   borderRadius?: string;
-  transition?: string;
-  highlightStyle?: {
-    backgroundColor?: string;
-    color?: string;
-    scale?: number;
-    fontWeight?: number;
-    textShadow?: string;
-    padding?: string;
-    borderRadius?: string;
-    transition?: string;
-    background?: string;
-    border?: string;
-    backdropFilter?: string;
-  };
+  
+  // Word highlight (when active)
+  highlight: CaptionHighlightStyle;
+  
+  // Legacy compat (deprecated, use highlight)
+  highlightStyle?: CaptionHighlightStyle;
 }
 
 export interface CaptionOverlay extends BaseOverlay {
   type: OverlayType.CAPTION;
   captions: Caption[];
-  styles?: CaptionStyles;
+  styles: CaptionStyles;
   template?: string;
+  position?: "bottom" | "top" | "center" | "custom";
+  /** Display configuration for word grouping and display mode */
+  displayConfig?: CaptionDisplayConfig;
 }
 
 export type StickerCategory =
@@ -189,6 +256,20 @@ export type StickerOverlay = BaseOverlay & {
     strokeWidth?: number;
     scale?: number;
     filter?: string;
+    animation?: AnimationConfig;
+  };
+};
+
+// HTML Scene overlay specific
+export type HtmlSceneOverlay = BaseOverlay & {
+  type: OverlayType.HTML_SCENE;
+  content: string; // The generated HTML content
+  prompt?: string; // The prompt used to generate this
+  styles: BaseStyles & {
+    backgroundColor?: string;
+    borderRadius?: string;
+    boxShadow?: string;
+    border?: string;
     animation?: AnimationConfig;
   };
 };
@@ -220,7 +301,8 @@ export type Overlay =
   | ClipOverlay
   | SoundOverlay
   | CaptionOverlay
-  | StickerOverlay;
+  | StickerOverlay
+  | HtmlSceneOverlay;
 
 export type MainProps = {
   readonly overlays: Overlay[];

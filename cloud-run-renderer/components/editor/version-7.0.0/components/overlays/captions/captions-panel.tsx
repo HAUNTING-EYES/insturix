@@ -4,8 +4,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEditorContext } from "../../../contexts/editor-context";
 import { useTimelinePositioning } from "../../../hooks/use-timeline-positioning";
 import { useTimeline } from "../../../contexts/timeline-context";
-import { CaptionOverlay, OverlayType, Caption } from "../../../types";
+import { CaptionOverlay, OverlayType, Caption, CaptionWord } from "../../../types";
 import { CaptionSettings } from "./caption-settings";
+import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
+import { groupWordsIntoCaptions } from "@/lib/editron/utils/caption-utils";
 import { Upload, X } from "lucide-react";
 
 /**
@@ -132,16 +134,20 @@ export const CaptionsPanel: React.FC = () => {
     const newCaptionOverlay: CaptionOverlay = {
       id: Date.now(),
       type: OverlayType.CAPTION,
-      from: position.from, // Use the position from findNextAvailablePosition
+      from: position.from,
       durationInFrames: calculatedDurationInFrames,
       captions: processedCaptions,
-      left: 230,
-      top: 414,
-      width: 833,
-      height: 269,
+      // Responsive positioning: 80% width, centered, bottom 15%
+      left: playerDimensions.width * 0.1,
+      top: playerDimensions.height * 0.75,
+      width: playerDimensions.width * 0.8,
+      height: playerDimensions.height * 0.2,
       rotation: 0,
       isDragging: false,
       row: position.row,
+      styles: defaultCaptionStyles,
+      displayConfig: defaultDisplayConfig,
+      position: "bottom",
     };
 
     addOverlay(newCaptionOverlay);
@@ -164,31 +170,19 @@ export const CaptionsPanel: React.FC = () => {
           e.target?.result as string
         ) as WordsFileData;
 
-        // Group words into chunks of 5
-        const processedCaptions: Caption[] = [];
-        for (let i = 0; i < jsonData.words.length; i += 5) {
-          const wordChunk = jsonData.words.slice(i, i + 5);
-          const startMs = wordChunk[0].start * 1000;
-          const endMs = wordChunk[wordChunk.length - 1].end * 1000;
+        // Convert WordData to CaptionWord format
+        const captionWords: CaptionWord[] = jsonData.words.map((w) => ({
+          word: w.word,
+          startMs: w.start * 1000,
+          endMs: w.end * 1000,
+          confidence: w.confidence,
+        }));
 
-          const captionText = wordChunk.map((w) => w.word).join(" ");
-
-          processedCaptions.push({
-            text: captionText,
-            startMs,
-            endMs,
-            timestampMs: null,
-            confidence:
-              wordChunk.reduce((acc, w) => acc + w.confidence, 0) /
-              wordChunk.length,
-            words: wordChunk.map((w) => ({
-              word: w.word,
-              startMs: w.start * 1000,
-              endMs: w.end * 1000,
-              confidence: w.confidence,
-            })),
-          });
-        }
+        // Use utility function to group words based on default config
+        const processedCaptions = groupWordsIntoCaptions(captionWords, {
+          wordsPerGroup: defaultDisplayConfig.wordsPerGroup,
+          groupByPunctuation: true,
+        });
 
         // Calculate total duration
         const totalDurationMs =
@@ -206,16 +200,20 @@ export const CaptionsPanel: React.FC = () => {
         const newCaptionOverlay: CaptionOverlay = {
           id: Date.now(),
           type: OverlayType.CAPTION,
-          from: position.from, // Use the position from findNextAvailablePosition
+          from: position.from,
           durationInFrames: calculatedDurationInFrames,
           captions: processedCaptions,
-          left: 230,
-          top: 414,
-          width: 833,
-          height: 269,
+          // Responsive positioning: 80% width, centered, bottom 15%
+          left: playerDimensions.width * 0.1,
+          top: playerDimensions.height * 0.75,
+          width: playerDimensions.width * 0.8,
+          height: playerDimensions.height * 0.2,
           rotation: 0,
           isDragging: false,
           row: position.row,
+          styles: defaultCaptionStyles,
+          displayConfig: defaultDisplayConfig,
+          position: "bottom",
         };
 
         addOverlay(newCaptionOverlay);

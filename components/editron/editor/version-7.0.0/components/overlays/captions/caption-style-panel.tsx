@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { CaptionOverlay, CaptionStyles, HighlightEffect, HighlightAnimation } from "../../../types";
+import { CaptionOverlay, CaptionStyles, HighlightEffect, HighlightAnimation, CaptionDisplayMode, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { captionTemplates } from "../../../templates/caption-templates";
+import { defaultDisplayConfig } from "./default-caption-styles";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import { Switch } from "@/components/ui/switch";
 import {
   Tabs,
   TabsContent,
@@ -18,13 +20,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronDown, ChevronRight, Type, Sparkles, Layout, Layers, Settings2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Type, Sparkles, Layout, Layers, Settings2, Film } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CaptionStylePanelProps {
   localOverlay: CaptionOverlay;
   setLocalOverlay: (overlay: CaptionOverlay) => void;
 }
+
+// Display mode options
+const displayModes: { value: CaptionDisplayMode; label: string; description: string }[] = [
+  { value: "word-by-word", label: "Word by Word", description: "TikTok style - 1 word at a time" },
+  { value: "phrase", label: "Phrase", description: "Reels/Shorts - 3-4 words" },
+  { value: "karaoke", label: "Karaoke", description: "All words, highlight active" },
+  { value: "subtitle", label: "Subtitle", description: "Full sentences" },
+];
 
 // Available fonts (same as text overlays)
 const fonts = [
@@ -100,6 +110,7 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
 }) => {
   const styles = localOverlay.styles;
   const highlight = styles.highlight || styles.highlightStyle;
+  const displayConfig = localOverlay.displayConfig || defaultDisplayConfig;
 
   const updateStyles = (updates: Partial<CaptionStyles>) => {
     setLocalOverlay({
@@ -118,6 +129,20 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
     });
   };
 
+  const updateDisplayConfig = (updates: Partial<CaptionDisplayConfig>) => {
+    setLocalOverlay({
+      ...localOverlay,
+      displayConfig: { ...displayConfig, ...updates },
+    });
+  };
+
+  const applyDisplayMode = (mode: CaptionDisplayMode) => {
+    setLocalOverlay({
+      ...localOverlay,
+      displayConfig: { ...DEFAULT_DISPLAY_CONFIGS[mode] },
+    });
+  };
+
   const applyTemplate = (key: string, template: typeof captionTemplates[string]) => {
     setLocalOverlay({
       ...localOverlay,
@@ -127,9 +152,19 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
   };
 
   return (
-    <Tabs defaultValue="templates" className="w-full">
+    <Tabs defaultValue="display" className="w-full">
       {/* Tab Navigation */}
-      <TabsList className="w-full grid grid-cols-2 bg-muted/50 backdrop-blur-sm rounded-sm border border-border gap-1 mb-4">
+      <TabsList className="w-full grid grid-cols-3 bg-muted/50 backdrop-blur-sm rounded-sm border border-border gap-1 mb-4">
+        <TabsTrigger
+          value="display"
+          className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
+            rounded-sm transition-all duration-200 text-muted-foreground hover:text-foreground hover:bg-muted"
+        >
+          <span className="flex items-center gap-2 text-xs">
+            <Film className="w-3 h-3" />
+            Display
+          </span>
+        </TabsTrigger>
         <TabsTrigger
           value="templates"
           className="data-[state=active]:bg-accent data-[state=active]:text-foreground 
@@ -151,6 +186,92 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           </span>
         </TabsTrigger>
       </TabsList>
+
+      {/* Display Tab */}
+      <TabsContent value="display" className="space-y-4 mt-0 focus-visible:outline-none">
+        {/* Display Mode Selection */}
+        <div className="space-y-3">
+          <Label className="text-xs text-muted-foreground">Display Mode</Label>
+          <div className="grid grid-cols-2 gap-2">
+            {displayModes.map((mode) => (
+              <button
+                key={mode.value}
+                onClick={() => applyDisplayMode(mode.value)}
+                className={cn(
+                  "p-3 text-left rounded-lg border transition-all",
+                  displayConfig.mode === mode.value
+                    ? "bg-primary/10 border-primary ring-1 ring-primary/20"
+                    : "bg-muted/30 border-border hover:border-primary/50"
+                )}
+              >
+                <div className="font-medium text-xs">{mode.label}</div>
+                <div className="text-[10px] text-muted-foreground">{mode.description}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Words Per Group Slider */}
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <Label className="text-xs text-muted-foreground">Words Per Group</Label>
+            <span className="text-xs text-muted-foreground font-mono">{displayConfig.wordsPerGroup}</span>
+          </div>
+          <Slider
+            value={[displayConfig.wordsPerGroup]}
+            min={1}
+            max={12}
+            step={1}
+            onValueChange={([value]) => updateDisplayConfig({ wordsPerGroup: value })}
+          />
+          <p className="text-[10px] text-muted-foreground">
+            {displayConfig.wordsPerGroup === 1 ? "Single word" : 
+             displayConfig.wordsPerGroup <= 4 ? "Best for Shorts/Reels" :
+             displayConfig.wordsPerGroup <= 6 ? "Balanced" : "Best for long-form"}
+          </p>
+        </div>
+
+        {/* Max Words Per Line */}
+        <div className="space-y-2">
+          <div className="flex justify-between">
+            <Label className="text-xs text-muted-foreground">Max Words Per Line</Label>
+            <span className="text-xs text-muted-foreground font-mono">{displayConfig.maxWordsPerLine}</span>
+          </div>
+          <Slider
+            value={[displayConfig.maxWordsPerLine]}
+            min={1}
+            max={12}
+            step={1}
+            onValueChange={([value]) => updateDisplayConfig({ maxWordsPerLine: value })}
+          />
+        </div>
+
+        {/* Progressive Reveal Toggle */}
+        <div className="flex items-center justify-between py-2">
+          <div>
+            <Label className="text-xs">Show Previous Words</Label>
+            <p className="text-[10px] text-muted-foreground">Keep spoken words visible</p>
+          </div>
+          <Switch
+            checked={displayConfig.showPreviousWords}
+            onCheckedChange={(checked) => updateDisplayConfig({ showPreviousWords: checked })}
+          />
+        </div>
+
+        {/* Fade Previous Words Toggle */}
+        {displayConfig.showPreviousWords && (
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <Label className="text-xs">Fade Previous Words</Label>
+              <p className="text-[10px] text-muted-foreground">Dim words after speaking</p>
+            </div>
+            <Switch
+              checked={displayConfig.fadeOutPreviousWords}
+              onCheckedChange={(checked) => updateDisplayConfig({ fadeOutPreviousWords: checked })}
+            />
+          </div>
+        )}
+      </TabsContent>
 
       {/* Templates Tab */}
       <TabsContent value="templates" className="space-y-4 mt-0 focus-visible:outline-none">

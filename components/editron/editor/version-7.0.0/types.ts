@@ -135,6 +135,58 @@ export type Caption = {
   words: CaptionWord[];
 };
 
+// Caption display modes for different content types
+export type CaptionDisplayMode = "word-by-word" | "phrase" | "karaoke" | "subtitle";
+
+/**
+ * Display configuration for captions
+ * Controls how words are grouped and displayed
+ */
+export interface CaptionDisplayConfig {
+  /** Display mode: word-by-word (1 word), phrase (3-4), karaoke (5-6), subtitle (8-12) */
+  mode: CaptionDisplayMode;
+  /** Number of words to show at once (1-12) */
+  wordsPerGroup: number;
+  /** Maximum words per line before wrapping */
+  maxWordsPerLine: number;
+  /** Keep previous words visible (progressive reveal) */
+  showPreviousWords: boolean;
+  /** Fade/dim previous words when progressive reveal is on */
+  fadeOutPreviousWords: boolean;
+}
+
+/** Default display configs for each mode */
+export const DEFAULT_DISPLAY_CONFIGS: Record<CaptionDisplayMode, CaptionDisplayConfig> = {
+  "word-by-word": {
+    mode: "word-by-word",
+    wordsPerGroup: 1,
+    maxWordsPerLine: 1,
+    showPreviousWords: false,
+    fadeOutPreviousWords: false,
+  },
+  "phrase": {
+    mode: "phrase",
+    wordsPerGroup: 4,
+    maxWordsPerLine: 4,
+    showPreviousWords: false,
+    fadeOutPreviousWords: false,
+  },
+  "karaoke": {
+    mode: "karaoke",
+    wordsPerGroup: 5,
+    maxWordsPerLine: 6,
+    showPreviousWords: true,
+    fadeOutPreviousWords: true,
+  },
+  "subtitle": {
+    mode: "subtitle",
+    wordsPerGroup: 10,
+    maxWordsPerLine: 12,
+    showPreviousWords: true,
+    fadeOutPreviousWords: false,
+  },
+};
+
 // Enhanced CaptionStyles for full customization
 export type HighlightEffect = "none" | "glow" | "box" | "underline" | "pop";
 export type HighlightAnimation = "none" | "bounce" | "pulse" | "scale";
@@ -182,6 +234,8 @@ export interface CaptionOverlay extends BaseOverlay {
   styles: CaptionStyles;
   template?: string;
   position?: "bottom" | "top" | "center" | "custom";
+  /** Display configuration for word grouping and display mode */
+  displayConfig?: CaptionDisplayConfig;
 }
 
 export type StickerCategory =

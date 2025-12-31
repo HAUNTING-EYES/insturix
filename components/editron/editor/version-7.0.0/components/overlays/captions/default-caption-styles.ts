@@ -1,4 +1,4 @@
-import { CaptionStyles } from "../../../types";
+import { CaptionStyles, CaptionDisplayConfig } from "../../../types";
 
 /**
  * Default styling configuration for captions
@@ -22,4 +22,15 @@ export const defaultCaptionStyles: CaptionStyles = {
     effect: "box",
     animation: "scale",
   },
+};
+
+/**
+ * Default display configuration for captions (karaoke mode)
+ */
+export const defaultDisplayConfig: CaptionDisplayConfig = {
+  mode: "karaoke",
+  wordsPerGroup: 5,
+  maxWordsPerLine: 6,
+  showPreviousWords: true,
+  fadeOutPreviousWords: true,
 };
