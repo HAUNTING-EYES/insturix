@@ -105,6 +105,7 @@ export const LayerContent: React.FC<LayerContentProps> = ({
       );
 
     case OverlayType.HTML_SCENE:
+    case OverlayType.HTML_STICKER:
       return (
         <div style={{ ...commonStyle }}>
           <HtmlSceneLayerContent overlay={overlay} />

@@ -1,9 +1,9 @@
 import React, { useRef, useEffect, useLayoutEffect } from "react";
-import { HtmlSceneOverlay } from "../../../types";
+import { HtmlSceneOverlay, HtmlStickerOverlay } from "../../../types";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 
 interface HtmlSceneLayerContentProps {
-  overlay: HtmlSceneOverlay;
+  overlay: HtmlSceneOverlay | HtmlStickerOverlay;
 }
 
 export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({

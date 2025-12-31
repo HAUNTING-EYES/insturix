@@ -10,7 +10,8 @@ export enum OverlayType {
   STICKER = "sticker",
   TEMPLATE = "template",
   AI_CHAT = "ai-chat", // AI Chat panel
-  HTML_SCENE = "html-scene", // HTML generated content
+  HTML_SCENE = "html-scene", // HTML generated content (backgrounds, diagrams)
+  HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
 }
 // Base overlay properties
 type BaseOverlay = {
@@ -260,7 +261,7 @@ export type StickerOverlay = BaseOverlay & {
   };
 };
 
-// HTML Scene overlay specific
+// HTML Scene overlay specific (full-screen backgrounds, diagrams)
 export type HtmlSceneOverlay = BaseOverlay & {
   type: OverlayType.HTML_SCENE;
   content: string; // The generated HTML content
@@ -270,6 +271,16 @@ export type HtmlSceneOverlay = BaseOverlay & {
     borderRadius?: string;
     boxShadow?: string;
     border?: string;
+    animation?: AnimationConfig;
+  };
+};
+
+// HTML Sticker overlay specific (transparent animated elements)
+export type HtmlStickerOverlay = BaseOverlay & {
+  type: OverlayType.HTML_STICKER;
+  content: string; // The generated HTML content
+  prompt?: string; // The prompt used to generate this
+  styles: BaseStyles & {
     animation?: AnimationConfig;
   };
 };
@@ -302,7 +313,8 @@ export type Overlay =
   | SoundOverlay
   | CaptionOverlay
   | StickerOverlay
-  | HtmlSceneOverlay;
+  | HtmlSceneOverlay
+  | HtmlStickerOverlay;
 
 export type MainProps = {
   readonly overlays: Overlay[];
