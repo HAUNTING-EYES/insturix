@@ -135,42 +135,53 @@ export type Caption = {
   words: CaptionWord[];
 };
 
-// Update CaptionOverlay to include styling for highlighted words
-export interface CaptionStyles {
-  fontFamily: string;
-  fontSize: string;
-  lineHeight: number;
-  textAlign: "left" | "center" | "right";
+// Enhanced CaptionStyles for full customization
+export type HighlightEffect = "none" | "glow" | "box" | "underline" | "pop";
+export type HighlightAnimation = "none" | "bounce" | "pulse" | "scale";
+
+export interface CaptionHighlightStyle {
   color: string;
+  backgroundColor: string;
+  scale: number;  // 1.0 - 1.3
+  fontWeight?: number;
+  textShadow?: string;
+  padding?: string;
+  borderRadius?: string;
+  effect: HighlightEffect;
+  animation: HighlightAnimation;
+}
+
+export interface CaptionStyles {
+  // Typography (matches text overlay pattern)
+  fontFamily: string;  // font-sans, font-serif, font-mono, etc.
+  fontSize: string;
+  fontWeight: number | string;
+  color: string;
+  textAlign: "left" | "center" | "right";
+  lineHeight: number;
+  letterSpacing?: string;
+  textShadow?: string;
+  
+  // Background
   backgroundColor?: string;
   background?: string;
   backdropFilter?: string;
   padding?: string;
-  fontWeight?: number | string;
-  letterSpacing?: string;
-  textShadow?: string;
   borderRadius?: string;
-  transition?: string;
-  highlightStyle?: {
-    backgroundColor?: string;
-    color?: string;
-    scale?: number;
-    fontWeight?: number;
-    textShadow?: string;
-    padding?: string;
-    borderRadius?: string;
-    transition?: string;
-    background?: string;
-    border?: string;
-    backdropFilter?: string;
-  };
+  
+  // Word highlight (when active)
+  highlight: CaptionHighlightStyle;
+  
+  // Legacy compat (deprecated, use highlight)
+  highlightStyle?: CaptionHighlightStyle;
 }
 
 export interface CaptionOverlay extends BaseOverlay {
   type: OverlayType.CAPTION;
   captions: Caption[];
-  styles?: CaptionStyles;
+  styles: CaptionStyles;
   template?: string;
+  position?: "bottom" | "top" | "center" | "custom";
 }
 
 export type StickerCategory =

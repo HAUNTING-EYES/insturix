@@ -1,42 +1,85 @@
 import React from "react";
 import { useCurrentFrame } from "remotion";
-import { Caption, CaptionOverlay } from "../../../types";
-import { defaultCaptionStyles } from "./caption-settings";
+import { Caption, CaptionOverlay, HighlightEffect, HighlightAnimation } from "../../../types";
+import { defaultCaptionStyles } from "./default-caption-styles";
 
 /**
  * Props for the CaptionLayerContent component
- * @interface CaptionLayerContentProps
- * @property {CaptionOverlay} overlay - The caption overlay object containing timing and style information
  */
 interface CaptionLayerContentProps {
   overlay: CaptionOverlay;
 }
 
 /**
+ * Get CSS for highlight effects
+ */
+const getEffectStyles = (effect: HighlightEffect, isActive: boolean): React.CSSProperties => {
+  if (!isActive) return {};
+  
+  switch (effect) {
+    case "glow":
+      return {
+        boxShadow: "0 0 20px currentColor, 0 0 40px currentColor",
+      };
+    case "box":
+      return {
+        // Box effect handled by backgroundColor
+      };
+    case "underline":
+      return {
+        textDecoration: "underline",
+        textUnderlineOffset: "4px",
+        textDecorationThickness: "3px",
+      };
+    case "pop":
+      return {
+        filter: "drop-shadow(0 4px 6px rgba(0,0,0,0.4))",
+      };
+    default:
+      return {};
+  }
+};
+
+/**
+ * Calculate frame-based animation values that sync with timeline
+ * Returns inline styles instead of CSS animation classes
+ */
+const getAnimationStyles = (
+  animation: HighlightAnimation,
+  isActive: boolean,
+  progress: number
+): React.CSSProperties => {
+  if (!isActive) return {};
+  
+  // Progress cycles from 0-1 based on word timing
+  const cycleProgress = progress % 1;
+  
+  switch (animation) {
+    case "bounce": {
+      // Bounce animation: move up and down based on progress
+      const bounceY = Math.sin(cycleProgress * Math.PI * 2) * -6; // -6px to 6px
+      return {
+        transform: `translateY(${bounceY}px)`,
+      };
+    }
+    case "pulse": {
+      // Pulse animation: scale in and out
+      const pulseScale = 1 + Math.sin(cycleProgress * Math.PI * 2) * 0.08; // 0.92 to 1.08
+      return {
+        transform: `scale(${pulseScale})`,
+      };
+    }
+    case "scale":
+      // Scale handled by the main transform logic
+      return {};
+    default:
+      return {};
+  }
+};
+
+/**
  * CaptionLayerContent Component
- *
- * @component
- * @description
- * Renders animated captions in the video editor with word-by-word highlighting.
- * Features include:
- * - Word-by-word timing and animation
- * - Customizable text styles and animations
- * - Smooth transitions between words
- * - Dynamic highlighting based on current frame
- *
- * The component calculates timing for each word and applies appropriate
- * styling and animations based on the current playback position.
- *
- * @example
- * ```tsx
- * <CaptionLayerContent
- *   overlay={{
- *     captions: [...],
- *     styles: {...},
- *     // other overlay properties
- *   }}
- * />
- * ```
+ * Renders animated captions with word-by-word highlighting and customizable effects
  */
 export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   overlay,
@@ -44,10 +87,9 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   const frame = useCurrentFrame();
   const frameMs = (frame / 30) * 1000;
   const styles = overlay.styles || defaultCaptionStyles;
+  const highlight = styles.highlight || styles.highlightStyle || defaultCaptionStyles.highlight;
 
-  /**
-   * Finds the current caption based on the frame timestamp
-   */
+  // Find current caption based on frame timestamp
   const currentCaption = overlay.captions.find(
     (caption) => frameMs >= caption.startMs && frameMs <= caption.endMs
   );
@@ -55,46 +97,52 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   if (!currentCaption) return null;
 
   /**
-   * Renders individual words with highlight animations
-   * @param caption - The current caption object containing words and timing
+   * Renders individual words with highlight animations and effects
    */
   const renderWords = (caption: Caption) => {
     return caption?.words?.map((word, index) => {
       const isHighlighted = frameMs >= word.startMs && frameMs <= word.endMs;
+      // Calculate progress within the word's duration for smooth animations
+      const wordDuration = word.endMs - word.startMs;
       const progress = isHighlighted
-        ? Math.min((frameMs - word.startMs) / 300, 1)
+        ? (frameMs - word.startMs) / Math.max(wordDuration, 100)
         : 0;
 
-      const highlightStyle =
-        styles.highlightStyle || defaultCaptionStyles.highlightStyle;
+      const effectStyles = getEffectStyles(highlight.effect, isHighlighted);
+      const animationStyles = getAnimationStyles(highlight.animation, isHighlighted, progress);
+
+      // Build the base transform
+      let baseTransform = isHighlighted
+        ? `scale(${1 + (highlight.scale - 1) * Math.min(progress * 3, 1)})`
+        : "scale(1)";
+
+      // Merge animation transform if present (for bounce/pulse)
+      if (animationStyles.transform && highlight.animation !== "scale") {
+        baseTransform = `${baseTransform} ${animationStyles.transform}`;
+      }
 
       return (
         <span
           key={`${word.word}-${index}`}
-          className="inline-block transition-all duration-200"
+          className={`inline-block ${styles.fontFamily}`}
           style={{
-            color: isHighlighted ? highlightStyle?.color : styles.color,
+            color: isHighlighted ? highlight.color : styles.color,
             backgroundColor: isHighlighted
-              ? highlightStyle?.backgroundColor
+              ? highlight.backgroundColor
               : "transparent",
             opacity: isHighlighted ? 1 : 0.85,
-            transform: isHighlighted
-              ? `scale(${
-                  1 +
-                  (highlightStyle?.scale
-                    ? (highlightStyle.scale - 1) * progress
-                    : 0.08)
-                })`
-              : "scale(1)",
+            transform: baseTransform,
             fontWeight: isHighlighted
-              ? highlightStyle?.fontWeight || 600
+              ? highlight.fontWeight || 600
               : styles.fontWeight || 400,
             textShadow: isHighlighted
-              ? highlightStyle?.textShadow
+              ? highlight.textShadow
               : styles.textShadow,
-            padding: highlightStyle?.padding || "4px 8px",
-            borderRadius: highlightStyle?.borderRadius || "4px",
+            padding: highlight.padding || "4px 8px",
+            borderRadius: highlight.borderRadius || "4px",
             margin: "0 2px",
+            transition: "color 150ms, background-color 150ms, opacity 150ms",
+            ...effectStyles,
           }}
         >
           {word.word}
@@ -107,21 +155,27 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     <div
       className="absolute inset-0 flex items-center justify-center p-4"
       style={{
-        ...styles,
-        width: "100%",
-        height: "100%",
+        backgroundColor: styles.backgroundColor,
+        background: styles.background,
+        backdropFilter: styles.backdropFilter,
+        borderRadius: styles.borderRadius,
+        padding: styles.padding,
       }}
     >
       <div
-        className="leading-relaxed tracking-wide"
+        className={`leading-relaxed tracking-wide ${styles.fontFamily}`}
         style={{
+          fontSize: styles.fontSize,
+          fontWeight: styles.fontWeight,
+          letterSpacing: styles.letterSpacing,
+          lineHeight: styles.lineHeight,
+          textAlign: styles.textAlign,
           whiteSpace: "pre-wrap",
           width: "100%",
-          textAlign: "center",
           wordBreak: "break-word",
           display: "flex",
           flexWrap: "wrap",
-          justifyContent: "center",
+          justifyContent: styles.textAlign === "center" ? "center" : styles.textAlign === "right" ? "flex-end" : "flex-start",
           alignItems: "center",
           gap: "2px",
         }}

@@ -6,6 +6,7 @@ import { useTimelinePositioning } from "../../../hooks/use-timeline-positioning"
 import { useTimeline } from "../../../contexts/timeline-context";
 import { CaptionOverlay, OverlayType, Caption } from "../../../types";
 import { CaptionSettings } from "./caption-settings";
+import { defaultCaptionStyles } from "./default-caption-styles";
 import { Upload, X } from "lucide-react";
 
 /**
@@ -132,16 +133,19 @@ export const CaptionsPanel: React.FC = () => {
     const newCaptionOverlay: CaptionOverlay = {
       id: Date.now(),
       type: OverlayType.CAPTION,
-      from: position.from, // Use the position from findNextAvailablePosition
+      from: position.from,
       durationInFrames: calculatedDurationInFrames,
       captions: processedCaptions,
-      left: 230,
-      top: 414,
-      width: 833,
-      height: 269,
+      // Responsive positioning: 80% width, centered, bottom 15%
+      left: playerDimensions.width * 0.1,
+      top: playerDimensions.height * 0.75,
+      width: playerDimensions.width * 0.8,
+      height: playerDimensions.height * 0.2,
       rotation: 0,
       isDragging: false,
       row: position.row,
+      styles: defaultCaptionStyles,
+      position: "bottom",
     };
 
     addOverlay(newCaptionOverlay);
@@ -206,16 +210,19 @@ export const CaptionsPanel: React.FC = () => {
         const newCaptionOverlay: CaptionOverlay = {
           id: Date.now(),
           type: OverlayType.CAPTION,
-          from: position.from, // Use the position from findNextAvailablePosition
+          from: position.from,
           durationInFrames: calculatedDurationInFrames,
           captions: processedCaptions,
-          left: 230,
-          top: 414,
-          width: 833,
-          height: 269,
+          // Responsive positioning: 80% width, centered, bottom 15%
+          left: playerDimensions.width * 0.1,
+          top: playerDimensions.height * 0.75,
+          width: playerDimensions.width * 0.8,
+          height: playerDimensions.height * 0.2,
           rotation: 0,
           isDragging: false,
           row: position.row,
+          styles: defaultCaptionStyles,
+          position: "bottom",
         };
 
         addOverlay(newCaptionOverlay);
