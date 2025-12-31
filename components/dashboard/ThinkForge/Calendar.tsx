@@ -710,20 +710,16 @@ export default function Calendar({
   }, [showDatePicker, updatePickerPosition]);
 
   return (
-    <div className="fixed inset-0 left-16 bg-neutral-950 flex flex-col overflow-hidden z-30">
-      {/* Calendar Grid - Disabled Background */}
+    <div className="relative w-full h-full bg-neutral-950 flex flex-col overflow-hidden z-30">
+      {/* Calendar Grid - Interactive */}
       <div 
         ref={scrollContainerRef}
-        className="flex-1 overflow-auto bg-neutral-950 relative pb-24 pointer-events-none"
+        className="flex-1 overflow-auto bg-neutral-950 relative pb-24"
       >
         {/* Fade overlays */}
-        <div className="pointer-events-none fixed inset-0 left-16 z-20">
+        <div className="pointer-events-none absolute inset-0 z-20">
           {/* Bottom fade */}
           <div className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-t from-neutral-950 to-transparent" />
-          {/* Left fade */}
-          <div className="absolute top-0 bottom-0 left-0 w-12 bg-gradient-to-r from-neutral-950 to-transparent" />
-          {/* Right fade */}
-          <div className="absolute top-0 bottom-0 right-0 w-12 bg-gradient-to-l from-neutral-950 to-transparent" />
         </div>
 
         <div className="min-h-full" role="grid">
@@ -744,10 +740,19 @@ export default function Calendar({
                 className={isFirstMonth ? '' : 'mt-12'}
               >
                 {/* Month Header */}
-                <div className="sticky top-0 z-20 bg-neutral-950/95 backdrop-blur-xl border-b border-neutral-800/50 py-2 px-4 mb-2">
+                <div className="sticky top-0 z-20 bg-neutral-950/95 backdrop-blur-xl border-b border-neutral-800/50 py-2 px-4 mb-2 flex items-center justify-between">
                   <h2 className="text-lg font-semibold text-neutral-200">
                     {format(monthDate, 'MMMM yyyy')}
                   </h2>
+                  <div className="flex items-center gap-2">
+                     <button
+                        onClick={handleCreateNewCard}
+                        className="px-3 py-1.5 rounded-lg bg-neutral-800/60 hover:bg-neutral-800/90 text-neutral-300 text-xs font-medium flex items-center gap-2 border border-neutral-700/50"
+                     >
+                        <Plus size={14} />
+                        New Content
+                     </button>
+                  </div>
                 </div>
                 
                 {/* Calendar Grid for this month */}
@@ -769,12 +774,20 @@ export default function Calendar({
                           ${isCurrentMonth ? 'bg-neutral-950' : 'bg-neutral-900/20'}
                           ${isTodayDate ? 'bg-red-950/20 border-red-900/40 shadow-[inset_0_0_0_1px_rgba(127,29,29,0.25)]' : ''}
                           ${idx % 7 === 6 ? 'border-r-0' : ''}
+                          hover:bg-neutral-900/50 transition-colors
                         `}
                         role="gridcell"
                         aria-label={format(day, 'MMMM d, yyyy')}
+                        onClick={() => {
+                           if (dayEvents.length === 0) {
+                              onCreateCard?.(day);
+                           } else {
+                              onCellClick?.(day);
+                           }
+                        }}
                       >
                         {/* Day number */}
-                        <div className="flex items-start justify-between mb-2">
+                        <div className="flex items-start justify-between mb-2 pointer-events-none">
                           <span
                             className={`
                               text-base font-semibold
@@ -803,8 +816,8 @@ export default function Calendar({
                               >
                                 <EventChip
                                   event={event}
-                                  onClick={() => {}}
-                                  onDragEnd={() => {}}
+                                  onClick={() => setSelectedCard(event as ContentCard)}
+                                  onDragEnd={onEventDrop}
                                 />
                               </motion.div>
                             ))}
@@ -826,57 +839,6 @@ export default function Calendar({
               </div>
             );
           })}
-        </div>
-      </div>
-
-      {/* Coming Soon Overlay */}
-      <div 
-        className="absolute inset-0 flex items-center justify-center bg-gradient-to-b from-neutral-950/70 via-neutral-950/60 to-neutral-950/70 backdrop-blur-md z-50"
-      >
-        <div className="text-center space-y-8 px-8 max-w-2xl">
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
-            className="space-y-6"
-          >
-            {/* Icon Container */}
-            <div className="flex justify-center">
-              <motion.div 
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ delay: 0.2, type: "spring", stiffness: 200, damping: 15 }}
-                className="relative"
-              >
-                <div className="absolute inset-0 bg-red-500/20 blur-2xl rounded-full animate-pulse" />
-                <div className="relative p-6 rounded-3xl bg-gradient-to-br from-red-600/30 via-red-500/20 to-neutral-900/60 border-2 border-red-500/40 shadow-2xl shadow-red-900/20 backdrop-blur-xl">
-                  <CalendarIcon size={56} className="text-red-400/90 drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]" />
-                </div>
-              </motion.div>
-            </div>
-
-            {/* Title */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.3 }}
-            >
-              <h2 className="text-4xl md:text-5xl font-bold bg-gradient-to-br from-red-200 via-red-100 to-neutral-100 bg-clip-text text-transparent tracking-tight mb-3">
-                Calendar Coming Soon
-              </h2>
-              <div className="h-1 w-24 bg-gradient-to-r from-transparent via-red-500/50 to-transparent mx-auto rounded-full" />
-            </motion.div>
-
-            {/* Description */}
-            <motion.p 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="text-neutral-300 max-w-lg mx-auto text-lg leading-relaxed"
-            >
-              We're building an intelligent content calendar to help you plan, schedule, and manage your content across all platforms.
-            </motion.p>
-          </motion.div>
         </div>
       </div>
 

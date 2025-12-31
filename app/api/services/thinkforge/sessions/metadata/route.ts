@@ -1,66 +1,54 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
-import { getServiceConfig } from '@/lib/config/services';
+import * as db from '@/lib/thinkforge/services/db';
 
-const serviceConfig = getServiceConfig('thinkforge');
-const THINKFORGE_BACKEND_URL = process.env.THINKFORGE_BACKEND_URL || 'http://localhost:8080';
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.userId) {
+    const { userId } = await auth();
+    if (!userId) {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    // Call ThinkForge backend to get session metadata only
-    const backendResponse = await fetch(
-      `${THINKFORGE_BACKEND_URL}/api/thinkforge/sessions/metadata?user_id=${session.userId}`,
-      {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${session.userId}`
-        }
-      }
-    );
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get('limit') || '50', 10);
+    const offset = parseInt(url.searchParams.get('offset') || '0', 10);
 
-    if (!backendResponse.ok) {
-      const errorData = await backendResponse.json().catch(() => ({}));
-      return NextResponse.json(
-        { 
-          error: errorData.detail || 'Failed to fetch session metadata',
-          success: false 
-        },
-        { status: backendResponse.status }
-      );
-    }
+    // Get all sessions for this user from database
+    const allSessions = await db.getUserSessions(userId);
 
-    const result = await backendResponse.json();
-
-    // Transform backend data to frontend metadata format
-    const sessions = result.sessions?.map((session: any) => ({
-      id: session.id,
-      name: truncatePrompt(session.initial_prompt || 'Untitled Session'),
-      userId: session.user_id,
-      createdAt: session.created_at,
-      lastModified: session.updated_at || session.created_at,
-      stage: determineStage(session),
-      isUsed: isSessionUsed(session),
-      ideaCount: session.ideas?.length || 0,
-      chatMessageCount: session.chat_history?.length || 0,
-      hasScript: !!session.generated_script
-    })) || [];
+    // Transform database sessions to frontend metadata format
+    const sessions = allSessions
+      .sort((a: any, b: any) => {
+        const aTime = new Date(b.updatedAt || b.createdAt || 0).getTime();
+        const bTime = new Date(a.updatedAt || a.createdAt || 0).getTime();
+        return aTime - bTime;
+      })
+      .slice(offset, offset + limit)
+      .map((session: any) => ({
+        id: session._id || session.id,
+        name: session.projectMeta?.idea || session.projectMeta?.purpose || `Session ${String(session._id).slice(-6)}`,
+        userId: session.userId,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt || session.createdAt,
+        lastModified: session.updatedAt || session.createdAt,
+        projectMeta: session.projectMeta || {},
+        tone: session.projectMeta?.tone || 'blue'
+      }));
 
     return NextResponse.json({
       success: true,
       sessions,
-      total: sessions.length
+      total: allSessions.length
     });
 
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error fetching session metadata:', error);
     return NextResponse.json(
       { 
         success: false,

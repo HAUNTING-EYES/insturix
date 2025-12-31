@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Loader2, RefreshCw, Send, CornerDownLeft } from "lucide-react";
+import { Sparkles, Loader2, RefreshCw, Send, CornerDownLeft, Settings } from "lucide-react";
 import clsx from "clsx";
 
 interface PromptPanelProps {
@@ -11,6 +11,7 @@ interface PromptPanelProps {
   hasSubmitted: boolean;
   onSubmit: (e: React.FormEvent) => void;
   onRegenerate: () => void;
+  onManualSetup?: () => void;
 }
 
 export const PromptPanel: React.FC<PromptPanelProps> = ({
@@ -19,7 +20,8 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
   loading,
   hasSubmitted,
   onSubmit,
-  onRegenerate
+  onRegenerate,
+  onManualSetup
 }) => {
   const formRef = React.useRef<HTMLFormElement | null>(null);
 
@@ -97,8 +99,21 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
               </div>
             </button>
           </div>
-          {/* Regenerate hint removed per new spec; submit button now handles regeneration */}
         </form>
+        
+        {/* Manual Setup Link - Only show if not submitted */}
+        {!hasSubmitted && onManualSetup && (
+          <div className="flex justify-end -mt-2">
+            <button 
+              type="button"
+              onClick={onManualSetup}
+              className="group flex items-center gap-1.5 text-xs text-white/40 hover:text-white/80 transition-colors"
+            >
+              <span>Or configure manually</span>
+              <Settings className="w-3 h-3 transition-transform group-hover:rotate-45" />
+            </button>
+          </div>
+        )}
       </div>
     </motion.div>
   );

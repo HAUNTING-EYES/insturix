@@ -3,24 +3,24 @@
  * Runs asynchronously, updates state silently
  */
 
-import { google } from '@ai-sdk/google';
 import { generateObject } from 'ai';
 import { z } from 'zod';
 import type { SessionState } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
 import { validateBlockTree } from '../schemas/canonical';
 import { updateScriptState } from '../state/session-state';
+import { createThinkForgeModel } from './model-factory';
 
 const InlineNodeSchema = z.object({
   type: z.enum(['text', 'em', 'strong', 'code']),
   text: z.string()
 });
 
-const BlockSchema = z.object({
+const BlockSchema: z.ZodType<any> = z.object({
   id: z.string(),
   type: z.enum(['heading', 'paragraph', 'bulletList', 'numberedList', 'listItem', 'code', 'quote', 'dialogue', 'divider']),
-  props: z.record(z.unknown()).optional(),
-  children: z.array(z.union([InlineNodeSchema, z.lazy(() => BlockSchema)]))
+  props: z.record(z.string(), z.unknown()).optional(),
+  children: z.array(z.union([InlineNodeSchema, z.lazy(() => BlockSchema as z.ZodType<any>)]))
 });
 
 const ScriptRefinedSchema = z.object({
@@ -41,7 +41,8 @@ export async function refineScriptDraft(
   sessionState: SessionState
 ): Promise<void> {
   try {
-    const model = google('gemini-2.0-pro-exp');
+    // Use gemini-2.0-flash for refinement (pro models may not be available on all auth methods)
+    const model = createThinkForgeModel('gemini-2.0-flash');
     
     // Build full context
     const contextParts: string[] = [];
@@ -95,8 +96,7 @@ Maintain the same block structure but improve the content quality.`;
       model,
       schema: ScriptRefinedSchema,
       prompt,
-      temperature: 0.6,
-      maxTokens: 8000
+      temperature: 0.6
     });
     
     // Validate and ensure block IDs

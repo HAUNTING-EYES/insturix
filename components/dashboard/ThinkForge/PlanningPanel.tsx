@@ -8,7 +8,7 @@ import { useContentPlanning } from '@/app/dashboard/thinkforge/hooks/useContentP
 import { Calendar as CalendarIcon, Loader2 } from 'lucide-react';
 
 type PlanningPanelProps = {
-  isOpen: boolean;
+  isOpen: boolean; // Keep for API compatibility but unused in new mode
   onClose: () => void;
   onOpenScript?: (sessionId: string) => void;
   onCreateCardFromIdea?: (idea: any, date: Date) => void;
@@ -88,16 +88,9 @@ export default function PlanningPanel({
   }, []);
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-30"
-        >
-          <CalendarComponent
+    <div className="relative w-full h-full bg-neutral-950 flex flex-col">
+      <div className="flex-1 relative overflow-hidden">
+        <CalendarComponent
             events={calendarEvents}
             onCellClick={handleCellClick}
             onEventClick={(event) => {
@@ -109,45 +102,18 @@ export default function PlanningPanel({
             onCreateCard={handleCreateCard}
             onDeleteCard={handleCardDelete}
             onOpenScript={onOpenScript}
-          />
+        />
 
-          {/* Loading Overlay */}
-          {loading && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            >
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="h-8 w-8 animate-spin text-red-400" />
-                <p className="text-sm text-neutral-300">Loading content cards...</p>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Empty State - shown when calendar is visible but no cards */}
-          {!loading && cards.length === 0 && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none"
-            >
-              <div className="text-center space-y-4 max-w-md px-6">
-                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-neutral-900/60 border border-neutral-800/70">
-                  <CalendarIcon className="w-8 h-8 text-neutral-500" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-white mb-2">No content planned yet</h3>
-                  <p className="text-sm text-neutral-400">
-                    Click on any date in the calendar to create your first content card and start planning your content creation journey.
-                  </p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </motion.div>
-      )}
-    </AnimatePresence>
+        {/* Loading Overlay */}
+        {loading && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm pointer-events-none">
+            <div className="flex flex-col items-center gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-red-400" />
+              <p className="text-sm text-neutral-300">Loading content cards...</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

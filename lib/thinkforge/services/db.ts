@@ -223,6 +223,66 @@ export async function updateSession(sessionId: string, updates: Partial<Session>
   }
 }
 
+export async function getUserSessions(userId: string): Promise<Session[]> {
+  try {
+    const { SessionModel } = await getModels();
+    const docs = await SessionModel.find({ userId })
+      .sort({ updatedAt: -1 })
+      .lean() as any[];
+    
+    return docs.map(doc => ({
+      _id: String(doc._id),
+      userId: doc.userId,
+      projectMeta: doc.projectMeta || {},
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt
+    }));
+  } catch (error) {
+    console.error('Error getting user sessions:', error);
+    return [];
+  }
+}
+
+export async function deleteSession(sessionId: string, userId: string): Promise<boolean> {
+  try {
+    const { SessionModel, ScriptModel, ChatModel, RateUsageModel } = await getModels();
+    
+    // Verify ownership first
+    const session = await SessionModel.findOne({ _id: sessionId, userId });
+    if (!session) {
+      throw new Error('Session not found or access denied');
+    }
+    
+    // Delete all associated data in parallel
+    await Promise.all([
+      // Delete the session
+      SessionModel.deleteOne({ _id: sessionId }),
+      // Delete all scripts for this session
+      ScriptModel.deleteMany({ sessionId }),
+      // Delete all chat messages for this session
+      ChatModel.deleteMany({ sessionId }),
+      // Delete rate usage records for this session
+      RateUsageModel.deleteMany({ sessionId })
+    ]);
+    
+    console.log(`Deleted session ${sessionId} and all associated data`);
+    return true;
+  } catch (error) {
+    console.error('Error deleting session:', error);
+    throw error;
+  }
+}
+
+export async function getSessionsCount(userId: string): Promise<number> {
+  try {
+    const { SessionModel } = await getModels();
+    return await SessionModel.countDocuments({ userId });
+  } catch (error) {
+    console.error('Error counting sessions:', error);
+    return 0;
+  }
+}
+
 // ==================== Script Operations ====================
 
 export async function getScript(sessionId: string): Promise<Script | null> {

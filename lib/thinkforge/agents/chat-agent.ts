@@ -1,13 +1,13 @@
 /**
  * Chat Agent - Simple Q&A using Google Generative AI with streaming
- * Supports both Vertex AI (ADC) and API key authentication
+ * Supports API key authentication via @ai-sdk/google
  * Target: <500ms first token
  */
 
 import { streamText } from 'ai';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
+import { createThinkForgeModel } from './model-factory';
 
 interface ChatAgentOptions {
   sessionState: SessionState;
@@ -18,26 +18,38 @@ interface ChatAgentOptions {
 }
 
 /**
- * Create model for chat with proper authentication
+ * Enrich vague prompts with project context internally
+ * This happens on the backend so users only see their original message
  */
-const createVertexAIModel = () => {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+function enrichPrompt(prompt: string, project: ProjectMeta | null): string {
+  if (!project) return prompt;
   
-  // For Node.js with @ai-sdk/google, we use API key authentication
-  // Vertex AI with ADC will be handled at deployment time (Cloud Run automatically provides ADC)
-  if (!apiKey) {
-    throw new Error(
-      'GOOGLE_GENERATIVE_AI_API_KEY is required. For Vertex AI with ADC, ensure the service account has Vertex AI User role.'
-    );
-  }
+  const text = prompt.trim();
+  const low = text.toLowerCase();
   
-  // Create Google Generative AI instance
-  const google = createGoogleGenerativeAI({ apiKey });
-  return google('gemini-2.0-flash');
-};
+  // Detect vague prompts
+  const vague = /(write( the)? script|generate( the)? script|create( the)? script|draft( the)? script|write it|make the script)/i.test(low) || text.length < 30;
+  const alreadyHas = /\bcontext:\b/i.test(text) || /\bidea:\b/i.test(text);
+  
+  if (!vague || alreadyHas) return prompt;
+  
+  // Build context bits
+  const bits: string[] = [];
+  if (project.idea) bits.push(`- Idea: ${project.idea}`);
+  if (project.platform) bits.push(`- Platform: ${project.platform}`);
+  if (project.tone) bits.push(`- Tone: ${project.tone}`);
+  if (project.style) bits.push(`- Style: ${project.style}`);
+  if (project.format) bits.push(`- Format: ${project.format}`);
+  if (project.purpose) bits.push(`- Purpose: ${project.purpose}`);
+  
+  if (bits.length === 0) return prompt;
+  
+  return `${text}\n\nContext:\n${bits.join('\n')}`;
+}
 
 /**
  * Generate chat response with streaming
+ * Returns a ReadableStream that can be used directly in Response
  */
 export async function chatAgent(
   prompt: string,
@@ -45,13 +57,22 @@ export async function chatAgent(
 ): Promise<ReadableStream<Uint8Array>> {
   const { sessionState, script, project, selection } = options;
   
+  // Enrich prompt internally (user won't see this enrichment)
+  const enrichedPrompt = enrichPrompt(prompt, project);
+  
   // Load minimal context (last 5 messages + project meta)
   const recentChat = sessionState.chat.slice(-5);
   
   // Build context messages
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
   
-  // Add project context if available
+  // Add system context for ThinkForge
+  messages.push({
+    role: 'user',
+    content: `You are a creative writing assistant helping with content creation. Be concise, helpful, and creative. Focus on the user's specific request.`
+  });
+  
+  // Add project context if available (already included in enriched prompt, but keep for system context)
   if (project) {
     const projectContext: string[] = [];
     if (project.idea) projectContext.push(`Idea: ${project.idea}`);
@@ -63,8 +84,8 @@ export async function chatAgent(
     
     if (projectContext.length > 0) {
       messages.push({
-        role: 'user',
-        content: `Project Context:\n${projectContext.join('\n')}`
+        role: 'assistant',
+        content: `I understand. Here's the project context:\n${projectContext.join('\n')}`
       });
     }
   }
@@ -74,6 +95,10 @@ export async function chatAgent(
     messages.push({
       role: 'user',
       content: `Current Script: "${script.title}"\n${script.content?.slice(0, 500) || ''}`
+    });
+    messages.push({
+      role: 'assistant',
+      content: 'I see the current script. How can I help you with it?'
     });
   }
   
@@ -93,22 +118,37 @@ export async function chatAgent(
     });
   }
   
-  // Add current prompt
+  // Add current prompt (enriched internally, but user only sees original)
   messages.push({
     role: 'user',
-    content: prompt
+    content: enrichedPrompt
   });
   
-  const model = createVertexAIModel();
+  const model = createThinkForgeModel();
   
-  const result = await streamText({
+  const result = streamText({
     model,
     messages,
-    temperature: 0.7,
-    maxTokens: 2000
+    temperature: 0.7
   });
   
-  return result.toDataStreamResponse().body!;
+  // Convert textStream (ReadableStream<string>) to ReadableStream<Uint8Array>
+  const encoder = new TextEncoder();
+  const textStream = result.textStream;
+  
+  return new ReadableStream<Uint8Array>({
+    async start(controller) {
+      try {
+        for await (const chunk of textStream) {
+          controller.enqueue(encoder.encode(chunk));
+        }
+        controller.close();
+      } catch (error) {
+        console.error('[ChatAgent] Stream error:', error);
+        controller.error(error);
+      }
+    }
+  });
 }
 
 /**
@@ -122,4 +162,3 @@ export async function chatAgentWithScriptUpdate(
   // Script updates will be handled by script draft agent
   return chatAgent(prompt, options);
 }
-

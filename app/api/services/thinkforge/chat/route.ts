@@ -4,10 +4,12 @@ import { processChat } from '@/lib/thinkforge/services/chat-service';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 /**
  * Unified chat endpoint
  * Handles both Q&A and script editing
+ * Uses SSE format like Editron for consistent streaming
  */
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -18,12 +20,16 @@ export async function POST(req: Request) {
   let prompt: string | undefined;
   let sessionId: string | undefined;
   let selection: string | undefined;
+  let script: any | undefined;
+  let project: any | undefined;
   
   try {
     const body = await req.json();
     prompt = (body?.prompt ?? '').toString();
     if (body?.sessionId) sessionId = String(body.sessionId);
     if (body?.selection) selection = String(body.selection);
+    if (body?.script) script = body.script;
+    if (body?.project) project = body.project;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -33,19 +39,21 @@ export async function POST(req: Request) {
   }
 
   try {
-    const result = await processChat({
+    const stream = await processChat({
       sessionId,
       prompt,
       selection,
-      userId
+      userId,
+      script,
+      project
     });
 
-    return new Response(result.stream, {
+    return new NextResponse(stream, {
       headers: {
-        'Content-Type': 'text/plain; charset=utf-8',
-        'Cache-Control': 'no-cache, no-transform',
-        'X-Accel-Buffering': 'no'
-      }
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
     });
   } catch (error: any) {
     console.error('Error in chat endpoint:', error);

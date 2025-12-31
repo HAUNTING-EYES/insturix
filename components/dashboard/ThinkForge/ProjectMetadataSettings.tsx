@@ -3,17 +3,19 @@
 import { useState, useEffect, useRef, useLayoutEffect, ChangeEvent } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, MessageSquare } from "lucide-react";
-import { motion } from "framer-motion";
+import { ArrowLeft, Settings, Play } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Idea } from "@/app/dashboard/thinkforge/types";
 import { getToneDescription } from "@/app/dashboard/thinkforge/utils/toneUtils";
 import { getToneColorClass } from "@/lib/thinkforge/tone";
 
-interface SelectedIdeaDisplayProps {
+interface ProjectMetadataSettingsProps {
   idea: Idea;
   onProceedToChat: () => void;
   onGoBack: () => void;
   onUpdateIdea: (updatedIdea: Idea) => void;
+  /** When true, hides the navigation buttons (used when opened from chat settings) */
+  hideNavigation?: boolean;
 }
 
 // Small pill buttons for tone selection
@@ -26,8 +28,6 @@ const TONE_OPTIONS: { value: Idea['tone']; label: string; desc: string; swatch: 
   { value: 'blue', label: 'Blue', desc: 'Process & Control', swatch: 'bg-blue-500' }
 ];
 
-// (Removed auto-resize; using scrollable textareas now)
-
 // Predefined option sets
 const PLATFORM_OPTIONS = [
   'YouTube','Instagram','TikTok','LinkedIn','Twitter/X','Reddit','Medium','Blog','Podcast','Newsletter','Facebook','Pinterest'
@@ -39,57 +39,102 @@ const FORMAT_OPTIONS = [
   'Short-form Video','Long-form Video','Blog Post','Tweet Thread','Carousel','Podcast Episode','Newsletter Issue','Script Outline','Listicle','Case Study','How-To Guide','Explainer'
 ];
 
-export default function SelectedIdeaDisplay({ idea, onProceedToChat, onGoBack, onUpdateIdea }: SelectedIdeaDisplayProps) {
+export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false }: ProjectMetadataSettingsProps) {
   const [localIdea, setLocalIdea] = useState<Idea>(idea);
-  const [dirty, setDirty] = useState(false);
+  const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean');
   // Multi-value chip states (parsed from idea on mount)
   const [platforms, setPlatforms] = useState<string[]>(() => idea.platform.split(/,\s*/).filter(Boolean));
   const [styles, setStyles] = useState<string[]>(() => idea.style.split(/,\s*/).filter(Boolean));
   const [formats, setFormats] = useState<string[]>(() => idea.format.split(/,\s*/).filter(Boolean));
-  // (Removed individual refs for auto-resize)
+  
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const savedIndicatorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastSavedIdeaRef = useRef<Idea>(idea);
 
   useEffect(() => {
     // sync when idea prop changes (e.g., returning from script)
-    setLocalIdea(idea);
-  setPlatforms(idea.platform.split(/,\s*/).filter(Boolean));
-  setStyles(idea.style.split(/,\s*/).filter(Boolean));
-  setFormats(idea.format.split(/,\s*/).filter(Boolean));
+    // Only if ID changed or we are initializing, to avoid overwriting local edits if prop updates from self
+    if (idea.id !== localIdea.id) {
+        setLocalIdea(idea);
+        setPlatforms(idea.platform.split(/,\s*/).filter(Boolean));
+        setStyles(idea.style.split(/,\s*/).filter(Boolean));
+        setFormats(idea.format.split(/,\s*/).filter(Boolean));
+        setSaveState('clean');
+        lastSavedIdeaRef.current = idea;
+    }
   }, [idea]);
-
-  // Removed initial auto-resize effect
 
   // Debounce propagate changes
   useEffect(() => {
-    if (!dirty) return;
-    const t = setTimeout(() => {
-      onUpdateIdea(localIdea);
-      setDirty(false);
-    }, 450);
-    return () => clearTimeout(t);
-  }, [localIdea, dirty, onUpdateIdea]);
+    // Check if actually changed from last saved state
+    const isActuallyChanged = JSON.stringify(localIdea) !== JSON.stringify(lastSavedIdeaRef.current);
+
+    if (!isActuallyChanged) {
+        if (saveState === 'dirty') setSaveState('clean');
+        return;
+    }
+    
+    // Only proceed if we marked it as dirty (which we do on input change)
+    if (saveState !== 'dirty') return;
+    
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    
+    setSaveState('saving');
+    saveTimeoutRef.current = setTimeout(async () => {
+      try {
+        await onUpdateIdea(localIdea);
+        lastSavedIdeaRef.current = localIdea;
+        setSaveState('saved');
+        
+        // Show "saved" indicator for 2 seconds, then go back to clean
+        if (savedIndicatorTimeoutRef.current) clearTimeout(savedIndicatorTimeoutRef.current);
+        savedIndicatorTimeoutRef.current = setTimeout(() => {
+          setSaveState('clean');
+        }, 2000);
+      } catch (error) {
+        console.error('Error saving idea:', error);
+        setSaveState('clean');
+      }
+    }, 800);
+    
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [localIdea, saveState, onUpdateIdea]);
 
   // When multi-value arrays change, reflect into localIdea fields
   useEffect(() => {
-    setLocalIdea(prev => ({ ...prev, platform: platforms.join(', ') }));
-    setDirty(true);
+    const newVal = platforms.join(', ');
+    if (newVal !== localIdea.platform) {
+        setLocalIdea(prev => ({ ...prev, platform: newVal }));
+        setSaveState('dirty');
+    }
   }, [platforms]);
+  
   useEffect(() => {
-    setLocalIdea(prev => ({ ...prev, style: styles.join(', ') }));
-    setDirty(true);
+    const newVal = styles.join(', ');
+    if (newVal !== localIdea.style) {
+        setLocalIdea(prev => ({ ...prev, style: newVal }));
+        setSaveState('dirty');
+    }
   }, [styles]);
+  
   useEffect(() => {
-    setLocalIdea(prev => ({ ...prev, format: formats.join(', ') }));
-    setDirty(true);
+    const newVal = formats.join(', ');
+    if (newVal !== localIdea.format) {
+        setLocalIdea(prev => ({ ...prev, format: newVal }));
+        setSaveState('dirty');
+    }
   }, [formats]);
 
   const handleChange = (key: keyof Idea) => (e: ChangeEvent<HTMLTextAreaElement>) => {
     setLocalIdea(prev => ({ ...prev, [key]: e.target.value }));
-    setDirty(true);
+    setSaveState('dirty');
   };
 
   const handleTone = (tone: Idea['tone']) => {
     setLocalIdea(prev => ({ ...prev, tone }));
-    setDirty(true);
+    setSaveState('dirty');
   };
 
   return (
@@ -97,51 +142,108 @@ export default function SelectedIdeaDisplay({ idea, onProceedToChat, onGoBack, o
       initial={{ opacity: 0, y: 30 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.55, ease: 'easeOut' }}
-      className="space-y-10"
+      className="space-y-8 max-w-5xl mx-auto"
     >
       {/* Header / Navigation */}
-      <div className="flex flex-wrap items-start gap-6 justify-between">
+      <div className="flex flex-wrap items-center gap-4 justify-between">
         <div className="flex items-center gap-4">
-          <Button
-            onClick={onGoBack}
-            size="sm"
-            variant="outline"
-            className="border-white/10 bg-white/5 hover:bg-white/10 text-white/80 backdrop-blur-xl"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Ideas
-          </Button>
-          <div className="space-y-1">
-            <h2 className="text-2xl font-semibold tracking-tight bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent flex items-center gap-2">
-              <MessageSquare className="h-6 w-6 text-red-500" />
-              Your Selected Idea
+          {!hideNavigation && (
+            <Button
+              onClick={onGoBack}
+              size="sm"
+              variant="outline"
+              className="border-white/10 bg-white/5 hover:bg-white/10 text-white/80 backdrop-blur-xl transition-all hover:border-white/20"
+            >
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Generate Ideas
+            </Button>
+          )}
+          <div className="space-y-0.5">
+            <h2 className="text-xl font-semibold tracking-tight bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent flex items-center gap-2">
+              <Settings className="h-5 w-5 text-red-500" />
+              Project Settings
             </h2>
-            <p className="text-xs uppercase tracking-[0.15em] text-white/40">Refine context before scripting</p>
+            <p className="text-[10px] uppercase tracking-[0.15em] text-white/40">Configure your project parameters</p>
           </div>
         </div>
-        {dirty && (
-          <div className="rounded-full border border-amber-400/30 bg-amber-400/10 px-4 py-1 text-[11px] font-medium text-amber-300 shadow-inner shadow-amber-500/10">
-            Saving…
-          </div>
-        )}
+        
+        <div className="flex items-center gap-3">
+          {/* Save Status */}
+          <AnimatePresence mode="wait">
+            {saveState === 'saving' && (
+              <motion.div 
+                key="saving"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={{ duration: 0.2 }}
+                className="flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-500/10 px-3 py-1.5 text-[11px] font-medium text-blue-300 whitespace-nowrap"
+              >
+                <motion.div 
+                  className="h-2 w-2 rounded-full bg-blue-400"
+                  animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }}
+                />
+                Saving…
+              </motion.div>
+            )}
+            {saveState === 'saved' && (
+              <motion.div
+                key="saved"
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-full border border-green-400/30 bg-green-500/10 px-3 py-1.5 text-[11px] font-medium text-green-300 whitespace-nowrap"
+              >
+                ✓ Saved
+              </motion.div>
+            )}
+          </AnimatePresence>
+          
+          {/* Begin Storyboarding Button - only show when not hideNavigation */}
+          {!hideNavigation && (
+            <Button
+              onClick={onProceedToChat}
+              className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-rose-700 via-red-500 to-rose-700 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-900/40 transition-all hover:from-red-500 hover:via-rose-500 hover:to-red-600 hover:shadow-xl hover:shadow-red-900/50"
+            >
+              <span className="relative z-10 flex items-center gap-2">
+                <Play className="h-4 w-4 fill-current" /> 
+                Begin Storyboarding
+              </span>
+              <span className="absolute inset-0 -z-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.3),transparent_60%)]" />
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Main Glass Panel */}
-      <div className="relative rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.07] via-white/[0.04] to-white/[0.02] p-[1px] shadow-xl shadow-black/50">
+      <motion.div 
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+        className="relative rounded-3xl border border-white/10 bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-white/[0.01] p-[1px] shadow-2xl shadow-black/40 backdrop-blur-2xl"
+      >
         <div className="relative rounded-[inherit] overflow-hidden">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,0,0,0.18),transparent_60%)] opacity-70" />
-          <div className="relative z-10 backdrop-blur-2xl rounded-[inherit] p-8 space-y-10">
-            {/* Fixed Core Idea */}
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,0,0,0.15),transparent_60%)] opacity-50" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_80%,rgba(59,130,246,0.1),transparent_70%)] opacity-30" />
+          <div className="relative z-10 backdrop-blur-3xl rounded-[inherit] p-8 space-y-8">
+            {/* Core Concept (Now Editable) */}
             <div className="space-y-3">
-              <div className="flex items-start gap-4">
-                <div className={`mt-1 h-4 w-4 flex-shrink-0 rounded-full ${getToneColorClass(localIdea.tone)}`}></div>
-                <h3 className="text-xl font-semibold leading-snug text-white/90">{localIdea.idea}</h3>
+              <div className="flex items-center gap-4">
+                 <div className={`h-4 w-4 flex-shrink-0 rounded-full ${getToneColorClass(localIdea.tone)}`}></div>
+                 <h3 className="text-lg font-semibold leading-snug text-white/90">Title (Core Concept)</h3>
               </div>
-              <p className="text-xs text-white/40 ml-8 -mt-1">Core concept locked. Adjust supporting parameters below.</p>
+              <EditableArea
+                label="Core Concept"
+                placeholder="Enter the main idea or title..."
+                value={localIdea.idea}
+                onChange={handleChange('idea')}
+              />
             </div>
 
             {/* Editable Fields Grid */}
-            <div className="grid gap-6 md:grid-cols-2">
+            <div className="grid gap-5 md:grid-cols-2">
               <EditableArea
                 label="Purpose"
                 placeholder="Clarify what you want to achieve"
@@ -172,7 +274,7 @@ export default function SelectedIdeaDisplay({ idea, onProceedToChat, onGoBack, o
             </div>
 
             {/* Tone Selection */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold tracking-wider text-white/50 uppercase">Thinking Approach</span>
                 <span className="text-[10px] font-medium text-white/30">{getToneDescription(localIdea.tone)}</span>
@@ -198,19 +300,7 @@ export default function SelectedIdeaDisplay({ idea, onProceedToChat, onGoBack, o
           {/* Subtle edge light */}
           <div className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/5" />
         </div>
-      </div>
-
-      <div className="flex justify-center">
-        <Button
-          onClick={onProceedToChat}
-          className="group relative overflow-hidden rounded-2xl bg-gradient-to-br from-rose-700 via-red-500 to-rose-700 px-10 py-5 text-sm font-semibold tracking-wide text-white shadow-lg shadow-red-900/40 transition hover:from-red-500 hover:via-rose-500 hover:to-rose-400 focus:ring-2 focus:ring-red-500/40"
-        >
-          <span className="relative z-10 flex items-center gap-2">
-            <MessageSquare className="h-4 w-4" /> Begin Script Phase
-          </span>
-          <span className="absolute inset-0 -z-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.35),transparent_60%)]" />
-        </Button>
-      </div>
+      </motion.div>
     </motion.div>
   );
 } 
@@ -230,17 +320,17 @@ function EditableArea({ label, value, onChange, placeholder }: EditableAreaProps
       transition={{ duration: 0.4, ease: 'easeOut' }}
       className="group relative"
     >
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl shadow-inner shadow-black/40 hover:border-white/20 transition-colors">
-        <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-white/45">
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.12] via-white/[0.06] to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300" />
+      <div className="relative rounded-2xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-xl shadow-inner shadow-black/40 hover:border-white/20 group-focus-within:border-white/30 transition-all duration-300">
+        <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-white/50">
           {label}
         </label>
         <textarea
           value={value}
           onChange={onChange}
-          rows={4}
+          rows={3}
           placeholder={placeholder}
-          className="w-full resize-none bg-transparent text-sm leading-relaxed text-white/90 outline-none placeholder:text-white/25 focus-visible:ring-0 h-24 max-h-56 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10"
+          className="w-full resize-none bg-transparent text-sm leading-relaxed text-white/90 outline-none placeholder:text-white/30 focus-visible:ring-0 h-20 max-h-40 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-colors"
         />
       </div>
     </motion.div>
@@ -316,7 +406,7 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
   const recalc = () => {
     if (!containerRef.current) return;
     const rect = containerRef.current.getBoundingClientRect();
-    setDropdownStyle({top: rect.bottom + window.scrollY + 6, left: rect.left + window.scrollX + 20, width: rect.width - 40});
+    setDropdownStyle({top: rect.bottom + window.scrollY + 6, left: rect.left + window.scrollX + 16, width: rect.width - 32});
   };
   useLayoutEffect(() => { if (open) recalc(); }, [open, values, input]);
   useEffect(() => {
@@ -335,14 +425,14 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
       className="group relative"
       ref={containerRef}
     >
-      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.08] via-white/[0.04] to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-      <div className="relative rounded-2xl border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl shadow-inner shadow-black/40 hover:border-white/20 transition-colors">
-        <label className="mb-2 block text-[11px] font-semibold uppercase tracking-wider text-white/45">{label}</label>
-  <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent">
+      <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-white/[0.12] via-white/[0.06] to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-300" />
+      <div className="relative rounded-2xl border border-white/10 bg-white/[0.05] p-4 backdrop-blur-xl shadow-inner shadow-black/40 hover:border-white/20 group-focus-within:border-white/30 transition-all duration-300">
+        <label className="mb-2 block text-[10px] font-semibold uppercase tracking-widest text-white/50">{label}</label>
+  <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 scrollbar-track-transparent transition-colors">
           {values.map(v => (
             <span
               key={v}
-              className="flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-3 py-1.5 text-xs font-medium text-white/80 shadow-sm backdrop-blur-md"
+              className="flex items-center gap-1 rounded-full border border-white/10 bg-white/10 px-3 py-1 text-xs font-medium text-white/80 shadow-sm backdrop-blur-md"
             >
               <span>{v}</span>
               <button
@@ -362,7 +452,7 @@ function MultiValueEditor({ label, values, onChange, placeholder, options }: Mul
             onKeyDown={handleKey}
             placeholder={placeholder}
             onFocus={() => { if (input) setOpen(true); }}
-            className="min-w-[120px] flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 focus:outline-none"
+            className="min-w-[100px] flex-1 bg-transparent text-sm text-white/90 placeholder:text-white/25 focus:outline-none"
           />
         </div>
       </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ContentCard } from '@/app/dashboard/thinkforge/types';
 import { toast } from '@/hooks/use-toast';
 
@@ -13,11 +13,11 @@ export interface UseContentPlanningReturn {
   deleteCard: (id: string) => Promise<boolean>;
   fetchCards: () => Promise<void>;
   refreshCards: () => Promise<void>;
+  refreshScriptPreview: (cardId: string) => Promise<void>;
 }
 
 const LS_CONTENT_CARDS = 'thinkforge_content_cards';
 
-// Local storage fallback
 function saveLocal(cards: ContentCard[]) {
   try {
     localStorage.setItem(LS_CONTENT_CARDS, JSON.stringify(cards));
@@ -33,61 +33,56 @@ function getLocal(): ContentCard[] {
   }
 }
 
+function normalizeCard(card: ContentCard): ContentCard {
+  return {
+    ...card,
+    customTags: card.customTags || [],
+    plannedDates: card.plannedDates || (card.date ? [card.date] : [new Date().toISOString()]),
+    tags: card.tags || [],
+  };
+}
+
+async function fetchScriptPreview(sessionId: string): Promise<string | null> {
+  try {
+    const res = await fetch('/api/services/thinkforge/script/current', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId }),
+    });
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const script = data?.script || data;
+    
+    if (script.content) return script.content;
+    if (script.blocks && Array.isArray(script.blocks)) {
+      return script.blocks
+        .map((block: any) => {
+          if (!block.content) return '';
+          return Array.isArray(block.content)
+            ? block.content.map((c: any) => c.text || '').join(' ')
+            : block.content;
+        })
+        .filter(Boolean)
+        .join(' ');
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function useContentPlanning(): UseContentPlanningReturn {
   const [cards, setCards] = useState<ContentCard[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const lastSavedRef = useRef<string>('');
 
-  // Load cards on mount
-  useEffect(() => {
-    fetchCards();
-  }, []);
-
-  // Fetch script preview for a card
-  const fetchScriptPreview = useCallback(async (sessionId: string): Promise<string | null> => {
-    try {
-      const res = await fetch('/api/services/thinkforge/script/current', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      });
-
-      if (!res.ok) return null;
-
-      const data = await res.json();
-      const script = data?.script || data;
-      
-      // Extract text content from script
-      let text = '';
-      if (script.content) {
-        text = script.content;
-      } else if (script.blocks && Array.isArray(script.blocks)) {
-        // Extract text from blocks
-        text = script.blocks
-          .map((block: any) => {
-            if (block.content) {
-              if (Array.isArray(block.content)) {
-                return block.content.map((c: any) => c.text || '').join(' ');
-              }
-              return block.content;
-            }
-            return '';
-          })
-          .filter(Boolean)
-          .join(' ');
-      }
-
-      return text || null;
-    } catch {
-      return null;
+  const loadCards = useCallback(async (showLoading = true) => {
+    if (showLoading) {
+      setLoading(true);
+      setError(null);
     }
-  }, []);
 
-  // Fetch cards from API
-  const fetchCards = useCallback(async () => {
-    setLoading(true);
-    setError(null);
     try {
       const res = await fetch('/api/services/thinkforge/content-planning', {
         method: 'GET',
@@ -95,10 +90,9 @@ export function useContentPlanning(): UseContentPlanningReturn {
       });
 
       if (!res.ok) {
-        // Fallback to local storage if API fails
         const local = getLocal();
         setCards(local);
-        if (local.length > 0) {
+        if (showLoading && local.length > 0) {
           toast({
             title: 'Using offline data',
             description: 'Could not fetch from server, showing cached content.',
@@ -110,16 +104,9 @@ export function useContentPlanning(): UseContentPlanningReturn {
 
       const data = await res.json();
       const fetchedCards: ContentCard[] = Array.isArray(data.cards) ? data.cards : [];
-      
-      // Ensure all cards have required fields
-      const normalizedCards = fetchedCards.map(card => ({
-        ...card,
-        customTags: card.customTags || [],
-        plannedDates: card.plannedDates || (card.date ? [card.date] : [new Date().toISOString()]),
-        tags: card.tags || [],
-      }));
+      const normalizedCards = fetchedCards.map(normalizeCard);
 
-      // Fetch script previews for cards with sessionId
+      // Fetch script previews for cards that need them
       const cardsWithPreviews = await Promise.all(
         normalizedCards.map(async (card) => {
           if (card.sessionId && !card.scriptPreview) {
@@ -134,59 +121,36 @@ export function useContentPlanning(): UseContentPlanningReturn {
 
       setCards(cardsWithPreviews);
       saveLocal(cardsWithPreviews);
-      lastSavedRef.current = JSON.stringify(cardsWithPreviews);
     } catch (err) {
-      // Fallback to local storage
       const local = getLocal();
       setCards(local);
-      setError(err instanceof Error ? err.message : 'Failed to fetch content cards');
+      if (showLoading) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch content cards');
+      }
     } finally {
-      setLoading(false);
-    }
-  }, [fetchScriptPreview]);
-
-  // Refresh cards (same as fetch but doesn't show loading state initially)
-  const refreshCards = useCallback(async () => {
-    try {
-      const res = await fetch('/api/services/thinkforge/content-planning', {
-        method: 'GET',
-        cache: 'no-store',
-      });
-
-      if (!res.ok) return;
-
-      const data = await res.json();
-      const fetchedCards: ContentCard[] = Array.isArray(data.cards) ? data.cards : [];
-      
-      const normalizedCards = fetchedCards.map(card => ({
-        ...card,
-        customTags: card.customTags || [],
-        plannedDates: card.plannedDates || (card.date ? [card.date] : [new Date().toISOString()]),
-        tags: card.tags || [],
-      }));
-
-      setCards(normalizedCards);
-      saveLocal(normalizedCards);
-      lastSavedRef.current = JSON.stringify(normalizedCards);
-    } catch (err) {
-      // Silent fail on refresh
+      if (showLoading) {
+        setLoading(false);
+      }
     }
   }, []);
 
-  // Create new card
+  useEffect(() => {
+    loadCards(true);
+  }, [loadCards]);
+
+  const fetchCards = useCallback(() => loadCards(true), [loadCards]);
+  const refreshCards = useCallback(() => loadCards(false), [loadCards]);
+
   const createCard = useCallback(async (
     cardData: Omit<ContentCard, 'id' | 'createdAt' | 'updatedAt'>
   ): Promise<ContentCard | null> => {
     const now = new Date().toISOString();
-    const newCard: ContentCard = {
+    const newCard: ContentCard = normalizeCard({
       ...cardData,
       id: `card_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       createdAt: now,
       updatedAt: now,
-      customTags: cardData.customTags || [],
-      plannedDates: cardData.plannedDates || (cardData.date ? [cardData.date] : [now]),
-      tags: cardData.tags || [],
-    };
+    });
 
     // Optimistic update
     setCards(prev => {
@@ -202,14 +166,11 @@ export function useContentPlanning(): UseContentPlanningReturn {
         body: JSON.stringify({ card: newCard }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Failed to create card: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Failed to create card: ${res.status}`);
 
       const data = await res.json();
-      const createdCard: ContentCard = data.card || newCard;
+      const createdCard: ContentCard = normalizeCard(data.card || newCard);
 
-      // Update with server response
       setCards(prev => {
         const updated = prev.map(c => c.id === newCard.id ? createdCard : c);
         saveLocal(updated);
@@ -218,7 +179,6 @@ export function useContentPlanning(): UseContentPlanningReturn {
 
       return createdCard;
     } catch (err) {
-      // Revert optimistic update on error
       setCards(prev => prev.filter(c => c.id !== newCard.id));
       toast({
         title: 'Failed to create card',
@@ -229,7 +189,6 @@ export function useContentPlanning(): UseContentPlanningReturn {
     }
   }, []);
 
-  // Update card
   const updateCard = useCallback(async (
     id: string,
     updates: Partial<ContentCard>
@@ -237,11 +196,11 @@ export function useContentPlanning(): UseContentPlanningReturn {
     const card = cards.find(c => c.id === id);
     if (!card) return false;
 
-    const updatedCard: ContentCard = {
+    const updatedCard: ContentCard = normalizeCard({
       ...card,
       ...updates,
       updatedAt: new Date().toISOString(),
-    };
+    });
 
     // Optimistic update
     setCards(prev => {
@@ -257,14 +216,11 @@ export function useContentPlanning(): UseContentPlanningReturn {
         body: JSON.stringify({ updates }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Failed to update card: ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Failed to update card: ${res.status}`);
 
       const data = await res.json();
-      const serverCard: ContentCard = data.card || updatedCard;
+      const serverCard: ContentCard = normalizeCard(data.card || updatedCard);
 
-      // Update with server response
       setCards(prev => {
         const updated = prev.map(c => c.id === id ? serverCard : c);
         saveLocal(updated);
@@ -273,12 +229,7 @@ export function useContentPlanning(): UseContentPlanningReturn {
 
       return true;
     } catch (err) {
-      // Revert optimistic update on error
-      setCards(prev => {
-        const updated = prev.map(c => c.id === id ? card : c);
-        saveLocal(updated);
-        return updated;
-      });
+      setCards(prev => prev.map(c => c.id === id ? card : c));
       toast({
         title: 'Failed to update card',
         description: err instanceof Error ? err.message : 'Unknown error',
@@ -288,7 +239,6 @@ export function useContentPlanning(): UseContentPlanningReturn {
     }
   }, [cards]);
 
-  // Delete card
   const deleteCard = useCallback(async (id: string): Promise<boolean> => {
     const card = cards.find(c => c.id === id);
     if (!card) return false;
@@ -305,18 +255,10 @@ export function useContentPlanning(): UseContentPlanningReturn {
         method: 'DELETE',
       });
 
-      if (!res.ok) {
-        throw new Error(`Failed to delete card: ${res.status}`);
-      }
-
+      if (!res.ok) throw new Error(`Failed to delete card: ${res.status}`);
       return true;
     } catch (err) {
-      // Revert optimistic update on error
-      setCards(prev => {
-        const updated = [...prev, card];
-        saveLocal(updated);
-        return updated;
-      });
+      setCards(prev => [...prev, card]);
       toast({
         title: 'Failed to delete card',
         description: err instanceof Error ? err.message : 'Unknown error',
@@ -326,7 +268,6 @@ export function useContentPlanning(): UseContentPlanningReturn {
     }
   }, [cards]);
 
-  // Refresh script preview for a card
   const refreshScriptPreview = useCallback(async (cardId: string) => {
     const card = cards.find(c => c.id === cardId);
     if (!card?.sessionId) return;
@@ -335,7 +276,7 @@ export function useContentPlanning(): UseContentPlanningReturn {
     if (preview) {
       await updateCard(cardId, { scriptPreview: preview.substring(0, 300) });
     }
-  }, [cards, fetchScriptPreview, updateCard]);
+  }, [cards, updateCard]);
 
   return {
     cards,

@@ -17,6 +17,16 @@ function convertInlineNodesToContent(
 ): Array<{ type: string; text: string; styles?: Record<string, boolean> }> {
   const content: Array<{ type: string; text: string; styles?: Record<string, boolean> }> = [];
 
+  // Ensure children is an array
+  if (!Array.isArray(children)) {
+    // If children is a string, convert it to a text node
+    if (typeof children === 'string') {
+      return [{ type: "text", text: children }];
+    }
+    // If children is undefined/null or not iterable, return empty text node
+    return [{ type: "text", text: "" }];
+  }
+
   for (const child of children) {
     // If it's an InlineNode, convert it
     if ("text" in child && "type" in child && !("id" in child)) {
@@ -66,6 +76,11 @@ function convertInlineNodesToContent(
 function extractTextFromBlock(block: Block): string {
   const texts: string[] = [];
 
+  // Ensure children is an array
+  if (!Array.isArray(block.children)) {
+    return "";
+  }
+
   for (const child of block.children) {
     if ("text" in child && "type" in child && !("id" in child)) {
       texts.push((child as InlineNode).text);
@@ -103,12 +118,15 @@ function mapBlockType(canonicalType: Block["type"]): string {
  * Handles list containers by extracting list items.
  */
 function convertBlockToBlockNote(block: Block): BlockNoteBlock | BlockNoteBlock[] {
+  // Ensure children is an array
+  const children = Array.isArray(block.children) ? block.children : [];
+  
   // Handle list containers - extract list items from children
   if (block.type === "bulletList" || block.type === "numberedList") {
     const listItems: BlockNoteBlock[] = [];
     
     // Extract list items from children
-    for (const child of block.children) {
+    for (const child of children) {
       if ("id" in child && "type" in child) {
         // It's a nested block (list item)
         const listItemBlock = child as Block;
@@ -146,7 +164,7 @@ function convertBlockToBlockNote(block: Block): BlockNoteBlock | BlockNoteBlock[
 
   // Regular block conversion
   let blockNoteType = mapBlockType(block.type);
-  const content = convertInlineNodesToContent(block.children);
+  const content = convertInlineNodesToContent(children);
 
   // Validate that the type is supported by BlockNote
   // BlockNote default types: heading, paragraph, bulletListItem, numberedListItem, code, quote, divider

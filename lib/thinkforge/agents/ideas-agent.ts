@@ -1,30 +1,13 @@
 /**
  * Ideas Agent - Generates 4 content ideas using Google Generative AI
- * Supports both Vertex AI (ADC) and API key authentication
+ * Supports both Vertex AI (service account) and API key authentication
  * Target: <2s response time
  */
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
-import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { IdeaCardData } from '../state/types';
-
-// Create the model with proper authentication
-const createVertexAIModel = () => {
-  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY;
-  
-  // For Node.js with @ai-sdk/google, we use API key authentication
-  // Vertex AI with ADC will be handled at deployment time (Cloud Run automatically provides ADC)
-  if (!apiKey) {
-    throw new Error(
-      'GOOGLE_GENERATIVE_AI_API_KEY is required. For Vertex AI with ADC, ensure the service account has Vertex AI User role.'
-    );
-  }
-  
-  // Create Google Generative AI instance
-  const google = createGoogleGenerativeAI({ apiKey });
-  return google('gemini-2.0-flash');
-};
+import { createThinkForgeModel } from './model-factory';
 
 const IdeaSchema = z.object({
   id: z.string(),
@@ -45,7 +28,7 @@ const IdeasResponseSchema = z.object({
  */
 export async function generateIdeas(prompt: string): Promise<IdeaCardData[]> {
   try {
-    const model = createVertexAIModel();
+    const model = createThinkForgeModel();
     
     const result = await generateObject({
       model,

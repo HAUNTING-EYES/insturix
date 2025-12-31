@@ -13,10 +13,7 @@ import {
   Eye,
   Edit,
   FileText,
-  ChevronDown,
-  ChevronUp,
-  Brain,
-  Zap
+  GitBranch
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -45,6 +42,12 @@ import { canonicalToBlockNote } from "@/lib/thinkforge/mappers/canonical-to-bloc
 import { blockNoteToCanonical } from "@/lib/thinkforge/mappers/blocknote-to-canonical";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
 import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
+
+// Import FormatToolbar
+import { FormatToolbar } from "./FormatToolbar";
+
+// Import BranchEditor
+import { BranchEditor } from "./BranchEditor";
 
 // Type aliases for cursor preservation
 type BlockId = string;
@@ -86,7 +89,7 @@ export default function ScriptEditor({
   const [importOpen, setImportOpen] = useState(false);
   const [importText, setImportText] = useState('');
   const [importErr, setImportErr] = useState<string | null>(null);
-  const [showOrchestration, setShowOrchestration] = useState(false);
+  const [showBranchEditor, setShowBranchEditor] = useState(false);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
   const lastLoadedBlocksRef = useRef<string>(''); // Track last loaded blocks to avoid unnecessary reloads
@@ -231,163 +234,199 @@ export default function ScriptEditor({
     }
   }, [editor]);
 
-  // Load blocks from API or script.blocks prop
+  // Load blocks from API or script.blocks prop - only on initial mount or scriptId change
+  const initialLoadDoneRef = useRef(false);
+  
   useEffect(() => {
     const loadBlocks = async () => {
       if (!editor) return;
       
-      // Try to fetch from API if scriptId (sessionId) is available - ALWAYS try API first
+      // Skip if user is actively editing
+      if (hasUnsavedChanges || autosaveTimerRef.current) {
+        console.log('ScriptEditor: Skipping load, user is actively editing');
+        return;
+      }
+      
+      // Try to fetch from API if scriptId (sessionId) is available
       if (scriptId) {
         try {
-          console.log('ScriptEditor: Loading blocks from API for sessionId:', scriptId);
-          // Use sessionId parameter - backend will look up latest script for that session
           const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`, {
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache' }
           });
           if (response.ok) {
             const data = await response.json();
-            console.log('ScriptEditor: Fetched blocks from API:', {
-              blocksCount: data.blocks?.length || 0,
-              hasBlocks: !!(data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0),
-              blocks: data.blocks,
-            });
             if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
               try {
-                // Convert canonical blocks to BlockNote
                 const blockNoteBlocks = canonicalToBlockNote(data.blocks as BlockTree);
-                console.log('ScriptEditor: Converted to BlockNote blocks:', {
-                  blockNoteBlocksCount: blockNoteBlocks.length,
-                  blockTypes: blockNoteBlocks.map(b => b.type),
-                  firstBlock: blockNoteBlocks[0],
-                });
                 if (blockNoteBlocks.length > 0) {
                   const blocksHash = JSON.stringify(blockNoteBlocks);
+                  // Only update if blocks actually changed
                   if (blocksHash !== lastLoadedBlocksRef.current) {
                     isUpdatingFromPropsRef.current = true;
                     editor.replaceBlocks(editor.document, blockNoteBlocks as any);
                     isUpdatingFromPropsRef.current = false;
                     setHasUnsavedChanges(false);
                     lastLoadedBlocksRef.current = blocksHash;
-                    console.log('ScriptEditor: Successfully loaded blocks from API');
-                  } else {
-                    console.log('ScriptEditor: Blocks unchanged, skipping update');
+                    initialLoadDoneRef.current = true;
+                    console.log('ScriptEditor: Loaded blocks from API');
                   }
                   return;
                 }
               } catch (conversionError) {
-                console.error('ScriptEditor: Failed to convert canonical blocks to BlockNote:', conversionError);
-                console.error('ScriptEditor: Blocks that failed:', data.blocks);
+                console.error('ScriptEditor: Failed to convert canonical blocks:', conversionError);
               }
-            } else {
-              console.log('ScriptEditor: No blocks returned from API or empty array');
             }
-          } else {
-            const errorText = await response.text().catch(() => '');
-            console.error('ScriptEditor: Failed to fetch blocks from API:', response.status, errorText);
           }
         } catch (error) {
           console.error("ScriptEditor: Failed to fetch blocks from API:", error);
-          // Fall through to use script.blocks prop
         }
       }
       
-      // Fallback: use script.blocks prop if available
+      // Fallback: use script.blocks prop if available and no API data
       if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
-        console.log('ScriptEditor: Loading blocks from script prop:', {
-          blocksCount: script.blocks.length,
-          firstBlock: script.blocks[0]
-        });
-        // Check if blocks are canonical format
         const isCanonical = script.blocks.every(
           (b: any) => b && typeof b === 'object' && 'id' in b && 'type' in b && 'children' in b
         );
         
         if (isCanonical) {
-          // Convert canonical to BlockNote
           try {
             const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
             if (blockNoteBlocks.length > 0) {
-              // Check if content is actually different (avoid unnecessary updates)
-              const currentBlocks = editor.document;
-              const currentJson = JSON.stringify(currentBlocks);
-              const newJson = JSON.stringify(blockNoteBlocks);
-              
-              if (currentJson === newJson) {
-                console.log('ScriptEditor: Blocks unchanged, skipping update');
-                return;
+              const blocksHash = JSON.stringify(blockNoteBlocks);
+              if (blocksHash !== lastLoadedBlocksRef.current) {
+                isUpdatingFromPropsRef.current = true;
+                editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+                isUpdatingFromPropsRef.current = false;
+                setHasUnsavedChanges(false);
+                lastLoadedBlocksRef.current = blocksHash;
+                initialLoadDoneRef.current = true;
+                console.log('ScriptEditor: Loaded blocks from prop');
               }
-
-              // Skip update if user has made changes very recently
-              if (hasUnsavedChanges && autosaveTimerRef.current) {
-                console.log('ScriptEditor: Skipping update, user is actively editing');
-                return;
-              }
-              
-              isUpdatingFromPropsRef.current = true;
-              editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-              console.log('ScriptEditor: Updated editor with', blockNoteBlocks.length, 'canonical blocks from prop');
-              setHasUnsavedChanges(false);
-              isUpdatingFromPropsRef.current = false;
-              
-              // Restore cursor after update
-              setTimeout(() => restoreCursorPosition(), 100);
             }
           } catch (error) {
             console.error("ScriptEditor: Failed to convert canonical blocks:", error);
           }
         }
-      } else {
-        console.log('ScriptEditor: No blocks in script prop');
       }
     };
     
-    // Load blocks whenever editor is ready OR scriptId changes OR script.blocks changes
-    if (editor) {
+    // Only load on initial mount or when scriptId changes (not on every script.blocks change)
+    if (editor && !initialLoadDoneRef.current) {
       loadBlocks();
     }
-  }, [script?.blocks, scriptId, editor, restoreCursorPosition]);
-
-  // Poll for blocks when script is being generated OR when we have a sessionId (refresh every 2 seconds)
+  }, [scriptId, editor, hasUnsavedChanges]);
+  
+  // Reset state when scriptId changes (new session)
   useEffect(() => {
-    if (!scriptId || !editor) return;
+    initialLoadDoneRef.current = false;
+    lastLoadedBlocksRef.current = '';
+    prevScriptBlocksRef.current = '';
+    setHasUnsavedChanges(false);
     
-    // Poll more aggressively when generating, less when not
-    const pollInterval = generatingScript ? 1500 : 3000;
+    // Clear the editor content for new sessions
+    if (editor && !scriptId) {
+      // No session - clear editor
+      try {
+        const emptyBlock = { type: 'paragraph', content: [] };
+        editor.replaceBlocks(editor.document, [emptyBlock as any]);
+      } catch {
+        // Ignore if editor not ready
+      }
+    }
+  }, [scriptId, editor]);
+  
+  // Handle script.blocks updates from AI generation (via chat)
+  // This is separate from initial load - it's for when AI generates new content
+  const prevScriptBlocksRef = useRef<string>('');
+  
+  useEffect(() => {
+    if (!editor || !script?.blocks || !Array.isArray(script.blocks) || script.blocks.length === 0) {
+      return;
+    }
+    
+    // Check if this is a new script from AI (metadata indicates workflow)
+    const isAIGenerated = script?.metadata?.workflow === 'create' || 
+                          script?.metadata?.workflow === 'edit' ||
+                          script?.metadata?.workflow === 'draft';
+    
+    if (!isAIGenerated) {
+      return; // Skip if not from AI
+    }
+    
+    const scriptBlocksHash = JSON.stringify(script.blocks);
+    
+    // Skip if blocks haven't changed
+    if (scriptBlocksHash === prevScriptBlocksRef.current) {
+      return;
+    }
+    
+    // Skip if user is actively editing
+    if (hasUnsavedChanges || autosaveTimerRef.current) {
+      console.log('ScriptEditor: Skipping AI update, user is editing');
+      return;
+    }
+    
+    prevScriptBlocksRef.current = scriptBlocksHash;
+    
+    try {
+      const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
+      if (blockNoteBlocks.length > 0) {
+        const blocksHash = JSON.stringify(blockNoteBlocks);
+        if (blocksHash !== lastLoadedBlocksRef.current) {
+          isUpdatingFromPropsRef.current = true;
+          editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+          isUpdatingFromPropsRef.current = false;
+          lastLoadedBlocksRef.current = blocksHash;
+          setHasUnsavedChanges(false);
+          console.log('ScriptEditor: Updated with AI-generated content');
+        }
+      }
+    } catch (error) {
+      console.error('ScriptEditor: Failed to apply AI-generated blocks:', error);
+    }
+  }, [script?.blocks, script?.metadata, editor, hasUnsavedChanges]);
+
+  // Poll for blocks ONLY when script is being generated (not during normal editing)
+  useEffect(() => {
+    // Only poll when actively generating - don't poll during normal editing
+    if (!scriptId || !editor || !generatingScript) return;
+    
+    // Skip polling if user has unsaved changes (they're actively editing)
+    if (hasUnsavedChanges) {
+      console.log('ScriptEditor: Skipping poll, user has unsaved changes');
+      return;
+    }
+    
+    const pollInterval = 2000; // Poll every 2s during generation only
     
     const interval = setInterval(async () => {
+      // Double-check: skip if user started editing while waiting
+      if (hasUnsavedChanges || autosaveTimerRef.current) {
+        console.log('ScriptEditor: Skipping poll, user is editing');
+        return;
+      }
+      
       try {
-        console.log('ScriptEditor: Polling for blocks, generatingScript:', generatingScript);
         const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' }
         });
         if (response.ok) {
           const data = await response.json();
-          console.log('ScriptEditor: Polling response:', {
-            hasBlocks: !!(data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0),
-            blocksCount: data.blocks?.length || 0
-          });
           if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
             try {
               const blockNoteBlocks = canonicalToBlockNote(data.blocks as BlockTree);
               if (blockNoteBlocks.length > 0) {
-                // Check if blocks are different before updating
-                const currentBlocks = editor.document;
-                const currentJson = JSON.stringify(currentBlocks);
-                const newJson = JSON.stringify(blockNoteBlocks);
-                
-              if (currentJson !== newJson) {
                 const blocksHash = JSON.stringify(blockNoteBlocks);
-                if (blocksHash !== lastLoadedBlocksRef.current) {
+                // Only update if content actually changed and no user edits pending
+                if (blocksHash !== lastLoadedBlocksRef.current && !hasUnsavedChanges) {
                   isUpdatingFromPropsRef.current = true;
                   editor.replaceBlocks(editor.document, blockNoteBlocks as any);
                   isUpdatingFromPropsRef.current = false;
-                  setHasUnsavedChanges(false);
                   lastLoadedBlocksRef.current = blocksHash;
-                  console.log('ScriptEditor: Updated blocks from polling');
+                  console.log('ScriptEditor: Updated blocks from polling during generation');
                 }
-              }
               }
             } catch (error) {
               console.error('ScriptEditor: Failed to convert blocks during polling:', error);
@@ -400,7 +439,7 @@ export default function ScriptEditor({
     }, pollInterval);
     
     return () => clearInterval(interval);
-  }, [scriptId, editor, generatingScript]);
+  }, [scriptId, editor, generatingScript, hasUnsavedChanges]);
 
   // Integrate streaming blocks into editor when they arrive
   useEffect(() => {
@@ -464,14 +503,14 @@ export default function ScriptEditor({
 
   // Handle content changes with debounced autosave
   const handleContentChange = useCallback(() => {
-    // Skip if this is an update from props
+    // Skip if this is an update from props/API
     if (isUpdatingFromPropsRef.current) {
       return;
     }
 
     setHasUnsavedChanges(true);
     
-    // Debounce autosave
+    // Debounce autosave - use longer delay to reduce server calls
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
     }
@@ -480,7 +519,19 @@ export default function ScriptEditor({
       try {
         const updatedScript = await convertBlocksToScript();
         
+        // Update the lastLoadedBlocksRef to prevent polling from overwriting
+        // This is crucial to avoid race conditions
+        if (updatedScript.blocks) {
+          try {
+            const blockNoteBlocks = canonicalToBlockNote(updatedScript.blocks as BlockTree);
+            lastLoadedBlocksRef.current = JSON.stringify(blockNoteBlocks);
+          } catch {
+            // Ignore conversion errors for ref update
+          }
+        }
+        
         // Send canonical blocks to backend if scriptId is available
+        // Only save blocks to backend - don't double save via onEditScript
         if (scriptId && updatedScript.blocks) {
           try {
             const response = await fetch(`/api/services/thinkforge/script/blocks`, {
@@ -492,7 +543,11 @@ export default function ScriptEditor({
               }),
             });
             
-            if (!response.ok) {
+            if (response.ok) {
+              setHasUnsavedChanges(false);
+              setJustSaved(true);
+              setTimeout(() => setJustSaved(false), 2000);
+            } else {
               console.error('Failed to save blocks to backend');
             }
           } catch (error) {
@@ -500,15 +555,17 @@ export default function ScriptEditor({
           }
         }
         
+        // Notify parent of script changes (for UI updates, not saving)
+        // This is separate from the save operation
         onEditScript(updatedScript);
         
-        // Restore cursor after save
-        setTimeout(() => restoreCursorPosition(), 100);
+        // Clear timer reference
+        autosaveTimerRef.current = null;
       } catch (error) {
         console.error('Autosave failed:', error);
       }
-    }, 800);
-  }, [convertBlocksToScript, onEditScript, restoreCursorPosition]);
+    }, 1200); // Increased debounce to 1.2s for less aggressive saving
+  }, [convertBlocksToScript, onEditScript, scriptId]);
 
   // Handle selection changes
   const handleSelectionChange = useCallback(() => {
@@ -685,51 +742,15 @@ export default function ScriptEditor({
     >
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Button
-            onClick={onBackToChat}
-            variant="outline"
-            size="sm"
-            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Home
-          </Button>
-          <div className="flex items-center gap-3">
-            <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
-            <div>
-              <h2 className="text-xl font-semibold text-zinc-100 flex items-center gap-2">
-                <FileText className="h-5 w-5 text-red-500" />
-                {generatingScript && !script ? "Generating Script..." : "Script Editor"}
-              </h2>
-              <p className="text-sm text-zinc-400">
-                {generatingScript && !script 
-                  ? "ForgeAI is creating your script..."
-                  : "Notion-style editor with AI assistance"
-                }
-              </p>
-            </div>
-          </div>
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
+          {generatingScript && !script && (
+            <span className="text-sm text-zinc-400">Generating...</span>
+          )}
         </div>
         
-        <div className="flex items-center gap-3">
-          {/* Import JSON */}
-          {typeof onImportScript === 'function' && (
-            <Button
-              onClick={() => {
-                setImportErr(null);
-                setImportText('');
-                setImportOpen(true);
-              }}
-              variant="outline"
-              size="sm"
-              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-            >
-              Import JSON
-            </Button>
-          )}
-          
-          {/* Preview/Edit Toggle */}
+        <div className="flex items-center gap-4">
+          {/* Tools Group: Preview/Edit Toggle */}
           <div className="flex items-center gap-2">
             <Eye className="h-4 w-4 text-zinc-400" />
             <Switch
@@ -740,50 +761,75 @@ export default function ScriptEditor({
             <Edit className="h-4 w-4 text-zinc-400" />
           </div>
 
-          {/* Action Buttons */}
-          <Button
-            onClick={handleCopy}
-            variant="outline"
-            size="sm"
-            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-          >
-            {copied ? (
-              <Check className="h-4 w-4 mr-2 text-green-400" />
-            ) : (
-              <Copy className="h-4 w-4 mr-2" />
-            )}
-            {copied ? 'Copied!' : 'Copy'}
-          </Button>
+          {/* Tools Group: Action Buttons */}
+          <div className="flex items-center gap-2 border-l border-zinc-700 pl-4">
+            <Button
+              onClick={handleCopy}
+              variant="outline"
+              size="sm"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+            >
+              {copied ? (
+                <Check className="h-4 w-4 mr-2 text-green-400" />
+              ) : (
+                <Copy className="h-4 w-4 mr-2" />
+              )}
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
 
-          <Button
-            onClick={handleExportPDF}
-            variant="outline"
-            size="sm"
-            className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
-            disabled={generatingScript && !script}
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Export PDF
-          </Button>
+            <Button
+              onClick={handleExportPDF}
+              variant="outline"
+              size="sm"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+              disabled={generatingScript && !script}
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Export PDF
+            </Button>
+
+            <Button
+              onClick={() => setShowBranchEditor(true)}
+              variant="outline"
+              size="sm"
+              className="border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+              disabled={generatingScript && !script}
+            >
+              <GitBranch className="h-4 w-4 mr-2" />
+              History
+            </Button>
+          </div>
 
           {/* Autosave indicator */}
-          {isSaving ? (
-            <div className="flex items-center gap-2 text-xs text-zinc-400">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Saving...
-            </div>
-          ) : justSaved ? (
-            <div className="flex items-center gap-2 text-xs text-green-400">
-              <Check className="h-4 w-4" />
-              Saved
-            </div>
-          ) : hasUnsavedChanges ? (
-            <div className="text-xs text-amber-400">Unsaved</div>
-          ) : (
-            <div className="text-xs text-zinc-500">All saved</div>
-          )}
+          <div className="flex items-center border-l border-zinc-700 pl-4">
+            {isSaving ? (
+              <div className="flex items-center gap-2 text-xs text-zinc-400">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Saving...
+              </div>
+            ) : justSaved ? (
+              <div className="flex items-center gap-2 text-xs text-green-400">
+                <Check className="h-4 w-4" />
+                Saved
+              </div>
+            ) : hasUnsavedChanges ? (
+              <div className="text-xs text-amber-400">Unsaved</div>
+            ) : (
+              <div className="text-xs text-zinc-500">All saved</div>
+            )}
+          </div>
         </div>
       </div>
+
+      {/* Format Toolbar - Show when not in preview mode and script exists */}
+      {!isPreviewMode && (!generatingScript || script) && (
+        <div className="flex justify-center">
+          <FormatToolbar 
+            editor={editor} 
+            disabled={generatingScript && !script}
+          />
+        </div>
+      )}
 
       {/* Loading State */}
       {generatingScript && !script && (
@@ -859,93 +905,6 @@ export default function ScriptEditor({
         </Card>
       ) : null}
 
-      {/* Orchestration Metadata Display */}
-      {script?.metadata && (script.metadata.thoughts || script.metadata.duration_ms || script.metadata.workflow) && (
-        <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl mt-4">
-          <CardContent className="p-0">
-            <button
-              onClick={() => setShowOrchestration(!showOrchestration)}
-              className="w-full flex items-center justify-between p-4 hover:bg-white/5 transition-colors"
-            >
-              <div className="flex items-center gap-2">
-                <Brain className="h-4 w-4 text-purple-400" />
-                <span className="text-sm font-medium text-zinc-200">Agentic Orchestration Details</span>
-                {script.metadata.workflow && (
-                  <span className="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    {script.metadata.workflow}
-                  </span>
-                )}
-                {script.metadata.duration_ms && (
-                  <span className="text-xs text-zinc-400">
-                    {script.metadata.duration_ms}ms
-                  </span>
-                )}
-              </div>
-              {showOrchestration ? (
-                <ChevronUp className="h-4 w-4 text-zinc-400" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-zinc-400" />
-              )}
-            </button>
-            {showOrchestration && (
-              <div className="px-4 pb-4 space-y-4 border-t border-white/10">
-                {script.metadata.thoughts && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Zap className="h-3.5 w-3.5 text-yellow-400" />
-                      <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Agent Thoughts</span>
-                    </div>
-                    <div className="text-sm text-zinc-300 bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 font-mono">
-                      {script.metadata.thoughts}
-                    </div>
-                  </div>
-                )}
-                {script.metadata.agent_steps && script.metadata.agent_steps.length > 0 && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Brain className="h-3.5 w-3.5 text-blue-400" />
-                      <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Agent Steps</span>
-                    </div>
-                    <div className="space-y-2">
-                      {script.metadata.agent_steps.map((step: any, idx: number) => (
-                        <div key={idx} className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
-                          {step.agent && (
-                            <div className="text-xs font-semibold text-blue-300 mb-1">{step.agent}</div>
-                          )}
-                          {step.step && (
-                            <div className="text-sm text-zinc-300 mb-1">{step.step}</div>
-                          )}
-                          {step.output && (
-                            <div className="text-xs text-zinc-400 font-mono mt-1 opacity-75">{step.output}</div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {script.metadata.quality_metrics && (
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Check className="h-3.5 w-3.5 text-green-400" />
-                      <span className="text-xs font-medium text-zinc-300 uppercase tracking-wide">Quality Metrics</span>
-                    </div>
-                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
-                      {script.metadata.quality_metrics.score !== undefined && (
-                        <div className="text-sm text-zinc-300 mb-1">
-                          Score: <span className="font-semibold text-green-300">{script.metadata.quality_metrics.score}/100</span>
-                        </div>
-                      )}
-                      {script.metadata.quality_metrics.feedback && (
-                        <div className="text-sm text-zinc-300 mt-2">{script.metadata.quality_metrics.feedback}</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      )}
 
       {/* Import JSON Dialog */}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>
@@ -986,6 +945,31 @@ export default function ScriptEditor({
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Branch Editor Dialog */}
+      <Dialog open={showBranchEditor} onOpenChange={setShowBranchEditor}>
+        <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-w-4xl h-[600px] p-0">
+          <BranchEditor
+            sessionId={sessionId || null}
+            currentBlocks={script?.blocks || []}
+            onRestoreVersion={(blocks) => {
+              // Convert blocks to script and update
+              const updatedScript: Script = {
+                ...script,
+                title: script?.title || 'Untitled Script',
+                blocks: blocks as any,
+                content: '',
+                body: '',
+                sections: script?.sections || [],
+                tips: script?.tips || [],
+              };
+              onEditScript(updatedScript);
+              setShowBranchEditor(false);
+            }}
+            onClose={() => setShowBranchEditor(false)}
+          />
         </DialogContent>
       </Dialog>
 
