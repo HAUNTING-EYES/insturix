@@ -1,38 +1,99 @@
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { SystemMessage, ToolMessage } from '@langchain/core/messages';
+/**
+ * Agent Graph - LangGraph-based AI agent for video editing
+ * 
+ * ARCHITECTURE DECISION: Direct Google SDK for Model Invocation
+ * =============================================================
+ * 
+ * We use @google/generative-ai SDK directly instead of @langchain/google-genai for model calls.
+ * 
+ * WHY WE MADE THIS CHANGE:
+ * The @langchain/google-genai library has a critical bug in its response parser:
+ * - Both streaming (_streamResponseChunks) and non-streaming (mapGenerateContentResultToChatResult)
+ *   paths throw "Cannot read properties of undefined (reading 'parts')" when tools are bound
+ * - This happens intermittently, making the chat extremely unreliable
+ * - The bug occurs in convertResponseContentToChatGenerationChunk when parsing Gemini responses
+ * 
+ * WHAT WE DID:
+ * 1. Removed ChatGoogleGenerativeAI from LangChain
+ * 2. Use GoogleGenerativeAI (@google/generative-ai) directly for all model calls
+ * 3. Manually convert LangChain messages to Gemini format
+ * 4. Manually convert Zod tool schemas to Gemini function declarations
+ * 5. Parse Gemini responses back to AIMessage for LangGraph compatibility
+ * 6. Handle Gemini's quirk of returning JSON arrays as strings (parseArgs)
+ * 7. Implement streaming via generateContentStream() with callback mechanism
+ * 
+ * WHAT WE STILL USE FROM LANGCHAIN:
+ * - LangGraph (StateGraph, MessagesAnnotation) - for agent orchestration and tool execution
+ * - Message types (AIMessage, HumanMessage, ToolMessage, SystemMessage) - for state management
+ * - tool() function from @langchain/core/tools - for defining tools with Zod schemas
+ * 
+ * The result: Reliable model calls with streaming support, while keeping LangGraph benefits.
+ */
+
+import { SystemMessage, ToolMessage, AIMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
 import { createTools } from './tools';
 
 // Define the agent state
 // We use the default MessagesAnnotation which just has 'messages'
 
-export const createAgent = (userId: string, projectContext?: string) => {
-  // Initialize the model
-  const model = new ChatGoogleGenerativeAI({
-    // Use the supported option key `model` per langchain-google-genai docs
-    // Note: The model name is gemini-2.5-flash and it is working. 
-    model: 'gemini-2.5-flash', 
-    apiKey: process.env.GEMINI_API_KEY,
-    temperature: 0,
-    maxOutputTokens: 8192,
-  });
+// Stream callback type for real-time token streaming
+export type StreamCallback = (chunk: { type: 'token' | 'tool_start' | 'tool_end', data: any }) => void;
 
+export const createAgent = (userId: string, projectContext?: string) => {
   // Create tools with both userId and projectId baked in
   // The projectId comes from the config when agent is invoked
   const createToolsWithProject = (projectId: string) => createTools(userId, projectId);
 
-  const modelWithTools = model.bindTools([]);  // Will bind tools per request
-
   // Define the function that calls the model
   async function callModel(state: typeof MessagesAnnotation.State, config: any) {
     const projectId = config.configurable?.projectId;
+    const streamCallback: StreamCallback | undefined = config.configurable?.streamCallback;
     if (!projectId) throw new Error("Project ID is required");
     
     // Bind tools with projectId for this specific request
     const tools = createToolsWithProject(projectId);
-    const modelWithTools = model.bindTools(tools);
+    console.log('[AGENT-GRAPH-DEBUG] Tools bound:', tools.map(t => t.name));
     
-    const messages = state.messages || [];
+    let messages = state.messages || [];
+    
+    console.log('[AGENT-GRAPH-DEBUG] Number of messages in state:', messages.length);
+    
+    // Debug: Log each message structure
+    messages.forEach((msg, idx) => {
+      const msgType = msg.constructor?.name || typeof msg;
+      const msgContent = typeof msg.content === 'string' 
+        ? msg.content.substring(0, 100) 
+        : JSON.stringify(msg.content)?.substring(0, 100);
+      const hasToolCalls = (msg as any).tool_calls?.length > 0;
+      console.log(`[AGENT-GRAPH-DEBUG] Message ${idx}: type=${msgType}, content=${msgContent}..., hasToolCalls=${hasToolCalls}`);
+      
+      // Check for malformed messages
+      if (msg.content === undefined || msg.content === null) {
+        console.error(`[AGENT-GRAPH-DEBUG] WARNING: Message ${idx} has undefined/null content!`);
+      }
+      if ((msg as any).tool_calls) {
+        console.log(`[AGENT-GRAPH-DEBUG] Message ${idx} tool_calls:`, JSON.stringify((msg as any).tool_calls).substring(0, 200));
+      }
+    });
+    
+    // CRITICAL FIX: Normalize messages to fix AIMessageChunk with array content
+    // When Gemini returns a tool call, it puts the function call info in content as an array.
+    // When we send this back, the library fails. We need to convert array content to empty string.
+    messages = messages.map(msg => {
+      const m = msg as any;
+      // If content is an array (happens with AIMessageChunk from tool calls), normalize it
+      if (Array.isArray(m.content)) {
+        console.log('[AGENT-GRAPH-DEBUG] Normalizing message with array content to empty string');
+        // Create a new message with string content but preserve tool_calls
+        return new AIMessage({
+          content: '', // Convert array to empty string
+          tool_calls: m.tool_calls,
+          additional_kwargs: m.additional_kwargs,
+        });
+      }
+      return msg;
+    });
     
     if (messages.length === 0) {
       console.warn('[AGENT-GRAPH] No messages in state');
@@ -137,17 +198,257 @@ export const createAgent = (userId: string, projectContext?: string) => {
 ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
 
     const systemMessage = new SystemMessage(SYSTEM_MESSAGE);
+    
+    console.log('[AGENT-GRAPH-DEBUG] System message length:', SYSTEM_MESSAGE.length);
+    console.log('[AGENT-GRAPH-DEBUG] About to invoke model with', messages.length + 1, 'messages (including system)');
 
-    // Prepend system message
-    const response = await modelWithTools.invoke([systemMessage, ...messages]);
+    // Use direct Google SDK instead of LangChain due to LangChain's broken response parser
+    try {
+      const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
+      
+      // Convert tools to Gemini function declarations format
+      const functionDeclarations = tools.map(tool => {
+        // Convert zod schema to Gemini schema format
+        const zodSchema = (tool as any).schema;
+        let properties: any = {};
+        let required: string[] = [];
+        
+        if (zodSchema && zodSchema._def && zodSchema._def.shape) {
+          const shape = typeof zodSchema._def.shape === 'function' 
+            ? zodSchema._def.shape() 
+            : zodSchema._def.shape;
+          
+          for (const [key, value] of Object.entries(shape)) {
+            const fieldDef = (value as any)._def;
+            let type = 'string';
+            let description = '';
+            
+            if (fieldDef) {
+              // Extract description
+              description = fieldDef.description || '';
+              
+              // Determine type
+              const typeName = fieldDef.typeName;
+              if (typeName === 'ZodNumber') type = 'number';
+              else if (typeName === 'ZodBoolean') type = 'boolean';
+              else if (typeName === 'ZodArray') type = 'array';
+              else if (typeName === 'ZodObject') type = 'object';
+              else if (typeName === 'ZodEnum') type = 'string';
+              else if (typeName === 'ZodUnion') type = 'string';
+              else if (typeName === 'ZodOptional') {
+                // Handle optional - get inner type
+                const innerDef = fieldDef.innerType?._def;
+                if (innerDef?.typeName === 'ZodNumber') type = 'number';
+                else if (innerDef?.typeName === 'ZodBoolean') type = 'boolean';
+              } else type = 'string';
+              
+              // Check if required
+              if (typeName !== 'ZodOptional' && typeName !== 'ZodDefault') {
+                required.push(key);
+              }
+            }
+            
+            properties[key] = { type, description };
+          }
+        }
+        
+        return {
+          name: tool.name,
+          description: tool.description,
+          parameters: {
+            type: SchemaType.OBJECT,
+            properties,
+            required: required.length > 0 ? required : undefined,
+          }
+        };
+      });
+      
+      const directModel = genAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 8192,
+        },
+        tools: [{ functionDeclarations }],
+      });
+      
+      // Convert LangChain messages to Gemini format
+      const geminiContents: any[] = [];
+      
+      // Add system message as first user message (Gemini style)
+      geminiContents.push({
+        role: 'user',
+        parts: [{ text: SYSTEM_MESSAGE }]
+      });
+      // Model acknowledgment
+      geminiContents.push({
+        role: 'model',
+        parts: [{ text: 'Understood. I am Editron AI, ready to assist with video editing.' }]
+      });
+      
+      // Convert conversation messages
+      for (const msg of messages) {
+        const msgAny = msg as any;
+        const msgType = msg.constructor?.name;
+        
+        if (msgType === 'HumanMessage') {
+          geminiContents.push({
+            role: 'user',
+            parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }]
+          });
+        } else if (msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
+          const parts: any[] = [];
+          
+          // Add text content if present and not array
+          if (typeof msg.content === 'string' && msg.content.trim()) {
+            parts.push({ text: msg.content });
+          }
+          
+          // Add function calls
+          if (msgAny.tool_calls && msgAny.tool_calls.length > 0) {
+            for (const tc of msgAny.tool_calls) {
+              parts.push({
+                functionCall: {
+                  name: tc.name,
+                  args: tc.args
+                }
+              });
+            }
+          }
+          
+          if (parts.length > 0) {
+            geminiContents.push({ role: 'model', parts });
+          }
+        } else if (msgType === 'ToolMessage') {
+          // Tool responses go as user messages with functionResponse
+          geminiContents.push({
+            role: 'user',
+            parts: [{
+              functionResponse: {
+                name: msgAny.name || 'tool',
+                response: { result: msg.content }
+              }
+            }]
+          });
+        }
+      }
+      
+      console.log('[AGENT-GRAPH-DEBUG] Calling Gemini directly with', geminiContents.length, 'messages');
+      
+      // Helper to parse stringified JSON in args (Gemini sometimes returns arrays as strings)
+      const parseArgs = (args: any): any => {
+        if (!args || typeof args !== 'object') return args;
+        
+        const parsed: any = {};
+        for (const [key, value] of Object.entries(args)) {
+          if (typeof value === 'string') {
+            // Try to parse if it looks like JSON
+            const trimmed = value.trim();
+            if ((trimmed.startsWith('[') && trimmed.endsWith(']')) || 
+                (trimmed.startsWith('{') && trimmed.endsWith('}'))) {
+              try {
+                parsed[key] = JSON.parse(trimmed);
+              } catch {
+                parsed[key] = value;
+              }
+            } else {
+              parsed[key] = value;
+            }
+          } else {
+            parsed[key] = value;
+          }
+        }
+        return parsed;
+      };
+      
+      let textContent = '';
+      const toolCalls: any[] = [];
+      
+      // Use streaming if callback is provided
+      if (streamCallback) {
+        console.log('[AGENT-GRAPH-DEBUG] Using streaming mode');
+        const streamResult = await directModel.generateContentStream({ contents: geminiContents });
+        
+        for await (const chunk of streamResult.stream) {
+          const parts = chunk.candidates?.[0]?.content?.parts || [];
+          
+          for (const part of parts) {
+            if (part.text) {
+              textContent += part.text;
+              // Stream token to callback
+              streamCallback({ type: 'token', data: { content: part.text } });
+            } else if (part.functionCall) {
+              const toolCall = {
+                type: 'tool_call',
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: part.functionCall.name,
+                args: parseArgs(part.functionCall.args || {})
+              };
+              toolCalls.push(toolCall);
+              // Emit tool_start event
+              streamCallback({ type: 'tool_start', data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args } });
+            }
+          }
+        }
+      } else {
+        // Non-streaming fallback
+        console.log('[AGENT-GRAPH-DEBUG] Using non-streaming mode');
+        const result = await directModel.generateContent({ contents: geminiContents });
+        const response = result.response;
+        
+        const candidates = response.candidates || [];
+        if (candidates.length === 0) {
+          throw new Error('No candidates in response');
+        }
+        
+        const candidate = candidates[0];
+        const parts = candidate.content?.parts || [];
+        
+        for (const part of parts) {
+          if (part.text) {
+            textContent += part.text;
+          } else if (part.functionCall) {
+            toolCalls.push({
+              type: 'tool_call',
+              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              name: part.functionCall.name,
+              args: parseArgs(part.functionCall.args || {})
+            });
+          }
+        }
+      }
+      
+      console.log('[AGENT-GRAPH-DEBUG] Parsed response - text:', textContent.substring(0, 100), 'toolCalls:', toolCalls.length);
+      
+      // Return as AIMessage for LangGraph compatibility
+      return processResponse({
+        content: textContent,
+        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+      });
+      
+    } catch (invokeError: any) {
+      console.error('[AGENT-GRAPH-DEBUG] Direct SDK error:', invokeError.message);
+      console.error('[AGENT-GRAPH-DEBUG] Error stack:', invokeError.stack);
+      throw invokeError;
+    }
+  }
+  
+  // Separate function to process response (extracted for cleaner try/catch)
+  function processResponse(responseData: { content: string, tool_calls?: any[] }) {
     
     // DEBUG: Log what the model is returning
-    console.log('[AGENT-GRAPH-DEBUG] Model response type:', typeof response.content);
-    console.log('[AGENT-GRAPH-DEBUG] Model response content length:', typeof response.content === 'string' ? response.content.length : 'N/A');
-    console.log('[AGENT-GRAPH-DEBUG] Model response preview:', typeof response.content === 'string' ? response.content.substring(0, 200) : JSON.stringify(response.content).substring(0, 200));
-    console.log('[AGENT-GRAPH-DEBUG] Tool calls:', response.tool_calls);
+    console.log('[AGENT-GRAPH-DEBUG] Model response content length:', responseData.content?.length || 0);
+    console.log('[AGENT-GRAPH-DEBUG] Model response preview:', responseData.content?.substring(0, 200));
+    console.log('[AGENT-GRAPH-DEBUG] Tool calls:', responseData.tool_calls);
     
-    return { messages: [response] };
+    // Create an AIMessage with the response
+    const aiMessage = new AIMessage({
+      content: responseData.content || '',
+      tool_calls: responseData.tool_calls,
+    });
+    
+    return { messages: [aiMessage] };
   }
 
   // Define the function that determines whether to continue or not

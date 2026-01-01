@@ -1202,7 +1202,7 @@ EXAMPLE PROMPTS:
     trimOverlay,          // NEW: Trim tool
     deleteOverlay,
     syncStyle,            // NEW: Style sync
-    visualInspectFrame,
+    // visualInspectFrame,  // DISABLED: Decoy tool, not implemented
     generateHtmlScene,
     generateHtmlSticker   // NEW: Animated stickers
   ];

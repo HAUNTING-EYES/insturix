@@ -24,38 +24,51 @@ export async function POST(req: NextRequest) {
     // Get or create session
     const actualSessionId = await chatService.getOrCreateSession(userId, projectId, sessionId);
 
-    // Save user message
+    // Load history BEFORE saving new message to avoid duplicate
+    const history = await chatService.getSessionHistory(actualSessionId);
+
+    // Save user message (after loading history so it's not included in history conversion)
     await chatService.saveMessage(actualSessionId, {
       role: 'user',
       content: message,
     });
-
-    // Load history
-    const history = await chatService.getSessionHistory(actualSessionId);
     
     // Convert history to LangChain format
     const langchainHistory: (HumanMessage | AIMessage | ToolMessage)[] = [];
     
     history.forEach(msg => {
       if (msg.role === 'user') {
-        langchainHistory.push(new HumanMessage(msg.content));
+        // Ensure content is never empty/undefined
+        langchainHistory.push(new HumanMessage(msg.content || ''));
       } else if (msg.role === 'assistant') {
-        // 1. Add the assistant message (with tool calls if any)
-        const toolCalls = msg.toolCalls?.map(tc => ({
-          id: tc.id,
-          name: tc.name,
-          args: tc.args,
-          type: 'tool_call' as const, // Explicitly cast to literal type
-        }));
+        // Check if we have tool calls AND corresponding tool results
+        // If tool calls exist but results are missing/incomplete, skip the tool_calls
+        // This prevents Google Generative AI from receiving malformed messages
+        const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0;
+        const hasCompleteToolResults = msg.toolResults && 
+          msg.toolResults.length >= (msg.toolCalls?.length || 0);
+        
+        // Only include tool_calls if we have complete results for all of them
+        const toolCalls = hasToolCalls && hasCompleteToolResults
+          ? msg.toolCalls!.map(tc => ({
+              id: tc.id,
+              name: tc.name,
+              args: tc.args,
+              type: 'tool_call' as const,
+            }))
+          : undefined;
+
+        // Ensure content is never empty/undefined when there are no tool calls
+        // Google Generative AI requires either content or tool_calls
+        const content = msg.content || (toolCalls ? '' : ' ');
 
         langchainHistory.push(new AIMessage({
-          content: msg.content,
+          content,
           tool_calls: toolCalls,
         }));
 
-        // 2. Add separate ToolMessages for results if they exist
-        // These must come immediately after the AIMessage that requested them
-        if (msg.toolResults && msg.toolResults.length > 0) {
+        // Add ToolMessages for results if we included tool_calls
+        if (toolCalls && msg.toolResults && msg.toolResults.length > 0) {
           msg.toolResults.forEach(tr => {
             langchainHistory.push(new ToolMessage({
               tool_call_id: tr.toolCallId,
@@ -85,7 +98,7 @@ export async function POST(req: NextRequest) {
     const writer = stream.writable.getWriter();
     const encoder = new TextEncoder();
 
-    // Run agent in background and stream chunks
+    // Run agent in background with streaming
     (async () => {
       try {
         const inputs = {
@@ -95,67 +108,66 @@ export async function POST(req: NextRequest) {
           ]
         };
 
-        // We want to stream the events
-        const eventStream = await agent.streamEvents(inputs, {
-          version: "v2",
+        // Create stream callback to emit events in real-time
+        const streamCallback = async (chunk: { type: 'token' | 'tool_start' | 'tool_end', data: any }) => {
+          if (chunk.type === 'token') {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: chunk.data.content })}\n\n`));
+          } else if (chunk.type === 'tool_start') {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: chunk.data.tool, id: chunk.data.id, args: chunk.data.args })}\n\n`));
+          } else if (chunk.type === 'tool_end') {
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: chunk.data.tool, id: chunk.data.id, output: chunk.data.output })}\n\n`));
+          }
+        };
+
+        console.log('[STREAM-ROUTE] Using streaming callback mode');
+        const result = await agent.invoke(inputs, {
           configurable: {
             projectId,
+            streamCallback,
           }
         });
 
-        let finalResponse = "";
+        // Extract tool calls and content from the result for saving to DB
+        const messages = result.messages || [];
         const toolCalls: any[] = [];
         const toolResults: any[] = [];
+        let finalResponse = "";
 
-        for await (const event of eventStream) {
-          const eventType = event.event;
+        // Process all messages to extract tool calls and content
+        for (const msg of messages) {
+          const msgAny = msg as any;
           
-          if (eventType === "on_chat_model_stream") {
-            // IMPORTANT: Only stream tokens from the MAIN agent, not from nested sub-agents inside tools
-            // Sub-agent events have different metadata. We check if this is from the main "agent" node.
-            // LangGraph events include the node name in event.metadata or tags.
-            const tags = event.tags || [];
-            const metadata = event.metadata || {};
-            
-            // Skip if this event is from a tool execution (sub-agent)
-            // The main agent runs in the "agent" node, sub-agents run during "tools" node
-            const isFromToolNode = tags.includes('seq:step:2') || metadata.langgraph_node === 'tools';
-            const isFromSubAgent = event.name?.includes('ChatGoogleGenerativeAI') && isFromToolNode;
-            
-            // Also check: if we're currently between tool_start and tool_end, skip streaming
-            const isInsideToolExecution = toolCalls.length > toolResults.length;
-            
-            if (isInsideToolExecution) {
-              // Skip streaming while a tool is executing (this catches sub-agent output)
-              continue;
+          // Skip the human message we added
+          if (msg.constructor?.name === 'HumanMessage') continue;
+          
+          // Process AI messages
+          if (msg.constructor?.name === 'AIMessage' || msg.constructor?.name === 'AIMessageChunk') {
+            // Extract content
+            if (typeof msgAny.content === 'string' && msgAny.content.trim()) {
+              finalResponse = msgAny.content; // Take the last AI message content
             }
             
-            const content = event.data.chunk.content;
-            if (content) {
-              finalResponse += content;
-              await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content })}\n\n`));
+            // Extract tool calls
+            if (msgAny.tool_calls && msgAny.tool_calls.length > 0) {
+              for (const tc of msgAny.tool_calls) {
+                toolCalls.push({
+                  id: tc.id,
+                  name: tc.name,
+                  args: tc.args
+                });
+              }
             }
-          } else if (eventType === "on_tool_start") {
-             console.log("Tool start:", event.name);
-             // Store tool call info with run_id for matching
-             toolCalls.push({
-               id: event.run_id, // Use run_id as tool call id
-               name: event.name,
-               args: event.data.input
-             });
-             
-             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_start', tool: event.name, id: event.run_id, args: event.data.input })}\n\n`));
-          } else if (eventType === "on_tool_end") {
-             console.log("Tool end:", event.name);
-             
-             // Store tool result
-             toolResults.push({
-               toolCallId: event.run_id, // Match with start
-               toolName: event.name,
-               result: event.data.output
-             });
-
-             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: event.name, id: event.run_id, output: event.data.output })}\n\n`));
+          }
+          
+          // Process Tool messages (results) - these need tool_end events
+          if (msg.constructor?.name === 'ToolMessage') {
+            toolResults.push({
+              toolCallId: msgAny.tool_call_id,
+              toolName: msgAny.name,
+              result: msgAny.content
+            });
+            // Send tool_end event for completed tools
+            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: msgAny.name, id: msgAny.tool_call_id, output: msgAny.content })}\n\n`));
           }
         }
 

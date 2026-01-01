@@ -38,6 +38,17 @@ import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling"
 import html2canvas from "html2canvas";
 import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
 
+interface ContentSegment {
+  type: 'text' | 'tool';
+  text?: string;
+  toolCall?: {
+    id: string;
+    name: string;
+    args: any;
+    output?: string;
+  };
+}
+
 interface ChatMessage {
   role: "user" | "assistant" | "tool";
   content: string;
@@ -48,6 +59,8 @@ interface ChatMessage {
     args: any;
     output?: string;
   }>;
+  // Segments track the interleaved order of text and tool calls
+  contentSegments?: ContentSegment[];
 }
 
 interface ChatSession {
@@ -83,6 +96,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   sync_style: "Syncing styles",
   get_timeline_view: "Getting timeline",
   generate_html_scene: "Creating custom scene",
+  generate_html_sticker: "Creating custom sticker",
 };
 
 export function AIChatPanel() {
@@ -147,10 +161,49 @@ export function AIChatPanel() {
       const res = await fetch(`/api/services/editron/chat/sessions/${sessionId}/history`);
       const data = await res.json();
       if (data.success) {
-        setMessages(data.messages.map((m: any) => ({
-          ...m,
-          timestamp: new Date(m.timestamp),
-        })));
+        // Transform messages to merge toolResults into toolCalls and generate contentSegments
+        setMessages(data.messages.map((m: any) => {
+          const message: ChatMessage = {
+            ...m,
+            timestamp: new Date(m.timestamp),
+          };
+          
+          // Merge toolResults into toolCalls so UI shows completed state
+          if (m.toolCalls && m.toolResults) {
+            message.toolCalls = m.toolCalls.map((tc: any) => {
+              // Find matching result by toolCallId
+              const result = m.toolResults.find(
+                (tr: any) => tr.toolCallId === tc.id || tr.toolName === tc.name
+              );
+              return {
+                ...tc,
+                output: result?.result || undefined,
+              };
+            });
+          }
+          
+          // Generate contentSegments for historical messages
+          // Since we don't store exact order, we show text first, then tool calls
+          if (message.role === 'assistant') {
+            const segments: ContentSegment[] = [];
+            
+            // Add text content as first segment if present
+            if (message.content?.trim()) {
+              segments.push({ type: 'text', text: message.content });
+            }
+            
+            // Add tool calls as segments (with merged output)
+            if (message.toolCalls && message.toolCalls.length > 0) {
+              message.toolCalls.forEach((tc: any) => {
+                segments.push({ type: 'tool', toolCall: tc });
+              });
+            }
+            
+            message.contentSegments = segments;
+          }
+          
+          return message;
+        }));
       }
     } catch (error) {
       console.error("Failed to load messages:", error);
@@ -290,6 +343,9 @@ export function AIChatPanel() {
       const decoder = new TextDecoder();
       let assistantContent = "";
       let currentToolCalls: any[] = [];
+      // Track segments in order for proper interleaved display
+      let segments: ContentSegment[] = [];
+      let currentTextSegmentIndex = -1;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -305,19 +361,36 @@ export function AIChatPanel() {
 
               if (data.type === 'token') {
                 assistantContent += data.content;
-                // Update message by matching timestamp (which acts as ID)
+                
+                // If we're currently accumulating text, update the current text segment
+                // Otherwise, create a new text segment
+                if (currentTextSegmentIndex >= 0 && segments[currentTextSegmentIndex]?.type === 'text') {
+                  segments[currentTextSegmentIndex].text = (segments[currentTextSegmentIndex].text || '') + data.content;
+                } else {
+                  // Create new text segment
+                  currentTextSegmentIndex = segments.length;
+                  segments.push({ type: 'text', text: data.content });
+                }
+                
+                // Update message with both content and segments
                 setMessages((prev) => prev.map(msg => 
                   (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
-                    ? { ...msg, content: assistantContent }
+                    ? { ...msg, content: assistantContent, contentSegments: [...segments] }
                     : msg
                 ));
               } else if (data.type === 'tool_start') {
                 addLog('tool_start', `Tool started: ${data.tool}`, { args: data.args });
                 // Use server-provided ID for reliable matching
-                currentToolCalls.push({ name: data.tool, id: data.id || `tool_${Date.now()}`, args: data.args });
+                const toolCall = { name: data.tool, id: data.id || `tool_${Date.now()}`, args: data.args };
+                currentToolCalls.push(toolCall);
+                
+                // Add tool call as a segment (interrupts text flow)
+                segments.push({ type: 'tool', toolCall });
+                currentTextSegmentIndex = -1; // Reset so next text creates new segment
+                
                 setMessages((prev) => prev.map(msg => 
                   (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
-                    ? { ...msg, toolCalls: [...currentToolCalls] }
+                    ? { ...msg, toolCalls: [...currentToolCalls], contentSegments: [...segments] }
                     : msg
                 ));
               } else if (data.type === 'tool_end') {
@@ -328,10 +401,19 @@ export function AIChatPanel() {
                   : currentToolCalls.findIndex(tc => tc.name === data.tool && !tc.output);
                 if (toolCallIndex !== -1) {
                   currentToolCalls[toolCallIndex].output = data.output;
-                  // Force update state to ensure re-render if needed
-                   setMessages((prev) => prev.map(msg => 
+                  
+                  // Also update the segment's toolCall output
+                  const segmentIndex = segments.findIndex(
+                    s => s.type === 'tool' && s.toolCall?.id === currentToolCalls[toolCallIndex].id
+                  );
+                  if (segmentIndex !== -1 && segments[segmentIndex].toolCall) {
+                    segments[segmentIndex].toolCall!.output = data.output;
+                  }
+                  
+                  // Force update state to ensure re-render
+                  setMessages((prev) => prev.map(msg => 
                     (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
-                      ? { ...msg, toolCalls: [...currentToolCalls] }
+                      ? { ...msg, toolCalls: [...currentToolCalls], contentSegments: [...segments] }
                       : msg
                   ));
                 }
@@ -678,49 +760,94 @@ export function AIChatPanel() {
                           : "bg-muted/50 border rounded-tl-sm"
                       )}
                     >
-                      {/* Only render content div if there's content */}
-                      {msg.content.trim() && (
-                        <div className="text-sm leading-relaxed">
-                          {msg.role === "user" ? (
-                            <div className="whitespace-pre-wrap">{msg.content}</div>
-                          ) : (
-                            <ReactMarkdown
-                              remarkPlugins={[remarkGfm]}
-                              components={{
-                                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                                ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 pl-1">{children}</ul>,
-                                ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 pl-1">{children}</ol>,
-                                li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-                                code: ({ className, children, ...props }) => {
-                                  const isInline = !className;
-                                  return isInline ? (
-                                    <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
-                                      {children}
-                                    </code>
-                                  ) : (
-                                    <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
-                                      {children}
-                                    </code>
-                                  );
-                                },
-                                pre: ({ children }) => <pre className="m-0">{children}</pre>,
-                              }}
-                            >
-                              {msg.content}
-                            </ReactMarkdown>
-                          )}
-                        </div>
+                      {/* User messages: just show content */}
+                      {msg.role === "user" && msg.content.trim() && (
+                        <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
                       )}
-                      {msg.toolCalls && msg.toolCalls.length > 0 && (
-                        <div className={cn("space-y-2", msg.content.trim() && "mt-3")}>
-                          {msg.toolCalls.map((call, i) => (
-                            <ToolCallIndicator
-                              key={i}
-                              toolName={call.name}
-                              isComplete={!!call.output}
-                            />
+                      
+                      {/* Assistant messages: render segments in order for proper interleaving */}
+                      {msg.role === "assistant" && msg.contentSegments && msg.contentSegments.length > 0 ? (
+                        <div className="space-y-2">
+                          {msg.contentSegments.map((segment, segIdx) => (
+                            segment.type === 'text' && segment.text?.trim() ? (
+                              <div key={`text-${segIdx}`} className="text-sm leading-relaxed">
+                                <ReactMarkdown
+                                  remarkPlugins={[remarkGfm]}
+                                  components={{
+                                    p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                    ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 pl-1">{children}</ul>,
+                                    ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 pl-1">{children}</ol>,
+                                    li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                                    code: ({ className, children, ...props }) => {
+                                      const isInline = !className;
+                                      return isInline ? (
+                                        <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                          {children}
+                                        </code>
+                                      ) : (
+                                        <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
+                                          {children}
+                                        </code>
+                                      );
+                                    },
+                                    pre: ({ children }) => <pre className="m-0">{children}</pre>,
+                                  }}
+                                >
+                                  {segment.text}
+                                </ReactMarkdown>
+                              </div>
+                            ) : segment.type === 'tool' && segment.toolCall ? (
+                              <ToolCallIndicator
+                                key={`tool-${segIdx}`}
+                                toolName={segment.toolCall.name}
+                                isComplete={!!segment.toolCall.output}
+                              />
+                            ) : null
                           ))}
                         </div>
+                      ) : msg.role === "assistant" && (
+                        /* Fallback for assistant messages without segments (shouldn't happen but just in case) */
+                        <>
+                          {msg.content.trim() && (
+                            <div className="text-sm leading-relaxed">
+                              <ReactMarkdown
+                                remarkPlugins={[remarkGfm]}
+                                components={{
+                                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                                  ul: ({ children }) => <ul className="list-disc list-inside mb-2 space-y-1 pl-1">{children}</ul>,
+                                  ol: ({ children }) => <ol className="list-decimal list-inside mb-2 space-y-1 pl-1">{children}</ol>,
+                                  li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+                                  code: ({ className, children, ...props }) => {
+                                    const isInline = !className;
+                                    return isInline ? (
+                                      <code className="bg-black/20 dark:bg-white/20 px-1.5 py-0.5 rounded text-xs font-mono" {...props}>
+                                        {children}
+                                      </code>
+                                    ) : (
+                                      <code className="block bg-black/10 dark:bg-white/10 rounded p-2 font-mono text-xs overflow-x-auto my-2" {...props}>
+                                        {children}
+                                      </code>
+                                    );
+                                  },
+                                  pre: ({ children }) => <pre className="m-0">{children}</pre>,
+                                }}
+                              >
+                                {msg.content}
+                              </ReactMarkdown>
+                            </div>
+                          )}
+                          {msg.toolCalls && msg.toolCalls.length > 0 && (
+                            <div className={cn("space-y-2", msg.content.trim() && "mt-3")}>
+                              {msg.toolCalls.map((call, i) => (
+                                <ToolCallIndicator
+                                  key={i}
+                                  toolName={call.name}
+                                  isComplete={!!call.output}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
