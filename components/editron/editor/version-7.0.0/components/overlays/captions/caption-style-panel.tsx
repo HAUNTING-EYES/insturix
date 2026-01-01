@@ -271,6 +271,31 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
             />
           </div>
         )}
+
+        {/* Position Presets */}
+        <div className="space-y-3 pt-2 border-t mt-2">
+          <Label className="text-xs text-muted-foreground">Vertical Position</Label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { value: "top", label: "Top" },
+              { value: "center", label: "Center" },
+              { value: "bottom", label: "Bottom" },
+            ].map((pos) => (
+              <button
+                key={pos.value}
+                onClick={() => setLocalOverlay({ ...localOverlay, position: pos.value as any })}
+                className={cn(
+                  "py-2 px-3 text-xs rounded border transition-all",
+                  localOverlay.position === pos.value
+                    ? "bg-primary/10 border-primary text-primary"
+                    : "bg-muted/30 border-border hover:border-primary/50 text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {pos.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </TabsContent>
 
       {/* Templates Tab */}

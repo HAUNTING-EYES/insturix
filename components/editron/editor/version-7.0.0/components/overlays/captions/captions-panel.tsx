@@ -9,6 +9,7 @@ import { CaptionSettings } from "./caption-settings";
 import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
 import { groupWordsIntoCaptions } from "@/lib/editron/utils/caption-utils";
 import { Upload, X } from "lucide-react";
+import { AutoCaptionButton } from "./auto-caption-button";
 
 /**
  * Interface for word timing data from uploaded files
@@ -67,6 +68,7 @@ export const CaptionsPanel: React.FC = () => {
     durationInFrames,
     changeOverlay,
     currentFrame,
+    playerDimensions,
   } = useEditorContext();
 
   const { findNextAvailablePosition } = useTimelinePositioning();
@@ -278,6 +280,18 @@ export const CaptionsPanel: React.FC = () => {
                   </div>
                 </div>
               )}
+            </div>
+            <AutoCaptionButton />
+
+            <div className="relative">
+              <div className="absolute inset-x-0 -top-3 flex items-center justify-center">
+                <span
+                  className="px-3 py-1 text-xs text-muted-foreground dark:text-muted-foreground bg-background dark:bg-background 
+                rounded-full border border-border dark:border-border"
+                >
+                  or upload script
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-col gap-4">
