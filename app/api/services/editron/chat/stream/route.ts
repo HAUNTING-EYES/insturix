@@ -5,6 +5,7 @@ import { HumanMessage, AIMessage, ToolMessage, SystemMessage } from '@langchain/
 import { chatService } from '@/lib/editron/services/chat-service';
 import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
+import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 
 export const maxDuration = 60; // Allow longer timeout for agent execution
 
@@ -13,6 +14,22 @@ export async function POST(req: NextRequest) {
     const { userId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Rate limiting check
+    const rateLimitResult = await checkRateLimit(userId);
+    if (!rateLimitResult.success) {
+      return NextResponse.json(
+        { error: 'Rate limit exceeded. Please wait a moment before sending more messages.' },
+        { 
+          status: 429,
+          headers: {
+            'X-RateLimit-Limit': String(rateLimitResult.limit),
+            'X-RateLimit-Remaining': String(rateLimitResult.remaining),
+            'X-RateLimit-Reset': String(rateLimitResult.reset),
+          }
+        }
+      );
     }
 
     const { message, projectId, sessionId } = await req.json();

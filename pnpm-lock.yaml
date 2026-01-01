@@ -227,6 +227,9 @@ importers:
       '@vercel/edge':
         specifier: ^1.2.2
         version: 1.2.2
+      '@vercel/kv':
+        specifier: ^3.0.0
+        version: 3.0.0
       '@vercel/speed-insights':
         specifier: ^1.2.0
         version: 1.2.0(next@15.3.6(@babel/core@7.28.4)(@opentelemetry/api@1.9.0)(react-dom@19.1.2(react@19.1.2))(react@19.1.2))(react@19.1.2)
@@ -4825,6 +4828,10 @@ packages:
 
   '@vercel/edge@1.2.2':
     resolution: {integrity: sha512-1+y+f6rk0Yc9ss9bRDgz/gdpLimwoRteKHhrcgHvEpjbP1nyT3ByqEMWm2BTcpIO5UtDmIFXc8zdq4LR190PDA==}
+
+  '@vercel/kv@3.0.0':
+    resolution: {integrity: sha512-pKT8fRnfyYk2MgvyB6fn6ipJPCdfZwiKDdw7vB+HL50rjboEBHDVBEcnwfkEpVSp2AjNtoaOUH7zG+bVC/rvSg==}
+    engines: {node: '>=14.6'}
 
   '@vercel/oidc@3.0.5':
     resolution: {integrity: sha512-fnYhv671l+eTTp48gB4zEsTW/YtRgRPnkI2nT7x6qw5rkI1Lq2hTmQIpHPgyThI0znLK+vX2n9XxKdXZ7BUbbw==}
@@ -15459,6 +15466,10 @@ snapshots:
       react: 19.1.2
 
   '@vercel/edge@1.2.2': {}
+
+  '@vercel/kv@3.0.0':
+    dependencies:
+      '@upstash/redis': 1.35.6
 
   '@vercel/oidc@3.0.5': {}
 
