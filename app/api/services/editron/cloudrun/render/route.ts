@@ -1,58 +1,64 @@
 import { NextResponse } from 'next/server';
-import { GoogleAuth } from 'google-auth-library';
+import { renderMediaOnLambda } from '@remotion/lambda/client';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { id, inputProps, compositionId } = body;
+    const { inputProps, compositionId } = body;
 
-    // Use the custom Cloud Run service URL
-    const cloudRunUrl = process.env.REMOTION_CLOUDRUN_URL;
-    if (!cloudRunUrl) {
-      throw new Error('REMOTION_CLOUDRUN_URL is not defined');
+    // AWS Lambda configuration from environment
+    const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME;
+    const serveUrl = process.env.REMOTION_LAMBDA_SERVE_URL;
+    const region = (process.env.REMOTION_AWS_REGION || 'us-east-1') as 
+      'us-east-1' | 'us-east-2' | 'us-west-1' | 'us-west-2' | 
+      'eu-central-1' | 'eu-west-1' | 'eu-west-2' | 'ap-south-1' | 
+      'ap-southeast-1' | 'ap-southeast-2' | 'ap-northeast-1';
+
+    if (!functionName) {
+      throw new Error('REMOTION_LAMBDA_FUNCTION_NAME is not defined');
+    }
+    if (!serveUrl) {
+      throw new Error('REMOTION_LAMBDA_SERVE_URL is not defined');
     }
 
-    const bucketName = process.env.GCS_BUCKET_NAME;
-    if (!bucketName) {
-       throw new Error('GCS_BUCKET_NAME is not defined');
-    }
+    // Set AWS credentials for the Lambda client
+    process.env.AWS_ACCESS_KEY_ID = process.env.REMOTION_AWS_ACCESS_KEY_ID;
+    process.env.AWS_SECRET_ACCESS_KEY = process.env.REMOTION_AWS_SECRET_ACCESS_KEY;
 
-    console.log('Triggering render on Cloud Run:', cloudRunUrl);
+    console.log('Triggering distributed render on Lambda:', functionName);
+    console.log('Composition:', compositionId || 'TestComponent');
+    console.log('Region:', region);
 
-    // Create an authentication client
-    const auth = new GoogleAuth();
-    const client = await auth.getIdTokenClient(cloudRunUrl);
-    const clientHeaders = await client.getRequestHeaders();
-
-    // Call the custom renderer service
-    const response = await fetch(`${cloudRunUrl}/render`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': (clientHeaders as any)['Authorization'] || '',
-      },
-      body: JSON.stringify({
-        id: id || compositionId, // The server expects 'id' as the composition ID
-        inputProps,
-        bucketName,
-        outName: `renders/${Date.now()}-${id || compositionId}.mp4`
-      }),
+    // Start the render on Lambda
+    const { bucketName, renderId } = await renderMediaOnLambda({
+      region,
+      functionName,
+      serveUrl,
+      composition: compositionId || 'TestComponent',
+      inputProps: inputProps || {},
+      codec: 'h264',
+      privacy: 'public', // Make the video publicly accessible
+      // Distributed rendering settings
+      framesPerLambda: 600, // High value to use only ~3 Lambdas (AWS new account limit is 10)
+      timeoutInMilliseconds: 240000, // 4 minutes
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Renderer service failed: ${errorText}`);
-    }
+    console.log('Lambda render started:', { renderId, bucketName });
 
-    const data = await response.json();
-
-    // Wrap in ApiResponse format expected by frontend
+    // Return the render ID and bucket info
     return NextResponse.json({
       type: 'success',
-      data: data
+      data: {
+        renderId,
+        bucketName,
+        region,
+        functionName,
+        // Progress endpoint for polling
+        progressUrl: `/api/services/editron/cloudrun/progress?renderId=${renderId}&bucketName=${bucketName}&region=${region}`,
+      }
     });
   } catch (error: any) {
-    console.error('Cloud Run render error:', error);
+    console.error('Lambda render error:', error);
     return NextResponse.json(
       { 
         type: 'error', 

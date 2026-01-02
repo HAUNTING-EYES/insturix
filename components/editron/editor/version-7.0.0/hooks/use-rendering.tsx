@@ -137,7 +137,7 @@ export const useRendering = (
               progress: result.progress,
               renderId: renderId,
             });
-            await wait(1000);
+            await wait(3000); // Poll every 3 seconds to avoid rate limits
           }
         }
       }

@@ -64,20 +64,48 @@ export const renderVideo = async ({
 export const getProgress = async ({
   id,
   bucketName,
+  region = 'us-east-1',
 }: {
   id: string;
   bucketName: string;
-}) => {
-  console.log("Getting progress", { id, bucketName });
-  const body: z.infer<typeof ProgressRequest> = {
-    id,
+  region?: string;
+}): Promise<ProgressResponse> => {
+  console.log("Getting progress", { id, bucketName, region });
+  
+  const params = new URLSearchParams({
+    renderId: id,
     bucketName,
-  };
+    region,
+  });
 
-  const response = await makeRequest<ProgressResponse>(
-    "/api/latest/lambda/progress",
-    body
-  );
-  console.log("Progress response", { response });
-  return response;
+  const result = await fetch(`/api/services/editron/cloudrun/progress?${params.toString()}`);
+  const json = await result.json() as { type: string; data?: ProgressResponse; message?: string };
+  
+  console.log("Progress response", { json });
+  
+  if (json.type === "error") {
+    return { type: "error", message: json.message || "Unknown error" };
+  }
+
+  if (!json.data) {
+    return { type: "error", message: "No data received from progress endpoint" };
+  }
+
+  const data = json.data as any;
+
+  if (data.done) {
+    return {
+      type: "done",
+      url: data.outputFile,
+      size: data.outputSize || 0,
+    };
+  }
+
+  return {
+    type: "progress",
+    progress: (data.progress || 0) * 100, // Convert 0-1 to 0-100 if needed, or check if hook expects 0-1.
+    // Looking at use-rendering.tsx: `console.log(\`Render progress: ${result.progress}%\`);` 
+    // It seems to expect percentage. 
+    // Lambda client returns 0-1.
+  };
 };
