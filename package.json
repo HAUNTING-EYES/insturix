@@ -21,7 +21,9 @@
     "setup-plans": "node scripts/setupPlans.js",
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
-    "test:email": "tsx --test lib/services/email/__tests__/*.test.ts"
+    "test:email": "tsx --test lib/services/email/__tests__/*.test.ts",
+    "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
+    "deploy:remotion:prod": "bash scripts/deploy-remotion-site.sh prod"
   },
   "dependencies": {
     "@ai-sdk/google": "^2.0.39",

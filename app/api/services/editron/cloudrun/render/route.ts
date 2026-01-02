@@ -1,10 +1,20 @@
 import { NextResponse } from 'next/server';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
+import { auth } from '@clerk/nextjs/server';
+import { createJob } from '@/lib/editron/services/render-job-service';
 
 export async function POST(request: Request) {
   try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { type: 'error', message: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
-    const { inputProps, compositionId } = body;
+    const { inputProps, compositionId, projectId } = body;
 
     // AWS Lambda configuration from environment
     const functionName = process.env.REMOTION_LAMBDA_FUNCTION_NAME;
@@ -44,6 +54,9 @@ export async function POST(request: Request) {
     });
 
     console.log('Lambda render started:', { renderId, bucketName });
+
+    // Save job to database for persistence
+    await createJob(renderId, userId, projectId || 'unknown', bucketName);
 
     // Return the render ID and bucket info
     return NextResponse.json({

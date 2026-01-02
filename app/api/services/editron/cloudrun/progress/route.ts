@@ -1,5 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getRenderProgress } from '@remotion/lambda/client';
+import { 
+  updateJobProgress, 
+  completeJob, 
+  failJob 
+} from '@/lib/editron/services/render-job-service';
 
 export async function GET(request: Request) {
   try {
@@ -37,6 +42,13 @@ export async function GET(request: Request) {
 
     // Return progress info
     if (progress.done) {
+      // Update database with completion status
+      await completeJob(
+        renderId, 
+        progress.outputFile || '', 
+        progress.outputSizeInBytes || 0
+      );
+
       return NextResponse.json({
         type: 'success',
         data: {
@@ -45,7 +57,7 @@ export async function GET(request: Request) {
           outputUrl: progress.outputFile,
           outputFile: progress.outputFile,
           outputSize: progress.outputSizeInBytes,
-            renderMetadata: {
+          renderMetadata: {
             estimatedTotalLambdaInvokations: progress.renderMetadata?.estimatedTotalLambdaInvokations || 0,
             actualLambdaInvokations: progress.chunks || 0,
             renderBucketName: bucketName,
@@ -57,13 +69,21 @@ export async function GET(request: Request) {
 
     // Check for errors
     if (progress.fatalErrorEncountered) {
+      const errorMessage = progress.errors?.[0]?.message || 'Render failed with unknown error';
+      
+      // Update database with error status
+      await failJob(renderId, errorMessage);
+      
       console.error('Render fatal error:', JSON.stringify(progress.errors, null, 2));
       return NextResponse.json({
         type: 'error',
-        message: progress.errors?.[0]?.message || 'Render failed with unknown error',
+        message: errorMessage,
         errors: progress.errors,
       }, { status: 500 });
     }
+
+    // Update database with progress
+    await updateJobProgress(renderId, progress.overallProgress);
 
     // Return in-progress status
     return NextResponse.json({
@@ -71,7 +91,7 @@ export async function GET(request: Request) {
       data: {
         done: false,
         progress: progress.overallProgress,
-        renderedFrames: Math.floor(progress.overallProgress * ((progress.renderMetadata as any)?.durationInFrames || 1800)), // Cast to any to access potentially missing prop, default to 60s @ 30fps
+        renderedFrames: Math.floor(progress.overallProgress * ((progress.renderMetadata as any)?.durationInFrames || 1800)),
         encodedFrames: progress.encodingStatus?.framesEncoded || 0,
         lambdasInvoked: progress.lambdasInvoked,
         renderMetadata: {
