@@ -106,7 +106,8 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   const { renderMedia, state } = useRendering(
     "TestComponent",
     inputProps,
-    RENDER_TYPE
+    RENDER_TYPE,
+    projectId // Enable resume-on-refresh
   );
 
   // Replace history management code with hook
@@ -238,6 +239,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
 
     // Add renderType to the context
     renderType: RENDER_TYPE,
+    projectId,
     renderMedia,
     state,
 

@@ -25,7 +25,7 @@ export async function GET() {
           renderId: job._id,
           projectId: job.projectId,
           status: job.status,
-          progress: job.progress,
+          progress: Math.round((job.progress || 0) * 100),
           bucketName: job.bucketName,
           region: job.region,
           startedAt: job.startedAt,

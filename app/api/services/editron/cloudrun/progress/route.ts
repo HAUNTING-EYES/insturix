@@ -82,16 +82,22 @@ export async function GET(request: Request) {
       }, { status: 500 });
     }
 
-    // Update database with progress
-    await updateJobProgress(renderId, progress.overallProgress);
+    // Update database with progress (wrapped in try-catch to not break polling)
+    try {
+      await updateJobProgress(renderId, progress.overallProgress);
+    } catch (dbError) {
+      console.error('Failed to update job progress in DB:', dbError);
+    }
+
+
 
     // Return in-progress status
     return NextResponse.json({
       type: 'success',
       data: {
         done: false,
-        progress: progress.overallProgress,
-        renderedFrames: Math.floor(progress.overallProgress * ((progress.renderMetadata as any)?.durationInFrames || 1800)),
+        progress: progress.overallProgress, // This should be 0-1
+        renderedFrames: progress.framesRendered || 0,
         encodedFrames: progress.encodingStatus?.framesEncoded || 0,
         lambdasInvoked: progress.lambdasInvoked,
         renderMetadata: {

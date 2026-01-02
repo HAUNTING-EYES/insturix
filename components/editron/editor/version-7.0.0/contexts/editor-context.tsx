@@ -70,6 +70,9 @@ interface EditorContextProps {
   // Add renderType to the context
   renderType: "ssr" | "lambda";
 
+  // Project ID for render history
+  projectId?: string;
+
   // Debugging
   getProjectState: () => any;
 

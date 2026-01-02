@@ -55,8 +55,14 @@ export async function POST(request: Request) {
 
     console.log('Lambda render started:', { renderId, bucketName });
 
-    // Save job to database for persistence
-    await createJob(renderId, userId, projectId || 'unknown', bucketName);
+    // Save job to database for persistence (wrapped in try-catch)
+    try {
+      await createJob(renderId, userId, projectId || 'unknown', bucketName);
+      console.log('Render job saved to database:', renderId);
+    } catch (dbError) {
+      console.error('Failed to save render job to DB:', dbError);
+      // Don't fail the request, just log the error
+    }
 
     // Return the render ID and bucket info
     return NextResponse.json({

@@ -21,7 +21,19 @@ export async function createJob(
   const collection = await getCollection();
   const job = createRenderJob(renderId, userId, projectId, bucketName);
   
-  await collection.insertOne(job as any);
+  console.log('Creating render job:', { _id: job._id, userId, projectId });
+  
+  const result = await collection.insertOne(job as any);
+  
+  console.log('Insert result:', { 
+    acknowledged: result.acknowledged, 
+    insertedId: result.insertedId 
+  });
+  
+  if (!result.acknowledged) {
+    throw new Error('Failed to insert render job');
+  }
+  
   return job;
 }
 
@@ -126,4 +138,24 @@ export async function countActiveRenders(): Promise<number> {
   return collection.countDocuments({
     status: { $in: ['rendering', 'pending'] }
   });
+}
+
+/**
+ * Get render history for a project (for persistent render list)
+ * Returns completed and failed renders, sorted by most recent first
+ */
+export async function getRenderHistoryForProject(
+  projectId: string,
+  userId: string,
+  limit: number = 10
+): Promise<RenderJob[]> {
+  const collection = await getCollection();
+  return collection.find({
+    projectId,
+    userId,
+    status: { $in: ['done', 'error'] }
+  })
+  .sort({ completedAt: -1 })
+  .limit(limit)
+  .toArray();
 }
