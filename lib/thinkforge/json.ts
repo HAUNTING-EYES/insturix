@@ -1,5 +1,12 @@
 // JSON safety + sanitization helpers for ThinkForge
 
+// Script-oriented caps are intentionally generous to avoid unintended truncation
+// during long-form generation. Chat-oriented caps stay lower to prevent verbose
+// responses from unrelated agents.
+export const MAX_TEXT_SCRIPT = 10000;
+export const MAX_TEXT_CHAT = 4000;
+export const MAX_BLOCKS_SCRIPT = 1000;
+
 export type Block = any;
 export type ScriptModel = {
   title?: string | null;
@@ -146,7 +153,7 @@ function isCanonicalBlock(raw: any): boolean {
  */
 export function sanitizeBlock(raw: any): any | null {
   try {
-    const MAX_TEXT = 4000;
+    const MAX_TEXT = MAX_TEXT_SCRIPT;
     const rawType = String(raw?.type ?? raw?.kind ?? 'paragraph').toLowerCase();
     
     // Determine if this is canonical format
@@ -213,10 +220,10 @@ export function sanitizeBlock(raw: any): any | null {
 }
 
 export function sanitizeServerScript(input: any): ScriptModel {
-  const MAX_BLOCKS = 400;
+  const MAX_BLOCKS = MAX_BLOCKS_SCRIPT;
   const title = typeof input?.title === 'string' ? input.title.slice(0, 160) : (input?.title ?? null);
-  const outline = typeof input?.outline === 'string' ? input.outline.slice(0, 4000) : (input?.outline ?? null);
-  const content = typeof input?.content === 'string' ? input.content.slice(0, 20000) : (input?.content ?? null);
+  const outline = typeof input?.outline === 'string' ? input.outline.slice(0, MAX_TEXT_SCRIPT) : (input?.outline ?? null);
+  const content = typeof input?.content === 'string' ? input.content.slice(0, MAX_TEXT_SCRIPT * 3) : (input?.content ?? null);
   const blocksArr = Array.isArray(input?.blocks) ? input.blocks : [];
   
   // Enhanced block validation and sanitization
@@ -292,7 +299,7 @@ export function sanitizeServerScript(input: any): ScriptModel {
           validatedBlocks.push({
             id: ensureBlockId(null),
             type: 'paragraph',
-            children: [{ type: 'text', text: para.slice(0, 4000) }]
+            children: [{ type: 'text', text: para.slice(0, MAX_TEXT_SCRIPT) }]
           });
         }
       }

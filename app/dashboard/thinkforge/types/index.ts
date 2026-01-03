@@ -1,4 +1,5 @@
 import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
+import type { CIRDocument, CIRSection } from "@/lib/thinkforge/schemas/cir";
 
 export type WorkflowPhase = 'PROMPT' | 'IDEAS' | 'SELECTED' | 'CHAT' | 'SCRIPT';
 
@@ -33,7 +34,7 @@ export interface Script {
   // Rich text HTML body for the new editor
   body?: string;
   // Canonical block tree (new canonical format)
-  blocks?: BlockTree;
+  blocks?: BlockTree | CIRDocument | CIRSection[];
   // Legacy BlockNote document structure (kept for migration)
   blocksLegacy?: any[];
   sections?: Array<{
@@ -49,6 +50,7 @@ export interface Script {
     workflow?: string;
     thoughts?: string;
     duration_ms?: number;
+    canonicalFormat?: 'CIR' | 'canonical';
     agent_steps?: Array<{
       agent?: string;
       step?: string;

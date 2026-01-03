@@ -46,6 +46,7 @@ function blockMutation(collection: string, operation: string): never {
 
 import type { ChatMessage, ProjectMeta, ScriptState } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
+import type { CIRDocument, CIRSection } from '../schemas/cir';
 
 // ==================== ThinkForge Database Connection ====================
 // All ThinkForge collections live in the 'thinkforge_db' database
@@ -120,7 +121,7 @@ export interface Script {
   sessionId: string;
   title: string;
   content: string;
-  blocks?: BlockTree;
+  blocks?: BlockTree | CIRDocument | CIRSection[];
   createdAt: Date;
   updatedAt: Date;
 }

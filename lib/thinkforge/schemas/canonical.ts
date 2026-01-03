@@ -1,8 +1,10 @@
 /**
- * Canonical block schema types matching backend schema EXACTLY.
- * 
- * This module defines TypeScript types and runtime validation for the canonical
- * block schema. All validation is fail-closed (throws Error on invalid input).
+ * Canonical block schema types matching backend schema EXACTLY (LEGACY).
+ *
+ * NOTE: The primary canonical storage is the CIR (plain text sections).
+ * These block types remain only as a bridge for legacy data and presentation
+ * adapters. Do not persist BlockNote formatting as canonical content.
+ * All validation is fail-closed (throws Error on invalid input).
  */
 
 // Block type union - must match backend BlockTypeEnum exactly
@@ -154,8 +156,12 @@ export function validateBlock(block: unknown): Block {
   // Additional validation: check for HTML in text
   function checkTextForHTML(node: InlineNode | Block): void {
     if (isInlineNode(node)) {
-      if (node.text.includes("<") || node.text.includes(">")) {
+      const text = node.text || "";
+      if (text.includes("<") || text.includes(">")) {
         throw new Error("HTML tags are not allowed in text content");
+      }
+      if (/\|/.test(text) || /`/.test(text) || /\*\*/.test(text) || /__/.test(text)) {
+        throw new Error("Inline formatting (markdown, tables, code spans) is not allowed in canonical blocks");
       }
     } else {
       for (const child of node.children) {

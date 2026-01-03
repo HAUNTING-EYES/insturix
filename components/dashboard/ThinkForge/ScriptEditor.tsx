@@ -57,9 +57,10 @@ import ScriptRenderer from "./ScriptRenderer";
 
 // Import canonical mappers and types
 import { canonicalToBlockNote } from "@/lib/thinkforge/mappers/canonical-to-blocknote";
-import { blockNoteToCanonical } from "@/lib/thinkforge/mappers/blocknote-to-canonical";
+import { cirToBlockNote, blockNoteToCIR } from "@/lib/thinkforge/mappers/cir-to-blocknote";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
 import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
+import { ensureCIR, serializeCIR, type CIRDocument, sanitizeForRender } from "@/lib/thinkforge/schemas/cir";
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -72,6 +73,73 @@ type BlockId = string;
 interface CursorPosition {
   blockId: BlockId;
   offset: number;
+}
+
+function isCirLike(value: any): value is CIRDocument {
+  return Boolean(value && typeof value === "object" && Array.isArray((value as any).sections));
+}
+
+function cirFromBlocks(blocks: any): CIRDocument | null {
+  try {
+    if (!blocks) return null;
+
+    // Already CIR sections
+    if (Array.isArray(blocks) && blocks.length && (blocks[0] as any).label) {
+      return ensureCIR({ sections: blocks as any });
+    }
+
+    // Document shape
+    if (isCirLike(blocks)) {
+      return ensureCIR(blocks);
+    }
+
+    // Legacy canonical block tree fallback
+    if (Array.isArray(blocks) && blocks.length && (blocks[0] as any).children) {
+      const blockNoteBlocks = canonicalToBlockNote(blocks as BlockTree);
+      return blockNoteToCIR(blockNoteBlocks as any);
+    }
+  } catch (error) {
+    console.error("ScriptEditor: CIR coercion failed", error);
+  }
+  return null;
+}
+
+function cirFromScript(script?: Script | null): CIRDocument | null {
+  if (!script) return null;
+
+  const fromBlocks = cirFromBlocks(script.blocks as any);
+  if (fromBlocks) return fromBlocks;
+
+  try {
+    if (script.content) {
+      return ensureCIR(script.content);
+    }
+    if (script.body) {
+      return ensureCIR(script.body);
+    }
+  } catch (error) {
+    console.error("ScriptEditor: Failed to parse CIR text", error);
+  }
+
+  return null;
+}
+
+function cirToBlockNoteSafe(cir: CIRDocument | null): any[] {
+  if (!cir) return [];
+  try {
+    // Sanitize all section bodies before rendering (fail-open guarantee)
+    const sanitized: CIRDocument = {
+      ...cir,
+      sections: cir.sections.map((section) => ({
+        ...section,
+        body: sanitizeForRender(section.body),
+      })),
+    };
+    return cirToBlockNote(sanitized) as any[];
+  } catch (error) {
+    console.error("ScriptEditor: Failed to render CIR (even with sanitization):", error);
+    return [];
+  }
 }
 
 interface ScriptEditorProps {
@@ -136,69 +204,39 @@ export default function ScriptEditor({
     },
   });
 
+  const previewBlocks = useMemo(() => {
+    const cirDoc = cirFromScript(script);
+    const cirBlocks = cirToBlockNoteSafe(cirDoc);
+    if (cirBlocks.length > 0) return cirBlocks;
+    if (script?.blocks && Array.isArray(script.blocks)) {
+      try {
+        return canonicalToBlockNote(script.blocks as BlockTree);
+      } catch (error) {
+        console.error('ScriptEditor: Preview fallback conversion failed', error);
+      }
+    }
+    return [];
+  }, [script]);
+
 
   // Prepare initial content for BlockNote
   const initialContent = useMemo(() => {
-    if (!script?.blocks || !Array.isArray(script.blocks) || script.blocks.length === 0) {
-      return [{
-        type: 'heading',
-        props: { level: 1 },
-        content: script?.title || 'Untitled Script'
-      }];
+    const cirDoc = cirFromScript(script);
+    const cirBlocks = cirToBlockNoteSafe(cirDoc);
+    if (cirBlocks.length > 0) {
+      return cirBlocks;
     }
-    
-    // Normalize all blocks to canonical format, then convert to BlockNote
-    // This handles both canonical (children) and legacy (content) formats
-    try {
-      const normalizedBlocks = script.blocks.map((b: any) => {
-        if (!b || typeof b !== 'object' || !('type' in b)) {
-          return null;
-        }
-        
-        // Already canonical format (has children array)
-        if ('children' in b && Array.isArray(b.children)) {
-          return {
-            id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            type: b.type,
-            props: b.props,
-            children: b.children
-          };
-        }
-        
-        // Legacy BlockNote format (has content field)
-        if ('content' in b) {
-          return {
-            id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            type: b.type,
-            props: b.props,
-            children: Array.isArray(b.content) 
-              ? b.content.map((c: any) => ({ 
-                  type: 'text' as const, 
-                  text: typeof c === 'string' ? c : (c?.text || '') 
-                }))
-              : [{ 
-                  type: 'text' as const, 
-                  text: typeof b.content === 'string' ? b.content : '' 
-                }]
-          };
-        }
-        
-        // Block with neither - create empty paragraph
-        return {
-          id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          type: b.type || 'paragraph',
-          props: b.props,
-          children: [{ type: 'text', text: '' }]
-        };
-      }).filter(Boolean);
-      
-      if (normalizedBlocks.length > 0) {
-        return canonicalToBlockNote(normalizedBlocks as BlockTree);
+
+    // Legacy fallback: try canonical block tree
+    if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
+      try {
+        const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
+        return blockNoteBlocks;
+      } catch (error) {
+        console.error("Failed to convert canonical blocks on mount:", error);
       }
-    } catch (error) {
-      console.error("Failed to convert blocks on mount:", error);
     }
-    
+
     // Final fallback
     return [{
       type: 'heading',
@@ -281,44 +319,21 @@ export default function ScriptEditor({
           });
           if (response.ok) {
             const data = await response.json();
-            if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
-              try {
-                // Normalize blocks to canonical format
-                const normalizedBlocks = data.blocks.map((b: any) => {
-                  if (!b || typeof b !== 'object' || !('type' in b)) return null;
-                  if ('children' in b && Array.isArray(b.children)) {
-                    return { id: b.id, type: b.type, props: b.props, children: b.children };
-                  }
-                  if ('content' in b) {
-                    return {
-                      id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                      type: b.type, props: b.props,
-                      children: Array.isArray(b.content)
-                        ? b.content.map((c: any) => ({ type: 'text', text: typeof c === 'string' ? c : (c?.text || '') }))
-                        : [{ type: 'text', text: typeof b.content === 'string' ? b.content : '' }]
-                    };
-                  }
-                  return { id: b.id, type: b.type || 'paragraph', props: b.props, children: [{ type: 'text', text: '' }] };
-                }).filter(Boolean);
-                
-                const blockNoteBlocks = canonicalToBlockNote(normalizedBlocks as BlockTree);
-                if (blockNoteBlocks.length > 0) {
-                  const blocksHash = JSON.stringify(blockNoteBlocks);
-                  // Only update if blocks actually changed
-                  if (blocksHash !== lastLoadedBlocksRef.current) {
-                    isUpdatingFromPropsRef.current = true;
-                    editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-                    isUpdatingFromPropsRef.current = false;
-                    setHasUnsavedChanges(false);
-                    lastLoadedBlocksRef.current = blocksHash;
-                    initialLoadDoneRef.current = true;
-                    console.log('ScriptEditor: Loaded blocks from API');
-                  }
-                  return;
-                }
-              } catch (conversionError) {
-                console.error('ScriptEditor: Failed to convert blocks:', conversionError);
+            const cirDoc = cirFromBlocks(data.blocks) || (data.content ? ensureCIR(data.content) : null);
+            const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
+
+            if (blockNoteBlocks.length > 0) {
+              const blocksHash = JSON.stringify(blockNoteBlocks);
+              if (blocksHash !== lastLoadedBlocksRef.current) {
+                isUpdatingFromPropsRef.current = true;
+                editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+                isUpdatingFromPropsRef.current = false;
+                setHasUnsavedChanges(false);
+                lastLoadedBlocksRef.current = blocksHash;
+                initialLoadDoneRef.current = true;
+                console.log('ScriptEditor: Loaded CIR from API');
               }
+              return;
             }
           }
         } catch (error) {
@@ -328,40 +343,33 @@ export default function ScriptEditor({
       
       // Fallback: use script.blocks prop if available and no API data
       if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
-        try {
-          // Normalize blocks to canonical format
-          const normalizedBlocks = script.blocks.map((b: any) => {
-            if (!b || typeof b !== 'object' || !('type' in b)) return null;
-            if ('children' in b && Array.isArray(b.children)) {
-              return { id: b.id, type: b.type, props: b.props, children: b.children };
-            }
-            if ('content' in b) {
-              return {
-                id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                type: b.type, props: b.props,
-                children: Array.isArray(b.content)
-                  ? b.content.map((c: any) => ({ type: 'text', text: typeof c === 'string' ? c : (c?.text || '') }))
-                  : [{ type: 'text', text: typeof b.content === 'string' ? b.content : '' }]
-              };
-            }
-            return { id: b.id, type: b.type || 'paragraph', props: b.props, children: [{ type: 'text', text: '' }] };
-          }).filter(Boolean);
-          
-          const blockNoteBlocks = canonicalToBlockNote(normalizedBlocks as BlockTree);
-          if (blockNoteBlocks.length > 0) {
-            const blocksHash = JSON.stringify(blockNoteBlocks);
-            if (blocksHash !== lastLoadedBlocksRef.current) {
-              isUpdatingFromPropsRef.current = true;
-              editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-              isUpdatingFromPropsRef.current = false;
-              setHasUnsavedChanges(false);
-              lastLoadedBlocksRef.current = blocksHash;
-              initialLoadDoneRef.current = true;
-              console.log('ScriptEditor: Loaded blocks from prop');
-            }
+        const cirDoc = cirFromBlocks(script.blocks as any);
+        const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
+        if (blockNoteBlocks.length > 0) {
+          const blocksHash = JSON.stringify(blockNoteBlocks);
+          if (blocksHash !== lastLoadedBlocksRef.current) {
+            isUpdatingFromPropsRef.current = true;
+            editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+            isUpdatingFromPropsRef.current = false;
+            setHasUnsavedChanges(false);
+            lastLoadedBlocksRef.current = blocksHash;
+            initialLoadDoneRef.current = true;
+            console.log('ScriptEditor: Loaded CIR from prop');
           }
-        } catch (error) {
-          console.error("ScriptEditor: Failed to convert blocks:", error);
+        }
+      } else if (script?.blocks && isCirLike(script.blocks)) {
+        const blockNoteBlocks = cirToBlockNoteSafe(script.blocks as any);
+        if (blockNoteBlocks.length > 0) {
+          const blocksHash = JSON.stringify(blockNoteBlocks);
+          if (blocksHash !== lastLoadedBlocksRef.current) {
+            isUpdatingFromPropsRef.current = true;
+            editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+            isUpdatingFromPropsRef.current = false;
+            setHasUnsavedChanges(false);
+            lastLoadedBlocksRef.current = blocksHash;
+            initialLoadDoneRef.current = true;
+            console.log('ScriptEditor: Loaded CIR document from prop');
+          }
         }
       }
     };
@@ -397,7 +405,7 @@ export default function ScriptEditor({
   const prevMetadataRef = useRef<string>('');
   
   useEffect(() => {
-    if (!editor || !script?.blocks || !Array.isArray(script.blocks) || script.blocks.length === 0) {
+    if (!editor || (!script?.blocks && !script?.content)) {
       return;
     }
     
@@ -432,31 +440,8 @@ export default function ScriptEditor({
         autosaveTimerRef.current = null;
       }
       
-      // Normalize blocks to canonical format (handle both canonical and legacy)
-      const normalizedBlocks = script.blocks.map((b: any) => {
-        if (!b || typeof b !== 'object' || !('type' in b)) return null;
-        
-        // Already canonical format (has children array)
-        if ('children' in b && Array.isArray(b.children)) {
-          return { id: b.id, type: b.type, props: b.props, children: b.children };
-        }
-        
-        // Legacy format (has content field)
-        if ('content' in b) {
-          return {
-            id: b.id || `block_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            type: b.type,
-            props: b.props,
-            children: Array.isArray(b.content)
-              ? b.content.map((c: any) => ({ type: 'text', text: typeof c === 'string' ? c : (c?.text || '') }))
-              : [{ type: 'text', text: typeof b.content === 'string' ? b.content : '' }]
-          };
-        }
-        
-        return { id: b.id, type: b.type || 'paragraph', props: b.props, children: [{ type: 'text', text: '' }] };
-      }).filter(Boolean);
-      
-      const blockNoteBlocks = canonicalToBlockNote(normalizedBlocks as BlockTree);
+      const cirDoc = cirFromBlocks(script.blocks as any);
+      const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
       if (blockNoteBlocks.length > 0) {
         const blocksHash = JSON.stringify(blockNoteBlocks);
         if (blocksHash !== lastLoadedBlocksRef.current) {
@@ -465,7 +450,7 @@ export default function ScriptEditor({
           isUpdatingFromPropsRef.current = false;
           lastLoadedBlocksRef.current = blocksHash;
           setHasUnsavedChanges(false);
-          console.log('ScriptEditor: Updated with AI-generated content');
+          console.log('ScriptEditor: Updated with AI-generated CIR content');
         }
       }
     } catch (error) {
@@ -500,22 +485,17 @@ export default function ScriptEditor({
         });
         if (response.ok) {
           const data = await response.json();
-          if (data.blocks && Array.isArray(data.blocks) && data.blocks.length > 0) {
-            try {
-              const blockNoteBlocks = canonicalToBlockNote(data.blocks as BlockTree);
-              if (blockNoteBlocks.length > 0) {
-                const blocksHash = JSON.stringify(blockNoteBlocks);
-                // Only update if content actually changed and no user edits pending
-                if (blocksHash !== lastLoadedBlocksRef.current && !hasUnsavedChanges) {
-                  isUpdatingFromPropsRef.current = true;
-                  editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-                  isUpdatingFromPropsRef.current = false;
-                  lastLoadedBlocksRef.current = blocksHash;
-                  console.log('ScriptEditor: Updated blocks from polling during generation');
-                }
-              }
-            } catch (error) {
-              console.error('ScriptEditor: Failed to convert blocks during polling:', error);
+          const cirDoc = cirFromBlocks(data.blocks) || (data.content ? ensureCIR(data.content) : null);
+          const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
+          if (blockNoteBlocks.length > 0) {
+            const blocksHash = JSON.stringify(blockNoteBlocks);
+            // Only update if content actually changed and no user edits pending
+            if (blocksHash !== lastLoadedBlocksRef.current && !hasUnsavedChanges) {
+              isUpdatingFromPropsRef.current = true;
+              editor.replaceBlocks(editor.document, blockNoteBlocks as any);
+              isUpdatingFromPropsRef.current = false;
+              lastLoadedBlocksRef.current = blocksHash;
+              console.log('ScriptEditor: Updated CIR blocks from polling during generation');
             }
           }
         }
@@ -532,8 +512,9 @@ export default function ScriptEditor({
     if (streamingBlocks.blocks.length > 0 && editor) {
       try {
         console.log('ScriptEditor: Integrating streaming blocks:', streamingBlocks.blocks.length);
-        // Convert canonical streaming blocks to BlockNote
-        const blockNoteBlocks = canonicalToBlockNote(streamingBlocks.blocks);
+        // Convert canonical streaming blocks to CIR -> BlockNote
+        const cirDoc = blockNoteToCIR(canonicalToBlockNote(streamingBlocks.blocks) as any);
+        const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
         if (blockNoteBlocks.length > 0) {
           // Replace all blocks with streaming blocks
           isUpdatingFromPropsRef.current = true;
@@ -555,35 +536,38 @@ export default function ScriptEditor({
     // Store cursor before conversion
     storeCursorPosition();
     
-    // Convert BlockNote to canonical format
-    let canonicalBlocks: BlockTree;
+    let cirDoc: CIRDocument;
     try {
-      canonicalBlocks = blockNoteToCanonical(blocks);
+      cirDoc = blockNoteToCIR(blocks as any);
     } catch (error) {
-      console.error("Failed to convert to canonical:", error);
-      // Fallback to legacy format
-      canonicalBlocks = blocks as any;
+      console.error("Failed to convert BlockNote to CIR; using minimal text fallback", error);
+      const markdown = await editor.blocksToMarkdownLossy(blocks);
+      cirDoc = ensureCIR(markdown.replace(/[#*_`]/g, ''));
     }
-    
-    // Extract title from HTML content
-    const htmlContent = await editor.blocksToHTMLLossy(blocks);
-    const titleMatch = htmlContent.match(/<h1[^>]*>(.*?)<\/h1>/i);
-    const title = titleMatch ? titleMatch[1].replace(/<[^>]*>/g, '').trim() : script?.title || 'Untitled Script';
-    
-    // Extract text content
-    const textContent = await editor.blocksToMarkdownLossy(blocks);
+
+    // Apply final sanitization pass before serialization (fail-open guarantee)
+    const sanitizedSections = cirDoc.sections.map((section) => ({
+      ...section,
+      body: sanitizeForRender(section.body),
+    }));
+    const sanitizedDoc = { ...cirDoc, sections: sanitizedSections };
+
+    const cirText = serializeCIR(sanitizedDoc);
+    const title = script?.title || 'Untitled Script';
+    const presentationBlocks = cirToBlockNoteSafe(sanitizedDoc);
 
     return {
       title,
-      body: htmlContent,
-      blocks: canonicalBlocks, // Use canonical format
-      content: textContent.replace(/[#*_`]/g, ''),
+      body: cirText,
+      blocks: (sanitizedDoc.sections as any),
+      blocksLegacy: presentationBlocks as any,
+      content: cirText,
       sections: script?.sections || [],
       tips: script?.tips || [],
       duration: script?.duration,
       targetAudience: script?.targetAudience,
       tone: script?.tone,
-      metadata: script?.metadata
+      metadata: { ...(script?.metadata || {}), canonicalFormat: 'CIR' }
     };
   }, [editor, script, storeCursorPosition]);
 
@@ -609,7 +593,8 @@ export default function ScriptEditor({
         // This is crucial to avoid race conditions
         if (updatedScript.blocks) {
           try {
-            const blockNoteBlocks = canonicalToBlockNote(updatedScript.blocks as BlockTree);
+            const cirDoc = ensureCIR({ sections: updatedScript.blocks as any });
+            const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
             lastLoadedBlocksRef.current = JSON.stringify(blockNoteBlocks);
           } catch {
             // Ignore conversion errors for ref update
@@ -626,6 +611,7 @@ export default function ScriptEditor({
               body: JSON.stringify({
                 scriptId: scriptId,
                 blocks: updatedScript.blocks,
+                content: updatedScript.content,
               }),
             });
             
@@ -725,10 +711,9 @@ export default function ScriptEditor({
   // Copy to clipboard
   const handleCopy = async () => {
     try {
-      const markdownContent = await editor.blocksToMarkdownLossy(editor.document);
-      const textContent = markdownContent.replace(/[#*_`]/g, '').replace(/\n\s*\n/g, '\n\n');
-      
-      await navigator.clipboard.writeText(textContent);
+      const cirDoc = blockNoteToCIR(editor.document as any);
+      const cirText = serializeCIR(cirDoc);
+      await navigator.clipboard.writeText(cirText);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
@@ -739,9 +724,13 @@ export default function ScriptEditor({
   // Export to PDF
   const handleExportPDF = async () => {
     try {
-      const htmlContent = await editor.blocksToHTMLLossy(editor.document);
+      const cirDoc = blockNoteToCIR(editor.document as any);
+      const cirText = serializeCIR(cirDoc);
       const title = script?.title || 'Script';
-      
+      const safeText = cirText
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
       const printWindow = window.open('', '_blank');
       if (printWindow) {
         printWindow.document.write(`
@@ -749,28 +738,19 @@ export default function ScriptEditor({
             <head>
               <title>${title}</title>
               <style>
-                body { 
-                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-                  line-height: 1.6; 
-                  margin: 2cm; 
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                  line-height: 1.6;
+                  margin: 2cm;
                   color: #000;
+                  white-space: pre-wrap;
                 }
                 h1 { color: #333; font-size: 24px; margin-bottom: 20px; }
-                h2 { color: #555; font-size: 20px; margin: 20px 0 10px 0; }
-                h3 { color: #666; font-size: 16px; margin: 15px 0 8px 0; }
-                p { margin: 8px 0; }
-                ul, ol { margin: 8px 0; padding-left: 20px; }
-                li { margin: 4px 0; }
-                blockquote { 
-                  border-left: 3px solid #ddd; 
-                  margin: 10px 0; 
-                  padding-left: 15px; 
-                  font-style: italic; 
-                }
               </style>
             </head>
             <body>
-              ${htmlContent}
+              <h1>${title}</h1>
+              <pre style="white-space: pre-wrap;">${safeText}</pre>
             </body>
           </html>
         `);
@@ -1019,7 +999,7 @@ export default function ScriptEditor({
                 <div className="p-6">
                   <ScriptRenderer 
                     title={script?.title} 
-                    blocks={script?.blocks || []}
+                    blocks={previewBlocks}
                   />
                 </div>
               ) : (
@@ -1116,7 +1096,7 @@ export default function ScriptEditor({
         <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-w-4xl h-[600px] p-0">
           <BranchEditor
             sessionId={sessionId || null}
-            currentBlocks={script?.blocks || []}
+            currentBlocks={(script?.blocks as any) || []}
             onRestoreVersion={(blocks) => {
               // Convert blocks to script and update
               const updatedScript: Script = {

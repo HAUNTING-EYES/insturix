@@ -8,13 +8,14 @@ import { generateScriptDraft } from '../agents/script-draft-agent';
 import * as db from './db';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
+import type { CIRDocument, CIRSection } from '../schemas/cir';
 
 export interface ChatRequest {
   sessionId?: string;
   prompt: string;
   selection?: string;
   userId: string;
-  script?: { title?: string; content?: string; blocks?: any[] } | null;
+  script?: { title?: string; content?: string; blocks?: BlockTree | CIRDocument | CIRSection[] | any[] } | null;
   project?: ProjectMeta | null;
 }
 

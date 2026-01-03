@@ -1,15 +1,103 @@
 /**
- * Chat Agent - Simple Q&A using Google Generative AI with streaming
- * Supports API key authentication via @ai-sdk/google
- * Target: <500ms first token
+ * Chat Agent - Conversational, non-destructive responses
+ * 
+ * Purpose: Handle Q&A and conversation without modifying artifacts
+ * 
+ * Key rules:
+ * - No <script_update> tags
+ * - No structured output
+ * - No persistence assumptions
+ * - Stateless and pure
+ * 
+ * The agent only knows: context in → reasoning → text output
  */
 
 import { streamText } from 'ai';
+import { BaseAgent, type AgentConfig } from './base-agent';
+import type { AgentInput, AgentStreamOutput } from './types';
+import { formatContextString, quickAssembleContext } from '../context';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
 import { createThinkForgeModel } from './model-factory';
 
-interface ChatAgentOptions {
+// =============================================================================
+// NEW ARCHITECTURE - Clean, Pure Agent
+// =============================================================================
+
+/**
+ * Chat Agent - extends BaseAgent for conversational responses
+ * 
+ * This agent is stateless and pure.
+ * It does not know about databases, UIs, or versioning.
+ */
+export class ChatAgent extends BaseAgent {
+  constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
+    super({
+      ...config,
+      agentType: 'chat',
+      temperature: config?.temperature ?? 0.7,
+    });
+  }
+  
+  buildPrompt({ context, userPrompt }: AgentInput): string {
+    const contextBlock = formatContextString(context);
+    
+    return `You are ThinkForge, an operational guide assistant. Outputs are manual-only; treat any mention of "script" or "story" as a request for a procedural manual.
+
+${contextBlock ? `## Context\n${contextBlock}\n\n` : ''}## Conversation Log
+${context.chatHistory || '(No previous messages)'}
+
+## User Request
+${userPrompt}
+
+## Instructions
+- Provide concise operational guidance using steps, decisions, constraints, inputs, and expected outputs.
+- No <script_update> tags; this path is advisory only.
+- If asked to write or modify a script, respond with procedures and constraints instead of narrative text.
+- Avoid conversational framing and filler; return only actionable guidance.`;
+  }
+}
+
+/**
+ * Factory function for creating ChatAgent instances
+ */
+export function createChatAgent(
+  config?: Partial<Omit<AgentConfig, 'agentType'>>
+): ChatAgent {
+  return new ChatAgent(config);
+}
+
+/**
+ * Convenience function for running chat without managing agent instance
+ * This is the recommended API for simple use cases
+ */
+export async function runChatAgent(
+  input: AgentInput,
+  config?: Partial<Omit<AgentConfig, 'agentType'>>
+): Promise<AgentStreamOutput> {
+  const agent = createChatAgent(config);
+  return agent.run(input);
+}
+
+/**
+ * Get complete chat response as string
+ */
+export async function getChatResponse(
+  input: AgentInput,
+  config?: Partial<Omit<AgentConfig, 'agentType'>>
+): Promise<string> {
+  const agent = createChatAgent(config);
+  const { text } = await agent.runComplete(input);
+  return text;
+}
+
+// =============================================================================
+// LEGACY API - Backwards compatibility layer
+// These functions maintain compatibility with existing code
+// New code should use the class-based API above
+// =============================================================================
+
+interface LegacyChatAgentOptions {
   sessionState: SessionState;
   script?: { blocks?: BlockTree; content?: string; title?: string } | null;
   project?: ProjectMeta | null;
@@ -18,128 +106,42 @@ interface ChatAgentOptions {
 }
 
 /**
- * Enrich vague prompts with project context internally
- * This happens on the backend so users only see their original message
- */
-function enrichPrompt(prompt: string, project: ProjectMeta | null): string {
-  if (!project) return prompt;
-  
-  const text = prompt.trim();
-  const low = text.toLowerCase();
-  
-  // Detect vague prompts
-  const vague = /(write( the)? script|generate( the)? script|create( the)? script|draft( the)? script|write it|make the script)/i.test(low) || text.length < 30;
-  const alreadyHas = /\bcontext:\b/i.test(text) || /\bidea:\b/i.test(text);
-  
-  if (!vague || alreadyHas) return prompt;
-  
-  // Build context bits
-  const bits: string[] = [];
-  if (project.idea) bits.push(`- Idea: ${project.idea}`);
-  if (project.platform) bits.push(`- Platform: ${project.platform}`);
-  if (project.tone) bits.push(`- Tone: ${project.tone}`);
-  if (project.style) bits.push(`- Style: ${project.style}`);
-  if (project.format) bits.push(`- Format: ${project.format}`);
-  if (project.purpose) bits.push(`- Purpose: ${project.purpose}`);
-  
-  if (bits.length === 0) return prompt;
-  
-  return `${text}\n\nContext:\n${bits.join('\n')}`;
-}
-
-/**
- * Generate chat response with streaming
- * Returns a ReadableStream that can be used directly in Response
+ * @deprecated Use ChatAgent class or runChatAgent function instead
+ * 
+ * Legacy chat agent function for backwards compatibility
  */
 export async function chatAgent(
   prompt: string,
-  options: ChatAgentOptions
+  options: LegacyChatAgentOptions
 ): Promise<ReadableStream<Uint8Array>> {
   const { sessionState, script, project, selection } = options;
   
-  // Enrich prompt internally (user won't see this enrichment)
-  const enrichedPrompt = enrichPrompt(prompt, project);
+  // Convert legacy options to new context format
+  const context = quickAssembleContext(
+    'chat',
+    project,
+    script ? { title: script.title, content: script.content } : null,
+    sessionState.chat,
+    selection
+  );
   
-  // Load minimal context (last 5 messages + project meta)
-  const recentChat = sessionState.chat.slice(-5);
+  // Create input for new agent
+  const input: AgentInput = {
+    context,
+    userPrompt: prompt,
+  };
   
-  // Build context messages
-  const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [];
+  // Run agent
+  const agent = createChatAgent();
+  const { stream } = await agent.run(input);
   
-  // Add system context for ThinkForge
-  messages.push({
-    role: 'user',
-    content: `You are a creative writing assistant helping with content creation. Be concise, helpful, and creative. Focus on the user's specific request.`
-  });
-  
-  // Add project context if available (already included in enriched prompt, but keep for system context)
-  if (project) {
-    const projectContext: string[] = [];
-    if (project.idea) projectContext.push(`Idea: ${project.idea}`);
-    if (project.purpose) projectContext.push(`Purpose: ${project.purpose}`);
-    if (project.style) projectContext.push(`Style: ${project.style}`);
-    if (project.format) projectContext.push(`Format: ${project.format}`);
-    if (project.platform) projectContext.push(`Platform: ${project.platform}`);
-    if (project.tone) projectContext.push(`Tone: ${project.tone}`);
-    
-    if (projectContext.length > 0) {
-      messages.push({
-        role: 'assistant',
-        content: `I understand. Here's the project context:\n${projectContext.join('\n')}`
-      });
-    }
-  }
-  
-  // Add script context if available
-  if (script && script.title) {
-    messages.push({
-      role: 'user',
-      content: `Current Script: "${script.title}"\n${script.content?.slice(0, 500) || ''}`
-    });
-    messages.push({
-      role: 'assistant',
-      content: 'I see the current script. How can I help you with it?'
-    });
-  }
-  
-  // Add selection context if provided
-  if (selection) {
-    messages.push({
-      role: 'user',
-      content: `Selected text:\n${selection}`
-    });
-  }
-  
-  // Add recent chat history
-  for (const msg of recentChat) {
-    messages.push({
-      role: msg.role,
-      content: msg.content
-    });
-  }
-  
-  // Add current prompt (enriched internally, but user only sees original)
-  messages.push({
-    role: 'user',
-    content: enrichedPrompt
-  });
-  
-  const model = createThinkForgeModel();
-  
-  const result = streamText({
-    model,
-    messages,
-    temperature: 0.7
-  });
-  
-  // Convert textStream (ReadableStream<string>) to ReadableStream<Uint8Array>
+  // Convert async generator to ReadableStream<Uint8Array> for compatibility
   const encoder = new TextEncoder();
-  const textStream = result.textStream;
   
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
-        for await (const chunk of textStream) {
+        for await (const chunk of stream) {
           controller.enqueue(encoder.encode(chunk));
         }
         controller.close();
@@ -147,18 +149,19 @@ export async function chatAgent(
         console.error('[ChatAgent] Stream error:', error);
         controller.error(error);
       }
-    }
+    },
   });
 }
 
 /**
- * Generate chat response that may include script update
+ * @deprecated Use ChatAgent class instead
+ * 
+ * Legacy function for chat with script update capability
+ * Now just redirects to regular chat (script updates handled by script agents)
  */
 export async function chatAgentWithScriptUpdate(
   prompt: string,
-  options: ChatAgentOptions
+  options: LegacyChatAgentOptions
 ): Promise<ReadableStream<Uint8Array>> {
-  // For now, just return regular chat
-  // Script updates will be handled by script draft agent
   return chatAgent(prompt, options);
 }

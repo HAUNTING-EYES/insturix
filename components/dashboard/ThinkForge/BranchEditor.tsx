@@ -34,11 +34,14 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { useVersionManager } from '@/app/dashboard/thinkforge/hooks/useVersionManager';
 import type { BlockTree } from '@/lib/thinkforge/schemas/canonical';
+import type { CIRDocument, CIRSection } from '@/lib/thinkforge/schemas/cir';
+
+type BranchBlocks = BlockTree | CIRDocument | CIRSection[];
 
 interface BranchEditorProps {
   sessionId: string | null;
-  currentBlocks: BlockTree;
-  onRestoreVersion: (blocks: BlockTree) => void;
+  currentBlocks: BranchBlocks;
+  onRestoreVersion: (blocks: BranchBlocks) => void;
   onClose: () => void;
 }
 
@@ -55,7 +58,7 @@ export const BranchEditor: React.FC<BranchEditorProps> = ({
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);
   const [branchDescription, setBranchDescription] = useState('');
-  const [previewBlocks, setPreviewBlocks] = useState<BlockTree | null>(null);
+  const [previewBlocks, setPreviewBlocks] = useState<BranchBlocks | null>(null);
   const [isMerging, setIsMerging] = useState(false);
   const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
 

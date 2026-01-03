@@ -1,13 +1,27 @@
 /**
  * Ideas Agent - Generates 4 content ideas using Google Generative AI
- * Supports both Vertex AI (service account) and API key authentication
+ * 
+ * Purpose: Generate diverse content ideas based on a prompt
+ * 
+ * Key rules:
+ * - Pure structured output (no streaming)
+ * - Stateless and replaceable
+ * - No persistence assumptions
+ * 
+ * The agent only knows: prompt in → reasoning → structured output
  * Target: <2s response time
  */
 
 import { generateObject } from 'ai';
 import { z } from 'zod';
+import { StructuredAgent, type AgentConfig } from './base-agent';
+import type { AgentInput, AgentStructuredOutput } from './types';
 import type { IdeaCardData } from '../state/types';
 import { createThinkForgeModel } from './model-factory';
+
+// =============================================================================
+// SCHEMA DEFINITIONS
+// =============================================================================
 
 const IdeaSchema = z.object({
   id: z.string(),
@@ -23,32 +37,81 @@ const IdeasResponseSchema = z.object({
   ideas: z.array(IdeaSchema).length(4)
 });
 
+type IdeasOutput = z.infer<typeof IdeasResponseSchema>;
+
+// =============================================================================
+// NEW ARCHITECTURE - Clean, Pure Agent
+// =============================================================================
+
 /**
+ * Ideas Agent - extends StructuredAgent for structured idea generation
+ * 
+ * This agent is stateless and pure.
+ * It generates 4 diverse content ideas based on user prompt.
+ */
+export class IdeasAgent extends StructuredAgent<IdeasOutput> {
+  protected schema = IdeasResponseSchema;
+  
+  constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
+    super({
+      ...config,
+      agentType: 'ideas',
+      temperature: config?.temperature ?? 0.9,
+      maxTokens: config?.maxTokens ?? 2000,
+    });
+  }
+  
+  buildPrompt({ context, userPrompt }: AgentInput): string {
+    return `Generate 4 diverse content ideas based on: "${userPrompt}"
+
+For each idea, provide:
+- id: Unique identifier (e.g., "idea_1", "idea_2", etc.)
+- idea: Main idea title (max 80 characters)
+- purpose: Purpose description (what goal this content achieves)
+- style: Style description (e.g., "fast-paced operational cuts", "systematic breakdown", "data-backed explainer")
+- format: Format description (e.g., "30s short-form video", "carousel thread", "procedural reel")
+- platform: Platform (e.g., "TikTok", "YouTube Shorts", "Instagram Reels", "LinkedIn", "X / Twitter", "Multi-platform")
+- tone: One of: white (factual), red (emotional), black (critical), yellow (optimistic), green (creative), blue (analytical)
+
+Make each idea unique and diverse in approach, style, and platform.`;
+  }
+  
+  /**
+   * Generate ideas and return as IdeaCardData array
+   */
+  async generateIdeas(prompt: string): Promise<IdeaCardData[]> {
+    const input: AgentInput = {
+      context: { projectSummary: '' }, // Ideas don't need context
+      userPrompt: prompt,
+    };
+    
+    const { result } = await this.runStructured(input);
+    return result.ideas;
+  }
+}
+
+/**
+ * Factory function for creating IdeasAgent instances
+ */
+export function createIdeasAgent(
+  config?: Partial<Omit<AgentConfig, 'agentType'>>
+): IdeasAgent {
+  return new IdeasAgent(config);
+}
+
+// =============================================================================
+// LEGACY API - Backwards compatibility
+// =============================================================================
+
+/**
+ * @deprecated Use IdeasAgent class or createIdeasAgent function instead
+ * 
  * Generate 4 content ideas based on prompt
  */
 export async function generateIdeas(prompt: string): Promise<IdeaCardData[]> {
   try {
-    const model = createThinkForgeModel();
-    
-    const result = await generateObject({
-      model,
-      schema: IdeasResponseSchema,
-      prompt: `Generate 4 diverse content ideas based on: "${prompt}"
-
-For each idea, provide:
-- idea: Main idea title (max 80 characters)
-- purpose: Purpose description (what goal this content achieves)
-- style: Style description (e.g., "fast-paced, energetic cuts", "story-driven narrative", "data-backed explainer")
-- format: Format description (e.g., "30s short-form video", "carousel thread", "scripted reel")
-- platform: Platform (e.g., "TikTok", "YouTube Shorts", "Instagram Reels", "LinkedIn", "X / Twitter", "Multi-platform")
-- tone: One of: white (factual), red (emotional), black (critical), yellow (optimistic), green (creative), blue (analytical)
-
-Make each idea unique and diverse in approach, style, and platform.`,
-      temperature: 0.9,
-      maxTokens: 2000
-    });
-    
-    return result.object.ideas;
+    const agent = createIdeasAgent();
+    return await agent.generateIdeas(prompt);
   } catch (error) {
     console.error('Error generating ideas:', error);
     // Fallback: return skeleton ideas
@@ -64,14 +127,14 @@ function generateFallbackIdeas(prompt: string): IdeaCardData[] {
   const intents = ['awareness', 'conversion', 'engagement', 'retention'];
   const styles = [
     'fast-paced, energetic cuts',
-    'story-driven narrative',
+    'systematic breakdown',
     'data-backed explainer',
-    'emotionally resonant micro-story'
+    'operational micro-case'
   ];
   const formats = [
     '30s short-form video',
     'carousel thread',
-    'scripted reel',
+    'procedural reel',
     'teaser snippet'
   ];
   const platforms = ['TikTok', 'YouTube Shorts', 'Instagram Reels', 'LinkedIn'];

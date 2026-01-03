@@ -6,6 +6,7 @@ import { ChatHeader } from "./chat/ChatHeader";
 import { ChatMessages } from "./chat/ChatMessages";
 import { ChatInput } from "./chat/ChatInput";
 import { ChatHistoryPanel } from "./chat/ChatHistoryPanel";
+import { GenerationProgress } from "./chat/GenerationProgress";
 import { sanitizeServerScript, ensureBlockIds } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeClient";
 
@@ -191,9 +192,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           messages={formattedMessages}
           isStreaming={chat.isStreaming}
         />
+        <GenerationProgress active={chat.isStreaming} />
         
         {/* Decorative gradient at bottom of messages */}
-        <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-neutral-900/60 to-transparent pointer-events-none" />
+        <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-neutral-900/60 to-transparent pointer-events-none" />
       </div>
 
       <ChatInput

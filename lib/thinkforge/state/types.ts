@@ -3,6 +3,7 @@
  */
 
 import type { BlockTree } from '../schemas/canonical';
+import type { CIRDocument, CIRSection } from '../schemas/cir';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -37,7 +38,7 @@ export interface ProjectMeta {
 
 export interface ScriptState {
   title: string;
-  blocks: BlockTree;
+  blocks: BlockTree | CIRDocument | CIRSection[];
   content: string;
   draft: boolean;
   version: number;

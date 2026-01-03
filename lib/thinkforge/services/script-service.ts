@@ -5,6 +5,7 @@
 import * as db from './db';
 import type { Script } from './db';
 import type { BlockTree } from '../schemas/canonical';
+import type { CIRDocument, CIRSection } from '../schemas/cir';
 
 export interface ScriptOperation {
   sessionId: string;
@@ -12,7 +13,7 @@ export interface ScriptOperation {
   script?: {
     title?: string;
     content?: string;
-    blocks?: BlockTree;
+      blocks?: BlockTree | CIRDocument | CIRSection[];
   };
 }
 

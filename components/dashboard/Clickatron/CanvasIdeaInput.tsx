@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
-import { Node } from '@tiptap/pm/model';
+import { Node } from 'prosemirror-model';
 import StarterKit from '@tiptap/starter-kit';
 import { Mention } from '@tiptap/extension-mention';
 import Placeholder from '@tiptap/extension-placeholder';
@@ -121,7 +121,7 @@ export function CanvasIdeaInput() {
                         const div = document.createElement('div');
                         div.className = `flex items-center gap-3 p-3 cursor-pointer transition-colors hover:bg-zinc-700 ${selectedIndex === index ? 'bg-zinc-70' : ''}`;
                         div.innerHTML = `
-                          ${item.previewUrl ? `<img src="${item.previewUrl}" alt="Preview" class="w-8 h-8 rounded object-cover flex-shrink-0" />` : ''}
+                          ${item.previewUrl ? `<img src="${item.previewUrl}" alt="Preview" class="w-8 h-8 rounded object-cover shrink-0" />` : ''}
                           <span class="text-zinc-200 font-medium">${item.label}</span>
                         `;
                         // Only add click handlers if the item is not "no reference images"
@@ -505,10 +505,10 @@ export function CanvasIdeaInput() {
   };
 
   return (
-    <Card className="relative bg-gradient-to-b from-zinc-950/80 to-zinc-90/40 border-zinc-800/80 backdrop-blur-xl overflow-hidden">
+    <Card className="relative bg-linear-to-b from-zinc-950/80 to-zinc-90/40 border-zinc-800/80 backdrop-blur-xl overflow-hidden">
       <CardContent className="relative p-6 overflow-hidden">
         {/* Ambient background gradient */}
-        <div className="absolute inset-0 bg-gradient-to-br from-purple-50/5 via-transparent to-blue-500/5 opacity-40" />
+        <div className="absolute inset-0 bg-linear-to-br from-purple-50/5 via-transparent to-blue-500/5 opacity-40" />
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-96 h-32 bg-purple-500/10 blur-3xl rounded-full" />
         
         <motion.div
@@ -533,7 +533,7 @@ export function CanvasIdeaInput() {
             {/* Prompt Input */}
             <div className="relative">
               <div className="relative">
-                <div className="min-h-[80px] bg-zinc-900/60 border border-zinc-700 rounded-xl pr-12 focus-within:ring-2 focus-within:ring-purple-400/50 focus-within:border-purple-400/50 transition-all p-3">
+                <div className="min-h-20 bg-zinc-900/60 border border-zinc-700 rounded-xl pr-12 focus-within:ring-2 focus-within:ring-purple-400/50 focus-within:border-purple-400/50 transition-all p-3">
                   <EditorContent editor={editor} />
                 </div>
                 <div className="absolute right-3 top-3">
@@ -598,7 +598,7 @@ export function CanvasIdeaInput() {
             <div className="pt-2">
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold py-3 rounded-xl transition-all duration-200 shadow-lg hover:shadow-purple-500/25"
+                className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold py-3 rounded-xl transition-all duration-200 shadow-lg hover:shadow-purple-500/25"
                 disabled={isLoading || isEnhancing}
               >
                 {isLoading ? (
