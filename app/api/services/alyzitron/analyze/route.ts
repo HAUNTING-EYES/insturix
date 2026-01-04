@@ -36,19 +36,13 @@ function getGcsUrl(gcsPath: string): string {
 }
 
 // Initialize QStash client
-let qstash: Client;
-try {
-  if (!process.env.QSTASH_TOKEN) {
-    throw new Error("QSTASH_TOKEN environment variable is not set");
-  }
-
-  qstash = new Client({
-    token: process.env.QSTASH_TOKEN!,
-    baseUrl: process.env.QSTASH_URL,
-  });
-} catch (error) {
-  throw error;
-}
+// use dev URL only in development, otherwise undefined (production)
+const qstashBaseUrl = process.env.QSTASH_URL || 
+  (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
+const qstash = new Client({
+  token: process.env.QSTASH_TOKEN!,
+  baseUrl: qstashBaseUrl,
+});
 
 function normalizeContext(context: any): ContextValues {
   if (typeof context === "object" && context !== null) {
