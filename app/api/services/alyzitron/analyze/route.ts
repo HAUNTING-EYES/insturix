@@ -313,8 +313,9 @@ export async function POST(request: Request) {
       );
 
       // 3. Call Processor
-      const baseUrl =
-        process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      const baseUrl = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
       const processorUrl = `${baseUrl}/api/services/alyzitron/processor`;
 
       // Publish to QStash
@@ -329,7 +330,10 @@ export async function POST(request: Request) {
           videoDuration,
           usageMinutes,
         },
-        retries: 1,
+        retries: 3,
+        headers: {
+          "Content-Type": "application/json",
+        },
       });
 
       logger.info("Analysis task created and queued successfully", {
