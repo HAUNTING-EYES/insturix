@@ -4,7 +4,7 @@ import { HumanMessage, SystemMessage } from '@langchain/core/messages';
 import { z } from 'zod';
 import { projectService } from '../services/project-service';
 import { generateTimelineView } from '../utils/timeline-utils';
-import { Overlay, OverlayType as EditorOverlayType } from '@/components/editron/editor/version-7.0.0/types';
+import { Overlay, OverlayType as EditorOverlayType, HtmlGenerationMetadata } from '@/components/editron/editor/version-7.0.0/types';
 import { 
   findBestRow, 
   resolveCoordinates, 
@@ -13,6 +13,15 @@ import {
   OverlayType,
   ExistingOverlay 
 } from '../core/physics';
+import {
+  sanitizeHtml,
+  createSandboxedWrapper,
+  extractStyleMetadata,
+  classifyWordTimings,
+  buildFancyCaptionPrompt,
+  type WordTiming,
+} from '../utils/html-generator-utils';
+
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
@@ -1040,11 +1049,28 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
         ]);
 
         const generatedHtml = result.content as string;
-        const cleanHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
-
-        // Create overlay that fills the entire canvas by default
+        const rawHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
+        
+        // Sanitize HTML for security
+        const cleanHtml = sanitizeHtml(rawHtml);
+        
+        // Wrap in sandbox container
         const overlayWidth = input.width ?? safeWidth;
         const overlayHeight = input.height ?? safeHeight;
+        const wrappedHtml = createSandboxedWrapper({
+          html: cleanHtml,
+          width: overlayWidth,
+          height: overlayHeight,
+          backgroundColor: 'transparent',
+        });
+        
+        // Extract metadata for style consistency
+        const styleMetadata = extractStyleMetadata(cleanHtml);
+        const metadata: HtmlGenerationMetadata = {
+          ...styleMetadata,
+          generatedAt: new Date(),
+          sourceType: 'scene',
+        };
         
         // Use physics engine for row placement (HTML_SCENE is a bottom type, so starts at row 0)
         const existingOverlays = toExistingOverlays(project.overlays || []);
@@ -1056,8 +1082,9 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
           type: 'html-scene',
           from: input.start,
           durationInFrames: input.duration,
-          content: cleanHtml,
+          content: wrappedHtml,
           prompt: input.description,
+          metadata,
           row: assignedRow,
           // Position at 0,0 for full-screen scenes (unless user specifies x/y)
           left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
@@ -1076,9 +1103,11 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
         // Return a SANITIZED message to the main agent so it doesn't see (and repeat) the code.
         return JSON.stringify({ 
           status: 'success', 
-          id, 
-          message: `Generated HTML scene for "${input.description}". Resolution: ${safeWidth}x${safeHeight}. Code length: ${cleanHtml.length} chars. (Code hidden from chat log)` 
+          id,
+          metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
+          message: `Generated HTML scene for "${input.description}". Resolution: ${safeWidth}x${safeHeight}. Fonts: ${metadata.fonts.join(', ') || 'system'}. (Code hidden from chat log)` 
         });
+
       } catch (e: any) {
          console.error("HTML Generation Error:", e);
         return JSON.stringify({ status: 'error', message: e.message });
@@ -1218,9 +1247,28 @@ STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.hei
         ]);
 
         const generatedHtml = result.content as string;
-        const cleanHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
+        const rawHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
+        
+        // Sanitize HTML for security
+        const cleanHtml = sanitizeHtml(rawHtml);
+        
+        // Wrap in sandbox container
+        const wrappedHtml = createSandboxedWrapper({
+          html: cleanHtml,
+          width: stickerWidth,
+          height: stickerHeight,
+          backgroundColor: 'transparent',
+        });
 
         console.log('[HTML-STICKER] Generated HTML length:', cleanHtml.length);
+        
+        // Extract metadata for style consistency
+        const styleMetadata = extractStyleMetadata(cleanHtml);
+        const metadata: HtmlGenerationMetadata = {
+          ...styleMetadata,
+          generatedAt: new Date(),
+          sourceType: 'sticker',
+        };
 
         // Smart row placement - stickers go on top (use TEXT type for physics since html-sticker isn't in physics enum)
         const existingOverlays = toExistingOverlays(project.overlays || []);
@@ -1235,8 +1283,9 @@ STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.hei
           type: 'html-sticker',
           from: input.start,
           durationInFrames: input.duration,
-          content: cleanHtml,
+          content: wrappedHtml,
           prompt: input.description,
+          metadata,
           row: assignedRow,
           left: coords.left,
           top: coords.top,
@@ -1265,8 +1314,10 @@ STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.hei
           row: assignedRow,
           position: { left: coords.left, top: coords.top, width: stickerWidth, height: stickerHeight },
           animations: { enter: enterAnim, exit: exitAnim },
+          metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
           message: `Generated HTML sticker "${input.description}". Size: ${stickerWidth}×${stickerHeight}px. (Code hidden)` 
         });
+
       } catch (e: any) {
         console.error("HTML Sticker Generation Error:", e);
         return JSON.stringify({ status: 'error', message: e.message });
@@ -1844,6 +1895,236 @@ Linked captions are automatically moved with their videos.`,
     }
   );
 
+  // ============================================================================
+  // FANCY CAPTIONS (Kinetic Typography)
+  // ============================================================================
+
+  const addFancyCaptionsSchema = z.object({
+    videoOverlayId: z.coerce.number().describe("ID of the video overlay to add fancy captions for"),
+    
+    // Segment targeting
+    segmentType: z.enum(['hook', 'custom']).optional().default('hook')
+      .describe("'hook' = first 3-5 seconds (default), 'custom' = use startFrame/endFrame"),
+    startFrame: z.coerce.number().optional()
+      .describe("Custom start frame (only if segmentType='custom')"),
+    endFrame: z.coerce.number().optional()
+      .describe("Custom end frame (only if segmentType='custom')"),
+    
+    // Style configuration
+    style: z.enum(['bento', 'scattered', 'minimal']).optional().default('bento')
+      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating), 'minimal' (centered stack)"),
+    primaryColor: z.string().optional().describe("Primary text color, e.g., '#ffffff'"),
+    accentColor: z.string().optional().describe("Accent color for hero words, e.g., '#FFE66D'"),
+    backgroundColor: z.string().optional().default('transparent')
+      .describe("Background color (default: transparent)"),
+    
+    // Limits
+    maxWords: z.coerce.number().optional().default(15)
+      .describe("Maximum words to include (default: 15, max: 25)"),
+  });
+
+  const addFancyCaptions = tool(
+    async (rawInput: z.infer<typeof addFancyCaptionsSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
+        
+        if (!overlay || overlay.type !== 'video' || !overlay.assetId) {
+          return JSON.stringify({ status: 'error', message: 'Valid video overlay with asset not found' });
+        }
+        
+        const canvas = getCanvasDimensions(project);
+        const fps = project.fps || 30;
+        
+        // Get transcription
+        const { getTranscription } = await import('../services/media');
+        const transcription = await getTranscription(overlay.assetId, userId);
+        
+        if (!transcription.words || transcription.words.length === 0) {
+          return JSON.stringify({ status: 'error', message: 'No speech detected in this video' });
+        }
+        
+        // Determine segment range
+        let segmentStartFrame: number;
+        let segmentEndFrame: number;
+        
+        if (input.segmentType === 'custom' && input.startFrame !== undefined && input.endFrame !== undefined) {
+          segmentStartFrame = input.startFrame;
+          segmentEndFrame = input.endFrame;
+        } else {
+          // Hook = first 3-5 seconds of the clip
+          segmentStartFrame = overlay.from;
+          const hookDurationFrames = 4 * fps; // 4 seconds default
+          segmentEndFrame = Math.min(overlay.from + hookDurationFrames, overlay.from + overlay.durationInFrames);
+        }
+        
+        // Calculate video-time range for this segment
+        const videoStartMs = (overlay.videoStartTime || 0) * 1000;
+        const segmentStartMs = videoStartMs + ((segmentStartFrame - overlay.from) / fps * 1000);
+        const segmentEndMs = videoStartMs + ((segmentEndFrame - overlay.from) / fps * 1000);
+        
+        // Filter words in this segment and re-base to 0
+        const maxWords = Math.min(input.maxWords || 15, 25);
+        const wordsInRange = transcription.words
+          .filter((w: any) => w.startMs >= segmentStartMs && w.endMs <= segmentEndMs)
+          .slice(0, maxWords)
+          .map((w: any) => ({
+            word: w.word,
+            startMs: w.startMs - segmentStartMs, // 0-based relative to segment
+            endMs: w.endMs - segmentStartMs,
+          }));
+        
+        if (wordsInRange.length === 0) {
+          return JSON.stringify({ status: 'error', message: 'No speech found in the selected segment' });
+        }
+        
+        // Classify word importance
+        const classifiedWords = classifyWordTimings(wordsInRange);
+        
+        // Build prompt
+        const prompt = buildFancyCaptionPrompt({
+          words: classifiedWords,
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+          style: input.style || 'bento',
+          primaryColor: input.primaryColor,
+          accentColor: input.accentColor,
+          backgroundColor: input.backgroundColor,
+        });
+        
+        // Generate HTML via Gemini
+        const model = new ChatGoogleGenerativeAI({
+          model: 'gemini-2.5-flash',
+          apiKey: process.env.GEMINI_API_KEY,
+          temperature: 0.8, // Higher creativity for typography
+        });
+        
+        const result = await model.invoke([
+          new SystemMessage(prompt),
+          new HumanMessage(`Generate the kinetic typography animation for these ${classifiedWords.length} words.`),
+        ]);
+        
+        const generatedHtml = result.content as string;
+        
+        // Sanitize and wrap in sandbox
+        const cleanHtml = sanitizeHtml(
+          generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim()
+        );
+        
+        const wrappedHtml = createSandboxedWrapper({
+          html: cleanHtml,
+          width: canvas.width,
+          height: canvas.height,
+          backgroundColor: input.backgroundColor || 'transparent',
+        });
+        
+        // Extract metadata for consistency
+        const styleMetadata = extractStyleMetadata(cleanHtml);
+        const metadata: HtmlGenerationMetadata = {
+          ...styleMetadata,
+          generatedAt: new Date(),
+          sourceType: 'fancy-caption',
+          wordCount: classifiedWords.length,
+        };
+        
+        // Create overlay
+        const id = Date.now() + Math.floor(Math.random() * 10000);
+        const segmentDuration = segmentEndFrame - segmentStartFrame;
+        
+        // Fancy captions go on top (row 0)
+        const existingOverlays = toExistingOverlays(project.overlays || []);
+        const hasCollisionAtRow0 = existingOverlays.some(o => 
+          o.row === 0 && 
+          !(segmentEndFrame <= o.from || segmentStartFrame >= o.from + o.durationInFrames)
+        );
+        
+        if (hasCollisionAtRow0) {
+          // Shift all overlays down by 1 row
+          const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
+          const database = await getDatabase();
+          await database.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId, userId },
+            { $inc: { 'overlays.$[].row': 1 } }
+          );
+        }
+        
+        const newOverlay = {
+          id,
+          type: 'html-scene', // Using html-scene type for rendering compatibility
+          from: segmentStartFrame,
+          durationInFrames: segmentDuration,
+          content: wrappedHtml,
+          prompt: `Fancy captions: ${classifiedWords.map(w => w.word).join(' ')}`,
+          metadata,
+          row: 0,
+          left: 0,
+          top: 0,
+          width: canvas.width,
+          height: canvas.height,
+          rotation: 0,
+          isDragging: false,
+          styles: {
+            animation: { enter: 'fadeIn', exit: 'fadeOut', duration: 10 },
+          },
+        };
+        
+        await projectService.addOverlay(userId, projectId, newOverlay as any);
+        
+        console.log('[FANCY-CAPTIONS] Created overlay:', {
+          id,
+          wordCount: classifiedWords.length,
+          style: input.style,
+          fonts: metadata.fonts,
+          colors: metadata.colors,
+        });
+        
+        return JSON.stringify({
+          status: 'success',
+          id,
+          wordCount: classifiedWords.length,
+          words: classifiedWords.map(w => w.word),
+          style: input.style || 'bento',
+          segmentType: input.segmentType || 'hook',
+          startFrame: segmentStartFrame,
+          endFrame: segmentEndFrame,
+          metadata: {
+            fonts: metadata.fonts,
+            colors: metadata.colors,
+            backgroundColor: metadata.backgroundColor,
+          },
+          rowsShifted: hasCollisionAtRow0,
+          message: `Added fancy ${input.style || 'bento'}-style captions with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
+        });
+        
+      } catch (e: any) {
+        console.error('[FANCY-CAPTIONS] Error:', e);
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'add_fancy_captions',
+      description: `Add AI-generated "fancy captions" (kinetic typography) to a video segment.
+
+PURPOSE: Creates TikTok/Instagram-style text animations where words appear at different positions, sizes, and with unique styling. Perfect for HOOKS or key moments.
+
+USAGE GUIDANCE:
+- Use ONLY for hooks (first 3-5 seconds) or key highlighted sections, NOT entire videos
+- For full video captions, use add_captions instead
+- Call multiple times for multiple segments if needed
+
+STYLES:
+- 'bento' (default): Tight grid layout, mixed fonts, editorial look
+- 'scattered': Floating words at different positions with rotations
+- 'minimal': Clean centered stack, simple animations
+
+LIMITS: Max 15-25 words per call. For longer content, call multiple times.
+
+RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency.`,
+      schema: addFancyCaptionsSchema,
+    }
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -1862,6 +2143,8 @@ Linked captions are automatically moved with their videos.`,
     getVideoTranscription,
     analyzeVideoContent,
     addCaptions,
+    addFancyCaptions,     // NEW: Kinetic typography captions
     refreshCaptionsAI,    // NEW: Refresh/realign captions
   ];
+
 };

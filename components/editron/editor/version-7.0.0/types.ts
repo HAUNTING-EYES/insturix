@@ -263,11 +263,36 @@ export type StickerOverlay = BaseOverlay & {
   };
 };
 
+// ============================================================================
+// HTML GENERATION METADATA
+// ============================================================================
+
+/**
+ * Metadata for AI-generated HTML content (scenes, stickers, fancy captions).
+ * Used by LLM to maintain visual consistency across generated elements.
+ */
+export interface HtmlGenerationMetadata {
+  /** Font families used in the generated HTML */
+  fonts: string[];
+  /** Color values used (hex, rgb, rgba) */
+  colors: string[];
+  /** Background color (or 'transparent') */
+  backgroundColor: string;
+  /** When this was generated */
+  generatedAt: Date;
+  /** Type of generation */
+  sourceType: 'scene' | 'sticker' | 'fancy-caption';
+  /** Number of words (for fancy captions) */
+  wordCount?: number;
+}
+
 // HTML Scene overlay specific (full-screen backgrounds, diagrams)
 export type HtmlSceneOverlay = BaseOverlay & {
   type: OverlayType.HTML_SCENE;
   content: string; // The generated HTML content
   prompt?: string; // The prompt used to generate this
+  /** Extracted style metadata for LLM consistency */
+  metadata?: HtmlGenerationMetadata;
   styles: BaseStyles & {
     backgroundColor?: string;
     borderRadius?: string;
@@ -282,10 +307,13 @@ export type HtmlStickerOverlay = BaseOverlay & {
   type: OverlayType.HTML_STICKER;
   content: string; // The generated HTML content
   prompt?: string; // The prompt used to generate this
+  /** Extracted style metadata for LLM consistency */
+  metadata?: HtmlGenerationMetadata;
   styles: BaseStyles & {
     animation?: AnimationConfig;
   };
 };
+
 
 export interface TemplateCreator {
   id: string;
