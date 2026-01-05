@@ -172,7 +172,6 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]); // Only run when projectId changes (loadState is stable)
 
-  console.log("DEBUG: overlays", overlays);
   // Handle recovery dialog actions
   const handleRecoverAutosave = async () => {
     const loadedState = await loadState();

@@ -12,22 +12,30 @@ export const useVideoPlayer = () => {
   const [currentFrame, setCurrentFrame] = useState(0);
   const playerRef = useRef<PlayerRef>(null);
 
-  // Frame update effect
+  // Frame update effect - throttled to reduce re-renders
+  // The Remotion Player handles actual video playback internally at full frame rate
+  // We only need to update the frame state for UI display (timeline marker, time display)
   useEffect(() => {
     let animationFrameId: number;
-    let lastUpdateTime = 0;
-    const frameInterval = 1000 / FPS;
+    let lastFrame = -1;
+    let frameCount = 0;
+    const UPDATE_EVERY_N_FRAMES = 3; // Only update state every 3 frames to reduce re-renders
 
     const updateCurrentFrame = () => {
-      const now = performance.now();
-      if (now - lastUpdateTime >= frameInterval) {
-        if (playerRef.current) {
-          const frame = Math.round(playerRef.current.getCurrentFrame());
-          setCurrentFrame(frame);
+      if (playerRef.current) {
+        const frame = Math.round(playerRef.current.getCurrentFrame());
+        // Only update state if frame actually changed AND we've waited enough frames
+        if (frame !== lastFrame) {
+          frameCount++;
+          // Update every N frames, or immediately if the frame changed significantly (seeking)
+          const frameDelta = Math.abs(frame - lastFrame);
+          if (frameCount >= UPDATE_EVERY_N_FRAMES || frameDelta > UPDATE_EVERY_N_FRAMES) {
+            lastFrame = frame;
+            frameCount = 0;
+            setCurrentFrame(frame);
+          }
         }
-        lastUpdateTime = now;
       }
-
       animationFrameId = requestAnimationFrame(updateCurrentFrame);
     };
 
@@ -40,7 +48,7 @@ export const useVideoPlayer = () => {
         cancelAnimationFrame(animationFrameId);
       }
     };
-  }, [isPlaying, FPS]);
+  }, [isPlaying]);
 
   /**
    * Starts playing the video

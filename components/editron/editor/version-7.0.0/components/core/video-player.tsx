@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo } from "react";
 import { Player, PlayerRef } from "@remotion/player";
 import { Main } from "../../remotion/main";
 import { useEditorContext } from "../../contexts/editor-context";
@@ -17,7 +17,7 @@ interface VideoPlayerProps {
  * VideoPlayer component that renders a responsive video editor with overlay support
  * The player automatically resizes based on its container and maintains the specified aspect ratio
  */
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
+const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
   const {
     overlays,
     setSelectedOverlayId,
@@ -59,6 +59,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     fps: FPS,
   };
 
+  // Memoize inputProps to prevent unnecessary Player re-renders
+  // This is critical - without memoization, a new object is created on every render,
+  // causing the Remotion Player to re-render and restart video playback
+  const inputProps = useMemo(
+    () => ({
+      overlays,
+      setSelectedOverlayId,
+      changeOverlay,
+      selectedOverlayId,
+      durationInFrames,
+      fps: FPS,
+      width: compositionWidth,
+      height: compositionHeight,
+    }),
+    [
+      overlays,
+      setSelectedOverlayId,
+      changeOverlay,
+      selectedOverlayId,
+      durationInFrames,
+      compositionWidth,
+      compositionHeight,
+    ]
+  );
+
   return (
     <div className="w-full h-full overflow-hidden">
       {/* Grid background container */}
@@ -94,16 +119,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
               }}
               durationInFrames={PLAYER_CONFIG.durationInFrames}
               fps={PLAYER_CONFIG.fps}
-              inputProps={{
-                overlays,
-                setSelectedOverlayId,
-                changeOverlay,
-                selectedOverlayId,
-                durationInFrames,
-                fps: FPS,
-                width: compositionWidth,
-                height: compositionHeight,
-              }}
+              inputProps={inputProps}
               errorFallback={() => <></>}
               // Render a custom white play/pause icon for the overlay controls so
               // it's clearly visible over the black video background in light
@@ -143,3 +159,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     </div>
   );
 };
+
+// Wrap with React.memo to prevent re-renders when parent state (like currentFrame) changes
+// The VideoPlayer should only re-render when its direct dependencies change
+export const VideoPlayer = React.memo(VideoPlayerInner);
