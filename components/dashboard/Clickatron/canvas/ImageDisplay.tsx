@@ -119,8 +119,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           const containerHeight = Math.min(window.innerHeight - 200, 800); // Account for header/footer
           const { width, height } = getAspectRatioDimensions(
             aspectRatio,
-            containerWidth * 0.8,
-            containerHeight * 0.8
+            containerWidth * 0.9,
+            containerHeight * 0.9
           );
           setDimensions({ width, height });
         };
@@ -209,6 +209,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     const filterId = `curves-${variationId || 'default'}`;
 
+    // Calculate aspect ratio style
+    const aspectRatioStyle = aspectRatio ? {
+      width: `${dimensions.width}px`,
+      height: `${dimensions.height}px`,
+      maxWidth: '100%',
+      aspectRatio: aspectRatio.replace(':', '/')
+    } : {};
 
     if (isLoading) {
       return (
@@ -348,6 +355,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`,
         `url(#${filterId})`
       ].filter(Boolean).join(' '),
+      width: '100%',
+      height: '100%',
+      objectFit: status === 'generating' ? 'cover' : 'contain'
     };
   
     // For generating without imageRef (new variation), show generating placeholder
@@ -402,7 +412,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     }
 
     return (
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full flex items-center justify-center">
         {/* SVG Filters for Curves */}
         <svg className="absolute w-0 h-0">
             <defs>
@@ -441,14 +451,15 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             }}
           >
             <TransformComponent
-              wrapperClass="relative w-full h-full flex items-center justify-center"
+              wrapperClass="relative flex items-center justify-center"
               contentClass="flex items-center justify-center"
+              wrapperStyle={{ width: '100%', height: '100%' }}
             >
               <img
                 src={proxyUrl ?? undefined}
-                alt=""
-                className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
-                style={imageStyle}
+                alt={alt}
+                className={`${className} select-none rounded-lg`}
+                style={{...imageStyle, ...aspectRatioStyle}}
                 draggable={false}
               />
             </TransformComponent>
@@ -457,9 +468,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           <div className="relative w-full h-full flex items-center justify-center">
             <img
               src={proxyUrl ?? undefined}
-              alt=""
-              className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
-              style={imageStyle}
+              alt={alt}
+              className={`${className} select-none rounded-lg`}
+              style={{...imageStyle, ...aspectRatioStyle}}
               draggable={false}
             />
           </div>
@@ -467,32 +478,32 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
         {/* Generating overlay - show for both new and edits */}
         {status === 'generating' && (
-          <div className="absolute inset-0 pointer-events-none">
-            {/* Base subtle tint for better visibility */}
+        <div className="absolute inset-0 pointer-events-none">
+          {/* Base subtle tint for better visibility */}
             <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 via-cyan-500/5 to-yellow-500/5"></div>
             
-            {/* Animated pastel mesh gradient overlay - increased opacity for visibility */}
-            {/* Layer 1: Pink to turquoise flow */}
-            <div
-              className="absolute inset-0 opacity-20 bg-[length:200%_200%] bg-[radial-gradient(circle_at_20%_80%,#ffb3ba40_0%,#a7e6ff40_50%,transparent_100%)] animate-[gentle-flow_4s_ease-in-out_infinite]"
-              style={{ animationDelay: '0s', backgroundPosition: '0% 0%' }}
-            ></div>
-            {/* Layer 2: Cyan to yellow mesh */}
-            <div
-              className="absolute inset-0 opacity-25 bg-[length:250%_250%] bg-[radial-gradient(circle_at_80%_20%,#b5f2ff50_0%,#fff3cd50_50%,transparent_100%)] animate-[gentle-flow-reverse_5s_ease-in-out_infinite]"
-              style={{ animationDelay: '1s', backgroundPosition: '100% 100%' }}
-            ></div>
-            {/* Layer 3: Lavender to pink blend */}
-            <div
-              className="absolute inset-0 opacity-15 bg-[length:180%_180%] bg-[radial-gradient(ellipse_at_40%_60%,#e6e6fa30_0%,#ffb3ba30_50%,#a7e6ff30_100%)] animate-[gentle-flow_3s_ease-in-out_infinite]"
-              style={{ animationDelay: '2s', backgroundPosition: '50% 50%' }}
-            ></div>
-            {/* Layer 4: Turquoise to cyan wave */}
-            <div className="absolute inset-0 opacity-20 bg-[linear-gradient(135deg,#a7e6ff40_0%,#b5f2ff40_30%,#fff3cd40_60%,transparent_100%)] animate-shimmer bg-[length:300%_300%]"></div>
-            {/* Subtle noise for AI texture */}
-            <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg width=%2260%22 height=%2260%22 viewBox=%220 0 60 60%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cg fill=%22none%22 fill-rule=%22evenodd%22%3E%3Cg fill=%22%23ffffff%22 fill-opacity=%220.1%22%3E%3Ccircle cx=%2230%22 cy=%2230%22 r=%221%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] animate-pulse"></div>
-            
-            {/* Generating text overlay with enhanced visibility */}
+          {/* Animated pastel mesh gradient overlay - increased opacity for visibility */}
+          {/* Layer 1: Pink to turquoise flow */}
+          <div
+            className="absolute inset-0 opacity-20 bg-[length:200%_200%] bg-[radial-gradient(circle_at_20%_80%,#ffb3ba40_0%,#a7e6ff40_50%,transparent_100%)] animate-[gentle-flow_4s_ease-in-out_infinite]"
+            style={{ animationDelay: '0s', backgroundPosition: '0% 0%' }}
+          ></div>
+          {/* Layer 2: Cyan to yellow mesh */}
+          <div
+            className="absolute inset-0 opacity-25 bg-[length:250%_250%] bg-[radial-gradient(circle_at_80%_20%,#b5f2ff50_0%,#fff3cd50_50%,transparent_100%)] animate-[gentle-flow-reverse_5s_ease-in-out_infinite]"
+            style={{ animationDelay: '1s', backgroundPosition: '100% 100%' }}
+          ></div>
+          {/* Layer 3: Lavender to pink blend */}
+          <div
+            className="absolute inset-0 opacity-15 bg-[length:180%_180%] bg-[radial-gradient(ellipse_at_40%_60%,#e6e6fa30_0%,#ffb3ba30_50%,#a7e6ff30_100%)] animate-[gentle-flow_3s_ease-in-out_infinite]"
+            style={{ animationDelay: '2s', backgroundPosition: '50% 50%' }}
+          ></div>
+          {/* Layer 4: Turquoise to cyan wave */}
+          <div className="absolute inset-0 opacity-20 bg-[linear-gradient(135deg,#a7e6ff40_0%,#b5f2ff40_30%,#fff3cd40_60%,transparent_100%)] animate-shimmer bg-[length:300%_300%]"></div>
+          {/* Subtle noise for AI texture */}
+          <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg width=%2260%22 height=%2260%22 viewBox=%220 0 60 60%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cg fill=%22none%22 fill-rule=%22evenodd%22%3E%3Cg fill=%22%23ffffff%22 fill-opacity=%220.1%22%3E%3Ccircle cx=%2230%22 cy=%2230%22 r=%221%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] animate-pulse"></div>
+          
+          {/* Generating text overlay with enhanced visibility */}
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-center bg-black/50 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-pink-400/20 via-cyan-400/20 to-yellow-400/20 rounded-2xl blur animate-pulse"></div>
