@@ -73,88 +73,40 @@ async function handler(request: NextRequest) {
 
       // Call Vertex AI for analysis
       // First, check if the service exists
-      try {
-        logger.info("Starting Vertex AI analysis", {
-          data: { taskId, userId, videoUrl: task.videoUrl },
-        });
+      logger.info("Starting Vertex AI analysis", {
+        data: { taskId, userId, videoUrl: task.videoUrl },
+      });
 
-        // Call Vertex AI for analysis with all required data
-        const analysisResults = await analyzeVideoWithGemini(
-          task.videoUrl,
-          task.context || {},
-          task.metadata || {}
-        );
+      // Call Vertex AI for analysis with all required data
+      const analysisResults = await analyzeVideoWithGemini(
+        task.videoUrl,
+        task.context || {},
+        task.metadata || {}
+      );
 
-        const isMock = (analysisResults as any).mock || false;
+      logger.info("Vertex AI analysis completed", {
+        data: { taskId, userId },
+      });
 
-        logger.info("Vertex AI analysis completed", {
-          data: { taskId, userId, isMock },
-        });
+      // 4. Save results and mark as completed (MongoDB)
+      const updateData: any = {
+        status: "completed",
+        results: analysisResults,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      };
 
-        // 4. Save results and mark as completed (MongoDB)
-        const updateData: any = {
-          status: "completed",
-          results: analysisResults,
-          completedAt: new Date(),
-          updatedAt: new Date(),
-        };
+      await analyses.updateOne({ _id: task._id }, { $set: updateData });
 
-        // Store if it was a mock analysis
-        if (isMock) {
-          updateData.isMockAnalysis = true;
-        }
+      logger.info("Analysis completed successfully", {
+        data: { taskId, userId },
+      });
 
-        await analyses.updateOne({ _id: task._id }, { $set: updateData });
-
-        logger.info("Analysis completed successfully", {
-          data: { taskId, userId },
-        });
-
-        return NextResponse.json({
-          success: true,
-          taskId,
-          status: "completed",
-          isMock,
-        });
-      } catch (vertexError) {
-        // If vertexAiService doesn't exist, use mock data
-        if (
-          vertexError instanceof Error &&
-          vertexError.message.includes("Cannot find module")
-        ) {
-          const mockResults = {
-            summary: `Mock analysis for ${task.metadata?.originalFilename || "video"}`,
-            keyMoments: [
-              { timestamp: "00:30", description: "Introduction" },
-              { timestamp: "01:45", description: "Main content" },
-              { timestamp: "03:20", description: "Conclusion" },
-            ],
-            analysisTime: new Date().toISOString(),
-            mock: true,
-          };
-
-          await analyses.updateOne(
-            { _id: task._id },
-            {
-              $set: {
-                status: "completed",
-                results: mockResults,
-                completedAt: new Date(),
-                updatedAt: new Date(),
-              },
-            }
-          );
-
-          return NextResponse.json({
-            success: true,
-            taskId,
-            status: "completed",
-            mock: true,
-          });
-        } else {
-          throw vertexError; // Re-throw if it's a different error
-        }
-      }
+      return NextResponse.json({
+        success: true,
+        taskId,
+        status: "completed",
+      });
     } catch (analysisError) {
       // 5. Handle analysis failure with refund
       const errorMessage =
