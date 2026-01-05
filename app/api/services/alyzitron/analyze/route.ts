@@ -9,7 +9,7 @@ import {
   createAlyzitronLimitResponse,
 } from "@/lib/middleware/services/alyzitron";
 import { getCollections } from "../utils/mongodb";
-import { AlyzitronRTDBManager } from "@/lib/services/rtdb/alyzitron-rtdb";
+
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
 import { processRefund } from "@/lib/services/tasks/simple-refund";
@@ -37,7 +37,7 @@ function getGcsUrl(gcsPath: string): string {
 
 // Initialize QStash client
 // use dev URL only in development, otherwise undefined (production)
-const qstashBaseUrl = process.env.QSTASH_URL || 
+const qstashBaseUrl = process.env.QSTASH_URL ||
   (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
 const qstash = new Client({
   token: process.env.QSTASH_TOKEN!,
@@ -304,13 +304,7 @@ export async function POST(request: Request) {
 
       const insertResult = await analyses.insertOne(taskData);
 
-      // 2. Create RTDB entry
-      await AlyzitronRTDBManager.createTask(
-        session.userId,
-        taskId.toString(),
-        finalMetadata.originalFilename,
-        `Video analysis for ${finalMetadata.originalFilename}`
-      );
+
 
       // 3. Call Processor
       const baseUrl = process.env.VERCEL_URL
