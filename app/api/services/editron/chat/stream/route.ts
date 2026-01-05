@@ -115,6 +115,9 @@ export async function POST(req: NextRequest) {
     const writer = stream.writable.getWriter();
     const encoder = new TextEncoder();
 
+    console.log('[STREAM-ROUTE] Starting chat stream for message:', message.substring(0, 100));
+    console.log('[STREAM-ROUTE] History has', langchainHistory.length, 'messages');
+
     // Run agent in background with streaming
     (async () => {
       try {
@@ -125,8 +128,14 @@ export async function POST(req: NextRequest) {
           ]
         };
 
+        console.log('[STREAM-ROUTE] Prepared inputs with', inputs.messages.length, 'total messages');
+
         // Create stream callback to emit events in real-time
+        let callbackInvocationCount = 0;
         const streamCallback = async (chunk: { type: 'token' | 'tool_start' | 'tool_end', data: any }) => {
+          callbackInvocationCount++;
+          console.log(`[STREAM-ROUTE] Callback #${callbackInvocationCount}:`, chunk.type, chunk.type === 'token' ? chunk.data.content?.substring(0, 50) : chunk.data.tool);
+          
           if (chunk.type === 'token') {
             await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: chunk.data.content })}\n\n`));
           } else if (chunk.type === 'tool_start') {
@@ -136,16 +145,23 @@ export async function POST(req: NextRequest) {
           }
         };
 
-        console.log('[STREAM-ROUTE] Using streaming callback mode');
+        console.log('[STREAM-ROUTE] Invoking agent...');
         const result = await agent.invoke(inputs, {
+          recursionLimit: 50, // Allow up to 50 tool calls per request
           configurable: {
             projectId,
             streamCallback,
           }
         });
+        console.log('[STREAM-ROUTE] Agent.invoke completed. Callback was invoked', callbackInvocationCount, 'times');
 
         // Extract tool calls and content from the result for saving to DB
         const messages = result.messages || [];
+        console.log('[STREAM-ROUTE] Result has', messages.length, 'messages');
+        messages.forEach((m: any, i: number) => {
+          console.log(`[STREAM-ROUTE] Message ${i}: type=${m.constructor?.name}, content=${String(m.content).substring(0, 100)}, tool_calls=${m.tool_calls?.length || 0}`);
+        });
+        
         const toolCalls: any[] = [];
         const toolResults: any[] = [];
         let finalResponse = "";
@@ -176,15 +192,15 @@ export async function POST(req: NextRequest) {
             }
           }
           
-          // Process Tool messages (results) - these need tool_end events
+          // Process Tool messages (results) - tool_end events are now emitted from sequentialToolNode
           if (msg.constructor?.name === 'ToolMessage') {
             toolResults.push({
               toolCallId: msgAny.tool_call_id,
               toolName: msgAny.name,
               result: msgAny.content
             });
-            // Send tool_end event for completed tools
-            await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'tool_end', tool: msgAny.name, id: msgAny.tool_call_id, output: msgAny.content })}\n\n`));
+            // Note: tool_end events are now streamed in real-time from sequentialToolNode
+            // No need to emit here - this was causing duplicate/batched events
           }
         }
 

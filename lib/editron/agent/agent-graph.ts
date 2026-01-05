@@ -40,11 +40,12 @@ import { createTools } from './tools';
 // Stream callback type for real-time token streaming
 export type StreamCallback = (chunk: { type: 'token' | 'tool_start' | 'tool_end', data: any }) => void;
 
-// Debug logging flag - set DEBUG_AGENT=true in env to enable verbose logging
-const DEBUG = process.env.DEBUG_AGENT === 'true';
-const debugLog = (...args: any[]) => { if (DEBUG) console.log('[AGENT-GRAPH-DEBUG]', ...args); };
-const debugWarn = (...args: any[]) => { if (DEBUG) console.warn('[AGENT-GRAPH-DEBUG]', ...args); };
-const debugError = (...args: any[]) => { console.error('[AGENT-GRAPH-ERROR]', ...args); }; // Errors always logged
+// Debug logging - ALWAYS enabled for debugging silent failure bug
+// TODO: Revert to DEBUG flag after fixing the issue
+const DEBUG = false; // process.env.DEBUG_AGENT === 'true';
+const debugLog = (...args: any[]) => { console.log('[AGENT-DEBUG]', ...args); };
+const debugWarn = (...args: any[]) => { console.warn('[AGENT-WARN]', ...args); };
+const debugError = (...args: any[]) => { console.error('[AGENT-ERROR]', ...args); }; // Errors always logged
 
 export const createAgent = (userId: string, projectContext?: string) => {
   // Create tools with both userId and projectId baked in
@@ -133,6 +134,15 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - **Batch Parallel Execution**: When creating MULTIPLE elements (only if user asks), you CAN call \`generate_html_scene\` and \`generate_html_sticker\` in parallel in the SAME turn.
     - **NO LOOPS**: After completing a request, STOP. Do NOT call tools again unless the user sends a new message.
     - **Sequential for data tools**: For \`add_overlay\`, \`update_overlay\`, \`delete_overlay\` - execute one at a time.
+    
+**IMPORTANT - Creative Tool Combinations**:
+You can do ANYTHING a human video editor can by combining tools creatively:
+- **Move a clip**: \`update_overlay({ id, from: newFrame })\` - changes when clip starts on timeline
+- **Close timeline gaps**: Move clips left by updating their \`from\` property
+- **Remove a section**: \`split_overlay\` at start, \`split_overlay\` at end, then \`delete_overlay\` the middle
+- **Change clip order**: Update \`from\` values to reposition clips
+- **Extend/shorten**: \`update_overlay({ id, durationInFrames: newDuration })\` or use \`trim_overlay\`
+
 5.  **Output Style**:
     - Be concise, helpful, and friendly.
     - Use Markdown for formatting (bold, lists) to make your responses readable.
@@ -151,6 +161,55 @@ export const createAgent = (userId: string, projectContext?: string) => {
 - \`get_timeline_view\`: Get ASCII timeline view.
 - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or visual elements.
 - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
+- \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
+- \`analyze_video_content\`: Find silences and filler words. Returns READY-TO-USE cut instructions.
+- \`add_captions\`: Add AI-generated captions to a video. Per-clip styling supported. Calling again replaces existing.
+- \`refresh_captions\`: Realign existing captions after video edits. Use when captions become misaligned.
+- \`close_gaps\`: Close all gaps between video clips by shifting them left. Captions move with their videos.
+
+**VIDEO AUTO-EDIT WORKFLOW**:
+When user asks to "remove silences", "clean up", or "auto-edit":
+1. \`analyze_video_content\` → Get stats (silenceCount, segments with positions)
+2. Based on segment positions:
+   - **position: 'end'** → \`trim_overlay({ id, trimEnd: videoEndFrame - startFrame })\`
+   - **position: 'start'** → \`trim_overlay({ id, trimStart: endFrame - videoFrom })\`
+   - **position: 'middle'** → split at startFrame, split new clip at endFrame, delete middle
+3. After cuts: \`close_gaps\` to shift clips left
+4. Optionally: \`add_captions\` for each resulting clip
+
+**IMPORTANT: Caption behavior**:
+- Captions are linked to their source video via \`sourceVideoId\`
+- Calling \`add_captions\` on a video REPLACES existing captions for that video
+- Different clips can have different styles (call \`add_captions\` separately per clip)
+
+**CONTENT-AWARE CAPTION STYLING**:
+When user asks for different styles (e.g., "bold hook", "different styles per section"):
+1. \`get_video_transcription\` → Read the transcript to identify sections
+2. Analyze the content: Hook is typically first 3-5 seconds, or first 1-2 sentences
+3. \`split_overlay\` at the boundary (convert seconds to frames: seconds * fps)
+4. \`add_captions\` with style A for the hook clip, style B for the rest
+
+Example workflow for "make hook bold, rest minimal":
+\`\`\`
+1. get_video_transcription(videoId) → identify hook end point
+2. split_overlay(id, atFrame: hook_end_seconds * 30) → creates clip A and B
+3. add_captions(videoId: A, style: 'bold')
+4. add_captions(videoId: B, style: 'minimal')
+\`\`\`
+You CAN analyze transcription content to make intelligent decisions about styling.
+
+
+**HANDLING split_and_delete (mid-video cuts)**:
+When a cut has action='split_and_delete', follow these steps IN ORDER:
+1. \`split_overlay\` at the START frame → Note the new overlay ID returned
+2. \`split_overlay\` on the NEW overlay at the END frame → This isolates the silence
+3. \`delete_overlay\` to remove the silence segment
+The \`steps\` array provides exact parameters for each action. Execute them in order.
+
+**CRITICAL: Using analyze_video_content correctly**:
+- The tool returns \`cuts\` array with pre-calculated \`parameters\`
+- For trim operations: Use exact parameters provided
+- For split_and_delete: Follow the step-by-step instructions, noting IDs as you go
 
 **WHEN TO USE EACH HTML TOOL**:
 | Use \`generate_html_scene\` for: | Use \`generate_html_sticker\` for: |
@@ -375,17 +434,38 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
       // Use streaming if callback is provided
       if (streamCallback) {
         debugLog('Using streaming mode');
+        debugLog('Calling generateContentStream...');
         const streamResult = await directModel.generateContentStream({ contents: geminiContents });
+        debugLog('Got streamResult, starting iteration...');
         
+        let chunkCount = 0;
         for await (const chunk of streamResult.stream) {
+          chunkCount++;
+          debugLog(`Processing chunk #${chunkCount}:`, JSON.stringify(chunk).substring(0, 500));
+          
+          // Check for safety ratings or blocked content
+          if (chunk.candidates?.[0]?.finishReason) {
+            debugLog('Chunk finishReason:', chunk.candidates[0].finishReason);
+          }
+          if (chunk.candidates?.[0]?.safetyRatings) {
+            debugLog('Safety ratings:', JSON.stringify(chunk.candidates[0].safetyRatings));
+          }
+          
           const parts = chunk.candidates?.[0]?.content?.parts || [];
+          debugLog(`Chunk #${chunkCount} has ${parts.length} parts`);
+          
+          if (parts.length === 0) {
+            debugWarn('Empty parts in chunk, checking candidate content:', JSON.stringify(chunk.candidates?.[0]?.content));
+          }
           
           for (const part of parts) {
             if (part.text) {
+              debugLog('Got text part:', part.text.substring(0, 100));
               textContent += part.text;
               // Stream token to callback
               streamCallback({ type: 'token', data: { content: part.text } });
             } else if (part.functionCall) {
+              debugLog('Got functionCall part:', part.functionCall.name, part.functionCall.args);
               const toolCall = {
                 type: 'tool_call',
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -395,7 +475,29 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
               toolCalls.push(toolCall);
               // Emit tool_start event
               streamCallback({ type: 'tool_start', data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args } });
+            } else {
+              debugWarn('Unknown part type:', JSON.stringify(part));
             }
+          }
+        }
+        debugLog(`Stream iteration complete. Total chunks: ${chunkCount}, text length: ${textContent.length}, tool calls: ${toolCalls.length}`);
+        
+        // CRITICAL FIX: Handle empty response from Gemini
+        // This happens when the model receives a vague request and decides to output nothing
+        // Instead of silently failing, we generate a helpful fallback message
+        if (chunkCount === 0) {
+          debugError('STREAM RETURNED 0 CHUNKS - generating fallback response');
+          const fallbackMessage = "I need a bit more context to help you. Could you tell me which video you'd like me to work with, or describe what you're trying to achieve?";
+          textContent = fallbackMessage;
+          if (streamCallback) {
+            streamCallback({ type: 'token', data: { content: fallbackMessage } });
+          }
+        } else if (chunkCount > 0 && textContent.length === 0 && toolCalls.length === 0) {
+          debugError('Stream had chunks but no text or tool calls - generating fallback response');
+          const fallbackMessage = "I'm not sure what you'd like me to do. Could you provide more details? For example:\n- \"Add captions to the video on the timeline\"\n- \"What videos are in my project?\"\n- \"Show me the timeline\"";
+          textContent = fallbackMessage;
+          if (streamCallback) {
+            streamCallback({ type: 'token', data: { content: fallbackMessage } });
           }
         }
       } else {
@@ -475,6 +577,7 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
   // Custom tool node for sequential execution
   async function sequentialToolNode(state: typeof MessagesAnnotation.State, config: any) {
     const projectId = config.configurable?.projectId;
+    const streamCallback: StreamCallback | undefined = config.configurable?.streamCallback;
     if (!projectId) throw new Error("Project ID is required");
     
     // Create tools with the projectId baked in
@@ -488,21 +591,34 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
       for (const toolCall of toolCalls) {
         const tool = tools.find((t) => t.name === toolCall.name);
         if (tool) {
+          let output: string;
           try {
             // Execute tool
-            const output = await (tool as any).invoke(toolCall.args);
+            output = await (tool as any).invoke(toolCall.args);
             debugLog('Tool output for', toolCall.name, ':', output.substring(0, 300));
-            results.push(new ToolMessage({
-              tool_call_id: toolCall.id,
-              name: toolCall.name,
-              content: output
-            }));
           } catch (e: any) {
-            results.push(new ToolMessage({
-              tool_call_id: toolCall.id,
-              name: toolCall.name,
-              content: `Error: ${e.message}`
-            }));
+            output = `Error: ${e.message}`;
+          }
+          
+          // Create the tool message result
+          const toolMessage = new ToolMessage({
+            tool_call_id: toolCall.id,
+            name: toolCall.name,
+            content: output
+          });
+          results.push(toolMessage);
+          
+          // Emit tool_end event immediately after this tool completes
+          // This ensures proper interleaving in the AI debugger
+          if (streamCallback) {
+            streamCallback({ 
+              type: 'tool_end', 
+              data: { 
+                tool: toolCall.name, 
+                id: toolCall.id, 
+                output: output 
+              } 
+            });
           }
         }
       }
