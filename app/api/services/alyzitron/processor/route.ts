@@ -1,30 +1,13 @@
 import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import { NextResponse, NextRequest } from "next/server";
 import { getCollections } from "../utils/mongodb";
-import { AlyzitronRTDBManager } from "@/lib/services/rtdb/alyzitron-rtdb";
+
 import { processRefund } from "@/lib/services/tasks/simple-refund";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
 
-export async function POST(request: NextRequest) {
-  // Check for development bypass header
-  const bypassHeader = request.headers.get("x-development-bypass");
-  const isDevelopmentBypass = bypassHeader === "true";
-
-  if (!isDevelopmentBypass) {
-    // Production: Verify QStash signature
-    try {
-      verifySignatureAppRouter(request);
-    } catch (error) {
-      logger.error("Invalid QStash signature", {
-        data: { error: error instanceof Error ? error.message : String(error) },
-      });
-      return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-    }
-  } else {
-    logger.warn("Development bypass of QStash signature verification enabled");
-  }
+async function handler(request: NextRequest) {
   try {
     const body = await request.json();
     const { taskId, userId } = body;
@@ -82,9 +65,6 @@ export async function POST(request: NextRequest) {
       }
     );
 
-    // Update RTDB
-    await AlyzitronRTDBManager.updateTaskStatus(userId, taskId, "processing");
-
     // 3. Perform video analysis with Vertex AI
     try {
       logger.info("Starting Vertex AI analysis", {
@@ -105,7 +85,7 @@ export async function POST(request: NextRequest) {
           task.metadata || {}
         );
 
-        const isMock = "mock" in analysisResults ? analysisResults.mock : false;
+        const isMock = (analysisResults as any).mock || false;
 
         logger.info("Vertex AI analysis completed", {
           data: { taskId, userId, isMock },
@@ -120,18 +100,11 @@ export async function POST(request: NextRequest) {
         };
 
         // Store if it was a mock analysis
-        if (analysisResults.mock) {
+        if (isMock) {
           updateData.isMockAnalysis = true;
         }
 
         await analyses.updateOne({ _id: task._id }, { $set: updateData });
-
-        // Update RTDB
-        await AlyzitronRTDBManager.updateTaskStatus(
-          userId,
-          taskId,
-          "completed"
-        );
 
         logger.info("Analysis completed successfully", {
           data: { taskId, userId },
@@ -170,12 +143,6 @@ export async function POST(request: NextRequest) {
                 updatedAt: new Date(),
               },
             }
-          );
-
-          await AlyzitronRTDBManager.updateTaskStatus(
-            userId,
-            taskId,
-            "completed"
           );
 
           return NextResponse.json({
@@ -217,9 +184,6 @@ export async function POST(request: NextRequest) {
           },
         }
       );
-
-      // Update RTDB
-      await AlyzitronRTDBManager.updateTaskStatus(userId, taskId, "failed");
 
       // Refund credits
       const minutes =
@@ -263,5 +227,19 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+// Development bypass logic
+export const POST = async (request: NextRequest) => {
+  const bypassHeader = request.headers.get("x-development-bypass");
+  const isDevelopmentBypass = bypassHeader === "true";
+
+  if (isDevelopmentBypass) {
+    logger.warn("Development bypass of QStash signature verification enabled");
+    return handler(request);
+  } else {
+    // Correct usage: wrap the handler
+    return verifySignatureAppRouter(handler)(request);
+  }
+};
 
 export const runtime = "nodejs";
