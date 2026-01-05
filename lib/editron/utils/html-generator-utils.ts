@@ -61,17 +61,28 @@ export interface SandboxWrapperParams {
   width: number;
   height: number;
   backgroundColor?: string;
+  /** If true, content will be scaled to fit within bounds */
+  autoFit?: boolean;
 }
 
 /**
  * Wrap HTML content in a sandboxed container with strict containment.
  * Prevents content from escaping bounds or receiving pointer events.
+ * Uses CSS transform: scale() to auto-fit content to track size.
  */
 export function createSandboxedWrapper(params: SandboxWrapperParams): string {
-  const { html, width, height, backgroundColor = 'transparent' } = params;
+  const { html, width, height, backgroundColor = 'transparent', autoFit = true } = params;
   
   // Sanitize first
   const cleanHtml = sanitizeHtml(html);
+  
+  // Auto-fit wrapper uses object-fit-like behavior via CSS
+  // The inner content is designed for a fixed size but we scale it to fit
+  const autoFitStyles = autoFit ? `
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  ` : '';
   
   return `<div style="
     position: absolute;
@@ -82,8 +93,16 @@ export function createSandboxedWrapper(params: SandboxWrapperParams): string {
     overflow: hidden;
     pointer-events: none;
     isolation: isolate;
-    contain: strict;
-  ">${cleanHtml}</div>`;
+    contain: layout style;
+    ${autoFitStyles}
+  "><div style="
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transform-origin: center center;
+  ">${cleanHtml}</div></div>`;
 }
 
 // ============================================================================
@@ -302,13 +321,16 @@ export function buildFancyCaptionPrompt(params: FancyCaptionPromptParams): strin
     backgroundColor = 'transparent',
   } = params;
   
-  // Build word timing table
+  // Build detailed word timing table with exact timestamps
   const wordTable = words.map((w, i) => {
     const importance = w.importance || classifyWordImportance(w.word);
-    return `${i + 1}. "${w.word}" (${w.startMs}ms - ${w.endMs}ms) -> ${importance.toUpperCase()}`;
+    const delaySeconds = (w.startMs / 1000).toFixed(2);
+    return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${importance.toUpperCase()} |`;
   }).join('\n');
   
   const totalDuration = Math.max(...words.map(w => w.endMs));
+  const exitStartMs = totalDuration - 300; // Exit animation starts 300ms before end
+  const exitDelaySeconds = (exitStartMs / 1000).toFixed(2);
   
   const styleInstructions = {
     bento: `
@@ -316,16 +338,16 @@ LAYOUT STYLE: "Bento Grid" (Editorial, Tight Packing)
 1. **USE CSS GRID**: Container uses \`display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px;\`
 2. **TIGHT PACKING**: Line-height: 0.85. Words nearly touch.
 3. **HIERARCHY**:
-   - HERO words: \`grid-column: span 10-12\`, font-size 160-220px, bold sans-serif
-   - MEDIUM words: \`grid-column: span 6-8\`, font-size 100-140px
-   - FILLER words: \`grid-column: span 3-4\`, font-size 50-70px, can have box/border treatment
+   - HERO words: \`grid-column: span 10-12\`, font-size 12-16vw (use % of container), bold sans-serif
+   - MEDIUM words: \`grid-column: span 6-8\`, font-size 8-10vw
+   - FILLER words: \`grid-column: span 3-4\`, font-size 4-6vw, can have box/border treatment
 4. **MIX FONTS**: Use 'Oswald' (bold sans) for impact, 'Playfair Display' (italic serif) for elegance.
 5. **VARY STYLES**: Some words filled, some outlined (\`-webkit-text-stroke\`), some in colored boxes.`,
     scattered: `
 LAYOUT STYLE: "Scattered" (Floating, Dynamic)
-1. **USE ABSOLUTE POSITIONING**: Each word has unique \`top\` and \`left\` values.
+1. **USE ABSOLUTE POSITIONING**: Each word has unique \`top\` and \`left\` values as percentages.
 2. **AVOID OVERLAP**: Words should not overlap, use different quadrants.
-3. **HIERARCHY**: HERO words larger (150px+), FILLER words smaller (40-60px).
+3. **HIERARCHY**: HERO words larger (12-15vw), FILLER words smaller (4-6vw).
 4. **ROTATIONS**: Vary rotation -15deg to +15deg for dynamism.
 5. **SPREAD**: Distribute across canvas - some top-left, some center-right, some bottom.`,
     minimal: `
@@ -341,33 +363,45 @@ LAYOUT STYLE: "Minimal" (Clean, Centered)
 Generate a SELF-CONTAINED HTML/CSS animation for fancy video captions.
 
 ═══════════════════════════════════════════════════════════════════
-CANVAS: ${canvasWidth} × ${canvasHeight}px
-BACKGROUND: ${backgroundColor}
+CANVAS: ${canvasWidth} × ${canvasHeight}px (content will be auto-scaled to fit)
+BACKGROUND: ${backgroundColor} (MUST be transparent - no background color unless explicitly requested)
 DURATION: ${totalDuration}ms (${(totalDuration / 1000).toFixed(1)}s)
 ═══════════════════════════════════════════════════════════════════
 
-TRANSCRIPT & TIMING:
+WORD-BY-WORD TIMING TABLE (CRITICAL - use exact animation-delay values):
+| # | Word | StartMs | EndMs | animation-delay | Importance |
+|---|------|---------|-------|-----------------|------------|
 ${wordTable}
 
 ${styleInstructions[style]}
 
 ANIMATION RULES (CRITICAL):
-1. All words start \`opacity: 0\`.
-2. Each word animates in at its exact startMs using \`animation-delay\`.
-3. Animation: \`popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards\`.
-4. Convert ms to seconds for CSS: 1500ms = 1.5s.
-5. Words stay visible after appearing (persist until end).
+1. **ENTRY**: All words start \`opacity: 0\`. Each word MUST animate in at its EXACT animation-delay from the table above.
+2. **Entry Animation**: \`popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards\`
+3. **EXIT ANIMATION (MANDATORY)**: ALL words must fade out together at the end.
+   - Add a \`fadeOut\` keyframe: \`@keyframes fadeOut { to { opacity: 0; transform: scale(0.9); } }\`
+   - Apply to container: \`animation: fadeOut 0.3s ease-out ${exitDelaySeconds}s forwards;\`
+   - This ensures clean exit at ${exitStartMs}ms (${exitDelaySeconds}s)
+4. Words stay visible between entry and exit.
+
+SIZING RULES (CRITICAL FOR AUTO-FIT):
+- Use PERCENTAGE-based font sizes relative to container (e.g., \`font-size: 15%;\` or \`font-size: calc(100% * 0.15);\`)
+- OR use \`em\` units with a base font-size on container
+- Content MUST fit within container - no overflow
+- Container: \`width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;\`
 
 STYLING:
+- Background: ${backgroundColor === 'transparent' ? 'TRANSPARENT (no background-color, no background property)' : backgroundColor}
 - Primary Color: ${primaryColor}
 - Accent Color: ${accentColor} (use for HERO words or highlights)
 - Text Shadow: \`4px 4px 0 rgba(0,0,0,0.9)\` for readability.
 - Font Import: Include Google Fonts link for Oswald and Playfair Display.
 
-CONTAINER RULES (CRITICAL):
-- Outer wrapper: \`position: absolute; inset: 0; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;\`
-- Content container width: ${Math.round(canvasWidth * 0.9)}px (90% of canvas).
-- Never use viewport units (vw, vh). Use px or %.
+CONTAINER RULES:
+- Outer wrapper: \`position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: transparent;\`
+- Inner grid/content: Use max-width: 90% to leave breathing room.
+- Never use viewport units (vw, vh). Use % or em.
+- NO \`body\` or \`html\` styling - this is embedded in a player.
 
-OUTPUT: Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation.`;
+OUTPUT: Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation. NO DOCTYPE or html/body tags.`;
 }
