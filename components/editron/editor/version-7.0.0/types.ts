@@ -237,6 +237,8 @@ export interface CaptionOverlay extends BaseOverlay {
   position?: "bottom" | "top" | "center" | "custom";
   /** Display configuration for word grouping and display mode */
   displayConfig?: CaptionDisplayConfig;
+  /** ID of the video overlay this caption is synced to */
+  sourceVideoId?: number;
 }
 
 export type StickerCategory =

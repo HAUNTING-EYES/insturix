@@ -1,0 +1,204 @@
+/**
+ * Media Services - Shared Types
+ * 
+ * Common interfaces used across transcription, audio analysis, and caption services.
+ * These types are the contract between services and their consumers (AI tools, UI).
+ */
+
+import type { CaptionWord } from '@/components/editron/editor/version-7.0.0/types';
+
+// ============================================================================
+// TRANSCRIPTION
+// ============================================================================
+
+/**
+ * Word-level transcription data with 0-based timestamps (relative to video start)
+ */
+export interface TranscriptionWord {
+  word: string;
+  startMs: number;  // 0-based, relative to video start
+  endMs: number;    // 0-based, relative to video start
+  confidence: number;
+}
+
+/**
+ * Complete transcription result stored in MediaAsset
+ */
+export interface TranscriptionData {
+  words: TranscriptionWord[];
+  transcript: string;
+  language: string;
+  confidence: number;
+  generatedAt: Date;
+}
+
+/**
+ * Options for transcription requests
+ */
+export interface TranscriptionOptions {
+  forceRefresh?: boolean;
+  language?: string;
+}
+
+// ============================================================================
+// AUDIO ANALYSIS
+// ============================================================================
+
+/**
+ * A gap in speech (silence between words)
+ */
+export interface SilenceGap {
+  startMs: number;
+  endMs: number;
+  durationMs: number;
+  /** Word before the gap (for context) */
+  beforeWord?: string;
+  /** Word after the gap (for context) */
+  afterWord?: string;
+}
+
+/**
+ * Detected filler word with context
+ */
+export interface DetectedFiller {
+  word: string;
+  startMs: number;
+  endMs: number;
+  /** True if there's significant silence around this filler */
+  hasSurroundingSilence: boolean;
+  /** Total duration including surrounding silence */
+  totalGapMs: number;
+}
+
+/**
+ * A segment that's a candidate for removal
+ */
+export interface ProblematicSegment {
+  startMs: number;
+  endMs: number;
+  reason: 'filler_with_silence' | 'long_silence' | 'repeated_filler';
+  severity: 'low' | 'medium' | 'high';
+  /** Human-readable description for LLM */
+  description: string;
+}
+
+/**
+ * Complete audio content analysis result
+ */
+export interface ContentAnalysis {
+  silenceGaps: SilenceGap[];
+  fillerWords: DetectedFiller[];
+  problematicSegments: ProblematicSegment[];
+  summary: {
+    totalSilenceMs: number;
+    totalFillerWords: number;
+    problematicCount: number;
+    /** Estimated time that could be saved by removing all problematic segments */
+    potentialSavingsMs: number;
+  };
+}
+
+/**
+ * Options for audio analysis
+ */
+export interface AudioAnalysisOptions {
+  /** Minimum gap duration to flag as silence (default: 2000ms) */
+  silenceThresholdMs?: number;
+  /** Whether to detect filler words (default: true) */
+  detectFillers?: boolean;
+}
+
+// ============================================================================
+// CAPTION
+// ============================================================================
+
+/**
+ * Available caption style presets
+ */
+export type CaptionStylePreset = 'tiktok' | 'minimal' | 'bold' | 'karaoke' | 'subtitle';
+
+/**
+ * Caption position presets
+ */
+export type CaptionPosition = 'bottom' | 'top' | 'center';
+
+/**
+ * Options for caption creation
+ */
+export interface CreateCaptionOptions {
+  style?: CaptionStylePreset;
+  position?: CaptionPosition;
+}
+
+// ============================================================================
+// TIMELINE CONVERSION
+// ============================================================================
+
+/**
+ * Context needed to convert 0-based timestamps to timeline frames
+ */
+export interface TimelineContext {
+  /** Frame where clip starts on timeline */
+  clipFrom: number;
+  /** Offset into source video (seconds) */
+  videoStartTime: number;
+  /** Frames per second */
+  fps: number;
+}
+
+/**
+ * Convert milliseconds to timeline frame
+ */
+export function msToTimelineFrame(
+  ms: number, 
+  context: TimelineContext
+): number {
+  const { clipFrom, videoStartTime, fps } = context;
+  // Adjust for videoStartTime offset and convert to frames
+  const adjustedMs = ms - (videoStartTime * 1000);
+  const frameOffset = Math.round((adjustedMs / 1000) * fps);
+  return clipFrom + frameOffset;
+}
+
+/**
+ * Convert timeline frame to source video milliseconds
+ */
+export function timelineFrameToMs(
+  frame: number,
+  context: TimelineContext
+): number {
+  const { clipFrom, videoStartTime, fps } = context;
+  const frameOffset = frame - clipFrom;
+  const offsetMs = (frameOffset / fps) * 1000;
+  return offsetMs + (videoStartTime * 1000);
+}
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/**
+ * Common filler words to detect in transcriptions
+ */
+export const FILLER_WORDS = [
+  'um', 'uh', 'uhm', 'umm', 'uhh',
+  'like',
+  'you know',
+  'basically',
+  'actually',
+  'literally',
+  'right',
+  'so',
+  'i mean',
+  'kind of',
+  'sort of',
+] as const;
+
+/**
+ * Default configuration values
+ */
+export const DEFAULTS = {
+  SILENCE_THRESHOLD_MS: 2000,
+  MIN_SURROUNDING_SILENCE_MS: 500,  // Silence around filler to flag as problematic
+  FPS: 30,
+} as const;

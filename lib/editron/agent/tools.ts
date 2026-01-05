@@ -49,12 +49,33 @@ export const createTools = (userId: string, projectId: string) => {
     }));
   };
 
+  /**
+   * Helper to coerce LLM inputs to correct types.
+   * Gemini sometimes sends numbers as strings (e.g., "0" instead of 0).
+   * This prevents Zod validation errors.
+   */
+  const coerceInput = <T extends Record<string, any>>(input: T): T => {
+    const result = { ...input };
+    for (const key of Object.keys(result)) {
+      const value = result[key];
+      // Coerce string numbers to actual numbers
+      if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) {
+        (result as any)[key] = parseFloat(value);
+      }
+      // Coerce string booleans
+      if (value === 'true') (result as any)[key] = true;
+      if (value === 'false') (result as any)[key] = false;
+    }
+    return result;
+  };
+
+
   // --- READ TOOLS ---
 
   const readProjectFileSchema = z.object({
     mode: z.enum(['full', 'slice', 'byTrackIds']).optional().default('full'),
-    start: z.number().optional(),
-    end: z.number().optional(),
+    start: z.coerce.number().optional(),
+    end: z.coerce.number().optional(),
     trackIds: z.array(z.string()).optional(),
   });
 
@@ -108,28 +129,83 @@ export const createTools = (userId: string, projectId: string) => {
   );
 
   const getTimelineViewSchema = z.object({
-    granularity: z.enum(['coarse', 'detailed']),
-    timeWindow: z.object({
-      fromFrame: z.number(),
-      toFrame: z.number()
-    }).optional(),
-    trackTypes: z.array(z.enum(['text', 'image', 'audio', 'video'])).optional(),
+    granularity: z.enum(['coarse', 'detailed']).optional().default('detailed').describe("Level of detail: 'coarse' or 'detailed' (default: detailed)"),
+    fromFrame: z.coerce.number().optional().describe("Start frame (optional, defaults to 0)"),
+    toFrame: z.coerce.number().optional().describe("End frame (optional, defaults to project end)"),
+    includeVideo: z.coerce.boolean().optional().default(true).describe("Include video tracks (default: true)"),
+    includeAudio: z.coerce.boolean().optional().default(true).describe("Include audio tracks (default: true)"),
+    includeText: z.coerce.boolean().optional().default(true).describe("Include text/captions (default: true)"),
   });
 
   const getTimelineView = tool(
-    async (input: z.infer<typeof getTimelineViewSchema>) => {
+    async (rawInput: z.infer<typeof getTimelineViewSchema>) => {
       try {
-        const { granularity, timeWindow, trackTypes } = input;
+        const input = coerceInput(rawInput);
         const project = await loadProject();
-        const view = generateTimelineView(project, { granularity, timeWindow, trackTypes: trackTypes as any });
-        return JSON.stringify(view);
+        const fps = project.fps || 30;
+        
+        // Build trackTypes array based on boolean flags
+        const trackTypes: Array<'text' | 'image' | 'audio' | 'video'> = [];
+        if (input.includeVideo) trackTypes.push('video');
+        if (input.includeAudio) trackTypes.push('audio');
+        if (input.includeText) trackTypes.push('text');
+        
+        // Build timeWindow if specified
+        const timeWindow = (input.fromFrame !== undefined && input.toFrame !== undefined)
+          ? { fromFrame: input.fromFrame, toFrame: input.toFrame }
+          : undefined;
+        
+        const view = generateTimelineView(project, { 
+          granularity: input.granularity, 
+          timeWindow, 
+          trackTypes: trackTypes.length > 0 ? trackTypes : undefined 
+        });
+        
+        // Detect gaps between video clips
+        const videoClips = project.overlays
+          .filter((o: any) => o.type === 'video')
+          .sort((a: any, b: any) => a.from - b.from);
+        
+        const gaps: Array<{ fromFrame: number; toFrame: number; durationSeconds: number }> = [];
+        for (let i = 0; i < videoClips.length - 1; i++) {
+          const currentEnd = videoClips[i].from + videoClips[i].durationInFrames;
+          const nextStart = videoClips[i + 1].from;
+          if (nextStart > currentEnd) {
+            gaps.push({
+              fromFrame: currentEnd,
+              toFrame: nextStart,
+              durationSeconds: Math.round(((nextStart - currentEnd) / fps) * 10) / 10,
+            });
+          }
+        }
+        
+        // Calculate total video duration (from first clip start to last clip end)
+        const allOverlays = project.overlays.filter((o: any) => ['video', 'audio', 'text', 'caption'].includes(o.type));
+        const totalDurationFrames = allOverlays.length > 0
+          ? Math.max(...allOverlays.map((o: any) => o.from + o.durationInFrames))
+          : 0;
+        
+        return JSON.stringify({
+          ...view,
+          totalDurationFrames,
+          totalDurationSeconds: Math.round((totalDurationFrames / fps) * 10) / 10,
+          videoClipCount: videoClips.length,
+          gaps: gaps.length > 0 ? gaps : 'none',
+          gapCount: gaps.length,
+        });
       } catch (e: any) {
         return `Error: ${e.message}`;
       }
     },
     {
       name: 'get_timeline_view',
-      description: 'Get a visual ASCII timeline of the project to understand timing and overlaps.',
+      description: `Get a visual ASCII timeline of the project. Shows:
+- ASCII visualization of all clips and overlays
+- Total video duration
+- Gaps between video clips (if any)
+- Clip counts
+
+Call with no arguments to get full timeline.`,
       schema: getTimelineViewSchema,
     }
   );
@@ -141,27 +217,27 @@ export const createTools = (userId: string, projectId: string) => {
     type: z.enum(['text', 'image', 'video', 'sound', 'shape', 'sticker']).describe("Type of overlay to add"),
     
     // Timing (required)
-    start: z.number().describe("Start frame (0-based)"),
-    duration: z.number().describe("Duration in frames"),
+    start: z.coerce.number().describe("Start frame (0-based)"),
+    duration: z.coerce.number().describe("Duration in frames"),
     
     // Content (type-specific)
     text: z.string().optional().describe("Text content (required for type='text')"),
     assetId: z.string().optional().describe("Asset ID (required for image/video/sound)"),
     
     // Position - accepts numbers (pixels) or strings (percentages like '50%' or 'center')
-    x: z.union([z.number(), z.string()]).optional().describe("X position: number for pixels, string for '50%' or 'center'. Default: center"),
-    y: z.union([z.number(), z.string()]).optional().describe("Y position: number for pixels, string for '50%' or 'center'. Default: center"),
-    width: z.union([z.number(), z.string()]).optional().describe("Width: number for pixels, string for '50%'. Default: type-specific"),
-    height: z.union([z.number(), z.string()]).optional().describe("Height: number for pixels, string for '50%'. Default: type-specific"),
-    rotation: z.number().optional().default(0),
+    x: z.union([z.coerce.number(), z.string()]).optional().describe("X position: number for pixels, string for '50%' or 'center'. Default: center"),
+    y: z.union([z.coerce.number(), z.string()]).optional().describe("Y position: number for pixels, string for '50%' or 'center'. Default: center"),
+    width: z.union([z.coerce.number(), z.string()]).optional().describe("Width: number for pixels, string for '50%'. Default: type-specific"),
+    height: z.union([z.coerce.number(), z.string()]).optional().describe("Height: number for pixels, string for '50%'. Default: type-specific"),
+    rotation: z.coerce.number().optional().default(0),
     
     // Row override (Smart Placement by default)
-    row: z.number().optional().describe("Force specific row. If omitted, Physics Engine auto-places: Videos at bottom, Text on top."),
+    row: z.coerce.number().optional().describe("Force specific row. If omitted, Physics Engine auto-places: Videos at bottom, Text on top."),
     
     // Styles (all optional, type-specific fields ignored if not applicable)
     styles: z.object({
       // Text styles
-      fontSize: z.number().optional().describe("Font size in pixels (for text). e.g., 32 for body, 48 for title"),
+      fontSize: z.coerce.number().optional().describe("Font size in pixels (for text). e.g., 32 for body, 48 for title"),
       fontFamily: z.enum([
         'font-sans',      // Inter (modern sans-serif)
         'font-serif',     // Merriweather (elegant serif)
@@ -170,7 +246,7 @@ export const createTools = (userId: string, projectId: string) => {
         'font-league-spartan', // League Spartan (bold display)
         'font-bungee-inline'   // Bungee Inline (fun/playful)
       ]).optional().describe("Font family (for text). Default: font-sans"),
-      fontWeight: z.number().optional().describe("Font weight 400-900 (for text). Default: 700"),
+      fontWeight: z.coerce.number().optional().describe("Font weight 400-900 (for text). Default: 700"),
       color: z.string().optional().describe("Text color hex (for text). Default: #ffffff"),
       textAlign: z.enum(['left', 'center', 'right']).optional().describe("Text alignment. Default: center"),
       backgroundColor: z.string().optional().describe("Background color (for text). Default: transparent"),
@@ -207,21 +283,21 @@ export const createTools = (userId: string, projectId: string) => {
       
       // Media styles
       objectFit: z.enum(['cover', 'contain', 'fill']).optional().describe("Object fit (for image/video)"),
-      volume: z.number().optional().describe("Volume 0-1 (for video/sound)"),
+      volume: z.coerce.number().optional().describe("Volume 0-1 (for video/sound)"),
       
       // Shape styles
       fill: z.string().optional().describe("Fill color (for shape)"),
       stroke: z.string().optional().describe("Stroke color (for shape)"),
-      strokeWidth: z.number().optional().describe("Stroke width (for shape)"),
+      strokeWidth: z.coerce.number().optional().describe("Stroke width (for shape)"),
       
       // Common styles
-      opacity: z.number().optional().describe("Opacity 0-1"),
+      opacity: z.coerce.number().optional().describe("Opacity 0-1"),
       borderRadius: z.string().optional().describe("Border radius (e.g. '8px')"),
     }).optional(),
     
     // Video-specific
-    videoStartTime: z.number().optional().describe("Start time within source video in seconds (for video)"),
-    startFromSound: z.number().optional().describe("Start time within source audio in seconds (for sound)"),
+    videoStartTime: z.coerce.number().optional().describe("Start time within source video in seconds (for video)"),
+    startFromSound: z.coerce.number().optional().describe("Start time within source audio in seconds (for sound)"),
   });
 
   const addOverlay = tool(
@@ -440,16 +516,16 @@ TYPE-SPECIFIC FIELDS:
   // --- UPDATE OVERLAY (Enhanced) ---
   
   const updateOverlaySchema = z.object({
-    id: z.number().describe("The ID of the overlay to update"),
-    start: z.number().optional().describe("New start frame"),
-    duration: z.number().optional().describe("New duration in frames"),
+    id: z.coerce.number().describe("The ID of the overlay to update"),
+    start: z.coerce.number().optional().describe("New start frame"),
+    duration: z.coerce.number().optional().describe("New duration in frames"),
     text: z.string().optional().describe("New text content (for text overlays)"),
-    x: z.union([z.number(), z.string()]).optional().describe("New X position (pixels or %)"),
-    y: z.union([z.number(), z.string()]).optional().describe("New Y position (pixels or %)"),
-    width: z.union([z.number(), z.string()]).optional().describe("New width"),
-    height: z.union([z.number(), z.string()]).optional().describe("New height"),
-    rotation: z.number().optional(),
-    row: z.number().optional().describe("Move to specific row"),
+    x: z.union([z.coerce.number(), z.string()]).optional().describe("New X position (pixels or %)"),
+    y: z.union([z.coerce.number(), z.string()]).optional().describe("New Y position (pixels or %)"),
+    width: z.union([z.coerce.number(), z.string()]).optional().describe("New width"),
+    height: z.union([z.coerce.number(), z.string()]).optional().describe("New height"),
+    rotation: z.coerce.number().optional(),
+    row: z.coerce.number().optional().describe("Move to specific row"),
     styles: z.any().optional().describe("Partial styles object to merge"),
   });
 
@@ -524,16 +600,16 @@ TYPE-SPECIFIC FIELDS:
   
   const batchUpdateOverlaysSchema = z.object({
     updates: z.array(z.object({
-      id: z.number().describe("Overlay ID to update"),
-      start: z.number().optional(),
-      duration: z.number().optional(),
+      id: z.coerce.number().describe("Overlay ID to update"),
+      start: z.coerce.number().optional(),
+      duration: z.coerce.number().optional(),
       text: z.string().optional(),
-      x: z.union([z.number(), z.string()]).optional(),
-      y: z.union([z.number(), z.string()]).optional(),
-      width: z.union([z.number(), z.string()]).optional(),
-      height: z.union([z.number(), z.string()]).optional(),
-      rotation: z.number().optional(),
-      row: z.number().optional(),
+      x: z.union([z.coerce.number(), z.string()]).optional(),
+      y: z.union([z.coerce.number(), z.string()]).optional(),
+      width: z.union([z.coerce.number(), z.string()]).optional(),
+      height: z.union([z.coerce.number(), z.string()]).optional(),
+      rotation: z.coerce.number().optional(),
+      row: z.coerce.number().optional(),
       styles: z.any().optional(),
     })).describe("Array of updates to apply")
   });
@@ -601,8 +677,8 @@ TYPE-SPECIFIC FIELDS:
   // --- SPLIT OVERLAY ---
   
   const splitOverlaySchema = z.object({
-    id: z.number().describe("ID of the overlay to split"),
-    atFrame: z.number().describe("Frame at which to split the overlay"),
+    id: z.coerce.number().describe("ID of the overlay to split"),
+    atFrame: z.coerce.number().describe("Frame at which to split the overlay"),
   });
 
   const splitOverlay = tool(
@@ -632,11 +708,19 @@ TYPE-SPECIFIC FIELDS:
         
         // Create second part
         const newId = Date.now() + Math.floor(Math.random() * 10000);
+        const fps = project.fps || 30;
+        
+        // For video overlays, update videoStartTime so captions align correctly
+        const isVideo = overlay.type === 'video';
         const secondOverlay = {
           ...overlay,
           id: newId,
           from: input.atFrame,
           durationInFrames: secondDuration,
+          // Update videoStartTime: second part starts later in the source video
+          ...(isVideo && {
+            videoStartTime: (overlay.videoStartTime || 0) + (firstDuration / fps),
+          }),
         };
         
         await projectService.addOverlay(userId, projectId, secondOverlay as any);
@@ -662,14 +746,15 @@ TYPE-SPECIFIC FIELDS:
   // --- TRIM OVERLAY ---
   
   const trimOverlaySchema = z.object({
-    id: z.number().describe("ID of the overlay to trim"),
-    trimStart: z.number().optional().describe("Frames to remove from the start (positive = shorter)"),
-    trimEnd: z.number().optional().describe("Frames to remove from the end (positive = shorter)"),
+    id: z.coerce.number().describe("ID of the overlay to trim"),
+    trimStart: z.coerce.number().optional().describe("Frames to remove from the start (positive = shorter)"),
+    trimEnd: z.coerce.number().optional().describe("Frames to remove from the end (positive = shorter)"),
   });
 
   const trimOverlay = tool(
-    async (input: z.infer<typeof trimOverlaySchema>) => {
+    async (rawInput: z.infer<typeof trimOverlaySchema>) => {
       try {
+        const input = coerceInput(rawInput);
         const project = await loadProject();
         const overlay = project.overlays.find((o: any) => o.id === input.id);
         
@@ -691,7 +776,11 @@ TYPE-SPECIFIC FIELDS:
         }
         
         if (newDuration <= 0) {
-          return JSON.stringify({ status: 'error', message: 'Trim would result in zero or negative duration' });
+          const totalTrim = (input.trimStart || 0) + (input.trimEnd || 0);
+          return JSON.stringify({ 
+            status: 'error', 
+            message: `Trim too large: overlay is ${overlay.durationInFrames} frames, but tried to trim ${totalTrim} frames. Max trimEnd: ${overlay.durationInFrames - 1}`,
+          });
         }
         
         updates.from = newFrom;
@@ -719,21 +808,34 @@ TYPE-SPECIFIC FIELDS:
   // --- DELETE OVERLAY ---
   
   const deleteOverlaySchema = z.object({
-    id: z.number().describe("The ID of the overlay to delete"),
+    id: z.coerce.number().describe("The ID of the overlay to delete"),
   });
 
   const deleteOverlay = tool(
     async (input: z.infer<typeof deleteOverlaySchema>) => {
       try {
+        const project = await loadProject();
+        const overlay = project.overlays.find((o: any) => o.id === input.id);
+        
+        // If deleting a video, also delete any linked captions
+        if (overlay?.type === 'video') {
+          const linkedCaptions = project.overlays.filter(
+            (o: any) => o.type === 'caption' && o.sourceVideoId === input.id
+          );
+          for (const caption of linkedCaptions) {
+            await projectService.deleteOverlay(userId, projectId, caption.id);
+          }
+        }
+        
         await projectService.deleteOverlay(userId, projectId, input.id);
-        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} deleted` });
+        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} deleted${overlay?.type === 'video' ? ' (and linked captions)' : ''}` });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
     },
     {
       name: 'delete_overlay',
-      description: 'Delete an overlay by its ID.',
+      description: 'Delete an overlay by its ID. If deleting a video, also deletes any linked captions.',
       schema: deleteOverlaySchema
     }
   );
@@ -741,8 +843,8 @@ TYPE-SPECIFIC FIELDS:
   // --- SYNC STYLE ---
   
   const syncStyleSchema = z.object({
-    sourceId: z.number().describe("ID of the overlay to copy styles FROM"),
-    targetIds: z.array(z.number()).describe("IDs of overlays to apply styles TO"),
+    sourceId: z.coerce.number().describe("ID of the overlay to copy styles FROM"),
+    targetIds: z.array(z.coerce.number()).describe("IDs of overlays to apply styles TO"),
     properties: z.array(z.string()).optional().describe("Specific style properties to copy (e.g. ['color', 'fontSize']). If omitted, copies all styles."),
   });
 
@@ -809,7 +911,7 @@ TYPE-SPECIFIC FIELDS:
   // --- VISUAL INSPECT FRAME ---
   
   const visualInspectFrameSchema = z.object({
-    frame: z.number(),
+    frame: z.coerce.number(),
     question: z.string().optional(),
   });
 
@@ -832,15 +934,15 @@ TYPE-SPECIFIC FIELDS:
 
   // 7. Generate HTML Scene
   const generateHtmlSceneSchema = z.object({
-    start: z.number().describe("Start frame (0-based)"),
-    duration: z.number().describe("Duration in frames"),
-    row: z.number().optional().describe("Row index"),
+    start: z.coerce.number().describe("Start frame (0-based)"),
+    duration: z.coerce.number().describe("Duration in frames"),
+    row: z.coerce.number().optional().describe("Row index"),
     description: z.string().describe("Detailed description of the scene to generate (e.g., 'Retro vaporwave grid background with animated sun')"),
-    x: z.number().optional().describe("Center X position"),
-    y: z.number().optional().describe("Center Y position"),
-    width: z.number().optional().describe("Width in pixels"),
-    height: z.number().optional().describe("Height in pixels"),
-    rotation: z.number().optional().default(0),
+    x: z.coerce.number().optional().describe("Center X position"),
+    y: z.coerce.number().optional().describe("Center Y position"),
+    width: z.coerce.number().optional().describe("Width in pixels"),
+    height: z.coerce.number().optional().describe("Height in pixels"),
+    rotation: z.coerce.number().optional().default(0),
   });
 
   const generateHtmlScene = tool(
@@ -991,17 +1093,17 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
 
   // 8. Generate HTML Sticker
   const generateHtmlStickerSchema = z.object({
-    start: z.number().describe("Start frame (0-based)"),
-    duration: z.number().describe("Duration in frames"),
+    start: z.coerce.number().describe("Start frame (0-based)"),
+    duration: z.coerce.number().describe("Duration in frames"),
     description: z.string().describe("Description of the sticker/element (e.g., 'Glowing fire emoji', 'Animated subscribe badge', 'Sparkle burst effect')"),
     
     // Position (flexible - supports % or px, defaults to center)
-    x: z.union([z.number(), z.string()]).optional().describe("X position: number for pixels, '50%' for center. Default: center"),
-    y: z.union([z.number(), z.string()]).optional().describe("Y position: number for pixels, '50%' for center. Default: center"),
+    x: z.union([z.coerce.number(), z.string()]).optional().describe("X position: number for pixels, '50%' for center. Default: center"),
+    y: z.union([z.coerce.number(), z.string()]).optional().describe("Y position: number for pixels, '50%' for center. Default: center"),
     
     // Size (customizable - defaults to 200x200)
-    width: z.number().optional().describe("Width in pixels. Default: 200"),
-    height: z.number().optional().describe("Height in pixels. Default: 200"),
+    width: z.coerce.number().optional().describe("Width in pixels. Default: 200"),
+    height: z.coerce.number().optional().describe("Height in pixels. Default: 200"),
     
     // Animations
     enterAnimation: z.enum([
@@ -1014,8 +1116,8 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
     ]).optional().describe("Exit animation. Default: fade"),
     
     // Optional
-    rotation: z.number().optional().default(0),
-    row: z.number().optional().describe("Force specific row. If omitted, auto-placed above other content."),
+    rotation: z.coerce.number().optional().default(0),
+    row: z.coerce.number().optional().describe("Force specific row. If omitted, auto-placed above other content."),
   });
 
   const generateHtmlSticker = tool(
@@ -1192,6 +1294,556 @@ EXAMPLE PROMPTS:
     }
   );
 
+  // ============================================================================
+  // VIDEO AUTO-EDIT TOOLS (Phase 2)
+  // ============================================================================
+
+  // --- GET VIDEO TRANSCRIPTION ---
+  const getVideoTranscriptionSchema = z.object({
+    videoOverlayId: z.coerce.number().describe("ID of the video overlay to transcribe"),
+    forceRefresh: z.coerce.boolean().optional().describe("Force re-transcription (ignores cache)"),
+    mode: z.enum(['single', 'timeline']).optional().default('single').describe("'single' = one video overlay, 'timeline' = all video clips in sequence order"),
+  });
+
+  const getVideoTranscription = tool(
+    async (rawInput: z.infer<typeof getVideoTranscriptionSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        const fps = project.fps || 30;
+        
+        const { getTranscription, getWordsInRange } = await import('../services/media');
+        
+        if (input.mode === 'timeline') {
+          // Get all video overlays sorted by timeline position
+          const videoOverlays = project.overlays
+            .filter((o: any) => o.type === 'video' && o.assetId)
+            .sort((a: any, b: any) => a.from - b.from);
+          
+          if (videoOverlays.length === 0) {
+            return JSON.stringify({ status: 'error', message: 'No video overlays found in project' });
+          }
+          
+          // Build combined transcript in timeline order
+          const segments: Array<{
+            clipId: number;
+            from: number;
+            transcript: string;
+            wordCount: number;
+          }> = [];
+          
+          let fullTranscript = '';
+          
+          for (const video of videoOverlays) {
+            const transcription = await getTranscription(video.assetId, userId, {
+              forceRefresh: input.forceRefresh,
+            });
+            
+            // Get only words that fall within this clip's range
+            const videoStartMs = (video.videoStartTime || 0) * 1000;
+            const clipDurationMs = (video.durationInFrames / fps) * 1000;
+            const videoEndMs = videoStartMs + clipDurationMs;
+            
+            const wordsInClip = transcription.words.filter(
+              (w: any) => w.startMs >= videoStartMs && w.endMs <= videoEndMs
+            );
+            
+            const clipTranscript = wordsInClip.map((w: any) => w.word).join(' ');
+            
+            segments.push({
+              clipId: video.id,
+              from: video.from,
+              transcript: clipTranscript,
+              wordCount: wordsInClip.length,
+            });
+            
+            fullTranscript += (fullTranscript ? ' ' : '') + clipTranscript;
+          }
+          
+          return JSON.stringify({
+            status: 'success',
+            mode: 'timeline',
+            clipCount: segments.length,
+            transcript: fullTranscript,
+            segments,
+            message: `Combined transcript from ${segments.length} clips in timeline order`,
+          });
+          
+        } else {
+          // Single video mode (original behavior)
+          const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
+          
+          if (!overlay) {
+            return JSON.stringify({ status: 'error', message: 'Video overlay not found' });
+          }
+          
+          if (overlay.type !== 'video') {
+            return JSON.stringify({ status: 'error', message: 'Overlay is not a video' });
+          }
+          
+          if (!overlay.assetId) {
+            return JSON.stringify({ status: 'error', message: 'Video has no asset ID (not uploaded)' });
+          }
+          
+          const transcription = await getTranscription(overlay.assetId, userId, {
+            forceRefresh: input.forceRefresh,
+          });
+          
+          // Get words in this clip's range only
+          const videoStartMs = (overlay.videoStartTime || 0) * 1000;
+          const clipDurationMs = (overlay.durationInFrames / fps) * 1000;
+          const videoEndMs = videoStartMs + clipDurationMs;
+          
+          const wordsInClip = transcription.words.filter(
+            (w: any) => w.startMs >= videoStartMs && w.endMs <= videoEndMs
+          );
+          const clipTranscript = wordsInClip.map((w: any) => w.word).join(' ');
+          
+          return JSON.stringify({
+            status: 'success',
+            mode: 'single',
+            clipId: overlay.id,
+            transcript: clipTranscript || transcription.transcript,
+            wordCount: wordsInClip.length || transcription.words.length,
+            language: transcription.language,
+            confidence: Math.round(transcription.confidence * 100) + '%',
+            videoStartTime: overlay.videoStartTime || 0,
+            durationSeconds: clipDurationMs / 1000,
+            message: `Transcription for clip ${overlay.id}: ${wordsInClip.length || transcription.words.length} words`,
+          });
+        }
+        
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'get_video_transcription',
+      description: `Get transcription (speech-to-text) for video content.
+
+MODES:
+- **single** (default): Transcription for ONE specific video overlay. Pass \`videoOverlayId\`.
+- **timeline**: Combined transcription of ALL video clips in timeline order. Returns segments array showing which text is from which clip.
+
+Use 'timeline' mode to understand the full content flow of edited videos (multiple clips stitched together).
+Use 'single' mode to get transcript for a specific clip only.`,
+      schema: getVideoTranscriptionSchema,
+    }
+  );
+
+  // --- ANALYZE VIDEO CONTENT ---
+  const analyzeVideoContentSchema = z.object({
+    videoOverlayId: z.coerce.number().describe("ID of the video overlay to analyze"),
+    silenceThresholdMs: z.coerce.number().optional().default(2000).describe("Minimum silence duration to flag (default: 2000ms)"),
+  });
+
+  const analyzeVideoContent = tool(
+    async (rawInput: z.infer<typeof analyzeVideoContentSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
+        
+        if (!overlay || overlay.type !== 'video' || !overlay.assetId) {
+          return JSON.stringify({ status: 'error', message: 'Valid video overlay with asset not found' });
+        }
+        
+        const fps = project.fps || 30;
+        const videoFrom = overlay.from;
+        const videoDuration = overlay.durationInFrames;
+        const videoEndFrame = videoFrom + videoDuration;
+        
+        // Use media services
+        const { analyzeContent, analysisToTimelineFrames } = await import('../services/media');
+        const analysis = await analyzeContent(overlay.assetId, userId, {
+          silenceThresholdMs: input.silenceThresholdMs,
+        });
+        
+        // Safety check: ensure analysis returned valid data
+        if (!analysis) {
+          return JSON.stringify({ status: 'error', message: 'Analysis failed - no data returned' });
+        }
+        
+        // Ensure required properties exist
+        const silences = analysis.silences || [];
+        const fillers = analysis.fillers || [];
+        const summary = analysis.summary || { totalSilenceMs: 0, totalFillerWords: 0, potentialSavingsMs: 0 };
+        
+        // Convert to timeline frames
+        const withFrames = analysisToTimelineFrames(
+          analysis,
+          overlay.from,
+          overlay.videoStartTime || 0,
+          fps
+        );
+        
+        // Build simple segments array with just the facts
+        const problematicFrames = withFrames.problematicFrames || [];
+        const segments = problematicFrames.slice(0, 10).map((s, idx) => {
+          const isAtEnd = s.endFrame >= videoEndFrame - 10;
+          const isAtStart = s.startFrame <= videoFrom + 10;
+          const durationSec = Math.round((s.endFrame - s.startFrame) / fps * 10) / 10;
+          
+          return {
+            index: idx + 1,
+            type: s.description.includes('silence') ? 'silence' : 'filler',
+            description: s.description,
+            startFrame: s.startFrame,
+            endFrame: s.endFrame,
+            durationSeconds: durationSec,
+            position: isAtEnd ? 'end' : isAtStart ? 'start' : 'middle',
+          };
+        });
+        
+        // Return simple stats for LLM
+        return JSON.stringify({
+          status: 'success',
+          videoId: overlay.id,
+          videoFrom,
+          videoDuration,
+          videoEndFrame,
+          fps,
+          // Summary stats
+          silenceCount: silences.length,
+          fillerCount: fillers.length,
+          totalSilenceMs: summary.totalSilenceMs || 0,
+          totalFillerWords: summary.totalFillerWords || 0,
+          potentialSavingsSeconds: Math.round((summary.potentialSavingsMs || 0) / 100) / 10,
+          // Segments found (just facts, no instructions)
+          segmentsFound: segments.length,
+          segments,
+          message: segments.length > 0 
+            ? `Found ${segments.length} problematic segments (${Math.round((summary.potentialSavingsMs || 0) / 100) / 10}s potential savings)`
+            : 'No silences or filler words found',
+        });
+        
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'analyze_video_content',
+      description: `Analyze a video for silences and filler words. Returns stats and segment info.
+
+RETURNS:
+- silenceCount, fillerCount, potentialSavingsSeconds
+- segments: List of problematic areas with type, startFrame, endFrame, position (start/middle/end)
+
+Use this to understand what exists. Then decide what to do based on user intent.`,
+      schema: analyzeVideoContentSchema,
+    }
+  );
+
+  // --- ADD CAPTIONS ---
+  const addCaptionsSchema = z.object({
+    videoOverlayId: z.coerce.number().describe("ID of the video overlay to add captions for"),
+    style: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle']).optional().default('tiktok').describe("Caption style preset (default: tiktok)"),
+    position: z.enum(['bottom', 'top', 'center']).optional().default('bottom').describe("Caption position (default: bottom)"),
+    overwrite: z.coerce.boolean().optional().default(false).describe("Set to true to overwrite existing captions"),
+    // Custom style overrides (optional - override preset defaults)
+    fontSize: z.string().optional().describe("Font size, e.g. '48px', '3rem'. Overrides preset."),
+    fontFamily: z.string().optional().describe("Font family, e.g. 'Inter', 'Arial'. Overrides preset."),
+    fontWeight: z.coerce.number().optional().describe("Font weight, e.g. 400, 700, 900. Overrides preset."),
+    color: z.string().optional().describe("Text color, e.g. '#ffffff', 'yellow'. Overrides preset."),
+    backgroundColor: z.string().optional().describe("Background color, e.g. 'rgba(0,0,0,0.5)'. Overrides preset."),
+    textShadow: z.string().optional().describe("Text shadow, e.g. '2px 2px 4px rgba(0,0,0,0.5)'. Overrides preset."),
+    // Highlight customization
+    highlightColor: z.string().optional().describe("Active word highlight color, e.g. '#ffcc00'. Overrides preset."),
+    highlightEffect: z.enum(['none', 'glow', 'box', 'underline', 'pop']).optional().describe("Highlight effect for active word"),
+    highlightAnimation: z.enum(['none', 'bounce', 'pulse', 'scale']).optional().describe("Animation for active word"),
+    // Display mode customization  
+    displayMode: z.enum(['word-by-word', 'phrase', 'karaoke', 'subtitle']).optional().describe("How words appear: word-by-word, phrase (3-4 words), karaoke (progressive), subtitle (sentence)"),
+    wordsPerGroup: z.coerce.number().optional().describe("Words shown at once (1-12). Overrides displayMode default."),
+  });
+
+  const addCaptions = tool(
+    async (rawInput: z.infer<typeof addCaptionsSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
+        
+        if (!overlay || overlay.type !== 'video' || !overlay.assetId) {
+          return JSON.stringify({ status: 'error', message: 'Valid video overlay with asset not found' });
+        }
+        
+        const canvas = getCanvasDimensions(project);
+        const fps = project.fps || 30;
+        
+        // Check for existing captions
+        const existingCaptions = project.overlays.filter(
+          (o: any) => o.type === 'caption' && o.sourceVideoId === input.videoOverlayId
+        );
+        
+        // If captions exist and overwrite is not true, error
+        if (existingCaptions.length > 0 && !input.overwrite) {
+          return JSON.stringify({ 
+            status: 'error', 
+            message: `Caption already exists for video ${input.videoOverlayId}. Use overwrite: true to replace it.`,
+            existingCaptionIds: existingCaptions.map((c: any) => c.id),
+          });
+        }
+        
+        // Delete existing captions if overwriting
+        for (const caption of existingCaptions) {
+          await projectService.deleteOverlay(userId, projectId, caption.id);
+        }
+        
+        // Use caption service
+        const { createCaptions } = await import('../services/media');
+        
+        // Build style overrides from custom params
+        const styleOverrides: Record<string, any> = {};
+        if (input.fontSize) styleOverrides.fontSize = input.fontSize;
+        if (input.fontFamily) styleOverrides.fontFamily = input.fontFamily;
+        if (input.fontWeight) styleOverrides.fontWeight = input.fontWeight;
+        if (input.color) styleOverrides.color = input.color;
+        if (input.backgroundColor) styleOverrides.backgroundColor = input.backgroundColor;
+        if (input.textShadow) styleOverrides.textShadow = input.textShadow;
+        
+        // Build highlight overrides
+        if (input.highlightColor || input.highlightEffect || input.highlightAnimation) {
+          styleOverrides.highlight = {};
+          if (input.highlightColor) styleOverrides.highlight.color = input.highlightColor;
+          if (input.highlightEffect) styleOverrides.highlight.effect = input.highlightEffect;
+          if (input.highlightAnimation) styleOverrides.highlight.animation = input.highlightAnimation;
+        }
+        
+        // Build display config overrides
+        const displayOverrides: Record<string, any> = {};
+        if (input.displayMode) displayOverrides.mode = input.displayMode;
+        if (input.wordsPerGroup) displayOverrides.wordsPerGroup = input.wordsPerGroup;
+        
+        let captionOverlay = await createCaptions({
+          videoOverlay: overlay,
+          userId,
+          assetId: overlay.assetId,
+          playerDimensions: canvas,
+          fps,
+          style: input.style,
+          position: input.position,
+          styleOverrides: Object.keys(styleOverrides).length > 0 ? styleOverrides : undefined,
+          displayOverrides: Object.keys(displayOverrides).length > 0 ? displayOverrides : undefined,
+        });
+        
+        // Caption should always be at row 0 (topmost layer)
+        // Check if any overlay at row 0 would collide time-wise with the caption
+        const captionFrom = captionOverlay.from;
+        const captionEnd = captionFrom + captionOverlay.durationInFrames;
+        
+        const hasCollisionAtRow0 = project.overlays.some((o: any) => {
+          if (o.row !== 0) return false;
+          const oEnd = o.from + o.durationInFrames;
+          // Check for time overlap
+          return !(captionEnd <= o.from || captionFrom >= oEnd);
+        });
+        
+        if (hasCollisionAtRow0) {
+          // Shift ALL overlays down by 1 row to make room for caption at row 0
+          const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
+          const database = await getDatabase();
+          await database.collection(COLLECTIONS.PROJECTS).updateOne(
+            { projectId, userId },
+            { $inc: { 'overlays.$[].row': 1 } }
+          );
+        }
+        
+        // Set caption to row 0
+        captionOverlay = { ...captionOverlay, row: 0 };
+        
+        // Add caption to project
+        await projectService.addOverlay(userId, projectId, captionOverlay as any);
+        
+        return JSON.stringify({
+          status: 'success',
+          captionId: captionOverlay.id,
+          style: input.style,
+          position: input.position,
+          captionCount: captionOverlay.captions.length,
+          rowsShifted: hasCollisionAtRow0,
+          message: `Added ${input.style} captions (${captionOverlay.captions.length} segments) at row 0${hasCollisionAtRow0 ? ' (shifted other overlays down)' : ''}`,
+        });
+        
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'add_captions',
+      description: `Add AI-generated captions to a video. Start with a preset, then customize.
+
+PRESETS: tiktok (default), minimal, bold, karaoke, subtitle
+
+CUSTOM STYLE OPTIONS (override preset):
+- fontSize, fontFamily, fontWeight, color, backgroundColor, textShadow
+- highlightColor, highlightEffect (glow/box/underline/pop), highlightAnimation (bounce/pulse/scale)
+- displayMode (word-by-word/phrase/karaoke/subtitle), wordsPerGroup (1-12)
+
+Example: add_captions({ videoOverlayId: 0, style: 'tiktok', highlightColor: '#ffcc00', highlightEffect: 'pop' })
+
+IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
+      schema: addCaptionsSchema,
+    }
+  );
+
+  // --- REFRESH CAPTIONS ---
+  const refreshCaptionsSchema = z.object({
+    captionOverlayId: z.coerce.number().describe("ID of the caption overlay to refresh"),
+    newStyle: z.enum(['tiktok', 'minimal', 'bold', 'karaoke', 'subtitle']).optional().describe("Optional new style to apply"),
+  });
+
+  const refreshCaptionsAI = tool(
+    async (rawInput: z.infer<typeof refreshCaptionsSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        
+        // Find the caption overlay
+        const captionOverlay = project.overlays.find(
+          (o: any) => o.id === input.captionOverlayId && o.type === 'caption'
+        );
+        
+        if (!captionOverlay) {
+          return JSON.stringify({ status: 'error', message: 'Caption overlay not found' });
+        }
+        
+        // Find the linked video
+        if (!captionOverlay.sourceVideoId) {
+          return JSON.stringify({ status: 'error', message: 'Caption is not linked to a video (no sourceVideoId)' });
+        }
+        
+        const videoOverlay = project.overlays.find(
+          (o: any) => o.id === captionOverlay.sourceVideoId && o.type === 'video'
+        );
+        
+        if (!videoOverlay) {
+          return JSON.stringify({ status: 'error', message: 'Linked video overlay not found (may have been deleted)' });
+        }
+        
+        const canvas = getCanvasDimensions(project);
+        const fps = project.fps || 30;
+        
+        // Use refresh function
+        const { refreshCaptions } = await import('../services/media');
+        const updatedCaption = await refreshCaptions({
+          captionOverlay,
+          videoOverlay,
+          userId,
+          playerDimensions: canvas,
+          fps,
+          preserveStyle: !input.newStyle,
+          newStyle: input.newStyle,
+        });
+        
+        // Update in database (replace the caption)
+        await projectService.deleteOverlay(userId, projectId, captionOverlay.id);
+        await projectService.addOverlay(userId, projectId, updatedCaption as any);
+        
+        return JSON.stringify({
+          status: 'success',
+          captionId: updatedCaption.id,
+          captionCount: updatedCaption.captions.length,
+          style: input.newStyle || 'preserved',
+          message: `Refreshed captions (${updatedCaption.captions.length} segments) synced to current video timing`,
+        });
+        
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'refresh_captions',
+      description: `Refresh/realign captions to match current video timing. Use this when:
+- Video has been trimmed, split, or moved after captions were added
+- User asks to "resync", "realign", or "refresh" captions
+- Captions appear misaligned with video
+
+Optionally apply a new style while refreshing.`,
+      schema: refreshCaptionsSchema,
+    }
+  );
+
+  // --- CLOSE GAPS ---
+  const closeGapsSchema = z.object({
+    preserveCaptions: z.coerce.boolean().optional().default(true).describe("Keep captions aligned with their videos (default: true)"),
+  });
+
+  const closeGaps = tool(
+    async (rawInput: z.infer<typeof closeGapsSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        
+        // Get all video clips sorted by timeline position
+        const videoClips = project.overlays
+          .filter((o: any) => o.type === 'video')
+          .sort((a: any, b: any) => a.from - b.from);
+        
+        if (videoClips.length < 2) {
+          return JSON.stringify({ status: 'success', message: 'No gaps to close (need at least 2 video clips)' });
+        }
+        
+        let totalFramesClosed = 0;
+        const moves: Array<{ id: number; oldFrom: number; newFrom: number }> = [];
+        
+        // Calculate new positions - each clip should start where previous ends
+        let nextStart = videoClips[0].from; // First clip stays in place
+        
+        for (const clip of videoClips) {
+          const clipEnd = clip.from + clip.durationInFrames;
+          
+          if (clip.from > nextStart) {
+            // There's a gap - move this clip left
+            const shift = clip.from - nextStart;
+            totalFramesClosed += shift;
+            
+            moves.push({ id: clip.id, oldFrom: clip.from, newFrom: nextStart });
+            
+            // Update clip position
+            await projectService.updateOverlay(userId, projectId, clip.id, { from: nextStart });
+            
+            // If preserving captions, also move linked captions
+            if (input.preserveCaptions) {
+              const linkedCaptions = project.overlays.filter(
+                (o: any) => o.type === 'caption' && o.sourceVideoId === clip.id
+              );
+              for (const caption of linkedCaptions) {
+                await projectService.updateOverlay(userId, projectId, caption.id, { 
+                  from: caption.from - shift 
+                });
+              }
+            }
+            
+            nextStart = nextStart + clip.durationInFrames;
+          } else {
+            nextStart = clipEnd;
+          }
+        }
+        
+        const fps = project.fps || 30;
+        return JSON.stringify({
+          status: 'success',
+          clipsMoved: moves.length,
+          totalFramesClosed,
+          totalSecondsClosed: Math.round((totalFramesClosed / fps) * 10) / 10,
+          message: moves.length > 0 
+            ? `Closed ${moves.length} gap(s), saved ${Math.round((totalFramesClosed / fps) * 10) / 10}s`
+            : 'No gaps found to close',
+        });
+        
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'close_gaps',
+      description: `Close all gaps between video clips on the timeline by shifting clips left.
+Use after removing sections or when there are empty spaces between clips.
+Linked captions are automatically moved with their videos.`,
+      schema: closeGapsSchema,
+    }
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -1202,8 +1854,14 @@ EXAMPLE PROMPTS:
     trimOverlay,          // NEW: Trim tool
     deleteOverlay,
     syncStyle,            // NEW: Style sync
+    closeGaps,            // NEW: Close timeline gaps
     // visualInspectFrame,  // DISABLED: Decoy tool, not implemented
     generateHtmlScene,
-    generateHtmlSticker   // NEW: Animated stickers
+    generateHtmlSticker,  // NEW: Animated stickers
+    // --- Video Auto-Edit Tools ---
+    getVideoTranscription,
+    analyzeVideoContent,
+    addCaptions,
+    refreshCaptionsAI,    // NEW: Refresh/realign captions
   ];
 };

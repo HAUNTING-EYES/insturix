@@ -435,7 +435,9 @@ export function AIChatPanel() {
                   'trim_overlay',
                   'sync_style',
                   'generate_html_scene',
-                  'generate_html_sticker'
+                  'generate_html_sticker',
+                  // Video auto-edit tools
+                  'add_captions',
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {
