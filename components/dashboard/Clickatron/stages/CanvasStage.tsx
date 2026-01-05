@@ -943,7 +943,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={false}
-                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
               />
@@ -951,7 +951,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               <AICommandConsole
                 onGenerate={handleAIGenerate}
                 isGenerating={false}
-                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
                 currentImageUrl={activeVariation?.imageRef || ''}
