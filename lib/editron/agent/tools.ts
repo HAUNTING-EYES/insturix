@@ -1051,8 +1051,18 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
         const generatedHtml = result.content as string;
         const rawHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
         
-        // Sanitize HTML for security
-        const cleanHtml = sanitizeHtml(rawHtml);
+        // Clean up the HTML - remove markdown fences, DOCTYPE, html/body tags
+        let cleanHtml = rawHtml
+          .replace(/<!DOCTYPE[^>]*>/gi, '')
+          .replace(/<\/?html[^>]*>/gi, '')
+          .replace(/<\/?body[^>]*>/gi, '')
+          .replace(/<\/?head[^>]*>/gi, '')
+          .replace(/<meta[^>]*>/gi, '')
+          .replace(/<title[^>]*>.*?<\/title>/gi, '')
+          .trim();
+        
+        // Sanitize for security
+        cleanHtml = sanitizeHtml(cleanHtml);
         
         // Wrap in sandbox container
         const overlayWidth = input.width ?? safeWidth;
@@ -1062,7 +1072,9 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
           width: overlayWidth,
           height: overlayHeight,
           backgroundColor: 'transparent',
+          autoFit: true,
         });
+
         
         // Extract metadata for style consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
@@ -1249,18 +1261,30 @@ STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.hei
         const generatedHtml = result.content as string;
         const rawHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
         
-        // Sanitize HTML for security
-        const cleanHtml = sanitizeHtml(rawHtml);
+        // Clean up the HTML - remove DOCTYPE, html/body tags
+        let cleanHtml = rawHtml
+          .replace(/<!DOCTYPE[^>]*>/gi, '')
+          .replace(/<\/?html[^>]*>/gi, '')
+          .replace(/<\/?body[^>]*>/gi, '')
+          .replace(/<\/?head[^>]*>/gi, '')
+          .replace(/<meta[^>]*>/gi, '')
+          .replace(/<title[^>]*>.*?<\/title>/gi, '')
+          .trim();
         
-        // Wrap in sandbox container
+        // Sanitize for security
+        cleanHtml = sanitizeHtml(cleanHtml);
+        
+        // Wrap in sandbox container with auto-fit
         const wrappedHtml = createSandboxedWrapper({
           html: cleanHtml,
           width: stickerWidth,
           height: stickerHeight,
           backgroundColor: 'transparent',
+          autoFit: true,
         });
 
         console.log('[HTML-STICKER] Generated HTML length:', cleanHtml.length);
+
         
         // Extract metadata for style consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
@@ -1965,22 +1989,40 @@ Linked captions are automatically moved with their videos.`,
         const segmentEndMs = videoStartMs + ((segmentEndFrame - overlay.from) / fps * 1000);
         
         // Filter words in this segment and re-base to 0
+        // Include words that START within the segment (not require end within)
         const maxWords = Math.min(input.maxWords || 15, 25);
         const wordsInRange = transcription.words
-          .filter((w: any) => w.startMs >= segmentStartMs && w.endMs <= segmentEndMs)
+          .filter((w: any) => w.startMs >= segmentStartMs && w.startMs < segmentEndMs)
           .slice(0, maxWords)
           .map((w: any) => ({
             word: w.word,
-            startMs: w.startMs - segmentStartMs, // 0-based relative to segment
-            endMs: w.endMs - segmentStartMs,
+            startMs: Math.round(w.startMs - segmentStartMs), // 0-based relative to segment
+            endMs: Math.round(Math.min(w.endMs - segmentStartMs, segmentEndMs - segmentStartMs)), // Clamp to segment end
           }));
         
         if (wordsInRange.length === 0) {
-          return JSON.stringify({ status: 'error', message: 'No speech found in the selected segment' });
+          return JSON.stringify({ 
+            status: 'error', 
+            message: 'No speech found in the selected segment',
+            debug: {
+              segmentStartMs,
+              segmentEndMs,
+              totalWords: transcription.words.length,
+              firstWordStart: transcription.words[0]?.startMs,
+            }
+          });
         }
+        
+        // Log word timings for debugging
+        console.log('[FANCY-CAPTIONS] Word timings (0-based):', 
+          wordsInRange.map((w: any) => `"${w.word}" ${w.startMs}-${w.endMs}ms`)
+        );
         
         // Classify word importance
         const classifiedWords = classifyWordTimings(wordsInRange);
+        
+        // Calculate total duration for exit animation
+        const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         
         // Build prompt
         const prompt = buildFancyCaptionPrompt({
@@ -1990,8 +2032,10 @@ Linked captions are automatically moved with their videos.`,
           style: input.style || 'bento',
           primaryColor: input.primaryColor,
           accentColor: input.accentColor,
-          backgroundColor: input.backgroundColor,
+          backgroundColor: input.backgroundColor || 'transparent',
         });
+        
+        console.log('[FANCY-CAPTIONS] Generating for', classifiedWords.length, 'words, duration:', totalDurationMs, 'ms');
         
         // Generate HTML via Gemini
         const model = new ChatGoogleGenerativeAI({
@@ -2002,22 +2046,35 @@ Linked captions are automatically moved with their videos.`,
         
         const result = await model.invoke([
           new SystemMessage(prompt),
-          new HumanMessage(`Generate the kinetic typography animation for these ${classifiedWords.length} words.`),
+          new HumanMessage(`Generate the kinetic typography animation for these ${classifiedWords.length} words. Total duration: ${totalDurationMs}ms.`),
         ]);
         
         const generatedHtml = result.content as string;
         
-        // Sanitize and wrap in sandbox
-        const cleanHtml = sanitizeHtml(
-          generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim()
-        );
+        // Clean up the HTML - remove markdown fences, DOCTYPE, html/body tags
+        let cleanHtml = generatedHtml
+          .replace(/```html/g, '')
+          .replace(/```/g, '')
+          .replace(/<!DOCTYPE[^>]*>/gi, '')
+          .replace(/<\/?html[^>]*>/gi, '')
+          .replace(/<\/?body[^>]*>/gi, '')
+          .replace(/<\/?head[^>]*>/gi, '')
+          .replace(/<meta[^>]*>/gi, '')
+          .replace(/<title[^>]*>.*?<\/title>/gi, '')
+          .trim();
         
+        // Sanitize for security
+        cleanHtml = sanitizeHtml(cleanHtml);
+        
+        // Wrap in sandbox with auto-fit enabled
         const wrappedHtml = createSandboxedWrapper({
           html: cleanHtml,
           width: canvas.width,
           height: canvas.height,
           backgroundColor: input.backgroundColor || 'transparent',
+          autoFit: true,
         });
+
         
         // Extract metadata for consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
