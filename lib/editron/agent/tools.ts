@@ -717,18 +717,23 @@ TYPE-SPECIFIC FIELDS:
         
         // Create second part
         const newId = Date.now() + Math.floor(Math.random() * 10000);
-        const fps = project.fps || 30;
         
-        // For video overlays, update videoStartTime so captions align correctly
+        // For video overlays, update videoStartTime so the second part continues from where the first ended
+        // videoStartTime is in FRAMES (used by OffthreadVideo's startFrom prop)
         const isVideo = overlay.type === 'video';
+        const isSound = overlay.type === 'sound';
         const secondOverlay = {
           ...overlay,
           id: newId,
           from: input.atFrame,
           durationInFrames: secondDuration,
-          // Update videoStartTime: second part starts later in the source video
+          // Update videoStartTime: add the first part's duration (in frames) to continue playback
           ...(isVideo && {
-            videoStartTime: (overlay.videoStartTime || 0) + (firstDuration / fps),
+            videoStartTime: (overlay.videoStartTime || 0) + firstDuration,
+          }),
+          // Update startFromSound for audio overlays (also in frames)
+          ...(isSound && {
+            startFromSound: (overlay.startFromSound || 0) + firstDuration,
           }),
         };
         
@@ -778,6 +783,15 @@ TYPE-SPECIFIC FIELDS:
         if (input.trimStart !== undefined && input.trimStart > 0) {
           newFrom += input.trimStart;
           newDuration -= input.trimStart;
+          
+          // For video/sound overlays, update the internal start time
+          // so playback begins from the correct position after trimming
+          if (overlay.type === 'video') {
+            updates.videoStartTime = (overlay.videoStartTime || 0) + input.trimStart;
+          }
+          if (overlay.type === 'sound') {
+            updates.startFromSound = (overlay.startFromSound || 0) + input.trimStart;
+          }
         }
         
         if (input.trimEnd !== undefined && input.trimEnd > 0) {
