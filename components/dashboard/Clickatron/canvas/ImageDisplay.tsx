@@ -70,6 +70,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
   ) => {
     const [proxyUrl, setProxyUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [imageLoaded, setImageLoaded] = useState(false);
     const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
     const currentImageRef = useRef<string | null>(null);
 
@@ -146,9 +147,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         setProxyUrl(`/api/proxy/image?path=${encodedPath}`);
         currentImageRef.current = imageRef;
         setIsLoading(status === "generating"); // Show loading for generating, hide for completed
+        setImageLoaded(false); // Reset image loaded state when image changes
       } else {
         setProxyUrl(null);
         setIsLoading(false);
+        setImageLoaded(false);
       }
     }, [imageRef, status]);
 
@@ -455,22 +458,102 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               contentClass="flex items-center justify-center"
               wrapperStyle={{ width: '100%', height: '100%' }}
             >
-              <img
-                src={proxyUrl ?? undefined}
-                alt={alt}
-                className={`${className} select-none rounded-lg`}
-                style={{...imageStyle, ...aspectRatioStyle}}
-                draggable={false}
-              />
+              <div className="relative w-full h-full" style={aspectRatioStyle}>
+                {/* Gradient placeholder - shows immediately */}
+                {!imageLoaded && (
+                  <div
+                    className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse"
+                  />
+                )}
+                {/* Blurred image placeholder - shows once image starts loading */}
+                {!imageLoaded && proxyUrl && (
+                  <img
+                    src={proxyUrl}
+                    alt=""
+                    className="absolute inset-0 rounded-lg"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      filter: 'blur(20px) brightness(0.6) saturate(1.2)',
+                      transform: 'scale(1.05)',
+                      opacity: 0.8,
+                    }}
+                    aria-hidden="true"
+                  />
+                )}
+                {/* Actual sharp image */}
+                <img
+                  src={proxyUrl ?? undefined}
+                  alt={alt}
+                  loading="eager"
+                  decoding="sync"
+                  fetchPriority="high"
+                  className={`${className} select-none rounded-lg relative z-10`}
+                  style={{
+                    ...imageStyle,
+                    width: '100%',
+                    height: '100%',
+                    opacity: imageLoaded ? 1 : 0,
+                    filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
+                    transition: "opacity 500ms ease, filter 500ms ease",
+                  }}
+                  onLoad={(e) => {
+                    setImageLoaded(true);
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.filter = imageStyle.filter || '';
+                  }}
+                  draggable={false}
+                />
+              </div>
             </TransformComponent>
           </TransformWrapper>
         ) : (
-          <div className="relative w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full flex items-center justify-center" style={aspectRatioStyle}>
+            {/* Gradient placeholder - shows immediately */}
+            {!imageLoaded && (
+              <div
+                className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse"
+              />
+            )}
+            {/* Blurred image placeholder - shows once image starts loading */}
+            {!imageLoaded && proxyUrl && (
+              <img
+                src={proxyUrl}
+                alt=""
+                className="absolute inset-0 rounded-lg"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  filter: 'blur(20px) brightness(0.6) saturate(1.2)',
+                  transform: 'scale(1.05)',
+                  opacity: 0.8,
+                }}
+                aria-hidden="true"
+              />
+            )}
+            {/* Actual sharp image */}
             <img
               src={proxyUrl ?? undefined}
               alt={alt}
-              className={`${className} select-none rounded-lg`}
-              style={{...imageStyle, ...aspectRatioStyle}}
+              loading="lazy"
+              decoding="async"
+              fetchPriority="low"
+              className={`${className} select-none rounded-lg relative z-10`}
+              style={{
+                ...imageStyle,
+                width: '100%',
+                height: '100%',
+                opacity: imageLoaded ? 1 : 0,
+                filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
+                transition: "opacity 500ms ease, filter 500ms ease",
+              }}
+              onLoad={(e) => {
+                setImageLoaded(true);
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.filter = imageStyle.filter || '';
+              }}
               draggable={false}
             />
           </div>
