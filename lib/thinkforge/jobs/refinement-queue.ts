@@ -5,7 +5,7 @@
  */
 
 import type { SessionState } from '../state/types';
-import type { BlockTree } from '../schemas/canonical';
+import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { refineScriptDraft } from '../agents/script-refinement-agent';
 import { getSessionState } from '../state/session-state';
 import mongoose, { Schema, Model } from 'mongoose';
@@ -43,7 +43,7 @@ export async function queueRefinement(
   sessionId: string,
   userId: string,
   instruction: string,
-  draftBlocks: BlockTree
+  draftBlocks: ThinkForgeBlock[]
 ): Promise<void> {
   try {
     const Model = await getJobModel();
@@ -77,7 +77,7 @@ async function processRefinementJob(
   sessionId: string,
   userId: string,
   instruction: string,
-  draftBlocks: BlockTree
+  draftBlocks: ThinkForgeBlock[]
 ): Promise<void> {
   try {
     const Model = await getJobModel();

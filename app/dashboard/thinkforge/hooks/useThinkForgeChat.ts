@@ -33,6 +33,7 @@ function normalizeMessage(m: any): ChatMessage {
 export function useThinkForgeChat(sessionId: string | null, initialMessages?: any[]) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [currentIntent, setCurrentIntent] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   // Track previous sessionId to detect changes
@@ -103,6 +104,7 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
 
     setMessages(prev => [...prev, userMsg]);
     setIsStreaming(true);
+    setCurrentIntent(null);
 
     const assistantId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
@@ -170,6 +172,8 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? { ...m, content: assistantContent } : m
                 ));
+              } else if (data.type === 'intent') {
+                setCurrentIntent(data.intent);
               } else if (data.type === 'script_update' && options?.onScriptUpdate) {
                 // Handle script update with metadata
                 // Backend sends: { type: 'script_update', script: {...}, metadata: {...} }
@@ -250,6 +254,7 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
   return {
     messages,
     isStreaming,
+    currentIntent,
     sendMessage,
     stopStreaming,
     refreshMessages,

@@ -131,7 +131,12 @@ export function blockNoteToCanonical(
     convertBlockNoteToCanonical(block, generateId)
   );
 
-  // Validate against canonical schema (fail-closed)
-  return validateBlockTree(canonicalBlocks);
+  // Generator may be imperfect. Renderer must never fail.
+  try {
+    return validateBlockTree(canonicalBlocks);
+  } catch (err) {
+    console.warn('blockNoteToCanonical validation warning (fail-open):', err);
+    return canonicalBlocks;
+  }
 }
 

@@ -56,11 +56,9 @@ import { useCreateBlockNote } from "@blocknote/react";
 import ScriptRenderer from "./ScriptRenderer";
 
 // Import canonical mappers and types
-import { canonicalToBlockNote } from "@/lib/thinkforge/mappers/canonical-to-blocknote";
-import { cirToBlockNote, blockNoteToCIR } from "@/lib/thinkforge/mappers/cir-to-blocknote";
+import { thinkForgeBlocksToBlockNote, blockNoteToThinkForgeBlocks } from "@/lib/thinkforge/mappers/thinkforge-blocknote";
+import { validateThinkForgeBlocks, type ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
-import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
-import { ensureCIR, serializeCIR, type CIRDocument, sanitizeForRender } from "@/lib/thinkforge/schemas/cir";
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -75,71 +73,29 @@ interface CursorPosition {
   offset: number;
 }
 
-function isCirLike(value: any): value is CIRDocument {
-  return Boolean(value && typeof value === "object" && Array.isArray((value as any).sections));
+function toBlockNoteBlocks(blocks: any): any[] {
+  const validated = validateThinkForgeBlocks(blocks || []);
+  if (!validated.length) return [];
+  return thinkForgeBlocksToBlockNote(validated) as any[];
 }
 
-function cirFromBlocks(blocks: any): CIRDocument | null {
-  try {
-    if (!blocks) return null;
-
-    // Already CIR sections
-    if (Array.isArray(blocks) && blocks.length && (blocks[0] as any).label) {
-      return ensureCIR({ sections: blocks as any });
-    }
-
-    // Document shape
-    if (isCirLike(blocks)) {
-      return ensureCIR(blocks);
-    }
-
-    // Legacy canonical block tree fallback
-    if (Array.isArray(blocks) && blocks.length && (blocks[0] as any).children) {
-      const blockNoteBlocks = canonicalToBlockNote(blocks as BlockTree);
-      return blockNoteToCIR(blockNoteBlocks as any);
-    }
-  } catch (error) {
-    console.error("ScriptEditor: CIR coercion failed", error);
-  }
-  return null;
+function astToPlain(ast: any): string {
+  if (!Array.isArray(ast)) return '';
+  return ast
+    .map((node) => {
+      if (!node || typeof node !== 'object') return '';
+      if (node.type === 'link') {
+        return astToPlain(node.content || []);
+      }
+      return typeof node.text === 'string' ? node.text : '';
+    })
+    .join('');
 }
 
-function cirFromScript(script?: Script | null): CIRDocument | null {
-  if (!script) return null;
-
-  const fromBlocks = cirFromBlocks(script.blocks as any);
-  if (fromBlocks) return fromBlocks;
-
-  try {
-    if (script.content) {
-      return ensureCIR(script.content);
-    }
-    if (script.body) {
-      return ensureCIR(script.body);
-    }
-  } catch (error) {
-    console.error("ScriptEditor: Failed to parse CIR text", error);
-  }
-
-  return null;
-}
-
-function cirToBlockNoteSafe(cir: CIRDocument | null): any[] {
-  if (!cir) return [];
-  try {
-    // Sanitize all section bodies before rendering (fail-open guarantee)
-    const sanitized: CIRDocument = {
-      ...cir,
-      sections: cir.sections.map((section) => ({
-        ...section,
-        body: sanitizeForRender(section.body),
-      })),
-    };
-    return cirToBlockNote(sanitized) as any[];
-  } catch (error) {
-    console.error("ScriptEditor: Failed to render CIR (even with sanitization):", error);
-    return [];
-  }
+function blocksToPlainText(blocks: ThinkForgeBlock[]): string {
+  return blocks
+    .map((b) => `${b.kind.toUpperCase()}: ${astToPlain(b.content)}`.trim())
+    .join('\n\n');
 }
 
 interface ScriptEditorProps {
@@ -205,52 +161,84 @@ export default function ScriptEditor({
   });
 
   const previewBlocks = useMemo(() => {
-    const cirDoc = cirFromScript(script);
-    const cirBlocks = cirToBlockNoteSafe(cirDoc);
-    if (cirBlocks.length > 0) return cirBlocks;
-    if (script?.blocks && Array.isArray(script.blocks)) {
-      try {
-        return canonicalToBlockNote(script.blocks as BlockTree);
-      } catch (error) {
-        console.error('ScriptEditor: Preview fallback conversion failed', error);
-      }
+    if (script?.blocks) {
+      return toBlockNoteBlocks(script.blocks);
     }
     return [];
   }, [script]);
 
-
-  // Prepare initial content for BlockNote
-  const initialContent = useMemo(() => {
-    const cirDoc = cirFromScript(script);
-    const cirBlocks = cirToBlockNoteSafe(cirDoc);
-    if (cirBlocks.length > 0) {
-      return cirBlocks;
-    }
-
-    // Legacy fallback: try canonical block tree
-    if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
-      try {
-        const blockNoteBlocks = canonicalToBlockNote(script.blocks as BlockTree);
-        return blockNoteBlocks;
-      } catch (error) {
-        console.error("Failed to convert canonical blocks on mount:", error);
-      }
-    }
-
-    // Final fallback
-    return [{
-      type: 'heading',
-      props: { level: 1 },
-      content: script?.title || 'Untitled Script'
-    }];
-  }, []); // Only on mount
-
   // Create BlockNote editor
   const editor = useCreateBlockNote({
-    initialContent: initialContent as any,
     defaultStyles: true,
     trailingBlock: true,
   });
+
+  const safeReplaceBlocks = useCallback(
+    (blocks: any[], reason: string) => {
+      if (!editor) return;
+
+      const normalized = (blocks || [])
+        .map((block, idx) => {
+          if (!block || typeof block !== "object") return null;
+          const type = (block as any).type;
+          const content = (block as any).content ?? (block as any).children ?? [];
+          const props = (block as any).props ?? {};
+          if (typeof type !== "string") return null;
+          const normalizedContent = Array.isArray(content) ? content : [];
+          return {
+            id: (block as any).id ?? `blk_${idx}_${Date.now()}`,
+            type,
+            content: normalizedContent,
+            props,
+          };
+        })
+        .filter(Boolean) as any[];
+
+      if (normalized.length !== (blocks || []).length) {
+        console.warn(`ScriptEditor: Dropped invalid blocks before render (${reason})`);
+      }
+
+      if (normalized.length === 0) {
+        console.warn(`ScriptEditor: No valid blocks to render (${reason}); rendering fallback`);
+        const fallback = [{
+          id: `fallback_${Date.now()}`,
+          type: "paragraph",
+          props: {},
+          content: [{ type: "text", text: "Script failed to load. Please retry." }],
+        }];
+        try {
+          editor.replaceBlocks(editor.document, fallback as any);
+        } catch (error) {
+          console.error(`ScriptEditor: replaceBlocks failed during fallback (${reason})`, error);
+        }
+        return;
+      }
+
+      try {
+        editor.replaceBlocks(editor.document, normalized as any);
+      } catch (error) {
+        console.error(`ScriptEditor: replaceBlocks failed (${reason})`, error);
+      }
+    },
+    [editor]
+  );
+
+  const applyBlocksToEditor = useCallback(
+    (blocks: any[], reason: string) => {
+      if (!editor) return false;
+      const blocksHash = JSON.stringify(blocks || []);
+      if (blocksHash === lastLoadedBlocksRef.current) {
+        return false;
+      }
+      isUpdatingFromPropsRef.current = true;
+      safeReplaceBlocks(blocks as any, reason);
+      isUpdatingFromPropsRef.current = false;
+      setHasUnsavedChanges(false);
+      lastLoadedBlocksRef.current = blocksHash;
+      return true;
+    },
+    [editor, safeReplaceBlocks]
+  );
 
   // Store cursor position before updates
   const storeCursorPosition = useCallback(() => {
@@ -319,57 +307,29 @@ export default function ScriptEditor({
           });
           if (response.ok) {
             const data = await response.json();
-            const cirDoc = cirFromBlocks(data.blocks) || (data.content ? ensureCIR(data.content) : null);
-            const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
-
+            const blockNoteBlocks = toBlockNoteBlocks(data.blocks);
             if (blockNoteBlocks.length > 0) {
-              const blocksHash = JSON.stringify(blockNoteBlocks);
-              if (blocksHash !== lastLoadedBlocksRef.current) {
-                isUpdatingFromPropsRef.current = true;
-                editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-                isUpdatingFromPropsRef.current = false;
-                setHasUnsavedChanges(false);
-                lastLoadedBlocksRef.current = blocksHash;
-                initialLoadDoneRef.current = true;
-                console.log('ScriptEditor: Loaded CIR from API');
-              }
+              applyBlocksToEditor(blockNoteBlocks as any, 'initial-load-api');
+              initialLoadDoneRef.current = true;
+              console.log('ScriptEditor: Loaded ThinkForge blocks from API');
               return;
             }
+            console.warn('ScriptEditor: API returned no valid ThinkForge blocks; showing empty state');
           }
         } catch (error) {
           console.error("ScriptEditor: Failed to fetch blocks from API:", error);
         }
       }
-      
+
       // Fallback: use script.blocks prop if available and no API data
       if (script?.blocks && Array.isArray(script.blocks) && script.blocks.length > 0) {
-        const cirDoc = cirFromBlocks(script.blocks as any);
-        const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
+        const blockNoteBlocks = toBlockNoteBlocks(script.blocks as any);
         if (blockNoteBlocks.length > 0) {
-          const blocksHash = JSON.stringify(blockNoteBlocks);
-          if (blocksHash !== lastLoadedBlocksRef.current) {
-            isUpdatingFromPropsRef.current = true;
-            editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-            isUpdatingFromPropsRef.current = false;
-            setHasUnsavedChanges(false);
-            lastLoadedBlocksRef.current = blocksHash;
-            initialLoadDoneRef.current = true;
-            console.log('ScriptEditor: Loaded CIR from prop');
-          }
-        }
-      } else if (script?.blocks && isCirLike(script.blocks)) {
-        const blockNoteBlocks = cirToBlockNoteSafe(script.blocks as any);
-        if (blockNoteBlocks.length > 0) {
-          const blocksHash = JSON.stringify(blockNoteBlocks);
-          if (blocksHash !== lastLoadedBlocksRef.current) {
-            isUpdatingFromPropsRef.current = true;
-            editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-            isUpdatingFromPropsRef.current = false;
-            setHasUnsavedChanges(false);
-            lastLoadedBlocksRef.current = blocksHash;
-            initialLoadDoneRef.current = true;
-            console.log('ScriptEditor: Loaded CIR document from prop');
-          }
+          safeReplaceBlocks(blockNoteBlocks as any, 'initial-load-prop');
+          initialLoadDoneRef.current = true;
+          console.log('ScriptEditor: Loaded ThinkForge blocks from prop');
+        } else {
+          console.warn('ScriptEditor: Prop blocks were invalid; rendering empty');
         }
       }
     };
@@ -392,7 +352,7 @@ export default function ScriptEditor({
       // No session - clear editor
       try {
         const emptyBlock = { type: 'paragraph', content: [] };
-        editor.replaceBlocks(editor.document, [emptyBlock as any]);
+        safeReplaceBlocks([emptyBlock as any], 'clear-editor-new-session');
       } catch {
         // Ignore if editor not ready
       }
@@ -440,18 +400,12 @@ export default function ScriptEditor({
         autosaveTimerRef.current = null;
       }
       
-      const cirDoc = cirFromBlocks(script.blocks as any);
-      const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
-      if (blockNoteBlocks.length > 0) {
-        const blocksHash = JSON.stringify(blockNoteBlocks);
-        if (blocksHash !== lastLoadedBlocksRef.current) {
-          isUpdatingFromPropsRef.current = true;
-          editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-          isUpdatingFromPropsRef.current = false;
-          lastLoadedBlocksRef.current = blocksHash;
-          setHasUnsavedChanges(false);
-          console.log('ScriptEditor: Updated with AI-generated CIR content');
-        }
+      const blockNoteBlocks = toBlockNoteBlocks(script.blocks as any);
+      const applied = applyBlocksToEditor(blockNoteBlocks as any, 'ai-update');
+      if (applied) {
+        console.log('ScriptEditor: Updated with AI-generated ThinkForge content');
+      } else {
+        console.warn('ScriptEditor: AI update contained no renderable content');
       }
     } catch (error) {
       console.error('ScriptEditor: Failed to apply AI-generated blocks:', error);
@@ -483,22 +437,14 @@ export default function ScriptEditor({
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' }
         });
-        if (response.ok) {
-          const data = await response.json();
-          const cirDoc = cirFromBlocks(data.blocks) || (data.content ? ensureCIR(data.content) : null);
-          const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
-          if (blockNoteBlocks.length > 0) {
-            const blocksHash = JSON.stringify(blockNoteBlocks);
-            // Only update if content actually changed and no user edits pending
-            if (blocksHash !== lastLoadedBlocksRef.current && !hasUnsavedChanges) {
-              isUpdatingFromPropsRef.current = true;
-              editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-              isUpdatingFromPropsRef.current = false;
-              lastLoadedBlocksRef.current = blocksHash;
-              console.log('ScriptEditor: Updated CIR blocks from polling during generation');
+          if (response.ok) {
+            const data = await response.json();
+            const blocks = toBlockNoteBlocks(data.blocks);
+            const applied = applyBlocksToEditor(blocks as any, 'polling-update');
+            if (applied) {
+              console.log('ScriptEditor: Updated blocks from polling during generation');
             }
           }
-        }
       } catch (error) {
         console.error('ScriptEditor: Polling error:', error);
       }
@@ -512,15 +458,9 @@ export default function ScriptEditor({
     if (streamingBlocks.blocks.length > 0 && editor) {
       try {
         console.log('ScriptEditor: Integrating streaming blocks:', streamingBlocks.blocks.length);
-        // Convert canonical streaming blocks to CIR -> BlockNote
-        const cirDoc = blockNoteToCIR(canonicalToBlockNote(streamingBlocks.blocks) as any);
-        const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
-        if (blockNoteBlocks.length > 0) {
-          // Replace all blocks with streaming blocks
-          isUpdatingFromPropsRef.current = true;
-          editor.replaceBlocks(editor.document, blockNoteBlocks as any);
-          isUpdatingFromPropsRef.current = false;
-          setHasUnsavedChanges(false);
+        const asBlockNote = toBlockNoteBlocks(streamingBlocks.blocks as any);
+        const applied = applyBlocksToEditor(asBlockNote as any, 'streaming-update');
+        if (applied) {
           console.log('ScriptEditor: Integrated streaming blocks successfully');
         }
       } catch (error) {
@@ -532,43 +472,23 @@ export default function ScriptEditor({
   // Convert BlockNote content back to Script format (with canonical conversion)
   const convertBlocksToScript = useCallback(async (): Promise<Script> => {
     const blocks = editor.document;
-    
-    // Store cursor before conversion
     storeCursorPosition();
-    
-    let cirDoc: CIRDocument;
-    try {
-      cirDoc = blockNoteToCIR(blocks as any);
-    } catch (error) {
-      console.error("Failed to convert BlockNote to CIR; using minimal text fallback", error);
-      const markdown = await editor.blocksToMarkdownLossy(blocks);
-      cirDoc = ensureCIR(markdown.replace(/[#*_`]/g, ''));
-    }
 
-    // Apply final sanitization pass before serialization (fail-open guarantee)
-    const sanitizedSections = cirDoc.sections.map((section) => ({
-      ...section,
-      body: sanitizeForRender(section.body),
-    }));
-    const sanitizedDoc = { ...cirDoc, sections: sanitizedSections };
-
-    const cirText = serializeCIR(sanitizedDoc);
-    const title = script?.title || 'Untitled Script';
-    const presentationBlocks = cirToBlockNoteSafe(sanitizedDoc);
+    const thinkforgeBlocks = blockNoteToThinkForgeBlocks(blocks as any);
+    const validated = validateThinkForgeBlocks(thinkforgeBlocks);
 
     return {
-      title,
-      body: cirText,
-      blocks: (sanitizedDoc.sections as any),
-      blocksLegacy: presentationBlocks as any,
-      content: cirText,
+      title: script?.title || 'Untitled Script',
+      blocks: validated,
+      content: '',
+      body: '',
       sections: script?.sections || [],
       tips: script?.tips || [],
       duration: script?.duration,
       targetAudience: script?.targetAudience,
       tone: script?.tone,
-      metadata: { ...(script?.metadata || {}), canonicalFormat: 'CIR' }
-    };
+      metadata: { ...(script?.metadata || {}), canonicalFormat: 'thinkforge' }
+    } as any;
   }, [editor, script, storeCursorPosition]);
 
   // Handle content changes with debounced autosave
@@ -593,16 +513,14 @@ export default function ScriptEditor({
         // This is crucial to avoid race conditions
         if (updatedScript.blocks) {
           try {
-            const cirDoc = ensureCIR({ sections: updatedScript.blocks as any });
-            const blockNoteBlocks = cirToBlockNoteSafe(cirDoc);
+            const blockNoteBlocks = toBlockNoteBlocks(updatedScript.blocks as any);
             lastLoadedBlocksRef.current = JSON.stringify(blockNoteBlocks);
           } catch {
             // Ignore conversion errors for ref update
           }
         }
         
-        // Send canonical blocks to backend if scriptId is available
-        // Only save blocks to backend - don't double save via onEditScript
+        // Send structured blocks to backend if scriptId is available
         if (scriptId && updatedScript.blocks) {
           try {
             const response = await fetch(`/api/services/thinkforge/script/blocks`, {
@@ -711,9 +629,8 @@ export default function ScriptEditor({
   // Copy to clipboard
   const handleCopy = async () => {
     try {
-      const cirDoc = blockNoteToCIR(editor.document as any);
-      const cirText = serializeCIR(cirDoc);
-      await navigator.clipboard.writeText(cirText);
+      const blocks = validateThinkForgeBlocks(blockNoteToThinkForgeBlocks(editor.document as any));
+      await navigator.clipboard.writeText(JSON.stringify(blocks, null, 2));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
@@ -724,10 +641,9 @@ export default function ScriptEditor({
   // Export to PDF
   const handleExportPDF = async () => {
     try {
-      const cirDoc = blockNoteToCIR(editor.document as any);
-      const cirText = serializeCIR(cirDoc);
+      const blocks = validateThinkForgeBlocks(blockNoteToThinkForgeBlocks(editor.document as any));
       const title = script?.title || 'Script';
-      const safeText = cirText
+      const safeText = blocksToPlainText(blocks)
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');

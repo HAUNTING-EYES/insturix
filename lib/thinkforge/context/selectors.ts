@@ -10,6 +10,8 @@
 
 import type { AgentType, ChatContextMessage, ProjectContextData, ScriptContextData } from '../agents/types';
 import type { Block, BlockTree } from '../schemas/canonical';
+import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
+import { extractTextFromRichText } from '../utils/thinkforge-block-patch';
 
 /**
  * Selection result with metadata
@@ -33,14 +35,18 @@ export function selectScriptContent(
   agentType: AgentType,
   maxChars: number = 3000
 ): SelectionResult {
-  if (!script?.content) {
-    return { content: '', charCount: 0, itemCount: 0 };
-  }
+  const hasBlocks = Array.isArray((script as any)?.blocks) && (script as any).blocks.length > 0;
+  const tfBlocks = hasBlocks ? validateThinkForgeBlocks((script as any).blocks as any[]) : [];
+
+  const baseContent = tfBlocks.length > 0
+    ? extractTextFromThinkForgeBlocks(tfBlocks)
+    : (script?.content || '');
+  if (!baseContent) return { content: '', charCount: 0, itemCount: 0 };
   
   switch (agentType) {
     case 'chat':
       // For chat, just include a brief preview
-      const preview = script.content.slice(0, Math.min(500, maxChars));
+      const preview = baseContent.slice(0, Math.min(500, maxChars));
       return {
         content: preview,
         charCount: preview.length,
@@ -54,7 +60,7 @@ export function selectScriptContent(
     case 'script_draft':
     case 'script_refinement':
       // Include full script up to maxChars
-      const full = script.content.slice(0, maxChars);
+      const full = baseContent.slice(0, maxChars);
       return {
         content: full,
         charCount: full.length,
@@ -64,6 +70,13 @@ export function selectScriptContent(
     default:
       return { content: '', charCount: 0, itemCount: 0 };
   }
+}
+
+function extractTextFromThinkForgeBlocks(blocks: ThinkForgeBlock[]): string {
+  return blocks
+    .map((b) => extractTextFromRichText(b.content))
+    .filter(Boolean)
+    .join('\n\n');
 }
 
 /**

@@ -9,7 +9,7 @@
  * BlockNote formatting is presentation-only and must never be persisted here.
  */
 
-export type CIRSectionLabel = "Action" | "Execution Guidance" | "Example" | "Next";
+export type CIRSectionLabel = "Header" | "Action" | "Why" | "Example" | "Execution Guidance" | "Next";
 
 export interface CIRSection {
   id?: string;
@@ -22,7 +22,7 @@ export interface CIRDocument {
   sections: CIRSection[];
 }
 
-const LABELS: CIRSectionLabel[] = ["Action", "Execution Guidance", "Example", "Next"];
+const LABELS: CIRSectionLabel[] = ["Header", "Action", "Why", "Example", "Execution Guidance", "Next"];
 const INLINE_FORMATTING_PATTERNS = [
   /\*\*/, // bold markers
   /__/, // alternative bold
@@ -251,7 +251,7 @@ export function parseCIRText(text: string, strict: boolean = false): CIRDocument
     };
   }
 
-  const regex = /(Action|Execution Guidance|Example|Next):\s*([\s\S]*?)(?=\n(?:Action|Execution Guidance|Example|Next):|$)/gi;
+  const regex = /(Header|Action|Why|Example|Execution Guidance|Next):\s*([\s\S]*?)(?=\n(?:Header|Action|Why|Example|Execution Guidance|Next):|$)/gi;
   const sections: CIRSection[] = [];
   let match: RegExpExecArray | null;
 

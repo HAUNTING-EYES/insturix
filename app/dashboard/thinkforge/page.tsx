@@ -10,7 +10,7 @@ import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeSession } from "./hooks/useThinkForgeSession";
 import { useThinkForgeScript } from "./hooks/useThinkForgeScript";
 import { ScriptModel } from "./hooks/useThinkForgeClient";
-import { sanitizeServerScript, ensureBlockIds } from "@/lib/thinkforge/json";
+import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import Dock from "@/components/dashboard/ThinkForge/Dock";
 import { WorkspaceMode } from "@/components/dashboard/ThinkForge/ModeSwitcher";
 import IdeationMode from "@/components/dashboard/ThinkForge/IdeationMode";
@@ -225,9 +225,6 @@ export default function ThinkForgeLanding() {
 					setPendingSessionId(created.sessionId);
 					if (created?.script) {
 						const sanitized = created.script ? sanitizeServerScript(created.script) : null;
-						if (sanitized && Array.isArray(sanitized.blocks)) {
-							sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
-						}
 						scriptHook.setScriptAndQueueSave(sanitized);
 					}
 				}
@@ -380,10 +377,7 @@ export default function ThinkForgeLanding() {
 						setPendingSessionId(sid);
 						// Ensure hook script state is set promptly to avoid UI race
 						if (data.script) {
-							const sanitized = data.script ? sanitizeServerScript(data.script) : null;
-							if (sanitized && Array.isArray(sanitized.blocks)) {
-								sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
-							}
+							const sanitized = data?.script ? sanitizeServerScript(data.script) : null;
 							scriptHook.setScriptAndQueueSave(sanitized);
 						}
 						// Reconstruct selected idea from project meta
@@ -497,9 +491,6 @@ export default function ThinkForgeLanding() {
 						// Ensure hook script state is set promptly to avoid UI race
 						if (data.script) {
 							const sanitized = data.script ? sanitizeServerScript(data.script) : null;
-							if (sanitized && Array.isArray(sanitized.blocks)) {
-								sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
-							}
 							scriptHook.setScriptAndQueueSave(sanitized);
 						}
 						// Reconstruct selected idea from project meta
@@ -552,9 +543,6 @@ export default function ThinkForgeLanding() {
 							setPendingSessionId(data.sessionId);
 							if (data.script) {
 								const sanitized = data.script ? sanitizeServerScript(data.script) : null;
-								if (sanitized && Array.isArray(sanitized.blocks)) {
-									sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
-								}
 								scriptHook.setScriptAndQueueSave(sanitized);
 							}
 							

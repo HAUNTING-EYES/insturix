@@ -2,8 +2,7 @@
  * Session state types for ThinkForge
  */
 
-import type { BlockTree } from '../schemas/canonical';
-import type { CIRDocument, CIRSection } from '../schemas/cir';
+import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -38,7 +37,7 @@ export interface ProjectMeta {
 
 export interface ScriptState {
   title: string;
-  blocks: BlockTree | CIRDocument | CIRSection[];
+  blocks: ThinkForgeBlock[];
   content: string;
   draft: boolean;
   version: number;

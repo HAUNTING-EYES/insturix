@@ -5,17 +5,14 @@
  * 1) Outline (gemini-2.5-flash-lite) hierarchical with knowledge layers
  * 2) Section expansion: gemini-2.5-flash only (no preview)
  * 3) No full-document coherence rewrite; optional validator only
- * 4) Assembly into canonical blocks + content
+ * 4) Assembly into ThinkForge blocks only (no canonical/text fallbacks)
  */
 
 import type { AgentInput } from './types';
-import { validateBlockTree } from '../schemas/canonical';
-import type { BlockTree } from '../schemas/canonical';
-import { ensureBlockId } from '../json';
+import { ensureThinkForgeBlockId, validateThinkForgeBlocks, type RichTextAST, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { ScriptOutlineAgent, type ScriptOutline } from './script-outline-agent';
 import { ScriptSectionAgent, type SectionOutput } from './script-section-agent';
 import { ScriptContractAgent, type NarrativeContract } from './script-contract-agent';
-import { ScriptCoherenceAgent } from './script-coherence-agent';
 import type { AgentConfig } from './base-agent';
 import { quickAssembleContext } from '../context';
 import type { SessionState } from '../state/types';
@@ -42,27 +39,48 @@ function wordLimitForLayer(layer?: string): number {
   }
 }
 
-function truncateToWords(text: string, maxWords: number): { text: string; truncated: boolean } {
-  const words = text.split(/\s+/);
-  if (words.length <= maxWords) return { text, truncated: false };
-  const trimmed = words.slice(0, maxWords).join(' ').trim();
-  return { text: trimmed, truncated: true };
+function extractTextFromAst(ast: RichTextAST): string {
+  const parts: string[] = [];
+  const walk = (nodes: RichTextAST) => {
+    for (const node of nodes) {
+      if (node.text) parts.push(node.text);
+      if (node.children && node.children.length) walk(node.children);
+    }
+  };
+  walk(ast || []);
+  return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
-function dedupeParagraphs(text: string, seen: Set<string>): { text: string; trimmed: boolean } {
-  const paragraphs = text.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-  const kept: string[] = [];
-  let trimmed = false;
-  for (const para of paragraphs) {
-    const key = para.toLowerCase();
-    if (seen.has(key)) {
-      trimmed = true;
-      continue;
+function applyWordLimitToBlocks(blocks: ThinkForgeBlock[], maxWords: number): ThinkForgeBlock[] {
+  let remaining = maxWords;
+  const result: ThinkForgeBlock[] = [];
+
+  for (const block of blocks) {
+    if (remaining <= 0) break;
+    const words = extractTextFromAst(block.content).split(/\s+/).filter(Boolean);
+    if (words.length === 0) continue;
+    if (words.length <= remaining) {
+      result.push(block);
+      remaining -= words.length;
+    } else {
+      break;
     }
-    seen.add(key);
-    kept.push(para);
   }
-  return { text: kept.join('\n\n'), trimmed };
+
+  return result;
+}
+
+function renderPlainText(blocks: ThinkForgeBlock[]): string {
+  return blocks
+    .map((block) => {
+      const text = extractTextFromAst(block.content);
+      if (!text) return '';
+      if (block.kind === 'header') return `# ${text}`;
+      return text;
+    })
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
 }
 
 function compactOutline(outline: ScriptOutline): ScriptOutline {
@@ -86,11 +104,13 @@ function compactOutline(outline: ScriptOutline): ScriptOutline {
 
 export interface ScriptDraftResult {
   title: string;
-  blocks: BlockTree;
+  blocks: ThinkForgeBlock[];
   content: string;
   draft: boolean;
   outline: ScriptOutline;
   sections: SectionOutput[];
+  status?: 'ok' | 'error';
+  reason?: string;
 }
 
 export class ScriptDraftAgent {
@@ -98,7 +118,6 @@ export class ScriptDraftAgent {
   private sectionAgent: ScriptSectionAgent;
   private sectionAgentHigh: ScriptSectionAgent;
   private contractAgent: ScriptContractAgent;
-  private coherenceAgent: ScriptCoherenceAgent;
   private sectionConcurrency: number;
 
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
@@ -118,10 +137,6 @@ export class ScriptDraftAgent {
     this.contractAgent = new ScriptContractAgent({
       maxTokens: 400,
       temperature: 0.2,
-    });
-    this.coherenceAgent = new ScriptCoherenceAgent({
-      maxTokens: 900,
-      temperature: 0.3,
     });
     // Batch size 2 for throughput while preserving rolling memory
     this.sectionConcurrency = 2;
@@ -145,16 +160,17 @@ export class ScriptDraftAgent {
 
     const sections = await this.expandSections(modeAwareInput, outline, contract);
 
-    const assembled = this.assemble(outline, sections);
-
-    // Coherence now runs as a validator-only pass; we skip rewrite to avoid latency and bloat.
-    // The validator can be invoked separately if needed, but assembled content is used directly.
-    const refined = this.assembleFromText(outline, assembled.content);
+    const flattenedBlocks = sections.flatMap((section) =>
+      section.blocks.map((block) => ({ ...block, id: ensureThinkForgeBlockId(block.id) }))
+    );
+    const blocks = validateThinkForgeBlocks(flattenedBlocks);
+    const content = renderPlainText(blocks);
 
     return {
+      status: 'ok',
       title: outline.title,
-      blocks: refined.blocks,
-      content: refined.content,
+      blocks,
+      content,
       draft: true,
       outline,
       sections,
@@ -165,7 +181,6 @@ export class ScriptDraftAgent {
     const sections = outline.sections;
     const results: SectionOutput[] = [];
     const summariesById: Record<string, string> = {};
-    const seenParagraphs = new Set<string>();
     const generationMode = (input as any).generationMode || 'manual';
     const isManual = generationMode === 'manual';
 
@@ -196,22 +211,15 @@ export class ScriptDraftAgent {
               temperature: isManual ? 0.35 : useMythic ? 0.55 : 0.65,
             }
           );
-          let prose = rawSection.prose;
+          let blocks = rawSection.blocks;
           if (!isManual) {
             const limit = wordLimitForLayer(knowledgeLayer || (section as any).knowledge_layer);
-            const { text: clipped, truncated } = truncateToWords(prose, limit);
-            if (truncated) {
-              console.warn(`[ThinkForge] Section ${section.id} truncated to ${limit} words for layer ${knowledgeLayer}`);
-            }
-            prose = clipped;
+            blocks = applyWordLimitToBlocks(blocks, limit);
           }
-          const { text: deduped, trimmed } = dedupeParagraphs(prose, seenParagraphs);
-          if (trimmed && isManual) {
-            console.warn(`[ThinkForge] Removed redundant paragraphs in ${section.id} (manual mode).`);
-          }
+
           const sectionOutput: SectionOutput = {
             sectionId: rawSection.sectionId,
-            prose: deduped,
+            blocks: validateThinkForgeBlocks(blocks.map((block) => ({ ...block, id: ensureThinkForgeBlockId(block.id) }))),
           };
           const summary = section.goal || section.title;
           summariesById[section.id] = summary;
@@ -228,121 +236,6 @@ export class ScriptDraftAgent {
       .map((s) => byId.get(s.id))
       .filter((v): v is SectionOutput => Boolean(v));
   }
-
-  private assemble(outline: ScriptOutline, sections: SectionOutput[]): { blocks: BlockTree; content: string } {
-    const blocks: any[] = [];
-    const contentParts: string[] = [];
-
-    for (const section of sections) {
-      const outlineSection = outline.sections.find((s) => s.id === section.sectionId);
-      const headingText = outlineSection?.title || section.sectionId;
-      const level = outlineSection?.level === 'chapter' ? 2 : outlineSection?.level === 'section' ? 3 : 4;
-
-      // Heading block
-      blocks.push({
-        id: ensureBlockId(null),
-        type: 'heading',
-        props: { level },
-        children: [{ type: 'text', text: headingText }],
-      });
-
-      const paragraphs = section.prose.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
-      for (const para of paragraphs) {
-        blocks.push({
-          id: ensureBlockId(null),
-          type: 'paragraph',
-          children: [{ type: 'text', text: para }],
-        });
-      }
-
-      const hashes = '#'.repeat(level);
-      contentParts.push(`${hashes} ${headingText}\n\n${section.prose.trim()}`);
-    }
-
-    let validated = blocks;
-    try {
-      validated = validateBlockTree(blocks);
-    } catch (err) {
-      console.warn('Block validation warning (using assembled blocks):', err);
-    }
-
-    return {
-      blocks: validated,
-      content: contentParts.join('\n\n'),
-    };
-  }
-
-  private assembleFromText(outline: ScriptOutline, content: string): { blocks: BlockTree; content: string } {
-    const blocks: any[] = [];
-    let currentHeading: string | null = null;
-    let currentParas: string[] = [];
-
-    const flush = () => {
-      if (currentHeading) {
-        blocks.push({
-          id: ensureBlockId(null),
-          type: 'heading',
-          props: { level: 2 },
-          children: [{ type: 'text', text: currentHeading }],
-        });
-      }
-      for (const para of currentParas) {
-        const clean = para.trim();
-        if (!clean) continue;
-        blocks.push({
-          id: ensureBlockId(null),
-          type: 'paragraph',
-          children: [{ type: 'text', text: clean }],
-        });
-      }
-      currentParas = [];
-    };
-
-    const lines = content.split(/\n/);
-    for (const line of lines) {
-      const headingMatch = /^#\s+(.+)/.exec(line.trim());
-      if (headingMatch) {
-        // Flush previous section
-        flush();
-        currentHeading = headingMatch[1].trim();
-        currentParas = [];
-        continue;
-      }
-      currentParas.push(line);
-    }
-    flush();
-
-    let validated = blocks;
-    try {
-      validated = validateBlockTree(blocks);
-    } catch (err) {
-      console.warn('Block validation warning (coherence reassembly):', err);
-    }
-
-    return { blocks: validated, content: content.trim() };
-  }
-
-  private async runWithConcurrency<T>(
-    items: T[],
-    limit: number,
-    worker: (item: T) => Promise<void>
-  ): Promise<void> {
-    const queue = [...items];
-    const runners: Promise<void>[] = [];
-
-    const runNext = async (): Promise<void> => {
-      const item = queue.shift();
-      if (!item) return;
-      await worker(item);
-      await runNext();
-    };
-
-    for (let i = 0; i < Math.min(limit, items.length); i++) {
-      runners.push(runNext());
-    }
-
-    await Promise.all(runners);
-  }
 }
 
 export function createScriptDraftAgent(
@@ -355,7 +248,7 @@ export function createScriptDraftAgent(
 export async function generateScriptDraft(
   instruction: string,
   sessionState: SessionState,
-  existingScript?: { blocks?: BlockTree; content?: string; title?: string } | null
+  existingScript?: { blocks?: ThinkForgeBlock[]; content?: string; title?: string } | null
 ): Promise<ScriptDraftResult> {
   const context = quickAssembleContext(
     'script_draft',

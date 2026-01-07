@@ -48,14 +48,14 @@ Fill each field with the shortest valid value. Use enums and atomic labels.
 - narrator_voice: one-word operator persona (e.g., "guide", "teacher", "craftsperson")
 - medium: voiceover | slide_narration | visual_manual (operational visual manual; avoid theatrical framing)
 - tone: one word (e.g., "instructional", "calm", "direct")
-- forbidden: list of 2–3 elements only (e.g., ["slides", "camera_directions"])
+- forbidden: list of 2–3 elements only (e.g., ["slides", "camera_directions", "supervisory_language"])
 - allowed_metaphors: 2–3 short metaphors only (e.g., ["blueprint", "craft"])
-- style_notes: 2–3 short constraints (e.g., ["no fluff", "list-first"])
+- style_notes: 2–3 short constraints (e.g., ["no fluff", "actionable", "creator-first-voice"])
 - metaphor_reuse_limit: 1
 - mode_a_usage: "opening/bridge only"
-- mode_b_usage: "default blueprint voice"
+- mode_b_usage: "default blueprint voice oriented toward creator action"
 - mode_switch_rules: "open in Mode A, then Mode B; bridge with Mode A only"
-- For generation_mode=manual, enforce: neutral instructive voice, declarative sentences, minimal adjectives, no rhetorical questions, write as a reference document (not performed aloud), metaphors only if clarifying a system.
+- For generation_mode=manual, enforce: neutral instructive voice, declarative sentences, no bureaucratic language (validate, ensure, thresholds), write as a reference document (not performed aloud), trivial-first actions.
 
 Return JSON only.`;
   }

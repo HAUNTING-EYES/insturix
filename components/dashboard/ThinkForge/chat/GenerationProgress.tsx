@@ -1,27 +1,31 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { Hammer } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface GenerationProgressProps {
   active: boolean;
+  intent?: string | null;
   label?: string;
 }
 
 /**
- * Optimistic, retention-first progress widget for script generation streams.
- * - Never blocks rendering; purely visual feedback.
- * - Soft target window with easing; accuracy is secondary to reassurance.
- * - Rotates supportive micro-messages to keep users engaged on long runs.
+ * Sleek, ThinkForge-branded progress indicator.
+ * Only appears for script-related intents (generation/refinement).
+ * Uses a "forging" aesthetic with red/neutral tones.
  */
-export function GenerationProgress({ active, label = "Forging your script..." }: GenerationProgressProps) {
+export function GenerationProgress({ active, intent, label = "Forging Script..." }: GenerationProgressProps) {
   const [percent, setPercent] = useState(0);
   const [messageIdx, setMessageIdx] = useState(0);
   const startRef = useRef<number | null>(null);
-  const targetRef = useRef<number>(60000); // Start with 60s baseline
+  const targetRef = useRef<number>(60000);
   const rafRef = useRef<number | null>(null);
   const settleRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Only show for script-related intents
+  const isScriptIntent = intent === 'SCRIPT_GENERATE' || intent === 'SCRIPT_EDIT';
+  const shouldShow = active && isScriptIntent;
 
   const messages = useMemo(
     () => [
@@ -41,10 +45,9 @@ export function GenerationProgress({ active, label = "Forging your script..." }:
 
   // Reset when activation flips on
   useEffect(() => {
-    if (active) {
+    if (shouldShow) {
       startRef.current = Date.now();
-      // Target between 50s and 80s initially
-      targetRef.current = 50000 + Math.random() * 30000;
+      targetRef.current = 45000 + Math.random() * 25000; // 45-70s
       setPercent(0);
       setMessageIdx(0);
       
@@ -52,7 +55,7 @@ export function GenerationProgress({ active, label = "Forging your script..." }:
         clearTimeout(settleRef.current);
         settleRef.current = null;
       }
-    } else {
+    } else if (!active) {
       // Completion sequence
       setPercent((prev) => (prev > 0 ? 100 : 0));
       
@@ -62,7 +65,7 @@ export function GenerationProgress({ active, label = "Forging your script..." }:
       settleRef.current = setTimeout(() => {
         setPercent(0);
         settleRef.current = null;
-      }, 1500);
+      }, 1000);
     }
     return () => {
       if (settleRef.current) {
@@ -70,21 +73,20 @@ export function GenerationProgress({ active, label = "Forging your script..." }:
         settleRef.current = null;
       }
     };
-  }, [active]);
+  }, [shouldShow, active]);
 
   // Rotate messages
   useEffect(() => {
-    if (!active) return;
-    // Rotate every 4.5 seconds based on message length/complexity
+    if (!shouldShow) return;
     const interval = setInterval(() => {
       setMessageIdx((idx) => (idx + 1) % messages.length);
-    }, 4500);
+    }, 4000);
     return () => clearInterval(interval);
-  }, [active, messages.length]);
+  }, [shouldShow, messages.length]);
 
   // Animation loop
   useEffect(() => {
-    if (!active) return;
+    if (!shouldShow) return;
 
     const tick = () => {
       if (!startRef.current) return;
@@ -92,31 +94,18 @@ export function GenerationProgress({ active, label = "Forging your script..." }:
       const elapsed = now - startRef.current;
       let target = targetRef.current;
 
-      // Dynamic extension: if we're getting close (80%) or over, extend target
-      // Cap at 130s (2m 10s)
-      if (elapsed > target * 0.8) {
-         // Gently push target away to prevent stalling
-         const extension = 1000; 
-         target = Math.min(target + extension, 130000);
+      if (elapsed > target * 0.85) {
+         const extension = 800; 
+         target = Math.min(target + extension, 120000);
          targetRef.current = target;
       }
 
-      // Base progress on time
       const timeProgress = (elapsed / target) * 100;
       
       setPercent((prev) => {
-        // Ensure strictly monotonic visual progress
-        // We want to approach 98% but never hit 100% until done.
-        
-        // Target visual % based on time progress, capped at 98%
         const targetVisual = Math.min(98, timeProgress);
-        
-        // Smooth catchup
-        const delta = (targetVisual - prev) * 0.05;
-        
-        // Always add a tiny creep so it never looks frozen
-        const creep = 0.02;
-        
+        const delta = (targetVisual - prev) * 0.04;
+        const creep = 0.015;
         const next = prev + Math.max(delta, creep);
         return Math.min(99, Math.max(0, next));
       });
@@ -128,47 +117,61 @@ export function GenerationProgress({ active, label = "Forging your script..." }:
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [active]);
+  }, [shouldShow]);
 
-  if (!active && percent === 0) return null;
+  if (!shouldShow && percent === 0) return null;
 
   return (
-    <div className="px-4 pb-3 pt-2 w-full max-w-3xl mx-auto">
-      <div className="flex items-center justify-between mb-2 text-xs h-5">
-        <div className="flex items-center gap-2 font-medium text-zinc-200">
-          <Sparkles className="h-3.5 w-3.5 text-violet-400 fill-violet-400/20 animate-pulse" />
-          <span>{label}</span>
+    <motion.div 
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 10 }}
+      className="px-6 py-4 w-full border-t border-neutral-800/50 bg-neutral-900/20 backdrop-blur-md"
+    >
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <Hammer className="h-4 w-4 text-red-500" />
+              <motion.div 
+                animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="absolute inset-0 bg-red-500 rounded-full blur-md -z-10"
+              />
+            </div>
+            <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-neutral-400">
+              {label}
+            </span>
+          </div>
+          
+          <div className="h-4 overflow-hidden">
+            <AnimatePresence mode="wait">
+              <motion.span
+                key={messageIdx}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="text-[11px] font-medium text-neutral-500 italic block"
+              >
+                {messages[messageIdx % messages.length]}
+              </motion.span>
+            </AnimatePresence>
+          </div>
         </div>
         
-        <div className="relative w-64 h-full">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={messageIdx}
-              initial={{ opacity: 0, y: 5, filter: "blur(4px)" }}
-              animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              exit={{ opacity: 0, y: -5, filter: "blur(4px)" }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-              className="absolute right-0 top-0 text-zinc-400 font-medium text-right w-full truncate"
-            >
-              {messages[messageIdx % messages.length]}
-            </motion.div>
-          </AnimatePresence>
+        <div className="h-[2px] w-full bg-neutral-800 rounded-full overflow-hidden relative">
+          <motion.div
+            className="h-full bg-red-600 relative"
+            style={{ width: `${percent}%` }}
+            transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+          >
+            {/* Forging Glow */}
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-20 h-full bg-linear-to-r from-transparent to-red-400 blur-sm" />
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_10px_#ef4444]" />
+          </motion.div>
         </div>
       </div>
-      
-      <div className="h-1.5 rounded-full bg-zinc-800/50 overflow-hidden border border-zinc-700/30 relative">
-        {/* Background shimmer effect */}
-        <div className="absolute inset-0 bg-zinc-800/50" />
-        
-        {/* Progress Fill */}
-        <div
-          className="h-full bg-linear-to-r from-violet-500 via-fuchsia-500 to-cyan-500 shadow-[0_0_12px_rgba(167,139,250,0.35)] relative"
-          style={{ width: `${percent}%` }}
-        >
-          {/* Glint animation on the bar itself */}
-          <div className="absolute inset-0 bg-linear-to-r from-transparent via-white/40 to-transparent w-full -translate-x-full animate-[shimmer_2s_infinite]" />
-        </div>
-      </div>
-    </div>
+    </motion.div>
   );
 }
+

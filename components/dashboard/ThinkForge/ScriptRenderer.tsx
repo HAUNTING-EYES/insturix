@@ -9,11 +9,10 @@ function extractText(node: any): string {
 	if (typeof node === "string") return node;
 	if (Array.isArray(node)) return node.map(extractText).join("");
 	if (typeof node === "object") {
-		const direct = node.text ?? node.content;
-		if (typeof direct === "string") return direct;
-		if (Array.isArray(direct)) return direct.map(extractText).join("");
-		const children = node.children ?? node.content;
-		return extractText(children);
+		if (node.type === "link") return extractText(node.content);
+		if (typeof node.text === "string") return node.text;
+		const content = node.content ?? node.children;
+		return extractText(content);
 	}
 	return String(node);
 }

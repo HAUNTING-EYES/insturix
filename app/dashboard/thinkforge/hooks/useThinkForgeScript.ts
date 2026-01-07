@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { sanitizeServerScript, applyBlockPatches } from "@/lib/thinkforge/json";
+import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "./useThinkForgeClient";
 
 const LS_SESSION_PREFIX = "thinkforge_session_";
@@ -229,13 +229,7 @@ export function useThinkForgeScript(sessionId: string | null) {
     if (!res.ok) throw new Error(`Edit-blocks failed: ${res.status}`);
     const data = await res.json();
     const sanitized = sanitizeServerScript(data);
-    const nextBlocks = applyBlockPatches((script?.blocks as any[]) || [], {
-      title: sanitized?.title ?? undefined,
-      outline: sanitized?.outline ?? undefined,
-      content: sanitized?.content ?? undefined,
-      blocks: sanitized?.blocks as any[] | undefined,
-      replacements: Array.isArray((data as any)?.replacements) ? (data as any).replacements : undefined,
-    });
+    const nextBlocks = sanitized?.blocks ?? script?.blocks ?? null;
     const updated: ScriptModel = {
       title: sanitized?.title ?? script?.title ?? null,
       outline: sanitized?.outline ?? script?.outline ?? null,

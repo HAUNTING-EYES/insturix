@@ -1,6 +1,9 @@
-import { BaseAgent, type AgentConfig } from './base-agent';
+import { StructuredAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import type { NarrativeContract } from './script-contract-agent';
+import { z } from 'zod';
+import { ensureThinkForgeBlockId, normalizeThinkForgeRichText, validateThinkForgeBlocks } from '../schemas/thinkforge-block';
+import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 
 export interface SectionInput extends AgentInput {
   section: {
@@ -31,10 +34,137 @@ export interface SectionInput extends AgentInput {
 
 export interface SectionOutput {
   sectionId: string;
-  prose: string;
+  blocks: ThinkForgeBlock[];
+  error?: string;
 }
 
-export class ScriptSectionAgent extends BaseAgent {
+// Keep AST validation lightweight to avoid recursive schema issues with the AI SDK
+const richTextNodeSchema: z.ZodType<any> = z.object({
+  type: z.enum(['text', 'link']),
+  text: z.string().optional(),
+  styles: z.record(z.boolean()).optional(),
+  href: z.string().optional(),
+  content: z.array(z.any()).optional(),
+});
+
+// Minimal schema to keep AI SDK happy; deep validation happens post-run via ThinkForge validators
+const sectionSchema = z.object({
+  sectionId: z.string().min(1),
+  blocks: z.array(z.any()).min(1),
+});
+
+const ALLOWED_KINDS = ['header', 'action', 'why', 'example', 'paragraph'] as const;
+
+const phraseRewrites: Array<[RegExp, string]> = [
+  [/validate cohesion/i, 'check that these elements support each other'],
+  [/ensure alignment/i, 'keep the tone aligned and human'],
+  [/ensure consistency/i, 'keep the tone consistent'],
+  [/ensure clarity/i, 'keep it clear'],
+  [/ensure/i, 'make sure'],
+  [/validate/i, 'check'],
+  [/cohesion/i, 'fit together'],
+  [/leverage/i, 'use'],
+  [/utilize/i, 'use'],
+  [/framework/i, 'plan'],
+];
+
+function simplifySentence(text: string): string {
+  let next = text;
+  for (const [re, replacement] of phraseRewrites) {
+    next = next.replace(re, replacement);
+  }
+  return next.trim();
+}
+
+function sentenceSplit(text: string): string[] {
+  return text
+    .split(/(?<=[\.\!\?])\s+|\n+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function extractTextFromContent(content: any): string {
+  const nodes = normalizeThinkForgeRichText(content);
+  return nodes
+    .map((n) => {
+      if (n.type === 'link') return n.content.map((c) => (c.text || '')).join(' ');
+      return n.text || '';
+    })
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function makeBlock(kind: ThinkForgeBlock['kind'], text: string, meta?: any): ThinkForgeBlock | null {
+  const clean = simplifySentence(text).trim();
+  if (!clean) return null;
+  return {
+    id: ensureThinkForgeBlockId(),
+    kind,
+    content: normalizeThinkForgeRichText([{ type: 'text', text: clean, styles: {} }]),
+    meta,
+  };
+}
+
+function toThinkForgeBlock(raw: any): ThinkForgeBlock | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const kind = ALLOWED_KINDS.includes((raw as any).kind) ? (raw as any).kind : 'paragraph';
+  const metaRaw = (raw as any).meta;
+  const meta = metaRaw && typeof metaRaw === 'object' ? {
+    ...(typeof metaRaw.role === 'string' ? { role: metaRaw.role } : {}),
+    ...(typeof metaRaw.goal === 'string' ? { goal: metaRaw.goal } : {}),
+  } : undefined;
+  const content = normalizeThinkForgeRichText((raw as any).content ?? (raw as any).text);
+  return {
+    id: raw.id,
+    kind: kind as ThinkForgeBlock['kind'],
+    content,
+    meta,
+  };
+}
+
+function splitDenseBlocks(blocks: ThinkForgeBlock[]): ThinkForgeBlock[] {
+  const output: ThinkForgeBlock[] = [];
+
+  for (const block of blocks) {
+    const text = extractTextFromContent(block.content);
+    if (!text) continue;
+
+    // Header stays single
+    if (block.kind === 'header') {
+      output.push(makeBlock('header', text, block.meta) as ThinkForgeBlock);
+      continue;
+    }
+
+    // If very dense or has multiple commas, split into sentences and map to actions
+    const sentences = sentenceSplit(text);
+    const isDense = text.split(/\s+/).length > 25 || (text.match(/,/g) || []).length >= 2 || sentences.length > 1;
+
+    if (isDense) {
+      sentences.forEach((s, idx) => {
+        if (!s) return;
+        // If the sentence explains a reason, route to why; else action
+        const lower = s.toLowerCase();
+        const isWhy = /because|so that|so you can|so they can/.test(lower);
+        const kind = isWhy ? 'why' : 'action';
+        const made = makeBlock(kind, s, block.meta);
+        if (made) output.push(made);
+        // Add spacing by keeping them as separate blocks
+      });
+      continue;
+    }
+
+    // Not dense: keep kind if action/why/example/paragraph, but ensure one idea
+    const kind = block.kind === 'why' ? 'why' : block.kind === 'example' ? 'example' : 'action';
+    const made = makeBlock(kind, text, block.meta);
+    if (made) output.push(made);
+  }
+
+  return output;
+}
+
+export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSchema>> {
+  protected schema = sectionSchema;
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
     const modelName = 'gemini-2.5-flash';
     super({
@@ -97,270 +227,85 @@ ${context.projectSummary || '(No project context)'}
 ## User Request
 ${userPrompt}
 
-## Rules
-- GenerationMode=manual: expository instructional tone, neutral voice, declarative sentences, minimal adjectives, no rhetorical questions; write as a reference document, not to be performed aloud.
-- Metaphors only if they clarify a system. No theatrical visual framing, storytelling, emotional language, or self-referential meta statements (e.g., "This section", "This framework", "This analysis").
-- Output must begin with two lines exactly: "Knowledge Role: ${knowledgeRole}" and "Operational Goal: ${operationalGoal}"; if either header is missing, regenerate and fail the output.
-- Use the knowledge role to set voice (e.g., Architect = systems design constraints; Operator = procedural commands; Strategist = decision matrices; Analyst = diagnostics).
-- Bullet-first: default to bullets; paragraphs only when a bullet cannot convey the idea and must be ≤2 sentences.
-- Canonical Instruction Representation (CIR) ONLY: plain text sections labelled Action, Execution Guidance, Example, Next; bullets (-) and numbered steps (1.) allowed. No HTML, no markdown tables, no bold/italic/code ticks, no BlockNote JSON, no inline styling.
-- Write only this section; do not summarize or restate earlier sections. Every paragraph must introduce a new concept, step, constraint, validation, or transition condition.
-- Enforce medium locking: no slides/screen/meta/camera language if not appropriate for ${contract.medium}.
-- No placeholders. Include concrete actions, inputs, expected outputs, constraints, and failure modes.
-- Prefer headings, bullet lists, numbered steps, and checklists; if a list communicates the idea, do not write paragraphs.
-- For every Action, immediately include inline execution guidance with this structure (no extra sections):
-- For every Action group (cluster related steps under ONE Action), include inline execution guidance with this structure (no extra sections):
-  Action: <command grouping 3–5 related steps>
-  Execution Guidance: <attention cue and validation check with timing/perception and cause-effect references>
-  Why: <one short causal explanation for the group (optional if obvious)>
-  Next: <transition condition>
-- Execution guidance must be concrete and observational (framing, timing, perception, cause-effect). No narratives, metaphors, or framework explanations.
-- Include at least one clearly labeled drop-in example marked optional ("Example (Use As-Is):", "Sample Output:", or "Worked Example:") that a user can copy directly; align the example with the section's knowledge_role and knowledge_layer.
-- Remove any sentence that explains the framework/system itself instead of user action. Use imperative verbs and user-oriented cues ("Do", "Check", "Adjust", "You should see...").
-- Ban expository padding such as "This phase establishes", "The purpose of this step", "Ensures alignment with", "Provides clarity"; replace with direct imperatives.
-- Action density: at least one actionable instruction every 2–3 lines; no more than 3 consecutive lines without an action/check/decision.
-- Stop once the section enables action; avoid repetition and padding.
-- Obey intensity cap: stay at or below the provided level; only climax sections reach level 5.
-- Vary sentence rhythm without fluff; avoid reusing metaphors or phrasing from prior sections.
-- No JSON, no tags—return plain prose with headings respected if present.`;
+## Output format (strict JSON, no prose, no prefixes, no markdown)
+Return ONLY valid JSON matching this TypeScript type (do not wrap in fences):
+{
+  "sectionId": string; // must equal the provided section.id
+  "blocks": Array<{
+    "id": string;              // stable unique id
+    "kind": "header" | "action" | "why" | "example" | "paragraph";
+    "content": Array<{         // rich-text AST nodes (must be FLAT array)
+      "type": "text";          // always "text" for plain text nodes
+      "text": string;
+      "styles"?: { "bold"?: boolean; "italic"?: boolean; "code"?: boolean };
+    }>;
+    "meta"?: { "role"?: string; "goal"?: string; };
+  }>;
+}
+
+Rules for content:
+- Use ONLY type: "text" for nodes in the content array. BlockNote does not support nested children or "paragraph" types inside content.
+- No label prefixes in text (no "Action:", "Why:", "Example:").
+- Inline formatting is allowed via the "styles" object (bold, italic, code), do not use markdown syntax in the text string itself.
+- Include one header block for the section title with meta.role/meta.goal when useful.
+- Provide 4–7 action blocks; pair actions with why/example blocks only when they add clarity.
+- Do not emit any string outside the JSON object. No markdown fences.
+`;
   }
 
   async generateSection(input: SectionInput, overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>): Promise<SectionOutput> {
-    let attempts = 0;
-    let lastProse = '';
-    let previousLength = 0;
-    const knowledgeRole = (input as SectionInput).section.knowledge_role || 'Operator';
-    while (attempts < 2) {
-      const { text } = await this.runComplete(input, overrides);
-      const prose = text.trim();
-      lastProse = prose;
-      previousLength = prose.length;
-      const validation = this.validateTeachingPresence(prose);
-
-      const sanitized = this.stripHTMLTags(this.stripMetaLanguage(prose));
-      const normalized = this.normalizeStructure(sanitized);
-      const compressed = this.compressForSkim(normalized);
-
-      // Non-fatal fixes handled locally (no retry): missing example, minor structure, over-length, HTML
-      if (!validation.metaDetected && !validation.actionMissing && !validation.formattingDetected) {
-        const withExample = validation.missingExample
-          ? `${compressed}\n\n${this.buildFallbackExample(knowledgeRole, (input as SectionInput).section.knowledge_layer || '')}`
-          : compressed;
-        return {
-          sectionId: input.section.id,
-          prose: withExample,
-        };
-      }
-
-      // Fatal: meta or missing Action -> single retry with reduction
-      const canRetry = attempts === 0 && (validation.metaDetected || validation.actionMissing || validation.formattingDetected);
-      if (canRetry) {
-        attempts += 1;
-        console.warn(`[ThinkForge] Validation retry (meta=${validation.metaDetected}, actionMissing=${validation.actionMissing}); reducing verbosity for section ${input.section.id}`);
-        overrides = {
-          ...(overrides || {}),
-          temperature: Math.min(0.25, overrides?.temperature ?? 0.35),
-          maxTokens: Math.min(1200, overrides?.maxTokens ?? 1400),
-        };
-        (input as any).userPrompt = `${(input as any).userPrompt}\n\nREDUCE: Remove meta language; collapse multiple Actions into one grouped Action with shared Execution Guidance; omit redundant Why if obvious; output must be shorter than previous length ${previousLength}.`;
-        continue;
-      }
-
-      // Hard stop: no further retries; apply local fixes
-      const withExample = validation.missingExample
-        ? `${compressed}\n\n${this.buildFallbackExample(knowledgeRole, (input as SectionInput).section.knowledge_layer || '')}`
-        : compressed;
-      return {
-        sectionId: input.section.id,
-        prose: withExample,
-      };
-    }
-
-    // Final fallback: sanitized, normalized, compressed, example-safe
-    const fallbackBase = this.compressForSkim(this.normalizeStructure(this.stripHTMLTags(this.stripMetaLanguage(lastProse || (input as any).userPrompt || ''))));
-    const fallback = `${fallbackBase}\n\n${this.buildFallbackExample(knowledgeRole, (input as SectionInput).section.knowledge_layer || '')}`;
-    return {
-      sectionId: input.section.id,
-      prose: fallback,
-    };
-  }
-
-  /**
-   * Rule-based validator to ensure every Action has execution guidance inline.
-   * No model calls; if invalid, caller retries with stricter constraints.
-   */
-  private validateTeachingPresence(text: string): {
-    ok: boolean;
-    metaDetected: boolean;
-    missingExample: boolean;
-    htmlDetected: boolean;
-    actionMissing: boolean;
-    formattingDetected: boolean;
-  } {
-    const actionMatches = text.match(/Action:/gi)?.length ?? 0;
-    const guidanceMatches = text.match(/Execution Guidance:/gi)?.length ?? 0;
-    const whyMatches = text.match(/Why:/gi)?.length ?? 0;
-    const nextMatches = text.match(/Next:/gi)?.length ?? 0;
-    const metaDetected = this.hasMetaLanguage(text);
-    const htmlDetected = /<[^>]+>/g.test(text);
-    const inlineFormattingDetected = /`|\*\*|__/.test(text);
-    const tableDetected = /\|[^\n]*\|/g.test(text);
-    const formattingDetected = inlineFormattingDetected || tableDetected;
-    const missingExample = !/(Example \(Use As-Is\):|Sample Output:|Worked Example:)/i.test(text);
-    const actionMissing = actionMatches === 0;
-    const structureOk = actionMatches > 0 && guidanceMatches >= actionMatches && nextMatches >= actionMatches; // Why optional per clustered action
-    const densityOk = this.hasActionDensity(text);
-    return {
-      ok: structureOk && densityOk && !metaDetected && !htmlDetected && !missingExample && !formattingDetected,
-      metaDetected,
-      missingExample,
-      htmlDetected,
-      actionMissing,
-      formattingDetected,
-    };
-  }
-
-  /**
-   * Detect meta or self-referential language that explains the framework instead of instructing action.
-   */
-  private hasMetaLanguage(text: string): boolean {
-    const patterns = [
-      /this section/i,
-      /this framework/i,
-      /this analysis/i,
-      /this protocol/i,
-      /the objective of/i,
-      /is designed to/i,
-      /this guide/i,
-      /this phase establishes/i,
-      /the purpose of this step/i,
-      /ensures alignment with/i,
-      /provides clarity/i,
-    ];
-    return patterns.some((p) => p.test(text));
-  }
-
-  /**
-   * Remove sentences containing meta-language while leaving instructional content intact.
-   */
-  private stripMetaLanguage(text: string): string {
-    const sentences = text.split(/(?<=[.!?])\s+/);
-    const keep: string[] = [];
-    for (const s of sentences) {
-      if (this.hasMetaLanguage(s)) continue;
-      keep.push(s);
-    }
-    return keep.join(' ').trim();
-  }
-
-  /**
-   * Strip all HTML tags from text to prevent block validation errors.
-   */
-  private stripHTMLTags(text: string): string {
-    return text.replace(/<[^>]+>/g, '');
-  }
-
-  /**
-   * Normalize structure by ensuring each Action has Execution Guidance and Next, and at most one Why per cluster.
-   */
-  private normalizeStructure(text: string): string {
-    const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-    const normalized: string[] = [];
-    let pendingWhy = false;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^Action:/i.test(line)) {
-        normalized.push(line);
-        if (!/^Execution Guidance:/i.test(lines[i + 1] || '')) {
-          normalized.push('Execution Guidance: Focus on observable state; if expected change is absent, adjust inputs and timing.');
-        }
-        pendingWhy = true;
-        continue;
-      }
-      if (/^Why:/i.test(line)) {
-        if (pendingWhy) {
-          normalized.push(line);
-          pendingWhy = false;
-        }
-        continue;
-      }
-      if (/^Execution Guidance:/i.test(line) || /^Next:/i.test(line) || /^Example \(Use As-Is\):/i.test(line) || /^Sample Output:/i.test(line) || /^Worked Example:/i.test(line)) {
-        normalized.push(line);
-        continue;
-      }
-      normalized.push(line);
-    }
-    // Ensure every action cluster ends with Next
-    for (let i = 0; i < normalized.length; i++) {
-      if (/^Action:/i.test(normalized[i])) {
-        let hasNext = false;
-        for (let j = i + 1; j < normalized.length && j <= i + 5; j++) {
-          if (/^Action:/i.test(normalized[j])) break;
-          if (/^Next:/i.test(normalized[j])) { hasNext = true; break; }
-        }
-        if (!hasNext) {
-          normalized.splice(i + 1, 0, 'Next: Proceed when the grouped outputs match expected thresholds.');
-        }
+    const attempt = async () => this.runStructured(input, overrides);
+    try {
+      const { result } = await attempt();
+      const rawBlocks = Array.isArray((result as any)?.blocks)
+        ? (result as any).blocks.map(toThinkForgeBlock).filter(Boolean) as ThinkForgeBlock[]
+        : [];
+      const shaped = splitDenseBlocks(rawBlocks);
+      const blocks = validateThinkForgeBlocks([
+        // Always lead with a header using the section title
+        makeBlock('header', input.section.title, { role: input.section.role, goal: input.section.goal })!,
+        ...shaped,
+      ]);
+      const sectionId = (result as any)?.sectionId || input.section.id;
+      const safeBlocks = blocks.length > 0 ? blocks : [
+        {
+          id: ensureThinkForgeBlockId(),
+          kind: 'paragraph',
+          content: [
+            { type: 'text', text: `${input.section.title}: ${input.section.goal}`, styles: {} },
+          ],
+          meta: { role: input.section.role, goal: input.section.goal },
+        },
+      ];
+      return { sectionId, blocks: safeBlocks };
+    } catch (err) {
+      try {
+        const { result } = await attempt();
+        const rawBlocks = Array.isArray((result as any)?.blocks)
+          ? (result as any).blocks.map(toThinkForgeBlock).filter(Boolean) as ThinkForgeBlock[]
+          : [];
+        const shaped = splitDenseBlocks(rawBlocks);
+        const blocks = validateThinkForgeBlocks([
+          makeBlock('header', input.section.title, { role: input.section.role, goal: input.section.goal })!,
+          ...shaped,
+        ]);
+        const sectionId = (result as any)?.sectionId || input.section.id;
+        const safeBlocks = blocks.length > 0 ? blocks : [
+          {
+            id: ensureThinkForgeBlockId(),
+            kind: 'paragraph',
+            content: [
+              { type: 'text', text: `${input.section.title}: ${input.section.goal}`, styles: {} },
+            ],
+            meta: { role: input.section.role, goal: input.section.goal },
+          },
+        ];
+        return { sectionId, blocks: safeBlocks };
+      } catch (err2) {
+        console.error('ScriptSectionAgent: structured generation failed', err2);
+        return { sectionId: input.section.id, blocks: [], error: 'structured_generation_failed' };
       }
     }
-    return normalized.join('\n');
-  }
-
-  /**
-   * Enforce action density: at least one actionable line per ~3 lines and no long runs without action/check.
-   */
-  private hasActionDensity(text: string): boolean {
-    const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) return false;
-    const isActionLine = (line: string) => /^(Action:|Execution Guidance:|Why:|Next:|\-|\u2022)/i.test(line) || /\b(check|verify|adjust|compare|measure|set|run|apply|execute|observe|confirm|proceed)\b/i.test(line);
-    let actionCount = 0;
-    let run = 0;
-    for (const line of lines) {
-      if (isActionLine(line)) {
-        actionCount += 1;
-        run = 0;
-      } else {
-        run += 1;
-        if (run > 3) return false;
-      }
-    }
-    const required = Math.ceil(lines.length / 3);
-    return actionCount >= required;
-  }
-
-  /**
-   * Compress content to a skim length (~200-300 words) by removing low-action sentences first.
-   */
-  private compressForSkim(text: string): string {
-    const wordCount = text.split(/\s+/).filter(Boolean).length;
-    if (wordCount <= 300) return text;
-    const sentences = text.split(/(?<=[.!?])\s+/);
-    const keep: string[] = [];
-    const isHighValue = (s: string) => /(Action:|Execution Guidance:|Why:|Next:|Example \(Use As-Is\):|Sample Output:|Worked Example:|check|verify|adjust|compare|measure|set|run|apply|execute|observe|confirm|proceed)/i.test(s);
-    for (const s of sentences) {
-      if (isHighValue(s)) keep.push(s.trim());
-    }
-    if (keep.length === 0) return text; // fallback if parsing failed
-    return keep.join(' ').trim();
-  }
-
-  /**
-   * Provide a minimal, copy-ready example aligned to the knowledge role/layer.
-   */
-  private buildFallbackExample(role: string, layer: string): string {
-    const label = 'Example (Use As-Is):';
-    const layerLower = (layer || '').toLowerCase();
-    if (role === 'Operator' || layerLower.includes('execution')) {
-      return `${label} Step-by-step: 1) Run action with input A; 2) Observe output B within 30s; 3) If B < threshold, increase A by 10% and retry.`;
-    }
-    if (role === 'Strategist' || layerLower.includes('distribution')) {
-      return `${label} Sample post: "Title - Key result in 12 words" + bullet CTA + link. Schedule at HH:MM UTC, platform tags: [platform1, platform2].`;
-    }
-    if (role === 'Analyst' || layerLower.includes('data')) {
-      return `${label} Sample query: SELECT metric, SUM(value) FROM table WHERE ts >= NOW() - INTERVAL '24 hours' GROUP BY metric ORDER BY SUM(value) DESC LIMIT 5; Expected pattern: top metric stabilizes within 5% across two runs.`;
-    }
-    // Architect or default
-    return `${label} Minimal blueprint: Inputs [A, B], Process [Step1: validate A; Step2: transform B with rule R], Output [O1 numeric, O2 log]. Proceed only when O1 within tolerance ±2%.`;
   }
 }
 

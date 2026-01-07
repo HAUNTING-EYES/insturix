@@ -138,6 +138,7 @@ export interface ProjectContextData {
 export interface ScriptContextData {
   title?: string;
   content?: string;
+  blocks?: import('../schemas/thinkforge-block').ThinkForgeBlock[];
   version?: number;
 }
 

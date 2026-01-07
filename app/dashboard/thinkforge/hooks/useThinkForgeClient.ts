@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
-import { sanitizeServerScript, applyBlockPatches, ensureBlockIds } from "@/lib/thinkforge/json";
+import { sanitizeServerScript, applyBlockPatches } from "@/lib/thinkforge/json";
 
 // Lightweight script model
 export type Block = any;
@@ -125,9 +125,6 @@ export function useThinkForgeClient() {
       }
       const data: HydrateResponse = await res.json();
       const sanitized = data?.script ? sanitizeServerScript(data.script) : null;
-      if (sanitized && Array.isArray(sanitized.blocks)) {
-        sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
-      }
       setSessionId(data.sessionId);
       setScript(sanitized);
       setChat(data.chat || []);

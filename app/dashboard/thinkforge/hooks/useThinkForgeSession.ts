@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
-import { sanitizeServerScript, ensureBlockIds } from "@/lib/thinkforge/json";
+import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "./useThinkForgeClient";
 
 const LS_CURRENT_SESSION = "thinkforge_current_session";

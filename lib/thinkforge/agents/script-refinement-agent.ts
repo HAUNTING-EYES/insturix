@@ -18,37 +18,45 @@
  * The agent only knows: context in → reasoning → structured output
  */
 
-import { generateObject } from 'ai';
 import { z } from 'zod';
 import { StructuredAgent, type AgentConfig } from './base-agent';
-import type { AgentInput, AgentStructuredOutput } from './types';
-import { formatContextString, quickAssembleContext } from '../context';
+import type { AgentInput } from './types';
+import { quickAssembleContext } from '../context';
 import type { SessionState } from '../state/types';
-import type { BlockTree } from '../schemas/canonical';
-import { validateBlockTree } from '../schemas/canonical';
+import type { ThinkForgeBlock, RichTextAST, ThinkForgeBlockKind } from '../schemas/thinkforge-block';
+import { applyThinkForgeBlockPatches, extractTextFromRichText, type ThinkForgeBlockPatch } from '../utils/thinkforge-block-patch';
+import { ensureThinkForgeBlockId } from '../schemas/thinkforge-block';
 import { updateScriptState } from '../state/session-state';
-import { createThinkForgeModel } from './model-factory';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
 // =============================================================================
 
-const InlineNodeSchema = z.object({
-  type: z.enum(['text', 'em', 'strong', 'code']),
-  text: z.string()
-});
+const richTextNodeSchema: z.ZodType<any> = z.lazy(() =>
+  z.object({
+    type: z.string().min(1),
+    text: z.string().optional(),
+    styles: z.record(z.boolean()).optional(),
+    children: z.array(richTextNodeSchema).optional(),
+  })
+);
 
-const BlockSchema: z.ZodType<any> = z.object({
-  id: z.string(),
-  type: z.enum(['heading', 'paragraph', 'bulletList', 'numberedList', 'listItem', 'code', 'quote', 'dialogue', 'divider']),
-  props: z.record(z.string(), z.unknown()).optional(),
-  children: z.array(z.union([InlineNodeSchema, z.lazy(() => BlockSchema as z.ZodType<any>)]))
+const blockPatchSchema = z.object({
+  blockId: z.string(),
+  content: z.array(richTextNodeSchema).optional(),
+  text: z.string().optional(),
+  kind: z.enum(['header', 'action', 'why', 'example', 'paragraph']).optional(),
+  meta: z
+    .object({
+      role: z.string().optional(),
+      goal: z.string().optional(),
+    })
+    .optional(),
 });
 
 const ScriptRefinedSchema = z.object({
-  title: z.string(),
-  blocks: z.array(BlockSchema),
-  content: z.string()
+  patches: z.array(blockPatchSchema),
+  title: z.string().optional(),
 });
 
 type ScriptRefinedOutput = z.infer<typeof ScriptRefinedSchema>;
@@ -70,36 +78,33 @@ export class ScriptRefinementAgent extends StructuredAgent<ScriptRefinedOutput> 
     super({
       ...config,
       agentType: 'script_refinement',
-      modelName: 'gemini-3-flash-preview',
-      maxTokens: config?.maxTokens ?? 4500,
-      temperature: config?.temperature ?? 0.65,
+      modelName: 'gemini-2.5-flash',
+      maxTokens: config?.maxTokens ?? 1800,
+      temperature: config?.temperature ?? 0.4,
     });
   }
   
   buildPrompt({ context, userPrompt }: AgentInput): string {
-    return `You are revising an existing operational manual ("script" is a legacy alias; keep manual tone only).
+    return `You are revising ONLY the provided ThinkForge blocks. Do not touch any other blocks.
 
-## Current Manual
-${context.currentScript || '(No existing content)'}
+Blocks (blockId | kind):
+${context.currentScript || '(none)'}
 
-## Requested Change
+Requested change:
 ${userPrompt}
 
-## Rules
-- Preserve unrelated sections.
-- Modify only what is necessary.
-- Output the full revised manual.
-- Tighten operational clarity; remove sentences that do not introduce a step, decision, constraint, input, output, or failure mode.
-- Better align with the platform and format requirements without adding narrative framing.
-- Do not shorten; maintain or expand length where clarity requires.
-- No summarization; keep complete operational content.
-
-${context.projectSummary ? `## Project Context\n${context.projectSummary}\n\n` : ''}Return the refined manual with:
-- title: Improved operational title
-- blocks: Refined blocks in canonical format (same structure as original)
-- content: Refined plain text version
-
-Maintain the same block structure but improve operational quality where requested.`;
+Rules
+- Scope lock: edit only the provided blockIds. Do not reorder unless blockId is NEW_BLOCK.
+- Voice: imperative, maker-first. Ban supervisory verbs ("ensure", "verify", "validate").
+- Preserve formatting: maintain inline emphasis/code when present.
+- Examples: if unchanged, omit from patches.
+- If adding, emit blockId: "NEW_BLOCK" with kind and rich-text content.
+- Output JSON only (no markdown, no prose): {
+    "patches": [
+      { "blockId": string, "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string} }
+    ],
+    "title"?: string
+  }`;
   }
   
   /**
@@ -107,40 +112,36 @@ Maintain the same block structure but improve operational quality where requeste
    */
   async refineScript(
     input: AgentInput,
-    originalBlocks?: BlockTree
+    originalBlocks: ThinkForgeBlock[]
   ): Promise<{
     title: string;
-    blocks: BlockTree;
-    content: string;
+    patches: ThinkForgeBlockPatch[];
     draft: boolean;
   }> {
     const { result } = await this.runStructured(input);
-    
-    // Validate and ensure block IDs
-    let blocks = result.blocks;
-    
-    // Preserve original block IDs where possible
-    if (originalBlocks) {
-      blocks = blocks.map((block, idx) => {
-        const originalBlock = originalBlocks[idx];
-        return {
-          ...block,
-          id: block.id || originalBlock?.id || `block_${Date.now()}_${idx}`
-        };
+    const patches = Array.isArray(result.patches) ? result.patches : [];
+    const normalized: ThinkForgeBlockPatch[] = patches
+      .map((p) => {
+        const blockId = typeof p.blockId === 'string' ? p.blockId : ensureThinkForgeBlockId();
+        const content = Array.isArray((p as any).content) ? ((p as any).content as RichTextAST) : undefined;
+        const text = typeof (p as any).text === 'string' ? (p as any).text : undefined;
+        const kind = (p as any).kind as ThinkForgeBlockKind | undefined;
+        const meta = (p as any).meta as { role?: string; goal?: string } | undefined;
+        return { blockId, content, text, kind, meta } satisfies ThinkForgeBlockPatch;
+      })
+      .filter((p) => {
+        if (p.content && p.content.length) return true;
+        if (p.text && p.text.trim().length) return true;
+        return false;
       });
-    }
-    
-    // Validate block tree
-    try {
-      blocks = validateBlockTree(blocks);
-    } catch (error) {
-      console.error('Block validation error in refinement, using as-is:', error);
-    }
-    
+
+    // Validate that we only target known blocks or NEW_BLOCK
+    const knownIds = new Set(originalBlocks.map((b) => b.id));
+    const filtered = normalized.filter((p) => p.blockId === 'NEW_BLOCK' || knownIds.has(p.blockId));
+
     return {
-      title: result.title,
-      blocks,
-      content: result.content,
+      title: result.title || '',
+      patches: filtered,
       draft: false,
     };
   }
@@ -169,68 +170,36 @@ export async function refineScriptDraft(
   sessionId: string,
   userId: string,
   instruction: string,
-  draftBlocks: BlockTree,
+  draftBlocks: ThinkForgeBlock[],
   sessionState: SessionState
 ): Promise<void> {
   try {
-    // Convert draft blocks to content string
-    const draftContent = draftBlocks
-      .map(block => extractTextFromBlock(block))
-      .join('\n\n');
-    
-    // Convert to new context format
     const context = quickAssembleContext(
       'script_refinement',
       sessionState.metadata,
-      { 
-        title: sessionState.script?.title, 
-        content: draftContent,
-        version: sessionState.script?.version 
-      },
+      { title: sessionState.script?.title, content: undefined, version: sessionState.script?.version },
       sessionState.chat
     );
-    
-    // Create input for new agent
-    const input: AgentInput = {
-      context,
-      userPrompt: instruction,
-    };
-    
-    // Run agent
+
     const agent = createScriptRefinementAgent();
-    const result = await agent.refineScript(input, draftBlocks);
-    
-    // Update session state silently (replace draft)
+    const result = await agent.refineScript({ context, userPrompt: instruction }, draftBlocks);
+
+    const patchedBlocks = applyThinkForgeBlockPatches(draftBlocks, result.patches || []);
+    const content = patchedBlocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
+
     await updateScriptState(sessionId, userId, {
       title: result.title,
-      blocks: result.blocks,
-      content: result.content,
+      blocks: patchedBlocks,
+      content,
       draft: false,
-      version: (sessionState.script?.version || 0) + 1
+      version: (sessionState.script?.version || 0) + 1,
     });
-    
+
     console.log(`Script refined for session ${sessionId}`);
   } catch (error) {
     console.error('Error refining script:', error);
     // Don't throw - refinement failures shouldn't break the system
     // The draft remains in place
   }
-}
-
-/**
- * Extract plain text from a block recursively
- */
-function extractTextFromBlock(block: any): string {
-  if (!block || !block.children) return '';
-  
-  return block.children
-    .map((child: any) => {
-      if (typeof child === 'string') return child;
-      if (child.type === 'text' || child.text) return child.text || '';
-      if (child.children) return extractTextFromBlock(child);
-      return '';
-    })
-    .filter(Boolean)
-    .join('');
 }
 

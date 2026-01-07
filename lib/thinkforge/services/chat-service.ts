@@ -5,119 +5,104 @@
 
 import { chatAgent } from '../agents/chat-agent';
 import { generateScriptDraft } from '../agents/script-draft-agent';
+import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
+import { quickAssembleContext } from '../context';
+import { classifyIntent, intentRequiresSelection, type Intent } from '../intent/intent-gate';
 import * as db from './db';
 import type { SessionState, ProjectMeta } from '../state/types';
-import type { BlockTree } from '../schemas/canonical';
-import type { CIRDocument, CIRSection } from '../schemas/cir';
+import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
+import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
+
+// Generator may be imperfect. Renderer must never fail.
+
+function normalizeText(value: string | undefined | null): string {
+  return (value || '').toLowerCase();
+}
+
+function blockToPlainText(block: any): string {
+  // ThinkForge block
+  if (block && Array.isArray((block as any).content)) {
+    return extractTextFromRichText((block as any).content as any);
+  }
+  const children = Array.isArray(block?.children) ? block.children : [];
+  const texts: string[] = [];
+  for (const child of children) {
+    if (child && typeof child === 'object') {
+      if (typeof (child as any).text === 'string') {
+        texts.push((child as any).text);
+      } else if (Array.isArray((child as any).children)) {
+        texts.push(blockToPlainText(child));
+      }
+    }
+  }
+  return texts.join(' ').trim();
+}
+
+function resolveBlockIdsBySelection(blocks: any[], selection?: string | null): string[] {
+  if (!selection || !selection.trim() || !Array.isArray(blocks)) return [];
+  const needle = normalizeText(selection).slice(0, 400);
+  const matches: string[] = [];
+  blocks.forEach((b: any) => {
+    const text = normalizeText(blockToPlainText(b));
+    if (text.includes(needle) && typeof b?.id === 'string') {
+      matches.push(b.id);
+    }
+  });
+  return matches;
+}
+
+function resolveContextWindowTF(blocks: ThinkForgeBlock[], targetIds: string[], window: number = 1): ThinkForgeBlock[] {
+  if (!Array.isArray(blocks) || blocks.length === 0 || targetIds.length === 0) return [];
+  const indices = targetIds
+    .map((id) => blocks.findIndex((b) => b.id === id))
+    .filter((i) => i >= 0);
+  if (!indices.length) return [];
+  const start = Math.max(0, Math.min(...indices) - window);
+  const end = Math.min(blocks.length - 1, Math.max(...indices) + window);
+  return blocks.slice(start, end + 1);
+}
+
+function formatBlocksForPromptTF(blocks: ThinkForgeBlock[]): string {
+  return blocks
+    .map((b) => `[${b.id}] (${b.kind}) ${extractTextFromRichText(b.content)}`.trim())
+    .filter(Boolean)
+    .join('\n');
+}
+
+function suggestInsertionPointTF(blocks: ThinkForgeBlock[]): { insertAfterBlockId?: string; atEnd?: boolean } {
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    return { atEnd: true };
+  }
+  const lastAction = [...blocks].reverse().find((b) => b.kind === 'action');
+  if (lastAction) return { insertAfterBlockId: lastAction.id };
+  return { insertAfterBlockId: blocks[blocks.length - 1].id };
+}
 
 export interface ChatRequest {
   sessionId?: string;
   prompt: string;
   selection?: string;
   userId: string;
-  script?: { title?: string; content?: string; blocks?: BlockTree | CIRDocument | CIRSection[] | any[] } | null;
+  script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[] } | null;
   project?: ProjectMeta | null;
+  blockIds?: string[];
 }
 
-/**
- * Detect if prompt is asking to create/generate a script
- */
-function detectScriptCreationIntent(prompt: string): boolean {
-  const promptLower = prompt.toLowerCase();
-  
-  // Keywords that indicate script creation
-  const createKeywords = ['make', 'create', 'write', 'generate', 'draft', 'start', 'begin'];
-  const scriptKeywords = ['script', 'doc', 'document', 'content', 'copy', 'text', 'storyboard'];
-  
-  // Check for patterns like "make the script", "create a document", etc.
-  for (const create of createKeywords) {
-    for (const script of scriptKeywords) {
-      // Pattern: "make the script", "create a doc", "write the document"
-      if (new RegExp(`${create}\\s+(the|a|my|this)?\\s*${script}`, 'i').test(promptLower)) {
-        return true;
-      }
-      // Reverse pattern: "script creation", "document draft"
-      if (new RegExp(`${script}\\s+(${create}|${create}d|${create}ing)`, 'i').test(promptLower)) {
-        return true;
-      }
-    }
-  }
-  
-  // Direct phrases
-  const directPhrases = [
-    'write it', 'make it', 'create it', 'generate it', 'draft it',
-    'let\'s write', 'let\'s create', 'let\'s make', 'let\'s draft',
-    'start writing', 'begin writing', 'start the script', 'begin the script',
-    'write this', 'create this', 'make this',
-    'give me the script', 'give me a script',
-    'i need a script', 'i want a script',
-    'can you write', 'can you create', 'can you make', 'can you draft',
-    'please write', 'please create', 'please make', 'please draft',
-  ];
-  
-  for (const phrase of directPhrases) {
-    if (promptLower.includes(phrase)) {
-      return true;
-    }
-  }
-  
-  return false;
+function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
+  if (!Array.isArray(blocks) || blocks.length === 0) return '';
+  return blocks
+    .map((b) => {
+      const label = b.type ? `(${b.type}) ` : '';
+      const text = typeof b.text === 'string' ? b.text : '';
+      return `[${b.blockId}] ${label}${text}`.trim();
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
-/**
- * Detect if prompt is asking to EDIT the existing script
- * This is smarter than just checking if script exists
- */
-function detectScriptEditIntent(prompt: string): boolean {
-  const promptLower = prompt.toLowerCase();
-  
-  // Edit action keywords
-  const editKeywords = [
-    'change', 'modify', 'edit', 'update', 'improve', 'fix', 'revise',
-    'rewrite', 'rephrase', 'adjust', 'tweak', 'add', 'remove', 'delete',
-    'expand', 'shorten', 'condense', 'simplify', 'clarify', 'sharpen',
-    'strengthen', 'tone', 'punchier', 'tighten', 'cut', 'create', 'draft'
-  ];
-  
-  // Script-related targets
-  const scriptTargets = [
-    'script', 'content', 'copy', 'text', 'section', 'paragraph', 'headline',
-    'intro', 'hook', 'cta', 'opening', 'ending', 'body', 'it', 'this', 'that', 'document', 'doc', 'draft'
-  ];
-  
-  // Check for edit patterns
-  for (const edit of editKeywords) {
-    // Direct match of edit keyword
-    if (promptLower.includes(edit)) {
-      // Extra validation: check if it's about the script
-      for (const target of scriptTargets) {
-        if (promptLower.includes(target)) {
-          return true;
-        }
-      }
-      // Short commands like "add humor", "cut fluff", "sharpen tone"
-      if (prompt.trim().split(/\s+/).length <= 4) {
-        return true;
-      }
-    }
-  }
-  
-  // Direct edit phrases
-  const editPhrases = [
-    'make it', 'make the', 'more ', 'less ', 'shorter', 'longer', 'better',
-    'add a', 'add the', 'add more', 'remove the', 'remove all',
-    'can you change', 'can you edit', 'can you improve', 'can you fix',
-    'please change', 'please edit', 'please improve', 'please fix',
-    'i want it', 'i need it', 'stronger', 'weaker', 'funnier', 'serious',
-  ];
-  
-  for (const phrase of editPhrases) {
-    if (promptLower.includes(phrase)) {
-      return true;
-    }
-  }
-  
-  return false;
+function detectFullRegenerate(prompt: string): boolean {
+  const p = normalizeText(prompt);
+  return /regenerate (everything|all|entire)/.test(p) || /rewrite (everything|the whole)/.test(p) || /start over/.test(p) || /from scratch/.test(p);
 }
 
 /**
@@ -125,7 +110,7 @@ function detectScriptEditIntent(prompt: string): boolean {
  * Returns SSE stream with data: {...} events
  */
 export async function processChat(request: ChatRequest): Promise<ReadableStream<Uint8Array>> {
-  const { sessionId, prompt, selection, userId, script: providedScript, project: providedProject } = request;
+  const { sessionId, prompt, selection, userId, script: providedScript, project: providedProject, blockIds: providedBlockIds } = request;
   
   // Load or create session
   let session = sessionId ? await db.getSession(sessionId, userId) : null;
@@ -136,6 +121,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   // Load script if session exists (prefer provided script)
   const script = providedScript || (session ? await db.getScript(sessionId || session._id) : null);
   
+  const thinkforgeBlocks = validateThinkForgeBlocks(Array.isArray((script as any)?.blocks) ? (script as any).blocks : []);
+  if (script && thinkforgeBlocks.length !== ((script as any)?.blocks?.length || 0)) {
+    throw new Error('Script blocks are not valid ThinkForge blocks. Please migrate the script.');
+  }
+
   // Load chat history
   const chatHistory = session ? await db.getChatHistory(sessionId || session._id, 50) : [];
   
@@ -149,7 +139,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     chat: chatHistory,
     script: script ? {
       title: script.title || '',
-      blocks: script.blocks || [],
+      blocks: thinkforgeBlocks,
       content: script.content || '',
       draft: false,
       version: 1
@@ -185,75 +175,170 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   (async () => {
     try {
       let finalResponse = '';
+      const hasExistingScript = !!script && thinkforgeBlocks.length > 0;
+
+      // 1. Check for confirmation of a previous proposal
+      // If a placement proposal is pending, intent classification is suspended.
+      // The next user message is interpreted only as confirmation or rejection.
+      const lastAssistantMsg = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1] : null;
+      const isAwaitingConfirmation = lastAssistantMsg?.role === 'assistant' && lastAssistantMsg.content.includes('I suggest inserting it');
       
-      // Determine if we should edit script, create script, or just chat
-      // IMPORTANT: Don't automatically edit just because script exists
-      // User must express intent to modify the script
-      const hasExistingScript = !!script && (script.content || script.blocks?.length);
-      const wantsScriptCreation = detectScriptCreationIntent(prompt);
-      const wantsScriptEdit = detectScriptEditIntent(prompt);
-      
-      // Only edit if: script exists AND user is asking to edit it
-      const shouldEditScript = hasExistingScript && wantsScriptEdit;
-      // Only create if: no script exists AND user wants to create one
-      const shouldCreateScript = !hasExistingScript && wantsScriptCreation;
-      
-      if (shouldEditScript) {
-        // Generate script edit
-        const draft = await generateScriptDraft(
-          selection ? `Apply this change ONLY to the selected text:\nSelected:\n---\n${selection}\n---\nChange:\n${prompt}` : prompt,
-          sessionState,
-          {
-            title: script!.title || '',
-            blocks: script!.blocks || [],
-            content: script!.content || ''
+      const CONFIRM_PATTERNS = [/^(yes|yep|yup|sure|correct|ok|okay|that works|proceed|do it)$/i, /\b(yes|yep|yup|do it|do that|proceed|confirm|go ahead|that works|that's fine)\b/i];
+      const REJECT_PATTERNS = [/^(no|nope|cancel|stop)$/i, /\b(no|nope|don't|do not|nevermind|cancel)\b/i];
+      const isMatch = (text: string, patterns: RegExp[]) => patterns.some(p => p.test(text.trim().replace(/[.!?]$/, '')));
+
+      let effectivePrompt = prompt;
+      let blockIds = Array.isArray(providedBlockIds) ? providedBlockIds.filter(Boolean) : resolveBlockIdsBySelection(thinkforgeBlocks, selection);
+      let intentResult: any = null;
+
+      if (isAwaitingConfirmation) {
+        if (isMatch(prompt, CONFIRM_PATTERNS)) {
+          // Find the original request (the message before the proposal)
+            const originalRequest = chatHistory.length > 1 ? chatHistory[chatHistory.length - 2] : null;
+            if (originalRequest && originalRequest.role === 'user') {
+              effectivePrompt = originalRequest.content;
+              const proposal = suggestInsertionPointTF(thinkforgeBlocks);
+              if (proposal.insertAfterBlockId) blockIds = [proposal.insertAfterBlockId];
+              else if (proposal.atEnd) blockIds = ["__END__"];
+            
+            intentResult = {
+              intent: 'SCRIPT_EDIT',
+              reason: 'confirmed_proposal',
+              executable: true,
+              signals: ['proposal_confirmed'],
+              textSample: effectivePrompt.substring(0, 50),
+              usedFallback: false
+            };
+            console.log('[ThinkForge][Proposal] Confirmed by user');
           }
+        } else if (isMatch(prompt, REJECT_PATTERNS)) {
+          finalResponse = "Understood. I've cancelled that suggestion. What would you like to do instead?";
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+          if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
+          return;
+        }
+      }
+
+      if (!intentResult) {
+        intentResult = await classifyIntent(effectivePrompt, selection || null, hasExistingScript);
+      }
+      
+      console.log('[ThinkForge][Intent]', { 
+        sessionId: session?._id, 
+        intent: intentResult.intent, 
+        reason: intentResult.reason, 
+        signals: intentResult.signals,
+        textSample: intentResult.textSample,
+        usedFallback: intentResult.usedFallback 
+      });
+
+      // Send intent to client immediately
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'intent', intent: intentResult.intent })}\n\n`));
+
+      if (intentResult.intent === 'SCRIPT_EDIT' && !hasExistingScript) {
+        finalResponse = 'No script open. Open a script or start a new one before editing.';
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+        return;
+      }
+
+      // Enforce selection for edits
+      if (intentRequiresSelection(intentResult.intent) && blockIds.length === 0) {
+        if (intentResult.reason === 'missing_scope' && intentResult.proposal) {
+          finalResponse = `I can perform that edit, but I need to know where. I suggest inserting it after a nearby action block. Confirm if this works, or select a different insertion point.`;
+        } else if (intentResult.reason === 'missing_scope') {
+          finalResponse = 'I can perform that edit, but I need to know where. Please select the block(s) you want to change or tell me where to insert the new content.';
+        } else {
+          finalResponse = 'Select the blocks to edit and retry. No changes were made.';
+        }
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+        if (session) {
+          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
+        }
+        return;
+      }
+
+      const wantsFullRegenerate = detectFullRegenerate(effectivePrompt);
+      const isGenerateIntent = intentResult.intent === 'SCRIPT_GENERATE';
+      const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
+
+      if (intentResult.intent === 'SCRIPT_EDIT' && hasExistingScript && !wantsFullRegenerate) {
+        const scoped = resolveContextWindowTF(thinkforgeBlocks, blockIds.filter(id => id !== '__END__'), 1);
+        const promptBlocks = formatBlocksForPromptTF(scoped);
+
+        const refinementContext = quickAssembleContext(
+          'script_refinement',
+          sessionState.metadata,
+          { title: script!.title || '', content: promptBlocks, blocks: scoped },
+          [],
+          null
         );
-        
-        // Save script update (use saveScript which handles both create and update)
+
+        const isAddition = /\b(add|insert|append|new section|new step)\b/i.test(effectivePrompt);
+        const agentPrompt = isAddition 
+          ? `Add a new section about the following request immediately AFTER ${blockIds[0] === '__END__' ? 'the end of the document' : 'blockId ' + blockIds[0]}. Request: ${effectivePrompt}. If adding a new block, use blockId: "NEW_BLOCK" in your patches.`
+          : `Edit only these blockIds: ${blockIds.join(', ')}. Change request: ${effectivePrompt}`;
+
+        const agent = createScriptRefinementAgent({ maxTokens: 900, temperature: 0.3 });
+        const refined = await agent.refineScript(
+          { context: refinementContext, userPrompt: agentPrompt },
+          thinkforgeBlocks
+        );
+
+        const anchorId = blockIds[0];
+        const mergedBlocks = applyThinkForgeBlockPatches(thinkforgeBlocks, refined.patches || [], {
+          insertAfterId: anchorId === '__END__' ? thinkforgeBlocks[thinkforgeBlocks.length - 1]?.id : anchorId,
+          defaultKind: 'paragraph',
+        });
+
+        const mergedContent = mergedBlocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
+
         if (session) {
           await db.saveScript(sessionId || session._id, {
-            title: draft.title,
-            content: draft.content,
-            blocks: draft.blocks
+            title: refined.title || script!.title,
+            content: mergedContent || script!.content || '',
+            blocks: mergedBlocks,
           });
         }
-        
-        // Send script update as SSE event
+
         const scriptUpdate = {
           script: {
-            title: draft.title,
-            blocks: draft.blocks,
-            content: draft.content
+            title: refined.title || script!.title,
+            blocks: mergedBlocks,
+            content: mergedContent || script!.content || ''
           },
           metadata: {
-            workflow: 'edit',
-            thoughts: 'Script updated',
+            workflow: 'refine',
+            thoughts: 'Script refined surgically',
             duration_ms: 0,
             agent_steps: []
           }
         };
-        
+
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`));
-        
-        // Send text response
-        finalResponse = 'Script updated successfully.';
+
+        finalResponse = 'Update applied to selected blocks only.';
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
-        
-        // Persist assistant message
+
         if (session) {
           await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
         }
-      } else if (shouldCreateScript) {
+      } else if (shouldRunGeneration) {
         // Generate NEW script from scratch
         // Stream a "working" message first
         const workingMsg = 'Creating your script...';
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: workingMsg })}\n\n`));
         
         const draft = await generateScriptDraft(
-          prompt,
+          effectivePrompt,
           sessionState,
-          null // No existing script
+          (hasExistingScript && wantsFullRegenerate) ? {
+            title: script?.title || '',
+            blocks: script?.blocks || [],
+            content: script?.content || ''
+          } : null
         );
         
         // Save new script

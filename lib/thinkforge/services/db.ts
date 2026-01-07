@@ -45,11 +45,19 @@ function blockMutation(collection: string, operation: string): never {
 }
 
 import type { ChatMessage, ProjectMeta, ScriptState } from '../state/types';
-import type { BlockTree } from '../schemas/canonical';
+import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import type { CIRDocument, CIRSection } from '../schemas/cir';
 
 // ==================== ThinkForge Database Connection ====================
 // All ThinkForge collections live in the 'thinkforge_db' database
+function enforceThinkForgeBlocks(input: any): ThinkForgeBlock[] {
+  const candidate = Array.isArray(input) ? input : [];
+  const validated = validateThinkForgeBlocks(candidate);
+  if (validated.length !== candidate.length) {
+    throw new Error('Invalid block payload: persistence expects ThinkForgeBlock[].');
+  }
+  return validated;
+}
 
 const THINKFORGE_DB_NAME = 'thinkforge_db';
 
@@ -121,7 +129,7 @@ export interface Script {
   sessionId: string;
   title: string;
   content: string;
-  blocks?: BlockTree | CIRDocument | CIRSection[];
+  blocks?: ThinkForgeBlock[];
   createdAt: Date;
   updatedAt: Date;
 }
@@ -878,6 +886,7 @@ export async function updateSession(sessionId: string, updates: Partial<Session>
     const { SessionModel } = await getModels();
     const updateDoc = {
       ...updates,
+      ...(updates.blocks ? { blocks: enforceThinkForgeBlocks(updates.blocks) } : {}),
       updatedAt: new Date()
     };
     
@@ -975,12 +984,14 @@ export async function getScript(sessionId: string): Promise<Script | null> {
     
     if (!doc) return null;
     
+    const blocks = enforceThinkForgeBlocks(doc.blocks);
+
     return {
       _id: String(doc._id),
       sessionId: doc.sessionId,
       title: doc.title,
       content: doc.content || '',
-      blocks: doc.blocks,
+      blocks,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
@@ -1000,10 +1011,11 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
     
     if (existing) {
       // Update existing
+      const blocks = script.blocks !== undefined ? enforceThinkForgeBlocks(script.blocks) : enforceThinkForgeBlocks(existing.blocks);
       const updateDoc = {
         title: script.title ?? existing.title,
         content: script.content ?? existing.content,
-        blocks: script.blocks ?? existing.blocks,
+        blocks,
         updatedAt: now
       };
       
@@ -1022,11 +1034,12 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
       };
     } else {
       // Create new
+      const blocks = enforceThinkForgeBlocks(script.blocks || []);
       const doc = {
         sessionId,
         title: script.title || 'Untitled Script',
         content: script.content || '',
-        blocks: script.blocks || [],
+        blocks,
         createdAt: now,
         updatedAt: now
       };
@@ -1071,7 +1084,7 @@ export async function updateScript(sessionId: string, updates: Partial<Script>):
       sessionId: updated.sessionId,
       title: updated.title,
       content: updated.content || '',
-      blocks: updated.blocks,
+      blocks: enforceThinkForgeBlocks(updated.blocks),
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt
     };
@@ -1912,12 +1925,13 @@ export async function saveScriptV2(
   projectId: string,
   content: string,
   title?: string,
-  blocks?: BlockTree,
+  blocks?: ThinkForgeBlock[],
   userId?: string
 ): Promise<{ artifact: Artifact; version: Version }> {
   try {
     const { ArtifactModel, ScriptModel } = await getModels();
     const now = new Date();
+    const validatedBlocks = enforceThinkForgeBlocks(blocks || []);
     
     // Get or create script artifact
     let artifact = await ArtifactModel.findOne({ projectId, type: 'script' }).lean() as any;
@@ -1928,7 +1942,7 @@ export async function saveScriptV2(
         projectId, 
         'script', 
         title || 'Untitled Script', 
-        { content, blocks }, 
+        { content, blocks: validatedBlocks }, 
         {},
         userId
       );
@@ -1938,7 +1952,7 @@ export async function saveScriptV2(
     // Create new version with content
     const version = await createVersion(
       artifact._id,
-      { content, blocks },
+      { content, blocks: validatedBlocks },
       { contentBlockType: 'json', userId }
     );
     
@@ -1957,14 +1971,14 @@ export async function saveScriptV2(
       if (existingScript) {
         await ScriptModel.updateOne(
           { _id: existingScript._id },
-          { $set: { title: title || existingScript.title, content, blocks, updatedAt: now } }
+          { $set: { title: title || existingScript.title, content, blocks: validatedBlocks, updatedAt: now } }
         );
       } else {
         await ScriptModel.create({
           sessionId: projectId,
           title: title || 'Untitled Script',
           content,
-          blocks,
+          blocks: validatedBlocks,
           createdAt: now,
           updatedAt: now
         });
