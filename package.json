@@ -21,6 +21,7 @@
     "setup-plans": "node scripts/setupPlans.js",
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
+    "test": "tsx --test tests/**/*.test.ts",
     "test:email": "tsx --test lib/services/email/__tests__/*.test.ts"
   },
   "dependencies": {

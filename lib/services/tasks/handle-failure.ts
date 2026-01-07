@@ -61,8 +61,39 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
         }
       );
     } else if (serviceName === 'alyzitron') {
-      const { AlyzitronRTDBManager } = await import('@/lib/services/rtdb/alyzitron-rtdb');
-      await AlyzitronRTDBManager.updateTaskStatus(userId, taskId, 'failed');
+      // Update Alyzitron task status directly in MongoDB (RTDB removed)
+      try {
+        const { getCollections } = await import('@/app/api/services/alyzitron/utils/mongodb');
+        const { ObjectId } = await import('mongodb');
+        const { analyses } = await getCollections();
+
+        if (ObjectId.isValid(taskId)) {
+          await analyses.updateOne(
+            { _id: new ObjectId(taskId), clerkUserId: userId },
+            {
+              $set: {
+                status: 'failed',
+                updatedAt: new Date(),
+                error: { code: 'processing_failed', message: 'Task processing failed' },
+              },
+            }
+          );
+        } else {
+          // Fallback: update by taskId field if stored differently
+          await analyses.updateOne(
+            { taskId: taskId, clerkUserId: userId },
+            {
+              $set: {
+                status: 'failed',
+                updatedAt: new Date(),
+                error: { code: 'processing_failed', message: 'Task processing failed' },
+              },
+            }
+          );
+        }
+      } catch (e) {
+        console.warn('Failed to update Alyzitron task in MongoDB', { e });
+      }
     }
   } catch (dbError) {
     console.warn('Failed to update task status', { userId, taskId, serviceName, dbError });
