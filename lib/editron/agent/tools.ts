@@ -19,6 +19,7 @@ import {
   extractStyleMetadata,
   classifyWordTimings,
   buildFancyCaptionPrompt,
+  injectFancyCaptionTiming,
   type WordTiming,
 } from '../utils/html-generator-utils';
 
@@ -93,9 +94,30 @@ export const createTools = (userId: string, projectId: string) => {
       try {
         const { mode, start, end, trackIds } = input;
         const project = await loadProject();
-
-        // Canonicalize
-        const canonical = JSON.stringify(project, null, 2);
+        
+        // Strip bloated fields that waste LLM tokens (base64 thumbnails, signed URLs)
+        const sanitizeForLLM = (proj: any) => {
+          const sanitized = { ...proj };
+          if (sanitized.overlays) {
+            sanitized.overlays = sanitized.overlays.map((o: any) => {
+              const clean = { ...o };
+              // Remove base64 thumbnail data
+              if (clean.content?.startsWith('data:image')) {
+                clean.content = '[thumbnail:base64]';
+              }
+              // Remove long signed GCS URLs, keep just the filename
+              if (clean.src?.includes('storage.googleapis.com')) {
+                const match = clean.src.match(/\/([^\/\?]+)\?/);
+                clean.src = match ? `[gcs:${decodeURIComponent(match[1])}]` : '[gcs:url]';
+              }
+              return clean;
+            });
+          }
+          return sanitized;
+        };
+        
+        const sanitizedProject = sanitizeForLLM(project);
+        const canonical = JSON.stringify(sanitizedProject, null, 2);
         const canvas = getCanvasDimensions(project);
 
         // Calculate duration if missing
@@ -1389,9 +1411,9 @@ EXAMPLE PROMPTS:
 
   // --- GET VIDEO TRANSCRIPTION ---
   const getVideoTranscriptionSchema = z.object({
-    videoOverlayId: z.coerce.number().describe("ID of the video overlay to transcribe"),
+    videoOverlayId: z.coerce.number().optional().describe("ID of the video overlay to transcribe (REQUIRED for mode='single', ignored for mode='timeline')"),
     forceRefresh: z.coerce.boolean().optional().describe("Force re-transcription (ignores cache)"),
-    mode: z.enum(['single', 'timeline']).optional().default('single').describe("'single' = one video overlay, 'timeline' = all video clips in sequence order"),
+    mode: z.enum(['single', 'timeline']).optional().default('single').describe("'single' = one video overlay (requires videoOverlayId), 'timeline' = all video clips in sequence order"),
   });
 
   const getVideoTranscription = tool(
@@ -1429,12 +1451,14 @@ EXAMPLE PROMPTS:
             });
             
             // Get only words that fall within this clip's range
-            const videoStartMs = (video.videoStartTime || 0) * 1000;
+            // IMPORTANT: videoStartTime is stored in FRAMES
+            const videoStartTimeFrames = (video as any).videoStartTime || 0;
+            const videoStartMs = (videoStartTimeFrames / fps) * 1000;
             const clipDurationMs = (video.durationInFrames / fps) * 1000;
             const videoEndMs = videoStartMs + clipDurationMs;
             
             const wordsInClip = transcription.words.filter(
-              (w: any) => w.startMs >= videoStartMs && w.endMs <= videoEndMs
+              (w: any) => w.startMs >= videoStartMs && w.startMs < videoEndMs
             );
             
             const clipTranscript = wordsInClip.map((w: any) => w.word).join(' ');
@@ -1460,6 +1484,11 @@ EXAMPLE PROMPTS:
           
         } else {
           // Single video mode (original behavior)
+          // Validate that videoOverlayId is provided for single mode
+          if (input.videoOverlayId === undefined || isNaN(input.videoOverlayId)) {
+            return JSON.stringify({ status: 'error', message: "videoOverlayId is required for mode='single'" });
+          }
+          
           const overlay = project.overlays.find((o: any) => o.id === input.videoOverlayId);
           
           if (!overlay) {
@@ -1479,12 +1508,14 @@ EXAMPLE PROMPTS:
           });
           
           // Get words in this clip's range only
-          const videoStartMs = (overlay.videoStartTime || 0) * 1000;
+          // IMPORTANT: videoStartTime is stored in FRAMES
+          const videoStartTimeFrames = (overlay.videoStartTime || 0);
+          const videoStartMs = (videoStartTimeFrames / fps) * 1000;
           const clipDurationMs = (overlay.durationInFrames / fps) * 1000;
           const videoEndMs = videoStartMs + clipDurationMs;
           
           const wordsInClip = transcription.words.filter(
-            (w: any) => w.startMs >= videoStartMs && w.endMs <= videoEndMs
+            (w: any) => w.startMs >= videoStartMs && w.startMs < videoEndMs
           );
           const clipTranscript = wordsInClip.map((w: any) => w.word).join(' ');
           
@@ -1998,7 +2029,10 @@ Linked captions are automatically moved with their videos.`,
         }
         
         // Calculate video-time range for this segment
-        const videoStartMs = (overlay.videoStartTime || 0) * 1000;
+        // IMPORTANT: videoStartTime is stored in FRAMES (set by split_overlay)
+        // Convert frames -> seconds -> milliseconds
+        const videoStartTimeFrames = overlay.videoStartTime || 0;
+        const videoStartMs = (videoStartTimeFrames / fps) * 1000;
         const segmentStartMs = videoStartMs + ((segmentStartFrame - overlay.from) / fps * 1000);
         const segmentEndMs = videoStartMs + ((segmentEndFrame - overlay.from) / fps * 1000);
         
@@ -2027,10 +2061,18 @@ Linked captions are automatically moved with their videos.`,
           });
         }
         
-        // Log word timings for debugging
-        console.log('[FANCY-CAPTIONS] Word timings (0-based):', 
-          wordsInRange.map((w: any) => `"${w.word}" ${w.startMs}-${w.endMs}ms`)
-        );
+        // ===== DEBUG LOGGING START =====
+        console.log('\n========== [FANCY-CAPTIONS DEBUG] ==========');
+        console.log('Segment range (frames):', segmentStartFrame, '->', segmentEndFrame);
+        console.log('Segment range (ms):', segmentStartMs.toFixed(0), '->', segmentEndMs.toFixed(0));
+        console.log('Video overlay from:', overlay.from, 'videoStartTime:', overlay.videoStartTime || 0);
+        console.log('Total transcription words:', transcription.words.length);
+        console.log('Words in range count:', wordsInRange.length);
+        console.log('\n--- Word Timings (0-based, relative to segment start) ---');
+        wordsInRange.forEach((w: any, i: number) => {
+          console.log(`  [${i}] "${w.word}" | start: ${w.startMs}ms | end: ${w.endMs}ms | duration: ${w.endMs - w.startMs}ms`);
+        });
+        // ===== DEBUG LOGGING END =====
         
         // Classify word importance
         const classifiedWords = classifyWordTimings(wordsInRange);
@@ -2049,6 +2091,22 @@ Linked captions are automatically moved with their videos.`,
           backgroundColor: input.backgroundColor || 'transparent',
         });
         
+        // ===== DEBUG: Log the prompt being sent to LLM =====
+        console.log('\n--- Classified Words with Importance ---');
+        classifiedWords.forEach((w, i) => {
+          const delaySeconds = (w.startMs / 1000).toFixed(2);
+          console.log(`  [${i}] "${w.word}" | delay: ${delaySeconds}s | importance: ${w.importance}`);
+        });
+        console.log('\n--- Prompt Word Table Section ---');
+        const wordTableLog = classifiedWords.map((w, i) => {
+          const delaySeconds = (w.startMs / 1000).toFixed(2);
+          return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${w.importance?.toUpperCase()} |`;
+        }).join('\n');
+        console.log(wordTableLog);
+        console.log('\nTotal duration:', totalDurationMs, 'ms');
+        console.log('Exit animation delay:', ((Math.max(...classifiedWords.map(w => w.endMs)) - 300) / 1000).toFixed(2), 's');
+        console.log('========== [END FANCY-CAPTIONS DEBUG] ==========\n');
+        
         console.log('[FANCY-CAPTIONS] Generating for', classifiedWords.length, 'words, duration:', totalDurationMs, 'ms');
         
         // Generate HTML via Gemini
@@ -2065,6 +2123,24 @@ Linked captions are automatically moved with their videos.`,
         
         const generatedHtml = result.content as string;
         
+        // ===== DEBUG: Log generated HTML =====
+        console.log('\n========== [FANCY-CAPTIONS GENERATED HTML] ==========');
+        console.log('Raw HTML length:', generatedHtml.length);
+        
+        // Extract animation-delay values from the generated HTML to verify timing
+        const delayMatches = generatedHtml.match(/animation-delay\s*:\s*[\d.]+s/gi) || [];
+        console.log('\n--- Animation delays found in generated HTML ---');
+        delayMatches.forEach((d, i) => console.log(`  [${i}] ${d}`));
+        
+        // Also check for inline animation properties
+        const animationMatches = generatedHtml.match(/animation\s*:\s*[^;"}]+/gi) || [];
+        console.log('\n--- Animation properties found ---');
+        animationMatches.slice(0, 20).forEach((a, i) => console.log(`  [${i}] ${a.substring(0, 100)}`));
+        
+        console.log('\n--- First 2000 chars of generated HTML ---');
+        console.log(generatedHtml.substring(0, 2000));
+        console.log('========== [END GENERATED HTML] ==========\n');
+        
         // Clean up the HTML - remove markdown fences, DOCTYPE, html/body tags
         let cleanHtml = generatedHtml
           .replace(/```html/g, '')
@@ -2079,6 +2155,11 @@ Linked captions are automatically moved with their videos.`,
         
         // Sanitize for security
         cleanHtml = sanitizeHtml(cleanHtml);
+        
+        // ===== INJECT TIMING CSS PROGRAMMATICALLY =====
+        // This handles the reliable timing work so LLM only does creative layout
+        cleanHtml = injectFancyCaptionTiming(cleanHtml, totalDurationMs);
+        console.log('[FANCY-CAPTIONS] Injected programmatic timing CSS for', classifiedWords.length, 'words');
         
         // Wrap in sandbox with auto-fit enabled
         const wrappedHtml = createSandboxedWrapper({

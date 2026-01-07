@@ -11,28 +11,40 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const shadowRootRef = useRef<ShadowRoot | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   
   // Connect to Remotion timeline
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   // Derived timing values
-  // Calculate time relative to the start of this specific clip (if it were trimmed), 
-  // but usually overlays are laid out absolutely on the timeline.
-  // The overlay.from is where it starts on the timeline.
   const relativeFrame = frame - overlay.from;
   const timeInSeconds = relativeFrame / fps;
   const progress = relativeFrame / overlay.durationInFrames;
 
-  // Update CSS variables for sync
+  // Update CSS variables for sync - set on BOTH host and wrapper
   useLayoutEffect(() => {
+    // Set on host element
     if (containerRef.current) {
       containerRef.current.style.setProperty('--time', `${timeInSeconds}s`);
       containerRef.current.style.setProperty('--frame', `${relativeFrame}`);
       containerRef.current.style.setProperty('--progress', `${progress}`);
       containerRef.current.style.setProperty('--duration', `${overlay.durationInFrames / fps}s`);
     }
-  }, [timeInSeconds, relativeFrame, progress, overlay.durationInFrames, fps]);
+    
+    // CRITICAL: Also set on wrapper INSIDE shadow DOM for proper inheritance
+    if (wrapperRef.current) {
+      wrapperRef.current.style.setProperty('--time', `${timeInSeconds}s`);
+      wrapperRef.current.style.setProperty('--frame', `${relativeFrame}`);
+      wrapperRef.current.style.setProperty('--progress', `${progress}`);
+      wrapperRef.current.style.setProperty('--duration', `${overlay.durationInFrames / fps}s`);
+    }
+    
+    // Debug logging for first few frames
+    if (relativeFrame >= 0 && relativeFrame <= 3) {
+      console.log(`[HTML-SCENE] Frame ${frame}, relativeFrame ${relativeFrame}, --time: ${timeInSeconds}s`);
+    }
+  }, [timeInSeconds, relativeFrame, progress, overlay.durationInFrames, fps, frame]);
 
   const lastPromptRef = useRef<string>("");
 
@@ -57,22 +69,40 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
         const styleReset = document.createElement('style');
         styleReset.textContent = `
           * { box-sizing: border-box; }
-          :host { display: block; width: 100%; height: 100%; overflow: hidden; }
-          /* Force all animations to pause and be driven by delay */
+          :host { 
+            display: block; 
+            width: 100%; 
+            height: 100%; 
+            overflow: hidden;
+          }
+          
+          /* 
+           * Pause all animations so they can be controlled by negative delay (scrubbing).
+           * Individual elements should set their own animation-delay using:
+           *   animation-delay: calc(var(--time) * -1 + Xs);
+           */
           * {
             animation-play-state: paused !important;
-            animation-delay: calc(var(--time) * -1) !important;
+          }
+          /* Fallback for elements that don't specify their own delay - sync to current time */
+          *:not([data-start]) {
+            animation-delay: calc(var(--time, 0s) * -1) !important;
           }
         `;
         shadow.appendChild(styleReset);
 
-        // Content Wrapper - must be positioned for absolute children
+        // Content Wrapper - CSS vars will be set on this element for shadow DOM access
         const wrapper = document.createElement('div');
-        wrapper.style.width = '100%';
-        wrapper.style.height = '100%';
-        wrapper.style.position = 'relative';
-        wrapper.style.overflow = 'hidden';
+        wrapper.style.cssText = `
+          width: 100%;
+          height: 100%;
+          position: relative;
+          overflow: hidden;
+        `;
         wrapper.innerHTML = overlay.content;
+        
+        // Store reference so we can update CSS vars on it
+        wrapperRef.current = wrapper;
         
         shadow.appendChild(wrapper);
 
@@ -84,8 +114,10 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
           newScript.textContent = oldScript.textContent;
           oldScript.parentNode?.replaceChild(newScript, oldScript);
         });
+        
+        console.log('[HTML-SCENE] Initialized shadow DOM content for overlay', overlay.id);
     }
-  }, [overlay.content, overlay.prompt]);
+  }, [overlay.content, overlay.prompt, overlay.id]);
 
   return (
     <div 

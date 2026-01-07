@@ -178,16 +178,41 @@ export async function createCaptions(params: {
   }
   
   // Get words that fall within the clip's time range
-  const videoStartMs = (videoOverlay.videoStartTime || 0) * 1000;
+  // Use INCLUSIVE filtering: include words that START within the range
+  // (words that end slightly after the clip are still relevant)
+  //
+  // IMPORTANT: videoStartTime is stored in FRAMES (set by split_overlay).
+  // Convert frames -> seconds -> milliseconds
+  const videoStartTimeFrames = videoOverlay.videoStartTime || 0;
+  const videoStartMs = (videoStartTimeFrames / fps) * 1000;
   const clipDurationMs = (videoOverlay.durationInFrames / fps) * 1000;
   const videoEndMs = videoStartMs + clipDurationMs;
   
-  // Filter words to only those in the clip range
+  console.log('[CAPTION-SERVICE] Filtering words for video:', {
+    videoStartTimeFrames,
+    videoStartMs: Math.round(videoStartMs),
+    clipDurationMs: Math.round(clipDurationMs),
+    videoEndMs: Math.round(videoEndMs),
+    fps,
+    totalTranscriptionWords: transcription.words.length,
+    firstWordStart: transcription.words[0]?.startMs,
+    lastWordEnd: transcription.words[transcription.words.length - 1]?.endMs,
+  });
+  
+  // Filter words that START within the clip range (more inclusive than requiring both start AND end)
   const wordsInRange = transcription.words.filter(
-    w => w.startMs >= videoStartMs && w.endMs <= videoEndMs
+    w => w.startMs >= videoStartMs && w.startMs < videoEndMs
+  );
+  
+  console.log('[CAPTION-SERVICE] Words in range:', wordsInRange.length, 
+    wordsInRange.slice(0, 3).map(w => `"${w.word}" ${w.startMs}ms`)
   );
   
   if (wordsInRange.length === 0) {
+    console.error('[CAPTION-SERVICE] No words found in range. Debug info:', {
+      videoStartMs, videoEndMs,
+      allWordRanges: transcription.words.slice(0, 10).map(w => ({ word: w.word, start: w.startMs, end: w.endMs })),
+    });
     throw new Error('No speech found in the selected video segment');
   }
   

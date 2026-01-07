@@ -204,7 +204,12 @@ When a cut has action='split_and_delete', follow these steps IN ORDER:
 1. \`split_overlay\` at the START frame → Note the new overlay ID returned
 2. \`split_overlay\` on the NEW overlay at the END frame → This isolates the silence
 3. \`delete_overlay\` to remove the silence segment
+4. **IMPORTANT: Call \`close_gaps\` after ALL deletions are complete** to remove timeline gaps
 The \`steps\` array provides exact parameters for each action. Execute them in order.
+
+**CRITICAL RULE - ALWAYS CLOSE GAPS**:
+After ANY delete operation(s), you MUST call \`close_gaps\` to prevent timeline holes.
+This is non-negotiable - gaps in the timeline look unprofessional.
 
 **CRITICAL: Using analyze_video_content correctly**:
 - The tool returns \`cuts\` array with pre-calculated \`parameters\`
@@ -273,9 +278,102 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
       const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
       
+      // Recursive helper to convert Zod schema to Gemini schema format
+      // Handles: ZodNumber, ZodString, ZodBoolean, ZodEnum, ZodArray, ZodObject,
+      //          ZodOptional, ZodDefault, ZodEffects (for z.coerce), ZodUnion
+      const convertZodToGemini = (zodDef: any, depth = 0): { type: string; description?: string; properties?: any; items?: any; enum?: string[]; required?: string[] } => {
+        if (!zodDef) return { type: 'string' };
+        
+        const typeName = zodDef.typeName;
+        const description = zodDef.description || '';
+        
+        // Primitive types
+        if (typeName === 'ZodString') return { type: 'string', description };
+        if (typeName === 'ZodNumber') return { type: 'number', description };
+        if (typeName === 'ZodBoolean') return { type: 'boolean', description };
+        
+        // Enum - extract values for better Gemini understanding
+        if (typeName === 'ZodEnum') {
+          return { type: 'string', description, enum: zodDef.values };
+        }
+        
+        // Union - simplify to string (common for number|string unions like position)
+        if (typeName === 'ZodUnion') {
+          // Check if any option is a number
+          const options = zodDef.options || [];
+          const hasNumber = options.some((opt: any) => {
+            const optType = opt?._def?.typeName;
+            return optType === 'ZodNumber' || 
+                   (optType === 'ZodEffects' && opt?._def?.schema?._def?.typeName === 'ZodNumber');
+          });
+          // If union includes number, describe it as such
+          return { type: hasNumber ? 'string' : 'string', description: description || 'Number or string value' };
+        }
+        
+        // Optional - unwrap and recurse
+        if (typeName === 'ZodOptional') {
+          const inner = convertZodToGemini(zodDef.innerType?._def, depth);
+          return { ...inner, description: description || inner.description };
+        }
+        
+        // Default - unwrap and recurse
+        if (typeName === 'ZodDefault') {
+          const inner = convertZodToGemini(zodDef.innerType?._def, depth);
+          return { ...inner, description: description || inner.description };
+        }
+        
+        // Effects (used by z.coerce.number(), z.coerce.boolean(), etc.)
+        if (typeName === 'ZodEffects') {
+          // The actual schema is in zodDef.schema
+          const inner = convertZodToGemini(zodDef.schema?._def, depth);
+          return { ...inner, description: description || inner.description };
+        }
+        
+        // Array - recurse into item type
+        if (typeName === 'ZodArray') {
+          const itemSchema = convertZodToGemini(zodDef.type?._def, depth + 1);
+          return { type: 'array', description, items: itemSchema };
+        }
+        
+        // Object - recurse into properties (but limit depth to prevent infinite recursion)
+        if (typeName === 'ZodObject' && depth < 3) {
+          const shape = typeof zodDef.shape === 'function' ? zodDef.shape() : zodDef.shape;
+          const properties: any = {};
+          const required: string[] = [];
+          
+          if (shape) {
+            for (const [key, value] of Object.entries(shape)) {
+              const fieldDef = (value as any)._def;
+              const converted = convertZodToGemini(fieldDef, depth + 1);
+              properties[key] = converted;
+              
+              // Check if required (not optional and not default)
+              const fieldTypeName = fieldDef?.typeName;
+              if (fieldTypeName !== 'ZodOptional' && fieldTypeName !== 'ZodDefault') {
+                required.push(key);
+              }
+            }
+          }
+          
+          return { 
+            type: 'object', 
+            description, 
+            properties: Object.keys(properties).length > 0 ? properties : undefined,
+            required: required.length > 0 ? required : undefined
+          };
+        }
+        
+        // Fallback for ZodObject at max depth or unknown types
+        if (typeName === 'ZodObject') {
+          return { type: 'object', description };
+        }
+        
+        // Fallback
+        return { type: 'string', description };
+      };
+      
       // Convert tools to Gemini function declarations format
       const functionDeclarations = tools.map(tool => {
-        // Convert zod schema to Gemini schema format
         const zodSchema = (tool as any).schema;
         let properties: any = {};
         let required: string[] = [];
@@ -287,35 +385,14 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
           
           for (const [key, value] of Object.entries(shape)) {
             const fieldDef = (value as any)._def;
-            let type = 'string';
-            let description = '';
+            const converted = convertZodToGemini(fieldDef, 0);
+            properties[key] = converted;
             
-            if (fieldDef) {
-              // Extract description
-              description = fieldDef.description || '';
-              
-              // Determine type
-              const typeName = fieldDef.typeName;
-              if (typeName === 'ZodNumber') type = 'number';
-              else if (typeName === 'ZodBoolean') type = 'boolean';
-              else if (typeName === 'ZodArray') type = 'array';
-              else if (typeName === 'ZodObject') type = 'object';
-              else if (typeName === 'ZodEnum') type = 'string';
-              else if (typeName === 'ZodUnion') type = 'string';
-              else if (typeName === 'ZodOptional') {
-                // Handle optional - get inner type
-                const innerDef = fieldDef.innerType?._def;
-                if (innerDef?.typeName === 'ZodNumber') type = 'number';
-                else if (innerDef?.typeName === 'ZodBoolean') type = 'boolean';
-              } else type = 'string';
-              
-              // Check if required
-              if (typeName !== 'ZodOptional' && typeName !== 'ZodDefault') {
-                required.push(key);
-              }
+            // Check if required
+            const typeName = fieldDef?.typeName;
+            if (typeName !== 'ZodOptional' && typeName !== 'ZodDefault') {
+              required.push(key);
             }
-            
-            properties[key] = { type, description };
           }
         }
         
@@ -434,71 +511,103 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
       // Use streaming if callback is provided
       if (streamCallback) {
         debugLog('Using streaming mode');
-        debugLog('Calling generateContentStream...');
-        const streamResult = await directModel.generateContentStream({ contents: geminiContents });
-        debugLog('Got streamResult, starting iteration...');
         
-        let chunkCount = 0;
-        for await (const chunk of streamResult.stream) {
-          chunkCount++;
-          debugLog(`Processing chunk #${chunkCount}:`, JSON.stringify(chunk).substring(0, 500));
+        // Auto-retry logic for empty responses (max 3 attempts)
+        const MAX_RETRIES = 3;
+        let attempt = 0;
+        let needsRetry = true;
+        
+        while (needsRetry && attempt < MAX_RETRIES) {
+          attempt++;
+          textContent = '';
+          toolCalls.length = 0; // Clear any previous attempts
           
-          // Check for safety ratings or blocked content
-          if (chunk.candidates?.[0]?.finishReason) {
-            debugLog('Chunk finishReason:', chunk.candidates[0].finishReason);
+          debugLog(`Attempt ${attempt}/${MAX_RETRIES}: Calling generateContentStream...`);
+          
+          // On retry, add a hint to help the model understand
+          let contentsToSend = geminiContents;
+          if (attempt > 1) {
+            debugLog('Adding retry hint to help model respond');
+            contentsToSend = [
+              ...geminiContents,
+              {
+                role: 'user',
+                parts: [{ 
+                  text: 'Please respond to my previous request. Start by reading the project state or timeline to understand what videos are available, then proceed with the requested action.' 
+                }]
+              }
+            ];
           }
-          if (chunk.candidates?.[0]?.safetyRatings) {
-            debugLog('Safety ratings:', JSON.stringify(chunk.candidates[0].safetyRatings));
+          
+          const streamResult = await directModel.generateContentStream({ contents: contentsToSend });
+          debugLog('Got streamResult, starting iteration...');
+          
+          let chunkCount = 0;
+          for await (const chunk of streamResult.stream) {
+            chunkCount++;
+            debugLog(`Processing chunk #${chunkCount}:`, JSON.stringify(chunk).substring(0, 500));
+            
+            // Check for safety ratings or blocked content
+            if (chunk.candidates?.[0]?.finishReason) {
+              debugLog('Chunk finishReason:', chunk.candidates[0].finishReason);
+            }
+            if (chunk.candidates?.[0]?.safetyRatings) {
+              debugLog('Safety ratings:', JSON.stringify(chunk.candidates[0].safetyRatings));
+            }
+            
+            const parts = chunk.candidates?.[0]?.content?.parts || [];
+            debugLog(`Chunk #${chunkCount} has ${parts.length} parts`);
+            
+            if (parts.length === 0) {
+              debugWarn('Empty parts in chunk, checking candidate content:', JSON.stringify(chunk.candidates?.[0]?.content));
+            }
+            
+            for (const part of parts) {
+              if (part.text) {
+                debugLog('Got text part:', part.text.substring(0, 100));
+                textContent += part.text;
+                // Stream token to callback
+                streamCallback({ type: 'token', data: { content: part.text } });
+              } else if (part.functionCall) {
+                debugLog('Got functionCall part:', part.functionCall.name, part.functionCall.args);
+                const toolCall = {
+                  type: 'tool_call',
+                  id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  name: part.functionCall.name,
+                  args: parseArgs(part.functionCall.args || {})
+                };
+                toolCalls.push(toolCall);
+                // Emit tool_start event
+                streamCallback({ type: 'tool_start', data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args } });
+              } else {
+                debugWarn('Unknown part type:', JSON.stringify(part));
+              }
+            }
           }
+          debugLog(`Stream iteration complete. Total chunks: ${chunkCount}, text length: ${textContent.length}, tool calls: ${toolCalls.length}`);
           
-          const parts = chunk.candidates?.[0]?.content?.parts || [];
-          debugLog(`Chunk #${chunkCount} has ${parts.length} parts`);
-          
-          if (parts.length === 0) {
-            debugWarn('Empty parts in chunk, checking candidate content:', JSON.stringify(chunk.candidates?.[0]?.content));
-          }
-          
-          for (const part of parts) {
-            if (part.text) {
-              debugLog('Got text part:', part.text.substring(0, 100));
-              textContent += part.text;
-              // Stream token to callback
-              streamCallback({ type: 'token', data: { content: part.text } });
-            } else if (part.functionCall) {
-              debugLog('Got functionCall part:', part.functionCall.name, part.functionCall.args);
-              const toolCall = {
-                type: 'tool_call',
-                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                name: part.functionCall.name,
-                args: parseArgs(part.functionCall.args || {})
-              };
-              toolCalls.push(toolCall);
-              // Emit tool_start event
-              streamCallback({ type: 'tool_start', data: { tool: toolCall.name, id: toolCall.id, args: toolCall.args } });
+          // Check if we got a valid response
+          if (chunkCount > 0 && (textContent.length > 0 || toolCalls.length > 0)) {
+            needsRetry = false; // Success!
+            debugLog(`Attempt ${attempt} succeeded`);
+          } else {
+            // Empty response - should we retry?
+            if (attempt < MAX_RETRIES) {
+              debugWarn(`Attempt ${attempt} returned empty response, retrying...`);
+              // Small delay before retry
+              await new Promise(resolve => setTimeout(resolve, 500));
             } else {
-              debugWarn('Unknown part type:', JSON.stringify(part));
+              debugError(`All ${MAX_RETRIES} attempts returned empty responses`);
             }
           }
         }
-        debugLog(`Stream iteration complete. Total chunks: ${chunkCount}, text length: ${textContent.length}, tool calls: ${toolCalls.length}`);
         
-        // CRITICAL FIX: Handle empty response from Gemini
-        // This happens when the model receives a vague request and decides to output nothing
-        // Instead of silently failing, we generate a helpful fallback message
-        if (chunkCount === 0) {
-          debugError('STREAM RETURNED 0 CHUNKS - generating fallback response');
-          const fallbackMessage = "I need a bit more context to help you. Could you tell me which video you'd like me to work with, or describe what you're trying to achieve?";
+        // If still empty after all retries, generate fallback
+        if (textContent.length === 0 && toolCalls.length === 0) {
+          debugError('All retry attempts failed - generating fallback response');
+          const fallbackMessage = "I'm having trouble understanding your request. Could you try rephrasing it? For example:\n- \"Remove silences from the video\"\n- \"Add captions to my video\"\n- \"Show me what's on the timeline\"";
           textContent = fallbackMessage;
-          if (streamCallback) {
-            streamCallback({ type: 'token', data: { content: fallbackMessage } });
-          }
-        } else if (chunkCount > 0 && textContent.length === 0 && toolCalls.length === 0) {
-          debugError('Stream had chunks but no text or tool calls - generating fallback response');
-          const fallbackMessage = "I'm not sure what you'd like me to do. Could you provide more details? For example:\n- \"Add captions to the video on the timeline\"\n- \"What videos are in my project?\"\n- \"Show me the timeline\"";
-          textContent = fallbackMessage;
-          if (streamCallback) {
-            streamCallback({ type: 'token', data: { content: fallbackMessage } });
-          }
+          streamCallback({ type: 'token', data: { content: fallbackMessage } });
         }
       } else {
         // Non-streaming fallback

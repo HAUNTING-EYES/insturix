@@ -360,48 +360,127 @@ LAYOUT STYLE: "Minimal" (Clean, Centered)
   };
   
   return `You are an expert Kinetic Typography Designer.
-Generate a SELF-CONTAINED HTML/CSS animation for fancy video captions.
+Generate HTML/CSS for fancy video captions. Focus ONLY on LAYOUT and STYLING - timing will be handled separately.
 
 ═══════════════════════════════════════════════════════════════════
-CANVAS: ${canvasWidth} × ${canvasHeight}px (content will be auto-scaled to fit)
-BACKGROUND: ${backgroundColor} (MUST be transparent - no background color unless explicitly requested)
-DURATION: ${totalDuration}ms (${(totalDuration / 1000).toFixed(1)}s)
+CANVAS: ${canvasWidth} × ${canvasHeight}px
+BACKGROUND: ${backgroundColor} (MUST be transparent unless specified otherwise)
 ═══════════════════════════════════════════════════════════════════
 
-WORD-BY-WORD TIMING TABLE (CRITICAL - use exact animation-delay values):
-| # | Word | StartMs | EndMs | animation-delay | Importance |
-|---|------|---------|-------|-----------------|------------|
-${wordTable}
+WORDS TO DISPLAY (with timing data - use as data attributes):
+${words.map((w, i) => {
+  const importance = w.importance || classifyWordImportance(w.word);
+  return `${i + 1}. "${w.word}" | data-start="${w.startMs}" data-end="${w.endMs}" | ${importance.toUpperCase()}`;
+}).join('\n')}
 
 ${styleInstructions[style]}
 
-ANIMATION RULES (CRITICAL):
-1. **ENTRY**: All words start \`opacity: 0\`. Each word MUST animate in at its EXACT animation-delay from the table above.
-2. **Entry Animation**: \`popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards\`
-3. **EXIT ANIMATION (MANDATORY)**: ALL words must fade out together at the end.
-   - Add a \`fadeOut\` keyframe: \`@keyframes fadeOut { to { opacity: 0; transform: scale(0.9); } }\`
-   - Apply to container: \`animation: fadeOut 0.3s ease-out ${exitDelaySeconds}s forwards;\`
-   - This ensures clean exit at ${exitStartMs}ms (${exitDelaySeconds}s)
-4. Words stay visible between entry and exit.
+YOUR JOB - Generate HTML with:
+1. **Each word wrapped in a span** with these REQUIRED attributes:
+   \`<span class="word" data-start="X" data-end="Y">WordHere</span>\`
+   Where X and Y are the startMs and endMs values from above.
 
-SIZING RULES (CRITICAL FOR AUTO-FIT):
-- Use PERCENTAGE-based font sizes relative to container (e.g., \`font-size: 15%;\` or \`font-size: calc(100% * 0.15);\`)
-- OR use \`em\` units with a base font-size on container
-- Content MUST fit within container - no overflow
+2. **Apply styling classes based on importance**:
+   - HERO words: larger, accent color, bold
+   - MEDIUM words: medium size
+   - FILLER words: smaller, subtle
+
+3. **NO animation CSS needed** - just set all words to \`opacity: 1\` by default.
+   Animations will be injected programmatically.
+
+LAYOUT RULES:
 - Container: \`width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;\`
+- Use CSS Grid or Flexbox for word arrangement
+- Use % or em for sizing (no vw/vh)
+- Include Google Fonts link (Oswald + Playfair Display)
 
 STYLING:
-- Background: ${backgroundColor === 'transparent' ? 'TRANSPARENT (no background-color, no background property)' : backgroundColor}
 - Primary Color: ${primaryColor}
-- Accent Color: ${accentColor} (use for HERO words or highlights)
-- Text Shadow: \`4px 4px 0 rgba(0,0,0,0.9)\` for readability.
-- Font Import: Include Google Fonts link for Oswald and Playfair Display.
+- Accent Color: ${accentColor} (for HERO words)
+- Text Shadow: \`2px 2px 0 rgba(0,0,0,0.8)\` for readability
+- Background: transparent (no background property)
 
-CONTAINER RULES:
-- Outer wrapper: \`position: relative; width: 100%; height: 100%; display: flex; justify-content: center; align-items: center; background: transparent;\`
-- Inner grid/content: Use max-width: 90% to leave breathing room.
-- Never use viewport units (vw, vh). Use % or em.
-- NO \`body\` or \`html\` styling - this is embedded in a player.
+CRITICAL DATA ATTRIBUTES:
+Every word span MUST have: data-start="milliseconds" data-end="milliseconds"
+Example: \`<span class="word hero" data-start="240" data-end="650">Hello</span>\`
 
-OUTPUT: Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation. NO DOCTYPE or html/body tags.`;
+OUTPUT: Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation.`;
 }
+
+/**
+ * Inject timing-based animation CSS into generated HTML.
+ * This handles the reliable timing work programmatically so LLM only does creative layout.
+ * 
+ * Uses the video player's --time CSS variable to show/hide words at correct moments.
+ */
+export function injectFancyCaptionTiming(html: string, totalDurationMs: number): string {
+  // Extract all word timings from data attributes
+  const wordTimings: Array<{ startMs: number; endMs: number; index: number }> = [];
+  const wordRegex = /data-start="(\d+)"\s+data-end="(\d+)"/g;
+  let match;
+  let index = 0;
+  
+  while ((match = wordRegex.exec(html)) !== null) {
+    wordTimings.push({
+      startMs: parseInt(match[1], 10),
+      endMs: parseInt(match[2], 10),
+      index: index++,
+    });
+  }
+  
+  if (wordTimings.length === 0) {
+    console.warn('[FANCY-CAPTIONS] No word timings found in HTML, skipping timing injection');
+    return html;
+  }
+  
+  // Calculate exit time (all words fade out together)
+  const exitStartMs = totalDurationMs - 300;
+  const exitStartS = (exitStartMs / 1000).toFixed(2);
+  
+  // Build timing CSS
+  // Each word: hidden by default, visible when --time is within [startMs, endMs]
+  // We use CSS animations with paused state, controlled by negative delay (scrubbing trick)
+  const timingCSS = `
+<style id="fancy-caption-timing">
+  /* Timing-based word visibility - injected programmatically */
+  @keyframes wordReveal {
+    0% { opacity: 0; transform: scale(0.8) translateY(10px); }
+    10% { opacity: 1; transform: scale(1) translateY(0); }
+    90% { opacity: 1; transform: scale(1) translateY(0); }
+    100% { opacity: 0; transform: scale(0.9) translateY(-5px); }
+  }
+  
+  /* Base word style - start hidden */
+  .word[data-start] {
+    opacity: 0;
+  }
+  
+  /* Each word gets its own animation timing */
+  ${wordTimings.map(w => {
+    const wordDuration = w.endMs - w.startMs;
+    const animDuration = Math.max(wordDuration + 200, 400); // Animation slightly longer than word duration
+    const durationS = (animDuration / 1000).toFixed(2);
+    const delayS = (w.startMs / 1000).toFixed(2);
+    
+    // Use nth-of-type to target words by order
+    return `.word[data-start="${w.startMs}"][data-end="${w.endMs}"] {
+    animation: wordReveal ${durationS}s ease-out calc(var(--time, 0s) * -1 + ${delayS}s) paused forwards;
+  }`;
+  }).join('\n  ')}
+  
+  /* Container exit animation */
+  .caption-wrapper, .caption-container, [class*="caption"] {
+    animation: containerExit 0.3s ease-out calc(var(--time, 0s) * -1 + ${exitStartS}s) paused forwards;
+  }
+  
+  @keyframes containerExit {
+    0% { opacity: 1; }
+    100% { opacity: 0; transform: scale(0.95); }
+  }
+</style>
+`;
+  
+  // Inject timing CSS at the beginning of the HTML
+  return timingCSS + html;
+}
+
