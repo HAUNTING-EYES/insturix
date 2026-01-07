@@ -5,6 +5,8 @@ interface IContact extends Document {
   email: string;
   subject: string;
   message: string;
+  read?: boolean;
+  readAt?: Date | null;
 }
 
 const contactSchema = new Schema<IContact>(
@@ -25,6 +27,15 @@ const contactSchema = new Schema<IContact>(
     message: {
       type: String,
       required: true,
+    },
+    read: {
+      type: Boolean,
+      default: false,
+    },
+    readAt: {
+      type: Date,
+      required: false,
+      default: null,
     },
   },
   {
