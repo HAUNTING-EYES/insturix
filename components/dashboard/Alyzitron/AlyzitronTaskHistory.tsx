@@ -11,7 +11,7 @@ import type {
   AlyzitronAnalysis,
   AnalysisStatus,
 } from "@/app/api/services/alyzitron/types";
-import { useTaskUpdater } from "@/hooks/useTaskUpdater";
+
 import {
   Loader2,
   FileVideo,
@@ -273,9 +273,7 @@ export function AlyzitronTaskHistory({
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Align with Musitron/Clickatron: RTDB-driven invalidation only
-  useTaskUpdater();
-
+  
   // SERVER pagination: trust API metadata, no client slicing for history
   const { data: pageData, isLoading } = useQuery<PaginatedAnalysisResponse>({
     // Standardized per-service key: ['alyzitron-tasks', page, limit]

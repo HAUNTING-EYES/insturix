@@ -43,7 +43,6 @@ async function handler(request: NextRequest) {
       logger.error("Task not found", { data: { taskId, userId } });
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
-    console.log('task : ', task);
     // Prevent re-processing if already completed/failed
     if (task.status === "completed" || task.status === "failed") {
       logger.warn("Task already processed", {
@@ -69,12 +68,6 @@ async function handler(request: NextRequest) {
 
     // 3. Perform video analysis with Vertex AI
     try {
-      logger.info("Starting Vertex AI analysis", {
-        data: { taskId, userId, videoUrl: task.videoUrl },
-      });
-
-      // Call Vertex AI for analysis
-      // First, check if the service exists
       logger.info("Starting Vertex AI analysis", {
         data: { taskId, userId, videoUrl: task.videoUrl },
       });
@@ -110,7 +103,7 @@ async function handler(request: NextRequest) {
         status: "completed",
       });
     } catch (analysisError) {
-      // 5. Handle analysis failure with refund
+      // 5. Handle analysis failure with robust refund logic
       const errorMessage =
         analysisError instanceof Error
           ? analysisError.message
@@ -124,48 +117,87 @@ async function handler(request: NextRequest) {
         },
       });
 
-      // Update status to failed (MongoDB)
-      await analyses.updateOne(
-        { _id: task._id },
-        {
-          $set: {
-            status: "failed",
-            error: {
-              message: errorMessage,
-              timestamp: new Date(),
-            },
-            updatedAt: new Date(),
-          },
-        }
-      );
-
-      // Refund credits
+      // Compute refund minutes (fallback to 1 minute if unknown)
       const minutes =
         task.usageMinutes ||
-        Math.ceil((task.metadata?.videoDuration || 0) / 60);
+        Math.max(1, Math.ceil((task.metadata?.videoDuration || 0) / 60));
 
+      // Try to atomically mark task as failed and refunded when possible
+      let shouldRefund = true;
       try {
-        await processRefund("alyzitron", "analysis", userId, minutes);
-        logger.info("Credits refunded after analysis failure", {
-          data: { taskId, userId, minutes },
+        const updateResult = await analyses.updateOne(
+          { _id: task._id, refunded: { $ne: true } },
+          {
+            $set: {
+              status: "failed",
+              error: { message: errorMessage, timestamp: new Date() },
+              refunded: true,
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        if (updateResult.modifiedCount === 0) {
+          // No modification: either already refunded or update didn't match
+          const fresh = await analyses.findOne({ _id: task._id });
+          if (fresh?.refunded) {
+            shouldRefund = false;
+            logger.info("Task already marked refunded, skipping refund", {
+              data: { taskId },
+            });
+          } else {
+            // Update didn't modify but refunded not set; we'll still attempt refund
+            logger.warn("Failed to mark task as refunded; proceeding to refund anyway", {
+              data: { taskId },
+            });
+            shouldRefund = true;
+          }
+        }
+      } catch (updateErr) {
+        logger.error("Failed to update task status/refunded flag", {
+          data: { taskId, error: updateErr instanceof Error ? updateErr.message : String(updateErr) },
         });
-      } catch (refundError) {
-        logger.error("Failed to refund credits", {
-          data: {
-            taskId,
-            userId,
-            error:
-              refundError instanceof Error
-                ? refundError.message
-                : String(refundError),
-          },
-        });
+        // Proceed to refund as a best-effort
+        shouldRefund = true;
+      }
+
+      if (shouldRefund) {
+        try {
+          // Perform refund
+          await processRefund("alyzitron", "analysis", userId, minutes);
+          logger.info("Credits refunded after analysis failure", {
+            data: { taskId, userId, minutes },
+          });
+
+          // Ensure task has refunded flag set (best-effort)
+          try {
+            await analyses.updateOne(
+              { _id: task._id },
+              { $set: { refunded: true, updatedAt: new Date() } }
+            );
+          } catch (setFlagErr) {
+            logger.warn("Failed to set refunded flag after refund", {
+              data: { taskId, error: setFlagErr instanceof Error ? setFlagErr.message : String(setFlagErr) },
+            });
+          }
+        } catch (refundError) {
+          logger.error("Failed to refund credits", {
+            data: {
+              taskId,
+              userId,
+              error:
+                refundError instanceof Error
+                  ? refundError.message
+                  : String(refundError),
+            },
+          });
+        }
       }
 
       return NextResponse.json(
         {
           success: false,
-          error: "Analysis failed, credits refunded",
+          error: "Analysis failed, credits refunded (or attempted)",
           taskId,
         },
         { status: 500 }

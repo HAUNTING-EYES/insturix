@@ -284,10 +284,16 @@ export async function POST(request: Request) {
       title
     );
 
+    // Prepare holders used for cleanup in catch block
+    let analyses: any;
+    let taskId: ObjectId | null = null;
+    let insertResult: any = null;
+
     try {
       // 1. Create task in MongoDB
-      const { analyses } = await getCollections();
-      const taskId = new ObjectId();
+      const collections = await getCollections();
+      analyses = collections.analyses;
+      taskId = new ObjectId();
 
       const taskData = {
         _id: taskId,
@@ -303,7 +309,7 @@ export async function POST(request: Request) {
         usageMinutes: usageMinutes,
       };
 
-      const insertResult = await analyses.insertOne(taskData);
+      insertResult = await analyses.insertOne(taskData);
 
 
 
@@ -374,6 +380,32 @@ export async function POST(request: Request) {
             },
           });
         }
+      }
+
+      // Remove MongoDB task if it was inserted but we failed to queue for processing
+      try {
+        if (analyses && taskId) {
+          const deleteResult = await analyses.deleteOne({ _id: taskId });
+          if (deleteResult.deletedCount) {
+            logger.info("Deleted MongoDB task after task creation failure", {
+              data: { taskId: taskId.toString() },
+            });
+          } else {
+            logger.warn("No MongoDB task found to delete after failure", {
+              data: { taskId: taskId?.toString() },
+            });
+          }
+        }
+      } catch (deleteError) {
+        logger.error("Failed to delete MongoDB task after failure", {
+          data: {
+            error:
+              deleteError instanceof Error
+                ? deleteError.message
+                : String(deleteError),
+            taskId: taskId ? taskId.toString() : undefined,
+          },
+        });
       }
 
       // Refund usage if task creation failed
