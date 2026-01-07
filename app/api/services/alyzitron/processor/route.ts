@@ -1,11 +1,11 @@
 import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import { NextResponse, NextRequest } from "next/server";
 import { getCollections } from "../utils/mongodb";
-
 import { processRefund } from "@/lib/services/tasks/simple-refund";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
+
 
 async function handler(request: NextRequest) {
   try {
@@ -37,11 +37,13 @@ async function handler(request: NextRequest) {
       clerkUserId: userId,
     });
 
+
+
     if (!task) {
       logger.error("Task not found", { data: { taskId, userId } });
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
-
+    console.log('task : ', task);
     // Prevent re-processing if already completed/failed
     if (task.status === "completed" || task.status === "failed") {
       logger.warn("Task already processed", {

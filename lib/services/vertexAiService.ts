@@ -46,6 +46,7 @@ export async function analyzeVideoWithGemini(
   metadata: any
 ) {
   // Initialize VertexAI lazily
+
   const client = initVertexAI();
   try {
     // Define the response schema for structured output
@@ -210,22 +211,25 @@ JSON STRUCTURE:
 Be specific and reference actual content from the video.
 `;
 
-    // Prepare request with video file
+    // Prepare request parts
+    const parts: any[] = [];
+
+
+    parts.push({
+      fileData: {
+        mimeType: 'video/mp4',
+        fileUri: videoUrl,
+      },
+    }, {
+      text: prompt,
+    });
+
+
     const request = {
       contents: [
         {
           role: "user",
-          parts: [
-            {
-              fileData: {
-                fileUri: videoUrl,
-                mimeType: metadata.mimeType || "video/mp4",
-              },
-            },
-            {
-              text: prompt,
-            },
-          ],
+          parts: parts,
         },
       ],
     };
@@ -234,11 +238,14 @@ Be specific and reference actual content from the video.
     const responseText =
       result.response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
+    console.log("RAW_VERTEX_RESPONSE:", responseText);
+
     // Clean and parse the JSON response
     try {
       // Clean the response text - remove markdown code blocks
       let cleanResponseText = responseText.trim();
 
+      console.log("cleanResponseText : ", cleanResponseText);
       // Remove ```json and ``` markers if present
       if (cleanResponseText.startsWith("```")) {
         cleanResponseText = cleanResponseText
@@ -248,27 +255,40 @@ Be specific and reference actual content from the video.
 
       const parsed = JSON.parse(cleanResponseText);
 
+      console.log("parsed : ", parsed);
+      // Check for explicit error from model
+      if (parsed.error === "CANNOT_ACCESS_VIDEO") {
+        throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
+      }
+
       // Ensure all required fields exist with defaults
       const finalResult = {
-        summary: parsed.summary || `Analysis of "${metadata.originalFilename}"`,
+        ...parsed, // Include all original fields from the model (analysis, strengths, titles, etc.)
+        summary: parsed.summary || parsed.overview || `Analysis of "${metadata.originalFilename}"`,
         keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
         qualityAssessment: parsed.qualityAssessment || {
-          score: 7,
-          notes: "Standard quality video analysis",
+          score: parsed.overall_score || 7,
+          notes: parsed.remarks || "Standard quality video analysis",
         },
         recommendations: Array.isArray(parsed.recommendations)
           ? parsed.recommendations
-          : [],
+          : (parsed.weaknesses || []),
         contentWarnings: Array.isArray(parsed.contentWarnings)
           ? parsed.contentWarnings
-          : [],
+          : (parsed.compliance_risks || []),
         analysisTime: parsed.analysisTime || new Date().toISOString(),
         videoUrl,
         modelUsed: model,
       };
 
+      console.log(finalResult);
       return finalResult;
     } catch (parseError) {
+      // If it was our custom error, rethrow it
+      if (parseError instanceof Error && parseError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
+        throw parseError;
+      }
+
       // Try to extract JSON from the response if it's wrapped in text
       try {
         // Look for JSON object pattern in the response
@@ -276,6 +296,11 @@ Be specific and reference actual content from the video.
         if (jsonMatch) {
           const extractedJson = jsonMatch[0];
           const parsed = JSON.parse(extractedJson);
+
+          if (parsed.error === "CANNOT_ACCESS_VIDEO") {
+            throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
+          }
+
           return {
             summary:
               parsed.summary ||
@@ -299,7 +324,11 @@ Be specific and reference actual content from the video.
             extractedFromText: true,
           };
         }
-      } catch (extractError) {}
+      } catch (extractError) {
+        if (extractError instanceof Error && extractError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
+          throw extractError;
+        }
+      }
 
       // If all parsing fails, return a structured error response
       return {
@@ -319,30 +348,6 @@ Be specific and reference actual content from the video.
       };
     }
   } catch (error) {
-    return getMockAnalysis(context, metadata);
+    throw error;
   }
-}
-
-function getMockAnalysis(context: any, metadata: any) {
-  return {
-    summary: `Mock analysis for "${metadata?.originalFilename || "video"}" targeting ${context.audience} in ${context.niche} niche`,
-    keyMoments: [
-      { timestamp: "00:30", description: "Introduction to topic" },
-      { timestamp: "01:45", description: "Key demonstration or example" },
-      { timestamp: "03:20", description: "Conclusion and summary" },
-    ],
-    qualityAssessment: {
-      score: 8,
-      notes: "Good production quality with clear audio and visuals",
-    },
-    recommendations: [
-      "Add chapter markers for key sections",
-      "Include more visual examples",
-      "Improve lighting in outdoor shots",
-    ],
-    contentWarnings: [],
-    analysisTime: new Date().toISOString(),
-    modelUsed: model,
-    mock: true,
-  };
 }

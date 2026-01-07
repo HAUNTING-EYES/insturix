@@ -14,6 +14,7 @@ import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
 import { processRefund } from "@/lib/services/tasks/simple-refund";
 import { ContextValues } from "@/components/dashboard/Alyzitron/ContextSelector";
+import { youtube } from "googleapis/build/src/apis/youtube";
 
 interface MetadataModel {
   originalFilename: string;
@@ -26,6 +27,7 @@ interface MetadataModel {
   duration?: number;
 }
 
+
 function getGcsUrl(gcsPath: string): string {
   const bucketName = process.env.GCS_BUCKET_NAME;
   if (!bucketName) {
@@ -36,7 +38,6 @@ function getGcsUrl(gcsPath: string): string {
 }
 
 // Initialize QStash client
-// use dev URL only in development, otherwise undefined (production)
 const qstashBaseUrl = process.env.QSTASH_URL ||
   (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
 const qstash = new Client({
