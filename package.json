@@ -109,6 +109,7 @@
     "dotenv": "^17.2.3",
     "file-type": "^21.1.1",
     "firebase": "^12.6.0",
+    "firebase-admin": "^13.6.0",
     "formik": "^2.4.9",
     "framer-motion": "^12.23.24",
     "googleapis": "^166.0.0",

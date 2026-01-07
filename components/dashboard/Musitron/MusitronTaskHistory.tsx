@@ -9,7 +9,6 @@ import { History, Music2, ChevronRight as ChevronRightIcon, Calendar, Clock, Loa
 import { cn } from "@/lib/utils";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { useQuery } from "@tanstack/react-query";
-import { useTaskUpdater } from "@/hooks/useTaskUpdater";
 
 function MusitronTaskCard({ task }: { task: MusitronTask }) {
   const router = useRouter();
@@ -119,7 +118,6 @@ function MusitronTaskCard({ task }: { task: MusitronTask }) {
 }
 
 export function MusitronTaskHistory() {
-  useTaskUpdater();
   // Use SERVER pagination metadata to avoid capped totals
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 6;
@@ -150,10 +148,16 @@ export function MusitronTaskHistory() {
         },
       };
     },
-    staleTime: 1000 * 30,
+    // Poll every 5 seconds when there are in-progress tasks
+    refetchInterval: (query) => {
+      const hasInProgress = query.state.data?.items?.some(
+        (t: MusitronTask) => t.status === "processing" || t.status === "listed"
+      );
+      return hasInProgress ? 5000 : false;
+    },
+    staleTime: 1000 * 5, // Consider data stale after 5 seconds
     gcTime: 1000 * 60 * 10,
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    refetchOnWindowFocus: true, // Refetch when user returns to tab
   });
 
   const tasksData: MusitronTask[] = Array.isArray(pageData?.items) ? pageData!.items : [];
