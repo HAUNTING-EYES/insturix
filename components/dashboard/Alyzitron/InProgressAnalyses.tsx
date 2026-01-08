@@ -39,6 +39,7 @@ export function InProgressAnalyses() {
               processingStartTime={analysis.processingStartTime}
               error={analysis.error}
               videoUrl={analysis.videoUrl}
+              metadata={analysis.metadata}
             />
           );
         })}

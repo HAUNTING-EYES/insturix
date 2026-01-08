@@ -121,6 +121,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
               unread={analysis.unread}
               expectedDurationSeconds={analysis.expectedDurationSeconds}
               videoUrl={analysis.videoUrl}
+              metadata={analysis.metadata}
               // Pass down necessary props for cache update
               queryClient={queryClient}
               currentPage={currentPage}
