@@ -7,7 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Sparkles, Upload, ArrowRight, Trash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextSelector } from "./ContextSelector";
-import type { ContextValues } from "./ContextSelector";
+import { ContextValues } from "@/app/api/services/alyzitron/types";
 import { useToast } from "@/hooks/use-toast";
 import { useVideoAnalysis } from "@/app/dashboard/alyzitron/hooks/useVideoAnalysis";
 import { Analysis } from "@/app/dashboard/alyzitron/types/analysis";

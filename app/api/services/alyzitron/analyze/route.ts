@@ -13,7 +13,7 @@ import { getCollections } from "../utils/mongodb";
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
 import { processRefund } from "@/lib/services/tasks/simple-refund";
-import { ContextValues } from "@/components/dashboard/Alyzitron/ContextSelector";
+import { ContextValues } from "../types";
 import { youtube } from "googleapis/build/src/apis/youtube";
 
 interface MetadataModel {
@@ -297,14 +297,16 @@ export async function POST(request: Request) {
 
       const taskData = {
         _id: taskId,
+        taskId: taskId.toString(),
         clerkUserId: session.userId,
         videoUrl: finalVideoUrl,
         context: parsedContext,
         metadata: finalMetadata,
         status: "listed",
+        unread: true,
+        results: null,
         createdAt: new Date(),
         updatedAt: new Date(),
-        taskId: taskId.toString(),
         videoDuration: videoDuration,
         usageMinutes: usageMinutes,
       };

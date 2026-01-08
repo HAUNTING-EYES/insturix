@@ -4,18 +4,13 @@ import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Target, MessageSquare } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ContextValues } from "@/app/api/services/alyzitron/types";
 
 type Pill = {
   id: string;
   label: string;
 };
 
-export type ContextValues = {
-  niche: string;
-  audience: string;
-  tone: string;
-  additionalDetails?: string;
-};
 
 interface ContextSelectorProps {
   value: ContextValues;

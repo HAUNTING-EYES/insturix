@@ -30,9 +30,7 @@ interface AlyzitronTaskHistoryProps {
 }
 
 interface AnalysisDisplay extends AlyzitronAnalysis {
-  _id: string; // Ensure _id is always a string for frontend display
   expectedWaitSeconds?: number;
-  completedAt?: Date; // Add completedAt to the interface
 }
 
 interface PaginatedAnalysisResponse {

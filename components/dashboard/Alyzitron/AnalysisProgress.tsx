@@ -12,9 +12,10 @@ import type { AnalysisStatus } from '@/app/api/services/alyzitron/types'
 import type { PaginatedResponse } from './AnalysisList';
 
 interface AnalysisError {
-  code: string;
+  code?: string;
   message: string;
   action?: string;
+  timestamp?: Date;
 }
 
 interface AnalysisProgressProps {
@@ -25,7 +26,7 @@ interface AnalysisProgressProps {
   unread?: boolean;
   error?: AnalysisError;
   expectedDurationSeconds?: number;
-  processingStartTime?: number; // timestamp in ms
+  processingStartTime?: number | Date; // timestamp in ms or Date object
   queryClient?: QueryClient;
   currentPage?: number;
   itemsPerPage?: number;
@@ -79,8 +80,10 @@ export function AnalysisProgress({
   const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
 
   // Helper function to calculate remaining time
-  const calculateRemainingTime = (startTime: number | undefined | string, duration: number): number => {
-    if (typeof startTime === 'string') {
+  const calculateRemainingTime = (startTime: number | Date | undefined | string, duration: number): number => {
+    if (startTime instanceof Date) {
+      startTime = startTime.getTime();
+    } else if (typeof startTime === 'string') {
       startTime = Date.parse(startTime);
     }
 
