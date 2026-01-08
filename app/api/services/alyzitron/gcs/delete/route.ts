@@ -42,8 +42,8 @@ export async function POST(request: Request) {
             : gcsPath; // Assume it's just the object name if prefix is missing
 
         if (!objectName) {
-             logger.error('Could not extract object name from gcsPath', { data: { userId, gcsPath } });
-             return NextResponse.json({ message: 'Internal server error: Invalid GCS path format.' }, { status: 500 });
+            logger.error('Could not extract object name from gcsPath', { data: { userId, gcsPath } });
+            return NextResponse.json({ message: 'Internal server error: Invalid GCS path format.' }, { status: 500 });
         }
 
         await bucket.file(objectName).delete({ ignoreNotFound: true }); // ignoreNotFound prevents errors if already deleted
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        logger.error('Error deleting GCS file', { data: { userId, gcsPath: gcsPath! , error: errorMessage } }); // Use non-null assertion for gcsPath in catch
+        logger.error('Error deleting GCS file', { data: { userId, gcsPath: gcsPath!, error: errorMessage } }); // Use non-null assertion for gcsPath in catch
         return NextResponse.json({ message: 'Failed to delete file', error: errorMessage }, { status: 500 });
     }
 }

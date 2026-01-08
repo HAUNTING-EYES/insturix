@@ -25,7 +25,7 @@ async function ensureCorsConfigured() {
   if (!bucket || corsConfigured || corsConfiguring) return;
 
   corsConfiguring = true;
-  
+
   try {
     // Build list of allowed origins
     const allowedOrigins = [
@@ -92,7 +92,7 @@ async function ensureCorsConfigured() {
 
     corsConfigured = true;
     logger.info('GCS CORS configuration updated successfully', {
-      data: { 
+      data: {
         bucket: process.env.GCS_BUCKET_NAME,
         originsCount: allowedOrigins.length,
         includesLocalhost: true,
@@ -101,9 +101,9 @@ async function ensureCorsConfigured() {
     });
   } catch (error) {
     logger.error('Failed to update GCS CORS configuration', {
-      data: { 
+      data: {
         bucket: process.env.GCS_BUCKET_NAME,
-        error: error instanceof Error ? error.message : String(error) 
+        error: error instanceof Error ? error.message : String(error)
       }
     });
   } finally {
@@ -149,10 +149,10 @@ export async function POST(request: Request) {
       const timestamp = Date.now();
       const cleanFilename = filename.replace(/[^a-zA-Z0-9-_.]/g, '_');
       const userId = session.userId.replace('user_', '');
-      
+
       // Include timestamp in path for easy age-based cleanup
       const gcsPath = `user_${userId}/alyzitron-uploads/${timestamp}_${cleanFilename}`;
-      
+
       // Get signed URL
       const file = bucket.file(gcsPath);
 
@@ -179,7 +179,7 @@ export async function POST(request: Request) {
       });
 
     } catch (error) {
-      logger.error('GCS signed URL generation failed', { 
+      logger.error('GCS signed URL generation failed', {
         data: { error: error instanceof Error ? error.message : String(error) }
       });
       throw error;
