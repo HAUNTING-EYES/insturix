@@ -47,9 +47,11 @@ export async function POST(request: Request) {
       composition: compositionId || 'TestComponent',
       inputProps: inputProps || {},
       codec: 'h264',
+      audioCodec: 'mp3', // Faster audio processing than AAC
       privacy: 'public', // Make the video publicly accessible
       // Distributed rendering settings
-      framesPerLambda: 600, // High value to use only ~3 Lambdas (AWS new account limit is 10)
+      // Set to 200 to use ~5-8 concurrent Lambdas (safe for new AWS accounts with limit 10)
+      framesPerLambda: 200,
       timeoutInMilliseconds: 240000, // 4 minutes
     });
 

@@ -408,79 +408,48 @@ OUTPUT: Return ONLY raw HTML starting with \`<\`. NO markdown. NO explanation.`;
 }
 
 /**
- * Inject timing-based animation CSS into generated HTML.
- * This handles the reliable timing work programmatically so LLM only does creative layout.
+ * Inject simple visibility CSS into generated HTML.
  * 
- * Uses the video player's --time CSS variable to show/hide words at correct moments.
+ * NEW APPROACH: No complex animation scrubbing. React will control visibility
+ * based on frame time by directly setting inline styles on word elements.
+ * 
+ * This function adds:
+ * 1. Smooth transition CSS for opacity/transform changes
+ * 2. data-total-duration attribute on container for React parsing
  */
 export function injectFancyCaptionTiming(html: string, totalDurationMs: number): string {
-  // Extract all word timings from data attributes
-  const wordTimings: Array<{ startMs: number; endMs: number; index: number }> = [];
-  const wordRegex = /data-start="(\d+)"\s+data-end="(\d+)"/g;
-  let match;
-  let index = 0;
+  // Extract all word timings to verify data attributes are present
+  const wordCount = (html.match(/data-start="/g) || []).length;
   
-  while ((match = wordRegex.exec(html)) !== null) {
-    wordTimings.push({
-      startMs: parseInt(match[1], 10),
-      endMs: parseInt(match[2], 10),
-      index: index++,
-    });
-  }
-  
-  if (wordTimings.length === 0) {
-    console.warn('[FANCY-CAPTIONS] No word timings found in HTML, skipping timing injection');
+  if (wordCount === 0) {
+    console.warn('[FANCY-CAPTIONS] No word timings found in HTML, skipping');
     return html;
   }
   
-  // Calculate exit time (all words fade out together)
-  const exitStartMs = totalDurationMs - 300;
-  const exitStartS = (exitStartMs / 1000).toFixed(2);
+  console.log(`[FANCY-CAPTIONS] Found ${wordCount} words, total duration: ${totalDurationMs}ms`);
   
-  // Build timing CSS
-  // Each word: hidden by default, visible when --time is within [startMs, endMs]
-  // We use CSS animations with paused state, controlled by negative delay (scrubbing trick)
-  const timingCSS = `
-<style id="fancy-caption-timing">
-  /* Timing-based word visibility - injected programmatically */
-  @keyframes wordReveal {
-    0% { opacity: 0; transform: scale(0.8) translateY(10px); }
-    10% { opacity: 1; transform: scale(1) translateY(0); }
-    90% { opacity: 1; transform: scale(1) translateY(0); }
-    100% { opacity: 0; transform: scale(0.9) translateY(-5px); }
-  }
-  
-  /* Base word style - start hidden */
+  // Simple CSS: smooth transitions for React-controlled visibility changes
+  const visibilityCSS = `
+<style id="fancy-caption-visibility">
+  /* React controls visibility via inline styles - this just adds smooth transitions */
   .word[data-start] {
-    opacity: 0;
+    transition: opacity 0.15s ease-out, transform 0.15s ease-out;
   }
   
-  /* Each word gets its own animation timing */
-  ${wordTimings.map(w => {
-    const wordDuration = w.endMs - w.startMs;
-    const animDuration = Math.max(wordDuration + 200, 400); // Animation slightly longer than word duration
-    const durationS = (animDuration / 1000).toFixed(2);
-    const delayS = (w.startMs / 1000).toFixed(2);
-    
-    // Use nth-of-type to target words by order
-    return `.word[data-start="${w.startMs}"][data-end="${w.endMs}"] {
-    animation: wordReveal ${durationS}s ease-out calc(var(--time, 0s) * -1 + ${delayS}s) paused forwards;
-  }`;
-  }).join('\n  ')}
-  
-  /* Container exit animation */
-  .caption-wrapper, .caption-container, [class*="caption"] {
-    animation: containerExit 0.3s ease-out calc(var(--time, 0s) * -1 + ${exitStartS}s) paused forwards;
-  }
-  
-  @keyframes containerExit {
-    0% { opacity: 1; }
-    100% { opacity: 0; transform: scale(0.95); }
+  /* Ensure container doesn't clip effects */
+  .caption-container, .bento-grid, [class*="caption"] {
+    overflow: visible;
   }
 </style>
 `;
   
-  // Inject timing CSS at the beginning of the HTML
-  return timingCSS + html;
+  // Add data-total-duration to the first div for React to read
+  const htmlWithDuration = html.replace(
+    /(<div[^>]*class="[^"]*caption-container[^"]*")/i,
+    `$1 data-total-duration="${totalDurationMs}"`
+  );
+  
+  // Inject CSS at the beginning
+  return visibilityCSS + htmlWithDuration;
 }
 

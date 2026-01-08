@@ -97,6 +97,10 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   get_timeline_view: "Getting timeline",
   generate_html_scene: "Creating custom scene",
   generate_html_sticker: "Creating custom sticker",
+  add_captions: "Adding captions",
+  add_fancy_captions: "Adding fancy captions",
+  refresh_captions: "Refreshing captions",
+  close_gaps: "Closing gaps",
 };
 
 export function AIChatPanel() {
@@ -438,6 +442,9 @@ export function AIChatPanel() {
                   'generate_html_sticker',
                   // Video auto-edit tools
                   'add_captions',
+                  'add_fancy_captions',
+                  'refresh_captions',
+                  'close_gaps',
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {

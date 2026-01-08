@@ -68,8 +68,11 @@ export const CaptionsPanel: React.FC = () => {
     durationInFrames,
     changeOverlay,
     currentFrame,
-    playerDimensions,
+    getAspectRatioDimensions,
   } = useEditorContext();
+
+  // Use composition dimensions for overlay positioning (not preview container dimensions)
+  const compositionDimensions = getAspectRatioDimensions();
 
   const { findNextAvailablePosition } = useTimelinePositioning();
   const { visibleRows } = useTimeline();
@@ -139,11 +142,11 @@ export const CaptionsPanel: React.FC = () => {
       from: position.from,
       durationInFrames: calculatedDurationInFrames,
       captions: processedCaptions,
-      // Responsive positioning: 80% width, centered, bottom 15%
-      left: playerDimensions.width * 0.1,
-      top: playerDimensions.height * 0.75,
-      width: playerDimensions.width * 0.8,
-      height: playerDimensions.height * 0.2,
+      // Position based on composition dimensions for proper render compatibility
+      left: compositionDimensions.width * 0.1,
+      top: compositionDimensions.height * 0.75,
+      width: compositionDimensions.width * 0.8,
+      height: compositionDimensions.height * 0.2,
       rotation: 0,
       isDragging: false,
       row: position.row,
@@ -205,11 +208,11 @@ export const CaptionsPanel: React.FC = () => {
           from: position.from,
           durationInFrames: calculatedDurationInFrames,
           captions: processedCaptions,
-          // Responsive positioning: 80% width, centered, bottom 15%
-          left: playerDimensions.width * 0.1,
-          top: playerDimensions.height * 0.75,
-          width: playerDimensions.width * 0.8,
-          height: playerDimensions.height * 0.2,
+          // Position based on composition dimensions for proper render compatibility
+          left: compositionDimensions.width * 0.1,
+          top: compositionDimensions.height * 0.75,
+          width: compositionDimensions.width * 0.8,
+          height: compositionDimensions.height * 0.2,
           rotation: 0,
           isDragging: false,
           row: position.row,

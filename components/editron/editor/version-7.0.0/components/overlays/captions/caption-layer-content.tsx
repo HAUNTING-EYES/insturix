@@ -205,31 +205,39 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
 
   return (
     <div
-      className="absolute inset-0 flex items-center justify-center p-4"
       style={{
+        // IMPORTANT: Using inline styles instead of Tailwind for Lambda compatibility
+        // Tailwind classes may not load correctly in Lambda's headless Chrome
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: styles.padding || '16px',
         // Use background (gradient) if set, otherwise fall back to backgroundColor
         background: styles.background || styles.backgroundColor || undefined,
         backdropFilter: styles.backdropFilter,
         borderRadius: styles.borderRadius,
-        padding: styles.padding,
       }}
     >
       <div
-        className={`leading-relaxed tracking-wide ${styles.fontFamily}`}
         style={{
           fontSize: styles.fontSize,
           fontWeight: styles.fontWeight,
-          letterSpacing: styles.letterSpacing,
+          fontFamily: styles.fontFamily?.startsWith('font-') 
+            ? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+            : styles.fontFamily,
+          letterSpacing: styles.letterSpacing || '0.025em',
           lineHeight: styles.lineHeight,
           textAlign: styles.textAlign,
-          whiteSpace: "pre-wrap",
-          width: "100%",
-          wordBreak: "break-word",
-          display: "flex",
-          flexWrap: "wrap",
-          justifyContent: styles.textAlign === "center" ? "center" : styles.textAlign === "right" ? "flex-end" : "flex-start",
-          alignItems: "center",
-          gap: "2px",
+          whiteSpace: 'pre-wrap',
+          width: '100%',
+          wordBreak: 'break-word',
+          display: 'flex',
+          flexWrap: 'wrap',
+          justifyContent: styles.textAlign === 'center' ? 'center' : styles.textAlign === 'right' ? 'flex-end' : 'flex-start',
+          alignItems: 'center',
+          gap: '2px',
         }}
       >
         {renderWords(currentCaption)}

@@ -35,18 +35,18 @@ export const createTools = (userId: string, projectId: string) => {
   };
 
   // Helper to get canvas dimensions from project
+  // IMPORTANT: Always use composition dimensions for overlay positioning.
+  // playerDimensions is the preview container size and will cause positioning
+  // issues during Lambda render if used directly.
   const getCanvasDimensions = (project: any) => {
-    let width = project.playerDimensions?.width || 1920;
-    let height = project.playerDimensions?.height || 1080;
-    
-    if (!project.playerDimensions) {
-      if (project.aspectRatio === "9:16") { width = 1080; height = 1920; }
-      else if (project.aspectRatio === "4:5") { width = 1080; height = 1350; }
-      else if (project.aspectRatio === "1:1") { width = 1080; height = 1080; }
-      else if (project.aspectRatio === "16:9") { width = 1920; height = 1080; }
-    }
-    return { width, height };
+    // Use composition dimensions based on aspect ratio
+    if (project.aspectRatio === "9:16") return { width: 1080, height: 1920 };
+    if (project.aspectRatio === "4:5") return { width: 1080, height: 1350 };
+    if (project.aspectRatio === "1:1") return { width: 1080, height: 1080 };
+    if (project.aspectRatio === "16:9") return { width: 1280, height: 720 };
+    return { width: 1920, height: 1080 }; // Default fallback
   };
+
 
   // Helper to convert overlays to ExistingOverlay format for Physics Engine
   const toExistingOverlays = (overlays: any[]): ExistingOverlay[] => {
@@ -61,17 +61,44 @@ export const createTools = (userId: string, projectId: string) => {
 
   /**
    * Helper to coerce LLM inputs to correct types.
-   * Gemini sometimes sends numbers as strings (e.g., "0" instead of 0).
+   * Gemini sometimes sends numbers as strings (e.g., "0" instead of 0)
+   * or time strings like "3s" or CSS-like strings for styles.
    * This prevents Zod validation errors.
    */
   const coerceInput = <T extends Record<string, any>>(input: T): T => {
     const result = { ...input };
     for (const key of Object.keys(result)) {
       const value = result[key];
-      // Coerce string numbers to actual numbers
-      if (typeof value === 'string' && /^-?\d+(\.\d+)?$/.test(value)) {
-        (result as any)[key] = parseFloat(value);
+      
+      if (typeof value === 'string') {
+        // Handle time strings: "3s", "3sec", "3 seconds" → frame count at 30fps
+        const timeMatch = value.match(/^(\d+(?:\.\d+)?)\s*(s|sec|seconds?)$/i);
+        if (timeMatch) {
+          (result as any)[key] = Math.round(parseFloat(timeMatch[1]) * 30);
+        }
+        // Handle CSS-like style strings for 'styles' field: "fontSize: 72px; color: #FFF"
+        else if (key === 'styles' && value.includes(':')) {
+          const styleObj: Record<string, any> = {};
+          value.split(';').forEach(pair => {
+            const [k, ...vParts] = pair.split(':');
+            if (k && vParts.length > 0) {
+              const propName = k.trim();
+              let propValue: any = vParts.join(':').trim();
+              // Remove 'px' suffix and convert to number for font sizes
+              if (/^\d+px$/i.test(propValue)) {
+                propValue = parseInt(propValue, 10);
+              }
+              styleObj[propName] = propValue;
+            }
+          });
+          (result as any)[key] = styleObj;
+        }
+        // Coerce plain string numbers to actual numbers
+        else if (/^-?\d+(\.\d+)?$/.test(value)) {
+          (result as any)[key] = parseFloat(value);
+        }
       }
+      
       // Coerce string booleans
       if (value === 'true') (result as any)[key] = true;
       if (value === 'false') (result as any)[key] = false;
@@ -920,8 +947,8 @@ TYPE-SPECIFIC FIELDS:
             // Copy only specified properties
             stylesToApply = {};
             for (const prop of input.properties) {
-              if (sourceStyles[prop] !== undefined) {
-                stylesToApply[prop] = sourceStyles[prop];
+              if ((sourceStyles as any)[prop] !== undefined) {
+                stylesToApply[prop] = (sourceStyles as any)[prop];
               }
             }
           } else {
@@ -979,8 +1006,8 @@ TYPE-SPECIFIC FIELDS:
 
   // 7. Generate HTML Scene
   const generateHtmlSceneSchema = z.object({
-    start: z.coerce.number().describe("Start frame (0-based)"),
-    duration: z.coerce.number().describe("Duration in frames"),
+    start: z.coerce.number().describe("Start frame number (integer, 0-based). At 30fps: 1 second = 30 frames."),
+    duration: z.coerce.number().describe("Duration in frames (integer). At 30fps: 3 seconds = 90 frames."),
     row: z.coerce.number().optional().describe("Row index"),
     description: z.string().describe("Detailed description of the scene to generate (e.g., 'Retro vaporwave grid background with animated sun')"),
     x: z.coerce.number().optional().describe("Center X position"),
@@ -991,14 +1018,26 @@ TYPE-SPECIFIC FIELDS:
   });
 
   const generateHtmlScene = tool(
-    async (input: z.infer<typeof generateHtmlSceneSchema>) => {
+    async (rawInput: z.infer<typeof generateHtmlSceneSchema>) => {
       try {
-        const project = await loadProject(); // Load project to get dimensions
-        const { width, height, aspectRatio } = project.playerDimensions 
-          ? { ...project.playerDimensions, aspectRatio: project.aspectRatio } 
-          : { width: 1920, height: 1080, aspectRatio: "16:9" };
-        const safeWidth = width || 1920;
-        const safeHeight = height || 1080;
+        // EARLY VALIDATION: Coerce and validate before expensive operations
+        const input = coerceInput(rawInput);
+        if (isNaN(input.start) || isNaN(input.duration)) {
+          return JSON.stringify({ 
+            status: 'error', 
+            message: `Invalid timing: start=${rawInput.start}, duration=${rawInput.duration}. Must be frame numbers (integers). At 30fps: 3s = 90 frames.` 
+          });
+        }
+        if (input.duration <= 0) {
+          return JSON.stringify({ status: 'error', message: 'Duration must be positive' });
+        }
+        
+        const project = await loadProject();
+        // Use composition dimensions for proper render compatibility
+        const canvas = getCanvasDimensions(project);
+        const safeWidth = canvas.width;
+        const safeHeight = canvas.height;
+
 
         const id = Date.now() + Math.floor(Math.random() * 10000);
 
@@ -1170,8 +1209,8 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
 
   // 8. Generate HTML Sticker
   const generateHtmlStickerSchema = z.object({
-    start: z.coerce.number().describe("Start frame (0-based)"),
-    duration: z.coerce.number().describe("Duration in frames"),
+    start: z.coerce.number().describe("Start frame number (integer, 0-based). At 30fps: 1 second = 30 frames."),
+    duration: z.coerce.number().describe("Duration in frames (integer). At 30fps: 3 seconds = 90 frames."),
     description: z.string().describe("Description of the sticker/element (e.g., 'Glowing fire emoji', 'Animated subscribe badge', 'Sparkle burst effect')"),
     
     // Position (flexible - supports % or px, defaults to center)
@@ -1198,8 +1237,20 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
   });
 
   const generateHtmlSticker = tool(
-    async (input: z.infer<typeof generateHtmlStickerSchema>) => {
+    async (rawInput: z.infer<typeof generateHtmlStickerSchema>) => {
       try {
+        // EARLY VALIDATION: Coerce and validate before expensive operations
+        const input = coerceInput(rawInput);
+        if (isNaN(input.start) || isNaN(input.duration)) {
+          return JSON.stringify({ 
+            status: 'error', 
+            message: `Invalid timing: start=${rawInput.start}, duration=${rawInput.duration}. Must be frame numbers (integers). At 30fps: 3s = 90 frames.` 
+          });
+        }
+        if (input.duration <= 0) {
+          return JSON.stringify({ status: 'error', message: 'Duration must be positive' });
+        }
+        
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
         

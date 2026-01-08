@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useLayoutEffect } from "react";
+import React, { useRef, useEffect } from "react";
 import { HtmlSceneOverlay, HtmlStickerOverlay } from "../../../types";
 import { useCurrentFrame, useVideoConfig } from "remotion";
 
@@ -23,7 +23,9 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
   const progress = relativeFrame / overlay.durationInFrames;
 
   // Update CSS variables for sync - set on BOTH host and wrapper
-  useLayoutEffect(() => {
+  // NOTE: Using useEffect instead of useLayoutEffect for SSR/Lambda compatibility
+  // useLayoutEffect doesn't fire in SSR, causing CSS variables to not be set
+  useEffect(() => {
     // Set on host element
     if (containerRef.current) {
       containerRef.current.style.setProperty('--time', `${timeInSeconds}s`);
@@ -38,6 +40,34 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
       wrapperRef.current.style.setProperty('--frame', `${relativeFrame}`);
       wrapperRef.current.style.setProperty('--progress', `${progress}`);
       wrapperRef.current.style.setProperty('--duration', `${overlay.durationInFrames / fps}s`);
+      
+      // FANCY CAPTION VISIBILITY: Control word visibility based on current time
+      // This replaces the old CSS animation scrubbing approach
+      const currentMs = timeInSeconds * 1000;
+      const words = wrapperRef.current.querySelectorAll('.word[data-start]');
+      
+      words.forEach((word) => {
+        const el = word as HTMLElement;
+        const startMs = parseInt(el.dataset.start || '0', 10);
+        const endMs = parseInt(el.dataset.end || '0', 10);
+        
+        // Word is visible when current time is within its range
+        const isVisible = currentMs >= startMs && currentMs <= endMs;
+        
+        // Smooth entry/exit with transform
+        if (isVisible) {
+          el.style.opacity = '1';
+          el.style.transform = 'scale(1) translateY(0)';
+        } else if (currentMs < startMs) {
+          // Before word appears - hidden and slightly down/scaled
+          el.style.opacity = '0';
+          el.style.transform = 'scale(0.85) translateY(8px)';
+        } else {
+          // After word disappears - hidden and slightly up/scaled down
+          el.style.opacity = '0';
+          el.style.transform = 'scale(0.9) translateY(-5px)';
+        }
+      });
     }
     
     // Debug logging for first few frames
@@ -65,7 +95,7 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
         // Reset
         shadow.innerHTML = '';
 
-        // Inject Styles for Syncing (The Magic Scrubbing CSS)
+        // Inject base styles
         const styleReset = document.createElement('style');
         styleReset.textContent = `
           * { box-sizing: border-box; }
@@ -77,27 +107,34 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
           }
           
           /* 
-           * Pause all animations so they can be controlled by negative delay (scrubbing).
-           * Individual elements should set their own animation-delay using:
-           *   animation-delay: calc(var(--time) * -1 + Xs);
+           * For regular HTML scenes: pause animations and sync via --time variable.
+           * For fancy captions: React controls visibility directly via inline styles.
            */
-          * {
+          *:not(.word[data-start]) {
             animation-play-state: paused !important;
-          }
-          /* Fallback for elements that don't specify their own delay - sync to current time */
-          *:not([data-start]) {
             animation-delay: calc(var(--time, 0s) * -1) !important;
+          }
+          
+          /* Smooth transitions for React-controlled word visibility */
+          .word[data-start] {
+            transition: opacity 0.15s ease-out, transform 0.15s ease-out;
           }
         `;
         shadow.appendChild(styleReset);
 
         // Content Wrapper - CSS vars will be set on this element for shadow DOM access
+        // CRITICAL: Set initial CSS vars inline to ensure they're available before first paint
+        // In Lambda SSR, useEffect may fire after the screenshot is taken
         const wrapper = document.createElement('div');
         wrapper.style.cssText = `
           width: 100%;
           height: 100%;
           position: relative;
           overflow: hidden;
+          --time: ${timeInSeconds}s;
+          --frame: ${relativeFrame};
+          --progress: ${progress};
+          --duration: ${overlay.durationInFrames / fps}s;
         `;
         wrapper.innerHTML = overlay.content;
         

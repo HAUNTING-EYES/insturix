@@ -104,8 +104,10 @@ async function startRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
     composition: job.compositionId || 'TestComponent',
     inputProps: job.inputProps || {},
     codec: 'h264',
+    audioCodec: 'mp3', // Faster audio processing than AAC
     privacy: 'public',
-    framesPerLambda: 600,
+    // Set to 200 to use ~5-8 concurrent Lambdas (safe for new AWS accounts with limit 10)
+    framesPerLambda: 200,
     timeoutInMilliseconds: 240000,
   });
   

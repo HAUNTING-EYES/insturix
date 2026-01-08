@@ -163,7 +163,8 @@ You can do ANYTHING a human video editor can by combining tools creatively:
 - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
 - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
 - \`analyze_video_content\`: Find silences and filler words. Returns READY-TO-USE cut instructions.
-- \`add_captions\`: Add AI-generated captions to a video. Per-clip styling supported. Calling again replaces existing.
+- \`add_captions\`: Add regular subtitle-style captions to a full video. Per-clip styling supported.
+- \`add_fancy_captions\`: Add kinetic typography (TikTok-style word art) for HOOKS. Use for first 3-5 seconds only.
 - \`refresh_captions\`: Realign existing captions after video edits. Use when captions become misaligned.
 - \`close_gaps\`: Close all gaps between video clips by shifting them left. Captions move with their videos.
 
@@ -182,21 +183,19 @@ When user asks to "remove silences", "clean up", or "auto-edit":
 - Calling \`add_captions\` on a video REPLACES existing captions for that video
 - Different clips can have different styles (call \`add_captions\` separately per clip)
 
-**CONTENT-AWARE CAPTION STYLING**:
-When user asks for different styles (e.g., "bold hook", "different styles per section"):
-1. \`get_video_transcription\` → Read the transcript to identify sections
-2. Analyze the content: Hook is typically first 3-5 seconds, or first 1-2 sentences
-3. \`split_overlay\` at the boundary (convert seconds to frames: seconds * fps)
-4. \`add_captions\` with style A for the hook clip, style B for the rest
+**WHEN TO USE EACH CAPTION TOOL**:
+- \`add_captions\`: Regular subtitle-style captions for FULL videos. Good for accessibility.
+- \`add_fancy_captions\`: Kinetic typography (TikTok-style word art) for HOOKS only (first 3-5 seconds).
+  - DO NOT split the video first - the tool handles segment targeting internally
+  - Use segmentType='hook' (default) for first 4 seconds, or segmentType='custom' with startFrame/endFrame
 
-Example workflow for "make hook bold, rest minimal":
-\`\`\`
-1. get_video_transcription(videoId) → identify hook end point
-2. split_overlay(id, atFrame: hook_end_seconds * 30) → creates clip A and B
-3. add_captions(videoId: A, style: 'bold')
-4. add_captions(videoId: B, style: 'minimal')
-\`\`\`
-You CAN analyze transcription content to make intelligent decisions about styling.
+**CONTENT-AWARE CAPTION STYLING**:
+When user asks for "fancy caption for hook" or "kinetic typography":
+1. \`add_fancy_captions({ videoOverlayId, segmentType: 'hook' })\` → No splitting needed!
+
+When user asks for different regular styles per section:
+1. \`split_overlay\` at the boundary
+2. \`add_captions\` with style A for first clip, style B for the rest
 
 
 **HANDLING split_and_delete (mid-video cuts)**:
@@ -702,8 +701,46 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
         if (tool) {
           let output: string;
           try {
-            // Execute tool
-            output = await (tool as any).invoke(toolCall.args);
+            // Pre-process args to handle Gemini's incorrect formats
+            // 1. Time strings: "3s" → 90 (frames at 30fps)
+            // 2. CSS-like strings: "fontSize: 72px; color: #FFF" → object
+            const args = { ...toolCall.args };
+            for (const key of Object.keys(args)) {
+              const value = args[key];
+              if (typeof value === 'string') {
+                // Handle time strings for start/duration
+                const timeMatch = value.match(/^(\d+(?:\.\d+)?)\s*(s|sec|seconds?)$/i);
+                if (timeMatch) {
+                  args[key] = Math.round(parseFloat(timeMatch[1]) * 30);
+                }
+                // Handle CSS-like style strings
+                else if (key === 'styles' && value.includes(':')) {
+                  const styleObj: Record<string, any> = {};
+                  value.split(';').forEach((pair: string) => {
+                    const [k, ...vParts] = pair.split(':');
+                    if (k && vParts.length > 0) {
+                      const propName = k.trim();
+                      let propValue: any = vParts.join(':').trim();
+                      if (/^\d+px$/i.test(propValue)) {
+                        propValue = parseInt(propValue, 10);
+                      }
+                      styleObj[propName] = propValue;
+                    }
+                  });
+                  args[key] = styleObj;
+                }
+                // Coerce string numbers
+                else if (/^-?\d+(\.\d+)?$/.test(value)) {
+                  args[key] = parseFloat(value);
+                }
+              }
+              // Coerce string booleans
+              if (value === 'true') args[key] = true;
+              if (value === 'false') args[key] = false;
+            }
+            
+            // Execute tool with coerced args
+            output = await (tool as any).invoke(args);
             debugLog('Tool output for', toolCall.name, ':', output.substring(0, 300));
           } catch (e: any) {
             output = `Error: ${e.message}`;
