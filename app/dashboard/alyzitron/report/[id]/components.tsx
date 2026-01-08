@@ -965,7 +965,7 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
             </div>
           </div>
           
-          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4 float-end">
+          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4float-end">
             <Link
               href="/dashboard/alyzitron"
               className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-red-500/20 hover:shadow-red-500/40 active:scale-95 group"

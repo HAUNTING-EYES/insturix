@@ -18,11 +18,8 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronRight as ChevronRightIcon,
-  Calendar,
-  Clock,
-  AlertCircle,
   Activity,
-  CheckCircle2,
+  Radar,
   BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -236,11 +233,11 @@ export function AlyzitronTaskHistory({
         ) : (
           <>
             <div className="flex items-center gap-2.5 mb-4 pb-2 border-b border-zinc-800/50">
-              <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-emerald-500/20 to-green-500/20 border border-emerald-500/20">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+              <div className="flex items-center justify-center w-6 h-6 rounded-md bg-gradient-to-br from-emerald-500/20 to-yellow-500/20 border border-emerald-500/20">
+                <Radar className="h-3.5 w-3.5 text-emerald-400" />
               </div>
               <h3 className="text-sm font-semibold text-emerald-100 tracking-wide uppercase letter-spacing-wider">
-                Completed
+                Processing Result
               </h3>
             </div>
             {completedFailedAnalyses.map((analysis) => (
