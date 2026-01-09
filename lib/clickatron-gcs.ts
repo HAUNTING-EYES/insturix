@@ -118,6 +118,37 @@ export class ClickatronGCSManager {
   }
 
   /**
+   * Upload a webp image
+   */
+  static async uploadThumbnailBuffer(
+    userId: string,
+    sessionId: string,
+    variationId: string,
+    buffer: Buffer
+  ): Promise<string> {
+    if (!bucket) {
+      throw {
+        code: 'GCS_NOT_CONFIGURED',
+        message: 'GCS is not configured for image storage',
+      } as JobError;
+    }
+  
+    const timestamp = Date.now();
+    const gcsPath =
+      `user_${userId}/clickatron-thumbnails/` +
+      `session_${sessionId}/variation_${variationId}/${timestamp}.webp`;
+  
+    const file = bucket.file(gcsPath);
+  
+    await file.save(buffer, {
+      metadata: { contentType: 'image/webp' },
+      resumable: false,
+    });
+  
+    return `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
+  }  
+
+  /**
    * Delete a file from GCS
    */
   static async deleteImage(gcsPath: string): Promise<void> {

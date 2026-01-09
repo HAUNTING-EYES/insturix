@@ -70,27 +70,32 @@ export async function PATCH(
         const backendVariation = task.details.canvas?.variations.find(
           (v: any) => v.id === frontendVariation.id
         );
-        
+
         if (backendVariation) {
           // Preserve backend-controlled fields (status, imageRef) if they indicate completion
-          const preserveBackendFields = 
-            backendVariation.status === 'completed' && 
-            backendVariation.imageRef && 
+          const preserveBackendFields =
+            backendVariation.status === 'completed' &&
+            backendVariation.imageRef &&
             frontendVariation.status !== 'completed';
-            
+        
           return {
             ...frontendVariation,
             // Preserve backend status and imageRef if backend has completed the generation
             ...(preserveBackendFields && {
               status: backendVariation.status,
-              imageRef: backendVariation.imageRef
-            })
+              imageRef: backendVariation.imageRef,
+              thumbnailRef: backendVariation.thumbnailRef,
+            }),
+            // Always preserve thumbnailRef if backend already has it
+            ...(backendVariation.thumbnailRef && {
+              thumbnailRef: backendVariation.thumbnailRef,
+            }),
           };
         }
         
         return frontendVariation;
       });
-      
+
       canvas.variations = mergedVariations;
     }
 
@@ -102,7 +107,7 @@ export async function PATCH(
   } catch (error) {
     console.error('Error syncing canvas:', error);
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: 'Validation failed', details: error.errors }, { status: 400 });
+      return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 });
     }
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }

@@ -13,6 +13,25 @@ export const pollVariationCompletion = async (
   signal?: AbortSignal
 ): Promise<void> => {
   return new Promise((resolve, reject) => {
+    // Helper function to check if variation is complete with image/thumbnail
+    const isVariationComplete = (variation: any): boolean => {
+      if (!variation) return false;
+      const hasImage = variation.imageRef && variation.imageRef.trim() !== '';
+      const hasThumbnail = variation.thumbnailRef && variation.thumbnailRef.trim() !== '';
+      return variation.status === 'completed' && (hasImage || hasThumbnail);
+    };
+
+    // Check initial state before starting polling
+    const task = getTask();
+    const initialVariation = task?.details.canvas?.variations.find((v: any) => v.id === variationId);
+    if (isVariationComplete(initialVariation)) {
+      if (refreshUsageLimits) {
+        refreshUsageLimits();
+      }
+      resolve();
+      return;
+    }
+
     const poll = setInterval(async () => {
       if (signal?.aborted) {
         clearInterval(poll);
@@ -20,18 +39,34 @@ export const pollVariationCompletion = async (
         return;
       }
       try {
+        // Check current state before making API call
+        const currentTask = getTask();
+        const currentVariation = currentTask?.details.canvas?.variations.find((v: any) => v.id === variationId);
+        
+        // If already complete with image/thumbnail, skip API call and stop polling
+        if (isVariationComplete(currentVariation)) {
+          clearInterval(poll);
+          if (refreshUsageLimits) {
+            refreshUsageLimits();
+          }
+          resolve();
+          return;
+        }
+
+        // Only call loadSession if variation is not yet complete
         await loadSession(sessionId);
         const task = getTask();
         const variation = task?.details.canvas?.variations.find((v: any) => v.id === variationId);
         
-        console.log('Polling: Checking variation status', {
-          variationId,
-          variationStatus: variation?.status,
-          shouldStop: variation && variation.status !== 'generating'
-        });
-        
-        // Stop polling if generation is complete
-        if (variation && variation.status !== 'generating') {
+        // Stop polling if generation is complete with image/thumbnail
+        if (isVariationComplete(variation)) {
+          clearInterval(poll);
+          if (refreshUsageLimits) {
+            refreshUsageLimits();
+          }
+          resolve();
+        } else if (variation && variation.status !== 'generating') {
+          // Also stop if status changed to something other than generating (e.g., failed)
           clearInterval(poll);
           console.log('Polling stopped:', variation?.status);
           // Refresh usage limits if callback is provided

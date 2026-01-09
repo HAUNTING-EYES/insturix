@@ -41,6 +41,7 @@ export interface Variation {
   prompt: string; // Can be empty string for blank variations
   status: 'completed' | 'generating' | 'blank' | 'failed';
   imageRef: string; // Can be empty string for blank variations
+  thumbnailRef?: string;
   aspectRatio: string;
   fineTuning: FineTuningControls;
   createdAt: Date;
@@ -126,6 +127,7 @@ export const CreateVariationRequestSchema = z.object({
 export interface UpdateVariationRequest {
   status?: 'completed' | 'failed' | 'generating';
   imageRef?: string;
+  thumbnailRef?: string; 
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
 }
@@ -133,6 +135,7 @@ export interface UpdateVariationRequest {
 export const UpdateVariationRequestSchema = z.object({
   status: z.enum(['completed', 'failed', 'generating']).optional(),
   imageRef: z.string().optional(),
+  thumbnailRef: z.string().optional(),
   fineTuning: z.object({
     brightness: z.number().min(0).max(200),
     contrast: z.number().min(0).max(200),

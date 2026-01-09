@@ -10,6 +10,7 @@ import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
 import { processRefund } from '@/lib/services/tasks/simple-refund';
+import sharp from 'sharp';
 
 // Configure Fal AI client
 if (process.env.FAL_AI_API_KEY) {
@@ -388,11 +389,38 @@ async function handler(req: Request) {
         generatedImageUrl
       );
 
-      // Update variation with generated image
-      variation.status = 'completed';
       // Store the raw GCS URL without query parameters for long-term storage
       const rawGcsUrl = gcsUrl.split('?')[0];
+
+      const imageResponse = await fetch(gcsUrl);
+      if (!imageResponse.ok) {
+        throw new Error('Failed to download image for thumbnail creation');
+      }
+      const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
+
+      const thumbnailBuffer = await sharp(imageBuffer)
+        .resize(512, 512, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        })
+        .webp({
+          quality: 75,
+          effort: 4, // good balance between speed & compression
+        })
+        .toBuffer();
+
+      // Upload thumbnail to GCS
+      const thumbnailGcsUrl = await ClickatronGCSManager.uploadThumbnailBuffer(
+        job.userId,
+        job.sessionId,
+        job.variationId,
+        thumbnailBuffer
+      );
+
+      // Update variation with generated image
+      variation.status = 'completed';
       variation.imageRef = rawGcsUrl;
+      variation.thumbnailRef = thumbnailGcsUrl;
       variation.updatedAt = new Date();
       variation.modelId = selectedModelId; // Use the selected model ID
       // Only store seed for models that support it
@@ -400,7 +428,7 @@ async function handler(req: Request) {
         variation.seed = generationParams.seed;
       }
       variation.generationParams = generationParams;
-      
+
 
       task.markModified('details');
       await task.save();

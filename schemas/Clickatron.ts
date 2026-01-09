@@ -21,6 +21,7 @@ const VariationSchema = new Schema({
   id: { type: String, required: true },
   prompt: { type: String, default: '' },
   imageRef: { type: String, default: '' },
+  thumbnailRef: { type: String, default: '' },
   status: { type: String, enum: ['generating', 'completed', 'failed', 'blank'], required: true },
   aspectRatio: { type: String, required: true },
   fineTuning: { type: FineTuningSchema, required: true, default: () => ({}) },
