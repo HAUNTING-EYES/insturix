@@ -14,6 +14,13 @@ export interface AlyzitronUserData {
 // Status workflow: listed -> sometimes (queued) -> processing -> completed/failed
 export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
 
+export type ContextValues = {
+  niche: string;
+  audience: string;
+  tone: string;
+  additionalDetails?: string;
+};
+
 // API specific status (for webhook responses)
 export type APIAnalysisStatus = 'queued' | 'started' | 'processing' | 'completed' | 'failed';
 
@@ -51,30 +58,38 @@ export interface AnalysisResults {
 
 export interface AlyzitronAnalysis {
   _id: string;
+  taskId: string;            // Redundant but indexed ID
   clerkUserId: string;
   videoUrl: string;
   status: AnalysisStatus;
-  estimatedTime: number;    // in seconds
-  expectedDurationSeconds?: number; // Add expected duration
-  queuePosition?: number;   // Only present when status is 'queued'
-  unread: boolean;          // Indicates if the analysis results are unread
+  estimatedTime?: number;    // in seconds
+  usageMinutes?: number;     // Credits consumed
+  videoDuration?: number;    // seconds
+  expectedDurationSeconds?: number;
+  queuePosition?: number;
+  unread: boolean;
   results: AnalysisResults | null;
-  additional_details?: string; // User preferences and requirements
+  context: ContextValues;    // User preferences
   error?: {
-    code: string;
+    code?: string;
     message: string;
     action?: string;
+    timestamp?: Date;
   };
   metadata: {
     originalFilename: string;
-    videoSize: number;       // in bytes
-    videoDuration: number;   // in seconds (integer, rounded up)
+    videoSize: number;
+    videoDuration: number;
     mimeType: string;
-    isPublic: boolean;       // Determines if the analysis is public or private
+    isPublic: boolean;
+    filename?: string;       // Extension field
+    fileSize?: number;       // Extension field
+    duration?: number;       // Extension field
   };
   createdAt: Date;
   updatedAt: Date;
-  processingStartTime?: number; // timestamp in ms
+  processingStartTime?: Date | number;
+  completedAt?: Date;
   refunded?: boolean;
 }
 

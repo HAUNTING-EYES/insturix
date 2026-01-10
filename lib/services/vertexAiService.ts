@@ -1,0 +1,353 @@
+import {
+  VertexAI,
+  HarmCategory,
+  HarmBlockThreshold,
+  SchemaType,
+} from "@google-cloud/vertexai";
+
+let vertexAI: VertexAI | null = null;
+
+function initVertexAI(): VertexAI {
+  if (vertexAI) return vertexAI;
+
+  if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
+    throw new Error("GOOGLE_CLOUD_CREDENTIALS environment variable is not set");
+  }
+
+  try {
+    // Decode base64 credentials
+    const decoded = Buffer.from(
+      process.env.GOOGLE_CLOUD_CREDENTIALS,
+      "base64"
+    ).toString();
+
+    const credentials = JSON.parse(decoded);
+
+    // Initialize VertexAI with googleAuthOptions
+    vertexAI = new VertexAI({
+      project: credentials.project_id,
+      location: "us-central1",
+      googleAuthOptions: {
+        credentials,
+        scopes: ["https://www.googleapis.com/auth/cloud-platform"],
+      },
+    });
+    return vertexAI;
+  } catch (error) {
+    throw error;
+  }
+}
+
+const model = "gemini-2.5-flash";
+
+export async function analyzeVideoWithGemini(
+  videoUrl: string,
+  context: any,
+  metadata: any
+) {
+  // Initialize VertexAI lazily
+
+  const client = initVertexAI();
+  try {
+    // Define the response schema for structured output
+    const responseSchema = {
+      type: SchemaType.OBJECT,
+      properties: {
+        category: {
+          type: SchemaType.STRING,
+          description: "Video category (e.g., Entertainment, Education, Vlog)",
+        },
+        overall_score: {
+          type: SchemaType.INTEGER,
+          description: "Overall quality score 1-100",
+        },
+        overview: {
+          type: SchemaType.STRING,
+          description: "2-3 sentence summary",
+        },
+        remarks: {
+          type: SchemaType.STRING,
+          description: "Brief professional assessment",
+        },
+        target_audience: {
+          type: SchemaType.STRING,
+          description: "Who this video appeals to",
+        },
+        titles: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "3 suggested titles",
+        },
+        descriptions: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "2 suggested descriptions",
+        },
+        strengths: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "Video strengths",
+        },
+        weaknesses: {
+          type: SchemaType.ARRAY,
+          items: { type: SchemaType.STRING },
+          description: "Areas for improvement",
+        },
+        analysis: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              category_name: { type: SchemaType.STRING },
+              metrics: {
+                type: SchemaType.ARRAY,
+                items: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    name: { type: SchemaType.STRING },
+                    score: { type: SchemaType.INTEGER },
+                    description: { type: SchemaType.STRING },
+                  },
+                  required: ["name", "score", "description"],
+                },
+              },
+            },
+            required: ["category_name", "metrics"],
+          },
+        },
+        compliance_risks: {
+          type: SchemaType.ARRAY,
+          items: {
+            type: SchemaType.OBJECT,
+            properties: {
+              name: { type: SchemaType.STRING },
+              score: { type: SchemaType.INTEGER },
+              description: { type: SchemaType.STRING },
+            },
+            required: ["name", "score", "description"],
+          },
+        },
+      },
+      required: [
+        "category",
+        "overall_score",
+        "overview",
+        "strengths",
+        "weaknesses",
+        "analysis",
+      ],
+    };
+
+    const generativeModel = client.getGenerativeModel({
+      model,
+      generationConfig: {
+        maxOutputTokens: 8192,
+        temperature: 0.4,
+        topP: 0.95,
+        topK: 40,
+        responseMimeType: "application/json",
+        responseSchema: responseSchema,
+      },
+      safetySettings: [
+        {
+          category: HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+        {
+          category: HarmCategory.HARM_CATEGORY_HARASSMENT,
+          threshold: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+        },
+      ],
+    });
+
+    // Create analysis prompt with explicit JSON formatting instructions
+    const prompt = `
+Analyze this video and provide a structured JSON response based on the video content.
+
+VIDEO METADATA:
+- Duration: ${metadata.videoDuration} seconds
+- Title: ${metadata.originalFilename}
+- Video URL: ${videoUrl}
+
+USER CONTEXT:
+- Niche: ${context.niche}
+- Audience: ${context.audience}
+- Tone: ${context.tone}
+- Additional Details: ${context.additionalDetails || "None"}
+
+ANALYSIS REQUIREMENTS:
+1. Provide a detailed summary of what happens in the video
+2. Identify key moments with timestamps (format: "MM:SS") and descriptions
+3. Assess video quality (audio, visuals, pacing, engagement) with score 1-10
+4. Give specific recommendations for improvement based on the user's context
+5. List any content warnings if applicable
+
+CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
+
+JSON STRUCTURE:
+{
+  "summary": "Detailed summary here",
+  "keyMoments": [
+    {"timestamp": "00:00", "description": "Description here"},
+    {"timestamp": "00:30", "description": "Description here"}
+  ],
+  "qualityAssessment": {
+    "score": 8.5,
+    "notes": "Assessment notes here"
+  },
+  "recommendations": ["Recommendation 1", "Recommendation 2"],
+  "contentWarnings": ["Warning 1", "Warning 2"],
+  "analysisTime": "${new Date().toISOString()}"
+}
+
+Be specific and reference actual content from the video.
+`;
+
+    // Prepare request parts
+    const parts: any[] = [];
+
+
+    parts.push({
+      fileData: {
+        mimeType: 'video/mp4',
+        fileUri: videoUrl,
+      },
+    }, {
+      text: prompt,
+    });
+
+
+    const request = {
+      contents: [
+        {
+          role: "user",
+          parts: parts,
+        },
+      ],
+    };
+
+    const result = await generativeModel.generateContent(request);
+    const responseText =
+      result.response.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+    console.log("RAW_VERTEX_RESPONSE:", responseText);
+
+    // Clean and parse the JSON response
+    try {
+      // Clean the response text - remove markdown code blocks
+      let cleanResponseText = responseText.trim();
+
+      console.log("cleanResponseText : ", cleanResponseText);
+      // Remove ```json and ``` markers if present
+      if (cleanResponseText.startsWith("```")) {
+        cleanResponseText = cleanResponseText
+          .replace(/^```(?:json)?\s*/i, "")
+          .replace(/\s*```$/, "");
+      }
+
+      const parsed = JSON.parse(cleanResponseText);
+
+      console.log("parsed : ", parsed);
+      // Check for explicit error from model
+      if (parsed.error === "CANNOT_ACCESS_VIDEO") {
+        throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
+      }
+
+      // Ensure all required fields exist with defaults
+      const finalResult = {
+        ...parsed, // Include all original fields from the model (analysis, strengths, titles, etc.)
+        summary: parsed.summary || parsed.overview || `Analysis of "${metadata.originalFilename}"`,
+        keyMoments: Array.isArray(parsed.keyMoments) ? parsed.keyMoments : [],
+        qualityAssessment: parsed.qualityAssessment || {
+          score: parsed.overall_score || 7,
+          notes: parsed.remarks || "Standard quality video analysis",
+        },
+        recommendations: Array.isArray(parsed.recommendations)
+          ? parsed.recommendations
+          : (parsed.weaknesses || []),
+        contentWarnings: Array.isArray(parsed.contentWarnings)
+          ? parsed.contentWarnings
+          : (parsed.compliance_risks || []),
+        analysisTime: parsed.analysisTime || new Date().toISOString(),
+        videoUrl,
+        modelUsed: model,
+      };
+
+      console.log(finalResult);
+      return finalResult;
+    } catch (parseError) {
+      // If it was our custom error, rethrow it
+      if (parseError instanceof Error && parseError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
+        throw parseError;
+      }
+
+      // Try to extract JSON from the response if it's wrapped in text
+      try {
+        // Look for JSON object pattern in the response
+        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const extractedJson = jsonMatch[0];
+          const parsed = JSON.parse(extractedJson);
+
+          if (parsed.error === "CANNOT_ACCESS_VIDEO") {
+            throw new Error("AI_MODEL_ACCESS_ERROR: The AI model reported it could not access the video URL.");
+          }
+
+          return {
+            summary:
+              parsed.summary ||
+              `Extracted analysis of "${metadata.originalFilename}"`,
+            keyMoments: Array.isArray(parsed.keyMoments)
+              ? parsed.keyMoments
+              : [],
+            qualityAssessment: parsed.qualityAssessment || {
+              score: 7,
+              notes: "Extracted quality assessment",
+            },
+            recommendations: Array.isArray(parsed.recommendations)
+              ? parsed.recommendations
+              : [],
+            contentWarnings: Array.isArray(parsed.contentWarnings)
+              ? parsed.contentWarnings
+              : [],
+            analysisTime: parsed.analysisTime || new Date().toISOString(),
+            videoUrl,
+            modelUsed: model,
+            extractedFromText: true,
+          };
+        }
+      } catch (extractError) {
+        if (extractError instanceof Error && extractError.message.startsWith("AI_MODEL_ACCESS_ERROR")) {
+          throw extractError;
+        }
+      }
+
+      // If all parsing fails, return a structured error response
+      return {
+        summary: `Analysis completed but JSON parsing failed. Video analysis: ${responseText.substring(0, 800)}...`,
+        keyMoments: [],
+        qualityAssessment: {
+          score: 0,
+          notes: "JSON parsing error occurred",
+        },
+        recommendations: ["Fix JSON response formatting"],
+        contentWarnings: [],
+        analysisTime: new Date().toISOString(),
+        parseError: true,
+        rawResponse: responseText.substring(0, 2000),
+        videoUrl,
+        modelUsed: model,
+      };
+    }
+  } catch (error) {
+    throw error;
+  }
+}

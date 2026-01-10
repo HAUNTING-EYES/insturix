@@ -1,7 +1,7 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Check, Globe, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Check, Globe, X, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -329,45 +329,48 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
           )}
         </div>
         
-        <div className="flex items-end justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
           <div className="flex-1">
-            <h1 className="text-3xl font-semibold text-zinc-100">
+            <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-100">
               Analysis Results
             </h1>
-            <p className="text-zinc-400 mt-2 flex items-center gap-2">
-              {analysisData.category} •{" "}
-              {createdAt?.toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              }) || new Date().toLocaleDateString("en-US", {
-                year: "numeric",
-                month: "long",
-                day: "numeric",
-              })}
+            <p className="text-zinc-400 mt-2 flex flex-wrap items-center gap-2">
+              <span className="shrink-0">{analysisData.category}</span>
+              <span className="hidden sm:inline text-zinc-700">•</span>
+              <span className="shrink-0">
+                {createdAt?.toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                }) || new Date().toLocaleDateString("en-US", {
+                  year: "numeric",
+                  month: "long",
+                  day: "numeric",
+                })}
+              </span>
               {isOwner && (
-                <span className="flex items-center gap-1 text-xs">
-                  •
+                <span className="flex items-center gap-1 text-xs shrink-0">
+                  <span className="hidden sm:inline text-zinc-700">•</span>
                   {currentIsPublic ? (
-                    <>
+                    <span className="flex items-center gap-1 transition-colors">
                       <Globe className="h-3 w-3" />
                       Public
-                    </>
+                    </span>
                   ) : (
-                    <>
+                    <span className="flex items-center gap-1 transition-colors">
                       <Lock className="h-3 w-3" />
                       Private
-                    </>
+                    </span>
                   )}
                 </span>
               )}
             </p>
           </div>
-          <div className="text-right flex flex-col justify-end min-h-[100px] ml-8">
-            <div className="text-6xl font-bold text-zinc-100 leading-none">
+          <div className="flex sm:flex-col items-center sm:items-end justify-start gap-4 sm:gap-0 sm:justify-end min-h-[60px] sm:min-h-[100px]">
+            <div className="text-4xl sm:text-6xl font-bold text-zinc-100 leading-none">
               {overallScore}
             </div>
-            <div className="text-zinc-400 mt-2">Overall Score</div>
+            <div className="text-zinc-400 text-sm sm:mt-2">Overall Score</div>
           </div>
         </div>
       </div>
@@ -916,16 +919,16 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-end justify-between pb-8 mb-8 border-b border-zinc-800">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8 pb-8 mb-8 border-b border-zinc-800">
+        <div className="flex-1">
           <Link
             href="/dashboard/alyzitron"
-            className="inline-flex items-center text-zinc-400 hover:text-zinc-300 mb-4"
+            className="inline-flex items-center text-zinc-400 hover:text-zinc-300 mb-4 transition-colors"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
           </Link>
-          <h1 className="text-3xl font-semibold text-zinc-100">
+          <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-100">
             Analysis Failed
           </h1>
           <p className="text-zinc-400 mt-2">
@@ -941,9 +944,9 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
             })}
           </p>
         </div>
-        <div className="text-right flex flex-col justify-end min-h-[100px]">
-          <AlertTriangle className="h-16 w-16 text-red-400 mb-2" />
-          <div className="text-zinc-400 mt-2">Failed</div>
+        <div className="flex sm:flex-col items-center sm:items-end justify-start gap-4 sm:gap-0 sm:justify-end min-h-[60px] sm:min-h-[100px]">
+          <AlertTriangle className="h-10 w-10 sm:h-16 sm:w-16 text-red-400 mb-0 sm:mb-2" />
+          <div className="text-zinc-500 font-medium tracking-tight sm:mt-2">Failed</div>
         </div>
       </div>
 
@@ -952,36 +955,43 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
         <CardHeader>
           <CardTitle className="text-lg font-medium text-red-300 flex items-center gap-2">
             <AlertTriangle className="h-5 w-5" />
-            Analysis Error
+            OOPS! Something went wrong
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-6">
           <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
             <div className="text-sm font-medium text-red-200 mb-2">
-              Error Code: {errorCode}
+             Looks like something’s missing — check the video requirements and try again 😊
             </div>
-            <p className="text-red-300 leading-relaxed">
-              {errorMessage}
-            </p>
           </div>
           
+          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4float-end">
+            <Link
+              href="/dashboard/alyzitron"
+              className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-red-500/20 hover:shadow-red-500/40 active:scale-95 group"
+            >
+              <RotateCcw className="h-5 w-5 group-hover:rotate-180 transition-transform duration-500" />
+              Try Again
+            </Link>
+          </div>
+
           {videoUrl && (
-            <div className="mt-6">
+            <div className="mt-6 pt-6 border-t border-red-500/10">
               <h3 className="text-sm font-medium text-zinc-300 mb-3">
                 Video Information
               </h3>
               <div className="bg-black/20 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Video Title:</span>
-                  <span className="text-zinc-300">{videoTitle || "Unknown"}</span>
+                <div className="flex flex-col sm:flex-row justify-between gap-1">
+                  <span className="text-zinc-500 text-sm">Video Title:</span>
+                  <span className="text-zinc-300 text-sm font-medium">{videoTitle || "Unknown"}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-zinc-500">Video URL:</span>
+                <div className="flex flex-col sm:flex-row justify-between gap-1">
+                  <span className="text-zinc-500 text-sm">Video URL:</span>
                   <a
                     href={videoUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-blue-400 hover:text-blue-300 truncate max-w-xs"
+                    className="text-blue-400 hover:text-blue-300 text-sm truncate max-w-xs sm:max-w-md"
                   >
                     {videoUrl}
                   </a>
@@ -1016,7 +1026,8 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
             <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
               <div className="text-blue-400 font-semibold text-sm mt-0.5">3.</div>
               <div className="text-sm text-zinc-300">
-                If the problem persists, contact support with the error code above.
+                The video may be unavailable, private, or in an unsupported format.
+              Recheck the link and try again. 
               </div>
             </div>
           </div>

@@ -1,32 +1,15 @@
 "use client";
 
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { AnalysisProgress } from './AnalysisProgress';
 import type { AlyzitronAnalysis, AnalysisStatus } from '@/app/api/services/alyzitron/types';
-import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
+import { useAlyzitronPolling } from '@/app/dashboard/alyzitron/hooks/useAlyzitronPolling';
 
 // Define the statuses considered "in-progress"
 const inProgressStatuses: AnalysisStatus[] = ['listed', 'queued', 'processing'];
 
 export function InProgressAnalyses() {
-  useTaskUpdater(); // New hook to handle RTDB updates
-
-  // Subscribe to the main 'analyses' query cache to get real-time updates
-  const { data: allAnalyses } = useQuery<AlyzitronAnalysis[]>({
-    queryKey: ['analyses'],
-    // queryFn is required, but should rarely run due to ClientWrapper init + RTDB updates
-    queryFn: async () => {
-        console.log("InProgressAnalyses: queryFn called (fetching all analyses).");
-        const response = await fetch('/api/services/alyzitron/analyses');
-        if (!response.ok) throw new Error('Failed to fetch analyses');
-        return response.json();
-    },
-    enabled: true, // Ensure it subscribes to cache changes
-    // Removed staleTime: Infinity and refetchOnMount: false to allow refetching on invalidation
-    gcTime: 1000 * 60 * 10, // Standard garbage collection
-    // Removed refetchOnWindowFocus: false and refetchOnReconnect: false to allow default refetching behavior
-  });
+  // Use polling hook 
+  const { analyses: allAnalyses } = useAlyzitronPolling();
 
   // Filter for in-progress analyses
   const inProgressAnalyses = ((Array.isArray(allAnalyses) ? allAnalyses : [])
@@ -56,6 +39,7 @@ export function InProgressAnalyses() {
               processingStartTime={analysis.processingStartTime}
               error={analysis.error}
               videoUrl={analysis.videoUrl}
+              metadata={analysis.metadata}
             />
           );
         })}
