@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import { getSocializeUserData } from "@/lib/seo/socialize";
+import { getBaseUrl } from "@/lib/env";
 
 // Define param type as a Promise like in the blogs example
 type SocializeParams = Promise<{ uniqueUsername: string }>;
@@ -63,7 +64,7 @@ export async function generateMetadata({
       title,
       description,
       type: "profile",
-      url: `${process.env.SITE_URL || "https://insturix.com"}/socialize/${uniqueUsername}`,
+      url: `${getBaseUrl()}/socialize/${uniqueUsername}`,
       images: (() => {
         // Prioritize banner image if it's an image type
         if (banner?.type === 'image' && banner.value) {

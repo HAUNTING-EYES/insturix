@@ -1,5 +1,6 @@
 import { Metadata } from "next";
 import type { ReactNode } from "react";
+import { getBaseUrl } from "@/lib/env";
 
 const TITLE = "Clickatron | AI Thumbnail Generator & Editor";
 const DESCRIPTION =
@@ -20,7 +21,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: TITLE,
     description: DESCRIPTION,
-    url: "https://insturix.com/products/clickatron",
+    url: `${getBaseUrl()}/products/clickatron`,
     type: "website",
     images: [
       {
