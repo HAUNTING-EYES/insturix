@@ -118,7 +118,7 @@ export class ClickatronGCSManager {
   }
 
   /**
-   * Upload a webp image
+   * Upload a webp thumbnail image
    */
   static async uploadThumbnailBuffer(
     userId: string,
@@ -146,7 +146,55 @@ export class ClickatronGCSManager {
     });
   
     return `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
-  }  
+  }
+
+  /**
+   * Upload a mask image for generative fill
+   * Masks are stored in a separate folder with the mask prefix
+   */
+  static async uploadMaskImage(
+    userId: string,
+    sessionId: string,
+    variationId: string,
+    maskBuffer: Buffer
+  ): Promise<string> {
+    if (!bucket) {
+      throw {
+        code: 'GCS_NOT_CONFIGURED',
+        message: 'GCS is not configured for image storage',
+      } as JobError;
+    }
+
+    try {
+      // Create GCS path for mask
+      const timestamp = Date.now();
+      const gcsPath = `user_${userId}/clickatron-masks/session_${sessionId}/variation_${variationId}/mask_${timestamp}.png`;
+      const file = bucket.file(gcsPath);
+
+      // Upload mask buffer to GCS (always PNG for masks)
+      await file.save(maskBuffer, {
+        metadata: {
+          contentType: 'image/png',
+        },
+        resumable: false,
+      });
+
+      // Generate signed URL for temporary access
+      const [signedUrl] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 60 * 60 * 1000, // 1-hour expiration
+      });
+      
+      return signedUrl;
+    } catch (error) {
+      console.error('Failed to upload mask image to GCS:', error);
+      throw {
+        code: 'GCS_UPLOAD_ERROR',
+        message: 'Failed to upload mask image',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      } as JobError;
+    }
+  }
 
   /**
    * Delete a file from GCS

@@ -7,8 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { ChevronLeft, ChevronRight, ListChecks, RefreshCw } from 'lucide-react';
 import { AnalysisProgress } from './AnalysisProgress';
 import type { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
-import { useTaskUpdater } from '@/hooks/useTaskUpdater'; // Import the new hook
-
 interface FetchedAlyzitronAnalysis extends AlyzitronAnalysis {
   expectedWaitSeconds?: number;
 }
@@ -32,7 +30,7 @@ const DEFAULT_ITEMS_PER_PAGE = 10;
 export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: AnalysisListProps) {
   const queryClient = useQueryClient();
   const [currentPage, setCurrentPage] = useState(1);
-  useTaskUpdater(); // New hook to handle RTDB updates
+  // RTDB listener removed in favor of polling/manual invalidation
 
   const { data: paginatedData, isLoading, isError, error } = useQuery<PaginatedResponse, Error>({
     queryKey: ['analyses', { scope: 'finished', page: currentPage, limit: itemsPerPage }],
@@ -55,7 +53,8 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
   });
 
   // The useEffect that manually synced RTDB with react-query has been removed.
-  // The `useTaskUpdater` hook now handles this logic globally and more efficiently.
+  // The useEffect that manually synced RTDB with react-query has been removed.
+  // Polling or manual invalidation now handles updates.
 
   if (isLoading && !paginatedData) {
     return (
@@ -122,6 +121,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
               unread={analysis.unread}
               expectedDurationSeconds={analysis.expectedDurationSeconds}
               videoUrl={analysis.videoUrl}
+              metadata={analysis.metadata}
               // Pass down necessary props for cache update
               queryClient={queryClient}
               currentPage={currentPage}

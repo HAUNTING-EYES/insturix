@@ -26,9 +26,9 @@ export function ModelSelector({
   useEffect(() => {
     // Filter models based on the context and number of user attached images
     const filteredModels = getAvailableModels(context, userAttachedImages);
-      
+
     setModels(filteredModels);
-      
+
     // Find the default model for this filter
     const defaultModel = filteredModels.find(model => model.isDefault) || filteredModels[0];
     if (defaultModel) {
@@ -59,8 +59,8 @@ export function ModelSelector({
 
   return (
     <div className={`w-full ${className}`}>
-      <Select 
-        value={selectedModelId || defaultModelId || ""} 
+      <Select
+        value={selectedModelId || defaultModelId || ""}
         onValueChange={handleModelChange}
       >
         <SelectTrigger className="w-full h-10 bg-zinc-800/50 border-zinc-700/50 text-zinc-200 text-sm flex items-center gap-2">
@@ -69,8 +69,8 @@ export function ModelSelector({
         </SelectTrigger>
         <SelectContent className="bg-zinc-800 border-zinc-700">
           {models.map((model) => (
-            <SelectItem 
-              key={model.id} 
+            <SelectItem
+              key={model.id}
               value={model.id}
               className="text-zinc-200 hover:bg-zinc-700/50 focus:bg-zinc-70/50 text-sm"
             >

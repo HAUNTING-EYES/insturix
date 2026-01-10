@@ -52,6 +52,8 @@ export interface Variation {
   seed?: number;
   generationParams?: Record<string, any>;
   referenceImageRefs?: string[];
+  metadata?: Record<string, any>;
+  error?: string;
 }
 
 export interface CurvePoint {
@@ -209,6 +211,7 @@ export interface CreateJobRequest {
   modelId?: string;
   aspectRatio: string;
   referenceImageRefs?: string[]; // GCS URIs of reference images
+  maskUrl?: string; // Optional generative fill mask URL (GCS URI)
 }
 
 export interface WorkerPayload {
@@ -217,12 +220,13 @@ export interface WorkerPayload {
   variationId: string;
   prompt: string;
   userId: string;
- parentVariationId?: string;
+  parentVariationId?: string;
   modelId?: string;
   fineTuning?: FineTuningControls;
   metadata?: Record<string, any>;
   aspectRatio: string;
   referenceImageRefs?: string[]; // GCS URIs of reference images
+  maskUrl?: string; // Optional generative fill mask URL (GCS URI)
 }
 
 // Zustand Store Types
@@ -240,6 +244,6 @@ export interface ClickatronStore {
 
   // Actions
   createSession: (formData: FormData) => Promise<{ sessionId: string, variation: Variation } | null>;
- syncCanvas: (sessionId: string, canvas: Canvas) => Promise<void>;
+  syncCanvas: (sessionId: string, canvas: Canvas) => Promise<void>;
   loadSession: (sessionId: string) => Promise<void>;
 }

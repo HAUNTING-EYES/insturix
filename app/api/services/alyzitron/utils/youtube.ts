@@ -67,10 +67,11 @@ export async function validateYouTubeVideo(url: string): Promise<{ valid: boolea
     const video = response.data.items[0];
     const status = video.status;
     const contentDetails = video.contentDetails;
+    console.log("response from youtube : ", response.data.items)
 
     // Check privacy status
-    if (status?.privacyStatus !== 'public') {
-      logger.warn('YouTube video is not public', { data: { videoId, privacyStatus: status?.privacyStatus } });
+    if (status?.privacyStatus !== 'public' && status?.privacyStatus !== 'unlisted') {
+      logger.warn('YouTube video is not public or unlisted', { data: { videoId, privacyStatus: status?.privacyStatus } });
       return { valid: false, error: 'YOUTUBE_VIDEO_PRIVATE' };
     }
 
@@ -83,8 +84,8 @@ export async function validateYouTubeVideo(url: string): Promise<{ valid: boolea
     // Check duration
     const durationString = contentDetails?.duration;
     if (!durationString) {
-        logger.warn('Could not retrieve YouTube video duration', { data: { videoId } });
-        return { valid: false, error: 'YOUTUBE_API_ERROR' }; // Indicate an issue fetching details
+      logger.warn('Could not retrieve YouTube video duration', { data: { videoId } });
+      return { valid: false, error: 'YOUTUBE_API_ERROR' }; // Indicate an issue fetching details
     }
 
     const durationSeconds = parseISO8601Duration(durationString);
