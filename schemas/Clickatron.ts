@@ -32,6 +32,7 @@ const VariationSchema = new Schema({
   modelId: { type: String, required: true }, // Renamed from modelUsed and now required
   seed: { type: Number },
   generationParams: { type: Schema.Types.Mixed },
+  error: { type: String },
 });
 
 const ChatMessageSchema = new Schema({
