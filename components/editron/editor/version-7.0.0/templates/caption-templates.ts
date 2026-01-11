@@ -9,7 +9,7 @@ export const captionTemplates: Record<
     preview: "Clean & Professional",
     styles: {
       fontFamily: "font-sans",
-      fontSize: "2.2rem",
+      fontSize: "35px",
       fontWeight: 500,
       color: "#FFFFFF",
       textAlign: "center",
@@ -35,7 +35,7 @@ export const captionTemplates: Record<
     preview: "Bold & Dynamic",
     styles: {
       fontFamily: "font-league-spartan",
-      fontSize: "2.2rem",
+      fontSize: "35px",
       fontWeight: 800,
       color: "#FFFFFF",
       textAlign: "center",
@@ -60,7 +60,7 @@ export const captionTemplates: Record<
     preview: "Modern & Sleek",
     styles: {
       fontFamily: "font-sans",
-      fontSize: "2rem",
+      fontSize: "32px",
       fontWeight: 500,
       color: "#FFFFFF",
       textAlign: "center",
@@ -83,7 +83,7 @@ export const captionTemplates: Record<
     preview: "Simple & Clean",
     styles: {
       fontFamily: "font-sans",
-      fontSize: "1.5rem",
+      fontSize: "24px",
       fontWeight: 400,
       color: "#FFFFFF",
       textAlign: "center",
@@ -107,7 +107,7 @@ export const captionTemplates: Record<
     preview: "Vibrant & Electric",
     styles: {
       fontFamily: "font-sans",
-      fontSize: "2.2rem",
+      fontSize: "35px",
       fontWeight: 600,
       color: "#FFFFFF",
       textAlign: "center",
@@ -133,7 +133,7 @@ export const captionTemplates: Record<
     preview: "Casual & Friendly",
     styles: {
       fontFamily: "font-serif",
-      fontSize: "2.2rem",
+      fontSize: "35px",
       fontWeight: 400,
       color: "#FFFFFF",
       textAlign: "center",
@@ -157,7 +157,7 @@ export const captionTemplates: Record<
     preview: "Vintage & Bold",
     styles: {
       fontFamily: "font-retro",
-      fontSize: "1.8rem",
+      fontSize: "29px",
       fontWeight: 400,
       color: "#FFD700",
       textAlign: "center",
@@ -182,7 +182,7 @@ export const captionTemplates: Record<
     preview: "Dramatic & Bold",
     styles: {
       fontFamily: "font-serif",
-      fontSize: "2.4rem",
+      fontSize: "38px",
       fontWeight: 700,
       color: "#FFFFFF",
       textAlign: "center",
@@ -207,7 +207,7 @@ export const captionTemplates: Record<
     preview: "Smooth & Modern",
     styles: {
       fontFamily: "font-sans",
-      fontSize: "2.2rem",
+      fontSize: "35px",
       fontWeight: 600,
       color: "#FFFFFF",
       textAlign: "center",
@@ -236,7 +236,7 @@ export const captionTemplates: Record<
     preview: "Sci-fi & Techy",
     styles: {
       fontFamily: "font-mono",
-      fontSize: "2.1rem",
+      fontSize: "34px",
       fontWeight: 600,
       color: "#E2E8F0",
       textAlign: "center",

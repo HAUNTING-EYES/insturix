@@ -51,7 +51,7 @@ export const VideoOverlayPanel: React.FC = () => {
     changeOverlay,
   } = useEditorContext();
   const { findNextAvailablePosition } = useTimelinePositioning();
-  const { getAspectRatioDimensions } = useAspectRatio();
+  const { getAspectRatioDimensions, calculateFitToFrameDimensions } = useAspectRatio();
   const { visibleRows } = useTimeline();
   const [localOverlay, setLocalOverlay] = useState<Overlay | null>(null);
 
@@ -79,7 +79,16 @@ export const VideoOverlayPanel: React.FC = () => {
 
   const handleAddClip = async (video: PexelsVideo) => {
     try {
-      const { width, height } = getAspectRatioDimensions();
+      const frameDimensions = getAspectRatioDimensions();
+      
+      // Calculate dimensions that preserve video aspect ratio and fit in frame
+      const videoWidth = (video as any).width || 1920;
+      const videoHeight = (video as any).height || 1080;
+      const fitted = calculateFitToFrameDimensions(videoWidth, videoHeight);
+      
+      const left = (frameDimensions.width - fitted.width) / 2;
+      const top = (frameDimensions.height - fitted.height) / 2;
+
 
       const { from, row } = findNextAvailablePosition(
         overlays,
@@ -113,9 +122,9 @@ export const VideoOverlayPanel: React.FC = () => {
           publicUrl: videoFile.link,
           type: 'video',
           filename: `pexels-video-${video.id}.mp4`,
-          userId: 'default-user', // TODO: Get actual userId from auth context
+          userId: 'default-user',
           thumbnail: video.image,
-          dimensions: { width, height },
+          dimensions: { width: fitted.width, height: fitted.height },
         }),
       });
 
@@ -126,10 +135,10 @@ export const VideoOverlayPanel: React.FC = () => {
       const { assetId } = await response.json();
 
       const newOverlay: Overlay = {
-        left: 0,
-        top: 0,
-        width,
-        height,
+        left,
+        top,
+        width: fitted.width,
+        height: fitted.height,
         durationInFrames: 200,
         from,
         id: Date.now(),
@@ -138,14 +147,14 @@ export const VideoOverlayPanel: React.FC = () => {
         isDragging: false,
         type: OverlayType.VIDEO,
         content: video.image,
-        src: videoFile.link, // Set src to the actual video URL for VideoLayerContent
-        assetId, // Keep assetId for tracking
+        src: videoFile.link,
+        assetId,
         videoStartTime: 0,
         styles: {
           opacity: 1,
           zIndex: 100,
           transform: "none",
-          objectFit: "cover",
+          objectFit: "cover", // Keep as cover so user can crop if needed
         },
       };
 

@@ -544,4 +544,5 @@ export interface LocalMediaFile {
   lastModified: number;
   thumbnail?: string;
   duration?: number;
+  dimensions?: { width: number; height: number };
 }

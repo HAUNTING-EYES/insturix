@@ -84,12 +84,17 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
 
         {/* Font Size Control */}
         <div className="space-y-2">
-          <label className="text-xs text-muted-foreground">Font Size (px)</label>
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">Font Size</label>
+            <span className="text-xs text-muted-foreground font-mono">
+              {parseInt(localOverlay.styles.fontSize) || 32}px
+            </span>
+          </div>
           <div className="flex items-center gap-2">
             <input
               type="number"
               min={8}
-              max={200}
+              max={500}
               value={parseInt(localOverlay.styles.fontSize) || 32}
               onChange={(e) => handleStyleChange("fontSize", `${e.target.value}`)}
               className="w-20 h-10 px-3 rounded-md border bg-background text-sm"
@@ -97,7 +102,7 @@ export const TextStylePanel: React.FC<TextStylePanelProps> = ({
             <input
               type="range"
               min={8}
-              max={120}
+              max={500}
               value={parseInt(localOverlay.styles.fontSize) || 32}
               onChange={(e) => handleStyleChange("fontSize", `${e.target.value}`)}
               className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"

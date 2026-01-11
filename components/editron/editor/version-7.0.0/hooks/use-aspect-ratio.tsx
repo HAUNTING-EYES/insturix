@@ -84,11 +84,49 @@ export const useAspectRatio = (
     }
   }, [aspectRatio]);
 
+  /**
+   * Calculates dimensions for media to fit within the current frame
+   * while preserving its original aspect ratio.
+   *
+   * @param mediaWidth - Original width of the media
+   * @param mediaHeight - Original height of the media
+   * @returns Scaled dimensions that fit within the current aspect ratio frame
+   */
+  const calculateFitToFrameDimensions = useCallback(
+    (mediaWidth: number, mediaHeight: number) => {
+      const {
+        width: frameWidth,
+        height: frameHeight,
+      } = getAspectRatioDimensions();
+      const mediaRatio = mediaWidth / mediaHeight;
+      const frameRatio = frameWidth / frameHeight;
+
+      let finalWidth, finalHeight;
+
+      if (mediaRatio > frameRatio) {
+        // Media is wider than frame - fit to width
+        finalWidth = frameWidth;
+        finalHeight = frameWidth / mediaRatio;
+      } else {
+        // Media is taller than frame - fit to height
+        finalHeight = frameHeight;
+        finalWidth = frameHeight * mediaRatio;
+      }
+
+      return {
+        width: Math.round(finalWidth),
+        height: Math.round(finalHeight),
+      };
+    },
+    [getAspectRatioDimensions]
+  );
+
   return {
     aspectRatio,
     setAspectRatio: handleAspectRatioChange,
     playerDimensions,
     updatePlayerDimensions,
     getAspectRatioDimensions,
+    calculateFitToFrameDimensions,
   };
 };

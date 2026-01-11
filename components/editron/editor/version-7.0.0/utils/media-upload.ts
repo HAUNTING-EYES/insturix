@@ -17,6 +17,7 @@ export interface UploadedMedia {
   size: number;
   duration?: number;
   thumbnail?: string;
+  dimensions?: { width: number; height: number };
 }
 
 /**
@@ -27,9 +28,10 @@ export const uploadMediaFile = async (
   projectId?: string
 ): Promise<UploadedMedia> => {
   try {
-    // Generate thumbnail and get duration locally
+    // Generate thumbnail and get duration/dimensions locally
     const thumbnail = await generateThumbnail(file);
     const duration = await getMediaDuration(file);
+    const dimensions = await getMediaDimensions(file);
 
     // Determine file type
     let fileType: "video" | "image" | "audio";
@@ -78,6 +80,7 @@ export const uploadMediaFile = async (
       size: data.size,
       duration,
       thumbnail: thumbnail || undefined,
+      dimensions,
     };
   } catch (error) {
     console.error("Error uploading media file:", error);
@@ -183,6 +186,83 @@ export const getMediaDuration = async (
     });
   }
   return undefined;
+};
+
+/**
+ * Gets the dimensions of a media file (video or image)
+ */
+export const getMediaDimensions = async (
+  file: File
+): Promise<{ width: number; height: number } | undefined> => {
+  const url = URL.createObjectURL(file);
+  try {
+    const dimensions = await getMediaDimensionsFromUrl(
+      url,
+      file.type.startsWith("video/") ? "video" : "image"
+    );
+    return dimensions;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
+
+/**
+ * Gets the dimensions of a media file from its URL
+ */
+export const getMediaDimensionsFromUrl = async (
+  url: string,
+  type: "video" | "image"
+): Promise<{ width: number; height: number } | undefined> => {
+  return new Promise((resolve) => {
+    const timeoutId = setTimeout(() => {
+      console.warn("[getMediaDimensionsFromUrl] Timed out");
+      resolve(undefined);
+    }, 10000);
+
+    if (type === "video") {
+      const video = document.createElement("video");
+      video.crossOrigin = "anonymous";
+      video.preload = "metadata";
+
+      video.onloadedmetadata = () => {
+        clearTimeout(timeoutId);
+        resolve({
+          width: video.videoWidth,
+          height: video.videoHeight,
+        });
+      };
+
+      video.onerror = () => {
+        clearTimeout(timeoutId);
+        console.error("[getMediaDimensionsFromUrl] Error loading video");
+        resolve(undefined);
+      };
+
+      video.src = url;
+    } else if (type === "image") {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+
+      img.onload = () => {
+        clearTimeout(timeoutId);
+        resolve({
+          width: img.naturalWidth,
+          height: img.naturalHeight,
+        });
+      };
+
+      img.onerror = () => {
+        clearTimeout(timeoutId);
+        console.error("[getMediaDimensionsFromUrl] Error loading image");
+        resolve(undefined);
+      };
+
+      img.src = url;
+    } else {
+      clearTimeout(timeoutId);
+      resolve(undefined);
+    }
+  });
 };
 
 /**

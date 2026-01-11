@@ -386,14 +386,14 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           <div className="space-y-2">
             <div className="flex justify-between">
               <Label className="text-xs text-muted-foreground">Font Size</Label>
-              <span className="text-xs text-muted-foreground">{styles.fontSize}</span>
+              <span className="text-xs text-muted-foreground font-mono">{parseInt(styles.fontSize) || 32}px</span>
             </div>
             <Slider
-              value={[parseFloat(styles.fontSize) || 2]}
-              min={1}
-              max={5}
-              step={0.1}
-              onValueChange={([value]) => updateStyles({ fontSize: `${value}rem` })}
+              value={[parseInt(styles.fontSize) || 32]}
+              min={8}
+              max={200}
+              step={1}
+              onValueChange={([value]) => updateStyles({ fontSize: `${value}px` })}
             />
           </div>
 

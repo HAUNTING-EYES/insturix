@@ -6,7 +6,7 @@ import { CaptionStyles, CaptionDisplayConfig } from "../../../types";
  */
 export const defaultCaptionStyles: CaptionStyles = {
   fontFamily: "font-sans",
-  fontSize: "2.5rem",
+  fontSize: "40px",
   fontWeight: 500,
   color: "#FFFFFF",
   textAlign: "center",
