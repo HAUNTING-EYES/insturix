@@ -35,6 +35,9 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentIntent, setCurrentIntent] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // CRITICAL: Track cancellation state to ignore stale chunks
+  const isCancelledRef = useRef<boolean>(false);
+  const generationIdRef = useRef<string | null>(null);
 
   // Track previous sessionId to detect changes
   const prevSessionIdRef = useRef<string | null>(null);
@@ -90,7 +93,10 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
       script?: any;
       project?: any;
       selection?: string;
+      selectionBlocks?: any[]; // Selected blocks from editor
+      selectionRange?: { from: number; to: number }; // Selection range from editor
       onScriptUpdate?: (script: any) => void;
+      onTokenStream?: (tokens: string) => void; // Callback for streaming tokens
     }
   ) => {
     if (!sessionId || !prompt.trim() || isStreaming) return;
@@ -107,6 +113,7 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
     setCurrentIntent(null);
 
     const assistantId = crypto.randomUUID();
+    const generationId = crypto.randomUUID();
     const assistantMsg: ChatMessage = {
       id: assistantId,
       role: 'assistant',
@@ -117,6 +124,10 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
     setMessages(prev => [...prev, assistantMsg]);
 
     try {
+      // Reset cancellation state for new generation
+      isCancelledRef.current = false;
+      generationIdRef.current = generationId;
+      
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -129,6 +140,8 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
           script: options?.script,
           project: options?.project,
           selection: options?.selection,
+          selectionBlocks: options?.selectionBlocks, // Include selection blocks for surgical editing
+          selectionRange: options?.selectionRange, // Include selection range for precise replacement
         }),
         signal: controller.signal,
       });
@@ -154,26 +167,83 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantContent = '';
+      let buffer = ''; // Buffer for incomplete SSE messages
+      let isScriptGeneration = false; // Track if this is script generation
+      // Assume script generation if onTokenStream callback is provided
+      // This allows streaming to start immediately, even before intent is received
+      if (options?.onTokenStream) {
+        isScriptGeneration = true;
+      }
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n\n');
+        // CRITICAL: Check if cancelled before processing chunks
+        if (isCancelledRef.current || generationIdRef.current !== generationId) {
+          break;
+        }
 
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
+        const chunk = decoder.decode(value, { stream: true });
+        buffer += chunk;
+        
+        // Process complete SSE messages (ending with \n\n)
+        let lastIndex = 0;
+        while (true) {
+          // CRITICAL: Check cancellation again inside loop
+          if (isCancelledRef.current || generationIdRef.current !== generationId) {
+            break;
+          }
+          
+          const messageEnd = buffer.indexOf('\n\n', lastIndex);
+          if (messageEnd === -1) break; // No complete message found
+          
+          const message = buffer.slice(lastIndex, messageEnd);
+          lastIndex = messageEnd + 2; // Skip \n\n
+          
+          if (message.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6));
+              const jsonStr = message.slice(6);
+              // Skip empty lines
+              if (!jsonStr.trim()) continue;
+              
+              // Quick validation: check if JSON appears complete
+              // (basic check - proper validation happens in JSON.parse)
+              const trimmed = jsonStr.trim();
+              if (trimmed.length > 0) {
+                // Check if it starts and ends with valid JSON delimiters
+                const startsValid = trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('"');
+                const endsValid = trimmed.endsWith('}') || trimmed.endsWith(']') || trimmed.endsWith('"') ||
+                  trimmed.endsWith('true') || trimmed.endsWith('false') || trimmed.endsWith('null') ||
+                  /^\d+$/.test(trimmed);
+                
+                // If it doesn't look complete, it might be split - skip for now
+                if (startsValid && !endsValid && trimmed.length > 1000) {
+                  // Large JSON that doesn't end properly - likely incomplete
+                  continue;
+                }
+              }
+              
+              const data = JSON.parse(jsonStr);
+
+              // CRITICAL: Ignore stale chunks after cancellation
+              if (isCancelledRef.current || generationIdRef.current !== generationId) {
+                break;
+              }
 
               if (data.type === 'token') {
                 assistantContent += data.content;
                 setMessages(prev => prev.map(m =>
                   m.id === assistantId ? { ...m, content: assistantContent } : m
                 ));
+                // Stream tokens to callback if provided (stream immediately if callback exists)
+                if (options?.onTokenStream && isScriptGeneration) {
+                  options.onTokenStream(data.content);
+                }
               } else if (data.type === 'intent') {
                 setCurrentIntent(data.intent);
+                // Update streaming flag based on intent
+                isScriptGeneration = data.intent === 'SCRIPT_GENERATE' || data.intent === 'SCRIPT_EDIT';
               } else if (data.type === 'script_update' && options?.onScriptUpdate) {
                 // Handle script update with metadata
                 // Backend sends: { type: 'script_update', script: {...}, metadata: {...} }
@@ -187,9 +257,59 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
               } else if (data.type === 'done') {
                 // Stream complete
               }
-            } catch (e) {
-              console.error('Error parsing SSE chunk:', e);
+            } catch (e: any) {
+              // Only log if it's not an incomplete JSON error (which is expected for large payloads)
+              if (e instanceof SyntaxError) {
+                // Check if JSON appears incomplete (doesn't end with } or ])
+                const trimmed = jsonStr.trim();
+                const isIncomplete = trimmed.length > 0 && 
+                  !trimmed.endsWith('}') && 
+                  !trimmed.endsWith(']') && 
+                  !trimmed.endsWith('"') &&
+                  !trimmed.endsWith('true') &&
+                  !trimmed.endsWith('false') &&
+                  !trimmed.endsWith('null');
+                
+                if (isIncomplete) {
+                  // This is expected - more data will arrive
+                  continue;
+                }
+              }
+              console.error('Error parsing SSE message:', e);
+              // Log a sample of the problematic JSON for debugging (first 500 chars)
+              if (message.length > 0) {
+                const sample = message.slice(0, Math.min(500, message.length));
+                console.error('Message sample:', sample);
+                if (message.length > 500) {
+                  console.error('... (truncated, total length:', message.length, ')');
+                }
+              }
             }
+          }
+        }
+        
+        // Keep remaining incomplete message in buffer
+        buffer = buffer.slice(lastIndex);
+      }
+      
+      // Process any remaining buffer (should be empty if stream ended properly)
+      if (buffer.trim()) {
+        if (buffer.startsWith('data: ')) {
+          try {
+            const jsonStr = buffer.slice(6);
+            if (jsonStr.trim()) {
+              const data = JSON.parse(jsonStr);
+              
+              if (data.type === 'script_update' && options?.onScriptUpdate) {
+                const scriptData = {
+                  ...(data.script || {}),
+                  metadata: data.metadata || {},
+                };
+                options.onScriptUpdate(scriptData);
+              }
+            }
+          } catch (e) {
+            console.error('Error parsing final buffer:', e);
           }
         }
       }
@@ -206,7 +326,14 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
         return updated;
       });
     } catch (e: any) {
-      if (e?.name === 'AbortError') return;
+      if (e?.name === 'AbortError' || isCancelledRef.current) {
+        // Stream was cancelled - mark message as stopped
+        isCancelledRef.current = true;
+        setMessages(prev => prev.map(m => 
+          m.id === assistantId ? { ...m, streaming: false, content: m.content || '[Stopped]' } : m
+        ));
+        return;
+      }
       const errorMsg: ChatMessage = {
         id: assistantId,
         role: 'assistant',
@@ -221,11 +348,17 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
   }, [sessionId, isStreaming]);
 
   const stopStreaming = useCallback(() => {
+    // CRITICAL: Set cancellation flag FIRST to prevent processing stale chunks
+    isCancelledRef.current = true;
+    generationIdRef.current = null;
+    
+    // CRITICAL: Abort the fetch request to stop backend processing
     if (abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;
     }
     setIsStreaming(false);
+    // Mark all streaming messages as stopped
     setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
   }, []);
 

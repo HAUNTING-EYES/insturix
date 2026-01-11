@@ -19,6 +19,7 @@ export interface ThinkForgeBlock {
   meta?: {
     role?: string;
     goal?: string;
+    level?: number; // For headers: 1, 2, or 3 (h1, h2, h3)
   };
 }
 
@@ -156,7 +157,10 @@ export function validateThinkForgeBlocks(blocks: unknown[]): ThinkForgeBlock[] {
         id: ensureThinkForgeBlockId(raw.id),
         kind: kind as ThinkForgeBlockKind,
         content: normalizeThinkForgeRichText(raw.content ?? raw.text ?? []),
-        meta: raw.meta,
+        // Normalize meta: convert null/undefined to undefined (not null)
+        meta: raw.meta && typeof raw.meta === 'object' && Object.keys(raw.meta).length > 0 
+          ? raw.meta 
+          : undefined,
       };
 
       if (!isThinkForgeBlock(candidate)) {

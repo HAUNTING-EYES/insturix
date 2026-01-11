@@ -16,6 +16,8 @@ import { ScriptContractAgent, type NarrativeContract } from './script-contract-a
 import type { AgentConfig } from './base-agent';
 import { quickAssembleContext } from '../context';
 import type { SessionState } from '../state/types';
+import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
+import type { TiptapJSON } from '../schemas/tiptap-schema';
 
 function wordLimitForLayer(layer?: string): number {
   switch ((layer || '').toLowerCase()) {
@@ -105,6 +107,7 @@ function compactOutline(outline: ScriptOutline): ScriptOutline {
 export interface ScriptDraftResult {
   title: string;
   blocks: ThinkForgeBlock[];
+  richText?: TiptapJSON; // Tiptap JSON AST
   content: string;
   draft: boolean;
   outline: ScriptOutline;
@@ -165,11 +168,15 @@ export class ScriptDraftAgent {
     );
     const blocks = validateThinkForgeBlocks(flattenedBlocks);
     const content = renderPlainText(blocks);
+    
+    // Convert to Tiptap JSON AST
+    const richText = thinkForgeBlocksToTiptapJSON(blocks);
 
     return {
       status: 'ok',
       title: outline.title,
       blocks,
+      richText,
       content,
       draft: true,
       outline,
@@ -217,9 +224,11 @@ export class ScriptDraftAgent {
             blocks = applyWordLimitToBlocks(blocks, limit);
           }
 
+          const validatedBlocks = validateThinkForgeBlocks(blocks.map((block) => ({ ...block, id: ensureThinkForgeBlockId(block.id) })));
           const sectionOutput: SectionOutput = {
             sectionId: rawSection.sectionId,
-            blocks: validateThinkForgeBlocks(blocks.map((block) => ({ ...block, id: ensureThinkForgeBlockId(block.id) }))),
+            blocks: validatedBlocks,
+            richText: thinkForgeBlocksToTiptapJSON(validatedBlocks),
           };
           const summary = section.goal || section.title;
           summariesById[section.id] = summary;

@@ -12,6 +12,8 @@ import * as db from './db';
 import type { SessionState, ProjectMeta } from '../state/types';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
+import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
+import type { TiptapJSON } from '../schemas/tiptap-schema';
 
 // Generator may be imperfect. Renderer must never fail.
 
@@ -86,6 +88,8 @@ export interface ChatRequest {
   script?: { title?: string; content?: string; blocks?: ThinkForgeBlock[] | any[] } | null;
   project?: ProjectMeta | null;
   blockIds?: string[];
+  selectionBlocks?: ThinkForgeBlock[]; // Selected blocks from Tiptap editor for surgical editing
+  selectionRange?: { from: number; to: number }; // Tiptap selection range for precise replacement
 }
 
 function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
@@ -110,7 +114,17 @@ function detectFullRegenerate(prompt: string): boolean {
  * Returns SSE stream with data: {...} events
  */
 export async function processChat(request: ChatRequest): Promise<ReadableStream<Uint8Array>> {
-  const { sessionId, prompt, selection, userId, script: providedScript, project: providedProject, blockIds: providedBlockIds } = request;
+  const { 
+    sessionId, 
+    prompt, 
+    selection, 
+    userId, 
+    script: providedScript, 
+    project: providedProject, 
+    blockIds: providedBlockIds,
+    selectionBlocks: providedSelectionBlocks,
+    selectionRange: providedSelectionRange,
+  } = request;
   
   // Load or create session
   let session = sessionId ? await db.getSession(sessionId, userId) : null;
@@ -171,6 +185,26 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   const writer = stream.writable.getWriter();
   const encoder = new TextEncoder();
   
+  // Track if stream is closed (aborted by client)
+  let isStreamClosed = false;
+  
+  // Helper function to safely write to stream
+  const safeWrite = async (data: string): Promise<boolean> => {
+    if (isStreamClosed) return false;
+    try {
+      await writer.write(encoder.encode(data));
+      return true;
+    } catch (error: any) {
+      // Stream was closed (client aborted)
+      if (error?.name === 'InvalidStateError' || error?.code === 'ERR_INVALID_STATE') {
+        isStreamClosed = true;
+        console.log('[ThinkForge] Stream closed by client');
+        return false;
+      }
+      throw error;
+    }
+  };
+  
   // Run in background
   (async () => {
     try {
@@ -213,8 +247,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
         } else if (isMatch(prompt, REJECT_PATTERNS)) {
           finalResponse = "Understood. I've cancelled that suggestion. What would you like to do instead?";
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
+          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`))) return;
           if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
           return;
         }
@@ -234,12 +268,14 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       });
 
       // Send intent to client immediately
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'intent', intent: intentResult.intent })}\n\n`));
+      if (!(await safeWrite(`data: ${JSON.stringify({ type: 'intent', intent: intentResult.intent })}\n\n`))) {
+        return; // Stream closed, exit early
+      }
 
       if (intentResult.intent === 'SCRIPT_EDIT' && !hasExistingScript) {
         finalResponse = 'No script open. Open a script or start a new one before editing.';
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`))) return;
         return;
       }
 
@@ -252,8 +288,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         } else {
           finalResponse = 'Select the blocks to edit and retry. No changes were made.';
         }
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`))) return;
         if (session) {
           await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
         }
@@ -265,62 +301,121 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
 
       if (intentResult.intent === 'SCRIPT_EDIT' && hasExistingScript && !wantsFullRegenerate) {
-        const scoped = resolveContextWindowTF(thinkforgeBlocks, blockIds.filter(id => id !== '__END__'), 1);
-        const promptBlocks = formatBlocksForPromptTF(scoped);
+        // Use selection blocks if provided (surgical editing)
+        const useSelectionBlocks = providedSelectionBlocks && providedSelectionBlocks.length > 0;
+        const blocksToEdit = useSelectionBlocks 
+          ? validateThinkForgeBlocks(providedSelectionBlocks)
+          : resolveContextWindowTF(thinkforgeBlocks, blockIds.filter(id => id !== '__END__'), 1);
+        
+        const promptBlocks = formatBlocksForPromptTF(blocksToEdit);
 
         const refinementContext = quickAssembleContext(
           'script_refinement',
           sessionState.metadata,
-          { title: script!.title || '', content: promptBlocks, blocks: scoped },
+          { title: script!.title || '', content: promptBlocks, blocks: blocksToEdit },
           [],
           null
         );
 
         const isAddition = /\b(add|insert|append|new section|new step)\b/i.test(effectivePrompt);
-        const agentPrompt = isAddition 
-          ? `Add a new section about the following request immediately AFTER ${blockIds[0] === '__END__' ? 'the end of the document' : 'blockId ' + blockIds[0]}. Request: ${effectivePrompt}. If adding a new block, use blockId: "NEW_BLOCK" in your patches.`
-          : `Edit only these blockIds: ${blockIds.join(', ')}. Change request: ${effectivePrompt}`;
+        const agentPrompt = useSelectionBlocks
+          ? `Edit the following selected content. Change request: ${effectivePrompt}. 
+
+CRITICAL: You are editing a SELECTION from a larger document. 
+- Preserve the exact structure: if input has headings, return headings with same levels
+- Preserve lists: if input has bullet/numbered lists, return lists
+- Preserve blockquotes/callouts: if input has "why" blocks, return "why" blocks
+- Preserve horizontal rules: if input has dividers, return dividers
+- Only modify the content within the selection, not the structure
+- Return blocks that match the input structure exactly`
+          : isAddition 
+            ? `Add a new section about the following request immediately AFTER ${blockIds[0] === '__END__' ? 'the end of the document' : 'blockId ' + blockIds[0]}. Request: ${effectivePrompt}. If adding a new block, use blockId: "NEW_BLOCK" in your patches.`
+            : `Edit only these blockIds: ${blockIds.join(', ')}. Change request: ${effectivePrompt}`;
 
         const agent = createScriptRefinementAgent({ maxTokens: 900, temperature: 0.3 });
+        
+        // For selection-based editing, refine only the selected blocks
+        // The agent needs the full document context but will only modify selected blocks
         const refined = await agent.refineScript(
           { context: refinementContext, userPrompt: agentPrompt },
-          thinkforgeBlocks
+          useSelectionBlocks ? blocksToEdit : thinkforgeBlocks
         );
 
-        const anchorId = blockIds[0];
-        const mergedBlocks = applyThinkForgeBlockPatches(thinkforgeBlocks, refined.patches || [], {
-          insertAfterId: anchorId === '__END__' ? thinkforgeBlocks[thinkforgeBlocks.length - 1]?.id : anchorId,
-          defaultKind: 'paragraph',
-        });
+        let finalBlocks: ThinkForgeBlock[];
+        let finalRichText: TiptapJSON;
 
-        const mergedContent = mergedBlocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
+        if (useSelectionBlocks && providedSelectionRange) {
+          // Surgical editing: only replace the selected blocks
+          // The refined blocks are the replacement for the selection
+          finalBlocks = thinkforgeBlocks; // Keep all blocks, we'll replace selection in editor
+          finalRichText = thinkForgeBlocksToTiptapJSON(thinkforgeBlocks); // Full document
+          
+          // Include selection metadata for surgical application
+          const scriptUpdate = {
+            script: {
+              title: script!.title,
+              blocks: finalBlocks,
+              richText: finalRichText,
+              content: script!.content || ''
+            },
+            metadata: {
+              workflow: 'refine',
+              thoughts: 'Script refined surgically on selection',
+              duration_ms: 0,
+              agent_steps: [],
+              // Selection metadata for surgical editing
+              selectionEdit: {
+                editedBlocks: refined.blocks,
+                originalRange: providedSelectionRange,
+                applySurgically: true,
+              }
+            }
+          };
 
-        if (session) {
-          await db.saveScript(sessionId || session._id, {
-            title: refined.title || script!.title,
-            content: mergedContent || script!.content || '',
-            blocks: mergedBlocks,
+          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`))) return;
+        } else {
+          // Traditional block-based editing
+          const anchorId = blockIds[0];
+          const mergedBlocks = applyThinkForgeBlockPatches(thinkforgeBlocks, refined.patches || [], {
+            insertAfterId: anchorId === '__END__' ? thinkforgeBlocks[thinkforgeBlocks.length - 1]?.id : anchorId,
+            defaultKind: 'paragraph',
           });
+
+          const mergedContent = mergedBlocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
+          
+          // Convert to Tiptap JSON AST
+          finalRichText = thinkForgeBlocksToTiptapJSON(mergedBlocks);
+          finalBlocks = mergedBlocks;
+
+          if (session) {
+            await db.saveScript(sessionId || session._id, {
+              title: refined.title || script!.title,
+              content: mergedContent || script!.content || '',
+              blocks: mergedBlocks,
+              richText: finalRichText as any,
+            });
+          }
+
+          const scriptUpdate = {
+            script: {
+              title: refined.title || script!.title,
+              blocks: mergedBlocks,
+              richText: finalRichText,
+              content: mergedContent || script!.content || ''
+            },
+            metadata: {
+              workflow: 'refine',
+              thoughts: 'Script refined surgically',
+              duration_ms: 0,
+              agent_steps: []
+            }
+          };
+
+          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`))) return;
         }
 
-        const scriptUpdate = {
-          script: {
-            title: refined.title || script!.title,
-            blocks: mergedBlocks,
-            content: mergedContent || script!.content || ''
-          },
-          metadata: {
-            workflow: 'refine',
-            thoughts: 'Script refined surgically',
-            duration_ms: 0,
-            agent_steps: []
-          }
-        };
-
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`));
-
         finalResponse = 'Update applied to selected blocks only.';
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
 
         if (session) {
           await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
@@ -329,7 +424,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         // Generate NEW script from scratch
         // Stream a "working" message first
         const workingMsg = 'Creating your script...';
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: workingMsg })}\n\n`));
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: workingMsg })}\n\n`))) return;
         
         const draft = await generateScriptDraft(
           effectivePrompt,
@@ -341,12 +436,13 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           } : null
         );
         
-        // Save new script
+        // Save new script with richText (Tiptap JSON AST)
         if (session) {
           await db.saveScript(sessionId || session._id, {
             title: draft.title,
             content: draft.content,
-            blocks: draft.blocks
+            blocks: draft.blocks,
+            richText: draft.richText as any
           });
         }
         
@@ -355,6 +451,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           script: {
             title: draft.title,
             blocks: draft.blocks,
+            richText: draft.richText,
             content: draft.content
           },
           metadata: {
@@ -365,11 +462,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
         };
         
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`));
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`))) return;
         
         // Send completion response
         finalResponse = `\n\nScript "${draft.title}" created successfully!`;
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`));
+        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
         
         // Persist assistant message
         if (session) {
@@ -389,15 +486,25 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         const reader = chatStream.getReader();
         const decoder = new TextDecoder();
         
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          
-          const chunk = decoder.decode(value, { stream: true });
-          finalResponse += chunk;
-          
-          // Send as token events
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'token', content: chunk })}\n\n`));
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            // CRITICAL: Check if stream is still writable before writing
+            const chunk = decoder.decode(value, { stream: true });
+            finalResponse += chunk;
+            
+            // Send as token events - stop if stream is closed
+            if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: chunk })}\n\n`))) {
+              break; // Stream closed, stop reading
+            }
+          }
+        } finally {
+          // Release reader when done or aborted
+          try {
+            reader.releaseLock();
+          } catch {}
         }
         
         // Persist assistant message
@@ -406,13 +513,37 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
         }
       }
       
-      // Send done event
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`));
+      // Send done event (only if stream is still open)
+      if (!isStreamClosed) {
+        await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`);
+      }
     } catch (error: any) {
+      // Check if error is due to stream being closed (abort)
+      const isAbortError = error?.name === 'InvalidStateError' || 
+                          error?.code === 'ERR_INVALID_STATE' ||
+                          error?.message?.includes('WritableStream is closed') ||
+                          error?.message?.includes('ResponseAborted');
+      
+      if (isAbortError || isStreamClosed) {
+        console.log('[ThinkForge] Stream aborted by client');
+        return; // Exit early, don't try to write error
+      }
+      
       console.error('Error in chat stream:', error);
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message || 'Chat failed' })}\n\n`));
+      // Try to send error, but don't fail if stream is closed
+      await safeWrite(`data: ${JSON.stringify({ type: 'error', error: error.message || 'Chat failed' })}\n\n`);
     } finally {
-      await writer.close();
+      // CRITICAL: Only close if stream is still open
+      if (!isStreamClosed) {
+        try {
+          await writer.close();
+        } catch (closeError: any) {
+          // Stream already closed, ignore (expected when client aborts)
+          if (closeError?.name !== 'InvalidStateError' && closeError?.code !== 'ERR_INVALID_STATE') {
+            console.error('[ThinkForge] Error closing writer:', closeError);
+          }
+        }
+      }
     }
   })();
   

@@ -462,14 +462,23 @@ export default function ThinkForgeLanding() {
 					setIdeationPhase('PROMPT');
 					setWorkspaceMode('ideation');
 				}}
-				onNewScript={() => {
-					// Clear the current script to start fresh
-					scriptHook.setScriptWithoutSave({
-						title: selectedIdea?.idea || 'New Script',
-						content: '',
-						blocks: null,
-						metadata: null,
-					});
+				onNewScript={async () => {
+					// CRITICAL: Reset script in current session only
+					// Does NOT create new session - chat state stays intact
+					// Does NOT touch chat state - only resets script
+					if (selectedIdea) {
+						try {
+							// Reset script to empty in current session
+							scriptHook.setScriptWithoutSave({
+								title: selectedIdea?.idea || 'New Script',
+								content: '',
+								blocks: null,
+								metadata: null,
+							});
+						} catch (error) {
+							console.error('Failed to reset script:', error);
+						}
+					}
 				}}
 				onImportScript={async (data) => {
 					try {

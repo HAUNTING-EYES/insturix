@@ -130,6 +130,7 @@ export interface Script {
   title: string;
   content: string;
   blocks?: ThinkForgeBlock[];
+  richText?: Record<string, any>; // Tiptap JSON AST
   createdAt: Date;
   updatedAt: Date;
 }
@@ -623,6 +624,7 @@ const ScriptSchema = new Schema({
   title: { type: String, required: true },
   content: { type: String, default: '' },
   blocks: { type: Schema.Types.Mixed },
+  richText: { type: Schema.Types.Mixed }, // Tiptap JSON AST
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_SCRIPTS, timestamps: false });
@@ -992,6 +994,7 @@ export async function getScript(sessionId: string): Promise<Script | null> {
       title: doc.title,
       content: doc.content || '',
       blocks,
+      richText: doc.richText, // Tiptap JSON AST
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
@@ -1012,12 +1015,17 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
     if (existing) {
       // Update existing
       const blocks = script.blocks !== undefined ? enforceThinkForgeBlocks(script.blocks) : enforceThinkForgeBlocks(existing.blocks);
-      const updateDoc = {
+      const updateDoc: Record<string, any> = {
         title: script.title ?? existing.title,
         content: script.content ?? existing.content,
         blocks,
         updatedAt: now
       };
+      
+      // Include richText (Tiptap JSON) if provided
+      if (script.richText !== undefined) {
+        updateDoc.richText = script.richText;
+      }
       
       await ScriptModel.findByIdAndUpdate(existing._id, { $set: updateDoc });
       const updated = await ScriptModel.findById(existing._id).lean() as any;
@@ -1029,13 +1037,14 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
         title: updated.title,
         content: updated.content || '',
         blocks: updated.blocks,
+        richText: updated.richText,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt
       };
     } else {
       // Create new
       const blocks = enforceThinkForgeBlocks(script.blocks || []);
-      const doc = {
+      const doc: Record<string, any> = {
         sessionId,
         title: script.title || 'Untitled Script',
         content: script.content || '',
@@ -1044,6 +1053,11 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
         updatedAt: now
       };
       
+      // Include richText (Tiptap JSON) if provided
+      if (script.richText !== undefined) {
+        doc.richText = script.richText;
+      }
+      
       const created = await ScriptModel.create(doc);
       return {
         _id: String(created._id),
@@ -1051,6 +1065,7 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
         title: created.title,
         content: created.content || '',
         blocks: created.blocks,
+        richText: (created as any).richText,
         createdAt: created.createdAt,
         updatedAt: created.updatedAt
       };
@@ -1085,6 +1100,7 @@ export async function updateScript(sessionId: string, updates: Partial<Script>):
       title: updated.title,
       content: updated.content || '',
       blocks: enforceThinkForgeBlocks(updated.blocks),
+      richText: updated.richText,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt
     };

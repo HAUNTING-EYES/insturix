@@ -8,6 +8,12 @@ export const dynamic = 'force-dynamic';
 /**
  * Save script for a session
  * POST /api/services/thinkforge/script/save
+ * 
+ * Accepts script object with:
+ * - title: Script title
+ * - content: Plain text content
+ * - blocks: ThinkForgeBlock[] (legacy format)
+ * - richText: Tiptap JSON AST (new format)
  */
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -34,7 +40,8 @@ export async function POST(req: Request) {
     const saved = await db.saveScript(sessionId, {
       title: script?.title || 'Untitled Script',
       content: script?.content || '',
-      blocks: script?.blocks || []
+      blocks: script?.blocks || [],
+      richText: script?.richText // Include Tiptap JSON AST if provided
     });
 
     return NextResponse.json({
@@ -42,7 +49,8 @@ export async function POST(req: Request) {
       script: {
         title: saved.title,
         content: saved.content,
-        blocks: saved.blocks || []
+        blocks: saved.blocks || [],
+        richText: saved.richText || null
       }
     });
   } catch (error: any) {
@@ -53,4 +61,3 @@ export async function POST(req: Request) {
     );
   }
 }
-

@@ -15,11 +15,14 @@ interface ScriptPanelProps {
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
   onNewScript?: () => void;
+  onTokenStream?: (callback: (tokens: string) => void) => void; // Callback setter for token streaming
+  onGetSelection?: (callback: () => { blocks: any[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting selection
+  onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
 }
 
 type PanelMode = 'scripting' | 'whiteboard';
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving, onImportScript, onNewScript }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving, onImportScript, onNewScript, onTokenStream, onGetSelection, onEditSelection }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
 
   return (
@@ -67,6 +70,19 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   isSaving={isSaving}
                   onImportScript={onImportScript}
                   onNewScript={onNewScript}
+                  onTokenStream={(callback) => {
+                    // Register callback with parent
+                    if (onTokenStream) {
+                      onTokenStream(callback);
+                    }
+                  }}
+                  onGetSelection={(callback) => {
+                    // Register selection getter with parent
+                    if (onGetSelection) {
+                      onGetSelection(callback);
+                    }
+                  }}
+                  onEditSelection={onEditSelection}
                 />
              </div>
           ) : (

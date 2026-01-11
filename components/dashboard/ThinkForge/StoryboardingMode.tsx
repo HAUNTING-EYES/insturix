@@ -53,8 +53,37 @@ export default function StoryboardingMode({
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   
+  // Selection editing state
+  const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
+
+  const handleEditSelection = (text: string, range: { from: number; to: number }, blocks: any[]) => {
+    setEditingSelection({ text, range, blocks });
+    // Switch to chat tab on mobile if needed
+    setActiveMobileTab('chat');
+    // Ensure chat panel is open on desktop (if we were to add a collapsible panel)
+  };
+  
   // Mobile tab state
   const [activeMobileTab, setActiveMobileTab] = useState<'chat' | 'script'>('script');
+  
+  // Token streaming callback - connects ChatPanel to ScriptEditor
+  const tokenStreamCallbackRef = useRef<((tokens: string) => void) | null>(null);
+  
+  const handleTokenStream = useRef((tokens: string) => {
+    if (tokenStreamCallbackRef.current) {
+      tokenStreamCallbackRef.current(tokens);
+    }
+  }).current;
+
+  // Selection getter callback - connects ChatPanel to ScriptEditor
+  const selectionGetterRef = useRef<(() => { blocks: any[]; range: { from: number; to: number } | null } | null) | null>(null);
+  
+  const handleGetSelection = useRef(() => {
+    if (selectionGetterRef.current) {
+      return selectionGetterRef.current();
+    }
+    return null;
+  }).current;
 
   useEffect(() => {
     const saved = localStorage.getItem(LS_CHAT_WIDTH);
@@ -156,6 +185,10 @@ export default function StoryboardingMode({
                 sessionId={sessionId}
                 onOpenSettings={handleOpenSettings}
                 onSwitchSession={onSwitchSession}
+                onTokenStream={handleTokenStream}
+                onGetSelection={handleGetSelection}
+                editingSelection={editingSelection}
+                onCancelEditSelection={() => setEditingSelection(null)}
               />
               
               {/* Resize Handle - Desktop only */}
@@ -187,10 +220,17 @@ export default function StoryboardingMode({
                 script={script}
                 sessionId={sessionId}
                 isSaving={isSaving}
+                onTokenStream={(callback) => {
+                  tokenStreamCallbackRef.current = callback;
+                }}
+                onGetSelection={(callback) => {
+                  selectionGetterRef.current = callback;
+                }}
                 onUpdate={onUpdateScript}
                 onBack={onBack}
                 onImportScript={onImportScript}
                 onNewScript={onNewScript}
+                onEditSelection={handleEditSelection}
               />
             </div>
           </div>

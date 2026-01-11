@@ -22,6 +22,8 @@ export async function POST(req: Request) {
   let selection: string | undefined;
   let script: any | undefined;
   let project: any | undefined;
+  let selectionBlocks: any[] | undefined;
+  let selectionRange: { from: number; to: number } | undefined;
   
   try {
     const body = await req.json();
@@ -30,6 +32,8 @@ export async function POST(req: Request) {
     if (body?.selection) selection = String(body.selection);
     if (body?.script) script = body.script;
     if (body?.project) project = body.project;
+    if (body?.selectionBlocks) selectionBlocks = body.selectionBlocks;
+    if (body?.selectionRange) selectionRange = body.selectionRange;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -45,7 +49,9 @@ export async function POST(req: Request) {
       selection,
       userId,
       script,
-      project
+      project,
+      selectionBlocks,
+      selectionRange,
     });
 
     return new NextResponse(stream, {

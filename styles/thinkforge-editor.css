@@ -1,0 +1,409 @@
+/**
+ * ThinkForge Tiptap Editor Styles
+ * 
+ * These styles match the BlockNote editor appearance for zero visual regression.
+ * Classes use 'tiptap-editor-dark' namespace for the dark theme.
+ */
+
+/* =============================================================================
+   EDITOR CONTAINER
+   ============================================================================= */
+
+.tiptap-editor-dark {
+  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 
+               "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", 
+               sans-serif, "Apple Color Emoji", "Segoe UI Emoji", 
+               "Segoe UI Symbol", "Noto Color Emoji";
+  font-size: 16px;
+  line-height: 1.625;
+  color: rgba(255, 255, 255, 0.9);
+  background: transparent;
+  padding: 0.5rem 0;
+  outline: none;
+  min-height: 300px;
+}
+
+.tiptap-editor-dark:focus {
+  outline: none;
+}
+
+/* =============================================================================
+   PARAGRAPH
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-paragraph,
+.tiptap-editor-dark p {
+  margin: 0 0 0.5rem 0;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1.625;
+}
+
+.tiptap-editor-dark p:last-child {
+  margin-bottom: 0;
+}
+
+/* =============================================================================
+   HEADINGS
+   ============================================================================= */
+
+.tiptap-editor-dark h1 {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.75rem 0;
+  color: rgba(255, 255, 255, 1);
+  line-height: 1.3;
+}
+
+.tiptap-editor-dark h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 1.25rem 0 0.625rem 0;
+  color: rgba(255, 255, 255, 1);
+  line-height: 1.35;
+}
+
+.tiptap-editor-dark h3 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin: 1rem 0 0.5rem 0;
+  color: rgba(255, 255, 255, 1);
+  line-height: 1.4;
+}
+
+.tiptap-editor-dark h1:first-child,
+.tiptap-editor-dark h2:first-child,
+.tiptap-editor-dark h3:first-child {
+  margin-top: 0;
+}
+
+/* =============================================================================
+   LISTS
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-bullet-list,
+.tiptap-editor-dark ul {
+  list-style-type: disc;
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.tiptap-editor-dark .thinkforge-ordered-list,
+.tiptap-editor-dark ol {
+  list-style-type: decimal;
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.tiptap-editor-dark .thinkforge-list-item,
+.tiptap-editor-dark li {
+  margin: 0.25rem 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.tiptap-editor-dark li p {
+  margin: 0;
+}
+
+.tiptap-editor-dark ul ul,
+.tiptap-editor-dark ol ol,
+.tiptap-editor-dark ul ol,
+.tiptap-editor-dark ol ul {
+  margin: 0.25rem 0;
+}
+
+/* =============================================================================
+   BLOCKQUOTE
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-blockquote,
+.tiptap-editor-dark blockquote {
+  border-left: 4px solid rgba(255, 255, 255, 0.2);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.tiptap-editor-dark blockquote p {
+  margin: 0;
+}
+
+/* =============================================================================
+   CODE
+   ============================================================================= */
+
+/* Inline code */
+.tiptap-editor-dark code {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.25rem;
+  padding: 0.125rem 0.375rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, 
+               "Liberation Mono", monospace;
+  font-size: 0.875em;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Code block */
+.tiptap-editor-dark .thinkforge-code-block,
+.tiptap-editor-dark pre {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, 
+               "Liberation Mono", monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.tiptap-editor-dark pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* =============================================================================
+   HORIZONTAL RULE
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-hr,
+.tiptap-editor-dark hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  margin: 1rem 0;
+}
+
+/* =============================================================================
+   LINKS
+   ============================================================================= */
+
+.tiptap-editor-dark .thinkforge-link,
+.tiptap-editor-dark a {
+  color: #ef4444;
+  text-decoration: underline;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.tiptap-editor-dark a:hover {
+  color: #f87171;
+}
+
+/* =============================================================================
+   MARKS (INLINE FORMATTING)
+   ============================================================================= */
+
+.tiptap-editor-dark strong,
+.tiptap-editor-dark b {
+  font-weight: 600;
+}
+
+.tiptap-editor-dark em,
+.tiptap-editor-dark i {
+  font-style: italic;
+}
+
+.tiptap-editor-dark .thinkforge-underline,
+.tiptap-editor-dark u {
+  text-decoration: underline;
+}
+
+.tiptap-editor-dark s,
+.tiptap-editor-dark strike,
+.tiptap-editor-dark del {
+  text-decoration: line-through;
+}
+
+.tiptap-editor-dark .thinkforge-highlight,
+.tiptap-editor-dark mark {
+  background: rgba(234, 179, 8, 0.4);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.125rem;
+}
+
+/* =============================================================================
+   CUSTOM THINKFORGE BLOCKS
+   ============================================================================= */
+
+/* Action Block */
+.tiptap-editor-dark .thinkforge-action-block,
+.tiptap-editor-dark [data-type="actionBlock"] {
+  background: rgba(59, 130, 246, 0.1);
+  border-left: 3px solid #3b82f6;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.tiptap-editor-dark .thinkforge-action-block p,
+.tiptap-editor-dark [data-type="actionBlock"] p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Why Block */
+.tiptap-editor-dark .thinkforge-why-block,
+.tiptap-editor-dark [data-type="whyBlock"] {
+  background: rgba(168, 85, 247, 0.1);
+  border-left: 3px solid #a855f7;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0 0.375rem 0.375rem 0;
+  font-style: italic;
+}
+
+.tiptap-editor-dark .thinkforge-why-block p,
+.tiptap-editor-dark [data-type="whyBlock"] p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Example Block */
+.tiptap-editor-dark .thinkforge-example-block,
+.tiptap-editor-dark [data-type="exampleBlock"] {
+  background: rgba(34, 197, 94, 0.1);
+  border-left: 3px solid #22c55e;
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  border-radius: 0 0.375rem 0.375rem 0;
+}
+
+.tiptap-editor-dark .thinkforge-example-block p,
+.tiptap-editor-dark [data-type="exampleBlock"] p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* =============================================================================
+   PLACEHOLDER
+   ============================================================================= */
+
+.tiptap-editor-dark .is-editor-empty::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.3);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+.tiptap-editor-dark .is-node-empty:first-child::before {
+  content: attr(data-placeholder);
+  color: rgba(255, 255, 255, 0.3);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* =============================================================================
+   SELECTION
+   ============================================================================= */
+
+.tiptap-editor-dark ::selection {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.tiptap-editor-dark .ProseMirror-selectednode {
+  outline: 2px solid rgba(239, 68, 68, 0.5);
+  border-radius: 0.25rem;
+}
+
+/* =============================================================================
+   CURSOR
+   ============================================================================= */
+
+.tiptap-editor-dark .ProseMirror-cursor {
+  border-color: rgba(239, 68, 68, 0.8);
+}
+
+/* Collaboration cursor */
+.tiptap-editor-dark .collaboration-cursor__caret {
+  border-color: #ef4444;
+}
+
+.tiptap-editor-dark .collaboration-cursor__label {
+  background: #ef4444;
+  color: white;
+  font-size: 0.75rem;
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+}
+
+/* =============================================================================
+   DRAG HANDLE (Future)
+   ============================================================================= */
+
+.tiptap-editor-dark .drag-handle {
+  position: absolute;
+  left: -1.5rem;
+  top: 0.25rem;
+  width: 1rem;
+  height: 1rem;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.tiptap-editor-dark > *:hover .drag-handle {
+  opacity: 1;
+}
+
+/* =============================================================================
+   FOCUS STATES
+   ============================================================================= */
+
+.tiptap-editor-dark.ProseMirror-focused {
+  outline: none;
+}
+
+/* =============================================================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================================================= */
+
+@media (max-width: 640px) {
+  .tiptap-editor-dark {
+    font-size: 15px;
+  }
+  
+  .tiptap-editor-dark h1 {
+    font-size: 1.75rem;
+  }
+  
+  .tiptap-editor-dark h2 {
+    font-size: 1.375rem;
+  }
+  
+  .tiptap-editor-dark h3 {
+    font-size: 1.125rem;
+  }
+}
+
+/* =============================================================================
+   PRINT STYLES
+   ============================================================================= */
+
+@media print {
+  .tiptap-editor-dark {
+    color: black;
+    background: white;
+  }
+  
+  .tiptap-editor-dark a {
+    color: #2563eb;
+  }
+  
+  .tiptap-editor-dark code {
+    background: #f3f4f6;
+    border-color: #e5e7eb;
+  }
+  
+  .tiptap-editor-dark pre {
+    background: #f9fafb;
+    border-color: #e5e7eb;
+  }
+}

@@ -27,6 +27,9 @@ import type { ThinkForgeBlock, RichTextAST, ThinkForgeBlockKind } from '../schem
 import { applyThinkForgeBlockPatches, extractTextFromRichText, type ThinkForgeBlockPatch } from '../utils/thinkforge-block-patch';
 import { ensureThinkForgeBlockId } from '../schemas/thinkforge-block';
 import { updateScriptState } from '../state/session-state';
+import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
+import type { TiptapJSON } from '../schemas/tiptap-schema';
+import { cleanRichTextAST, cleanAndTransformText, cleanThinkForgeBlocks } from '../utils/content-cleaner';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -85,26 +88,68 @@ export class ScriptRefinementAgent extends StructuredAgent<ScriptRefinedOutput> 
   }
   
   buildPrompt({ context, userPrompt }: AgentInput): string {
-    return `You are revising ONLY the provided ThinkForge blocks. Do not touch any other blocks.
-
-Blocks (blockId | kind):
+    // Check if this is a selection-based edit (no blockIds in prompt)
+    const isSelectionEdit = !userPrompt.includes('blockId') && !userPrompt.includes('blockIds');
+    
+    const basePrompt = 'You are a creative strategist revising production guidance. Write clear, actionable creative direction—not system planning notes.\n\n';
+    
+    const selectionEditPrompt = `Selected content to revise:
 ${context.currentScript || '(none)'}
 
 Requested change:
 ${userPrompt}
 
-Rules
+## Your Writing Style
+- Write as a creative director giving clear, confident guidance
+- Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
+- Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
+- Convert abstract steps into concrete execution guidance
+- Write content that enables immediate storyboarding, directing, filming, and editing
+
+## Revision Rules (Selection-Based Editing)
+- Scope lock: edit ONLY the selected content provided above. Do not modify anything outside the selection.
+- Preserve structure: maintain headings (with levels), lists, blockquotes, horizontal rules exactly as they appear.
+- Preserve formatting: maintain inline emphasis (bold, italic), code, links when present.
+- Voice: confident, execution-focused. Avoid supervisory verbs ("ensure", "verify", "validate", "determine", "define").
+- Return refined blocks that match the structure of the input (same number of blocks, same types, same hierarchy).
+
+## Output Format (JSON only, no markdown)
+{
+  "patches": [
+    { "blockId": string (use existing IDs from input or "NEW_BLOCK" for additions), "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string,"level"?:1|2|3} }
+  ],
+  "title"?: string
+}`;
+
+    const blockEditPrompt = `Blocks to revise (blockId | kind):
+${context.currentScript || '(none)'}
+
+Requested change:
+${userPrompt}
+
+## Your Writing Style
+- Write as a creative director giving clear, confident guidance
+- Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
+- Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
+- Convert abstract steps into concrete execution guidance
+- Write content that enables immediate storyboarding, directing, filming, and editing
+
+## Revision Rules
 - Scope lock: edit only the provided blockIds. Do not reorder unless blockId is NEW_BLOCK.
-- Voice: imperative, maker-first. Ban supervisory verbs ("ensure", "verify", "validate").
+- Voice: confident, execution-focused. Avoid supervisory verbs ("ensure", "verify", "validate", "determine", "define").
 - Preserve formatting: maintain inline emphasis/code when present.
 - Examples: if unchanged, omit from patches.
-- If adding, emit blockId: "NEW_BLOCK" with kind and rich-text content.
-- Output JSON only (no markdown, no prose): {
-    "patches": [
-      { "blockId": string, "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string} }
-    ],
-    "title"?: string
-  }`;
+- If adding, emit blockId: "NEW_BLOCK" with kind and clean creative direction (no schema artifacts).
+
+## Output Format (JSON only, no markdown)
+{
+  "patches": [
+    { "blockId": string, "content"?: RichTextNode[], "text"?: string, "kind"?: "header"|"action"|"why"|"example"|"paragraph", "meta"?: {"role"?:string,"goal"?:string,"level"?:1|2|3} }
+  ],
+  "title"?: string
+}`;
+
+    return basePrompt + (isSelectionEdit ? selectionEditPrompt : blockEditPrompt);
   }
   
   /**
@@ -116,6 +161,8 @@ Rules
   ): Promise<{
     title: string;
     patches: ThinkForgeBlockPatch[];
+    blocks: ThinkForgeBlock[];
+    richText: TiptapJSON;
     draft: boolean;
   }> {
     const { result } = await this.runStructured(input);
@@ -123,8 +170,16 @@ Rules
     const normalized: ThinkForgeBlockPatch[] = patches
       .map((p) => {
         const blockId = typeof p.blockId === 'string' ? p.blockId : ensureThinkForgeBlockId();
-        const content = Array.isArray((p as any).content) ? ((p as any).content as RichTextAST) : undefined;
-        const text = typeof (p as any).text === 'string' ? (p as any).text : undefined;
+        let content = Array.isArray((p as any).content) ? ((p as any).content as RichTextAST) : undefined;
+        // Clean content to remove artifacts
+        if (content) {
+          content = cleanRichTextAST(content);
+        }
+        let text = typeof (p as any).text === 'string' ? (p as any).text : undefined;
+        // Clean and transform text
+        if (text) {
+          text = cleanAndTransformText(text);
+        }
         const kind = (p as any).kind as ThinkForgeBlockKind | undefined;
         const meta = (p as any).meta as { role?: string; goal?: string } | undefined;
         return { blockId, content, text, kind, meta } satisfies ThinkForgeBlockPatch;
@@ -139,9 +194,20 @@ Rules
     const knownIds = new Set(originalBlocks.map((b) => b.id));
     const filtered = normalized.filter((p) => p.blockId === 'NEW_BLOCK' || knownIds.has(p.blockId));
 
+    // Apply patches to get the updated blocks
+    const patchedBlocks = applyThinkForgeBlockPatches(originalBlocks, filtered);
+    
+    // Clean blocks to remove any remaining artifacts
+    const cleanedBlocks = cleanThinkForgeBlocks(patchedBlocks);
+    
+    // Convert to Tiptap JSON AST
+    const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);
+
     return {
       title: result.title || '',
       patches: filtered,
+      blocks: cleanedBlocks,
+      richText,
       draft: false,
     };
   }
@@ -184,18 +250,18 @@ export async function refineScriptDraft(
     const agent = createScriptRefinementAgent();
     const result = await agent.refineScript({ context, userPrompt: instruction }, draftBlocks);
 
-    const patchedBlocks = applyThinkForgeBlockPatches(draftBlocks, result.patches || []);
-    const content = patchedBlocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
+    const content = result.blocks.map((b) => extractTextFromRichText(b.content)).join('\n\n');
 
     await updateScriptState(sessionId, userId, {
       title: result.title,
-      blocks: patchedBlocks,
+      blocks: result.blocks,
+      richText: result.richText as any, // Include Tiptap JSON AST
       content,
       draft: false,
       version: (sessionState.script?.version || 0) + 1,
     });
 
-    console.log(`Script refined for session ${sessionId}`);
+    console.log('Script refined for session ' + sessionId);
   } catch (error) {
     console.error('Error refining script:', error);
     // Don't throw - refinement failures shouldn't break the system

@@ -19,6 +19,9 @@ interface ChatPanelProps {
   initialMessages?: any[];
   onOpenSettings?: () => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
+  onGetSelection?: () => { blocks: any[]; range: { from: number; to: number } | null } | null; // Get current selection from editor
+  editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
+  onCancelEditSelection?: () => void;
 }
 
 // Seed suggestions
@@ -84,7 +87,7 @@ function modelToScript(m: ScriptModel | null): Script | null {
   } as Script;
 }
 
-export const ChatPanel: React.FC<ChatPanelProps> = ({
+export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: string) => void }> = ({
   selectedIdea,
   script,
   onApplyEdit,
@@ -92,6 +95,10 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   initialMessages,
   onOpenSettings,
   onSwitchSession,
+  onTokenStream,
+  onGetSelection,
+  editingSelection,
+  onCancelEditSelection,
 }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
@@ -147,14 +154,44 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     const originalPrompt = inputValue.trim();
     setInputValue("");
     
+    // Get selection from editor if available (for surgical editing)
+    let selectionData: { blocks?: any[]; range?: { from: number; to: number } } | null = null;
+    
+    // Prefer explicit editingSelection from edit button
+    if (editingSelection) {
+      selectionData = {
+        blocks: editingSelection.blocks,
+        range: editingSelection.range,
+      };
+    } else if (onGetSelection) {
+      const selection = onGetSelection();
+      if (selection && !selection.isEmpty && selection.blocks.length > 0) {
+        selectionData = {
+          blocks: selection.blocks,
+          range: selection.range || undefined,
+        };
+      }
+    }
+    
     // Display the original message to user (no enrichment visible)
     // Backend will handle enrichment internally using project payload
     chat.sendMessage(originalPrompt, {
       script: scriptPayload,
       project: projectPayload,
       onScriptUpdate: handleScriptUpdate,
+      onTokenStream: onTokenStream, // Stream tokens for progressive rendering
+      selectionBlocks: selectionData?.blocks, // Include selection blocks for surgical editing
+      selectionRange: selectionData?.range, // Include selection range
     });
-  }, [inputValue, sessionId, chat, scriptPayload, projectPayload, handleScriptUpdate]);
+    
+    // Clear editing selection after send
+    if (editingSelection && onCancelEditSelection) {
+      // Ensure state update happens
+      setTimeout(() => {
+        onCancelEditSelection();
+      }, 0);
+    }
+  }, [inputValue, sessionId, chat, scriptPayload, projectPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection]);
 
   // Convert chat messages to the format expected by ChatMessages component
   const formattedMessages = useMemo(() => {
@@ -171,10 +208,41 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     setHistoryOpen(true);
   }, []);
 
-  const handleNewChat = useCallback(() => {
-    // Clear current messages to start fresh
-    chat.clearMessages();
-  }, [chat]);
+  const handleNewChat = useCallback(async () => {
+    // CRITICAL: Create a new chat thread (new session)
+    // This does NOT affect script state - script stays in old session
+    if (onSwitchSession && selectedIdea) {
+      try {
+        // Create new session for chat with same project meta
+        const response = await fetch('/api/services/thinkforge/hydrate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectMeta: {
+              idea: selectedIdea.idea,
+              purpose: (selectedIdea as any)?.purpose,
+              style: (selectedIdea as any)?.style,
+              format: (selectedIdea as any)?.format,
+              platform: (selectedIdea as any)?.platform,
+              tone: selectedIdea.tone,
+              projectName: (selectedIdea as any)?.projectName
+            }
+          })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data?.sessionId) {
+            await onSwitchSession(data.sessionId);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to create new chat:', error);
+      }
+    } else {
+      // Fallback: clear messages if no session switching available
+      chat.clearMessages();
+    }
+  }, [chat, onSwitchSession, selectedIdea]);
 
   return (
     <div className="flex flex-col h-full bg-neutral-900/40 backdrop-blur-xl animate-in fade-in-0 duration-300">

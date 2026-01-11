@@ -36,26 +36,27 @@ export class ScriptContractAgent extends StructuredAgent<NarrativeContract> {
   }
 
   buildPrompt({ context, userPrompt }: AgentInput): string {
-    return `You generate machine-readable operational contract only. Do not write prose or explanations. Treat any "script" reference as legacy for "operational manual".
+    return `You generate a creative production contract for a creative team. This contract guides how content should be written—as clear, actionable creative direction.
 
 Project: ${context.projectSummary || '(No project context)'}
 User request: ${userPrompt}
 
 ## Output: JSON only
-Fill each field with the shortest valid value. Use enums and atomic labels.
+Fill each field with values that guide creative, execution-focused writing:
 
 - generation_mode: manual | playbook | narrative (set to manual unless user demands otherwise; narrative is legacy and should be avoided)
-- narrator_voice: one-word operator persona (e.g., "guide", "teacher", "craftsperson")
-- medium: voiceover | slide_narration | visual_manual (operational visual manual; avoid theatrical framing)
-- tone: one word (e.g., "instructional", "calm", "direct")
-- forbidden: list of 2–3 elements only (e.g., ["slides", "camera_directions", "supervisory_language"])
+- narrator_voice: one-word creative persona (e.g., "strategist", "director", "producer")
+- medium: voiceover | slide_narration | visual_manual (visual manual for production guides)
+- tone: one word describing the creative voice (e.g., "confident", "grounded", "inspiring", "practical")
+- forbidden: list of 2–3 elements to avoid (e.g., ["slides", "camera_directions", "meta_instructions", "schema_artifacts"])
 - allowed_metaphors: 2–3 short metaphors only (e.g., ["blueprint", "craft"])
-- style_notes: 2–3 short constraints (e.g., ["no fluff", "actionable", "creator-first-voice"])
+- style_notes: 2–3 short constraints emphasizing clean creative output (e.g., ["no schema artifacts", "execution-focused", "creator-first-voice", "no internal structure visible"])
 - metaphor_reuse_limit: 1
 - mode_a_usage: "opening/bridge only"
-- mode_b_usage: "default blueprint voice oriented toward creator action"
-- mode_switch_rules: "open in Mode A, then Mode B; bridge with Mode A only"
-- For generation_mode=manual, enforce: neutral instructive voice, declarative sentences, no bureaucratic language (validate, ensure, thresholds), write as a reference document (not performed aloud), trivial-first actions.
+- mode_b_usage: "default creative direction voice focused on immediate execution"
+- mode_switch_rules: "open in Mode A for brief framing, then Mode B for execution guidance"
+
+For generation_mode=manual: Write as a creative strategist giving production guidance. Use execution-style language, concrete direction, and remove all internal structure artifacts. Write content that enables immediate storyboarding, directing, filming, and editing.
 
 Return JSON only.`;
   }

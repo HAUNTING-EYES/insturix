@@ -1,7 +1,7 @@
 "use client";
 import React, { useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Send, Loader2, Square, Sparkles } from "lucide-react";
+import { Send, Loader2, Square, Sparkles, X } from "lucide-react";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
@@ -15,6 +15,8 @@ interface ChatInputProps {
   isStreaming?: boolean;
   suggestions?: string[];
   placeholder?: string;
+  editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
+  onCancelEditSelection?: () => void;
 }
 
 export function ChatInput({
@@ -26,8 +28,16 @@ export function ChatInput({
   isStreaming = false,
   suggestions = [],
   placeholder = "Describe changes, ask for ideas, or refine content...",
+  editingSelection,
+  onCancelEditSelection,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (editingSelection && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [editingSelection]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -53,6 +63,35 @@ export function ChatInput({
 
   return (
     <div className="flex flex-col gap-0 shrink-0 bg-neutral-900/50 backdrop-blur-sm border-t border-white/5 pb-4">
+        {/* Selection Context Bar - Above Dynamic Island */}
+        <AnimatePresence>
+            {editingSelection && (
+                <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-neutral-900/80 backdrop-blur-md"
+                >
+                    <div className="flex items-center gap-2 overflow-hidden text-xs">
+                        <span className="text-red-400 font-medium whitespace-nowrap flex items-center gap-1.5">
+                            <Sparkles className="h-3 w-3" />
+                            Editing selection
+                        </span>
+                        <span className="text-zinc-500 mx-1">|</span>
+                        <span className="text-zinc-300 truncate italic opacity-80 max-w-[240px]">
+                            "{editingSelection.text}"
+                        </span>
+                    </div>
+                    <button 
+                        onClick={onCancelEditSelection}
+                        className="text-zinc-500 hover:text-white transition-colors p-1 rounded-full hover:bg-white/10"
+                    >
+                        <X className="h-3.5 w-3.5" />
+                    </button>
+                </motion.div>
+            )}
+        </AnimatePresence>
+
        <div className="px-4 pt-3 pb-2 overflow-x-auto no-scrollbar mask-linear-fade">
          {suggestions.length > 0 && (
             <ChatSuggestions suggestions={suggestions} onSelect={handleSuggestionClick} />
@@ -61,56 +100,58 @@ export function ChatInput({
       
       <div className="px-4 relative group">
         <div className={clsx(
-            "relative flex items-end gap-2 rounded-3xl bg-neutral-950 border border-white/10 p-2 shadow-xl shadow-black/20 transition-colors duration-200",
+            "relative flex flex-col rounded-3xl bg-neutral-950 border border-white/10 shadow-xl shadow-black/20 transition-colors duration-200",
             "group-focus-within:border-white/20 group-focus-within:ring-1 group-focus-within:ring-white/5"
         )}>
-            <div className="flex-1 min-w-0 relative">
-                 <textarea
-                    ref={textareaRef}
-                    value={value}
-                    onChange={(e) => onChange(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder={placeholder}
-                    className="w-full max-h-[160px] min-h-[44px] py-3 pl-4 pr-2 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none resize-none scrollbar-thin scrollbar-thumb-zinc-700/50 scrollbar-track-transparent"
-                    disabled={disabled || isStreaming}
-                    rows={1}
-                />
-            </div>
-          
-            <AnimatePresence mode="wait">
-                {isStreaming && onStop ? (
-                <motion.button
-                    key="stop"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    type="button"
-                    onClick={onStop}
-                    disabled={disabled}
-                    className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors mb-0.5"
-                >
-                    <Square className="h-4 w-4 fill-current" />
-                </motion.button>
-                ) : (
-                <motion.button
-                    key="send"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.8 }}
-                    type="button"
-                    onClick={onSend}
-                    disabled={disabled || !value.trim()}
-                    className={clsx(
-                        "h-10 w-10 shrink-0 flex items-center justify-center rounded-full transition-all duration-200 mb-0.5",
-                        value.trim() 
-                            ? "bg-red-600 text-white shadow-lg shadow-red-900/30 hover:bg-red-500 hover:scale-105 active:scale-95" 
-                            : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+            <div className="flex items-end gap-2 p-2">
+                <div className="flex-1 min-w-0 relative">
+                     <textarea
+                        ref={textareaRef}
+                        value={value}
+                        onChange={(e) => onChange(e.target.value)}
+                        onKeyDown={handleKeyDown}
+                        placeholder={editingSelection ? "Tell me how to change this selection..." : placeholder}
+                        className="w-full max-h-[160px] min-h-[44px] py-3 pl-4 pr-2 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none resize-none scrollbar-thin scrollbar-thumb-zinc-700/50 scrollbar-track-transparent"
+                        disabled={disabled || isStreaming}
+                        rows={1}
+                    />
+                </div>
+              
+                <AnimatePresence mode="wait">
+                    {isStreaming && onStop ? (
+                    <motion.button
+                        key="stop"
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        type="button"
+                        onClick={onStop}
+                        disabled={disabled}
+                        className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-red-500/10 text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-colors mb-0.5"
+                    >
+                        <Square className="h-4 w-4 fill-current" />
+                    </motion.button>
+                    ) : (
+                    <motion.button
+                        key="send"
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        type="button"
+                        onClick={onSend}
+                        disabled={disabled || !value.trim()}
+                        className={clsx(
+                            "h-10 w-10 shrink-0 flex items-center justify-center rounded-full transition-all duration-200 mb-0.5",
+                            value.trim() 
+                                ? "bg-red-600 text-white shadow-lg shadow-red-900/30 hover:bg-red-500 hover:scale-105 active:scale-95" 
+                                : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                        )}
+                    >
+                        <Send className={clsx("h-4 w-4", value.trim() && "ml-0.5")} />
+                    </motion.button>
                     )}
-                >
-                    <Send className={clsx("h-4 w-4", value.trim() && "ml-0.5")} />
-                </motion.button>
-                )}
-            </AnimatePresence>
+                </AnimatePresence>
+            </div>
         </div>
       </div>
       

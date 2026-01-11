@@ -3,27 +3,54 @@
  * 
  * Handles Server-Sent Events (SSE) streaming for incremental block generation
  * with validation and reconnection support.
+ * 
+ * Supports both:
+ * - Legacy block-by-block streaming (block_start, block_chunk, block_end)
+ * - Full script updates with Tiptap JSON (script_update)
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { BlockTree } from "../schemas/canonical";
 import { validateBlockTree } from "../schemas/canonical";
+import type { ThinkForgeBlock } from "../schemas/thinkforge-block";
+import type { TiptapJSON } from "../schemas/tiptap-schema";
 
 interface StreamingEvent {
-  event: "block_start" | "block_chunk" | "block_end" | "error" | "done";
+  event: "block_start" | "block_chunk" | "block_end" | "script_update" | "error" | "done";
   block?: any;
   blockId?: string;
   chunk?: string;
   message?: string;
+  script?: {
+    title?: string;
+    blocks?: ThinkForgeBlock[];
+    richText?: TiptapJSON;
+    content?: string;
+  };
+  metadata?: {
+    workflow?: string;
+    thoughts?: string;
+    duration_ms?: number;
+    agent_steps?: any[];
+  };
 }
 
 interface UseStreamingBlocksOptions {
   onComplete?: () => void;
   onError?: (error: Error) => void;
+  onScriptUpdate?: (update: {
+    title?: string;
+    blocks?: ThinkForgeBlock[];
+    richText?: TiptapJSON;
+    content?: string;
+    metadata?: any;
+  }) => void;
 }
 
 interface UseStreamingBlocksResult {
   blocks: BlockTree;
+  thinkforgeBlocks: ThinkForgeBlock[];
+  richText: TiptapJSON | null;
   isStreaming: boolean;
   error: Error | null;
 }
@@ -40,6 +67,8 @@ export function useStreamingBlocks(
   options?: UseStreamingBlocksOptions
 ): UseStreamingBlocksResult {
   const [blocks, setBlocks] = useState<BlockTree>([]);
+  const [thinkforgeBlocks, setThinkforgeBlocks] = useState<ThinkForgeBlock[]>([]);
+  const [richText, setRichText] = useState<TiptapJSON | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -146,6 +175,32 @@ export function useStreamingBlocks(
     }
   }, [options]);
 
+  // Handle script update event (full script with Tiptap JSON)
+  const handleScriptUpdate = useCallback((event: StreamingEvent) => {
+    if (event.script) {
+      // Update ThinkForge blocks
+      if (event.script.blocks) {
+        setThinkforgeBlocks(event.script.blocks);
+      }
+      
+      // Update Tiptap JSON AST
+      if (event.script.richText) {
+        setRichText(event.script.richText);
+      }
+      
+      // Callback for script update
+      if (options?.onScriptUpdate) {
+        options.onScriptUpdate({
+          title: event.script.title,
+          blocks: event.script.blocks,
+          richText: event.script.richText,
+          content: event.script.content,
+          metadata: event.metadata,
+        });
+      }
+    }
+  }, [options]);
+
   // Handle error event
   const handleErrorEvent = useCallback((event: StreamingEvent) => {
     const errorMessage = event.message || "Streaming error";
@@ -207,6 +262,13 @@ export function useStreamingBlocks(
         }
       });
 
+      eventSource.addEventListener("script_update", (e: MessageEvent) => {
+        const event = parseSSEEvent(e);
+        if (event) {
+          handleScriptUpdate(event);
+        }
+      });
+
       eventSource.addEventListener("error", (e: MessageEvent) => {
         const event = parseSSEEvent(e);
         if (event) {
@@ -249,7 +311,7 @@ export function useStreamingBlocks(
       setError(error);
       setIsStreaming(false);
     }
-  }, [url, parseSSEEvent, handleBlockStart, handleBlockChunk, handleBlockEnd, handleErrorEvent, handleDone]);
+  }, [url, parseSSEEvent, handleBlockStart, handleBlockChunk, handleBlockEnd, handleScriptUpdate, handleErrorEvent, handleDone]);
 
   // Connect on mount or URL change
   useEffect(() => {
@@ -271,8 +333,9 @@ export function useStreamingBlocks(
 
   return {
     blocks,
+    thinkforgeBlocks,
+    richText,
     isStreaming,
     error,
   };
 }
-

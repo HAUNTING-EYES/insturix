@@ -4,6 +4,9 @@ import type { NarrativeContract } from './script-contract-agent';
 import { z } from 'zod';
 import { ensureThinkForgeBlockId, normalizeThinkForgeRichText, validateThinkForgeBlocks } from '../schemas/thinkforge-block';
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
+import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
+import type { TiptapJSON } from '../schemas/tiptap-schema';
+import { cleanThinkForgeBlocks, cleanAndTransformText, cleanRichTextAST } from '../utils/content-cleaner';
 
 export interface SectionInput extends AgentInput {
   section: {
@@ -35,6 +38,7 @@ export interface SectionInput extends AgentInput {
 export interface SectionOutput {
   sectionId: string;
   blocks: ThinkForgeBlock[];
+  richText?: TiptapJSON; // Tiptap JSON AST
   error?: string;
 }
 
@@ -51,6 +55,8 @@ const richTextNodeSchema: z.ZodType<any> = z.object({
 const sectionSchema = z.object({
   sectionId: z.string().min(1),
   blocks: z.array(z.any()).min(1),
+  // Allow Tiptap JSON format for direct output (optional, for future use)
+  tiptapJSON: z.any().optional(),
 });
 
 const ALLOWED_KINDS = ['header', 'action', 'why', 'example', 'paragraph'] as const;
@@ -96,7 +102,9 @@ function extractTextFromContent(content: any): string {
 }
 
 function makeBlock(kind: ThinkForgeBlock['kind'], text: string, meta?: any): ThinkForgeBlock | null {
-  const clean = simplifySentence(text).trim();
+  // Clean and transform text to remove artifacts and convert abstract to concrete
+  let clean = cleanAndTransformText(text);
+  clean = simplifySentence(clean).trim();
   if (!clean) return null;
   return {
     id: ensureThinkForgeBlockId(),
@@ -113,8 +121,13 @@ function toThinkForgeBlock(raw: any): ThinkForgeBlock | null {
   const meta = metaRaw && typeof metaRaw === 'object' ? {
     ...(typeof metaRaw.role === 'string' ? { role: metaRaw.role } : {}),
     ...(typeof metaRaw.goal === 'string' ? { goal: metaRaw.goal } : {}),
+    ...(typeof metaRaw.level === 'number' ? { level: metaRaw.level } : {}), // Preserve heading level
   } : undefined;
-  const content = normalizeThinkForgeRichText((raw as any).content ?? (raw as any).text);
+  
+  // Normalize and clean content to remove artifacts
+  let content = normalizeThinkForgeRichText((raw as any).content ?? (raw as any).text);
+  content = cleanRichTextAST(content);
+  
   return {
     id: raw.id,
     kind: kind as ThinkForgeBlock['kind'],
@@ -183,73 +196,162 @@ export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSc
     const generationMode = (input as any).generationMode || 'manual';
     const knowledgeRole = section.knowledge_role || 'Operator';
     const operationalGoal = section.operational_goal || 'Action';
-    return `You write one section of a ThinkForge manual ("script" is a legacy alias) as a dense, instructional procedure (Generation mode: ${generationMode}). No narrative or inspirational prose.
+    return `You are an experienced creative strategist writing a production guide for a creative team. Write clear, actionable creative direction that enables immediate execution—storyboarding, directing, filming, and editing.
 
-  ## Operational Contract
-Medium: ${contract.medium}
-Narrator voice: ${contract.narrator_voice}
-Tone: ${contract.tone}
-Forbidden: ${forbidden}
-Allowed metaphors: ${(contract.allowed_metaphors || []).join(', ') || 'keep minimal and consistent'}
-Style notes: ${(contract.style_notes || []).join('; ')}
-  Mode A usage: ${contract.mode_a_usage}
-  Mode B usage: ${contract.mode_b_usage}
-  Switching rules: ${contract.mode_switch_rules}
-
-## Section
-ID: ${section.id}
-Title: ${section.title}
-Role in arc: ${section.role || 'unspecified'}
-Level: ${section.level || 'section'}
-Parent: ${section.parent_id || 'none'}
-  Knowledge layer: ${section.knowledge_layer || 'unspecified'}
-  Mode: ${section.mode || 'Mode B: Builder Blueprint'}
+## Creative Brief Context
+Project: ${context.projectSummary || '(No project context)'}
+Section: ${section.title}
 Goal: ${section.goal}
-Audience state after: ${section.audience_state_after || 'understood goal'}
-Intensity level (1-5, do NOT exceed): ${section.intensity_level ?? 3}
-Tone: ${section.tone || 'match contract tone'}
-Estimated length: ${section.estimated_length || 'medium'}
-  Primary actions (what the creator does): ${section.primary_actions || 'spell out concrete steps'}
-  Required inputs (data/APIs/assets): ${section.required_inputs || 'list tangible inputs'}
-  Expected outputs (artifacts/results): ${section.expected_outputs || 'name the deliverables'}
-  Risks/pitfalls: ${section.risks || 'highlight failure modes to avoid'}
-Batch siblings (titles only, avoid overlap): ${siblingTitles || 'none'}
+Tone: ${contract.tone || section.tone || 'confident and grounded'}
+Medium: ${contract.medium}
 
-Knowledge Role (governs tone/perspective): ${knowledgeRole}
-Operational Goal (must be Action | Decision | Constraint): ${operationalGoal}
+## Your Writing Style
+Write like a creative director giving clear, confident guidance to a production team. Your output should:
+
+1. **Be execution-focused**: Write what to DO, not what to "determine" or "define"
+   ❌ "Determine interview question themes"
+   ✅ "Ask questions that unlock lived experience, such as: 'What moment changed everything?' or 'When did you realize this was possible?'"
+
+2. **Convert abstract steps into concrete direction**:
+   ❌ "Define emotional arc"
+   ✅ "Each video should follow this emotional arc: hook → vulnerability → resonance → quiet close"
+
+3. **Remove all internal schema artifacts**:
+   ❌ Never mention "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
+   ✅ Write natural, flowing creative direction
+
+4. **Use strong visual hierarchy** with proper formatting:
+   - **Title/Document Identity**: Use heading level 1 (kind: "header" with level 1)
+   - **Major Sections**: Use heading level 2 (kind: "header" with level 2) for sections like "Creative Vision", "Core Message", "Emotional Structure"
+   - **Subsections**: Use heading level 3 (kind: "header" with level 3) for subsections like "Opening Hook (0–3s)", "Emotional Peak (18–26s)"
+   - **Body Paragraphs**: Use kind: "paragraph" - keep them SHORT (2-4 lines max). Whitespace is design.
+   - **Bullet Lists**: Use kind: "action" with bullet list formatting for execution clarity (e.g., "Aim for diversity across: Age, Accent, Energy")
+   - **Numbered Lists**: Use kind: "action" with ordered list formatting for sequences (e.g., "Each Reel should flow like this: 1. Human hook, 2. Personal truth...")
+   - **Callout Boxes**: Use kind: "why" or blockquote for critical insights, director's notes, creative rules
+   - **Visual Dividers**: Use horizontalRule between major sections for breathing room
+
+5. **Document Rhythm**: Create scannable, storyboard-ready structure:
+   - Big cinematic title (h1)
+   - Section headers (h2) 
+   - Short readable paragraphs
+   - Callout boxes for key insights
+   - Bullet clarity for execution
+   - Visual separation between beats
+   - Occasional dividers for breathing room
+
+6. **Sound confident and human**: Write as if you're an experienced creative strategist helping a real team execute production, not like system planning notes.
+
+## Section Details
+Title: ${section.title}
+Primary actions: ${section.primary_actions || 'spell out concrete steps'}
+Required inputs: ${section.required_inputs || 'list tangible inputs'}
+Expected outputs: ${section.expected_outputs || 'name the deliverables'}
+Risks/pitfalls: ${section.risks || 'highlight failure modes to avoid'}
 
 ## Prior sections (do NOT restate)
 ${prior}
 
-## Project Context
-${context.projectSummary || '(No project context)'}
-
 ## User Request
 ${userPrompt}
 
-## Output format (strict JSON, no prose, no prefixes, no markdown)
-Return ONLY valid JSON matching this TypeScript type (do not wrap in fences):
+## Output Format (JSON only, no markdown fences)
+Return ONLY valid JSON matching this structure:
 {
-  "sectionId": string; // must equal the provided section.id
-  "blocks": Array<{
-    "id": string;              // stable unique id
-    "kind": "header" | "action" | "why" | "example" | "paragraph";
-    "content": Array<{         // rich-text AST nodes (must be FLAT array)
-      "type": "text";          // always "text" for plain text nodes
-      "text": string;
-      "styles"?: { "bold"?: boolean; "italic"?: boolean; "code"?: boolean };
-    }>;
-    "meta"?: { "role"?: string; "goal"?: string; };
-  }>;
+  "sectionId": "${section.id}",
+  "blocks": [
+    {
+      "id": "unique-id",
+      "kind": "header" | "action" | "why" | "example" | "paragraph",
+      "content": [
+        {
+          "type": "text",
+          "text": "Your clean, creative direction text here. No schema artifacts, no meta instructions, just clear creative guidance.",
+          "styles": { "bold": true } // Only use for emphasis, never expose schema structure
+        }
+      ],
+      "meta": {
+        "level": 1 | 2 | 3,  // For headers: 1=title, 2=major section, 3=subsection
+        "role": "optional",
+        "goal": "optional"
+      }
+    }
+  ]
 }
 
-Rules for content:
-- Use ONLY type: "text" for nodes in the content array. BlockNote does not support nested children or "paragraph" types inside content.
-- No label prefixes in text (no "Action:", "Why:", "Example:").
-- Inline formatting is allowed via the "styles" object (bold, italic, code), do not use markdown syntax in the text string itself.
-- Include one header block for the section title with meta.role/meta.goal when useful.
-- Provide 4–7 action blocks; pair actions with why/example blocks only when they add clarity.
-- Do not emit any string outside the JSON object. No markdown fences.
+## Visual Hierarchy Requirements (CRITICAL)
+Your output MUST follow this structure for professional, scannable documents:
+
+1. **Title/Document Identity** (if first section):
+   - Use kind: "header" with meta: { level: 1 }
+   - Example: "Voices for Peace" or "${section.title}"
+   - Creates big cinematic title
+
+2. **Major Section Headers**:
+   - Use kind: "header" with meta: { level: 2 }
+   - Examples: "Creative Vision", "Core Message", "Emotional Structure", "Visual Direction", "Editing Guidelines"
+   - These create scannability and document rhythm
+
+3. **Subsection Headers** (within sections):
+   - Use kind: "header" with meta: { level: 3 }
+   - Examples: "Opening Hook (0–3s)", "Emotional Peak (18–26s)"
+   - Use for breaking down sections into actionable beats
+
+4. **Body Paragraphs** (most common):
+   - Use kind: "paragraph" for regular body text
+   - Keep SHORT (2-4 lines max). Whitespace is design.
+   - Example: "This campaign is not about slogans.\n\nIt is about real voices carrying quiet power."
+   - Use for: narrative guidance, creative clarity, practical execution advice
+
+5. **Bullet Lists** (for execution clarity):
+   - Use kind: "action" with text formatted as bullet points (• or -)
+   - Format: "Aim for diversity across:\n• Age\n• Accent\n• Energy\n• Life experience"
+   - The system will automatically convert this to proper list structure
+   - Use for: execution checklists, options, features
+
+6. **Numbered Lists** (for sequences):
+   - Use kind: "action" with text formatted as numbered sequence
+   - Format: "Each Reel should flow like this:\n1. Human hook\n2. Personal truth\n3. Emotional peak\n4. Quiet close"
+   - The system will automatically convert this to proper list structure
+   - Use for: step-by-step sequences, storyboard structure, workflows
+
+7. **Callout Boxes** (critical for premium feel):
+   - Use kind: "why" for director's notes, creative rules, critical insights
+   - Example: "🎬 Director's Note\nLet silence breathe. Do not cut every pause."
+   - Or: "Creative Rule:\nIf it feels staged, it fails."
+   - This is where the document feels expensive and professional
+
+8. **Visual Dividers** (for rhythm):
+   - Use kind: "paragraph" with text: "---" between major sections
+   - Creates breathing space between sections
+   - Example: After "Creative Vision" section, add a divider before "Core Message"
+   - The system will automatically convert "---" to horizontal rule
+
+## Critical Content Rules
+- Write natural, flowing creative direction—no "type: text" or "styles: bold" visible in the text
+- No placeholders like "Input:", "Output:", "Constraint:", "Define X", "Determine Y"
+- Convert abstract steps into concrete execution guidance
+- Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
+- Write as a creative strategist, not a planning system
+
+## Formatting Requirements
+- **Use proper visual hierarchy**: 
+  - meta.level: 1 for document title
+  - meta.level: 2 for major sections (Creative Vision, Core Message, etc.)
+  - meta.level: 3 for subsections (Opening Hook, Emotional Peak, etc.)
+- **Keep paragraphs short** (2-4 lines max) - whitespace is design. Use kind: "paragraph" for body text.
+- **Use lists** for execution clarity:
+  - Format bullets as "• Item" or "- Item" on separate lines
+  - Format numbers as "1. Item" or "1) Item" on separate lines
+  - System will auto-convert to proper list structure
+- **Use callout boxes** (kind: "why") for director's notes, creative rules, critical insights
+- **Use dividers** (text: "---") between major sections for visual breathing room
+- **Create document rhythm**: Title → Section headers → Short paragraphs → Callouts → Lists → Dividers
+
+## Output Quality
+- Make it immediately usable for storyboarding, directing, filming, and editing
+- Create a document people want to scroll, not escape from
+- Sound confident, grounded, human, and execution-focused
+- Enable creators to begin production without additional interpretation
 `;
   }
 
@@ -277,7 +379,13 @@ Rules for content:
           meta: { role: input.section.role, goal: input.section.goal },
         },
       ];
-      return { sectionId, blocks: safeBlocks };
+      
+      // Clean blocks to remove schema artifacts and transform abstract instructions
+      const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks);
+      
+      // Convert to Tiptap JSON AST
+      const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);
+      return { sectionId, blocks: cleanedBlocks, richText };
     } catch (err) {
       try {
         const { result } = await attempt();
@@ -300,7 +408,13 @@ Rules for content:
             meta: { role: input.section.role, goal: input.section.goal },
           },
         ];
-        return { sectionId, blocks: safeBlocks };
+        
+        // Clean blocks to remove schema artifacts and transform abstract instructions
+        const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks);
+        
+        // Convert to Tiptap JSON AST
+        const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);
+        return { sectionId, blocks: cleanedBlocks, richText };
       } catch (err2) {
         console.error('ScriptSectionAgent: structured generation failed', err2);
         return { sectionId: input.section.id, blocks: [], error: 'structured_generation_failed' };

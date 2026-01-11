@@ -14,7 +14,9 @@ import {
   Quote,
   Minus,
   Undo,
-  Redo
+  Redo,
+  Strikethrough,
+  Highlighter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -24,9 +26,10 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import type { Editor } from '@tiptap/core';
 
 interface FormatToolbarProps {
-  editor: any; // BlockNote editor instance
+  editor: Editor | null;
   disabled?: boolean;
 }
 
@@ -76,183 +79,208 @@ export const FormatToolbar: React.FC<FormatToolbarProps> = ({ editor, disabled =
   // Toggle bold style
   const toggleBold = useCallback(() => {
     if (!editor) return;
-    try {
-      editor.toggleStyles({ bold: true });
-    } catch (e) {
-      console.error('Failed to toggle bold:', e);
-    }
+    editor.chain().focus().toggleBold().run();
   }, [editor]);
 
   // Toggle italic style
   const toggleItalic = useCallback(() => {
     if (!editor) return;
-    try {
-      editor.toggleStyles({ italic: true });
-    } catch (e) {
-      console.error('Failed to toggle italic:', e);
-    }
+    editor.chain().focus().toggleItalic().run();
   }, [editor]);
 
   // Toggle underline style
   const toggleUnderline = useCallback(() => {
     if (!editor) return;
-    try {
-      editor.toggleStyles({ underline: true });
-    } catch (e) {
-      console.error('Failed to toggle underline:', e);
-    }
+    editor.chain().focus().toggleUnderline().run();
+  }, [editor]);
+
+  // Toggle strikethrough style
+  const toggleStrike = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().toggleStrike().run();
   }, [editor]);
 
   // Toggle code style
   const toggleCode = useCallback(() => {
     if (!editor) return;
-    try {
-      editor.toggleStyles({ code: true });
-    } catch (e) {
-      console.error('Failed to toggle code:', e);
-    }
+    editor.chain().focus().toggleCode().run();
+  }, [editor]);
+
+  // Toggle highlight
+  const toggleHighlight = useCallback(() => {
+    if (!editor) return;
+    editor.chain().focus().toggleHighlight().run();
   }, [editor]);
 
   // Set heading level
   const setHeading = useCallback((level: 1 | 2 | 3) => {
     if (!editor) return;
-    try {
-      const selection = editor.getSelection();
-      if (selection && selection.blocks && selection.blocks.length > 0) {
-        for (const block of selection.blocks) {
-          editor.updateBlock(block, { type: 'heading', props: { level } });
-        }
-      } else {
-        // Try to update the current block
-        const cursor = editor.getTextCursorPosition();
-        if (cursor && cursor.block) {
-          editor.updateBlock(cursor.block, { type: 'heading', props: { level } });
-        }
-      }
-    } catch (e) {
-      console.error('Failed to set heading:', e);
-    }
+    editor.chain().focus().toggleHeading({ level }).run();
   }, [editor]);
 
   // Convert to bullet list
   const toggleBulletList = useCallback(() => {
     if (!editor) return;
-    try {
-      const cursor = editor.getTextCursorPosition();
-      if (cursor && cursor.block) {
-        const currentType = cursor.block.type;
-        const newType = currentType === 'bulletListItem' ? 'paragraph' : 'bulletListItem';
-        editor.updateBlock(cursor.block, { type: newType });
-      }
-    } catch (e) {
-      console.error('Failed to toggle bullet list:', e);
-    }
+    editor.chain().focus().toggleBulletList().run();
   }, [editor]);
 
   // Convert to numbered list
   const toggleNumberedList = useCallback(() => {
     if (!editor) return;
-    try {
-      const cursor = editor.getTextCursorPosition();
-      if (cursor && cursor.block) {
-        const currentType = cursor.block.type;
-        const newType = currentType === 'numberedListItem' ? 'paragraph' : 'numberedListItem';
-        editor.updateBlock(cursor.block, { type: newType });
-      }
-    } catch (e) {
-      console.error('Failed to toggle numbered list:', e);
-    }
+    editor.chain().focus().toggleOrderedList().run();
   }, [editor]);
 
   // Insert blockquote
-  const insertQuote = useCallback(() => {
+  const toggleBlockquote = useCallback(() => {
     if (!editor) return;
-    try {
-      const cursor = editor.getTextCursorPosition();
-      if (cursor && cursor.block) {
-        // Insert a new paragraph block styled as a quote
-        // BlockNote doesn't have native quote, so we use paragraph with styling
-        editor.insertBlocks(
-          [{ type: 'paragraph', content: '' }],
-          cursor.block,
-          'after'
-        );
-      }
-    } catch (e) {
-      console.error('Failed to insert quote:', e);
-    }
+    editor.chain().focus().toggleBlockquote().run();
   }, [editor]);
 
   // Insert horizontal rule / divider
   const insertDivider = useCallback(() => {
     if (!editor) return;
-    try {
-      const cursor = editor.getTextCursorPosition();
-      if (cursor && cursor.block) {
-        // Insert a divider-like element (paragraph with line)
-        editor.insertBlocks(
-          [{ type: 'paragraph', content: '———' }],
-          cursor.block,
-          'after'
-        );
-      }
-    } catch (e) {
-      console.error('Failed to insert divider:', e);
-    }
+    editor.chain().focus().setHorizontalRule().run();
   }, [editor]);
 
   // Undo
   const undo = useCallback(() => {
     if (!editor) return;
-    try {
-      editor.undo();
-    } catch (e) {
-      console.error('Failed to undo:', e);
-    }
+    editor.chain().focus().undo().run();
   }, [editor]);
 
   // Redo
   const redo = useCallback(() => {
     if (!editor) return;
-    try {
-      editor.redo();
-    } catch (e) {
-      console.error('Failed to redo:', e);
-    }
+    editor.chain().focus().redo().run();
+  }, [editor]);
+
+  // Check if a formatting is active
+  const isActive = useCallback((name: string, attrs?: Record<string, unknown>) => {
+    if (!editor) return false;
+    return editor.isActive(name, attrs);
   }, [editor]);
 
   return (
     <div className="flex items-center gap-0.5 px-2 py-1 bg-zinc-800/60 rounded-lg border border-zinc-700/50 backdrop-blur-sm">
       {/* Text formatting */}
-      <ToolbarButton icon={Bold} tooltip="Bold (Ctrl+B)" onClick={toggleBold} disabled={disabled} />
-      <ToolbarButton icon={Italic} tooltip="Italic (Ctrl+I)" onClick={toggleItalic} disabled={disabled} />
-      <ToolbarButton icon={Underline} tooltip="Underline (Ctrl+U)" onClick={toggleUnderline} disabled={disabled} />
-      <ToolbarButton icon={Code} tooltip="Code" onClick={toggleCode} disabled={disabled} />
+      <ToolbarButton 
+        icon={Bold} 
+        tooltip="Bold (Ctrl+B)" 
+        onClick={toggleBold} 
+        disabled={disabled} 
+        active={isActive('bold')}
+      />
+      <ToolbarButton 
+        icon={Italic} 
+        tooltip="Italic (Ctrl+I)" 
+        onClick={toggleItalic} 
+        disabled={disabled}
+        active={isActive('italic')}
+      />
+      <ToolbarButton 
+        icon={Underline} 
+        tooltip="Underline (Ctrl+U)" 
+        onClick={toggleUnderline} 
+        disabled={disabled}
+        active={isActive('underline')}
+      />
+      <ToolbarButton 
+        icon={Strikethrough} 
+        tooltip="Strikethrough" 
+        onClick={toggleStrike} 
+        disabled={disabled}
+        active={isActive('strike')}
+      />
+      <ToolbarButton 
+        icon={Code} 
+        tooltip="Inline Code" 
+        onClick={toggleCode} 
+        disabled={disabled}
+        active={isActive('code')}
+      />
+      <ToolbarButton 
+        icon={Highlighter} 
+        tooltip="Highlight" 
+        onClick={toggleHighlight} 
+        disabled={disabled}
+        active={isActive('highlight')}
+      />
       
       <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
       
       {/* Headings */}
-      <ToolbarButton icon={Heading1} tooltip="Heading 1" onClick={() => setHeading(1)} disabled={disabled} />
-      <ToolbarButton icon={Heading2} tooltip="Heading 2" onClick={() => setHeading(2)} disabled={disabled} />
-      <ToolbarButton icon={Heading3} tooltip="Heading 3" onClick={() => setHeading(3)} disabled={disabled} />
+      <ToolbarButton 
+        icon={Heading1} 
+        tooltip="Heading 1" 
+        onClick={() => setHeading(1)} 
+        disabled={disabled}
+        active={isActive('heading', { level: 1 })}
+      />
+      <ToolbarButton 
+        icon={Heading2} 
+        tooltip="Heading 2" 
+        onClick={() => setHeading(2)} 
+        disabled={disabled}
+        active={isActive('heading', { level: 2 })}
+      />
+      <ToolbarButton 
+        icon={Heading3} 
+        tooltip="Heading 3" 
+        onClick={() => setHeading(3)} 
+        disabled={disabled}
+        active={isActive('heading', { level: 3 })}
+      />
       
       <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
       
       {/* Lists */}
-      <ToolbarButton icon={List} tooltip="Bullet List" onClick={toggleBulletList} disabled={disabled} />
-      <ToolbarButton icon={ListOrdered} tooltip="Numbered List" onClick={toggleNumberedList} disabled={disabled} />
+      <ToolbarButton 
+        icon={List} 
+        tooltip="Bullet List" 
+        onClick={toggleBulletList} 
+        disabled={disabled}
+        active={isActive('bulletList')}
+      />
+      <ToolbarButton 
+        icon={ListOrdered} 
+        tooltip="Numbered List" 
+        onClick={toggleNumberedList} 
+        disabled={disabled}
+        active={isActive('orderedList')}
+      />
       
       <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
       
       {/* Block elements */}
-      <ToolbarButton icon={Quote} tooltip="Quote" onClick={insertQuote} disabled={disabled} />
-      <ToolbarButton icon={Minus} tooltip="Divider" onClick={insertDivider} disabled={disabled} />
+      <ToolbarButton 
+        icon={Quote} 
+        tooltip="Quote" 
+        onClick={toggleBlockquote} 
+        disabled={disabled}
+        active={isActive('blockquote')}
+      />
+      <ToolbarButton 
+        icon={Minus} 
+        tooltip="Divider" 
+        onClick={insertDivider} 
+        disabled={disabled}
+      />
       
       <Separator orientation="vertical" className="h-6 mx-1 bg-zinc-700" />
       
       {/* Undo/Redo */}
-      <ToolbarButton icon={Undo} tooltip="Undo (Ctrl+Z)" onClick={undo} disabled={disabled} />
-      <ToolbarButton icon={Redo} tooltip="Redo (Ctrl+Y)" onClick={redo} disabled={disabled} />
+      <ToolbarButton 
+        icon={Undo} 
+        tooltip="Undo (Ctrl+Z)" 
+        onClick={undo} 
+        disabled={disabled || !editor?.can().undo()}
+      />
+      <ToolbarButton 
+        icon={Redo} 
+        tooltip="Redo (Ctrl+Y)" 
+        onClick={redo} 
+        disabled={disabled || !editor?.can().redo()}
+      />
     </div>
   );
 };
