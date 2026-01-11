@@ -194,7 +194,7 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
   return (
     <div
       ref={canvasRef}
-      className="absolute inset-0 z-50"
+      className="absolute inset-0 z-[60]"
       style={{ width: imageWidth, height: imageHeight }}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
@@ -208,10 +208,10 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
       <div className="absolute inset-0 bg-black/30 pointer-events-none" />
 
 
-      {/* Close button for the entire tool */}
+      {/* Close button for the entire tool - MOVED TO TOP-LEFT TO AVOID OVERLAP */}
       <button
         onClick={onCancel}
-        className="absolute top-4 right-4 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors z-50"
+        className="absolute top-4 left-4 p-2 bg-black/60 text-white rounded-full hover:bg-black/80 transition-colors z-[70]"
         title="Close Selection Tool"
       >
         <X className="w-5 h-5" />

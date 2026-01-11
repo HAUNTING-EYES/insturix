@@ -966,14 +966,20 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   </div>
                 </div>
               ) : (
-                <div className="relative">
+                <div 
+                  className="relative"
+                  style={imageDisplayDimensions ? {
+                    width: `${imageDisplayDimensions.width}px`,
+                    height: `${imageDisplayDimensions.height}px`,
+                  } : undefined}
+                >
                   {/* Generative Fill toggle */}
                   {activeVariation.status === 'completed' && (
-                    <div className="absolute top-4 right-4 z-10">
+                    <div className="absolute top-4 right-4 z-[40]">
                       <Button
                         variant="default"
                         size="sm"
-                        onClick={() => {
+                         onClick={() => {
                           setIsGenerativeFillMode((prev) => !prev);
                           setSelectionBounds(null);
                           setMaskDataUrl(null);
@@ -983,7 +989,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                           : 'bg-purple-600 hover:bg-purple-700'
                           } shadow-lg`}
                       >
-                        {isGenerativeFillMode ? '✓ Fill Active' : '✨ Generative Fill'}
+                        ✨ Generative Fill
                       </Button>
                     </div>
                   )}
@@ -1006,7 +1012,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
                   {/* Selection overlay */}
                   {isGenerativeFillMode && activeVariation.status === 'completed' && imageDisplayDimensions && (
-                    <div className="absolute inset-0 pointer-events-none">
+                    <div className="absolute inset-0 pointer-events-none z-[50]">
                       <div className="absolute pointer-events-auto" style={{
                         width: `${imageDisplayDimensions.width}px`,
                         height: `${imageDisplayDimensions.height}px`,
@@ -1019,7 +1025,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                           imageHeight={imageDisplayDimensions.height}
                           originalWidth={imageNaturalDimensions?.width}
                           originalHeight={imageNaturalDimensions?.height}
-                          isActive={true}
+                          isActive={!isFillPanelOpen}
                           onSelectionComplete={(sel, maskUrl) => {
                             setSelectionBounds(sel);
                             setMaskDataUrl(maskUrl);
