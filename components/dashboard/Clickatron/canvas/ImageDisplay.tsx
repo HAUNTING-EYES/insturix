@@ -240,6 +240,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     const filterId = `curves-${variationId || 'default'}`;
 
+    // Style object for maintaining aspect ratio based on calculated dimensions
+    const aspectRatioStyle: React.CSSProperties = {
+      width: `${dimensions.width}px`,
+      height: `${dimensions.height}px`,
+    };
 
     if (isLoading) {
       return (

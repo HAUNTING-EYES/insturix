@@ -239,8 +239,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   useEffect(() => {
     if (!localActiveVariation && variations.length > 0) {
       setLocalActiveVariation(variations[0].id);
+      setActiveVariationId(variations[0].id); // Keep both states in sync
     }
-  }, [variations, localActiveVariation, setActiveVariationId]);
+  }, [variations, localActiveVariation]);
 
   // Measure container dimensions for precise alignment
   const containerRef = useRef<HTMLDivElement>(null);
@@ -335,13 +336,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const formData = new FormData();
       formData.append("prompt", prompt);
       formData.append("modelId", selectedModelId);
-      formData.append("parentVariationId", activeVariationId || "");
+      formData.append("parentVariationId", localActiveVariation || "");
       formData.append("fineTuning", JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
       formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
       formData.append("aspectRatio", aspectRatio);
 
       // If the active variation is blank, indicate that we want to update it
-      if (isBlank && activeVariationId) {
+      if (isBlank && localActiveVariation) {
         formData.append("updateExistingBlank", "true");
       }
 
@@ -387,16 +388,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         // Immediately set the new variation as active (both local and global)
         setLocalActiveVariation(data.variationId);
         setActiveVariationId(data.variationId);
-      } else if (isBlank && activeVariationId) {
+      } else if (isBlank && localActiveVariation) {
         // Fallback for blank variations if no variation object is returned
-        updateVariation(activeVariationId, { status: 'generating' });
-        setActiveVariationId(activeVariationId);
+        updateVariation(localActiveVariation, { status: 'generating' });
+        setActiveVariationId(localActiveVariation);
       } else {
         // Fallback for non-blank variations if no variation object is returned
         // For non-blank (edits or new from completed), add optimistic local variation with placeholder
         const now = new Date();
         const parentVariation = activeVariation; // For edits, use current active as parent
-        const isEdit = !!activeVariationId && activeVariation?.status === 'completed';
+        const isEdit = !!localActiveVariation && activeVariation?.status === 'completed';
 
         const optimisticVariation = {
           id: data.variationId,
@@ -407,7 +408,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
           createdAt: now,
           updatedAt: now,
-          parentVariationId: activeVariationId || undefined,
+          parentVariationId: localActiveVariation || undefined,
           modelId: selectedModelId,
           metadata: {},
         };
