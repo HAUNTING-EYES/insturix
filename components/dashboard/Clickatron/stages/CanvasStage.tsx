@@ -495,68 +495,80 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       alert("Error: " + errorMsg + ". Please try refreshing the page or re-selecting the area.");
       return;
     }
+
+    // Capture current selection data before closing the UI
+    const currentSelectionBounds = selectionBounds;
+    const currentMaskDataUrl = maskDataUrl;
+
+    // Close the UI immediately to allow uninterrupted work
+    setIsFillPanelOpen(false);
+    setIsGenerativeFillMode(false);
+    setSelectionBounds(null);
+    setMaskDataUrl(null);
     setIsFillGenerating(true);
-    try {
-      const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-      const formData = new FormData();
-      const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
-      formData.append('prompt', fullPrompt);
-      formData.append('modelId', modelId);
-      formData.append('variationId', effectiveVariationId);
-      formData.append('selectionBounds', JSON.stringify(selectionBounds));
-      formData.append('fineTuning', JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
-      formData.append('metadata', JSON.stringify({ aspectRatio }));
 
-      // Convert data URL to Blob
-      const res = await fetch(maskDataUrl);
-      const maskBlob = await res.blob();
-      formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
+    // Background processing
+    (async () => {
+      try {
+        const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+        const formData = new FormData();
+        const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
+        formData.append('prompt', fullPrompt);
+        formData.append('modelId', modelId);
+        formData.append('variationId', effectiveVariationId);
+        formData.append('selectionBounds', JSON.stringify(currentSelectionBounds));
+        formData.append('fineTuning', JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
+        formData.append('metadata', JSON.stringify({ aspectRatio }));
 
-      const response = await fetch(`/api/services/clickatron/session/${task._id}/generative-fill`, {
-        method: 'POST',
-        headers: { 'Idempotency-Key': idempotencyKey },
-        body: formData,
-      });
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        const errorMessage = errorData.error || errorData.message || 'Failed to queue generative fill';
-        const errorDetails = errorData.details ? JSON.stringify(errorData.details) : '';
-        console.error('Server error details:', errorData);
-        throw new Error(`${errorMessage} ${errorDetails}`);
-      }
-      const data = await response.json();
+        // Convert data URL to Blob
+        const res = await fetch(currentMaskDataUrl);
+        const maskBlob = await res.blob();
+        formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
 
-      // Optimistically set new variation active
-      if (data.variationId) {
-        setLocalActiveVariation(data.variationId);
-        setActiveVariationId(data.variationId);
-      }
+        const response = await fetch(`/api/services/clickatron/session/${task._id}/generative-fill`, {
+          method: 'POST',
+          headers: { 'Idempotency-Key': idempotencyKey },
+          body: formData,
+        });
 
-      // Start polling for completion
-      await pollVariationCompletion(
-        task._id,
-        data.variationId,
-        loadSession,
-        () => useClickatronStore.getState().task,
-        () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
-        2000,
-        abortControllerRef.current?.signal
-      ).catch(err => {
-        if (err.message !== 'Polling aborted') {
-          console.error('Polling error in handleGenerativeFillGenerate:', err);
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const errorMessage = errorData.error || errorData.message || 'Failed to queue generative fill';
+          const errorDetails = errorData.details ? JSON.stringify(errorData.details) : '';
+          console.error('Server error details:', errorData);
+          throw new Error(`${errorMessage} ${errorDetails}`);
         }
-      });
-    } catch (err) {
-      console.error('Generative fill failed:', err);
-      // Show error to user (especially for Limit Exceeded or Validation errors)
-      alert(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsFillGenerating(false);
-      setIsFillPanelOpen(false);
-      setIsGenerativeFillMode(false);
-      setSelectionBounds(null);
-      setMaskDataUrl(null);
-    }
+
+        const data = await response.json();
+
+        // Optimistically set new variation active
+        if (data.variationId) {
+          setLocalActiveVariation(data.variationId);
+          setActiveVariationId(data.variationId);
+        }
+
+        // Start polling for completion
+        await pollVariationCompletion(
+          task._id!, // non-null assertion as we checked above
+          data.variationId,
+          loadSession,
+          () => useClickatronStore.getState().task,
+          () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
+          2000,
+          abortControllerRef.current?.signal
+        ).catch(err => {
+          if (err.message !== 'Polling aborted') {
+            console.error('Polling error in handleGenerativeFillGenerate:', err);
+          }
+        });
+      } catch (err) {
+        console.error('Generative fill background task failed:', err);
+        // still show error if initialization fails
+        alert(err instanceof Error ? err.message : String(err));
+      } finally {
+        setIsFillGenerating(false);
+      }
+    })();
   };
 
   const handleNewVariation = useCallback(() => {
@@ -1013,7 +1025,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   {/* Selection overlay */}
                   {isGenerativeFillMode && activeVariation.status === 'completed' && imageDisplayDimensions && (
                     <div className="absolute inset-0 pointer-events-none z-[50]">
-                      <div className="absolute pointer-events-auto" style={{
+                      <div 
+                        className={`absolute ${isFillPanelOpen ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'} transition-opacity duration-200`}
+                        style={{
                         width: `${imageDisplayDimensions.width}px`,
                         height: `${imageDisplayDimensions.height}px`,
                         left: '50%',
@@ -1120,13 +1134,6 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         {/* Bottom AI Command Console - Hide for generating and failed variations */}
         {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
           <div className="relative z-20 w-full flex-shrink-0">
-            {/* Generative Fill Panel */}
-            <GenerativeFillPanel
-              isOpen={isFillPanelOpen}
-              onClose={() => setIsFillPanelOpen(false)}
-              onGenerate={handleGenerativeFillGenerate}
-              isGenerating={isFillGenerating}
-            />
             {activeVariation?.status === "blank" ? (
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
@@ -1189,6 +1196,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           </div>
         )}
       </div>
+      <GenerativeFillPanel
+        isOpen={isFillPanelOpen}
+        onClose={() => setIsFillPanelOpen(false)}
+        onGenerate={handleGenerativeFillGenerate}
+        isGenerating={isFillGenerating}
+      />
     </motion.div>
   );
 }
