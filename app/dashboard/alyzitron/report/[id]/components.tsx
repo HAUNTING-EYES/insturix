@@ -1,7 +1,22 @@
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, CheckCircle, AlertCircle, AlertTriangle, Lock, Shield, Share2, Copy, Check, Globe, X, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import {
+  ArrowLeft,
+  CheckCircle,
+  AlertCircle,
+  AlertTriangle,
+  Lock,
+  Shield,
+  Share2,
+  Copy,
+  Check,
+  Globe,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  RotateCcw,
+} from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,7 +28,7 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
     await navigator.clipboard.writeText(text);
     return true;
   } catch (err) {
-    console.error('Failed to copy:', err);
+    console.error("Failed to copy:", err);
     return false;
   }
 };
@@ -22,7 +37,7 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
 const formatDescription = (description: string) => {
   const parts = description.split(/(#\w+)/g);
   return parts.map((part, index) => {
-    if (part.startsWith('#')) {
+    if (part.startsWith("#")) {
       return (
         <span key={index} className="text-blue-400 font-medium">
           {part}
@@ -72,14 +87,20 @@ interface ShareButtonProps {
   onPrivacyChange: (isPublic: boolean) => void;
 }
 
-function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareButtonProps) {
+function ShareButton({
+  analysisId,
+  isPublic,
+  isOwner,
+  onPrivacyChange,
+}: ShareButtonProps) {
   const [showDialog, setShowDialog] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const shareUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/dashboard/alyzitron/report/${analysisId}`
-    : `/dashboard/alyzitron/report/${analysisId}`;
+  const shareUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/dashboard/alyzitron/report/${analysisId}`
+      : `/dashboard/alyzitron/report/${analysisId}`;
 
   const copyToClipboard = async () => {
     try {
@@ -87,30 +108,33 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      console.error('Failed to copy:', err);
+      console.error("Failed to copy:", err);
     }
   };
 
   const updatePrivacy = async (newIsPublic: boolean) => {
     if (!isOwner) return;
-    
+
     setIsUpdating(true);
     try {
-      const response = await fetch(`/api/services/alyzitron/analyses/${analysisId}/privacy`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ isPublic: newIsPublic }),
-      });
+      const response = await fetch(
+        `/api/services/alyzitron/analyses/${analysisId}/privacy`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ isPublic: newIsPublic }),
+        }
+      );
 
       if (response.ok) {
         onPrivacyChange(newIsPublic);
       } else {
-        console.error('Failed to update privacy setting');
+        console.error("Failed to update privacy setting");
       }
     } catch (error) {
-      console.error('Error updating privacy:', error);
+      console.error("Error updating privacy:", error);
     } finally {
       setIsUpdating(false);
     }
@@ -130,9 +154,9 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
         Share
       </button>
 
-        {showDialog && (
-          <AnimatePresence>
-            <motion.div
+      {showDialog && (
+        <AnimatePresence>
+          <motion.div
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }} // Swift fade for backdrop
@@ -147,94 +171,113 @@ function ShareButton({ analysisId, isPublic, isOwner, onPrivacyChange }: ShareBu
                 className="bg-zinc-900 border border-zinc-800 rounded-lg p-6 w-full max-w-md"
               >
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-zinc-100">Share Analysis</h3>
-                <button
-                  onClick={() => setShowDialog(false)}
-                  className="text-zinc-400 hover:text-zinc-300"
-                >
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Privacy Setting
-                  </label>
-                  <div className="space-y-2">
-                    <button
-                      onClick={() => updatePrivacy(false)}
-                      disabled={isUpdating}
-                      className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                        !isPublic
-                          ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
-                          : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Lock className="h-5 w-5" />
-                        <div>
-                          <div className="font-medium">Private</div>
-                          <div className="text-sm text-zinc-500">Only you can view this analysis</div>
-                        </div>
-                      </div>
-                    </button>
-                    
-                    <button
-                      onClick={() => updatePrivacy(true)}
-                      disabled={isUpdating}
-                      className={`w-full p-3 rounded-lg border text-left transition-colors ${
-                        isPublic
-                          ? 'bg-zinc-800 border-zinc-600 text-zinc-100'
-                          : 'bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <Globe className="h-5 w-5" />
-                        <div>
-                          <div className="font-medium">Public</div>
-                          <div className="text-sm text-zinc-500">Anyone with the link can view</div>
-                        </div>
-                      </div>
-                    </button>
-                  </div>
+                  <h3 className="text-lg font-semibold text-zinc-100">
+                    Share Analysis
+                  </h3>
+                  <button
+                    onClick={() => setShowDialog(false)}
+                    className="text-zinc-400 hover:text-zinc-300"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-zinc-300 mb-2">
-                    Share Link
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={shareUrl}
-                      readOnly
-                      className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md text-zinc-100 text-sm"
-                    />
-                    <button
-                      onClick={copyToClipboard}
-                      className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-md transition-colors"
-                    >
-                      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-                    </button>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Privacy Setting
+                    </label>
+                    <div className="space-y-2">
+                      <button
+                        onClick={() => updatePrivacy(false)}
+                        disabled={isUpdating}
+                        className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                          !isPublic
+                            ? "bg-zinc-800 border-zinc-600 text-zinc-100"
+                            : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Lock className="h-5 w-5" />
+                          <div>
+                            <div className="font-medium">Private</div>
+                            <div className="text-sm text-zinc-500">
+                              Only you can view this analysis
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+
+                      <button
+                        onClick={() => updatePrivacy(true)}
+                        disabled={isUpdating}
+                        className={`w-full p-3 rounded-lg border text-left transition-colors ${
+                          isPublic
+                            ? "bg-zinc-800 border-zinc-600 text-zinc-100"
+                            : "bg-zinc-900 border-zinc-700 text-zinc-400 hover:border-zinc-600"
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Globe className="h-5 w-5" />
+                          <div>
+                            <div className="font-medium">Public</div>
+                            <div className="text-sm text-zinc-500">
+                              Anyone with the link can view
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
                   </div>
-                  {!isPublic && (
-                    <p className="text-xs text-amber-400 mt-1">
-                      ⚠️ This link will only work for you unless you make the analysis public
-                    </p>
-                  )}
+
+                  <div>
+                    <label className="block text-sm font-medium text-zinc-300 mb-2">
+                      Share Link
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={shareUrl}
+                        readOnly
+                        className="flex-1 px-3 py-2 bg-zinc-800 border border-zinc-700 rounded-md text-zinc-100 text-sm"
+                      />
+                      <button
+                        onClick={copyToClipboard}
+                        className="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 text-zinc-200 rounded-md transition-colors"
+                      >
+                        {copied ? (
+                          <Check className="h-4 w-4" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </button>
+                    </div>
+                    {!isPublic && (
+                      <p className="text-xs text-amber-400 mt-1">
+                        ⚠️ This link will only work for you unless you make the
+                        analysis public
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </motion.div>
-          </div>
-        </motion.div>
-          </AnimatePresence>
-       )}
+              </motion.div>
+            </div>
+          </motion.div>
+        </AnimatePresence>
+      )}
     </>
   );
 }
 
-export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt, analysisId, isOwner, isPublic }: AnalysisDetailsProps) {
+export function AnalysisDetails({
+  analysisData,
+  videoUrl,
+  videoTitle,
+  createdAt,
+  analysisId,
+  isOwner,
+  isPublic,
+}: AnalysisDetailsProps) {
   const [currentIsPublic, setCurrentIsPublic] = useState(isPublic || false);
   const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
   const [currentDescriptionIndex, setCurrentDescriptionIndex] = useState(0);
@@ -246,9 +289,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
   const handleCopy = async (text: string, itemId: string) => {
     const success = await copyToClipboard(text);
     if (success) {
-      setCopiedItems(prev => new Set(prev).add(itemId));
+      setCopiedItems((prev) => new Set(prev).add(itemId));
       setTimeout(() => {
-        setCopiedItems(prev => {
+        setCopiedItems((prev) => {
           const newSet = new Set(prev);
           newSet.delete(itemId);
           return newSet;
@@ -277,7 +320,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
   };
 
   // Check if videoUrl is a YouTube URL and get video ID
-  const isYouTubeUrl = videoUrl && (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be'));
+  const isYouTubeUrl =
+    videoUrl &&
+    (videoUrl.includes("youtube.com") || videoUrl.includes("youtu.be"));
   const youtubeVideoId = isYouTubeUrl ? extractYouTubeVideoId(videoUrl) : null;
 
   // Helper functions for title/description navigation
@@ -289,19 +334,28 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
 
   const prevTitle = () => {
     if (analysisData.titles && analysisData.titles.length > 1) {
-      setCurrentTitleIndex((prev) => (prev - 1 + analysisData.titles!.length) % analysisData.titles!.length);
+      setCurrentTitleIndex(
+        (prev) =>
+          (prev - 1 + analysisData.titles!.length) % analysisData.titles!.length
+      );
     }
   };
 
   const nextDescription = () => {
     if (analysisData.descriptions && analysisData.descriptions.length > 1) {
-      setCurrentDescriptionIndex((prev) => (prev + 1) % analysisData.descriptions!.length);
+      setCurrentDescriptionIndex(
+        (prev) => (prev + 1) % analysisData.descriptions!.length
+      );
     }
   };
 
   const prevDescription = () => {
     if (analysisData.descriptions && analysisData.descriptions.length > 1) {
-      setCurrentDescriptionIndex((prev) => (prev - 1 + analysisData.descriptions!.length) % analysisData.descriptions!.length);
+      setCurrentDescriptionIndex(
+        (prev) =>
+          (prev - 1 + analysisData.descriptions!.length) %
+          analysisData.descriptions!.length
+      );
     }
   };
   // Use the overall score from the new structure
@@ -328,7 +382,7 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
             />
           )}
         </div>
-        
+
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
           <div className="flex-1">
             <h1 className="text-2xl sm:text-3xl font-semibold text-zinc-100">
@@ -342,11 +396,12 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                   year: "numeric",
                   month: "long",
                   day: "numeric",
-                }) || new Date().toLocaleDateString("en-US", {
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-                })}
+                }) ||
+                  new Date().toLocaleDateString("en-US", {
+                    year: "numeric",
+                    month: "long",
+                    day: "numeric",
+                  })}
               </span>
               {isOwner && (
                 <span className="flex items-center gap-1 text-xs shrink-0">
@@ -381,7 +436,10 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
           <div className="bg-black/40 border border-zinc-800 rounded-lg p-6 backdrop-blur-xl">
             <div className="flex flex-col lg:flex-row gap-6">
               <div className="lg:w-2/3">
-                <div className="relative w-full" style={{ paddingBottom: '56.25%' /* 16:9 aspect ratio */ }}>
+                <div
+                  className="relative w-full"
+                  style={{ paddingBottom: "56.25%" /* 16:9 aspect ratio */ }}
+                >
                   <iframe
                     className="absolute top-0 left-0 w-full h-full rounded-lg"
                     src={`https://www.youtube.com/embed/${youtubeVideoId}`}
@@ -402,11 +460,15 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Video Type:</span>
-                    <span className="text-zinc-300">{analysisData.category}</span>
+                    <span className="text-zinc-300">
+                      {analysisData.category}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-zinc-500">Overall Score:</span>
-                    <span className="text-zinc-100 font-semibold">{overallScore}/100</span>
+                    <span className="text-zinc-100 font-semibold">
+                      {overallScore}/100
+                    </span>
                   </div>
                 </div>
               </div>
@@ -419,10 +481,14 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
       {analysisData.overview && (
         <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
           <CardHeader>
-            <CardTitle className="text-lg font-medium text-zinc-100">Overview</CardTitle>
+            <CardTitle className="text-lg font-medium text-zinc-100">
+              Overview
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-zinc-300 leading-relaxed">{analysisData.overview}</p>
+            <p className="text-zinc-300 leading-relaxed">
+              {analysisData.overview}
+            </p>
           </CardContent>
         </Card>
       )}
@@ -456,10 +522,12 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
               </div>
               <div className="flex items-center justify-end mt-4">
                 <button
-                  onClick={() => handleCopy(analysisData.remarks!, 'analysis-summary')}
+                  onClick={() =>
+                    handleCopy(analysisData.remarks!, "analysis-summary")
+                  }
                   className="inline-flex items-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 hover:text-blue-200 border border-blue-500/30 hover:border-blue-500/50 rounded-lg transition-all duration-200 text-sm"
                 >
-                  {copiedItems.has('analysis-summary') ? (
+                  {copiedItems.has("analysis-summary") ? (
                     <>
                       <Check className="h-3 w-3" />
                       Copied!
@@ -491,7 +559,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                       onClick={() => setShowAllTitles(!showAllTitles)}
                       className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
                     >
-                      {showAllTitles ? 'Show One' : `Show All (${analysisData.titles.length})`}
+                      {showAllTitles
+                        ? "Show One"
+                        : `Show All (${analysisData.titles.length})`}
                     </button>
                   </div>
                 )}
@@ -509,12 +579,19 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                     className="space-y-3"
                   >
                     {analysisData.titles.map((title, index) => (
-                      <div key={index} className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
+                      <div
+                        key={index}
+                        className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors"
+                      >
                         <div className="flex items-start justify-between gap-3">
-                          <p className="text-zinc-300 leading-relaxed flex-1 text-sm">{title}</p>
+                          <p className="text-zinc-300 leading-relaxed flex-1 text-sm">
+                            {title}
+                          </p>
                           <div className="flex items-center gap-2 shrink-0">
                             <button
-                              onClick={() => handleCopy(title, `title-${index}`)}
+                              onClick={() =>
+                                handleCopy(title, `title-${index}`)
+                              }
                               className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200"
                               title="Copy title"
                             >
@@ -524,7 +601,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                                 <Copy className="h-3 w-3 text-zinc-400" />
                               )}
                             </button>
-                            <span className="text-xs text-zinc-500">#{index + 1}</span>
+                            <span className="text-xs text-zinc-500">
+                              #{index + 1}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -541,9 +620,16 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                   >
                     <div className="p-3 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
                       <div className="flex items-start justify-between gap-3">
-                        <p className="text-zinc-300 leading-relaxed flex-1 text-sm">{analysisData.titles[currentTitleIndex]}</p>
+                        <p className="text-zinc-300 leading-relaxed flex-1 text-sm">
+                          {analysisData.titles[currentTitleIndex]}
+                        </p>
                         <button
-                          onClick={() => handleCopy(analysisData.titles[currentTitleIndex], `current-title`)}
+                          onClick={() =>
+                            handleCopy(
+                              analysisData.titles[currentTitleIndex],
+                              `current-title`
+                            )
+                          }
                           className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
                           title="Copy title"
                         >
@@ -565,7 +651,8 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                           Previous
                         </button>
                         <span className="text-xs text-zinc-500">
-                          {currentTitleIndex + 1} of {analysisData.titles.length}
+                          {currentTitleIndex + 1} of{" "}
+                          {analysisData.titles.length}
                         </span>
                         <button
                           onClick={nextTitle}
@@ -592,10 +679,14 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                 {analysisData.descriptions.length > 1 && (
                   <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setShowAllDescriptions(!showAllDescriptions)}
+                      onClick={() =>
+                        setShowAllDescriptions(!showAllDescriptions)
+                      }
                       className="text-xs text-zinc-400 hover:text-zinc-300 transition-colors"
                     >
-                      {showAllDescriptions ? 'Show One' : `Show All (${analysisData.descriptions.length})`}
+                      {showAllDescriptions
+                        ? "Show One"
+                        : `Show All (${analysisData.descriptions.length})`}
                     </button>
                   </div>
                 )}
@@ -613,7 +704,10 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                     className="space-y-4"
                   >
                     {analysisData.descriptions.map((description, index) => (
-                      <div key={index} className="p-4 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors">
+                      <div
+                        key={index}
+                        className="p-4 bg-black/20 rounded-lg group hover:bg-black/30 transition-colors"
+                      >
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex-1 min-w-0">
                             <p className="text-zinc-300 leading-relaxed text-sm">
@@ -622,7 +716,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
                             <button
-                              onClick={() => handleCopy(description, `description-${index}`)}
+                              onClick={() =>
+                                handleCopy(description, `description-${index}`)
+                              }
                               className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200"
                               title="Copy description"
                             >
@@ -632,7 +728,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                                 <Copy className="h-3 w-3 text-zinc-400" />
                               )}
                             </button>
-                            <span className="text-xs text-zinc-500">#{index + 1}</span>
+                            <span className="text-xs text-zinc-500">
+                              #{index + 1}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -651,11 +749,20 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
                           <p className="text-zinc-300 leading-relaxed text-sm">
-                            {formatDescription(analysisData.descriptions[currentDescriptionIndex])}
+                            {formatDescription(
+                              analysisData.descriptions[currentDescriptionIndex]
+                            )}
                           </p>
                         </div>
                         <button
-                          onClick={() => handleCopy(analysisData.descriptions[currentDescriptionIndex], `current-description`)}
+                          onClick={() =>
+                            handleCopy(
+                              analysisData.descriptions[
+                                currentDescriptionIndex
+                              ],
+                              `current-description`
+                            )
+                          }
                           className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
                           title="Copy description"
                         >
@@ -677,7 +784,8 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                           Previous
                         </button>
                         <span className="text-xs text-zinc-500">
-                          {currentDescriptionIndex + 1} of {analysisData.descriptions.length}
+                          {currentDescriptionIndex + 1} of{" "}
+                          {analysisData.descriptions.length}
                         </span>
                         <button
                           onClick={nextDescription}
@@ -700,10 +808,14 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
       {analysisData.target_audience && (
         <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
           <CardHeader>
-            <CardTitle className="text-lg font-medium text-zinc-100">Target Audience</CardTitle>
+            <CardTitle className="text-lg font-medium text-zinc-100">
+              Target Audience
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-zinc-300 leading-relaxed">{analysisData.target_audience}</p>
+            <p className="text-zinc-300 leading-relaxed">
+              {analysisData.target_audience}
+            </p>
           </CardContent>
         </Card>
       )}
@@ -712,13 +824,15 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
       <div className="columns-1 lg:columns-2 gap-6 space-y-6">
         {Object.entries(analysisData).map(([section, data]) => {
           // Skip fields that are handled separately or are not metric groups
-          if (section === "category" ||
-              section === "creator_feedback" ||
-              section === "overall_score" ||
-              section === "overview" ||
-              section === "titles" ||
-              section === "descriptions" ||
-              section === "target_audience")
+          if (
+            section === "category" ||
+            section === "creator_feedback" ||
+            section === "overall_score" ||
+            section === "overview" ||
+            section === "titles" ||
+            section === "descriptions" ||
+            section === "target_audience"
+          )
             return null;
 
           // Ensure data is a metrics object
@@ -729,6 +843,9 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
           ) {
             return null;
           }
+
+          const metrics = Object.entries(data as Record<string, MetricData>);
+          if (metrics.length === 0) return null;
 
           return (
             <Card
@@ -757,12 +874,7 @@ export function AnalysisDetails({ analysisData, videoUrl, videoTitle, createdAt,
                           </p>
                         </div>
                         <div className="flex items-center ml-4 shrink-0">
-                          {/* {section === "compliance_risks" ? (
-                            value.score ? (
-                              <ScoreIndicator score={value.score} invert />
-                            ) : null
-                          )}: */}
-                          { value.score ? (
+                          {value.score ? (
                             <ScoreIndicator score={value.score} />
                           ) : null}
                         </div>
@@ -868,10 +980,13 @@ export function PrivateAnalysisView() {
                     This Analysis is Private
                   </h3>
                   <p className="text-zinc-400 leading-relaxed mb-4">
-                    This video analysis report has been set to private by its creator and can only be viewed by the account that created it.
+                    This video analysis report has been set to private by its
+                    creator and can only be viewed by the account that created
+                    it.
                   </p>
                   <div className="text-sm text-zinc-500">
-                    If you believe you should have access to this analysis, please contact the creator who shared this link with you.
+                    If you believe you should have access to this analysis,
+                    please contact the creator who shared this link with you.
                   </div>
                 </div>
               </div>
@@ -879,15 +994,23 @@ export function PrivateAnalysisView() {
 
             <div className="space-y-3">
               <div className="flex items-start gap-3 p-4 bg-zinc-800/30 rounded-lg">
-                <div className="text-blue-400 font-semibold text-sm mt-0.5">💡</div>
+                <div className="text-blue-400 font-semibold text-sm mt-0.5">
+                  💡
+                </div>
                 <div className="text-sm text-zinc-300">
-                  <strong>Want to create your own analysis?</strong> Upload your video to Alyzitron and get detailed insights about your content.
+                  <strong>Want to create your own analysis?</strong> Upload your
+                  video to Alyzitron and get detailed insights about your
+                  content.
                 </div>
               </div>
               <div className="flex items-start gap-3 p-4 bg-zinc-800/30 rounded-lg">
-                <div className="text-green-400 font-semibold text-sm mt-0.5">🔒</div>
+                <div className="text-green-400 font-semibold text-sm mt-0.5">
+                  🔒
+                </div>
                 <div className="text-sm text-zinc-300">
-                  <strong>Privacy by default:</strong> All analyses are private by default. Creators can choose to make them public if they wish to share.
+                  <strong>Privacy by default:</strong> All analyses are private
+                  by default. Creators can choose to make them public if they
+                  wish to share.
                 </div>
               </div>
             </div>
@@ -915,7 +1038,13 @@ interface AnalysisErrorProps {
   createdAt?: Date;
 }
 
-export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, createdAt }: AnalysisErrorProps) {
+export function AnalysisError({
+  errorCode,
+  errorMessage,
+  videoUrl,
+  videoTitle,
+  createdAt,
+}: AnalysisErrorProps) {
   return (
     <div className="space-y-8">
       {/* Header */}
@@ -937,16 +1066,19 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
               year: "numeric",
               month: "long",
               day: "numeric",
-            }) || new Date().toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}
+            }) ||
+              new Date().toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
           </p>
         </div>
         <div className="flex sm:flex-col items-center sm:items-end justify-start gap-4 sm:gap-0 sm:justify-end min-h-[60px] sm:min-h-[100px]">
           <AlertTriangle className="h-10 w-10 sm:h-16 sm:w-16 text-red-400 mb-0 sm:mb-2" />
-          <div className="text-zinc-500 font-medium tracking-tight sm:mt-2">Failed</div>
+          <div className="text-zinc-500 font-medium tracking-tight sm:mt-2">
+            Failed
+          </div>
         </div>
       </div>
 
@@ -961,10 +1093,11 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
         <CardContent className="space-y-6">
           <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
             <div className="text-sm font-medium text-red-200 mb-2">
-             Looks like something’s missing — check the video requirements and try again 😊
+              Looks like something’s missing — check the video requirements and
+              try again 😊
             </div>
           </div>
-          
+
           <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4float-end">
             <Link
               href="/dashboard/alyzitron"
@@ -983,7 +1116,9 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
               <div className="bg-black/20 rounded-lg p-4 space-y-2">
                 <div className="flex flex-col sm:flex-row justify-between gap-1">
                   <span className="text-zinc-500 text-sm">Video Title:</span>
-                  <span className="text-zinc-300 text-sm font-medium">{videoTitle || "Unknown"}</span>
+                  <span className="text-zinc-300 text-sm font-medium">
+                    {videoTitle || "Unknown"}
+                  </span>
                 </div>
                 <div className="flex flex-col sm:flex-row justify-between gap-1">
                   <span className="text-zinc-500 text-sm">Video URL:</span>
@@ -1012,22 +1147,29 @@ export function AnalysisError({ errorCode, errorMessage, videoUrl, videoTitle, c
         <CardContent>
           <div className="space-y-3">
             <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
-              <div className="text-blue-400 font-semibold text-sm mt-0.5">1.</div>
+              <div className="text-blue-400 font-semibold text-sm mt-0.5">
+                1.
+              </div>
               <div className="text-sm text-zinc-300">
                 Try uploading the video again - this might be a temporary issue.
               </div>
             </div>
             <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
-              <div className="text-blue-400 font-semibold text-sm mt-0.5">2.</div>
+              <div className="text-blue-400 font-semibold text-sm mt-0.5">
+                2.
+              </div>
               <div className="text-sm text-zinc-300">
-                Check that your video meets the requirements (file size, format, etc.).
+                Check that your video meets the requirements (file size, format,
+                etc.).
               </div>
             </div>
             <div className="flex items-start gap-3 p-3 bg-black/20 rounded-lg">
-              <div className="text-blue-400 font-semibold text-sm mt-0.5">3.</div>
+              <div className="text-blue-400 font-semibold text-sm mt-0.5">
+                3.
+              </div>
               <div className="text-sm text-zinc-300">
-                The video may be unavailable, private, or in an unsupported format.
-              Recheck the link and try again. 
+                The video may be unavailable, private, or in an unsupported
+                format. Recheck the link and try again.
               </div>
             </div>
           </div>

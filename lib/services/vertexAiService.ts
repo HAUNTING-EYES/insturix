@@ -59,7 +59,7 @@ export async function analyzeVideoWithGemini(
         },
         overall_score: {
           type: SchemaType.INTEGER,
-          description: "Overall quality score 1-100",
+          description: "Overall quality score (1-100). Higher is better.",
         },
         overview: {
           type: SchemaType.STRING,
@@ -105,7 +105,10 @@ export async function analyzeVideoWithGemini(
                   type: SchemaType.OBJECT,
                   properties: {
                     name: { type: SchemaType.STRING },
-                    score: { type: SchemaType.INTEGER },
+                    score: { 
+                      type: SchemaType.INTEGER,
+                      description: "Metric score (1-100). For quality metrics, higher is better. For risk/issue metrics, lower is better."
+                    },
                     description: { type: SchemaType.STRING },
                   },
                   required: ["name", "score", "description"],
@@ -121,7 +124,10 @@ export async function analyzeVideoWithGemini(
             type: SchemaType.OBJECT,
             properties: {
               name: { type: SchemaType.STRING },
-              score: { type: SchemaType.INTEGER },
+              score: { 
+                type: SchemaType.INTEGER, 
+                description: "Risk score (1-100). A higher score indicates higher risk. Lower is better for compliance."
+              },
               description: { type: SchemaType.STRING },
             },
             required: ["name", "score", "description"],
@@ -142,7 +148,7 @@ export async function analyzeVideoWithGemini(
       model,
       generationConfig: {
         maxOutputTokens: 8192,
-        temperature: 0.4,
+        temperature: 0.4, 
         topP: 0.95,
         topK: 40,
         responseMimeType: "application/json",
@@ -186,9 +192,12 @@ USER CONTEXT:
 ANALYSIS REQUIREMENTS:
 1. Provide a detailed summary of what happens in the video
 2. Identify key moments with timestamps (format: "MM:SS") and descriptions
-3. Assess video quality (audio, visuals, pacing, engagement) with score 1-10
-4. Give specific recommendations for improvement based on the user's context
-5. List any content warnings if applicable
+3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better).
+4. For all analysis metrics and compliance risks, use a scale of 1-100.
+   - For Quality/Performance metrics: Higher score = better performance.
+   - For Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
+5. Give specific recommendations for improvement based on the user's context
+6. List any content warnings if applicable
 
 CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
 
@@ -200,8 +209,8 @@ JSON STRUCTURE:
     {"timestamp": "00:30", "description": "Description here"}
   ],
   "qualityAssessment": {
-    "score": 8.5,
-    "notes": "Assessment notes here"
+    "score": 85,
+    "notes": "Assessment notes here. Note: score is 1-100 where higher is better."
   },
   "recommendations": ["Recommendation 1", "Recommendation 2"],
   "contentWarnings": ["Warning 1", "Warning 2"],
@@ -275,11 +284,18 @@ Be specific and reference actual content from the video.
           : (parsed.weaknesses || []),
         contentWarnings: Array.isArray(parsed.contentWarnings)
           ? parsed.contentWarnings
-          : (parsed.compliance_risks || []),
+          : (Array.isArray(parsed.compliance_risks) 
+              ? parsed.compliance_risks.filter((risk: any) => risk.score > 0)
+              : []),
         analysisTime: parsed.analysisTime || new Date().toISOString(),
         videoUrl,
         modelUsed: model,
       };
+
+      // Also filter the top-level compliance_risks if they exist in parsed
+      if (Array.isArray(finalResult.compliance_risks)) {
+        finalResult.compliance_risks = finalResult.compliance_risks.filter((risk: any) => risk.score > 0);
+      }
 
       console.log(finalResult);
       return finalResult;
