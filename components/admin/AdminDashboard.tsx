@@ -1,15 +1,8 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, BarChart3, Calendar, Zap, Shield, Mail } from "lucide-react";
+import { LogOut, BarChart3, Calendar, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
 import { useAuth } from "@clerk/nextjs";
 import { motion } from "framer-motion";
 
@@ -20,7 +13,6 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState("analytics");
   const { signOut } = useAuth();
   const router = useRouter();
 
@@ -135,66 +127,14 @@ export default function AdminDashboard({ userEmail }: AdminDashboardProps) {
         </div>
       </motion.div>
 
-      {/* Tabs Navigation */}
+      {/* Analytics content */}
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.4 }}
+        className="space-y-6"
       >
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="inline-flex items-center gap-2 mb-8 bg-white/50 dark:bg-zinc-900/50 border border-white/20 dark:border-zinc-800/50 p-1 rounded-xl">
-
-            <TabsTrigger
-              value="analytics"
-              className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-fuchsia-500 data-[state=active]:to-purple-500 data-[state=active]:text-white rounded-lg px-4 py-2"
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Analytics</span>
-            </TabsTrigger>
-            <TabsTrigger
-              value="mailing"
-              className="flex items-center gap-2 data-[state=active]:bg-gradient-to-r data-[state=active]:from-emerald-500 data-[state=active]:to-teal-500 data-[state=active]:text-white rounded-lg px-4 py-2"
-            >
-              <Mail className="w-4 h-4" />
-              <span>Mailing</span>
-            </TabsTrigger>
-          </TabsList>
-
-
-
-          {/* Analytics Tab */}
-          <TabsContent value="analytics" className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
-              <AnalyticsTab />
-            </motion.div>
-          </TabsContent>
-
-          {/* Mailing Tab */}
-          <TabsContent value="mailing" className="space-y-6">
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.5 }}
-            >
-              <div className="text-center py-12">
-                <p className="text-muted-foreground mb-4">
-                  Access the full mailing dashboard
-                </p>
-                <Button
-                  onClick={() => router.push("/admin/mailing")}
-                  className="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white"
-                >
-                  <Mail className="mr-2 h-4 w-4" />
-                  Open Mailing Dashboard
-                </Button>
-              </div>
-            </motion.div>
-          </TabsContent>
-        </Tabs>
+        <AnalyticsTab />
       </motion.div>
     </div>
   );

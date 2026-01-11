@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,24 +7,38 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { FormLock } from "./FormLock";
 
+const MUSIC_MODELS = [
+  { value: "fal-ai/sonauto/v2/text-to-music", label: "Sonauto V2" },
+  { value: "fal-ai/stable-audio/v2.5", label: "Stable Audio 2.5" },
+  { value: "fal-ai/minimax-music/v2", label: "MiniMax Music V2" },
+];
+
 export default function MusicGenerator() {
   const [title, setTitle] = useState("");
   const [style, setStyle] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [duration, setDuration] = useState(30); // default 30 seconds
+  const [model, setModel] = useState("fal-ai/sonauto/v2/text-to-music");
   const MIN_DURATION = 5;
   const MAX_DURATION = 240;
   const [instrumental, setInstrumental] = useState(false);
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
- 
+
   // Musitron usage stats via musitron-analytics cache
   const { data: apiData } = useQuery({
     queryKey: ["musitron-analytics"],
@@ -56,7 +70,12 @@ export default function MusicGenerator() {
       });
       return;
     }
-    if (!duration || isNaN(Number(duration)) || Number(duration) < 5 || Number(duration) > 240) {
+    if (
+      !duration ||
+      isNaN(Number(duration)) ||
+      Number(duration) < 5 ||
+      Number(duration) > 240
+    ) {
       toast({
         title: "Validation Error",
         description: "Please enter a valid duration between 5 and 240 seconds",
@@ -64,7 +83,7 @@ export default function MusicGenerator() {
       });
       return;
     }
-    if (!instrumental && !lyrics) {
+    if (!instrumental && !lyrics && model !== "fal-ai/stable-audio/v2.5") {
       toast({
         title: "Validation Error",
         description: "Please enter lyrics or enable instrumental mode",
@@ -81,6 +100,7 @@ export default function MusicGenerator() {
         instrumental,
         style,
         duration: Number(duration),
+        model,
       };
       if (!instrumental) {
         payload.lyrics = lyrics;
@@ -93,9 +113,10 @@ export default function MusicGenerator() {
       });
 
       const responseData = await res.json();
-      
+
       if (!res.ok || !responseData.success) {
-        const errorMessage = responseData.error?.message || "Failed to start music generation";
+        const errorMessage =
+          responseData.error?.message || "Failed to start music generation";
         console.log("API Response status:", res.status);
         console.log("API Response data:", responseData);
         throw new Error(errorMessage);
@@ -105,43 +126,72 @@ export default function MusicGenerator() {
         title: "Success",
         description: "Music generation started!",
       });
- 
-      // On task generation, refresh analytics immediately so locks/limits reflect
-      queryClient.invalidateQueries({ queryKey: ["musitron-analytics"], exact: false });
+
+      // Invalidate both analytics and tasks queries so:
+      // 1. Usage limits reflect the new task
+      // 2. Task history immediately shows the new task in "listed" status
+      // 3. Polling starts automatically (since there's now an in-progress task)
+      queryClient.invalidateQueries({
+        queryKey: ["musitron-analytics"],
+        exact: false,
+      });
+      queryClient.invalidateQueries({ queryKey: ["musitron-tasks"] });
     } catch (err: any) {
       console.error("Music generation error:", err);
       console.log("Error message for debugging:", err.message);
-      
+
       // Show generic error toast for all failures
       let title = "Error";
       let description = "Failed to start music generation. Please try again.";
-      
+
       // Network errors
-      if (err.message.includes("Failed to fetch") || err.message.includes("Network Error")) {
+      if (
+        err.message.includes("Failed to fetch") ||
+        err.message.includes("Network Error")
+      ) {
         title = "Connection Error";
-        description = "Unable to connect to the music generation service. Please check your internet connection and try again.";
+        description =
+          "Unable to connect to the music generation service. Please check your internet connection and try again.";
       }
       // Permission/limit errors
-      else if (err.message.includes("403") || err.message.includes("Access Denied") || err.message.includes("limit exceeded")) {
+      else if (
+        err.message.includes("403") ||
+        err.message.includes("Access Denied") ||
+        err.message.includes("limit exceeded")
+      ) {
         title = "Access Denied";
-        description = "You may not have permission to generate music or have reached your usage limit.";
+        description =
+          "You may not have permission to generate music or have reached your usage limit.";
       }
       // Server errors
-      else if (err.message.includes("500") || err.message.includes("Internal Server Error") || err.message.includes("Service Error")) {
+      else if (
+        err.message.includes("500") ||
+        err.message.includes("Internal Server Error") ||
+        err.message.includes("Service Error")
+      ) {
         title = "Service Error";
-        description = "The music generation service is currently experiencing technical difficulties. Please try again later.";
+        description =
+          "The music generation service is currently experiencing technical difficulties. Please try again later.";
       }
       // Rate limiting
-      else if (err.message.includes("429") || err.message.includes("Too Many Requests")) {
+      else if (
+        err.message.includes("429") ||
+        err.message.includes("Too Many Requests")
+      ) {
         title = "Too Many Requests";
-        description = "Too many music generation requests. Please wait a moment and try again.";
+        description =
+          "Too many music generation requests. Please wait a moment and try again.";
       }
       // Database errors (from backend)
-      else if (err.message.includes("DATABASE_ERROR") || err.message.includes("Database Error")) {
+      else if (
+        err.message.includes("DATABASE_ERROR") ||
+        err.message.includes("Database Error")
+      ) {
         title = "Service Error";
-        description = "The music generation service is currently experiencing technical difficulties. Please try again later.";
+        description =
+          "The music generation service is currently experiencing technical difficulties. Please try again later.";
       }
-      
+
       toast({
         title: title,
         description: description,
@@ -151,134 +201,184 @@ export default function MusicGenerator() {
       setLoading(false);
     }
   };
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    if (value === "fal-ai/stable-audio/v2.5") {
+      setLyrics("");
+      setInstrumental(true);
+    } else {
+      setInstrumental(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
-      <Card className={`bg-black/40 border-zinc-800 relative overflow-hidden${isLocked ? "" : " backdrop-blur-xl"}`}>
+      <Card
+        className={`bg-black/40 border-zinc-800 relative overflow-hidden${isLocked ? "" : " backdrop-blur-xl"}`}
+      >
         <CardContent className="min-h-[400px] p-6 space-y-6">
           <div className={isLocked ? "blur-sm" : ""}>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div className="grid gap-6 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="title"
+                    className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
+                  >
+                    <Music4 className="h-4 w-4 text-yellow-500" />
+                    Title
+                  </Label>
+                  <Input
+                    id="title"
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Enter a title for your music"
+                    className="bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="style"
+                    className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
+                  >
+                    <Mic2 className="h-4 w-4 text-yellow-500" />
+                    Style of Music
+                  </Label>
+                  <Input
+                    id="style"
+                    value={style}
+                    onChange={(e) => setStyle(e.target.value)}
+                    placeholder="e.g., Jazz, Rock, Classical"
+                    className="bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
+                    maxLength={120}
+                    required
+                  />
+                  <div className="text-right text-sm text-zinc-500">
+                    {style.length}/120
+                  </div>
+                </div>
+              </div>
               <div className="space-y-2">
                 <Label
-                  htmlFor="title"
+                  htmlFor="model"
                   className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
                 >
                   <Music4 className="h-4 w-4 text-yellow-500" />
-                  Title
+                  Music Model
+                </Label>
+
+                <Select value={model} onValueChange={handleModelChange}>
+                  <SelectTrigger className="bg-black/20 border-zinc-800 text-zinc-100 focus:border-purple-500/50">
+                    <SelectValue placeholder="Select a model" />
+                  </SelectTrigger>
+
+                  <SelectContent
+                    position="popper"
+                    className="z-100 bg-zinc-900 border-zinc-700"
+                  >
+                    {MUSIC_MODELS.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-white/60 mt-2 text-sm font-light">
+                  {model === "fal-ai/stable-audio/v2.5"
+                    ? "Best for video background music; generates high-quality, structured instrumental tracks (up to 3 minutes) with distinct intro/outro sections in seconds."
+                    : model === "fal-ai/minimax-music/v2"
+                      ? "Best for complex compositions; excels at high-fidelity instrumentals and multi-language vocals that rival human performances, ideal for audiophiles."
+                      : "Best for viral hits; creates full songs with the most realistic, expressive vocals and lyrics, controllable via BPM and customizable text."}
+                </p>
+              </div>
+
+              {/* Duration row: full width, single line */}
+              <div className="flex flex-col md:flex-row items-center gap-4 w-full">
+                <Label
+                  htmlFor="duration"
+                  className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2 min-w-[120px]"
+                >
+                  <Music4 className="h-4 w-4 text-yellow-500" />
+                  Duration (seconds)
                 </Label>
                 <Input
-                  id="title"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="Enter a title for your music"
-                  className="bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
+                  id="duration"
+                  type="number"
+                  min={MIN_DURATION}
+                  max={MAX_DURATION}
+                  value={duration}
+                  onChange={(e) => {
+                    let val = Number(e.target.value);
+                    if (isNaN(val)) val = MIN_DURATION;
+                    if (val < MIN_DURATION) val = MIN_DURATION;
+                    if (val > MAX_DURATION) val = MAX_DURATION;
+                    setDuration(val);
+                  }}
+                  placeholder="Enter duration in seconds (e.g., 120)"
+                  className="w-24 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
                   required
                 />
-              </div>
-
-              <div className="space-y-2">
-                <Label
-                  htmlFor="style"
-                  className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
-                >
-                  <Mic2 className="h-4 w-4 text-yellow-500" />
-                  Style of Music
-                </Label>
-                <Input
-                  id="style"
-                  value={style}
-                  onChange={(e) => setStyle(e.target.value)}
-                  placeholder="e.g., Jazz, Rock, Classical"
-                  className="bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
-                  maxLength={120}
-                  required
+                <Slider
+                  min={MIN_DURATION}
+                  max={MAX_DURATION}
+                  step={1}
+                  value={[Number(duration)]}
+                  onValueChange={([val]) => {
+                    if (val < MIN_DURATION) setDuration(MIN_DURATION);
+                    else if (val > MAX_DURATION) setDuration(MAX_DURATION);
+                    else setDuration(val);
+                  }}
+                  className="flex-1"
                 />
-                <div className="text-right text-sm text-zinc-500">
-                  {style.length}/120
+                <span className="text-xs text-zinc-400 flex items-center">
+                  {duration} sec
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-black/20">
+                <div className="flex items-center gap-3">
+                  <FileMusic className="h-5 w-5 text-yellow-500" />
+                  <span className="text-zinc-100">Instrumental Only</span>
                 </div>
-              </div>
-            </div>
-            {/* Duration row: full width, single line */}
-            <div className="flex flex-col md:flex-row items-center gap-4 w-full">
-              <Label
-                htmlFor="duration"
-                className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2 min-w-[120px]"
-              >
-                <Music4 className="h-4 w-4 text-yellow-500" />
-                Duration (seconds)
-              </Label>
-              <Input
-                id="duration"
-                type="number"
-                min={MIN_DURATION}
-                max={MAX_DURATION}
-                value={duration}
-                onChange={(e) => {
-                  let val = Number(e.target.value);
-                  if (isNaN(val)) val = MIN_DURATION;
-                  if (val < MIN_DURATION) val = MIN_DURATION;
-                  if (val > MAX_DURATION) val = MAX_DURATION;
-                  setDuration(val);
-                }}
-                placeholder="Enter duration in seconds (e.g., 120)"
-                className="w-24 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
-                required
-              />
-              <Slider
-                min={MIN_DURATION}
-                max={MAX_DURATION}
-                step={1}
-                value={[Number(duration)]}
-                onValueChange={([val]) => {
-                  if (val < MIN_DURATION) setDuration(MIN_DURATION);
-                  else if (val > MAX_DURATION) setDuration(MAX_DURATION);
-                  else setDuration(val);
-                }}
-                className="flex-1"
-              />
-              <span className="text-xs text-zinc-400 flex items-center">{duration} sec</span>
-            </div>
-
-            <div className="flex items-center justify-between p-3 rounded-lg bg-black/20">
-              <div className="flex items-center gap-3">
-                <FileMusic className="h-5 w-5 text-yellow-500" />
-                <span className="text-zinc-100">Instrumental Only</span>
-              </div>
-              <Switch
-                checked={instrumental}
-                onCheckedChange={setInstrumental}
-                className="bg-zinc-700 data-[state=checked]:bg-purple-600"
-              />
-            </div>
-
-            {!instrumental && (
-              <div className="space-y-2">
-                <Label
-                  htmlFor="lyrics"
-                  className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
-                >
-                  <PenTool className="h-4 w-4 text-yellow-500" />
-                  Lyrics
-                </Label>
-                <Textarea
-                  id="lyrics"
-                  value={lyrics}
-                  onChange={(e) => setLyrics(e.target.value)}
-                  placeholder="Write your own lyrics, two verses (8 lines) for the best result"
-                  className="h-32 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
-                  maxLength={2999}
-                  required={!instrumental}
+                <Switch
+                  disabled={model === "fal-ai/stable-audio/v2.5"}
+                  checked={instrumental}
+                  onCheckedChange={setInstrumental}
+                  className="bg-zinc-700 data-[state=checked]:bg-purple-600"
                 />
-                <div className="text-right text-sm text-zinc-500">
-                  {lyrics.length}/2999
-                </div>
               </div>
-            )}
 
-            <Button
-              type="submit"
-              className={`
+              {!instrumental && model !== "fal-ai/stable-audio/v2.5" && (
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="lyrics"
+                    className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2"
+                  >
+                    <PenTool className="h-4 w-4 text-yellow-500" />
+                    Lyrics
+                  </Label>
+                  <Textarea
+                    id="lyrics"
+                    value={lyrics}
+                    onChange={(e) => setLyrics(e.target.value)}
+                    placeholder="Write your own lyrics, two verses (8 lines) for the best result"
+                    className="h-32 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
+                    maxLength={2999}
+                    required={
+                      !instrumental && model !== "fal-ai/stable-audio/v2.5"
+                    }
+                  />
+                  <div className="text-right text-sm text-zinc-500">
+                    {lyrics.length}/2999
+                  </div>
+                </div>
+              )}
+
+              <Button
+                type="submit"
+                className={`
                 w-full h-14 text-base font-medium tracking-wide rounded-lg
                 ${
                   loading
@@ -287,11 +387,11 @@ export default function MusicGenerator() {
                 }
                 transition-all duration-300
               `}
-              disabled={loading || isLocked}
+                disabled={loading || isLocked}
               >
-              {loading ? "Generating Music..." : "Generate Music"}
-            </Button>
-          </form>
+                {loading ? "Generating Music..." : "Generate Music"}
+              </Button>
+            </form>
           </div>
         </CardContent>
         {usage && usage.hasAccess === false && (

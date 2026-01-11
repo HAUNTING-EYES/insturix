@@ -7,7 +7,7 @@ import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Sparkles, Upload, ArrowRight, Trash } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ContextSelector } from "./ContextSelector";
-import type { ContextValues } from "./ContextSelector";
+import { ContextValues } from "@/app/api/services/alyzitron/types";
 import { useToast } from "@/hooks/use-toast";
 import { useVideoAnalysis } from "@/app/dashboard/alyzitron/hooks/useVideoAnalysis";
 import { Analysis } from "@/app/dashboard/alyzitron/types/analysis";
@@ -71,6 +71,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [gcsPath, setGcsPath] = useState<string | null>(null);
   const [analysisStarted, setAnalysisStarted] = useState(false);
+  const [createdTaskId, setCreatedTaskId] = useState<string | null>(null);
   const [uploadCompleted, setUploadCompleted] = useState(false);
   const [showCloseConfirmation, setShowCloseConfirmation] = useState(false);
   const [showScrollIndicator, setShowScrollIndicator] = useState(false);
@@ -360,15 +361,16 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           };
 
           console.log("🚀 Analysis started successfully, marking as started");
+          setCreatedTaskId(result.analysisId);
           setAnalysisStarted(true);
           onSubmit(result.analysisId, analysisData);
 
-          // Auto-close modal on analysis start
+          // Auto-close modal on analysis start, giving time to see the success notification
           setIsModalClosing(true);
           setTimeout(() => {
             onOpenChange(false);
             setIsModalClosing(false);
-          }, 1500);
+          }, 2000);
         }
       } catch (err) {
         console.error("❌ Analysis start failed:", err);
@@ -412,12 +414,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           variant: "destructive",
         });
 
-        // Auto-close modal on analysis failure
-        setIsModalClosing(true);
-        setTimeout(() => {
-          onOpenChange(false);
-          setIsModalClosing(false);
-        }, 2000);
+        // Don't auto-close on failure, let user read the error
+        setIsProcessing(false);
       } finally {
         setIsProcessing(false);
       }
@@ -616,8 +614,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         });
 
         // Reset state only when no deletion is needed
-        setGcsPath(null);
-        setAnalysisId(null);
+        setCreatedTaskId(null);
         setAnalysisStarted(false);
         setUploadCompleted(false);
         setError(null);
@@ -628,6 +625,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       // Reset state if modal is closed but no gcsPath to delete
       setGcsPath(null);
       setAnalysisId(null);
+      setCreatedTaskId(null);
       setAnalysisStarted(false);
       setUploadCompleted(false);
       setError(null);
@@ -1105,6 +1103,47 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                   <p>• Your original file is never shared publicly</p>
                 </div>
               </div>
+
+              {/* Success Notification UI */}
+              <AnimatePresence>
+                {createdTaskId && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                    className="absolute bottom-6 left-6 right-6 z-50"
+                  >
+                    <div className="bg-zinc-900/90 backdrop-blur-xl border border-blue-500/30 rounded-xl p-4 shadow-[0_8px_32px_rgba(0,0,0,0.4)] ring-1 ring-white/10 flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center ring-1 ring-blue-500/30">
+                          <Sparkles className="w-5 h-5 text-blue-400" />
+                        </div>
+                        <div className="flex flex-col">
+                          <h4 className="text-sm font-bold text-white tracking-tight">
+                            Analysis Initiated
+                          </h4>
+                          <p className="text-xs text-zinc-400">
+                            Task ID: <span className="font-mono text-zinc-300">{createdTaskId.slice(0, 8)}</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-500/10 text-blue-400 ring-1 ring-inset ring-blue-500/20 uppercase tracking-tighter">
+                          Queued
+                        </span>
+                        <div className="h-4 w-[1px] bg-zinc-800 mx-1"></div>
+                        <motion.div 
+                          animate={{ opacity: [1, 0.4, 1] }}
+                          transition={{ duration: 1.5, repeat: Infinity }}
+                          className="text-[10px] text-zinc-500 font-medium whitespace-nowrap"
+                        >
+                          Closing...
+                        </motion.div>
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
 
             {/* Scroll Fade Indicator */}

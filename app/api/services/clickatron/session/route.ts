@@ -71,6 +71,7 @@ export async function POST(request: Request) {
       updatedAt: new Date(),
       fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
       imageRef: '',
+      thumbnailRef: '',
       referenceImageRefs: [],
     };
 
@@ -89,7 +90,7 @@ export async function POST(request: Request) {
       referenceImageRefs.push(rawImageUrl);
     }
     newVariation.referenceImageRefs = referenceImageRefs;
-    
+
     // 4. Add the variation to the canvas and save
     newTask.details.canvas.variations.push(newVariation);
     await newTask.save();
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
       aspectRatio: validatedData.aspectRatio,
       referenceImageRefs,
     };
-    
+
     console.log('Creating job with data:', jobData);
     const jobId = await createJob(jobData);
 
@@ -114,9 +115,9 @@ export async function POST(request: Request) {
 
       // Increment usage after successful job creation
       try {
-        await clickatronLimitMiddleware.incrementUsage({
+      await clickatronLimitMiddleware.incrementUsage({
           limitType: 'variation'
-        });
+      });
       } catch (usageError) {
         console.error('Failed to increment usage:', usageError);
         // Don't fail the entire operation if usage increment fails
@@ -143,10 +144,10 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error('Error creating session:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation failed', details: error.errors },
+        { error: 'Validation failed', details: error.issues },
         { status: 400 }
       );
     }

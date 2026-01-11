@@ -2,8 +2,6 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useState, lazy, Suspense } from 'react';
-import { useTaskUpdater } from '@/hooks/useTaskUpdater';
-
 // Lazy load heavy components
 const VideoUpload = lazy(() => import('./VideoUpload').then(mod => ({ default: mod.VideoUpload })));
 const AlyzitronTaskHistory = lazy(() => import('./AlyzitronTaskHistory').then(mod => ({ default: mod.AlyzitronTaskHistory })));
@@ -12,14 +10,13 @@ const AlyzitronTaskHistory = lazy(() => import('./AlyzitronTaskHistory').then(mo
  * ClientWrapper (Alyzitron) — mirror Musitron/Clickatron minimal pattern
  * - Do NOT own/fetch a root history cache here.
  * - History is fetched only inside AlyzitronTaskHistory with ['alyzitron-tasks', page, limit].
- * - Keep RTDB listener active and invalidate analytics on generation.
+ * - Use polling and react-query invalidation for real-time updates instead of RTDB.
  */
 export function ClientWrapper() {
   const queryClient = useQueryClient();
   const [activeAnalyses] = useState<Set<string>>(new Set());
 
-  // RTDB listener for instant updates
-  useTaskUpdater();
+
 
   return (
     <div className="space-y-8">
@@ -31,12 +28,12 @@ export function ClientWrapper() {
       }>
         <VideoUpload
           onSubmit={() => {
-            // No local cache mutation; RTDB will drive updates.
+            // No local cache mutation; polling and invalidation will refresh UI.
           }}
           onComplete={() => {
             // Invalidate analytics on successful generation to refresh limits/counters
             queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
-            // History invalidation is handled by RTDB via useTaskUpdater.
+            // History invalidation is handled by manual invalidation in useVideoAnalysis or polling.
           }}
           activeAnalyses={activeAnalyses}
         />

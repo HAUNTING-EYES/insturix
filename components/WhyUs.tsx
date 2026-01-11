@@ -54,10 +54,10 @@ export function WhyUs() {
   return (
     <section className="py-24 bg-neutral-950 text-neutral-50 relative overflow-hidden">
       {/* Background Grid */}
-      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] pointer-events-none" />
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_50%,#000_70%,transparent_100%)] pointer-events-none " />
 
       <div className="container mx-auto px-4 sm:px-6 relative z-10">
-        <div className="mb-16 text-center max-w-3xl mx-auto">
+        <div className="mb-16 text-center max-w-3xl mx-auto b">
           <h2 className="text-3xl sm:text-5xl font-bold tracking-tight mb-6">
             Why Choose Us?
           </h2>

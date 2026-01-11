@@ -99,6 +99,11 @@ export async function PATCH(
     if (validatedData.imageRef !== undefined) {
       variation.imageRef = validatedData.imageRef;
     }
+
+    if ((validatedData as any)?.thumbnailRef !== undefined) {
+      variation.thumbnailRef = (validatedData as any)?.thumbnailRef;
+    }
+
     if (validatedData.fineTuning !== undefined) {
       variation.fineTuning = { ...variation.fineTuning, ...validatedData.fineTuning };
     }
@@ -120,10 +125,10 @@ export async function PATCH(
     });
   } catch (error) {
     console.error('Error updating variation:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation failed', details: error.errors },
+        { error: 'Validation failed', details: error.issues },
         { status: 400 }
       );
     }
@@ -170,13 +175,18 @@ export async function DELETE(
 
     const variation = task.details.canvas.variations[variationIndex];
 
-    // Delete associated GCS image if it exists
-    if (variation.imageRef) {
+    // Delete Variation image + thumbnail
+    const gcsRefs = [
+      variation.imageRef,
+      variation.thumbnailRef,
+    ].filter(Boolean);
+
+    for (const ref of gcsRefs) {
       try {
         // Extract raw GCS path (without query params)
-        const rawGcsPath = variation.imageRef.split('?')[0];
-        await ClickatronGCSManager.deleteImage(rawGcsPath);
-        console.log(`Deleted GCS image for variation ${varId}: ${rawGcsPath}`);
+        const rawPath = ref.split('?')[0];
+        await ClickatronGCSManager.deleteImage(rawPath);
+        console.log(`Deleted GCS image for variation ${varId}: ${rawPath}`);
       } catch (gcsError) {
         console.error(`Failed to delete GCS image for variation ${varId}:`, gcsError);
         // Don't fail the entire deletion if GCS delete fails

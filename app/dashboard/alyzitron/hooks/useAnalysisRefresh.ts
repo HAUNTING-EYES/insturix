@@ -43,7 +43,7 @@ export function useAnalysisRefresh({
       if (!query.state.data) return false;
       // Keep polling while analysis is in progress
       const status = query.state.data.status;
-      return ["pending", "queued", "processing"].includes(status)
+      return ["listed", "queued", "processing"].includes(status)
         ? refreshInterval
         : false;
     },
@@ -68,7 +68,7 @@ export function useAnalysisRefresh({
   }, [analysisId, queryClient]);
 
   const isInProgress =
-    analysis && ["pending", "queued", "processing"].includes(analysis.status);
+    analysis && ["listed", "queued", "processing"].includes(analysis.status);
 
   return {
     analysis,

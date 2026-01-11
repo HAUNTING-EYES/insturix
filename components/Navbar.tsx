@@ -87,17 +87,8 @@ const LogoAnimation = () => {
 
 const menuItems = [
   {
-    title: "Product",
+    title: "Products",
     href: "/products",
-    subItems: [
-      { title: "Alyzitron", href: "/products/alyzitron" },
-      { title: "Clickatron", href: "/products/clickatron" },
-      { title: "Musitron", href: "/products/musitron" },
-      { title: "Socialize", href: "/products/socialize" },
-      { title: "Editron", href: "/products/editron" },
-      { title: "ThinkForge", href: "/products/thinkforge" },
-      { title: "Meditron", href: "/products/meditron" },
-    ],
   },
   {
     title: "About",

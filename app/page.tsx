@@ -8,6 +8,7 @@ import BentoGrid from "@/components/Home/BentoGrid";
 import Script from "next/script";
 import { Suspense } from "react";
 import { LoadingScreen } from "@/components/Loader/LoadingScreen";
+import { getBaseUrl } from "@/lib/env";
 
 // Dynamically import client components
 const ClientHeroSection = dynamic(() => import("@/components/Home/HeroSection"), { ssr: true });
@@ -39,8 +40,8 @@ export default function Home() {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "Insturix",
-    url: process.env.SITE_URL,
-    logo: `${process.env.SITE_URL}/icons/logo.png`,
+    url: getBaseUrl(),
+    logo: `${getBaseUrl()}/icons/logo.png`,
     description: "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
     sameAs: [
       "https://twitter.com/insturix",
@@ -61,19 +62,19 @@ export default function Home() {
           "@type": "Product",
           name: "AI Video Editor",
           description: "AI-powered video editing tools for content creators",
-          url: `${process.env.SITE_URL}/products/ai-video-editor`
+          url: `${getBaseUrl()}/products/ai-video-editor`
         },
         {
           "@type": "Product",
           name: "Influencer Protection",
           description: "Digital insurance and protection for influencers",
-          url: `${process.env.SITE_URL}/products/influencer-protection`
+          url: `${getBaseUrl()}/products/influencer-protection`
         },
         {
           "@type": "Product",
           name: "Business Analytics",
           description: "AI-driven insights for content creators",
-          url: `${process.env.SITE_URL}/products/business-analytics`
+          url: `${getBaseUrl()}/products/business-analytics`
         }
       ]
     }
@@ -84,12 +85,12 @@ export default function Home() {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: "Insturix",
-    url: process.env.SITE_URL,
+    url: getBaseUrl(),
     potentialAction: {
       "@type": "SearchAction",
       target: {
         "@type": "EntryPoint",
-        urlTemplate: `${process.env.SITE_URL}/search?q={search_term_string}`
+        urlTemplate: `${getBaseUrl()}/search?q={search_term_string}`
       },
       "query-input": "required name=search_term_string"
     }

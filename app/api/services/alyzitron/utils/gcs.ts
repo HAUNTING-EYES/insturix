@@ -20,18 +20,32 @@ function initIfNeeded() {
 
 export class GCSManager {
   /**
+   * Internal helper to get the bucket, ensuring initialization
+   */
+  static getBucket() {
+    initIfNeeded();
+    return bucket;
+  }
+
+  /**
    * Generate a signed URL for uploading a file
    */
   static async getSignedUploadUrl(
     userId: string,
     filename: string,
     contentType: string
-  ): Promise<{ url: string; gcsPath: string }> {
+  ): Promise<{ url: string; gcsPath: string; publicUrl: string }> {
     try {
       initIfNeeded();
       if (!bucket) throw new Error('GCS not initialized');
+
+      // Sanitize inputs
+      const timestamp = Date.now();
+      const cleanFilename = filename.replace(/[^a-zA-Z0-9-_.]/g, '_');
+      const normalizedUserId = userId.replace('user_', '');
+
       // Create GCS path following service convention
-      const gcsPath = `user_${userId}/alyzitron-uploads/${Date.now()}_${filename}`;
+      const gcsPath = `user_${normalizedUserId}/alyzitron-uploads/${timestamp}_${cleanFilename}`;
       const file = bucket.file(gcsPath);
 
       // Generate signed URL with 15-minute expiry
@@ -40,9 +54,14 @@ export class GCSManager {
         action: 'write',
         expires: Date.now() + 15 * 60 * 1000, // 15 minutes
         contentType,
+        extensionHeaders: {
+          'x-goog-meta-upload-source': 'alyzitron-web'
+        }
       });
 
-      return { url, gcsPath };
+      const publicUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${gcsPath}`;
+
+      return { url, gcsPath, publicUrl };
     } catch (error) {
       console.error('Failed to generate signed URL:', error);
       throw {
@@ -61,7 +80,7 @@ export class GCSManager {
       initIfNeeded();
       if (!bucket) throw new Error('GCS not initialized');
       const file = bucket.file(gcsPath);
-      
+
       // Check if file exists
       const [exists] = await file.exists();
       if (!exists) {
@@ -93,8 +112,14 @@ export class GCSManager {
     try {
       initIfNeeded();
       if (!bucket) throw new Error('GCS not initialized');
-      const file = bucket.file(gcsPath);
-      await file.delete();
+
+      const bucketName = process.env.GCS_BUCKET_NAME;
+      const objectName = gcsPath.startsWith(`gs://${bucketName}/`)
+        ? gcsPath.substring(`gs://${bucketName}/`.length)
+        : gcsPath;
+
+      const file = bucket.file(objectName);
+      await file.delete({ ignoreNotFound: true });
     } catch (error) {
       console.error('Failed to delete file:', error);
       throw {
@@ -114,7 +139,7 @@ export class GCSManager {
       if (!bucket) throw new Error('GCS not initialized');
       const file = bucket.file(gcsPath);
       const [metadata] = await file.getMetadata();
-      
+
       return {
         size: Number(metadata.size),
         contentType: metadata.contentType,

@@ -49,7 +49,7 @@ export async function POST(
 
     // Parse multipart/form-data
     const formData = await request.formData();
-    
+
     // Extract fields from formData
     const prompt = formData.get('prompt') as string;
     const modelId = formData.get('modelId') as string || undefined;
@@ -58,10 +58,10 @@ export async function POST(
     const updateExistingBlank = formData.get('updateExistingBlank') === 'true';
     const fineTuning = JSON.parse(formData.get('fineTuning') as string || '{}');
     const metadata = JSON.parse(formData.get('metadata') as string || '{}');
-    
+
     // Extract reference images
     const referenceImages = formData.getAll('referenceImages') as File[];
-    
+
     // Check for idempotency key
     const idempotencyKey = request.headers.get('Idempotency-Key');
     if (idempotencyKey) {
@@ -85,13 +85,13 @@ export async function POST(
         const buffer = Buffer.from(arrayBuffer);
         
         // Upload to GCS
-        const gcsUri = await ClickatronGCSManager.uploadImageBuffer(
-          userId,
-          id,
-          `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
-          buffer,
-          file.type
-        );
+      const gcsUri = await ClickatronGCSManager.uploadImageBuffer(
+        userId,
+        id,
+        `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`,
+        buffer,
+        file.type
+      );
         
         // Store the raw GCS URL without query parameters for long-term storage
         const rawGcsUri = gcsUri.split('?')[0];
@@ -119,10 +119,10 @@ export async function POST(
     // Create new variation
     // If we're updating an existing blank variation, use its ID
     const variationId = validatedData.updateExistingBlank && validatedData.parentVariationId
-      ? validatedData.parentVariationId
-      : `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+        ? validatedData.parentVariationId
+        : `var_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
     const now = new Date();
-    
+
     // Determine the appropriate model based on reference images
     let selectedModelId = validatedData.modelId;
     
@@ -165,15 +165,18 @@ export async function POST(
       
       selectedModelId = suitableModel?.id || 'fal-ai/flux-kontext/dev'; // Fallback
     }
-    
-    // If this is an edit (has parent variation), use the parent's imageRef as placeholder
+
+    // Inherit image + thumbnail from parent (important)
     let imageRef = '';
+    let thumbnailRef = '';
+
     if (validatedData.parentVariationId) {
-      const parentVariation = task.details.canvas?.variations.find(
+      const parent = task.details.canvas.variations.find(
         (v: any) => v.id === validatedData.parentVariationId
       );
-      if (parentVariation) {
-        imageRef = parentVariation.imageRef || '';
+      if (parent) {
+        imageRef = parent.imageRef || '';
+        thumbnailRef = parent.thumbnailRef || '';
       }
     }
 
@@ -182,6 +185,7 @@ export async function POST(
       prompt: validatedData.prompt,
       status: 'generating' as const,
       imageRef: imageRef,
+      thumbnailRef: thumbnailRef,
       aspectRatio: validatedData.aspectRatio || task.details.aspectRatio,
       fineTuning: validatedData.fineTuning || {
         brightness: 100,
@@ -198,7 +202,7 @@ export async function POST(
 
     // Add variation to canvas (capping at 50)
     const currentVariations = task.details.canvas?.variations || [];
-    
+
     // If we're updating an existing blank variation, find and update it
     if (validatedData.updateExistingBlank && validatedData.parentVariationId) {
       const existingVariationIndex = currentVariations.findIndex((v: any) => v.id === validatedData.parentVariationId);
@@ -247,18 +251,18 @@ export async function POST(
     // Enqueue job with QStash
     try {
       const qstashResult = await enqueueClickatronJob({
-        jobId,
-        sessionId: id,
+      jobId,
+      sessionId: id,
         variationId: variationId,
-        prompt: validatedData.prompt,
-        userId,
-        parentVariationId: validatedData.parentVariationId,
+      prompt: validatedData.prompt,
+      userId,
+      parentVariationId: validatedData.parentVariationId,
         fineTuning: validatedData.fineTuning || {
           brightness: 100,
           contrast: 100,
           saturation: 100,
         },
-        metadata: validatedData.metadata,
+      metadata: validatedData.metadata,
         modelId: selectedModelId, // Use the selected modelId
         referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
         aspectRatio: validatedData.aspectRatio || task.details.aspectRatio, // Use per-variation aspect ratio or fall back to global
@@ -293,10 +297,10 @@ export async function POST(
     });
   } catch (error) {
     console.error('Error creating variation:', error);
-    
+
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Validation failed', details: error.errors },
+        { error: 'Validation failed', details: error.issues },
         { status: 400 }
       );
     }

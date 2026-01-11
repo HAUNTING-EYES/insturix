@@ -245,7 +245,7 @@ export function VariationsGallery({
                     </div>
                   ) : (
                     <ImageDisplay
-                      imageRef={variation.imageRef}
+                      imageRef={variation?.thumbnailRef || variation.imageRef}
                       status={variation.status}
                       variationId={variation.id}
                       className="w-full h-full object-cover"

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Inter, Space_Grotesk, Caveat } from "next/font/google";
 import "./globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import ThemeProvider from "@/providers/ThemeProvider";
@@ -9,10 +9,13 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import ClientAnalyticsLoader from '@/components/analytics/ClientLoader';
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { keywords } from "@/lib/seo/keywords";
+import { getBaseUrl } from "@/lib/env";
 
 
 const inter = Inter({ subsets: ["latin"], display: "swap", variable: "--font-inter" });
 const spaceGrotesk = Space_Grotesk({ subsets: ["latin"], display: "swap", variable: "--font-space-grotesk" });
+const caveat = Caveat({ subsets: ["latin"], display: "swap", variable: "--font-caveat" });
+
 
 
 export const viewport: Viewport = {
@@ -32,7 +35,7 @@ export const metadata: Metadata = {
     "Building Future, Together. Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
   manifest: "/manifest.json",
   keywords: keywords,
-  metadataBase: new URL(process.env.SITE_URL || "https://insturix.com"),
+  metadataBase: new URL(getBaseUrl()),
   alternates: {
     canonical: "/",
     languages: {
@@ -42,7 +45,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: process.env.SITE_URL,
+    url: getBaseUrl(),
     title: "Insturix | Building Future, Together",
     description:
       "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
@@ -118,7 +121,7 @@ export default function RootLayout({
 }>) {
   return (
     <ClerkProvider>
-  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable}`} suppressHydrationWarning>
+  <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable} ${caveat.variable}`} suppressHydrationWarning>
         <head>
           <meta
             name="google-site-verification"
@@ -136,8 +139,8 @@ export default function RootLayout({
                 "@context": "https://schema.org",
                 "@type": "Organization",
                 name: "Insturix",
-                url: process.env.SITE_URL,
-                logo: `${process.env.SITE_URL}/icons/logo.png`,
+                url: getBaseUrl(),
+                logo: `${getBaseUrl()}/icons/logo.png`,
                 sameAs: [
                   "https://twitter.com/insturix",
                   "https://www.linkedin.com/company/insturix",
@@ -152,7 +155,7 @@ export default function RootLayout({
             }}
           />
         </head>
-        <body>
+        <body suppressHydrationWarning>
           <ReactQueryProvider>
             <ThemeProvider>
               {children}

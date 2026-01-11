@@ -1,7 +1,15 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, model } from "mongoose";
 
-export type MusitronTaskStatus = 'listed' | 'processing' | 'completed' | 'failed';
-
+export type MusitronTaskStatus =
+  | "listed"
+  | "processing"
+  | "completed"
+  | "failed";
+const ALLOWED_MODELS = [
+  "fal-ai/ace-step/prompt-to-audio",
+  "stable-audio-2.5",
+  "sonauto-mini-max",
+] as const;
 export interface IMusitronTask extends Document {
   clerkUserId: string;
   title: string;
@@ -27,7 +35,8 @@ const MusitronTaskSchema: Schema = new Schema({
   style: { type: String, required: true },
   instrumental_only: { type: Boolean, required: true },
   lyrics: { type: String, default: "" },
-  status: { type: String, required: true },
+  model: { type: String, required: true },
+  status: { type: String, enum: ALLOWED_MODELS, required: true },
   gcs_url: { type: String },
   error: {
     code: { type: String },
@@ -40,4 +49,10 @@ const MusitronTaskSchema: Schema = new Schema({
   refunded: { type: Boolean, default: false },
 });
 
-export const MusitronTask = mongoose.models.MusitronTask || mongoose.model<IMusitronTask>('MusitronTask', MusitronTaskSchema, 'musitron_tasks');
+export const MusitronTask =
+  mongoose.models.MusitronTask ||
+  mongoose.model<IMusitronTask>(
+    "MusitronTask",
+    MusitronTaskSchema,
+    "musitron_tasks"
+  );

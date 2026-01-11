@@ -3,8 +3,9 @@
  * Defines the type of model.
  * - 'text-to-image': Generates an image from a text prompt.
  * - 'image-to-image': Generates an image from a text prompt and a source image.
+ * - 'inpainting': Fills in selected areas of an image based on a prompt and mask.
  */
-export type ModelType = 'text-to-image' | 'image-to-image';
+export type ModelType = 'text-to-image' | 'image-to-image' | 'inpainting';
 
 /**
  * Defines the parameter mapping for a single AI model.
@@ -13,6 +14,7 @@ export interface ParameterMapping {
   prompt: string;
   image_url?: string;
   image_urls?: string;
+  mask_url?: string;
   aspect_ratio?: string;
   image_size?: string;
   max_images?: string;
@@ -25,6 +27,7 @@ export interface ParameterMapping {
   num_inference_steps?: string;
   acceleration?: string;
   seed?: string;
+  strength?: string;
 }
 
 /**
@@ -45,6 +48,7 @@ export interface ModelConfig {
   name: string;
   type: ModelType;
   isDefault?: boolean;
+  isInpaintingCapable?: boolean;
   parameterMapping: ParameterMapping;
   constraints: ModelConstraints;
 }
@@ -75,14 +79,17 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/bytedance/seedream/v4/edit': {
     id: 'fal-ai/bytedance/seedream/v4/edit',
     name: 'Seedream V4 Edit',
-    type: 'image-to-image',
+    type: 'inpainting',
+    isDefault: true, // Primary inpainting model (proven working on Fal AI)
+    isInpaintingCapable: true,
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
       num_images: 'num_images',
       max_images: 'max_images',
       enable_safety_checker: 'enable_safety_checker',
-      image_urls: 'image_urls'
+      image_urls: 'image_urls',
+      mask_url: 'mask_url'
     },
     constraints: {
       promptMaxLength: 512,
@@ -132,6 +139,96 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       maxImages: 0,
     },
   },
+  // FLUX Dev Inpainting (High Priority)
+  'fal-ai/flux/dev/inpainting': {
+    id: 'fal-ai/flux/dev/inpainting',
+    name: 'FLUX Dev Inpainting',
+    type: 'inpainting',
+    parameterMapping: {
+      prompt: 'prompt',
+      image_url: 'image_url',
+      mask_url: 'mask_url',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format',
+      guidance_scale: 'guidance_scale',
+      num_inference_steps: 'num_inference_steps',
+      strength: 'strength'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      minImages: 1,
+      maxImages: 1,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+    },
+  },
+  // FLUX Pro Fill (High Priority)
+  'fal-ai/flux-pro/v1/fill': {
+    id: 'fal-ai/flux-pro/v1/fill',
+    name: 'FLUX Pro Fill',
+    type: 'inpainting',
+    parameterMapping: {
+      prompt: 'prompt',
+      image_url: 'image_url',
+      mask_url: 'mask_url',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format',
+      guidance_scale: 'guidance_scale',
+      num_inference_steps: 'num_inference_steps'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      minImages: 1,
+      maxImages: 1,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+    },
+  },
+  // FLUX Kontext Inpainting with LoRA (Medium Priority)
+  'fal-ai/flux-kontext/dev/inpainting': {
+    id: 'fal-ai/flux-kontext/dev/inpainting',
+    name: 'Kontext Inpainting with LoRA',
+    type: 'inpainting',
+    parameterMapping: {
+      prompt: 'prompt',
+      image_url: 'image_url',
+      mask_url: 'mask_url',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format',
+      guidance_scale: 'guidance_scale',
+      num_inference_steps: 'num_inference_steps'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      minImages: 1,
+      maxImages: 1,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+    },
+  },
+  // DEPRECATED: Mapped to FLUX Pro Fill for backward compatibility
+  'fal-ai/stable-diffusion-inpainting': {
+    id: 'fal-ai/stable-diffusion-inpainting', // Keep origin ID to avoid duplicate key errors
+    name: 'Stable Diffusion Inpainting (Deprecated)',
+    type: 'inpainting',
+    parameterMapping: {
+      prompt: 'prompt',
+      image_url: 'image_url',
+      mask_url: 'mask_url',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format',
+      guidance_scale: 'guidance_scale',
+      num_inference_steps: 'num_inference_steps',
+      strength: 'strength'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      minImages: 1,
+      maxImages: 1,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+    },
+  },
 };
 
 /**
@@ -153,16 +250,29 @@ export function filterModelsByReferenceImageCount(
 
 /**
  * Get available models for a specific context
- * @param context - The context ('ideation', 'newVariation', or 'edit')
+ * @param context - The context ('ideation', 'newVariation', 'edit', or 'generativeFill')
  * @param userAttachedImages - The number of images attached by the user
  * @returns The available models
  */
 export function getAvailableModels(
-  context: 'ideation' | 'newVariation' | 'edit',
+  context: 'ideation' | 'newVariation' | 'edit' | 'generativeFill',
   userAttachedImages: number = 0
 ): ModelConfig[] {
   const allModels = Object.values(CLICKATRON_MODELS);
-  
+
+  // For generative fill, return specific approved models
+  if (context === 'generativeFill') {
+    const allowedModels = [
+      'fal-ai/flux/dev/inpainting',
+      'fal-ai/flux-pro/v1/fill',
+      'fal-ai/flux-kontext/dev/inpainting'
+    ];
+    return allModels.filter(model => allowedModels.includes(model.id));
+  }
+
+  // For regular variation flows, exclude inpainting models (they require masks)
+  const nonInpaintingModels = allModels.filter(model => model.type !== 'inpainting');
+
   // Calculate total reference images based on context
   let referenceImageCount = userAttachedImages;
   if (context === 'edit') {
@@ -170,8 +280,8 @@ export function getAvailableModels(
     referenceImageCount += 1;
   }
   // For ideation and newVariation, it's just user attached images (starting from 0)
-  
-  return filterModelsByReferenceImageCount(allModels, referenceImageCount);
+
+  return filterModelsByReferenceImageCount(nonInpaintingModels, referenceImageCount);
 }
 
 /**
@@ -227,7 +337,7 @@ export function generateFluxKontextDevPayload(
 }
 
 /**
-* Generate payload for Seedream V4 Edit model
+* Generate payload for Seedream V4 Edit model (supports both image-to-image and inpainting)
  */
 export function generateSeedreamV4EditPayload(
   job: any,
@@ -235,7 +345,8 @@ export function generateSeedreamV4EditPayload(
   height: number,
   numImages: number,
   enableSafetyChecker: boolean,
-  imageUrls?: string[]
+  imageUrls?: string[],
+  maskUrl?: string
 ): Record<string, any> {
   const payload: Record<string, any> = {
     prompt: job.prompt,
@@ -244,12 +355,20 @@ export function generateSeedreamV4EditPayload(
     max_images: 1,
     enable_safety_checker: enableSafetyChecker
   };
-  
+
   // Handle image URLs - Seedream V4 Edit model expects image_urls as an array
   if (imageUrls && imageUrls.length > 0) {
     payload.image_urls = imageUrls;
   }
-  
+
+  // Handle mask URL for inpainting mode
+  if (maskUrl) {
+    // Add system prompt for inpainting
+    const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+    payload.prompt = fullPrompt;
+    payload.mask_url = maskUrl;
+  }
+
   return payload;
 }
 
@@ -269,6 +388,174 @@ export function generateSeedreamV4TextToImagePayload(
     num_images: numImages,
     max_images: 1,
     enable_safety_checker: enableSafetyChecker
+  };
+}
+
+/**
+ * System prompt prepended to user prompts for generative fill
+ */
+export const GENERATIVE_FILL_SYSTEM_PROMPT = `Fill the masked area naturally to match the surrounding image. Keep content within the selection.`;
+
+
+
+/**
+ * Generate payload for Seedream V4 Inpainting (used for generative fill)
+ */
+export function generateSeedreamInpaintingPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string
+): Record<string, any> {
+  // Prepend system prompt for inpainting
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_urls: [imageUrl],  // Seedream expects array
+    mask_url: maskUrl,
+    num_images: numImages,
+    max_images: 1,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat
+  };
+}
+
+/**
+ * Generate payload for FLUX Dev Inpainting model
+ */
+export function generateFluxDevInpaintingPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string,
+  guidanceScale: number = 3.5,
+  numInferenceSteps: number = 28,
+  strength: number = 1.0
+): Record<string, any> {
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_url: imageUrl,
+    mask_url: maskUrl,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat,
+    guidance_scale: guidanceScale,
+    num_inference_steps: numInferenceSteps,
+    strength: strength
+  };
+}
+
+/**
+ * Generate payload for FLUX Pro Fill model
+ */
+export function generateFluxProFillPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string,
+  guidanceScale: number = 3.5,
+  numInferenceSteps: number = 28
+): Record<string, any> {
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_url: imageUrl,
+    mask_url: maskUrl,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat,
+    guidance_scale: guidanceScale,
+    num_inference_steps: numInferenceSteps
+  };
+}
+
+/**
+ * Generate payload for FLUX Kontext Inpainting model
+ */
+export function generateFluxKontextInpaintingPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string,
+  guidanceScale: number = 3.5,
+  numInferenceSteps: number = 28
+): Record<string, any> {
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  const payload: Record<string, any> = {
+    prompt: fullPrompt,
+    image_url: imageUrl,
+    mask_url: maskUrl,
+    strength: 0.9, // Often required for inpainting
+    guidance_scale: guidanceScale,
+    num_inference_steps: numInferenceSteps,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat
+  };
+
+  return payload;
+}
+export function generateFluxProInpaintingPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numInferenceSteps: number,
+  guidanceScale: number,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string,
+  strength: number
+): Record<string, any> {
+  // Prepend system prompt for inpainting
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_url: imageUrl,
+    mask_url: maskUrl,
+    num_inference_steps: numInferenceSteps,
+    guidance_scale: guidanceScale,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat,
+    strength: strength
+  };
+}
+
+/**
+ * Generate payload for FLUX Pro Ultra Inpainting model
+ */
+export function generateFluxProUltraInpaintingPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string
+): Record<string, any> {
+  // Prepend system prompt for inpainting
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_url: imageUrl,
+    mask_url: maskUrl,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat
   };
 }
 
@@ -304,7 +591,8 @@ export function generateModelPayload(
         height,
         generationParams.num_images || 1,
         generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
-        generationParams.image_urls
+        generationParams.image_urls,
+        generationParams.mask_url // Pass mask_url for inpainting
       );
     case 'fal-ai/bytedance/seedream/v4/text-to-image':
       return generateSeedreamV4TextToImagePayload(
@@ -314,6 +602,69 @@ export function generateModelPayload(
         generationParams.num_images || 1,
         generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false
       );
+    case 'fal-ai/flux/dev/inpainting':
+    case 'fal-ai/flux-pro/v1/fill':
+    case 'fal-ai/flux-kontext/dev/inpainting':
+    case 'fal-ai/flux-pro/v1.1-ultra-inpainting':
+    case 'fal-ai/stable-diffusion-inpainting': // Legacy support
+      // Robust parameter normalization for inpainting
+      let imageUrl = generationParams.image_url;
+      if (!imageUrl && generationParams.image_urls && generationParams.image_urls.length > 0) {
+        imageUrl = generationParams.image_urls[0];
+      }
+
+      if (!imageUrl || !generationParams.mask_url) {
+        // Log error but don't throw to avoid crashing the entire worker before it can log
+        console.error(`[generateModelPayload] Missing required parameters for ${modelId}: image_url=${!!imageUrl}, mask_url=${!!generationParams.mask_url}`);
+        throw new Error(`Inpainting requires both image_url and mask_url. Got params: ${JSON.stringify(generationParams)}`);
+      }
+
+      // Select the correct generator based on model ID
+      if (modelId === 'fal-ai/flux/dev/inpainting' || modelId === 'fal-ai/stable-diffusion-inpainting') {
+        return generateFluxDevInpaintingPayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg",
+          generationParams.guidance_scale || 3.5,
+          generationParams.num_inference_steps || 28
+        );
+      } else if (modelId === 'fal-ai/flux-pro/v1/fill') {
+        return generateFluxProFillPayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg",
+          generationParams.guidance_scale || 3.5,
+          generationParams.num_inference_steps || 28
+        );
+      } else if (modelId === 'fal-ai/flux-kontext/dev/inpainting') {
+        return generateFluxKontextInpaintingPayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg",
+          generationParams.guidance_scale || 3.5,
+          generationParams.num_inference_steps || 28
+        );
+      } else {
+        return generateFluxProUltraInpaintingPayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg"
+        );
+      }
+    // Legacy support for Stable Diffusion Inpainting -> Flux
+
     default:
       throw new Error(`Unsupported model ID: ${modelId}`);
   }
@@ -343,17 +694,17 @@ export async function processParentVariationImage(
   ClickatronGCSManager: any
 ): Promise<string | null> {
   if (!parentVariationId) return null;
-  
+
   const parentVariation = variations.find((v: any) => v.id === parentVariationId);
   if (!parentVariation || !parentVariation.imageRef) return null;
-  
+
   // Check if the imageRef is a raw GCS URL or potentially expired signed URL
   let imageUrl = parentVariation.imageRef;
-  
+
   // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
   if (imageUrl.includes('storage.googleapis.com') &&
-      !imageUrl.includes('GoogleAccessId') &&
-      !imageUrl.includes('Signature')) {
+    !imageUrl.includes('GoogleAccessId') &&
+    !imageUrl.includes('Signature')) {
     try {
       console.log('Getting fresh signed URL for GCS image:', imageUrl);
       imageUrl = await ClickatronGCSManager.getSignedUrl(imageUrl);
@@ -363,7 +714,7 @@ export async function processParentVariationImage(
       // Continue with the original URL if signed URL generation fails
     }
   }
-  
+
   return imageUrl;
 }
 
@@ -378,15 +729,15 @@ export async function processReferenceImages(
   ClickatronGCSManager: any
 ): Promise<string[]> {
   if (!referenceImageRefs || referenceImageRefs.length === 0) return [];
-  
+
   // Get fresh signed URLs for all reference images
   const signedImageUrls = await Promise.all(
     referenceImageRefs.map(async (gcsUri: string) => {
       try {
         // If it's a raw GCS URL (not containing signature parameters), get a fresh signed URL
         if (gcsUri.includes('storage.googleapis.com') &&
-            !gcsUri.includes('GoogleAccessId') &&
-            !gcsUri.includes('Signature')) {
+          !gcsUri.includes('GoogleAccessId') &&
+          !gcsUri.includes('Signature')) {
           console.log('Getting fresh signed URL for GCS image:', gcsUri);
           const signedUrl = await ClickatronGCSManager.getSignedUrl(gcsUri);
           console.log('Got signed URL:', signedUrl);
@@ -401,6 +752,6 @@ export async function processReferenceImages(
       }
     })
   );
-  
+
   return signedImageUrls;
 }

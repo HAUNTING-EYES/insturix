@@ -10,7 +10,6 @@ interface MotionWrapperProps {
 export default function MotionWrapper({ children }: MotionWrapperProps) {
   return (
     <motion.main
-      className="grow flex items-center justify-center p-4"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}

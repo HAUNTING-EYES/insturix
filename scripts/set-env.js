@@ -53,8 +53,8 @@ try {
 
   // Set NODE_ENV based on the file name (using standard values)
   let nodeEnv = 'development';
-  if (envFile === '.env.preview') nodeEnv = 'development'; // Use development for preview
-  if (envFile === '.env.production') nodeEnv = 'production';
+  if (envFile === 'preview.env') nodeEnv = 'development'; // Use development for preview
+  if (envFile === 'production.env') nodeEnv = 'production';
 
   // Run the appropriate command
   const commandArgs = process.argv.slice(3);
@@ -68,10 +68,10 @@ try {
   const args = commandArgs.slice(1);
 
   console.log(`🚀 Running: ${command} ${args.join(' ')}`);
-  
+
   // Set the NODE_ENV environment variable
   const env = { ...process.env, NODE_ENV: nodeEnv };
-  
+
   // Spawn the command as a child process
   const child = spawn(command, args, {
     stdio: 'inherit',

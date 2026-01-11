@@ -35,6 +35,7 @@ interface ImageDisplayProps {
   alt?: string;
   className?: string;
   fallback?: React.ReactNode;
+  prompt?: string;
   status?: "generating" | "completed" | "failed" | "blank";
   variationId?: string;
   fineTuning?: {
@@ -49,15 +50,34 @@ interface ImageDisplayProps {
    * Useful for small thumbnails in galleries.
    */
   interactive?: boolean;
+  /**
+   * Optional explicit width for the image
+   */
+  width?: number;
+  /**
+   * Optional explicit height for the image
+   */
+  height?: number;
+  /**
+   * Callback when image loads with natural dimensions
+   */
+  onImageLoad?: (dimensions: { width: number; height: number }) => void;
 }
 
 // Cache for storing object URLs to prevent unnecessary re-fetching
+// Helper for truncating long prompts
+const truncatePrompt = (str: string, length: number = 100) => {
+  if (!str) return "";
+  if (str.length <= length) return str;
+  return str.slice(0, length) + "...";
+};
 
 export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
   (
     {
       imageRef,
       alt = "Generated image",
+      prompt,
       aspectRatio,
       className = "",
       fallback,
@@ -65,11 +85,15 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       variationId,
       fineTuning = { brightness: 100, contrast: 100, saturation: 100 },
       interactive = true,
+      width: explicitWidth,
+      height: explicitHeight,
+      onImageLoad,
     },
     ref
   ) => {
     const [proxyUrl, setProxyUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [imageLoaded, setImageLoaded] = useState(false);
     const [dimensions, setDimensions] = useState({ width: 800, height: 450 });
     const currentImageRef = useRef<string | null>(null);
 
@@ -110,9 +134,14 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         }
       }
     }, []);
-  
-    // Calculate dimensions based on aspectRatio
+
+    // Calculate dimensions based on aspectRatio or use explicit props
     useEffect(() => {
+      if (explicitWidth && explicitHeight) {
+        setDimensions({ width: explicitWidth, height: explicitHeight });
+        return;
+      }
+
       if (aspectRatio) {
         const updateDimensions = () => {
           const containerWidth = Math.min(window.innerWidth - 400, 1200); // Account for sidebars
@@ -124,12 +153,12 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           );
           setDimensions({ width, height });
         };
-  
+
         updateDimensions();
         window.addEventListener("resize", updateDimensions);
         return () => window.removeEventListener("resize", updateDimensions);
       }
-    }, [aspectRatio]);
+    }, [aspectRatio, explicitWidth, explicitHeight]);
 
     // Construct proxy URL for imageRef
     useEffect(() => {
@@ -146,60 +175,62 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         setProxyUrl(`/api/proxy/image?path=${encodedPath}`);
         currentImageRef.current = imageRef;
         setIsLoading(status === "generating"); // Show loading for generating, hide for completed
+        setImageLoaded(false); // Reset image loaded state when image changes
       } else {
         setProxyUrl(null);
         setIsLoading(false);
+        setImageLoaded(false);
       }
     }, [imageRef, status]);
 
     // Generate SVG table values from curve points
     const getCurveTableValues = (points: CurvePoint[] | undefined) => {
-        if (!points || points.length < 2) return "0 1"; // Linear default
+      if (!points || points.length < 2) return "0 1"; // Linear default
 
-        // Sort points by x
-        const sortedPoints = [...points].sort((a, b) => a.x - b.x);
-        
-        // Generate lookup table (256 values)
-        const values = [];
-        for (let i = 0; i < 256; i++) {
-            const x = i / 255;
-            
-            // Find segment
-            let p0 = sortedPoints[0];
-            let p1 = sortedPoints[1];
-            
-            for (let j = 0; j < sortedPoints.length - 1; j++) {
-                if (x >= sortedPoints[j].x && x <= sortedPoints[j+1].x) {
-                    p0 = sortedPoints[j];
-                    p1 = sortedPoints[j+1];
-                    break;
-                }
-            }
-            
-            // Linear interpolation for now (matching editor visualization)
-            // Can be upgraded to spline if editor uses spline
-            const t = (x - p0.x) / (p1.x - p0.x || 1);
-            const y = p0.y + t * (p1.y - p0.y);
-            
-            values.push(Math.max(0, Math.min(1, y)));
+      // Sort points by x
+      const sortedPoints = [...points].sort((a, b) => a.x - b.x);
+
+      // Generate lookup table (256 values)
+      const values = [];
+      for (let i = 0; i < 256; i++) {
+        const x = i / 255;
+
+        // Find segment
+        let p0 = sortedPoints[0];
+        let p1 = sortedPoints[1];
+
+        for (let j = 0; j < sortedPoints.length - 1; j++) {
+          if (x >= sortedPoints[j].x && x <= sortedPoints[j + 1].x) {
+            p0 = sortedPoints[j];
+            p1 = sortedPoints[j + 1];
+            break;
+          }
         }
-        
-        return values.join(" ");
+
+        // Linear interpolation for now (matching editor visualization)
+        // Can be upgraded to spline if editor uses spline
+        const t = (x - p0.x) / (p1.x - p0.x || 1);
+        const y = p0.y + t * (p1.y - p0.y);
+
+        values.push(Math.max(0, Math.min(1, y)));
+      }
+
+      return values.join(" ");
     };
 
     // Combine master curve with channel curves
     const getChannelValues = (channelPoints: CurvePoint[] | undefined, masterPoints: CurvePoint[] | undefined) => {
-        // This is a simplification. True combination requires applying master curve to RGB, 
-        // but SVG filters apply them in parallel or sequentially.
-        // A common way is to chain filters, but here we can try to combine them mathematically 
-        // or just apply channel curves if master is default, etc.
-        // Better approach for SVG:
-        // Use feComponentTransfer for R, G, B channels.
-        // Master curve affects all channels. We can't easily combine two table lookups in one feComponentTransfer primitive 
-        // without complex math or multiple filter primitives.
-        // Let's use two feComponentTransfer primitives: one for channels, one for master.
-        
-        return getCurveTableValues(channelPoints);
+      // This is a simplification. True combination requires applying master curve to RGB, 
+      // but SVG filters apply them in parallel or sequentially.
+      // A common way is to chain filters, but here we can try to combine them mathematically 
+      // or just apply channel curves if master is default, etc.
+      // Better approach for SVG:
+      // Use feComponentTransfer for R, G, B channels.
+      // Master curve affects all channels. We can't easily combine two table lookups in one feComponentTransfer primitive 
+      // without complex math or multiple filter primitives.
+      // Let's use two feComponentTransfer primitives: one for channels, one for master.
+
+      return getCurveTableValues(channelPoints);
     };
 
     const masterValues = useMemo(() => getCurveTableValues(fineTuning.curves?.master), [fineTuning.curves?.master]);
@@ -209,6 +240,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     const filterId = `curves-${variationId || 'default'}`;
 
+    // Style object for maintaining aspect ratio based on calculated dimensions
+    const aspectRatioStyle: React.CSSProperties = {
+      width: `${dimensions.width}px`,
+      height: `${dimensions.height}px`,
+    };
 
     if (isLoading) {
       return (
@@ -217,13 +253,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         >
           {/* Ambient background gradient */}
           <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60 rounded-xl" />
-          
+
           <div className="text-center relative z-10">
             {/* Enhanced loading animation */}
             <div className="relative mb-4">
               {/* Outer glow ring */}
               <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-purple-500/20 blur-lg animate-pulse" />
-              
+
               {/* Main spinner */}
               <div className="relative w-16 h-16 mx-auto">
                 <svg className="w-16 h-16 animate-spin" viewBox="0 0 64 64">
@@ -251,30 +287,30 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                     strokeDashoffset="44"
                   />
                 </svg>
-                
+
                 {/* Center icon */}
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Sparkles className="h-6 w-6 text-purple-400 animate-pulse" />
                 </div>
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <div className="text-zinc-300 font-medium">
                 {status === "generating" ? "Creating your thumbnail..." : "Loading image..."}
               </div>
-              
+
               {status === "generating" && (
                 <div className="text-zinc-500 text-sm">
                   AI is working its magic
                 </div>
               )}
-              
+
               {/* Progress bar for generation */}
               {status === "generating" && (
                 <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
-                  <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full animate-pulse" 
-                       style={{ width: "60%", animation: 'pulse 2s infinite' }} />
+                  <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full animate-pulse"
+                    style={{ width: "60%", animation: 'pulse 2s infinite' }} />
                 </div>
               )}
             </div>
@@ -290,7 +326,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         >
           {/* Ambient background gradient */}
           <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 to-orange-500/5 opacity-40 rounded-xl" />
-          
+
           <div className="text-center relative z-10 p-6">
             {/* Error icon with glow */}
             <div className="relative mb-4">
@@ -299,13 +335,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                 <AlertTriangle className="h-6 w-6 text-red-400" />
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <div className="text-red-300 font-medium">Generation Failed</div>
               <div className="text-red-400/70 text-sm max-w-xs mx-auto">
                 Something went wrong while creating your thumbnail
               </div>
-              
+
               {/* Retry hint */}
               <div className="mt-4 text-xs text-red-500/60">
                 Try adjusting your prompt or generating again
@@ -348,8 +384,10 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`,
         `url(#${filterId})`
       ].filter(Boolean).join(' '),
+      width: explicitWidth ? `${explicitWidth}px` : undefined,
+      height: explicitHeight ? `${explicitHeight}px` : undefined,
     };
-  
+
     // For generating without imageRef (new variation), show generating placeholder
     if (status === 'generating' && !imageRef) {
       return (
@@ -364,7 +402,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         >
           {/* Ambient background */}
           <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 to-blue-500/5 opacity-60" />
-          
+
           {/* Loading indicator - centered */}
           <div className="relative z-10 flex flex-col items-center justify-center space-y-4">
             <div className="w-16 h-16 flex items-center justify-center">
@@ -405,22 +443,22 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       <div className="relative w-full h-full">
         {/* SVG Filters for Curves */}
         <svg className="absolute w-0 h-0">
-            <defs>
-                <filter id={filterId} colorInterpolationFilters="sRGB">
-                    {/* Channel Curves */}
-                    <feComponentTransfer>
-                        <feFuncR type="table" tableValues={redValues} />
-                        <feFuncG type="table" tableValues={greenValues} />
-                        <feFuncB type="table" tableValues={blueValues} />
-                    </feComponentTransfer>
-                    {/* Master Curve (applied to all channels equally) */}
-                    <feComponentTransfer>
-                        <feFuncR type="table" tableValues={masterValues} />
-                        <feFuncG type="table" tableValues={masterValues} />
-                        <feFuncB type="table" tableValues={masterValues} />
-                    </feComponentTransfer>
-                </filter>
-            </defs>
+          <defs>
+            <filter id={filterId} colorInterpolationFilters="sRGB">
+              {/* Channel Curves */}
+              <feComponentTransfer>
+                <feFuncR type="table" tableValues={redValues} />
+                <feFuncG type="table" tableValues={greenValues} />
+                <feFuncB type="table" tableValues={blueValues} />
+              </feComponentTransfer>
+              {/* Master Curve (applied to all channels equally) */}
+              <feComponentTransfer>
+                <feFuncR type="table" tableValues={masterValues} />
+                <feFuncG type="table" tableValues={masterValues} />
+                <feFuncB type="table" tableValues={masterValues} />
+              </feComponentTransfer>
+            </filter>
+          </defs>
         </svg>
 
         {/* Main image container with overlay inside for proper positioning */}
@@ -444,22 +482,110 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               wrapperClass="relative w-full h-full flex items-center justify-center"
               contentClass="flex items-center justify-center"
             >
-              <img
-                src={proxyUrl ?? undefined}
-                alt=""
-                className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
-                style={imageStyle}
-                draggable={false}
-              />
+              <div className="relative w-full h-full" style={aspectRatioStyle}>
+                {/* Gradient placeholder - shows immediately */}
+                {!imageLoaded && (
+                  <div
+                    className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse"
+                  />
+                )}
+                {/* Blurred image placeholder - shows once image starts loading */}
+                {!imageLoaded && proxyUrl && (
+                  <img
+                    src={proxyUrl}
+                    alt=""
+                    className="absolute inset-0 rounded-lg"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      filter: 'blur(20px) brightness(0.6) saturate(1.2)',
+                      transform: 'scale(1.05)',
+                      opacity: 0.8,
+                    }}
+                    aria-hidden="true"
+                  />
+                )}
+                {/* Actual sharp image */}
+                <img
+                  src={proxyUrl ?? undefined}
+                  alt={alt}
+                  loading="eager"
+                  decoding="sync"
+                  fetchPriority="high"
+                  className={`${className} select-none rounded-lg relative z-10`}
+                  style={{
+                    ...imageStyle,
+                    width: '100%',
+                    height: '100%',
+                    opacity: imageLoaded ? 1 : 0,
+                    filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
+                    transition: "opacity 500ms ease, filter 500ms ease",
+                  }}
+                  onLoad={(e) => {
+                    setImageLoaded(true);
+                    e.currentTarget.style.opacity = '1';
+                    e.currentTarget.style.filter = imageStyle.filter || '';
+                    const img = e.currentTarget;
+                    if (onImageLoad && img.naturalWidth && img.naturalHeight) {
+                      onImageLoad({ width: img.naturalWidth, height: img.naturalHeight });
+                    }
+                  }}
+                  draggable={false}
+                />
+              </div>
             </TransformComponent>
           </TransformWrapper>
         ) : (
-          <div className="relative w-full h-full flex items-center justify-center">
+          <div className="relative w-full h-full flex items-center justify-center" style={aspectRatioStyle}>
+            {/* Gradient placeholder - shows immediately */}
+            {!imageLoaded && (
+              <div
+                className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse"
+              />
+            )}
+            {/* Blurred image placeholder - shows once image starts loading */}
+            {!imageLoaded && proxyUrl && (
+              <img
+                src={proxyUrl}
+                alt=""
+                className="absolute inset-0 rounded-lg"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'cover',
+                  filter: 'blur(20px) brightness(0.6) saturate(1.2)',
+                  transform: 'scale(1.05)',
+                  opacity: 0.8,
+                }}
+                aria-hidden="true"
+              />
+            )}
+            {/* Actual sharp image */}
             <img
               src={proxyUrl ?? undefined}
-              alt=""
-              className={`${className} select-none max-w-full max-h-full ${status === 'generating' ? 'object-cover' : 'object-contain'}`}
-              style={imageStyle}
+              alt={alt}
+              loading="lazy"
+              decoding="async"
+              fetchPriority="low"
+              className={`${className} select-none rounded-lg relative z-10`}
+              style={{
+                ...imageStyle,
+                width: '100%',
+                height: '100%',
+                opacity: imageLoaded ? 1 : 0,
+                filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
+                transition: "opacity 500ms ease, filter 500ms ease",
+              }}
+              onLoad={(e) => {
+                setImageLoaded(true);
+                e.currentTarget.style.opacity = '1';
+                e.currentTarget.style.filter = imageStyle.filter || '';
+                const img = e.currentTarget;
+                if (onImageLoad && img.naturalWidth && img.naturalHeight) {
+                  onImageLoad({ width: img.naturalWidth, height: img.naturalHeight });
+                }
+              }}
               draggable={false}
             />
           </div>
@@ -470,7 +596,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           <div className="absolute inset-0 pointer-events-none">
             {/* Base subtle tint for better visibility */}
             <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 via-cyan-500/5 to-yellow-500/5"></div>
-            
+
             {/* Animated pastel mesh gradient overlay - increased opacity for visibility */}
             {/* Layer 1: Pink to turquoise flow */}
             <div
@@ -491,7 +617,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <div className="absolute inset-0 opacity-20 bg-[linear-gradient(135deg,#a7e6ff40_0%,#b5f2ff40_30%,#fff3cd40_60%,transparent_100%)] animate-shimmer bg-[length:300%_300%]"></div>
             {/* Subtle noise for AI texture */}
             <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg width=%2260%22 height=%2260%22 viewBox=%220 0 60 60%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cg fill=%22none%22 fill-rule=%22evenodd%22%3E%3Cg fill=%22%23ffffff%22 fill-opacity=%220.1%22%3E%3Ccircle cx=%2230%22 cy=%2230%22 r=%221%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')] animate-pulse"></div>
-            
+
             {/* Generating text overlay with enhanced visibility */}
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-center bg-black/50 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl relative">
@@ -501,6 +627,18 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                   {imageRef ? "AI weaving magic into your edit" : "Creating your thumbnail..."}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Prompt Overlay - Show on hover or if interactive */}
+        {status === "completed" && prompt && (
+          <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+            <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
+              <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">Prompt</div>
+              <p className="text-sm text-white/90 leading-relaxed line-clamp-3">
+                {prompt}
+              </p>
             </div>
           </div>
         )}
