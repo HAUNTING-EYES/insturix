@@ -61,7 +61,7 @@ export function useUploaderXUpload() {
       }
 
       const { url: signedUrl, gcsPath, videoUuid, publicUrl } = await signResponse.json();
-console.log("✅ Signed URL data received:", { gcsPath, videoUuid, publicUrl });
+      console.log("✅ Signed URL data received:", { gcsPath, videoUuid, publicUrl });
       // Step 2: Upload file directly to GCS using signed URL
       const uploadResponse = await fetch(signedUrl, {
         method: 'PUT',
@@ -69,9 +69,9 @@ console.log("✅ Signed URL data received:", { gcsPath, videoUuid, publicUrl });
         headers: {
           'Content-Type': file.type,
         },
-        
+
       });
-console.log('✅ Upload successful!');
+      console.log('✅ Upload successful!');
 
       if (!uploadResponse.ok) {
         throw new Error('Failed to upload file to GCS');
@@ -111,7 +111,7 @@ console.log('✅ Upload successful!');
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Upload failed';
-      
+
       toast({
         title: 'Upload failed',
         description: errorMessage,
@@ -158,14 +158,14 @@ console.log('✅ Upload successful!');
       }
 
       const { url: signedUrl, gcsPath, videoUuid, publicUrl } = await signResponse.json();
-const uploadId = crypto.randomUUID();
-// Initialize progress = 0 in Redis
-await updateProgressInRedis(uploadId, 0);
+      const uploadId = crypto.randomUUID();
+      // Initialize progress = 0 in Redis
+      await updateProgressInRedis(uploadId, 0);
       // Step 2: Upload with progress tracking using XMLHttpRequest
       return new Promise((resolve) => {
         const xhr = new XMLHttpRequest();
 
-        xhr.upload.addEventListener('progress',async (event) => {
+        xhr.upload.addEventListener('progress', async (event) => {
           if (event.lengthComputable) {
             const progress = {
               loaded: event.loaded,
@@ -174,7 +174,7 @@ await updateProgressInRedis(uploadId, 0);
             };
             setUploadProgress(progress);
             onProgress?.(progress);
-             await updateProgressInRedis(uploadId, progress.percentage);
+            await updateProgressInRedis(uploadId, progress.percentage);
           }
         });
 
@@ -243,7 +243,7 @@ await updateProgressInRedis(uploadId, 0);
             error: errorMessage,
           });
         });
-console.log('Uploading to:', signedUrl);
+        console.log('Uploading to:', signedUrl);
 
         xhr.open('PUT', signedUrl);
         // xhr.setRequestHeader('Content-Type', file.type);
@@ -252,7 +252,7 @@ console.log('Uploading to:', signedUrl);
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Upload failed';
-      
+
       toast({
         title: 'Upload failed',
         description: errorMessage,
@@ -269,9 +269,40 @@ console.log('Uploading to:', signedUrl);
     }
   }, [toast]);
 
+  const uploadToYouTube = useCallback(async (
+    videoUuid: string,
+    gcsPath: string,
+    filename: string,
+    accessToken: string
+  ) => {
+    try {
+      const res = await fetch("/api/services/uploaderx/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath,
+          filename,
+          videoUuid,
+          accessToken,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to upload to YouTube");
+      }
+
+      return { success: true, youtubeUrl: data.youtubeUrl };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'YouTube upload failed';
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   return {
     uploadVideo,
     uploadWithProgress,
+    uploadToYouTube,
     isUploading,
     uploadProgress,
   };

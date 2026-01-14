@@ -8,10 +8,14 @@ export async function POST(req: Request) {
     const { filename, contentType } = await req.json();
     const videoUuid = uuidv4(); // ✅ generate unique video ID
 
-    const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS!;
+    const credentialsJson = Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS!, 'base64').toString();
+    const credentials = JSON.parse(credentialsJson);
     const bucketName = process.env.GCS_BUCKET_NAME!;
 
-    const storage = new Storage({ keyFilename: credentialsPath });
+    const storage = new Storage({
+      projectId: process.env.GOOGLE_CLOUD_PROJECT,
+      credentials
+    });
     const bucket = storage.bucket(bucketName);
     const gcsPath = `${videoUuid}/${filename}`;
     const file = bucket.file(gcsPath);
@@ -30,7 +34,7 @@ export async function POST(req: Request) {
       success: true,
       url,
       gcsPath,
-      videoUuid,  
+      videoUuid,
       publicUrl,
     });
   } catch (error) {

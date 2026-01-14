@@ -4,9 +4,9 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
-    const { gcsPath, title, description, accessToken } = await req.json();
-
-  
+    const body = await req.json();
+    const { gcsPath, title, description, accessToken } = body;
+    console.log("🚀 Starting YouTube Upload:", { gcsPath, title, hasToken: !!accessToken });
 
     if (!gcsPath || !accessToken) {
       return NextResponse.json({ success: false, error: "Missing gcsPath or accessToken" }, { status: 400 });
@@ -18,13 +18,24 @@ export async function POST(req: Request) {
 
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
+    const credentialsJson = Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS!, 'base64').toString();
+    const credentials = JSON.parse(credentialsJson);
+
     const storage = new Storage({
       projectId: process.env.GOOGLE_CLOUD_PROJECT,
-      keyFilename: process.env.GOOGLE_CLOUD_CREDENTIALS,
+      credentials,
     });
 
     const bucket = storage.bucket(process.env.GCS_BUCKET_NAME!);
     const file = bucket.file(gcsPath);
+
+    // Check if file exists
+    const [exists] = await file.exists();
+    if (!exists) {
+      console.error("❌ GCS File not found:", gcsPath);
+      return NextResponse.json({ success: false, error: "File not found in GCS" }, { status: 404 });
+    }
+
     const stream = file.createReadStream();
 
     // ✅ Upload to YouTube
@@ -37,12 +48,13 @@ export async function POST(req: Request) {
       media: { body: stream },
     });
 
+    console.log("✅ YouTube Upload Success. Video ID:", res.data.id);
     const videoId = res.data.id;
     const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
     return NextResponse.json({ success: true, youtubeUrl });
   } catch (error: any) {
-    console.error("❌ YouTube upload failed:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    console.error("❌ YouTube upload failed:", error.response ? error.response.data : error.message);
+    return NextResponse.json({ success: false, error: error.message, details: error.response?.data }, { status: 500 });
   }
 }

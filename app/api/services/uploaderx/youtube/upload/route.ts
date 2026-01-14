@@ -7,7 +7,7 @@ import { Storage } from "@google-cloud/storage";
 export async function POST(req: Request) {
   try {
     const { email, gcsPath, title, description, tokens } = await req.json();
-   
+
     // ✅ Check GCS + YouTube credentials
     if (
       !process.env.YOUTUBE_CLIENT_ID ||
@@ -60,9 +60,13 @@ export async function POST(req: Request) {
     const youtube = google.youtube({ version: "v3", auth: oauth2Client });
 
     // ✅ GCS Storage setup
+    // ✅ GCS Storage setup
+    const credentialsJson = Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS!, 'base64').toString();
+    const credentials = JSON.parse(credentialsJson);
+
     const storage = new Storage({
       projectId: process.env.GOOGLE_CLOUD_PROJECT!,
-      keyFilename: process.env.GOOGLE_CLOUD_CREDENTIALS!,
+      credentials,
     });
 
     // ✅ Read file from GCS
@@ -96,7 +100,7 @@ export async function POST(req: Request) {
       );
     }
 
-  
+
 
     return NextResponse.json({
       success: true,

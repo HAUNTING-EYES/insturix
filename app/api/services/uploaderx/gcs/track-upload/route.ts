@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import connectToDatabase from "@/schemas/ConnectToDatabase";
 import UploaderX from "@/schemas/uploaderx";
 
 export async function POST(request: Request) {
   try {
-    const session = await auth();
-    if (!session?.userId) {
+    const user = await currentUser();
+    const { userId } = await auth();
+
+    if (!userId || !user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
 
     // 🟡 Case 1: Only progress update
     if (progress !== undefined && (!filename || !gcsPath)) {
-     
+
       return NextResponse.json({ success: true, message: "Progress updated" });
     }
 
@@ -28,8 +30,15 @@ export async function POST(request: Request) {
 
     await connectToDatabase();
 
+    // Get primary email
+    const email = user.emailAddresses[0]?.emailAddress;
+    if (!email) {
+      return NextResponse.json({ success: false, error: "User email not found" }, { status: 400 });
+    }
+
     const upload = await UploaderX.create({
-      userId: session.userId,
+      userId,
+      email, // ✅ Added required email field
       videoUuid,
       filename,
       gcsPath,
@@ -40,11 +49,21 @@ export async function POST(request: Request) {
       uploadedAt: new Date(),
     });
 
-   
+
 
     return NextResponse.json({ success: true, data: upload });
   } catch (error) {
-    console.error("❌ Error saving upload:", error);
-    return NextResponse.json({ success: false, error: "Failed to track upload" }, { status: 500 });
+    const err = error as any;
+    console.error("❌ Error saving upload:", {
+      message: err.message,
+      stack: err.stack,
+      name: err.name,
+      errors: err.errors // Mongoose validation errors
+    });
+    return NextResponse.json({
+      success: false,
+      error: "Failed to track upload",
+      details: err.message
+    }, { status: 500 });
   }
 }

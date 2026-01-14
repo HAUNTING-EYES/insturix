@@ -9,15 +9,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { VideoPlayer } from "./VideoPlayer";
 import { PlatformEditor } from "./PlatformEditor";
-import { 
-  Video, 
-  Search, 
-  Filter, 
-  Grid, 
-  List, 
-  Upload, 
-  Edit, 
-  Trash2, 
+import {
+  Video,
+  Search,
+  Filter,
+  Grid,
+  List,
+  Upload,
+  Edit,
+  Trash2,
   Download,
   Calendar,
   FileText,
@@ -55,10 +55,10 @@ interface VideoManagerProps {
   onDeleteVideo?: (videoUuid: string) => void;
 }
 
-export function VideoManager({ 
-  onUploadNew, 
-  onEditVideo, 
-  onDeleteVideo 
+export function VideoManager({
+  onUploadNew,
+  onEditVideo,
+  onDeleteVideo
 }: VideoManagerProps) {
   const { toast } = useToast();
   const [videos, setVideos] = useState<VideoItem[]>([]);
@@ -69,8 +69,8 @@ export function VideoManager({
   const [selectedVideo, setSelectedVideo] = useState<VideoItem | null>(null);
   const [showEditor, setShowEditor] = useState(false);
   const [deletingVideo, setDeletingVideo] = useState<string | null>(null);
-const [showUploadDialog, setShowUploadDialog] = useState(false);
-const [uploadedVideoLink, setUploadedVideoLink] = useState("");
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [uploadedVideoLink, setUploadedVideoLink] = useState("");
 
   // Fetch videos from API
   useEffect(() => {
@@ -78,21 +78,33 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
       try {
         setLoading(true);
         const response = await fetch('/api/services/uploaderx/videos');
-        
+
         if (!response.ok) {
-          throw new Error('Failed to fetch videos');
+          const text = await response.text();
+          console.error(`[VideoFetch] Error ${response.status}:`, text);
+          throw new Error(`Failed to fetch videos: ${response.status}`);
         }
-        
+
+        const contentType = response.headers.get("content-type");
+        if (!contentType || !contentType.includes("application/json")) {
+          const text = await response.text();
+          console.error("[VideoFetch] Invalid content-type:", contentType, text.substring(0, 100));
+          throw new Error("Received non-JSON response from server");
+        }
+
         const data = await response.json();
-        
+        console.log("[VideoFetch] Data received:", data);
+
         if (data.success) {
           // Convert uploadedAt strings to Date objects
           const videosWithDates = data.videos.map((video: any) => ({
             ...video,
+            fileSize: video.size || video.fileSize || 0, // ✅ Fix: Map 'size' from DB to 'fileSize' for UI
             uploadedAt: video.uploadedAt ? new Date(video.uploadedAt) : new Date()
           }));
           setVideos(videosWithDates);
         } else {
+          console.error("[VideoFetch] API returned detailed error:", data);
           throw new Error(data.error || 'Failed to fetch videos');
         }
       } catch (error) {
@@ -103,7 +115,7 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
           variant: "destructive",
         });
         setVideos([]);
-        
+
         // Show a helpful message for debugging
         console.log('Debug info:', {
           error: error instanceof Error ? error.message : String(error),
@@ -115,6 +127,24 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
     };
 
     fetchVideos();
+    fetchVideos();
+  }, [toast]);
+
+  // 🔑 Capture YouTube Token from URL (OAuth Callback)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get("token");
+    if (token) {
+      localStorage.setItem("youtube_token", token);
+      toast({
+        title: "YouTube Connected",
+        description: "Your account has been successfully linked.",
+      });
+      console.log("✅ YouTube token saved:", token);
+
+      // Clean URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, [toast]);
 
   const filteredVideos = videos.filter(video => {
@@ -135,7 +165,7 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
     if (window.confirm('Are you sure you want to delete this video? This action cannot be undone.')) {
       try {
         setDeletingVideo(videoUuid);
-        
+
         const response = await fetch('/api/services/uploaderx/videos', {
           method: 'DELETE',
           headers: {
@@ -151,12 +181,12 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
 
         // Remove from local state
         setVideos(prev => prev.filter(v => v.videoUuid !== videoUuid));
-        
+
         toast({
           title: "Video deleted",
           description: "The video has been successfully deleted.",
         });
-        
+
         if (onDeleteVideo) {
           onDeleteVideo(videoUuid);
         }
@@ -186,13 +216,13 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
     try {
       setLoading(true);
       const response = await fetch('/api/services/uploaderx/videos');
-      
+
       if (!response.ok) {
         throw new Error('Failed to fetch videos');
       }
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         // Convert uploadedAt strings to Date objects
         const videosWithDates = data.videos.map((video: any) => ({
@@ -243,61 +273,61 @@ const [uploadedVideoLink, setUploadedVideoLink] = useState("");
     const mb = bytes / (1024 * 1024);
     return `${mb.toFixed(1)} MB`;
   };
-// ================== 📺 Upload to YouTube ===================
-const handleYouTubeUpload = async (video: VideoItem) => {
-  try {
-    // 1. Get existing token or redirect to OAuth
-    let accessToken = localStorage.getItem("youtube_token");
-    if (!accessToken) {
+  // ================== 📺 Upload to YouTube ===================
+  const handleYouTubeUpload = async (video: VideoItem) => {
+    try {
+      // 1. Get existing token or redirect to OAuth
+      let accessToken = localStorage.getItem("youtube_token");
+      if (!accessToken) {
+        toast({
+          title: "Connecting to YouTube...",
+          description: "Please authorize YouTube access in a new tab.",
+        });
+        window.location.href = "/api/services/uploaderx/youtube/auth"; // redirect to OAuth
+        return;
+      }
+
+      // 2. Send video details to backend route for YouTube upload
       toast({
-        title: "Connecting to YouTube...",
-        description: "Please authorize YouTube access in a new tab.",
-      });
-      window.location.href ="/api/services/uploaderx/youtube/auth"; // redirect to OAuth
-      return;
-    }
-
-    // 2. Send video details to backend route for YouTube upload
-    toast({
-      title: "Uploading to YouTube...",
-      description: `Sending ${video.filename} to your YouTube channel.`,
-    });
-
-    const res = await fetch("/api/services/uploaderx/youtube", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        gcsPath: video.gcsPath,
-        filename: video.filename,
-        videoUuid: video.videoUuid,
-        accessToken,
-      }),
-    });
-
-    const data = await res.json();
-    if (data.success) {
-      toast({
-        title: "✅ Uploaded to YouTube",
-        description: `Your video is live on YouTube!`,
+        title: "Uploading to YouTube...",
+        description: `Sending ${video.filename} to your YouTube channel.`,
       });
 
-      console.log("🎬 YouTube Link:", data.youtubeUrl);
-      // alert(`🎥 Video uploaded successfully!\n\nYouTube Link: ${data.youtubeUrl}`);
-      setUploadedVideoLink(data.youtubeUrl);
-setShowUploadDialog(true);
+      const res = await fetch("/api/services/uploaderx/youtube", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath: video.gcsPath,
+          filename: video.filename,
+          videoUuid: video.videoUuid,
+          accessToken,
+        }),
+      });
 
-    } else {
-      throw new Error(data.error || "Failed to upload to YouTube");
+      const data = await res.json();
+      if (data.success) {
+        toast({
+          title: "✅ Uploaded to YouTube",
+          description: `Your video is live on YouTube!`,
+        });
+
+        console.log("🎬 YouTube Link:", data.youtubeUrl);
+        // alert(`🎥 Video uploaded successfully!\n\nYouTube Link: ${data.youtubeUrl}`);
+        setUploadedVideoLink(data.youtubeUrl);
+        setShowUploadDialog(true);
+
+      } else {
+        throw new Error(data.error || "Failed to upload to YouTube");
+      }
+    } catch (err) {
+      console.error("❌ YouTube upload error:", err);
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "YouTube upload failed",
+        variant: "destructive",
+      });
     }
-  } catch (err) {
-    console.error("❌ YouTube upload error:", err);
-    toast({
-      title: "Upload failed",
-      description: err instanceof Error ? err.message : "YouTube upload failed",
-      variant: "destructive",
-    });
-  }
-};
+  };
 
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
@@ -322,9 +352,9 @@ setShowUploadDialog(true);
           <p className="text-zinc-400">Manage and edit your uploaded videos</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button 
-            onClick={refreshVideos} 
-            variant="outline" 
+          <Button
+            onClick={refreshVideos}
+            variant="outline"
             disabled={loading}
             className="border-zinc-800 text-zinc-200 hover:bg-zinc-800"
           >
@@ -349,7 +379,7 @@ setShowUploadDialog(true);
             className="pl-10"
           />
         </div>
-        
+
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
@@ -425,7 +455,7 @@ setShowUploadDialog(true);
                           {getStatusText(video.status)}
                         </Badge>
                       </div>
-                      
+
                       <div className="flex items-center gap-4 text-sm text-zinc-400">
                         <span>{formatFileSize(video.fileSize)}</span>
                         {video.metadata?.duration && (
@@ -464,7 +494,7 @@ setShowUploadDialog(true);
                         >
                           <Download className="h-4 w-4" />
                         </Button>
-                         
+
                       </div>
                     </div>
                   </div>
@@ -475,7 +505,7 @@ setShowUploadDialog(true);
                       <div className="w-16 h-12 bg-zinc-800 rounded flex items-center justify-center">
                         <Video className="h-6 w-6 text-zinc-400" />
                       </div>
-                      
+
                       <div className="flex-1 min-w-0">
                         <h3 className="font-medium text-zinc-200 truncate">{video.filename}</h3>
                         <div className="flex items-center gap-4 text-sm text-zinc-400 mt-1">
@@ -549,11 +579,11 @@ setShowUploadDialog(true);
           </Card>
         </div>
       )}
-       <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
         <DialogContent className="bg-zinc-950 border border-zinc-800 rounded-2xl shadow-2xl text-white max-w-md mx-auto text-center">
           <DialogHeader>
             <DialogTitle className="text-2xl font-semibold text-emerald-400">
-               Video Uploaded Successfully!
+              Video Uploaded Successfully!
             </DialogTitle>
             <DialogDescription className="text-zinc-400 mt-2">
               Your video is now live on YouTube.
@@ -582,10 +612,10 @@ setShowUploadDialog(true);
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div> 
+    </div>
   );
 }
-  
+
 
 export default VideoManager;
 

@@ -8,9 +8,12 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 
 
+const credentialsJson = Buffer.from(process.env.GOOGLE_CLOUD_CREDENTIALS!, 'base64').toString();
+const credentials = JSON.parse(credentialsJson);
+
 const storage = new Storage({
   projectId: process.env.GOOGLE_CLOUD_PROJECT,
-  keyFilename: path.join(process.cwd(), process.env.GOOGLE_CLOUD_CREDENTIALS!),
+  credentials,
 });
 const bucket = storage.bucket(process.env.GCS_BUCKET_NAME!);
 
@@ -129,7 +132,7 @@ export async function DELETE(request: Request) {
     // ✅ Delete from GCS
     try {
       await bucket.file(deleted.gcsPath).delete();
-     
+
     } catch (err) {
       console.warn("⚠️ GCS deletion failed:", err);
     }

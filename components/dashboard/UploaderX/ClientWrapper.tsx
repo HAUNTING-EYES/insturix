@@ -122,6 +122,7 @@ import { useToast } from "@/hooks/use-toast";
 const UploadForm = dynamic(() => import("@/components/dashboard/UploaderX/UploadForm").then(m => m.UploadForm), { ssr: false });
 const PlatformEditor = dynamic(() => import("@/components/dashboard/UploaderX/PlatformEditor").then(m => m.PlatformEditor), { ssr: false });
 const VideoManager = dynamic(() => import("@/components/dashboard/UploaderX/VideoManager").then(m => m.VideoManager), { ssr: false });
+const YouTubeConnectionStatus = dynamic(() => import("@/components/dashboard/UploaderX/YouTubeConnectionStatus").then(m => m.YouTubeConnectionStatus), { ssr: false });
 
 export function UploaderXClientWrapper() {
   const { toast } = useToast();
@@ -166,6 +167,9 @@ export function UploaderXClientWrapper() {
 
   return (
     <div className="space-y-6">
+      {/* YouTube Connection Status */}
+      <YouTubeConnectionStatus />
+
       <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
         <CardContent className="p-0">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -194,8 +198,8 @@ export function UploaderXClientWrapper() {
             <Separator className="bg-zinc-800 my-4" />
 
             <TabsContent value="videos" className="px-4 pb-6">
-              <Suspense fallback={<div className="h-40" />}> 
-                <VideoManager 
+              <Suspense fallback={<div className="h-40" />}>
+                <VideoManager
                   onUploadNew={handleUploadNew}
                   onEditVideo={handleEditVideo}
                   onDeleteVideo={handleDeleteVideo}
@@ -204,16 +208,16 @@ export function UploaderXClientWrapper() {
             </TabsContent>
 
             <TabsContent value="upload" className="px-4 pb-6">
-              <Suspense fallback={<div className="h-40" />}> 
-                <UploadForm 
-                  platforms={supportedPlatforms as unknown as { key: string; label: string }[]} 
+              <Suspense fallback={<div className="h-40" />}>
+                <UploadForm
+                  platforms={supportedPlatforms as unknown as { key: string; label: string }[]}
                   onUploadSuccess={handleUploadSuccess}
                 />
               </Suspense>
             </TabsContent>
 
             <TabsContent value="metadata" className="px-4 pb-6">
-              <Suspense fallback={<div className="h-40" />}> 
+              <Suspense fallback={<div className="h-40" />}>
                 <PlatformEditor platforms={supportedPlatforms as unknown as { key: string; label: string }[]} />
               </Suspense>
             </TabsContent>

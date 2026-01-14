@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -23,8 +23,8 @@ interface UploadFormProps {
 
 export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
-  const { uploadWithProgress, isUploading, uploadProgress } = useUploaderXUpload();
-  
+  const { uploadWithProgress, uploadToYouTube, isUploading, uploadProgress } = useUploaderXUpload();
+
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
     instagram: true,
@@ -38,6 +38,15 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const [defaultDescription, setDefaultDescription] = useState("");
   const [defaultTags, setDefaultTags] = useState("");
   const [uploadResult, setUploadResult] = useState<{ success: boolean; videoUuid?: string; error?: string } | null>(null);
+  const [isYouTubeConnected, setIsYouTubeConnected] = useState(false);
+
+  // Check connection status on mount
+  // Check connection status on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsYouTubeConnected(!!localStorage.getItem("youtube_token"));
+    }
+  }, []);
 
   const isReady = useMemo(() => !!videoFile && Object.values(selectedPlatforms).some(Boolean), [videoFile, selectedPlatforms]);
 
@@ -58,12 +67,47 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 
       setUploadResult(result);
 
-      if (result.success) {
+      if (result.success && result.videoUuid && result.gcsPath) {
         toast({
-          title: "Upload successful",
-          description: `Video uploaded successfully. Queued for ${Object.entries(selectedPlatforms).filter(([_, v]) => v).length} platform(s).`
+          title: "GCS Upload successful",
+          description: `Video saved to storage. Processing platform uploads...`
         });
-        
+
+        console.log("🚀 Checking Auto-Upload:", {
+          youtubeSelected: selectedPlatforms.youtube,
+          hasToken: !!localStorage.getItem("youtube_token")
+        });
+
+        // 🚀 Auto-upload to YouTube if selected
+        if (selectedPlatforms.youtube) {
+          const token = localStorage.getItem("youtube_token");
+          if (token) {
+            toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
+
+            const ytResult = await uploadToYouTube(result.videoUuid, result.gcsPath, videoFile.name, token);
+
+            if (ytResult.success) {
+              toast({
+                title: "✅ YouTube Upload Complete",
+                description: "Your video is now live on YouTube (Unlisted)."
+              });
+              // Optional: Show link or open dialog
+            } else {
+              toast({
+                title: "⚠️ YouTube Upload Failed",
+                description: ytResult.error,
+                variant: "destructive"
+              });
+            }
+          } else {
+            toast({
+              title: "YouTube Skipped",
+              description: "You selected YouTube but are not connected. Please connect in settings.",
+              variant: "destructive"
+            });
+          }
+        }
+
         // Call success callback if provided
         if (onUploadSuccess && result.videoUuid) {
           onUploadSuccess(result.videoUuid);
@@ -95,15 +139,14 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <Label className="text-zinc-200">Video</Label>
-              <label className={`mt-2 flex flex-col items-center justify-center gap-3 h-40 border-2 border-dashed rounded-lg transition cursor-pointer ${
-                isUploading 
-                  ? 'border-blue-500 bg-blue-900/20 cursor-not-allowed' 
-                  : uploadResult?.success 
-                    ? 'border-green-500 bg-green-900/20' 
-                    : uploadResult?.error 
-                      ? 'border-red-500 bg-red-900/20' 
-                      : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'
-              }`}>
+              <label className={`mt-2 flex flex-col items-center justify-center gap-3 h-40 border-2 border-dashed rounded-lg transition cursor-pointer ${isUploading
+                ? 'border-blue-500 bg-blue-900/20 cursor-not-allowed'
+                : uploadResult?.success
+                  ? 'border-green-500 bg-green-900/20'
+                  : uploadResult?.error
+                    ? 'border-red-500 bg-red-900/20'
+                    : 'border-zinc-800 bg-zinc-900/40 hover:bg-zinc-900/60'
+                }`}>
                 {isUploading ? (
                   <div className="flex flex-col items-center gap-2">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-400"></div>
@@ -142,15 +185,15 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                     </div>
                   </>
                 )}
-                <Input 
-                  type="file" 
-                  accept="video/*" 
-                  className="hidden" 
+                <Input
+                  type="file"
+                  accept="video/*"
+                  className="hidden"
                   disabled={isUploading}
                   onChange={(e) => {
                     setVideoFile(e.target.files?.[0] || null);
                     setUploadResult(null);
-                  }} 
+                  }}
                 />
               </label>
               {videoFile && !isUploading && (
@@ -227,6 +270,22 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 );
               })}
             </div>
+            {/* 🔗 Connection Warning / Button */}
+            {selectedPlatforms.youtube && !isYouTubeConnected && (
+              <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex items-center justify-between">
+                <div className="text-xs text-yellow-200">
+                  <span className="font-semibold">Not Connected:</span> Link YouTube to auto-upload.
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => window.location.href = "/api/services/uploaderx/youtube/auth"}
+                  className="h-7 text-xs border-yellow-500/50 text-yellow-200 hover:bg-yellow-900/40"
+                >
+                  Connect Now
+                </Button>
+              </div>
+            )}
           </div>
 
           <Separator className="bg-zinc-800" />
@@ -235,9 +294,9 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
             <div className="text-sm text-zinc-400">
               {videoFile ? `${videoFile.name} (${(videoFile.size / (1024 * 1024)).toFixed(2)} MB)` : "No video selected"}
             </div>
-            <Button 
-              disabled={!isReady || isUploading} 
-              onClick={handleSubmit} 
+            <Button
+              disabled={!isReady || isUploading}
+              onClick={handleSubmit}
               className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50"
             >
               {isUploading ? "Uploading..." : "Upload Video"}
