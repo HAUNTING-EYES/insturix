@@ -22,6 +22,7 @@ import { Settings, AlertTriangle } from "lucide-react";
 import { downloadImageWithFineTuning, getImageUrl } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
 import { GENERATIVE_FILL_SYSTEM_PROMPT } from "@/lib/config/clickatron-models";
+import { Variation } from "@/types/clickatron";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -176,6 +177,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const [isFillGenerating, setIsFillGenerating] = useState(false);
   const [isFillPanelOpen, setIsFillPanelOpen] = useState(false);
   const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
+  const [newVariationCreating, setNewVariationCreating] = useState<boolean>(false);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -321,18 +323,47 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     modelId?: string
   ) => {
     if (!canvas || !task?._id) return;
-
+  
     // Check if the active variation is blank
     const isBlank = activeVariation?.status === "blank";
-
-    // Generate idempotency key to prevent duplicate requests
-    const idempotencyKey = `gen_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-
+    const selectedModelId =
+      modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
+  
+    const idempotencyKey = `gen_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 11)}`;
+  
+    // TEMP variation (client-only)
+    const tempVariationId = `temp_gen_${Date.now()}`;
+    const now = new Date();
+  
+    // Create TEMP loading variation immediately
+    const tempVariation: Variation = {
+      id: tempVariationId,
+      prompt,
+      status: "generating",
+      imageRef: "",
+      thumbnailRef: "",
+      aspectRatio,
+      fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
+      createdAt: now,
+      updatedAt: now,
+      parentVariationId: localActiveVariation || undefined,
+      modelId: selectedModelId,
+      metadata: { isTemp: true },
+    };
+  
+    const canvasWithTemp = produce(canvas, (draft) => {
+      draft.variations.unshift(tempVariation);
+    });
+  
+    updateCanvas(canvasWithTemp);
+    setLocalActiveVariation(tempVariationId);
+    setActiveVariationId(tempVariationId);
+    setNewVariationCreating(true);
+  
     try {
-      // Use the passed modelId, or fall back to the active variation's modelId, or use default
-      const selectedModelId = modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
-
-      // Create FormData
+      // Call API
       const formData = new FormData();
       formData.append("prompt", prompt);
       formData.append("modelId", selectedModelId);
@@ -340,17 +371,17 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       formData.append("fineTuning", JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
       formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
       formData.append("aspectRatio", aspectRatio);
-
+  
       // If the active variation is blank, indicate that we want to update it
       if (isBlank && localActiveVariation) {
         formData.append("updateExistingBlank", "true");
       }
-
+  
       // Append reference images
       referenceImages?.forEach((file, index) => {
         formData.append(`referenceImages`, file);
       });
-
+      setNewVariationCreating(true);
       const response = await fetch(
         `/api/services/clickatron/session/${task._id}/variation`,
         {
@@ -361,71 +392,33 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           body: formData,
         }
       );
-
+  
       if (!response.ok) {
         throw new Error("Failed to generate variation");
       }
-
+  
       const data = await response.json();
-      console.log("Variation generation queued:", data);
-
-      // Use the variation object returned from the backend
+  
+      // Replace TEMP variation with real backend variation
       if (data.variation) {
-        // Add the returned variation to local canvas immediately for instant UI
-        const newCanvas = produce(canvas, (draft) => {
-          // Check if variation already exists (e.g., for blank variations being updated)
-          const existingIndex = draft.variations.findIndex(v => v.id === data.variation.id);
-          if (existingIndex !== -1) {
-            // Update existing variation
-            draft.variations[existingIndex] = data.variation;
+        const replacedCanvas = produce(canvasWithTemp, (draft) => {
+          const index = draft.variations.findIndex(
+            (v) => v.id === tempVariationId
+          );
+  
+          if (index !== -1) {
+            draft.variations[index] = data.variation;
           } else {
-            // Add new variation
             draft.variations.unshift(data.variation);
           }
         });
-        updateCanvas(newCanvas);
-
-        // Immediately set the new variation as active (both local and global)
-        setLocalActiveVariation(data.variationId);
-        setActiveVariationId(data.variationId);
-      } else if (isBlank && localActiveVariation) {
-        // Fallback for blank variations if no variation object is returned
-        updateVariation(localActiveVariation, { status: 'generating' });
-        setActiveVariationId(localActiveVariation);
-      } else {
-        // Fallback for non-blank variations if no variation object is returned
-        // For non-blank (edits or new from completed), add optimistic local variation with placeholder
-        const now = new Date();
-        const parentVariation = activeVariation; // For edits, use current active as parent
-        const isEdit = !!localActiveVariation && activeVariation?.status === 'completed';
-
-        const optimisticVariation = {
-          id: data.variationId,
-          prompt: prompt,
-          status: 'generating' as const,
-          imageRef: isEdit ? parentVariation?.imageRef || '' : '', // Placeholder: parent image for edits only
-          aspectRatio: aspectRatio,
-          fineTuning: { brightness: 100, contrast: 100, saturation: 100 },
-          createdAt: now,
-          updatedAt: now,
-          parentVariationId: localActiveVariation || undefined,
-          modelId: selectedModelId,
-          metadata: {},
-        };
-
-        // Add to local canvas immediately for instant UI
-        const newCanvas = produce(canvas, (draft) => {
-          draft.variations.unshift(optimisticVariation);
-        });
-        updateCanvas(newCanvas);
-
-        // Immediately set the new variation as active (both local and global)
-        setLocalActiveVariation(data.variationId);
-        setActiveVariationId(data.variationId);
+  
+        updateCanvas(replacedCanvas);
+        setLocalActiveVariation(data.variation.id);
+        setActiveVariationId(data.variation.id);
       }
-
-      // Start polling for completion, which will refresh the session state
-      // Use the new updateVariation function in the store
+  
+      // Poll for completion
       await pollVariationCompletion(
         task._id,
         data.variationId,
@@ -446,7 +439,19 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
     } catch (error) {
       console.error("Error generating variation:", error);
-      // Handle error appropriately in UI
+  
+      // Rollback TEMP variation on failure
+      const rollbackCanvas = produce(canvas, (draft) => {
+        draft.variations = draft.variations.filter(
+          (v) => v.id !== tempVariationId
+        );
+      });
+  
+      updateCanvas(rollbackCanvas);
+      setLocalActiveVariation(localActiveVariation);
+      setActiveVariationId(localActiveVariation);
+    } finally {
+      setNewVariationCreating(false);
     }
   };
 
@@ -509,6 +514,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
     // Background processing
     (async () => {
+      let newVariationId: string | null = null;
+      
       try {
         const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
         const formData = new FormData();
@@ -540,32 +547,90 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         }
 
         const data = await response.json();
+        newVariationId = data.variationId;
 
-        // Optimistically set new variation active
-        if (data.variationId) {
-          setLocalActiveVariation(data.variationId);
-          setActiveVariationId(data.variationId);
+        // IMMEDIATELY create optimistic variation to eliminate gap
+        if (newVariationId && canvas) {
+          const now = new Date();
+          const optimisticVariation: Variation = {
+            id: newVariationId,
+            prompt: fullPrompt,
+            status: "generating",
+            imageRef: activeVariation?.imageRef ?? "",
+            thumbnailRef: activeVariation?.thumbnailRef ?? "",
+            aspectRatio,
+            fineTuning: {
+              brightness: 100,
+              contrast: 100,
+              saturation: 100,
+            },
+            createdAt: now,
+            updatedAt: now,
+            parentVariationId: effectiveVariationId,
+            modelId,
+            metadata: { type: "generative-fill" },
+          };
+
+          const optimisticCanvas = produce(canvas, (draft) => {
+            // Check if variation already exists
+            const existingIndex = draft.variations.findIndex(v => v.id === newVariationId);
+            if (existingIndex !== -1) {
+              // Update existing
+              draft.variations[existingIndex] = optimisticVariation;
+            } else {
+              // Add new variation at the top
+              draft.variations.unshift(optimisticVariation);
+            }
+          });
+
+          updateCanvas(optimisticCanvas);
+          
+          // Set as active variation IMMEDIATELY
+          setLocalActiveVariation(newVariationId);
+          setActiveVariationId(newVariationId);
+          
+          // Stop the fill generating loader immediately since we now show the variation
+          setIsFillGenerating(false);
         }
-
-        // Start polling for completion
-        await pollVariationCompletion(
-          task._id!, // non-null assertion as we checked above
-          data.variationId,
-          loadSession,
-          () => useClickatronStore.getState().task,
-          () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
-          2000,
-          abortControllerRef.current?.signal
-        ).catch(err => {
-          if (err.message !== 'Polling aborted') {
-            console.error('Polling error in handleGenerativeFillGenerate:', err);
-          }
-        });
+        
+        // Start polling for completion in background
+        if (newVariationId) {
+          await pollVariationCompletion(
+            task._id!,
+            newVariationId,
+            loadSession,
+            () => useClickatronStore.getState().task,
+            () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
+            2000,
+            abortControllerRef.current?.signal
+          ).catch(err => {
+            if (err.message !== 'Polling aborted') {
+              console.error('Polling error in handleGenerativeFillGenerate:', err);
+            }
+          });
+        }
       } catch (err) {
         console.error('Generative fill background task failed:', err);
-        // still show error if initialization fails
+
+        // Remove the optimistic variation if it was created
+        if (newVariationId && canvas) {
+          const rollbackCanvas = produce(canvas, (draft) => {
+            draft.variations = draft.variations.filter(
+              (v) => v.id !== newVariationId
+            );
+          });
+      
+          updateCanvas(rollbackCanvas);
+          
+          // Restore previous active variation
+          setLocalActiveVariation(effectiveVariationId);
+          setActiveVariationId(effectiveVariationId);
+        }
+
+        // Show error
         alert(err instanceof Error ? err.message : String(err));
       } finally {
+        // Ensure loader is stopped
         setIsFillGenerating(false);
       }
     })();
@@ -1020,6 +1085,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                     height={imageDisplayDimensions?.height}
                     interactive={!isGenerativeFillMode}
                     onImageLoad={setImageNaturalDimensions}
+                    isFillGenerating={isFillGenerating}
                   />
 
                   {/* Selection overlay */}
@@ -1137,7 +1203,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             {activeVariation?.status === "blank" ? (
               <NewVariationConsole
                 onGenerate={handleAIGenerate}
-                isGenerating={false}
+                isGenerating={newVariationCreating}
                 className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}
@@ -1145,7 +1211,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             ) : (
               <AICommandConsole
                 onGenerate={handleAIGenerate}
-                isGenerating={false}
+                isGenerating={newVariationCreating}
                 className="border-t border-zinc-800/80 mr-0 mx-auto"
                 referenceImageCount={referenceImageCount}
                 onReferenceImageCountChange={setReferenceImageCount}

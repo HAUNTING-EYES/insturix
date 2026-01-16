@@ -62,6 +62,7 @@ interface ImageDisplayProps {
    * Callback when image loads with natural dimensions
    */
   onImageLoad?: (dimensions: { width: number; height: number }) => void;
+  isFillGenerating?: boolean;
 }
 
 // Cache for storing object URLs to prevent unnecessary re-fetching
@@ -88,6 +89,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       width: explicitWidth,
       height: explicitHeight,
       onImageLoad,
+      isFillGenerating = false,
     },
     ref
   ) => {
@@ -241,10 +243,12 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     const filterId = `curves-${variationId || 'default'}`;
 
     // Style object for maintaining aspect ratio based on calculated dimensions
-    const aspectRatioStyle: React.CSSProperties = {
+    const aspectRatioStyle: React.CSSProperties = aspectRatio ? {
       width: `${dimensions.width}px`,
       height: `${dimensions.height}px`,
-    };
+      maxWidth: '100%',
+      aspectRatio: aspectRatio.replace(':', '/')
+    } : {};
 
     if (isLoading) {
       return (
@@ -384,8 +388,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`,
         `url(#${filterId})`
       ].filter(Boolean).join(' '),
-      width: explicitWidth ? `${explicitWidth}px` : undefined,
-      height: explicitHeight ? `${explicitHeight}px` : undefined,
+      width: '100%',
+      height: '100%',
+      objectFit: status === 'generating' ? 'cover' : 'contain'
     };
 
     // For generating without imageRef (new variation), show generating placeholder
@@ -440,7 +445,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     }
 
     return (
-      <div className="relative w-full h-full">
+      <div className="relative w-full h-full flex items-center justify-center">
         {/* SVG Filters for Curves */}
         <svg className="absolute w-0 h-0">
           <defs>
@@ -471,16 +476,17 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             maxScale={5}
             centerOnInit={true}
             limitToBounds={false}
-            panning={{ disabled: status === 'generating' }}
-            wheel={{ disabled: status === 'generating', step: 0.1 }}
-            doubleClick={{ disabled: status === 'generating', mode: "zoomIn", step: 0.3 }}
+            panning={{ disabled: status === 'generating' || isFillGenerating }}
+            wheel={{ disabled: status === 'generating' || isFillGenerating, step: 0.1 }}
+            doubleClick={{ disabled: status === 'generating' || isFillGenerating, mode: "zoomIn", step: 0.3 }}
             onInit={(r) => {
               setTimeout(() => r.resetTransform(), 100);
             }}
           >
             <TransformComponent
-              wrapperClass="relative w-full h-full flex items-center justify-center"
+              wrapperClass="relative flex items-center justify-center"
               contentClass="flex items-center justify-center"
+              wrapperStyle={{ width: '100%', height: '100%' }}
             >
               <div className="relative w-full h-full" style={aspectRatioStyle}>
                 {/* Gradient placeholder - shows immediately */}
@@ -493,11 +499,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                 {!imageLoaded && proxyUrl && (
                   <img
                     src={proxyUrl}
-                    alt=""
-                    className="absolute inset-0 rounded-lg"
+                    alt={alt}
+                    className={`${className} select-none rounded-lg`}
                     style={{
-                      width: '100%',
-                      height: '100%',
+                      ...imageStyle,
+                      ...aspectRatioStyle, 
                       objectFit: 'cover',
                       filter: 'blur(20px) brightness(0.6) saturate(1.2)',
                       transform: 'scale(1.05)',
@@ -516,11 +522,10 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                   className={`${className} select-none rounded-lg relative z-10`}
                   style={{
                     ...imageStyle,
-                    width: '100%',
-                    height: '100%',
+                    ...aspectRatioStyle, 
                     opacity: imageLoaded ? 1 : 0,
                     filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
-                    transition: "opacity 500ms ease, filter 500ms ease",
+                    transition: "opacity 500ms ease, filter 500ms ease"
                   }}
                   onLoad={(e) => {
                     setImageLoaded(true);
@@ -591,8 +596,65 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           </div>
         )}
 
-        {/* Generating overlay - show for both new and edits */}
-        {status === 'generating' && (
+        {/* Generative Fill Loading Overlay */}
+        {isFillGenerating && (
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[70] rounded-lg pointer-events-none">
+            <div className="text-center">
+              {/* Spinning loader */}
+              <div className="relative mb-4">
+                <div className="absolute inset-0 w-16 h-16 mx-auto rounded-full bg-purple-500/30 blur-xl animate-pulse" />
+                <div className="relative w-16 h-16 mx-auto">
+                  <svg className="w-16 h-16 animate-spin" viewBox="0 0 64 64">
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                      className="text-zinc-700/30"
+                    />
+                    <circle
+                      cx="32"
+                      cy="32"
+                      r="28"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                      fill="none"
+                      strokeLinecap="round"
+                      className="text-purple-400"
+                      strokeDasharray="176"
+                      strokeDashoffset="44"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <Sparkles className="h-7 w-7 text-purple-400 animate-pulse" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Text */}
+              <div className="space-y-1">
+                <p className="text-white text-lg font-semibold">Generative Fill</p>
+                <p className="text-zinc-300 text-sm">AI is filling your selection...</p>
+              </div>
+
+              {/* Progress bar */}
+              <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
+                <div 
+                  className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 rounded-full"
+                  style={{ 
+                    width: "70%",
+                    animation: 'pulse 2s ease-in-out infinite',
+                  }} 
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Generating overlay - show for variations with status generating */}
+        {status === 'generating' && !isFillGenerating && (
           <div className="absolute inset-0 pointer-events-none">
             {/* Base subtle tint for better visibility */}
             <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 via-cyan-500/5 to-yellow-500/5"></div>
@@ -631,8 +693,8 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           </div>
         )}
 
-        {/* Prompt Overlay - Show on hover or if interactive */}
-        {status === "completed" && prompt && (
+        {/* Prompt Overlay */}
+        {status === "completed" && prompt && !isFillGenerating && (
           <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
             <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
               <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">Prompt</div>
