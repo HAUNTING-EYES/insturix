@@ -57,10 +57,10 @@ export function useTaskUpdater() {
           if (!statusChanged) return;
 
           // Normalize: two caches per service, no legacy keys
-          if (serviceName === 'musitron') {
-            queryClient.invalidateQueries({ queryKey: ['musitron-tasks'], exact: false });
-            queryClient.invalidateQueries({ queryKey: ['musitron-analytics'], exact: false });
-          }
+          // if (serviceName === 'musitron') {
+          //   queryClient.invalidateQueries({ queryKey: ['musitron-tasks'], exact: false });
+          //   queryClient.invalidateQueries({ queryKey: ['musitron-analytics'], exact: false });
+          // }
 
           if (serviceName === 'clickatron') {
             queryClient.invalidateQueries({ queryKey: ['clickatron-tasks'], exact: false });
