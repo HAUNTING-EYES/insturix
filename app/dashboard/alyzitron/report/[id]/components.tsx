@@ -1098,13 +1098,13 @@ export function AnalysisError({
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4float-end">
+          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4 justify-end">
             <Link
               href="/dashboard/alyzitron"
-              className="inline-flex items-center justify-center gap-2 px-6 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-xl transition-all shadow-lg shadow-red-500/20 hover:shadow-red-500/40 active:scale-95 group"
+              className="relative inline-flex items-center justify-center gap-3 px-8 py-3 bg-black/40 hover:bg-black/60 text-red-400 hover:text-red-300 font-semibold rounded-xl border border-red-500/30 hover:border-red-500/50 backdrop-blur-xl transition-all duration-300 hover:scale-[1.01] hover:-translate-y-0.5 shadow-lg shadow-red-500/5 hover:shadow-red-500/10 active:scale-100 group overflow-hidden"
             >
-              <RotateCcw className="h-5 w-5 group-hover:rotate-180 transition-transform duration-500" />
-              Try Again
+              <RotateCcw className="h-4 w-4" />
+              <span className="relative z-10 font-medium">Try Again</span>
             </Link>
           </div>
 
