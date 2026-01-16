@@ -1,8 +1,7 @@
 "use client";
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Pencil, Trash2, Check, X } from "lucide-react";
-import { useThinkForgeClient } from "@/app/dashboard/thinkforge/hooks/useThinkForgeClient";
+import { Pencil, Trash2, Check, X, FileText } from "lucide-react";
 
 export interface SessionMeta {
   id: string;
@@ -29,8 +28,6 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Destructure only the stable, memoized method to avoid changing deps every render
-  const { getSessionsList } = useThinkForgeClient();
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
@@ -93,18 +90,22 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
     let cancelled = false;
     async function run() {
       if (!open) return;
-      if (hasExternalSessions) return; // external sessions provided
+      if (hasExternalSessions) return;
       setLoading(true);
       setLoadError(null);
       try {
-        const res = await getSessionsList(50, 0);
-        const items = Array.isArray(res?.sessions) ? res.sessions : [];
+        const res = await fetch('/api/services/thinkforge/sessions/metadata?limit=50&offset=0', {
+          cache: 'no-store'
+        });
+        if (!res.ok) throw new Error(`Failed to load: ${res.status}`);
+        const data = await res.json();
+        const items = Array.isArray(data?.sessions) ? data.sessions : [];
         const mapped: SessionMeta[] = items.map((it: any) => {
           const id = it?.id || it?._id || "";
-          const pm = it?.projectMeta || {};
-          const name: string = pm?.idea || pm?.purpose || `Session ${String(id).slice(-6)}`;
-          const tone: string = pm?.tone || "blue";
-          const lastEdited: number = (it?.updatedAt ? Date.parse(it.updatedAt) : Date.now()) || Date.now();
+          const pm = it?.projectMeta || it?.sessionMeta || {};
+          const name: string = it?.name || pm?.sessionName || pm?.idea || pm?.purpose || `Session ${String(id).slice(-6)}`;
+          const tone: string = it?.tone || pm?.tone || "blue";
+          const lastEdited: number = (it?.updatedAt ? new Date(it.updatedAt).getTime() : Date.now());
           return { id, name, tone, lastEdited };
         });
         if (!cancelled) setLoaded(mapped);
@@ -116,7 +117,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
     }
     void run();
     return () => { cancelled = true; };
-  }, [open, hasExternalSessions, getSessionsList]);
+  }, [open, hasExternalSessions]);
 
   const displaySessions = useMemo(() => (hasExternalSessions ? (sessions as SessionMeta[]) : loaded), [hasExternalSessions, sessions, loaded]);
 
@@ -124,48 +125,61 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
   <AnimatePresence>
     {open && (
       <motion.aside
-        className="fixed right-0 top-0 z-40 flex h-full w-[min(420px,90vw)] flex-col border-l border-white/10 bg-neutral-950/80 pb-6 pt-4 backdrop-blur-2xl"
+        className="fixed right-0 top-0 z-40 flex h-full w-[min(420px,90vw)] flex-col border-l border-white/10 bg-neutral-950/95 backdrop-blur-xl"
         initial={{ x: "100%" }}
         animate={{ x: 0 }}
         exit={{ x: "100%" }}
-        transition={{ type: "spring", stiffness: 140, damping: 24 }}
+        transition={{ type: "spring", stiffness: 200, damping: 25 }}
         ref={panelRef as any}
       >
-        <div className="flex items-center justify-between px-5 pb-3">
-          <h2 className="text-sm font-semibold tracking-wide text-white/80">Library</h2>
+        <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-white/60" />
+            <h2 className="text-sm font-semibold tracking-wide text-white/90">Library</h2>
+          </div>
           <button
             onClick={onClose}
-            className="rounded-full bg-white/5 px-3 py-1 text-[11px] font-medium text-white/60 hover:bg-white/10"
+            className="rounded-lg bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/10 hover:text-white transition-colors"
           >
             Close
           </button>
         </div>
-        <div className="custom-scrollbar mx-4 flex-1 space-y-4 overflow-y-auto rounded-xl border border-white/5 bg-white/[0.03] p-4 text-xs text-white/60">
-          <p className="mb-2 text-[11px] uppercase tracking-wide text-white/40">Sessions</p>
+        <div className="flex-1 overflow-y-auto px-4 py-4">
+          <p className="mb-3 text-[10px] uppercase tracking-wider text-white/40 font-medium">Sessions</p>
           {loading && (
-            <div className="rounded-lg bg-white/5 p-4 text-[11px] text-white/60 animate-pulse">Loading sessions…</div>
+            <div className="rounded-xl bg-white/5 p-6 text-center">
+              <div className="h-4 w-4 mx-auto mb-2 border-2 border-white/20 border-t-white/60 rounded-full animate-spin" />
+              <p className="text-xs text-white/50">Loading sessions…</p>
+            </div>
           )}
           {!loading && displaySessions.length === 0 && (
-            <div className="rounded-lg bg-white/5 p-4 text-[11px] text-white/50">No sessions yet. Generate ideas and proceed to chat to create one.</div>
+            <div className="rounded-xl bg-white/5 p-6 text-center border border-white/5">
+              <FileText className="h-8 w-8 mx-auto mb-2 text-white/20" />
+              <p className="text-xs text-white/50">No sessions yet</p>
+              <p className="text-[10px] text-white/30 mt-1">Generate ideas to create your first session</p>
+            </div>
           )}
           {!!loadError && (
-            <div className="rounded-lg bg-red-500/10 border border-red-500/30 p-3 text-[11px] text-red-300">{loadError}</div>
+            <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-xs text-red-300 mb-4">
+              {loadError}
+            </div>
           )}
           <ul className="space-y-2">
-            {displaySessions.map(s => (
-              <li
+            {displaySessions.map((s, idx) => (
+              <motion.li
                 key={s.id}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: idx * 0.03 }}
                 className={[
-                  "group relative rounded-xl border px-3 py-2 transition flex flex-col gap-1 cursor-pointer",
+                  "group relative rounded-xl border px-4 py-3 transition-all flex flex-col gap-2 cursor-pointer",
                   s.id === activeSessionId
-                    ? "border-white/10 bg-red-600/20 hover:bg-red-600/25"
-                    : "border-white/10 bg-white/5 hover:bg-white/10"
+                    ? "border-red-500/30 bg-red-500/10 hover:bg-red-500/15"
+                    : "border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20"
                 ].join(' ')}
                 onClick={(e) => {
-                  // Avoid triggering when clicking action buttons
                   const target = e.target as HTMLElement;
                   if (target.closest('button')) return;
-                  // If already active, do nothing
                   if (s.id === activeSessionId) return;
                   onOpenSession?.(s.id);
                 }}
@@ -185,10 +199,10 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                         onChange={e=>setDraftName(e.target.value)}
                         onKeyDown={e=>{ if(e.key==='Enter') { e.preventDefault(); commitEdit(); } else if (e.key==='Escape') { cancelEdit(); } }}
                         onBlur={commitEdit}
-                        className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded-md px-2 py-1 text-[12px] text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-red-500/40"
+                        className="flex-1 min-w-0 bg-black/40 border border-white/20 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/40"
                         placeholder="Session name"/>
                     ) : (
-                      <span className="truncate text-[12px] font-medium text-white/80 flex items-center gap-2">{s.name}</span>
+                      <span className="truncate text-xs font-medium text-white/90">{s.name}</span>
                     )}
                   </div>
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
@@ -226,7 +240,7 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-white/40 tracking-wide">Last edit: {formatTime(s.lastEdited)}</span>
                 </div>
-              </li>
+              </motion.li>
             ))}
           </ul>
         </div>

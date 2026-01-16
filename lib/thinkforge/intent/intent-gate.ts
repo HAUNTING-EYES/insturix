@@ -1,0 +1,296 @@
+import { generateText } from "ai";
+import { normalizeWhitespace } from "../utils/text";
+import { suggestInsertionPoint, type PlacementProposal, type BlockNode } from "../block-graph";
+import { buildIntentClassifierPrompt } from "../prompts/intentClassifierPrompt";
+import { createModelByTier, ModelTier } from "../agents/model-factory";
+
+export type Intent = "chat" | "draft" | "edit" | "hybrid";
+export type IntentScope = "selection" | "section" | "document";
+
+export interface IntentContextSignals {
+  editorFocused?: boolean;
+  hasSelection?: boolean;
+  workspaceMode?: "script" | "whiteboard" | "unknown";
+  lastUserAction?: string;
+}
+
+export interface IntentGateResult {
+  intent: Intent;
+  confidence: number;
+  scope?: IntentScope;
+  reason: string;
+  usedFallback: boolean;
+  executable?: boolean;
+  proposal?: PlacementProposal;
+  signals?: string[];
+  textSample?: string;
+}
+
+// CHAT is a fallback, never a guess.
+// If the user is clearly authoring or mutating content, it must not be CHAT.
+// If the user requests a document mutation, it is never CHAT.
+// It is either an executable edit or a blocked edit awaiting scope.
+
+const EDIT_VERBS_HEURISTIC = [
+  "rewrite",
+  "edit",
+  "improve",
+  "refine",
+  "shorten",
+  "expand",
+  "fix",
+  "polish",
+];
+
+const GENERATE_VERBS_HEURISTIC = [
+  "create",
+  "write",
+  "generate",
+  "make",
+  "build",
+  "draft",
+];
+
+const META_PATTERNS_HEURISTIC = [
+  /how does/i,
+  /what is thinkforge/i,
+  /how does this work/i,
+];
+
+const QUESTION_PATTERNS = [/^\s*(what|how|why|explain|tell me|describe)\b/i];
+
+function textIncludesAny(text: string, patterns: Array<string | RegExp>): boolean {
+  return patterns.some((pattern) =>
+    typeof pattern === "string" ? text.includes(pattern) : pattern.test(text)
+  );
+}
+
+/**
+ * Fast heuristic-only router. Returns null when ambiguous to allow LLM fallback.
+ */
+export function fastIntentHeuristic(input: {
+  userMessage: string;
+  hasScript: boolean;
+  hasSelection: boolean;
+  context?: IntentContextSignals;
+}): { intent: Intent; confidence: number; scope?: IntentScope; signals: string[] } | null {
+  const text = normalizeWhitespace(input.userMessage).toLowerCase();
+  const hasSelection = input.hasSelection || Boolean(input.context?.hasSelection);
+  const hasScript = Boolean(input.hasScript);
+  const editorFocused = Boolean(input.context?.editorFocused);
+  const workspaceMode = input.context?.workspaceMode || "unknown";
+  const lastAction = (input.context?.lastUserAction || "").toLowerCase();
+
+  const isQuestion = textIncludesAny(text, QUESTION_PATTERNS) || textIncludesAny(text, META_PATTERNS_HEURISTIC);
+  const hasEditVerb = textIncludesAny(text, EDIT_VERBS_HEURISTIC);
+  const hasGenerateVerb = textIncludesAny(text, GENERATE_VERBS_HEURISTIC);
+  const mentionsWholeDoc = /\b(entire|whole|all|full|complete|from scratch)\b/i.test(text);
+  
+  const isStructuralAdd = /\badd (a )?(section|step|block|outline|hook|cta|why)\b/i.test(text);
+
+  const wantsEdit = hasSelection || hasEditVerb || /\b(revise|tweak|polish|tighten)\b/i.test(text);
+  const wantsDraft = hasGenerateVerb || /\bwrite (a|the) script\b/i.test(text);
+  
+  // If it's a question but also looks like a specific action request (e.g. "how to shorten this"), we prefer the action.
+  // But if it's a generic question ("how do you write scripts?"), we prefer chat.
+  const isGenericQuestion = isQuestion && !hasSelection && !hasEditVerb && !isStructuralAdd && !mentionsWholeDoc;
+
+  const hybridSignal = (wantsEdit && isQuestion && !isGenericQuestion) || (wantsEdit && wantsDraft) || (hasScript && isStructuralAdd);
+
+  const scope: IntentScope | undefined = hasSelection
+    ? "selection"
+    : mentionsWholeDoc
+      ? "document"
+      : "section";
+
+  let confidence = 0.5;
+  const signals: string[] = [];
+
+  if (hasSelection) {
+    confidence += 0.25;
+    signals.push("selection");
+  }
+  if (editorFocused && workspaceMode === "script") {
+    confidence += 0.1;
+    signals.push("editor_focused");
+  }
+  if (lastAction.includes("selection")) {
+    confidence += 0.1;
+    signals.push("last_action_selection");
+  }
+  if (workspaceMode === "whiteboard") {
+    confidence -= 0.1;
+    signals.push("whiteboard_mode");
+  }
+
+  if (hybridSignal) {
+    return { intent: "hybrid", confidence: Math.min(0.85, confidence + 0.15), scope, signals: [...signals, "hybrid"] };
+  }
+
+  if (wantsEdit && (hasSelection || hasScript || editorFocused)) {
+    return { intent: "edit", confidence: Math.min(0.9, confidence + 0.2), scope, signals: [...signals, "edit_signal"] };
+  }
+
+  if (isGenericQuestion) {
+    return { intent: "chat", confidence: Math.min(0.85, confidence + 0.2), signals: [...signals, "question"] };
+  }
+
+  if (wantsDraft) {
+    const draftConfidence = hasScript ? confidence + 0.05 : confidence + 0.15;
+    return { intent: "draft", confidence: Math.min(0.8, draftConfidence), scope: "document", signals: [...signals, "draft_signal"] };
+  }
+
+  if (isQuestion) {
+    return { intent: "chat", confidence: Math.min(0.75, confidence + 0.1), signals: [...signals, "question"] };
+  }
+
+  return null;
+}
+
+/**
+ * Backward-compatible fast classifier (kept for tests/consumers).
+ * Uses fastIntentHeuristic and defaults to CHAT when ambiguous.
+ */
+export function classifyIntentFast(
+  prompt: string,
+  selection?: string | null,
+  hasScript?: boolean,
+  context?: IntentContextSignals
+): IntentGateResult {
+  const hasSelection = Boolean(selection && selection.trim().length > 0) || Boolean(context?.hasSelection);
+  const result = fastIntentHeuristic({
+    userMessage: prompt,
+    hasScript: Boolean(hasScript),
+    hasSelection,
+    context,
+  });
+  const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
+
+  if (result) {
+    return {
+      intent: result.intent,
+      confidence: result.confidence,
+      scope: result.scope,
+      reason: "heuristic_rule",
+      usedFallback: false,
+      executable: result.intent !== "chat",
+      textSample,
+      signals: ["heuristic", ...result.signals],
+    };
+  }
+
+  return {
+    intent: "chat",
+    confidence: 0.45,
+    reason: "default_chat",
+    usedFallback: false,
+    executable: false,
+    textSample,
+    signals: [],
+  };
+}
+
+async function classifyIntentFallback(
+  prompt: string,
+  hasScript: boolean,
+  hasSelection: boolean,
+  context?: IntentContextSignals
+): Promise<IntentGateResult> {
+  const model = createModelByTier(ModelTier.Structural);
+  const promptText = buildIntentClassifierPrompt({
+    message: prompt,
+    hasScript,
+    hasSelection,
+    context,
+  });
+
+  try {
+    const { text } = await generateText({
+      model,
+      prompt: promptText,
+      maxOutputTokens: 120,
+      temperature: 0,
+    });
+    const raw = text.trim();
+    let parsed: { intent?: string; confidence?: number; scope?: string } | null = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = null;
+    }
+    const normalizedIntent = String(parsed?.intent || "").toLowerCase();
+    const intent: Intent = ("chat,draft,edit,hybrid".split(",") as Intent[]).includes(normalizedIntent as Intent)
+      ? (normalizedIntent as Intent)
+      : "chat";
+    const confidence = typeof parsed?.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0.6;
+    const scope = parsed?.scope === "selection" || parsed?.scope === "section" || parsed?.scope === "document" ? (parsed.scope as IntentScope) : undefined;
+    const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
+    return { intent, confidence, scope, reason: "fallback_llm", usedFallback: true, textSample, signals: ["llm_fallback"] };
+  } catch (_error) {
+    const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
+    return { intent: "chat", confidence: 0.4, reason: "llm_failed_default_chat", usedFallback: true, textSample, signals: ["llm_failure"] };
+  }
+}
+
+export async function classifyIntent(
+  prompt: string,
+  selection?: string | null,
+  hasScript?: boolean,
+  blocks?: BlockNode[],
+  context?: IntentContextSignals
+): Promise<IntentGateResult> {
+  const hasSelection = Boolean(selection && selection.trim().length > 0) || Boolean(context?.hasSelection);
+  const heuristic = fastIntentHeuristic({
+    userMessage: prompt,
+    hasScript: Boolean(hasScript),
+    hasSelection,
+    context,
+  });
+
+  if (heuristic) {
+    const result: IntentGateResult = {
+      intent: heuristic.intent,
+      confidence: heuristic.confidence,
+      scope: heuristic.scope,
+      reason: "heuristic_rule",
+      usedFallback: false,
+      executable: heuristic.intent !== "chat",
+      textSample: prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt,
+      signals: ["heuristic", ...heuristic.signals],
+    };
+
+    if (heuristic.intent === "edit" && !hasSelection && blocks) {
+      result.proposal = suggestInsertionPoint(blocks);
+    }
+
+    const shouldFallback = result.confidence < 0.65;
+    if (shouldFallback) {
+      const fallback = await classifyIntentFallback(prompt, Boolean(hasScript), hasSelection, context);
+      if (fallback) {
+        return fallback;
+      }
+    }
+
+    if (process.env.NODE_ENV !== "production") {
+      const sample = result.textSample || prompt;
+      console.info(`[intent] ${result.intent} (heuristic=true, conf=${result.confidence}) "${sample}"`);
+    }
+
+    return result;
+  }
+
+  const fallback = await classifyIntentFallback(prompt, Boolean(hasScript), hasSelection, context);
+
+  if (process.env.NODE_ENV !== "production") {
+    const sample = fallback.textSample || prompt;
+    console.info(`[intent] ${fallback.intent} (heuristic=false, conf=${fallback.confidence}) "${sample}"`);
+  }
+
+  return fallback;
+}
+
+export function intentRequiresSelection(intent: Intent, scope?: IntentScope): boolean {
+  if (intent !== "edit" && intent !== "hybrid") return false;
+  if (!scope) return true;
+  return scope !== "document";
+}

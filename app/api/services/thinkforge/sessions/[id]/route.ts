@@ -1,0 +1,115 @@
+import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
+import * as db from '@/lib/thinkforge/services/db';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+interface RouteParams {
+  params: Promise<{ id: string }>;
+}
+
+/**
+ * GET /api/services/thinkforge/sessions/[id]
+ * Get a specific session by ID
+ */
+export async function GET(request: Request, { params }: RouteParams) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const { id: sessionId } = await params;
+    if (!sessionId) {
+      return NextResponse.json(
+        { error: 'Session ID required' },
+        { status: 400 }
+      );
+    }
+
+    const session = await db.getSession(sessionId, userId);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found' },
+        { status: 404 }
+      );
+    }
+
+    // Also get the script and chat count for this session
+    const script = await db.getScript(sessionId);
+    const chatHistory = await db.getChatHistory(sessionId, 1);
+
+    return NextResponse.json({
+      success: true,
+      session: {
+        id: session._id,
+        userId: session.userId,
+        projectMeta: session.projectMeta,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        hasScript: !!script,
+        scriptTitle: script?.title,
+        chatCount: chatHistory.length > 0 ? 'has_messages' : 'empty'
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error getting session:', error);
+    return NextResponse.json(
+      { error: 'Failed to get session' },
+      { status: 500 }
+    );
+  }
+}
+
+/**
+ * DELETE /api/services/thinkforge/sessions/[id]
+ * Delete a session and all its associated data
+ */
+export async function DELETE(request: Request, { params }: RouteParams) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const { id: sessionId } = await params;
+    if (!sessionId) {
+      return NextResponse.json(
+        { error: 'Session ID required' },
+        { status: 400 }
+      );
+    }
+
+    // Verify the session belongs to this user
+    const session = await db.getSession(sessionId, userId);
+    if (!session) {
+      return NextResponse.json(
+        { error: 'Session not found or access denied' },
+        { status: 404 }
+      );
+    }
+
+    // Delete the session and all associated data
+    await db.deleteSession(sessionId, userId);
+
+    return NextResponse.json({
+      success: true,
+      message: 'Session deleted successfully'
+    });
+
+  } catch (error: any) {
+    console.error('Error deleting session:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete session' },
+      { status: 500 }
+    );
+  }
+}

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
-import { sanitizeServerScript, applyBlockPatches, ensureBlockIds } from "@/lib/thinkforge/json";
+import { sanitizeServerScript, applyBlockPatches } from "@/lib/thinkforge/json";
 
 // Lightweight script model
 export type Block = any;
@@ -11,6 +11,21 @@ export type ScriptModel = {
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  version?: number;
+  metadata?: {
+    workflow?: string;
+    thoughts?: string;
+    duration_ms?: number;
+    agent_steps?: Array<{
+      agent?: string;
+      step?: string;
+      output?: string;
+    }>;
+    quality_metrics?: {
+      score?: number;
+      feedback?: string;
+    };
+  } | null;
 };
 
 export type HydratePayload = {
@@ -111,9 +126,6 @@ export function useThinkForgeClient() {
       }
       const data: HydrateResponse = await res.json();
       const sanitized = data?.script ? sanitizeServerScript(data.script) : null;
-      if (sanitized && Array.isArray(sanitized.blocks)) {
-        sanitized.blocks = ensureBlockIds(sanitized.blocks as any);
-      }
       setSessionId(data.sessionId);
       setScript(sanitized);
       setChat(data.chat || []);
@@ -159,11 +171,11 @@ export function useThinkForgeClient() {
   const setScriptAndQueueSave = useCallback((updater: ScriptModel | ((prev: ScriptModel | null) => ScriptModel)) => {
     setScript((prev) => {
       const next = typeof updater === "function" ? (updater as any)(prev) : updater;
-      // Local cache immediately for resilience
+      // Optimistic: Local cache immediately for resilience (instant UI update)
       if (sessionId) {
         saveLocal(sessionId, { script: next });
       }
-      // Queue autosave
+      // Debounced autosave (800ms as per plan)
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
         void autosave(next);
@@ -176,21 +188,59 @@ export function useThinkForgeClient() {
     if (!sessionId) return;
     const payloadScript = scriptToSave ?? script;
     const snapshot = JSON.stringify(payloadScript || {});
-    if (snapshot === lastSavedSnapshotRef.current) return;
+    if (snapshot === lastSavedSnapshotRef.current) return; // Skip if unchanged
     lastSavedSnapshotRef.current = snapshot;
+    
+    // Optimistic: Show saving state immediately
     setIsSaving(true);
     setSaveError(null);
+    
     try {
-      const res = await fetch("/api/services/thinkforge/script/save", {
+      // Use AbortController for request cancellation if needed
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
+      
+      const res = await fetch("/api/commands", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
-        body: JSON.stringify({ sessionId, script: payloadScript }),
+        signal: controller.signal,
+        body: JSON.stringify({
+          type: "ReplaceDocument",
+          sessionId,
+          baseVersion: typeof (payloadScript as any)?.version === 'number' ? (payloadScript as any).version : 0,
+          source: "user",
+          payload: {
+            title: payloadScript?.title || 'Untitled Script',
+            content: payloadScript?.content || '',
+            blocks: payloadScript?.blocks || [],
+            richText: (payloadScript as any)?.richText,
+          }
+        }),
       });
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
-      // No-op on success; backend returns scriptId
+      
+      clearTimeout(timeoutId);
+      
+      if (!res.ok) {
+        if (res.status === 409) {
+          try {
+            const data = await res.json();
+            if (typeof data?.currentVersion === 'number') {
+              setScript((prev) => ({ ...(prev || {}), version: data.currentVersion }));
+            }
+          } catch {}
+          return;
+        }
+        throw new Error(`Save failed: ${res.status}`);
+      }
+      const data = await res.json();
+      if (data?.script && typeof data.script.version === 'number') {
+        setScript((prev) => ({ ...(prev || {}), version: data.script.version }));
+      }
     } catch (e: any) {
-      setSaveError(e?.message || "Failed to save");
+      if (e.name !== 'AbortError') {
+        setSaveError(e?.message || "Failed to save");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -211,6 +261,7 @@ export function useThinkForgeClient() {
       outline: sanitized?.outline ?? script?.outline ?? null,
       content: sanitized?.content ?? script?.content ?? null,
       blocks: sanitized?.blocks ?? script?.blocks ?? null,
+      metadata: sanitized?.metadata ?? script?.metadata ?? null,
     };
     setScriptAndQueueSave(updated);
     return sanitized;
@@ -246,6 +297,7 @@ export function useThinkForgeClient() {
       outline: sanitized?.outline ?? script?.outline ?? null,
       content: sanitized?.content ?? script?.content ?? null,
       blocks: nextBlocks,
+      metadata: sanitized?.metadata ?? script?.metadata ?? null,
     };
     setScriptAndQueueSave(updated);
     return sanitized;

@@ -48,24 +48,8 @@ export const checkThinkForgeLimits = async (requestData: any) => {
       // 1) Read plan limits
       const canUse = await ServiceUsageService.canUseService(session.userId, 'thinkforge', limitType);
 
-      // 2) Fetch actual sessions count from backend (server-to-server) and use it as the current usage (weekly)
-      let sessionsCount = 0;
-      try {
-        const base = process.env.MONOLITHIC_BACKEND_URL;
-        const secret = process.env.MONOLITHIC_BACKEND_SECRET;
-        if (base && secret) {
-          const upstream = await fetch(`${base.replace(/\/$/, '')}/thinkforge/sessions/count?userId=${encodeURIComponent(session.userId)}&period=weekly`, {
-            method: 'GET', cache: 'no-store', headers: {
-              'Authorization': `Bearer ${secret}`, 'Accept': 'application/json', 'Accept-Encoding': 'identity'
-            }
-          });
-          if (upstream.ok) {
-            const data = await upstream.json();
-            sessionsCount = typeof data?.count === 'number' ? data.count : 0;
-          }
-        }
-      } catch {}
-      const effectiveCurrent = (sessionsCount ?? 0) > 0 ? sessionsCount : canUse.currentUsage;
+      // Use MongoDB-based usage count directly (no Python backend)
+      const effectiveCurrent = canUse.currentUsage;
       const maxAllowed = canUse.maxUsage;
       const remaining = maxAllowed === -1 ? -1 : Math.max(0, maxAllowed - effectiveCurrent);
       const hasAccess = canUse.isUnlimited || remaining > 0;

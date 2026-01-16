@@ -91,7 +91,8 @@ export async function POST(request: Request) {
     });
 
     // Use the gemini-2.5-flash model for prompt enhancement
-    const model = google("gemini-2.5-flash");
+    // Use standard model name
+    const model = google("gemini-1.5-flash");
 
     // Define system prompts for different task types
     const systemPrompts = {

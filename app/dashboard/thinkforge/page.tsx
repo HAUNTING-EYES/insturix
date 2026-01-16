@@ -1,18 +1,21 @@
 "use client";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BookOpen } from "lucide-react";
-import clsx from "clsx";
-import { PromptPanel } from "@/components/dashboard/ThinkForge/PromptPanel";
+import { FolderOpen, Lightbulb, FileText, Calendar, Brain, Library } from "lucide-react";
 import { toast } from '@/hooks/use-toast';
-import { IdeaGrid, IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
+import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { LibraryPanel, SessionMeta } from "@/components/dashboard/ThinkForge/LibraryPanel";
 import { BackgroundDecor } from "@/components/dashboard/ThinkForge/BackgroundDecor";
-import SelectedIdeaDisplay from "@/components/dashboard/ThinkForge/SelectedIdeaDisplay";
-import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
-import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { Script } from "@/app/dashboard/thinkforge/types";
-import { useThinkForgeClient, ScriptModel } from "./hooks/useThinkForgeClient";
+import { useThinkForgeSession } from "./hooks/useThinkForgeSession";
+import { useThinkForgeScript } from "./hooks/useThinkForgeScript";
+import { ScriptModel } from "./hooks/useThinkForgeClient";
+import { sanitizeServerScript } from "@/lib/thinkforge/json";
+import Dock from "@/components/dashboard/ThinkForge/Dock";
+import { WorkspaceMode } from "@/components/dashboard/ThinkForge/ModeSwitcher";
+import IdeationMode from "@/components/dashboard/ThinkForge/IdeationMode";
+import StoryboardingMode from "@/components/dashboard/ThinkForge/StoryboardingMode";
+import PlanningMode from "@/components/dashboard/ThinkForge/PlanningMode";
 
 const hats = ["white", "red", "black", "yellow", "green", "blue"] as const;
 const skeletonIdeas = (prompt: string): IdeaCardData[] => {
@@ -33,6 +36,9 @@ const skeletonIdeas = (prompt: string): IdeaCardData[] => {
 };
 
 export default function ThinkForgeLanding() {
+	// Mode state
+	const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ideation');
+	
 	const [prompt, setPrompt] = useState("");
 	const [ideas, setIdeas] = useState<IdeaCardData[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -40,22 +46,54 @@ export default function ThinkForgeLanding() {
 	const [openingSession, setOpeningSession] = useState(false);
 	// Bridge potential hydrate->state race by retaining the just-opened session id locally
 	const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+	const [activeScriptId, setActiveScriptId] = useState<string>('default');
 	const [hasSubmitted, setHasSubmitted] = useState(false);
 	const [libraryOpen, setLibraryOpen] = useState(false);
+	
 	const [selectedIdea, setSelectedIdea] = useState<IdeaCardData | null>(null);
-	const [phase, setPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED' | 'SCRIPT'>('PROMPT');
-	// Session is now created upon idea selection; no explicit new-session gating needed here
-	// Deprecated local script; rely on hook's script instead (scriptFromHook)
-	// const [script, setScript] = useState<Script | null>(null);
+	// Internal phase for Ideation mode
+	const [ideationPhase, setIdeationPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED'>('PROMPT');
+	
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
 
-	// Hook: hydration, autosave, persistence
-	const tf = useThinkForgeClient();
+	// Modular hooks
+	const session = useThinkForgeSession();
+	const activeSessionId = pendingSessionId || session.sessionId;
+	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId);
+
+	useEffect(() => {
+		if (activeSessionId) {
+			setActiveScriptId('default');
+		}
+	}, [activeSessionId]);
+
+	useEffect(() => {
+		if (workspaceMode !== 'scripting' || !selectedIdea) return;
+		const pm = session.projectMeta || {};
+		const shouldPatch = (
+			(!selectedIdea.sessionName && pm.sessionName) ||
+			(!selectedIdea.idea && pm.idea) ||
+			(!selectedIdea.purpose && pm.purpose) ||
+			(!selectedIdea.style && pm.style) ||
+			(!selectedIdea.format && pm.format) ||
+			(!selectedIdea.platform && pm.platform) ||
+			(!selectedIdea.tone && pm.tone)
+		);
+		if (!shouldPatch) return;
+		setSelectedIdea({
+			...selectedIdea,
+			sessionName: selectedIdea.sessionName || pm.sessionName,
+			idea: selectedIdea.idea || pm.idea || '',
+			purpose: selectedIdea.purpose || pm.purpose || '',
+			style: selectedIdea.style || pm.style || '',
+			format: selectedIdea.format || pm.format || '',
+			platform: selectedIdea.platform || pm.platform || '',
+			tone: (selectedIdea.tone || pm.tone || 'blue') as any,
+		});
+	}, [workspaceMode, selectedIdea, session.projectMeta]);
 
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
-
-	// use top-level skeletonIdeas constant
 
 	const generateIdeas = useCallback(async () => {
 		if (!prompt.trim()) return;
@@ -75,15 +113,15 @@ export default function ThinkForgeLanding() {
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
 			setIdeas(list.length === 4 ? list : skeletonIdeas(prompt));
-			setPhase('IDEAS');
+			setIdeationPhase('IDEAS');
 		} catch {
 			// generic failure: show skeletons and allow progression
 			setIdeas(skeletonIdeas(prompt));
-			setPhase('IDEAS');
+			setIdeationPhase('IDEAS');
 		} finally {
 			setLoading(false);
 		}
-	}, [prompt, skeletonIdeas]);
+	}, [prompt]);
 
 	const onSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
@@ -111,86 +149,200 @@ export default function ThinkForgeLanding() {
 
 	const handleSelectIdea = async (idea: IdeaCardData) => {
 		setSelectedIdea(idea);
-		setPhase('SELECTED');
-		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase
-	};
-			const handleProceedToScript = async () => {
-			// Ensure any previous session is fully closed before entering SCRIPT
-			try { await tf.closeSession(); } catch {}
-			setPendingSessionId(null);
-			setPhase('SCRIPT');
-		};
-	const handleUpdateIdea = (updated: any) => {
-		setSelectedIdea(updated);
-		setIdeas((prev: IdeaCardData[]) => prev.map(i => i.id === updated.id ? updated : i));
+		setIdeationPhase('SELECTED');
+		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase (Scripting Mode)
 	};
 
-	// Create a session when entering SCRIPT phase first time for selected idea
+	const handleProceedToScript = async () => {
+		const name = (selectedIdea?.sessionName || '').trim();
+		if (!name || name.length > 100) {
+			toast({
+				title: 'Session name required',
+				description: 'Please enter a Session name (max 100 chars) before continuing.',
+				variant: 'destructive',
+			});
+			return;
+		}
+		// Ensure any previous session is fully closed before entering SCRIPT
+		try { await session.closeSession(); } catch {}
+		// Clear any stale script immediately before creating a new session
+		scriptHook.resetSessionState();
+		setPendingSessionId(null);
+		setWorkspaceMode('scripting');
+		// Reset ideation phase back to start so user can generate new ideas when returning
+		setIdeationPhase('PROMPT');
+		setIdeas([]);
+		setHasSubmitted(false);
+		setPrompt("");
+	};
+
+	const handleJumpToSettings = () => {
+		// Initialize empty idea
+		const emptyIdea: IdeaCardData = {
+			id: Date.now().toString(),
+			idea: "",
+			purpose: "",
+			style: "",
+			format: "",
+			platform: "",
+			tone: "white" // Default to neutral/white tone
+		};
+		setSelectedIdea(emptyIdea);
+		setIdeationPhase('SELECTED');
+		// Clear prompt/ideas if they exist to avoid confusion
+		setPrompt("");
+		setHasSubmitted(false);
+	};
+
+	const handleUpdateIdea = async (updated: any) => {
+		try {
+			const trimmedName = (updated.sessionName || '').trim().slice(0, 100);
+			updated = { ...updated, sessionName: trimmedName };
+			if (!trimmedName) {
+				toast({ title: 'Session name required', description: 'Please enter a Session name (max 100 chars).' });
+				return;
+			}
+			// Update local state immediately for optimistic UI
+			setSelectedIdea(updated);
+			setIdeas((prev: IdeaCardData[]) => prev.map(i => i.id === updated.id ? updated : i));
+			setSessions((prev) => prev.map((s) => s.id === updated.id ? { ...s, name: updated.sessionName || updated.idea || s.name, tone: updated.tone as any, lastEdited: Date.now() } : s));
+			
+			// Persist to localStorage for client-side persistence
+			try {
+				const stored = localStorage.getItem('thinkforge_ideas') || '[]';
+				const parsed = JSON.parse(stored);
+				const idx = parsed.findIndex((i: any) => i.id === updated.id);
+				if (idx >= 0) {
+					parsed[idx] = updated;
+				} else {
+					parsed.push(updated);
+				}
+				localStorage.setItem('thinkforge_ideas', JSON.stringify(parsed));
+			} catch (e) {
+				console.error('Failed to persist idea to localStorage:', e);
+			}
+
+			// Persist project meta (including sessionName) to the active session when available
+			// Skip if we're still in ideation phase (no active session yet)
+			const activeSessionId = session.sessionId || pendingSessionId;
+			if (activeSessionId && workspaceMode === 'scripting') {
+				const projectMetaPayload = {
+					idea: updated.idea || '',
+					purpose: updated.purpose || '',
+					style: updated.style || '',
+					format: updated.format || '',
+					platform: updated.platform || '',
+					tone: updated.tone || 'blue',
+					sessionName: updated.sessionName || ''
+				};
+
+				try {
+					const res = await fetch('/api/services/thinkforge/session/update', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							sessionId: activeSessionId,
+							projectMeta: projectMetaPayload
+						})
+					});
+					if (!res.ok) {
+						console.error('Failed to persist session meta:', res.status, res.statusText);
+					}
+
+					// Update local session cache so subsequent hydrations reflect the change
+					try {
+						const key = `thinkforge_session_${activeSessionId}`;
+						const cached = JSON.parse(localStorage.getItem(key) || '{}');
+						localStorage.setItem(key, JSON.stringify({ ...cached, projectMeta: projectMetaPayload }));
+					} catch {}
+				} catch (err) {
+					console.error('Error saving session meta:', err);
+				}
+			}
+		} catch (error) {
+			console.error('Error updating idea:', error);
+			// Optionally show error toast here
+		}
+	};
+
+	// Create a session when entering SCRIPTING mode first time for selected idea
 	useEffect(() => {
-		if (phase === 'SCRIPT' && selectedIdea) {
+		if (workspaceMode === 'scripting' && selectedIdea) {
 			setSessions(prev => {
 				const existing = prev.find(s => s.id === selectedIdea.id);
 				if (existing) return prev.map(s => s.id === existing.id ? { ...s, lastEdited: Date.now() } : s);
-				// AI-generate a placeholder name (simple heuristic)
-				const base = selectedIdea.idea.split('–')[0].trim();
+				// Prefer explicit Session name; fall back to idea text
+				const base = (selectedIdea.sessionName || selectedIdea.idea || 'New Session').split('–')[0].trim();
 				const name = base.length > 40 ? base.slice(0, 40) + '…' : base || 'New Session';
 				return [...prev, { id: selectedIdea.id, name, tone: selectedIdea.tone, lastEdited: Date.now() }];
 			});
 		}
-	}, [phase, selectedIdea]);
+	}, [workspaceMode, selectedIdea]);
 
-	// Hydrate backend session when entering SCRIPT phase
+	// Hydrate backend session when entering SCRIPTING mode
 	const hasHydratedRef = useRef(false);
 	const creationTimerRef = useRef<NodeJS.Timeout | null>(null);
 	useEffect(() => {
-		if (phase !== 'SCRIPT' || !selectedIdea) return;
+		if (workspaceMode !== 'scripting' || !selectedIdea) return;
 		// If opening an existing session from Library, or a session already exists, do not create a new one
-		if (tf.sessionId || pendingSessionId) return;
+		if (session.sessionId || pendingSessionId) return;
 		// Only hydrate once per entry into script phase until idea changes
 		if (hasHydratedRef.current) return;
 		// Debounce creation slightly and cancel if user navigates away
 		if (creationTimerRef.current) clearTimeout(creationTimerRef.current);
 		creationTimerRef.current = setTimeout(async () => {
 			// Re-check conditions at execution time
-			if (phase !== 'SCRIPT' || !selectedIdea) return;
-			if (tf.sessionId || pendingSessionId) return;
+			if (workspaceMode !== 'scripting' || !selectedIdea) return;
+			if (session.sessionId || pendingSessionId) return;
 			if (hasHydratedRef.current) return;
 			hasHydratedRef.current = true;
 			try {
 				setOpeningSession(true);
-				await tf.closeSession();
-				const created = await tf.hydrate({
+				await session.closeSession();
+				// Ensure UI is cleared before creating a fresh session
+				scriptHook.resetSessionState();
+				const created = await session.hydrate({
 					projectMeta: {
 						idea: selectedIdea.idea,
 						purpose: (selectedIdea as any)?.purpose,
 						style: (selectedIdea as any)?.style,
 						format: (selectedIdea as any)?.format,
 						platform: (selectedIdea as any)?.platform,
-						tone: selectedIdea.tone
+						tone: selectedIdea.tone,
+						sessionName: (selectedIdea as any)?.sessionName
 					}
 				});
-				if (created?.sessionId) setPendingSessionId(created.sessionId);
-				if (created?.script) (tf.setScriptAndQueueSave as any)(created.script);
+				if (created?.sessionId) {
+					setPendingSessionId(created.sessionId);
+					if (created?.script) {
+						const sanitized = created.script ? sanitizeServerScript(created.script) : null;
+						if (sanitized) {
+							scriptHook.setScriptAndQueueSave(sanitized);
+						} else {
+							scriptHook.resetSessionState();
+						}
+					} else {
+						scriptHook.resetSessionState();
+					}
+				}
 			} catch {}
 			finally {
 				setTimeout(() => setOpeningSession(false), 250);
 			}
 		}, 220);
-	}, [phase, selectedIdea, tf.sessionId, pendingSessionId]);
+	}, [workspaceMode, selectedIdea, session.sessionId, pendingSessionId, session, scriptHook]);
 
 	// Clear temporary pendingSessionId once the hook has the active sessionId
 	useEffect(() => {
-		if (!openingSession && pendingSessionId && tf.sessionId === pendingSessionId) {
+		if (!openingSession && pendingSessionId && session.sessionId === pendingSessionId) {
 			setPendingSessionId(null);
 		}
-	}, [openingSession, pendingSessionId, tf.sessionId]);
+	}, [openingSession, pendingSessionId, session.sessionId]);
 
 	// Reset hydrate flag when idea changes
 	useEffect(() => { hasHydratedRef.current = false; }, [selectedIdea?.id]);
-	// Reset hydrate flag when leaving SCRIPT
-	useEffect(() => { if (phase !== 'SCRIPT') { hasHydratedRef.current = false; if (creationTimerRef.current) { clearTimeout(creationTimerRef.current); creationTimerRef.current = null; } } }, [phase]);
-
-	// No allowNewSession resets required
+	// Reset hydrate flag when leaving SCRIPTING
+	useEffect(() => { if (workspaceMode !== 'scripting') { hasHydratedRef.current = false; if (creationTimerRef.current) { clearTimeout(creationTimerRef.current); creationTimerRef.current = null; } } }, [workspaceMode]);
 
 	// Map between hook ScriptModel and UI Script
 	const modelToScript = useCallback((m: ScriptModel | null): Script | null => {
@@ -199,85 +351,146 @@ export default function ThinkForgeLanding() {
 		const content = m.content || '';
 		const paras = content.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
 		const htmlBody = [`<h1>${title}</h1>`, ...paras.map(p => `<p>${p}</p>`)].join('\n');
-		return {
+		const script: Script = {
 			title,
+			version: m.version,
 			content,
 			body: htmlBody,
-			blocks: (m.blocks as any) || undefined,
+			blocks: Array.isArray(m.blocks) && m.blocks.length > 0 ? (m.blocks as any) : undefined,
+			metadata: m.metadata || undefined,
 			sections: [], tips: [], duration: undefined, targetAudience: undefined, tone: undefined
 		} as Script;
+		return script;
 	}, []);
 
-	const scriptFromHook: Script | null = useMemo(() => modelToScript(tf.script), [tf.script, modelToScript]);
+	const scriptFromHook: Script | null = useMemo(() => modelToScript(scriptHook.script), [scriptHook.script, modelToScript]);
 
-	const scriptToModel = useCallback((s: Script): ScriptModel => ({
-		title: s.title,
-		content: s.content || '',
-		blocks: (s as any).blocks || null,
-	}), []);
+	const scriptToModel = useCallback((s: Script): ScriptModel => {
+		const model: ScriptModel = {
+			title: s.title,
+			content: s.content || '',
+			blocks: Array.isArray((s as any).blocks) && (s as any).blocks.length > 0 ? (s as any).blocks : null,
+			version: (s as any).version,
+			metadata: s.metadata || null,
+		};
+		return model;
+	}, []);
 
 	// Handlers using autosave hook
 	const handleApplyEdit = useCallback((updated: Script) => {
-		tf.setScriptAndQueueSave(scriptToModel(updated));
-	}, [tf, scriptToModel]);
+		const model = scriptToModel(updated);
+		scriptHook.setScriptAndQueueSave(model);
+	}, [scriptHook, scriptToModel]);
 
+	// Handle script updates from ScriptEditor
+	// NOTE: ScriptEditor already saves to backend via /script/blocks endpoint
+	// We only update local state here - NO server save (to avoid double-saving)
 	const handleUpdateScript = useCallback((updated: Script | null) => {
 		if (!updated) return;
-		tf.setScriptAndQueueSave(scriptToModel(updated));
-	}, [tf, scriptToModel]);
+		// Use setScriptWithoutSave to update state without triggering another save
+		// ScriptEditor handles all persistence directly
+		scriptHook.setScriptWithoutSave(scriptToModel(updated));
+	}, [scriptHook, scriptToModel]);
 
-		const handleRunEdit = useCallback(async (instruction: string, selection?: string) => {
+	const handleRunEdit = useCallback(async (instruction: string, selection?: string) => {
 		// Prefer block-targeted edits with optional selection mapping
-		const res = await tf.runEditBlocks(instruction, selection);
+		const res = await scriptHook.runEditBlocks(instruction, selection);
 		return res;
-	}, [tf]);
-	const handleRenameSession = (id: string, name: string) => {
-		setSessions(prev => prev.map(s => s.id === id ? { ...s, name, lastEdited: Date.now() } : s));
-	};
-	const handleDeleteSession = (id: string) => {
-		setSessions(prev => prev.filter(s => s.id !== id));
-		if (selectedIdea && selectedIdea.id === id) {
-			setSelectedIdea(null);
-			setPhase('IDEAS');
+	}, [scriptHook]);
+
+	// Dock items for ThinkForge features
+	const dockItems = [
+		{
+			icon: FolderOpen,
+			label: 'Projects',
+			onClick: () => {
+				toast({ title: 'Projects', description: 'Project management coming soon!' });
+			}
+		},
+		{
+			icon: Lightbulb,
+			label: 'Ideation',
+			onClick: () => {
+				setWorkspaceMode('ideation');
+			},
+			active: workspaceMode === 'ideation'
+		},
+		{
+			icon: FileText,
+			label: 'Storyboarding',
+			onClick: () => {
+				if (!selectedIdea && workspaceMode !== 'scripting') {
+					toast({ title: 'Storyboarding', description: 'Select an idea from Ideation to create a storyboard, or open one from Library.' });
+				}
+				setWorkspaceMode('scripting');
+			},
+			active: workspaceMode === 'scripting'
+		},
+		{
+			icon: Calendar,
+			label: 'Planning',
+			onClick: () => {
+				setWorkspaceMode('planning');
+			},
+			active: workspaceMode === 'planning'
+		},
+		{
+			icon: Library,
+			label: 'Library',
+			onClick: () => setLibraryOpen(true)
 		}
-	};
+	];
 
 	return (
-		<div className="relative min-h-dvh w-full overflow-hidden bg-neutral-950 text-white">
+		<div className="relative h-screen w-full overflow-hidden bg-neutral-950 text-white">
 			<BackgroundDecor />
+			
 			<LibraryPanel
 				open={libraryOpen}
 				onClose={() => setLibraryOpen(false)}
 				panelRef={panelRef}
-				activeSessionId={phase === 'SCRIPT' ? (pendingSessionId || tf.sessionId) : null}
+				activeSessionId={workspaceMode === 'scripting' ? (pendingSessionId || session.sessionId) : null}
 				onDeleteSession={async (id) => {
-					const active = (pendingSessionId || tf.sessionId);
+					const active = (pendingSessionId || session.sessionId);
 					if (active && id === active) {
 						// If the deleted session is currently active, close it and reset UI
-						await tf.closeSession();
+						await session.closeSession();
 						setPendingSessionId(null);
+						scriptHook.resetSessionState();
 						setSelectedIdea(null);
 						setIdeas([]);
 						setHasSubmitted(false);
 						setPrompt("");
-						setPhase('PROMPT');
+						setIdeationPhase('PROMPT');
+						setWorkspaceMode('ideation');
 					}
 				}}
 				// When sessions prop is omitted, component fetches via hook
 				onOpenSession={async (id) => {
 					try {
+						// Ensure current script is saved before switching sessions
+						if (scriptHook.script) {
+							await scriptHook.autosave(scriptHook.script);
+						}
+						// Clear UI while switching to prevent stale hydration
+						scriptHook.resetSessionState();
 						setLibraryOpen(false);
 						setOpeningSession(true);
 						// Hydrate backend with target session and immediately use returned data
-						const data = await tf.hydrate({ sessionId: id });
+						const data = await session.hydrate({ sessionId: id });
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
 						// Ensure hook script state is set promptly to avoid UI race
 						if (data.script) {
-							// Apply script model directly to hook state and queue persistence
-							// Note: setScriptAndQueueSave accepts ScriptModel
-							(tf.setScriptAndQueueSave as any)(data.script);
+							const sanitized = data?.script ? sanitizeServerScript(data.script) : null;
+							if (sanitized) {
+								scriptHook.setScriptAndQueueSave(sanitized);
+							} else {
+								scriptHook.resetSessionState();
+							}
+						} else {
+							scriptHook.resetSessionState();
 						}
 						// Reconstruct selected idea from project meta
 						const pm = data.projectMeta || {};
@@ -297,10 +510,11 @@ export default function ThinkForgeLanding() {
 							format: pm.format || '',
 							platform: pm.platform || '',
 							tone: (pm.tone || 'blue') as any,
+							sessionName: pm.sessionName || undefined,
 						} as any;
 						setSelectedIdea(ideaObj);
-						// Switch to Script phase so ChatPanel mounts and loads recent chats
-						setPhase('SCRIPT');
+						// Switch to Script mode so ChatPanel mounts and loads recent chats
+						setWorkspaceMode('scripting');
 					} catch {
 						// leave overlay to close below
 					} finally {
@@ -320,115 +534,247 @@ export default function ThinkForgeLanding() {
 					/>
 				)}
 			</AnimatePresence>
-			<AnimatePresence>
-				{!libraryOpen && (
-					<motion.button
-						onClick={() => setLibraryOpen(true)}
-						className="group fixed right-3 top-4 z-30 flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/80 backdrop-blur-md transition hover:bg-white/10"
-						initial={{ opacity: 0, y: -8, scale: 0.85 }}
-						animate={{ opacity: 1, y: 0, scale: 1 }}
-						exit={{ opacity: 0, y: -6 }}
-					>
-						<BookOpen className="h-3.5 w-3.5 text-red-300" /> Library
-					</motion.button>
-				)}
-			</AnimatePresence>
 
-			{(phase === 'PROMPT' || phase === 'IDEAS') && (
-				<div
-					className={clsx(
-						'relative mx-auto flex w-full max-w-7xl flex-col items-center px-4 sm:px-8',
-						hasSubmitted ? 'min-h-dvh pb-32 pt-28' : 'min-h-dvh justify-center pb-20 pt-12'
-					)}
-				>
-					<PromptPanel
-						prompt={prompt}
-						setPrompt={setPrompt}
-						loading={loading}
-						hasSubmitted={hasSubmitted}
-						onSubmit={onSubmit}
-						onRegenerate={regenerate}
-					/>
-					<IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={handleSelectIdea} />
-				</div>
-			)}
+			<IdeationMode 
+				phase={ideationPhase}
+				prompt={prompt}
+				setPrompt={setPrompt}
+				loading={loading}
+				hasSubmitted={hasSubmitted}
+				ideas={ideas}
+				selectedIdea={selectedIdea}
+				onSubmit={onSubmit}
+				onRegenerate={regenerate}
+				onSelectIdea={handleSelectIdea}
+				onProceedToChat={handleProceedToScript}
+				onGoBackToIdeas={() => setIdeationPhase('IDEAS')}
+				onUpdateIdea={handleUpdateIdea}
+				onManualSetup={handleJumpToSettings}
+				isVisible={workspaceMode === 'ideation'}
+				sessionCount={sessions.length}
+			/>
 
-			{phase === 'SELECTED' && selectedIdea && (
-				<div className="relative mx-auto w-full max-w-5xl px-4 pb-32 pt-20">
-					<SelectedIdeaDisplay
-						idea={{
-							id: Number(selectedIdea.id),
-							idea: selectedIdea.idea,
-							purpose: selectedIdea.purpose,
-							style: selectedIdea.style,
-							format: selectedIdea.format,
-							platform: selectedIdea.platform,
-							tone: selectedIdea.tone as any
-						}}
-						onProceedToChat={handleProceedToScript}
-						onGoBack={() => setPhase('IDEAS')}
-						onUpdateIdea={(upd) => handleUpdateIdea({ ...upd, id: String(upd.id) })}
-					/>
-				</div>
-			)}
+			<StoryboardingMode
+				isVisible={workspaceMode === 'scripting'}
+				selectedIdea={selectedIdea}
+				sessionId={pendingSessionId || session.sessionId}
+				scriptId={activeScriptId}
+				script={scriptFromHook}
+				isSaving={scriptHook.isSaving}
+				onApplyEdit={handleApplyEdit}
+				onRunEdit={handleRunEdit}
+				onUpdateScript={handleUpdateScript}
+				onBack={async () => {
+					// Close the active session and return to ThinkForge home (prompt)
+					await session.closeSession();
+					setPendingSessionId(null);
+					scriptHook.resetSessionState();
+					setSelectedIdea(null);
+					setIdeas([]);
+					setHasSubmitted(false);
+					setPrompt("");
+					setIdeationPhase('PROMPT');
+					setWorkspaceMode('ideation');
+				}}
+				onNewScript={async () => {
+					if (!activeSessionId) return;
+					try {
+						setOpeningSession(true);
+						const newScriptId = crypto.randomUUID();
+						setActiveScriptId(newScriptId);
+						scriptHook.resetSessionState();
+						const title = selectedIdea?.idea || 'New Script';
+						await fetch('/api/commands', {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/json' },
+							body: JSON.stringify({
+								type: 'ReplaceDocument',
+								sessionId: activeSessionId,
+								baseVersion: 0,
+								source: 'user',
+								payload: {
+									scriptId: newScriptId,
+									title,
+									content: '',
+									blocks: [],
+								}
+							}),
+						});
+						scriptHook.setScriptWithoutSave({
+							title,
+							content: '',
+							blocks: null,
+							metadata: null,
+						});
+					} catch (error) {
+						console.error('Failed to create new script tab:', error);
+						toast({
+							title: 'New script failed',
+							description: 'Could not start a fresh script tab.',
+							variant: 'destructive',
+						});
+					} finally {
+						setTimeout(() => setOpeningSession(false), 250);
+					}
+				}}
+				onSwitchScript={async (scriptId) => {
+					if (!activeSessionId) return;
+					try {
+						setOpeningSession(true);
+						if (scriptHook.script) {
+							await scriptHook.autosave(scriptHook.script);
+						}
+						setActiveScriptId(scriptId);
+						scriptHook.resetSessionState();
+						const res = await fetch(`/api/services/thinkforge/script/get?sessionId=${encodeURIComponent(activeSessionId)}&scriptId=${encodeURIComponent(scriptId)}`, { cache: 'no-store' });
+						if (res.ok) {
+							const data = await res.json();
+							const scriptData = data?.script || null;
+							if (scriptData) {
+								const sanitized = sanitizeServerScript(scriptData);
+								scriptHook.setScriptWithoutSave(sanitized);
+							} else {
+								scriptHook.setScriptWithoutSave({
+									title: 'Untitled Script',
+									content: '',
+									blocks: null,
+									metadata: null,
+								});
+							}
+						}
+					} finally {
+						setTimeout(() => setOpeningSession(false), 200);
+					}
+				}}
+				onImportScript={async (data) => {
+					try {
+						const res = scriptHook.importScript(data);
+						return res;
+					} catch (e: any) {
+						return { ok: false, error: e?.message || 'Import failed' };
+					}
+				}}
+				onGoToIdeation={() => setWorkspaceMode('ideation')}
+				onSwitchSession={async (id) => {
+					try {
+						// Ensure current script is saved before switching sessions
+						if (scriptHook.script) {
+							await scriptHook.autosave(scriptHook.script);
+						}
+						// Clear UI while switching to prevent stale hydration
+						scriptHook.resetSessionState();
+						setOpeningSession(true);
+						// Hydrate backend with target session and immediately use returned data
+						const data = await session.hydrate({ sessionId: id });
+						if (!data) { setOpeningSession(false); return; }
+						const sid = data.sessionId;
+						setPendingSessionId(sid);
+						// Ensure hook script state is set promptly to avoid UI race
+						if (data.script) {
+							const sanitized = data.script ? sanitizeServerScript(data.script) : null;
+							if (sanitized) {
+								scriptHook.setScriptAndQueueSave(sanitized);
+							} else {
+								scriptHook.resetSessionState();
+							}
+						} else {
+							scriptHook.resetSessionState();
+						}
+						// Reconstruct selected idea from project meta
+						const pm = data.projectMeta || {};
+						// Derive a stable numeric id from the session id to keep UI keys stable
+						const stableId = (() => {
+							let h = 0;
+							for (let i = 0; i < String(id).length; i++) {
+								h = (h * 31 + String(id).charCodeAt(i)) >>> 0;
+							}
+							return h || Date.now();
+						})();
+						const ideaObj = {
+							id: stableId,
+							idea: pm.idea || 'Untitled',
+							purpose: pm.purpose || '',
+							style: pm.style || '',
+							format: pm.format || '',
+							platform: pm.platform || '',
+							tone: (pm.tone || 'blue') as any,
+							sessionName: pm.sessionName || undefined,
+						} as any;
+						setSelectedIdea(ideaObj);
+						// Switch to Script mode so ChatPanel mounts and loads recent chats
+						setWorkspaceMode('scripting');
+					} catch {
+						// leave overlay to close below
+					} finally {
+						// Slight delay to let initial ChatPanel fetch complete before removing overlay
+						setTimeout(() => setOpeningSession(false), 250);
+					}
+				}}
+				onUpdateIdea={(updatedIdea) => {
+					setSelectedIdea(updatedIdea);
+					handleUpdateIdea({ ...updatedIdea, id: String(updatedIdea.id) });
+				}}
+			/>
 
-			{phase === 'SCRIPT' && selectedIdea && (
-				<div className="relative mx-auto w-full max-w-[1600px] px-4 pb-10 pt-10">
-					<div className="flex flex-col gap-6 lg:flex-row">
-														<ChatPanel key={(pendingSessionId || tf.sessionId || 'no-session')} selectedIdea={{
-							id: Number(selectedIdea.id),
-							idea: selectedIdea.idea,
-							purpose: selectedIdea.purpose,
-							style: selectedIdea.style,
-							format: selectedIdea.format,
-							platform: selectedIdea.platform,
-							tone: selectedIdea.tone as any
-						}}
-													script={scriptFromHook}
-							onApplyEdit={handleApplyEdit}
-							// Prefer running edits via backend + persistence
-							onRunEdit={handleRunEdit}
-													sessionId={pendingSessionId || tf.sessionId}
-													initialMessages={Array.isArray(tf.chat) ? tf.chat : undefined}
-						/>
-												<ScriptPanel
-							selectedIdea={{
-								id: Number(selectedIdea.id),
-								idea: selectedIdea.idea,
-								purpose: selectedIdea.purpose,
-								style: selectedIdea.style,
-								format: selectedIdea.format,
-								platform: selectedIdea.platform,
-								tone: selectedIdea.tone as any
-							}}
-							script={scriptFromHook}
-													sessionId={pendingSessionId || tf.sessionId}
-																			isSaving={tf.isSaving}
-							onUpdate={handleUpdateScript}
-							onBack={async () => {
-								// Close the active session and return to ThinkForge home (prompt)
-								await tf.closeSession();
-								// Clear local pending/session id bridge
-								setPendingSessionId(null);
-								setSelectedIdea(null);
-								setIdeas([]);
-								// Reset prompt state so it appears in its initial position
-								setHasSubmitted(false);
-								setPrompt("");
-								setPhase('PROMPT');
-							}}
-								onImportScript={async (data) => {
-									try {
-										const res = await (tf.importScript as any)(data);
-										return res;
-									} catch (e: any) {
-										return { ok: false, error: e?.message || 'Import failed' };
+			<PlanningMode
+				isVisible={workspaceMode === 'planning'}
+				onOpenScript={async (sessionId) => {
+					try {
+						// Close any existing session
+						await session.closeSession();
+						setPendingSessionId(null);
+						scriptHook.resetSessionState();
+						
+						// Hydrate the session from content card
+						const data = await session.hydrate({ sessionId });
+						if (data?.sessionId) {
+							setPendingSessionId(data.sessionId);
+							if (data.script) {
+								const sanitized = data.script ? sanitizeServerScript(data.script) : null;
+								if (sanitized) {
+									scriptHook.setScriptAndQueueSave(sanitized);
+								} else {
+									scriptHook.resetSessionState();
+								}
+							} else {
+								scriptHook.resetSessionState();
+							}
+							
+							// Reconstruct idea from project meta if available
+							const pm = data.projectMeta || {};
+							if (pm.idea) {
+								const stableId = (() => {
+									let h = 0;
+									for (let i = 0; i < String(sessionId).length; i++) {
+										h = (h * 31 + String(sessionId).charCodeAt(i)) >>> 0;
 									}
-								}}
-						/>
-					</div>
-				</div>
-			)}
+									return h || Date.now();
+								})();
+								const ideaObj = {
+									id: stableId,
+									idea: pm.idea || 'Untitled',
+									purpose: pm.purpose || '',
+									style: pm.style || '',
+									format: pm.format || '',
+									platform: pm.platform || '',
+									tone: (pm.tone || 'blue') as any,
+									sessionName: pm.sessionName || undefined,
+								} as any;
+								setSelectedIdea(ideaObj);
+							}
+							
+							// Switch to SCRIPT mode
+							setWorkspaceMode('scripting');
+						}
+					} catch (err) {
+						toast({
+							title: 'Failed to open script',
+							description: 'Could not load the script session.',
+							variant: 'destructive',
+						});
+					}
+				}}
+			/>
 
 			{/* Full-screen loading overlay while opening a session from Library */}
 			{openingSession && (
@@ -439,7 +785,9 @@ export default function ThinkForgeLanding() {
 					</div>
 				</div>
 			)}
+
+			{/* ThinkForge Dock */}
+			<Dock items={dockItems} />
 		</div>
 	);
 }
-

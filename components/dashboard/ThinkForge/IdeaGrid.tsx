@@ -13,6 +13,7 @@ export interface IdeaCardData {
   format: string;
   platform: string;
   tone: string; // updated to remove ThinkingHat reference
+  sessionName?: string;
 }
 
 interface IdeaGridProps {
@@ -24,22 +25,41 @@ interface IdeaGridProps {
 }
 
 export const IdeaGrid: React.FC<IdeaGridProps> = ({ ideas, loading, hasSubmitted, prompt, onSelect }) => (
-  <AnimatePresence>
+  <AnimatePresence mode="wait">
     {hasSubmitted && (
       <motion.div
+        key="ideas-grid"
         className="relative z-0 mt-12 w-full"
-        initial="hidden"
-        animate="visible"
-        variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.12 } } }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
       >
-        <div className="mb-4 flex flex-col gap-1">
-        </div>
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {loading && ideas.length === 0 && Array.from({ length: 4 }).map((_, i) => <IdeaSkeleton key={i} />)}
-          {!loading && ideas.map((idea, i) => <IdeaCard key={idea.id} idea={idea} index={i} onClick={() => onSelect(idea)} />)}
+          {loading && ideas.length === 0 && Array.from({ length: 4 }).map((_, i) => (
+            <IdeaSkeleton key={`skeleton-${i}`} />
+          ))}
+          {!loading && (
+            <AnimatePresence>
+              {ideas.map((idea, i) => (
+                <IdeaCard 
+                  key={idea.id} 
+                  idea={idea} 
+                  index={i} 
+                  onClick={() => onSelect(idea)} 
+                />
+              ))}
+            </AnimatePresence>
+          )}
         </div>
         {loading && ideas.length > 0 && (
-          <div className="flex justify-center pt-4 text-xs text-white/40">Refreshing ideas...</div>
+          <motion.div 
+            className="flex justify-center pt-4 text-xs text-white/40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            Refreshing ideas...
+          </motion.div>
         )}
       </motion.div>
     )}
@@ -51,10 +71,17 @@ export const IdeaCard = ({ idea, index, onClick }: { idea: IdeaCardData; index: 
   return (
     <motion.div
       className="group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-br from-white/10 via-white/[0.04] to-white/[0.02] p-4 shadow-[0_4px_18px_-6px_rgba(0,0,0,0.5)] backdrop-blur-xl cursor-pointer"
-      variants={{ hidden: { opacity: 0, y: 24, scale: 0.96 }, visible: { opacity: 1, y: 0, scale: 1 } }}
-      transition={{ type: "spring", stiffness: 140, damping: 18 }}
-      whileHover={{ y: -4 }}
-      style={{ perspective: 800 }}
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.95, transition: { duration: 0.2 } }}
+      transition={{ 
+        type: "spring", 
+        stiffness: 200, 
+        damping: 20,
+        delay: index * 0.05
+      }}
+      whileHover={{ y: -4, scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
       onClick={onClick}
     >
       <div className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-white/10" />
