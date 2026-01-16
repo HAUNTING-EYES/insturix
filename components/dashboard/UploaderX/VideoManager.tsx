@@ -570,9 +570,46 @@ export function VideoManager({
                 ]}
                 videoUuid={selectedVideo.videoUuid}
                 defaultTitle={selectedVideo.filename}
-                onSave={(platformData) => {
-                  console.log('Platform data saved:', platformData);
-                  setShowEditor(false);
+                initialData={selectedVideo.metadata as any} // Cast as any because metadata is generic locally but editor expects specific shape
+                onSave={async (platformData) => {
+                  try {
+                    console.log("Saving metadata for:", selectedVideo.videoUuid, platformData);
+                    const response = await fetch(`/api/services/uploaderx/videos/${selectedVideo.videoUuid}`, {
+                      method: 'PATCH',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ metadata: platformData }),
+                    });
+
+                    const responseData = await response.json();
+
+                    if (!response.ok) {
+                      console.error("Save failed response:", responseData);
+                      throw new Error(responseData.error || 'Failed to save settings');
+                    }
+
+                    console.log("Save successful:", responseData);
+
+                    toast({
+                      title: "Settings saved",
+                      description: "Video metadata has been updated successfully.",
+                    });
+
+                    // Update local video state with new metadata
+                    setVideos(prev => prev.map(v =>
+                      v.videoUuid === selectedVideo.videoUuid
+                        ? { ...v, metadata: { ...v.metadata, ...platformData } }
+                        : v
+                    ));
+
+                    setShowEditor(false);
+                  } catch (error) {
+                    console.error("Save error details:", error);
+                    toast({
+                      title: "Save failed",
+                      description: error instanceof Error ? error.message : "Could not save settings. Please try again.",
+                      variant: "destructive",
+                    });
+                  }
                 }}
               />
             </CardContent>

@@ -13,8 +13,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { filename, gcsPath, fileSize, contentType, videoUuid, publicUrl, progress } = body;
-
+    const { filename, gcsPath, fileSize, contentType, videoUuid, publicUrl, progress, metadata } = body;
 
     // 🟡 Case 1: Only progress update
     if (progress !== undefined && (!filename || !gcsPath)) {
@@ -36,6 +35,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, error: "User email not found" }, { status: 400 });
     }
 
+    // Format metadata correctly
+    let formattedMetadata = {};
+    if (metadata) {
+      formattedMetadata = {
+        title: metadata.title,
+        description: metadata.description,
+        tags: metadata.tags,
+        youtube: {
+          title: metadata.title,
+          description: metadata.description,
+          tags: metadata.tags,
+          privacyStatus: metadata.privacyStatus || 'private' // Default to private for initial upload
+        },
+        videoType: metadata.videoType
+      };
+    }
+
     const upload = await UploaderX.create({
       userId,
       email, // ✅ Added required email field
@@ -47,6 +63,7 @@ export async function POST(request: Request) {
       contentType,
       status: "uploaded",
       uploadedAt: new Date(),
+      metadata: formattedMetadata
     });
 
 

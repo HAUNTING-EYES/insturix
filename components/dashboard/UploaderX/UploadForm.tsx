@@ -37,6 +37,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const [defaultTitle, setDefaultTitle] = useState("");
   const [defaultDescription, setDefaultDescription] = useState("");
   const [defaultTags, setDefaultTags] = useState("");
+  const [privacyStatus, setPrivacyStatus] = useState("private");
   const [uploadResult, setUploadResult] = useState<{ success: boolean; videoUuid?: string; error?: string } | null>(null);
   const [isYouTubeConnected, setIsYouTubeConnected] = useState(false);
 
@@ -63,6 +64,12 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
     try {
       const result = await uploadWithProgress(videoFile, (progress) => {
         // Progress is handled by the hook
+      }, {
+        title: defaultTitle || videoFile.name,
+        description: defaultDescription,
+        tags: defaultTags ? defaultTags.split(',').map(tag => tag.trim()).filter(Boolean) : [],
+        privacyStatus,
+        videoType: activeType
       });
 
       setUploadResult(result);
@@ -84,7 +91,24 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
           if (token) {
             toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
 
-            const ytResult = await uploadToYouTube(result.videoUuid, result.gcsPath, videoFile.name, token);
+            // Auto-append #Shorts if type is shorts/reels
+            let finalTitle = defaultTitle || videoFile.name;
+            let finalDescription = defaultDescription;
+
+            if (activeType === 'short') {
+              if (!finalTitle.toLowerCase().includes('#shorts')) finalTitle += ' #Shorts';
+              if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
+            }
+
+            const ytResult = await uploadToYouTube(
+              result.videoUuid,
+              result.gcsPath,
+              videoFile.name,
+              token,
+              finalTitle,
+              finalDescription,
+              privacyStatus
+            );
 
             if (ytResult.success) {
               toast({
@@ -229,19 +253,32 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               </div>
               <Input value={defaultTitle} onChange={(e) => setDefaultTitle(e.target.value)} placeholder="Enter a title" className="mt-2" />
             </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-zinc-200">Privacy Status</Label>
+                <select
+                  value={privacyStatus}
+                  onChange={(e) => setPrivacyStatus(e.target.value)}
+                  className="mt-2 flex h-10 w-full rounded-md border border-zinc-800 bg-zinc-900/40 px-3 py-2 text-sm text-zinc-200 ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="private">Private</option>
+                  <option value="unlisted">Unlisted</option>
+                  <option value="public">Public</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-zinc-200">Default tags</Label>
+                <Input value={defaultTags} onChange={(e) => setDefaultTags(e.target.value)} placeholder="ai, tech, tutorial" className="mt-2" />
+              </div>
+            </div>
+
             <div>
               <div className="flex items-center justify-between">
                 <Label className="text-zinc-200">Default description</Label>
                 <span className="text-xs text-zinc-400">You can override per platform</span>
               </div>
               <Textarea value={defaultDescription} onChange={(e) => setDefaultDescription(e.target.value)} placeholder="Write a description" className="mt-2" rows={5} />
-            </div>
-            <div>
-              <div className="flex items-center justify-between">
-                <Label className="text-zinc-200">Default tags</Label>
-                <span className="text-xs text-zinc-400">Separate with commas</span>
-              </div>
-              <Input value={defaultTags} onChange={(e) => setDefaultTags(e.target.value)} placeholder="ai, tech, tutorial" className="mt-2" />
             </div>
           </div>
         </CardContent>

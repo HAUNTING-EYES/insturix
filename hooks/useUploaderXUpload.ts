@@ -130,7 +130,14 @@ export function useUploaderXUpload() {
 
   const uploadWithProgress = useCallback(async (
     file: File,
-    onProgress?: (progress: UploadProgress) => void
+    onProgress?: (progress: UploadProgress) => void,
+    metadata?: {
+      title?: string;
+      description?: string;
+      tags?: string[];
+      privacyStatus?: string;
+      videoType?: string;
+    }
   ): Promise<UploadResult> => {
     if (!file) {
       return { success: false, error: 'No file provided' };
@@ -194,6 +201,7 @@ export function useUploaderXUpload() {
                   fileSize: file.size,
                   contentType: file.type,
                   videoUuid,
+                  metadata, // Pass metadata to backend
                 }),
               });
 
@@ -273,7 +281,10 @@ export function useUploaderXUpload() {
     videoUuid: string,
     gcsPath: string,
     filename: string,
-    accessToken: string
+    accessToken: string,
+    title?: string,
+    description?: string,
+    privacyStatus?: string
   ) => {
     try {
       const res = await fetch("/api/services/uploaderx/youtube", {
@@ -284,6 +295,9 @@ export function useUploaderXUpload() {
           filename,
           videoUuid,
           accessToken,
+          title,
+          description,
+          privacyStatus
         }),
       });
 

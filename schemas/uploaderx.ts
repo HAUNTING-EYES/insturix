@@ -13,10 +13,13 @@ export interface IUploaderX extends Document {
   contentType: string;
   status: string;
   uploadedAt: Date;
+  metadata?: {
+    [key: string]: any;
+  };
 }
 
 const UploaderXSchema = new Schema<IUploaderX>({
-   name: { type: String },
+  name: { type: String },
   email: { type: String, unique: true, required: true },
   youtubeTokens: { type: Object },
   userId: { type: String, required: true },
@@ -28,6 +31,7 @@ const UploaderXSchema = new Schema<IUploaderX>({
   contentType: { type: String, required: true },
   status: { type: String, default: "uploaded" },
   uploadedAt: { type: Date, default: Date.now },
+  metadata: { type: Object },
 });
 
 const UploaderX =

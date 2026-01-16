@@ -21,42 +21,20 @@ interface PlatformEditorProps {
   defaultTitle?: string;
   defaultDescription?: string;
   defaultTags?: string;
+  initialData?: Record<string, PlatformData>;
   onSave?: (platformData: Record<string, any>) => void;
 }
 
-interface PlatformData {
-  title: string;
-  description: string;
-  tags: string[];
-  isPublic: boolean;
-  thumbnail?: string;
-  category?: string;
-  language?: string;
-  // Platform-specific fields
-  youtube?: {
-    categoryId?: string;
-    privacyStatus?: 'private' | 'unlisted' | 'public';
-    scheduledTime?: string;
-  };
-  instagram?: {
-    caption?: string;
-    location?: string;
-    altText?: string;
-  };
-  facebook?: {
-    message?: string;
-    privacy?: 'everyone' | 'friends' | 'only_me';
-    scheduledTime?: string;
-  };
-}
+// ... (PlatformData interface remains same) ...
 
-export function PlatformEditor({ 
-  platforms, 
-  videoUuid, 
-  defaultTitle = "", 
-  defaultDescription = "", 
+export function PlatformEditor({
+  platforms,
+  videoUuid,
+  defaultTitle = "",
+  defaultDescription = "",
   defaultTags = "",
-  onSave 
+  initialData,
+  onSave
 }: PlatformEditorProps) {
   const { toast } = useToast();
   const [activePlatform, setActivePlatform] = useState<string>(platforms[0]?.key || '');
@@ -65,29 +43,38 @@ export function PlatformEditor({
 
   // Initialize platform data
   useEffect(() => {
-    const initialData: Record<string, PlatformData> = {};
+    const initial: Record<string, PlatformData> = {};
     platforms.forEach(platform => {
-      initialData[platform.key] = {
-        title: defaultTitle,
-        description: defaultDescription,
-        tags: defaultTags.split(',').map(tag => tag.trim()).filter(Boolean),
-        isPublic: true,
+      // Check if we have existing data for this platform
+      const existing = initialData?.[platform.key];
+
+      initial[platform.key] = {
+        title: existing?.title || defaultTitle,
+        description: existing?.description || defaultDescription,
+        tags: existing?.tags || defaultTags.split(',').map(tag => tag.trim()).filter(Boolean),
+        isPublic: existing?.isPublic ?? true,
+        thumbnail: existing?.thumbnail,
+        category: existing?.category,
+        language: existing?.language,
         youtube: {
-          categoryId: '22', // People & Blogs
-          privacyStatus: 'private',
+          categoryId: existing?.youtube?.categoryId || '22', // People & Blogs
+          privacyStatus: existing?.youtube?.privacyStatus || 'private',
+          scheduledTime: existing?.youtube?.scheduledTime
         },
         instagram: {
-          caption: defaultDescription,
-          altText: '',
+          caption: existing?.instagram?.caption || defaultDescription,
+          location: existing?.instagram?.location,
+          altText: existing?.instagram?.altText,
         },
         facebook: {
-          message: defaultDescription,
-          privacy: 'everyone',
+          message: existing?.facebook?.message || defaultDescription,
+          privacy: existing?.facebook?.privacy || 'everyone',
+          scheduledTime: existing?.facebook?.scheduledTime
         },
       };
     });
-    setPlatformData(initialData);
-  }, [platforms, defaultTitle, defaultDescription, defaultTags]);
+    setPlatformData(initial);
+  }, [platforms, defaultTitle, defaultDescription, defaultTags, initialData]);
 
   const updatePlatformData = (platform: string, field: string, value: any) => {
     setPlatformData(prev => ({
@@ -104,7 +91,7 @@ export function PlatformEditor({
       const currentPlatform = prev[platform] || {};
       const currentNested = currentPlatform[parentField as keyof PlatformData];
       const nestedObject = typeof currentNested === 'object' && currentNested !== null ? currentNested : {};
-      
+
       return {
         ...prev,
         [platform]: {
@@ -155,7 +142,7 @@ export function PlatformEditor({
         {/* Basic Information */}
         <div className="space-y-4">
           <h3 className="text-lg font-medium text-zinc-200">Basic Information</h3>
-          
+
           <div>
             <Label className="text-zinc-200">Title</Label>
             <Input
@@ -202,7 +189,7 @@ export function PlatformEditor({
         {platform === 'youtube' && (
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-zinc-200">YouTube Settings</h3>
-            
+
             <div>
               <Label className="text-zinc-200">Privacy Status</Label>
               <select
@@ -247,7 +234,7 @@ export function PlatformEditor({
         {platform === 'instagram' && (
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-zinc-200">Instagram Settings</h3>
-            
+
             <div>
               <Label className="text-zinc-200">Caption</Label>
               <Textarea
@@ -284,7 +271,7 @@ export function PlatformEditor({
         {platform === 'facebook' && (
           <div className="space-y-4">
             <h3 className="text-lg font-medium text-zinc-200">Facebook Settings</h3>
-            
+
             <div>
               <Label className="text-zinc-200">Message</Label>
               <Textarea
