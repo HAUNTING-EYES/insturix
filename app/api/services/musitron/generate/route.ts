@@ -1,141 +1,178 @@
-import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
-import { checkMusitronLimits, incrementMusitronUsage } from '@/lib/middleware/services/musitron';
+import { NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import {
+  checkMusitronLimits,
+  incrementMusitronUsage,
+} from "@/lib/middleware/services/musitron";
+import { ObjectId } from "mongodb";
+import { getMusitronCollections } from "@/lib/services/musitron-mongo";
+import { Client } from "@upstash/qstash";
+import { processRefund } from "@/lib/services/tasks/simple-refund";
+import { z } from "zod";
 
-interface MusitronGenerateRequest {
-  clerkUserId: string;
-  title: string;
-  style: string;
-  instrumental_only: boolean;
-  lyrics: string;
+// Initialize QStash client
+let qstash: Client;
+try {
+  if (!process.env.QSTASH_TOKEN) {
+    throw new Error("QSTASH_TOKEN environment variable is not set");
+  }
+
+  const qstashBaseUrl =
+    process.env.NODE_ENV === "development"
+      ? "http://127.0.0.1:8080"
+      : undefined;
+
+  qstash = new Client({
+    token: process.env.QSTASH_TOKEN!,
+    baseUrl: qstashBaseUrl,
+  });
+} catch (error) {
+  throw error;
 }
 
+const MUSITRON_MODELS = [
+  "fal-ai/stable-audio/v2.5",
+  "fal-ai/sonauto/v2/text-to-music",
+  "fal-ai/minimax-music/v2",
+] as const;
+
+const generateSchema = z
+  .object({
+    title: z.string().min(1),
+    instrumental: z.boolean(),
+    style: z.string().min(1),
+    lyrics: z.string().optional(),
+    duration: z.number().min(5).max(240).default(30),
+    model: z.enum(MUSITRON_MODELS),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.instrumental && data.model !== "fal-ai/stable-audio/v2.5") {
+      if (!data.lyrics || data.lyrics.trim().length === 0) {
+        ctx.addIssue({
+          path: ["lyrics"],
+          code: z.ZodIssueCode.custom,
+          message: "Lyrics are required when instrumental is false",
+        });
+      }
+    }
+  });
+
 export async function POST(req: Request) {
-  const { userId } = await auth();
-  if (!userId) {
-    return new NextResponse('Unauthorized', { status: 401 });
-  }
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
 
-  const body = await req.json();
-  const { title, instrumental, style, lyrics } = body;
+    const body = await req.json();
+    const parsed = generateSchema.safeParse(body);
 
-  // Validate required fields
-  if (!title) {
-    return NextResponse.json(
-      { error: 'Missing required field: title' },
-      { status: 400 }
-    );
-  }
-  if (typeof instrumental !== 'boolean') {
-    return NextResponse.json(
-      { error: 'Missing required field: instrumental must be a boolean' },
-      { status: 400 }
-    );
-  }
-  if (!style) {
-    return NextResponse.json(
-      { error: 'Missing required field: style' },
-      { status: 400 }
-    );
-  }
-  if (!instrumental && !lyrics) {
-    return NextResponse.json(
-      { error: 'Missing required field: lyrics required if not instrumental' },
-      { status: 400 }
-    );
-  }
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.flatten() },
+        { status: 400 }
+      );
+    }
+    const {
+      title,
+      instrumental,
+      style,
+      lyrics = "",
+      duration = 30,
+      model,
+    } = parsed.data;
 
-  // Usage check (Musitron-specific)
-  const limitResult = await checkMusitronLimits({ userId });
-  if (!limitResult.hasAccess) {
-    return NextResponse.json(
-      { error: 'Usage limit exceeded' },
-      { status: 403 }
-    );
-  }
+    // Usage check (Musitron-specific)
+    const limitResult = await checkMusitronLimits({ userId });
+    if (!limitResult.hasAccess) {
+      return NextResponse.json(
+        { error: "Usage limit exceeded" },
+        { status: 403 }
+      );
+    }
+    // Increment usage BEFORE processing
+    const usageResult = await incrementMusitronUsage({ userId });
+    if (!usageResult.success) {
+      return NextResponse.json(
+        {
+          error: "Unable to process request. Please try again later.",
+          success: false,
+        },
+        { status: 403 }
+      );
+    }
 
-  // Increment usage BEFORE calling monolithic backend to ensure proper limit enforcement
-  const usageResult = await incrementMusitronUsage({ userId });
-  if (!usageResult.success) {
-    console.error('Failed to increment musitron usage:', usageResult.error);
-    // Don't start the task if usage increment fails
+    // Create task in MongoDB
+    const { musicGenerations } = await getMusitronCollections();
+    const taskId = new ObjectId();
+
+    const taskData = {
+      _id: taskId,
+      clerkUserId: userId,
+      title: title.trim(),
+      style: style.trim(),
+      model: model,
+      instrumental_only: instrumental,
+      lyrics: instrumental ? "[inst]" : lyrics.trim(),
+      duration: duration,
+      status: "listed",
+      unread: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      taskId: taskId.toString(),
+    };
+
+    const insertResult = await musicGenerations.insertOne(taskData);
+
+    // Publish to QStash
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    const processorUrl = `${baseUrl}/api/services/musitron/processor`;
+
+    console.log("[Musitron Generate] Publishing to QStash:", {
+      processorUrl,
+      taskId: taskId.toString(),
+      userId,
+    });
+
+    const qstashResult = await qstash.publishJSON({
+      url: processorUrl,
+      body: {
+        taskId: taskId.toString(),
+        userId: userId,
+        title: title.trim(),
+        style: style.trim(),
+        model: model.trim(),
+        instrumental: instrumental,
+        lyrics: instrumental ? "[inst]" : lyrics.trim(),
+        duration: duration,
+      },
+      retries: 1,
+    });
+
+    console.log("[Musitron Generate] QStash publish result:", qstashResult);
+
+    return NextResponse.json({
+      success: true,
+      taskId: taskId.toString(),
+    });
+  } catch (error) {
+    // Attempt to refund on error
+    try {
+      const { userId } = await auth();
+      if (userId) {
+        await processRefund("musitron", "music_generation", userId, 1);
+      }
+    } catch (refundError) {}
+
     return NextResponse.json(
       {
-        error: 'Unable to process request. Please try again later.',
-        success: false
-      },
-      { status: 403 }
-    );
-  }
-
-  // Call monolithic backend directly
-  let backendData: any;
-  
-  try {
-    const monolithicUrl = process.env.MONOLITHIC_BACKEND_URL;
-    if (!monolithicUrl) {
-      console.error('MONOLITHIC_BACKEND_URL environment variable is not set.');
-      return NextResponse.json({ success: false, error: 'Server configuration error' }, { status: 500 });
-    }
-    
-    // Create properly typed request body using the interface
-    const generateRequest: MusitronGenerateRequest = {
-      clerkUserId: userId,
-      title,
-      style,
-      instrumental_only: instrumental,
-      lyrics: lyrics || "",
-    };
-    
-    const response = await fetch(`${monolithicUrl}/musitron/generate`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.MONOLITHIC_BACKEND_SECRET}`,
-      },
-      body: JSON.stringify(generateRequest),
-    });
-    backendData = await response.json();
-    
-    if (!response.ok || !backendData.success) {
-      const errorType = backendData.error?.type || 'UNKNOWN_ERROR';
-      const errorMessage = backendData.error?.message || 'Task processing failed';
-      console.error('Error from monolithic backend:', backendData);
-      
-      // Refund usage if task processing failed
-      const refundResult = await incrementMusitronUsage({ userId });
-      if (!refundResult.success) {
-        console.error('Failed to refund musitron usage:', refundResult.error);
-      }
-      
-      return NextResponse.json({
         success: false,
         error: {
-          type: errorType,
-          message: errorMessage
-        }
-      }, { status: 500 });
-    }
-  } catch (monolithError: any) {
-    console.error('Error calling monolithic backend:', monolithError);
-    
-    // Refund usage if task processing failed
-    const refundResult = await incrementMusitronUsage({ userId });
-    if (!refundResult.success) {
-      console.error('Failed to refund musitron usage:', refundResult.error);
-    }
-    
-    return NextResponse.json({
-      success: false,
-      error: {
-        type: 'MONOLITHIC_BACKEND_ERROR',
-        message: 'Task processing failed'
-      }
-    }, { status: 500 });
+          type: "TASK_CREATION_ERROR",
+          message: "Failed to queue music generation",
+        },
+      },
+      { status: 500 }
+    );
   }
-
-  return NextResponse.json({
-    success: true,
-    taskId: backendData.taskId
-  });
 }
