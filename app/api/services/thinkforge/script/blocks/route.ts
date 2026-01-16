@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import * as db from '@/lib/thinkforge/services/db';
 import { safeParseTiptapJSON } from '@/lib/thinkforge/schemas/tiptap-validation';
 
@@ -20,13 +21,14 @@ export async function GET(req: Request) {
 
   const url = new URL(req.url);
   const sessionId = url.searchParams.get('sessionId');
+  const scriptId = url.searchParams.get('scriptId');
 
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
 
   try {
-    const script = await db.getScript(sessionId);
+    const script = await db.getScript(sessionId, scriptId || null);
     
     if (!script) {
       return NextResponse.json({
@@ -41,7 +43,8 @@ export async function GET(req: Request) {
       blocks: script.blocks || [],
       richText: script.richText || null, // Tiptap JSON AST
       title: script.title || 'Untitled Script',
-      content: script.content || ''
+      content: script.content || '',
+      version: script.version ?? 1
     });
   } catch (error: any) {
     console.error('Error getting script blocks:', error);
@@ -70,25 +73,28 @@ export async function POST(req: Request) {
   }
 
   let sessionId: string | undefined;
+  let scriptId: string | undefined;
   let blocks: any[] | undefined;
   let richText: any | undefined;
   let title: string | undefined;
   let content: string | undefined;
+  let baseVersion: number | undefined;
 
   try {
     const body = await req.json();
-    // Accept both sessionId and scriptId (scriptId is used by ScriptEditor)
-    sessionId = body?.sessionId ? String(body.sessionId) : (body?.scriptId ? String(body.scriptId) : undefined);
+    sessionId = body?.sessionId ? String(body.sessionId) : undefined;
+    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
     blocks = body?.blocks;
     richText = body?.richText; // Tiptap JSON AST
     title = body?.title;
     content = body?.content;
+    baseVersion = typeof body?.baseVersion === 'number' ? body.baseVersion : undefined;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
   if (!sessionId) {
-    return NextResponse.json({ error: 'Missing sessionId or scriptId' }, { status: 400 });
+    return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
 
   // Validate richText (Tiptap JSON) if provided
@@ -105,20 +111,39 @@ export async function POST(req: Request) {
   }
 
   try {
-    const script = await db.saveScript(sessionId, {
-      title: title || 'Untitled Script',
-      content: content || '',
-      blocks: blocks || [],
-      richText: validatedRichText // Include validated Tiptap JSON AST
-    });
+    let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
+    if (effectiveBaseVersion === undefined) {
+      const existing = await db.getScript(sessionId, scriptId || null);
+      effectiveBaseVersion = existing?.version ?? 0;
+    }
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId,
+      baseVersion: effectiveBaseVersion,
+      source: 'user',
+      payload: {
+        scriptId,
+        title: title || 'Untitled Script',
+        content: content || '',
+        blocks: blocks || [],
+        richText: validatedRichText
+      }
+    }, userId);
+
+    if (!result.ok) {
+      const status = result.error === 'Version conflict' ? 409 : result.error === 'Session not found' ? 404 : 400;
+      return NextResponse.json({ error: result.error, currentVersion: result.currentVersion }, { status });
+    }
 
     return NextResponse.json({
       success: true,
       script: {
-        blocks: script.blocks || [],
-        richText: script.richText || null,
-        title: script.title,
-        content: script.content
+        scriptId: result.script.scriptId || scriptId || 'default',
+        blocks: result.script.blocks || [],
+        richText: result.script.richText || null,
+        title: result.script.title,
+        content: result.script.content,
+        version: result.script.version ?? 1,
       }
     });
   } catch (error: any) {

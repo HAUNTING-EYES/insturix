@@ -65,31 +65,31 @@ export function ChatInput({
     <div className="flex flex-col gap-0 shrink-0 bg-neutral-900/50 backdrop-blur-sm border-t border-white/5 pb-4">
         {/* Selection Context Bar - Above Dynamic Island */}
         <AnimatePresence>
-            {editingSelection && (
-                <motion.div
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: 'auto', opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    className="flex items-center justify-between px-4 py-2 border-b border-white/5 bg-neutral-900/80 backdrop-blur-md"
-                >
-                    <div className="flex items-center gap-2 overflow-hidden text-xs">
-                        <span className="text-red-400 font-medium whitespace-nowrap flex items-center gap-1.5">
-                            <Sparkles className="h-3 w-3" />
-                            Editing selection
-                        </span>
-                        <span className="text-zinc-500 mx-1">|</span>
-                        <span className="text-zinc-300 truncate italic opacity-80 max-w-[240px]">
-                            "{editingSelection.text}"
-                        </span>
-                    </div>
-                    <button 
-                        onClick={onCancelEditSelection}
-                        className="text-zinc-500 hover:text-white transition-colors p-1 rounded-full hover:bg-white/10"
-                    >
-                        <X className="h-3.5 w-3.5" />
-                    </button>
-                </motion.div>
-            )}
+          {editingSelection && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="flex items-start justify-between gap-3 px-4 py-2 border-b border-white/5 bg-neutral-900/80 backdrop-blur-md"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-red-300/80 font-semibold">
+                  <Sparkles className="h-3 w-3" />
+                  Editing selection
+                </div>
+                <div className="mt-1 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-100/90 italic line-clamp-3">
+                  “{editingSelection.text}”
+                </div>
+              </div>
+              <button 
+                onClick={onCancelEditSelection}
+                className="text-zinc-400 hover:text-white transition-colors p-1.5 rounded-full hover:bg-white/10 mt-1"
+                aria-label="Clear selection"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </motion.div>
+          )}
         </AnimatePresence>
 
        <div className="px-4 pt-3 pb-2 overflow-x-auto no-scrollbar mask-linear-fade">
@@ -142,12 +142,12 @@ export function ChatInput({
                         disabled={disabled || !value.trim()}
                         className={clsx(
                             "h-10 w-10 shrink-0 flex items-center justify-center rounded-full transition-all duration-200 mb-0.5",
-                            value.trim() 
+                            (!disabled && value.trim())
                                 ? "bg-red-600 text-white shadow-lg shadow-red-900/30 hover:bg-red-500 hover:scale-105 active:scale-95" 
                                 : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                         )}
                     >
-                        <Send className={clsx("h-4 w-4", value.trim() && "ml-0.5")} />
+                        <Send className={clsx("h-4 w-4", (!disabled && value.trim()) && "ml-0.5")} />
                     </motion.button>
                     )}
                 </AnimatePresence>

@@ -19,6 +19,7 @@ import { formatContextString, quickAssembleContext } from '../context';
 import type { SessionState, ProjectMeta } from '../state/types';
 import type { BlockTree } from '../schemas/canonical';
 import { createThinkForgeModel } from './model-factory';
+import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
 
 // =============================================================================
 // NEW ARCHITECTURE - Clean, Pure Agent
@@ -41,10 +42,11 @@ export class ChatAgent extends BaseAgent {
   
   buildPrompt({ context, userPrompt }: AgentInput): string {
     const contextBlock = formatContextString(context);
+    const isScriptRelated = /script|story|manual|document|format|structure/i.test(userPrompt);
     
     return `You are ThinkForge, an operational guide assistant. Outputs are manual-only; treat any mention of "script" or "story" as a request for a procedural manual.
 
-${contextBlock ? `## Context\n${contextBlock}\n\n` : ''}## Conversation Log
+${isScriptRelated ? `${DOCUMENT_AUTHORING_CONTRACT}\n\n` : ''}${contextBlock ? `## Context\n${contextBlock}\n\n` : ''}## Conversation Log
 ${context.chatHistory || '(No previous messages)'}
 
 ## User Request
@@ -53,7 +55,7 @@ ${userPrompt}
 ## Instructions
 - Provide concise operational guidance using steps, decisions, constraints, inputs, and expected outputs.
 - No <script_update> tags; this path is advisory only.
-- If asked to write or modify a script, respond with procedures and constraints instead of narrative text.
+- If asked to write or modify a script, respond with procedures and constraints instead of narrative text. ${isScriptRelated ? 'If providing formatting guidance, strictly obey DOCUMENT_AUTHORING_CONTRACT.' : ''}
 - Avoid conversational framing and filler; return only actionable guidance.`;
   }
 }
@@ -112,7 +114,8 @@ interface LegacyChatAgentOptions {
  */
 export async function chatAgent(
   prompt: string,
-  options: LegacyChatAgentOptions
+  options: LegacyChatAgentOptions,
+  abortSignal?: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> {
   const { sessionState, script, project, selection } = options;
   
@@ -120,7 +123,13 @@ export async function chatAgent(
   const context = quickAssembleContext(
     'chat',
     project,
-    script ? { title: script.title, content: script.content } : null,
+    script
+      ? {
+          title: script.title,
+          content: script.content,
+          blocks: (script as any).blocks,
+        }
+      : null,
     sessionState.chat,
     selection
   );
@@ -133,6 +142,7 @@ export async function chatAgent(
   
   // Run agent
   const agent = createChatAgent();
+  agent.setAbortSignal(abortSignal);
   const { stream } = await agent.run(input);
   
   // Convert async generator to ReadableStream<Uint8Array> for compatibility
@@ -141,7 +151,9 @@ export async function chatAgent(
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       try {
+        let tokenCount = 0;
         for await (const chunk of stream) {
+          tokenCount++;
           controller.enqueue(encoder.encode(chunk));
         }
         controller.close();

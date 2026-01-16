@@ -11,6 +11,7 @@ export type ScriptModel = {
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  version?: number;
   metadata?: {
     workflow?: string;
     thoughts?: string;
@@ -199,18 +200,43 @@ export function useThinkForgeClient() {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000); // 5s timeout
       
-      const res = await fetch("/api/services/thinkforge/script/save", {
+      const res = await fetch("/api/commands", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         signal: controller.signal,
-        body: JSON.stringify({ sessionId, script: payloadScript }),
+        body: JSON.stringify({
+          type: "ReplaceDocument",
+          sessionId,
+          baseVersion: typeof (payloadScript as any)?.version === 'number' ? (payloadScript as any).version : 0,
+          source: "user",
+          payload: {
+            title: payloadScript?.title || 'Untitled Script',
+            content: payloadScript?.content || '',
+            blocks: payloadScript?.blocks || [],
+            richText: (payloadScript as any)?.richText,
+          }
+        }),
       });
       
       clearTimeout(timeoutId);
       
-      if (!res.ok) throw new Error(`Save failed: ${res.status}`);
-      // No-op on success; backend returns scriptId
+      if (!res.ok) {
+        if (res.status === 409) {
+          try {
+            const data = await res.json();
+            if (typeof data?.currentVersion === 'number') {
+              setScript((prev) => ({ ...(prev || {}), version: data.currentVersion }));
+            }
+          } catch {}
+          return;
+        }
+        throw new Error(`Save failed: ${res.status}`);
+      }
+      const data = await res.json();
+      if (data?.script && typeof data.script.version === 'number') {
+        setScript((prev) => ({ ...(prev || {}), version: data.script.version }));
+      }
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         setSaveError(e?.message || "Failed to save");

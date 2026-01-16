@@ -102,9 +102,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
         const items = Array.isArray(data?.sessions) ? data.sessions : [];
         const mapped: SessionMeta[] = items.map((it: any) => {
           const id = it?.id || it?._id || "";
-          const pm = it?.projectMeta || {};
-          const name: string = pm?.idea || pm?.purpose || `Session ${String(id).slice(-6)}`;
-          const tone: string = pm?.tone || "blue";
+          const pm = it?.projectMeta || it?.sessionMeta || {};
+          const name: string = it?.name || pm?.sessionName || pm?.idea || pm?.purpose || `Session ${String(id).slice(-6)}`;
+          const tone: string = it?.tone || pm?.tone || "blue";
           const lastEdited: number = (it?.updatedAt ? new Date(it.updatedAt).getTime() : Date.now());
           return { id, name, tone, lastEdited };
         });

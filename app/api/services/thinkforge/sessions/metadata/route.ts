@@ -32,7 +32,7 @@ export async function GET(request: Request) {
       .slice(offset, offset + limit)
       .map((session: any) => ({
         id: session._id || session.id,
-        name: session.projectMeta?.projectName || session.projectMeta?.idea || session.projectMeta?.purpose || `Session ${String(session._id).slice(-6)}`,
+        name: session.projectMeta?.sessionName || session.projectMeta?.idea || session.projectMeta?.purpose || `Session ${String(session._id).slice(-6)}`,
         userId: session.userId,
         createdAt: session.createdAt,
         updatedAt: session.updatedAt || session.createdAt,

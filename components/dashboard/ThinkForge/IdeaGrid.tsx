@@ -13,7 +13,7 @@ export interface IdeaCardData {
   format: string;
   platform: string;
   tone: string; // updated to remove ThinkingHat reference
-  projectName?: string;
+  sessionName?: string;
 }
 
 interface IdeaGridProps {

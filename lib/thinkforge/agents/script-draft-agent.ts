@@ -145,7 +145,15 @@ export class ScriptDraftAgent {
     this.sectionConcurrency = 2;
   }
 
-  async generateScript(input: AgentInput): Promise<ScriptDraftResult> {
+  private applyAbortSignal(signal?: AbortSignal) {
+    this.outlineAgent.setAbortSignal(signal);
+    this.sectionAgent.setAbortSignal(signal);
+    this.sectionAgentHigh.setAbortSignal(signal);
+    this.contractAgent.setAbortSignal(signal);
+  }
+
+  async generateScript(input: AgentInput, abortSignal?: AbortSignal): Promise<ScriptDraftResult> {
+    this.applyAbortSignal(abortSignal);
     const generationMode = input.generationMode ?? 'manual';
     const modeAwareInput: AgentInput = { ...input, generationMode };
 
@@ -257,7 +265,8 @@ export function createScriptDraftAgent(
 export async function generateScriptDraft(
   instruction: string,
   sessionState: SessionState,
-  existingScript?: { blocks?: ThinkForgeBlock[]; content?: string; title?: string } | null
+  existingScript?: { blocks?: ThinkForgeBlock[]; content?: string; title?: string } | null,
+  abortSignal?: AbortSignal
 ): Promise<ScriptDraftResult> {
   const context = quickAssembleContext(
     'script_draft',
@@ -267,6 +276,6 @@ export async function generateScriptDraft(
   );
 
   const agent = createScriptDraftAgent();
-  return agent.generateScript({ context, userPrompt: instruction });
+  return agent.generateScript({ context, userPrompt: instruction }, abortSignal);
 }
 

@@ -10,6 +10,7 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   streaming?: boolean;
+  selectionText?: string | null;
 }
 
 interface MessageBubbleProps {
@@ -29,7 +30,13 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       {/* Message Content */}
       {isUser ? (
         // User message - with bubble, right aligned
-        <div className="max-w-[85%] rounded-2xl rounded-tr-md px-4 py-2.5 text-sm bg-red-500/15 text-white/90 ring-1 ring-red-500/20">
+        <div className="max-w-[85%] rounded-2xl rounded-tr-md px-4 py-2.5 text-sm bg-red-500/15 text-white/90 ring-1 ring-red-500/20 space-y-2">
+          {message.selectionText && (
+            <div className="rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2">
+              <div className="text-[10px] uppercase tracking-[0.18em] text-red-300/80 font-semibold">Selected</div>
+              <div className="text-xs text-red-100/90 italic line-clamp-3">“{message.selectionText}”</div>
+            </div>
+          )}
           <div className="whitespace-pre-wrap leading-relaxed">{message.content}</div>
         </div>
       ) : (

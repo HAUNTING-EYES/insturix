@@ -54,10 +54,12 @@ import ScriptRenderer from "./ScriptRenderer";
 // Import Tiptap mappers and validation
 import { thinkForgeBlocksToTiptapJSON } from "@/lib/thinkforge/mappers/thinkforge-to-tiptap";
 import { tiptapJSONToThinkForgeBlocks } from "@/lib/thinkforge/mappers/tiptap-to-thinkforge";
-import { validateThinkForgeBlocks, type ThinkForgeBlock } from "@/lib/thinkforge/schemas/thinkforge-block";
+import { validateThinkForgeBlocks } from "@/lib/thinkforge/schemas/thinkforge-block";
 import { validateTiptapJSON, isTiptapJSON, extractPlainText } from "@/lib/thinkforge/schemas/tiptap-validation";
+import { buildScriptHtmlDocument, buildScriptText, downloadBlob, printHtmlDocument } from "@/lib/thinkforge/export/export-utils";
 import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
+import { useVersionManager } from "@/app/dashboard/thinkforge/hooks/useVersionManager";
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -98,43 +100,20 @@ function toTiptapJSON(blocks: any): TiptapJSON {
   return thinkForgeBlocksToTiptapJSON(validated);
 }
 
-/**
- * Convert plain text AST to string
- */
-function astToPlain(ast: any): string {
-  if (!Array.isArray(ast)) return '';
-  return ast
-    .map((node) => {
-      if (!node || typeof node !== 'object') return '';
-      if (node.type === 'link') {
-        return astToPlain(node.content || []);
-      }
-      return typeof node.text === 'string' ? node.text : '';
-    })
-    .join('');
-}
-
-/**
- * Convert blocks to plain text for export
- */
-function blocksToPlainText(blocks: ThinkForgeBlock[]): string {
-  return blocks
-    .map((b) => `${b.kind.toUpperCase()}: ${astToPlain(b.content)}`.trim())
-    .join('\n\n');
-}
-
 interface ScriptEditorProps {
   script?: Script | null;
   selectedIdea: Idea;
   sessionId?: string;
+  scriptId?: string | null;
   onBackToChat: () => void;
   onEditScript: (updatedScript: Script) => void;
   generatingScript?: boolean;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
   onNewScript?: () => void;
+  onSwitchScript?: (scriptId: string) => void;
   onTokenStream?: (callback: (tokens: string) => void) => void; // Callback setter for token streaming
-  onGetSelection?: (callback: () => { blocks: any[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting current selection
+  onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting current selection
   onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
 }
 
@@ -142,24 +121,28 @@ export default function ScriptEditor({
   script,
   selectedIdea,
   sessionId,
+  scriptId,
   onBackToChat,
   onEditScript,
   generatingScript = false,
   isSaving = false,
   onImportScript,
   onNewScript,
+  onSwitchScript,
   onTokenStream, // Optional callback to receive streaming tokens
   onGetSelection, // Optional callback setter for getting current selection
   onEditSelection,
 }: ScriptEditorProps & { 
   onTokenStream?: (callback: (tokens: string) => void) => void;
-  onGetSelection?: (callback: () => { blocks: any[]; range: { from: number; to: number } | null } | null) => void;
+  onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void;
   onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
 }) {
   const [selectedText, setSelectedText] = useState<string>('');
   const [selectionRange, setSelectionRange] = useState<{ from: number; to: number } | null>(null);
   const [selectionPos, setSelectionPos] = useState<{ top: number; left: number } | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [isSelecting, setIsSelecting] = useState(false);
+  const isSelectingRef = useRef(false);
   const [copied, setCopied] = useState(false);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
@@ -170,6 +153,13 @@ export default function ScriptEditor({
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
   const lastLoadedContentRef = useRef<string>(''); // Track last loaded content to avoid unnecessary reloads
+  const isProgrammaticUpdateRef = useRef(false);
+  const lastAutosaveHashRef = useRef<string>('');
+  const lastAutosaveAtRef = useRef<number>(0);
+  const autosaveInFlightRef = useRef(false);
+  const MIN_AUTOSAVE_INTERVAL_MS = 4000;
+  const autosavePausedRef = useRef(false);
+  const scriptVersionRef = useRef<number>(0);
   
   // CRITICAL: Track user typing state to prevent remote updates from overwriting user input
   const isUserTypingRef = useRef(false);
@@ -188,10 +178,19 @@ export default function ScriptEditor({
   const handleContentChangeRef = useRef<(() => void) | null>(null);
   const handleSelectionChangeRef = useRef<(() => void) | null>(null);
   
-  // Extract scriptId from script metadata or use sessionId (for API calls)
-  const scriptId = useMemo(() => {
-    return sessionId || null;
-  }, [sessionId]);
+  // Script identifier for multi-script tabs
+  const scriptResourceId = useMemo(() => {
+    return scriptId || 'default';
+  }, [scriptId]);
+  const versionManager = useVersionManager(sessionId || null);
+  const {
+    createVersion,
+    getVersionBlocks,
+    currentVersionId,
+    isLoading: versionManagerLoading,
+    error: versionManagerError,
+  } = versionManager;
+  const lastVersionHashRef = useRef<string | null>(null);
   
   // Streaming state
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
@@ -218,11 +217,13 @@ export default function ScriptEditor({
     return DEFAULT_EMPTY_DOCUMENT;
   }, [script]);
 
+  const editorExtensions = useMemo(() => getThinkForgeExtensions({
+    placeholder: 'Start writing your script...',
+  }), []);
+
   // Create Tiptap editor
   const editor = useEditor({
-    extensions: getThinkForgeExtensions({
-      placeholder: 'Start writing your script...',
-    }),
+    extensions: editorExtensions,
     content: DEFAULT_EMPTY_DOCUMENT,
     immediatelyRender: false, // Required for SSR/Next.js to avoid hydration mismatches
     editorProps: {
@@ -231,29 +232,25 @@ export default function ScriptEditor({
       },
     },
     onUpdate: ({ editor }) => {
-      // Skip if this is an update from props/API
-      if (isUpdatingFromPropsRef.current) {
-        return;
-      }
-      // CRITICAL: Mark user as actively typing
-      isUserTypingRef.current = true;
-      lastUserInputTimeRef.current = Date.now();
-      // Clear typing flag after timeout
-      setTimeout(() => {
-        isUserTypingRef.current = false;
-      }, USER_TYPING_TIMEOUT);
-      // Mark as having unsaved changes
-      setHasUnsavedChanges(true);
-      // handleContentChange will be defined later, use a ref to avoid initialization order issues
-      if (handleContentChangeRef.current) {
-        handleContentChangeRef.current();
-      }
-    },
-    onSelectionUpdate: ({ editor }) => {
-      // handleSelectionChange will be defined later, use a ref to avoid initialization order issues
-      if (handleSelectionChangeRef.current) {
-        handleSelectionChangeRef.current();
-      }
+      queueMicrotask(() => {
+        // Skip if this is an update from props/API
+        if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current) {
+          return;
+        }
+        // CRITICAL: Mark user as actively typing
+        isUserTypingRef.current = true;
+        lastUserInputTimeRef.current = Date.now();
+        // Clear typing flag after timeout
+        setTimeout(() => {
+          isUserTypingRef.current = false;
+        }, USER_TYPING_TIMEOUT);
+        // Mark as having unsaved changes
+        setHasUnsavedChanges(true);
+        // handleContentChange will be defined later, use a ref to avoid initialization order issues
+        if (handleContentChangeRef.current) {
+          handleContentChangeRef.current();
+        }
+      });
     },
   });
 
@@ -271,7 +268,11 @@ export default function ScriptEditor({
       // Register callback to receive tokens
       onTokenStream((tokens: string) => {
         if (generatingScript) {
+          isProgrammaticUpdateRef.current = true;
           streamingTiptap.appendTokens(tokens);
+          requestAnimationFrame(() => {
+            isProgrammaticUpdateRef.current = false;
+          });
         }
       });
     }
@@ -286,11 +287,19 @@ export default function ScriptEditor({
         const selection = serializeSelectionToThinkForgeBlocks(editor);
         return {
           blocks: selection.blocks,
+          blockIds: selection.blockIds,
           range: selection.range,
         };
       });
     }
   }, [onGetSelection, editor]);
+
+  // Track latest script version from props
+  useEffect(() => {
+    if (typeof (script as any)?.version === 'number') {
+      scriptVersionRef.current = (script as any).version;
+    }
+  }, [script]);
 
   // Reset streaming when generation starts
   useEffect(() => {
@@ -418,6 +427,34 @@ export default function ScriptEditor({
     [editor, safeSetContent, hasUnsavedChanges]
   );
 
+  // Create a version snapshot from the current editor state
+  const createVersionSnapshot = useCallback((description: string, options?: { isAutoSave?: boolean }) => {
+    if (!sessionId || !editor) return;
+    if (versionManagerLoading || versionManagerError) return;
+    if (isRestoringVersionRef.current) return;
+    
+    try {
+      const tiptapJSON = editor.getJSON() as TiptapJSON;
+      const hash = JSON.stringify(tiptapJSON);
+      
+      if (lastVersionHashRef.current === hash) {
+        return;
+      }
+      
+      const blocks = tiptapJSONToThinkForgeBlocks(tiptapJSON);
+      const validated = validateThinkForgeBlocks(blocks);
+      const created = createVersion(validated as any, description, {
+        isAutoSave: options?.isAutoSave,
+      });
+      
+      if (created) {
+        lastVersionHashRef.current = hash;
+      }
+    } catch (error) {
+      console.error('ScriptEditor: Failed to create version snapshot', error);
+    }
+  }, [editor, sessionId, versionManagerLoading, versionManagerError, createVersion]);
+
   // Store cursor position before updates
   const storeCursorPosition = useCallback(() => {
     if (!editor) return;
@@ -461,15 +498,18 @@ export default function ScriptEditor({
         return;
       }
       
-      // Try to fetch from API if scriptId (sessionId) is available
-      if (scriptId) {
+      // Try to fetch from API if session is available
+      if (sessionId) {
         try {
-          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`, {
+          const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${sessionId}&scriptId=${encodeURIComponent(scriptResourceId)}`, {
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache' }
           });
           if (response.ok) {
             const data = await response.json();
+            if (typeof data?.version === 'number') {
+              scriptVersionRef.current = data.version;
+            }
             
             // Check if response has richText (Tiptap JSON) or blocks (ThinkForge format)
             let tiptapContent: TiptapJSON;
@@ -529,9 +569,9 @@ export default function ScriptEditor({
     if (editor && !initialLoadDoneRef.current) {
       loadBlocks();
     }
-  }, [scriptId, editor, hasUnsavedChanges]);
+  }, [sessionId, scriptResourceId, editor, hasUnsavedChanges]);
   
-  // Reset state when scriptId changes (new session)
+  // Reset state when script tab changes
   // CRITICAL: Reset all tracking refs to prevent stale state from affecting new session
   useEffect(() => {
     initialLoadDoneRef.current = false;
@@ -545,14 +585,14 @@ export default function ScriptEditor({
     isRestoringVersionRef.current = false; // Clear restore flag on session change
     
     // Clear the editor content for new sessions
-    if (editor && !scriptId) {
+    if (editor && !sessionId) {
       try {
         safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'clear-editor-new-session');
       } catch {
         // Ignore if editor not ready
       }
     }
-  }, [scriptId, editor]);
+  }, [scriptResourceId, sessionId, editor]);
 
   // Handle script reset (when script becomes empty/null - e.g., New Script button)
   useEffect(() => {
@@ -562,7 +602,12 @@ export default function ScriptEditor({
     const isScriptEmpty = !script?.blocks || (Array.isArray(script.blocks) && script.blocks.length === 0);
     const hasContent = editor.getJSON().content && editor.getJSON().content.length > 0;
     
+    const metadataSource = (script?.metadata as any)?.source;
     // If script is empty but editor has content, clear the editor
+    // Skip clearing if the update originated from editor autosave to avoid lossy wipes
+    if (metadataSource === 'editor' && hasContent) {
+      return;
+    }
     if (isScriptEmpty && hasContent && !isUpdatingFromPropsRef.current) {
       try {
         isUpdatingFromPropsRef.current = true;
@@ -631,6 +676,10 @@ export default function ScriptEditor({
       return;
     }
     
+    const metadataSource = (script?.metadata as any)?.source;
+    if (metadataSource === 'editor') {
+      return;
+    }
     // Check if this is a new script from AI
     const isAIGenerated = script?.metadata?.workflow === 'create' || 
                           script?.metadata?.workflow === 'edit' ||
@@ -664,18 +713,19 @@ export default function ScriptEditor({
         const applied = applyContentToEditor(tiptapContent, 'ai-update');
         if (applied) {
           console.log('ScriptEditor: Updated with AI-generated content');
+          createVersionSnapshot('AI edit');
         }
       });
     } catch (error) {
       console.error('ScriptEditor: Failed to apply AI-generated content:', error);
     }
-  }, [script?.blocks, script?.metadata, editor, generatingScript, streamingTiptap]);
+  }, [script?.blocks, script?.metadata, editor, generatingScript, streamingTiptap, createVersionSnapshot]);
 
   // Poll for blocks during generation
   // CRITICAL: Must never overwrite user edits - user input is source of truth
   // CRITICAL: Polling must NEVER call setContent if user has local edits
   useEffect(() => {
-    if (!scriptId || !editor || !generatingScript) return;
+    if (!sessionId || !editor || !generatingScript) return;
     
     // CRITICAL: Skip polling if user has unsaved changes, is actively typing, or recently typed
     const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
@@ -701,7 +751,7 @@ export default function ScriptEditor({
       }
       
       try {
-        const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${scriptId}`, {
+        const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${sessionId}&scriptId=${encodeURIComponent(scriptResourceId)}`, {
           cache: 'no-store',
           headers: { 'Cache-Control': 'no-cache' }
         });
@@ -752,7 +802,7 @@ export default function ScriptEditor({
     }, pollInterval);
     
     return () => clearInterval(interval);
-  }, [scriptId, editor, generatingScript, hasUnsavedChanges]);
+  }, [sessionId, scriptResourceId, editor, generatingScript, hasUnsavedChanges]);
 
   // Integrate streaming blocks
   useEffect(() => {
@@ -776,6 +826,7 @@ export default function ScriptEditor({
     if (!editor) {
       return {
         title: script?.title || 'Untitled Script',
+        version: (script as any)?.version ?? scriptVersionRef.current,
         blocks: [],
         content: '',
         body: '',
@@ -784,7 +835,7 @@ export default function ScriptEditor({
         duration: script?.duration,
         targetAudience: script?.targetAudience,
         tone: script?.tone,
-        metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap' }
+        metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
       } as any;
     }
     
@@ -802,6 +853,7 @@ export default function ScriptEditor({
 
     return {
       title: script?.title || 'Untitled Script',
+      version: (script as any)?.version ?? scriptVersionRef.current,
       blocks: validated, // ThinkForgeBlocks for backward compatibility
       richText: tiptapJSON, // TipTap JSON - this is the runtime truth
       content: '',
@@ -811,15 +863,30 @@ export default function ScriptEditor({
       duration: script?.duration,
       targetAudience: script?.targetAudience,
       tone: script?.tone,
-      metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap' }
+      metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
     } as any;
   }, [editor, script, storeCursorPosition]);
+
+  // Sync last version hash when the version manager updates its current version
+  useEffect(() => {
+    if (!editor || !currentVersionId) return;
+    
+    try {
+      const blocks = getVersionBlocks(currentVersionId);
+      if (blocks) {
+        const tiptapContent = toTiptapJSON(blocks);
+        lastVersionHashRef.current = JSON.stringify(tiptapContent);
+      }
+    } catch (error) {
+      console.error('ScriptEditor: Failed to sync current version hash', error);
+    }
+  }, [editor, currentVersionId, getVersionBlocks]);
 
   // Handle content changes with debounced autosave
   // CRITICAL: This marks user input as the source of truth
   // CRITICAL: Autosave NEVER calls setContent - only reads current content and sends to backend
   const handleContentChange = useCallback(() => {
-    if (isUpdatingFromPropsRef.current) {
+    if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current || generatingScript || autosavePausedRef.current) {
       return;
     }
 
@@ -836,6 +903,24 @@ export default function ScriptEditor({
     
     autosaveTimerRef.current = setTimeout(async () => {
       try {
+        if (!editor) return;
+        if (autosavePausedRef.current) return;
+        if (autosaveInFlightRef.current) return;
+
+        const now = Date.now();
+        if (now - lastAutosaveAtRef.current < MIN_AUTOSAVE_INTERVAL_MS) {
+          return;
+        }
+
+        const currentJSON = editor.getJSON() as TiptapJSON;
+        const currentHash = JSON.stringify(currentJSON);
+
+        if (currentHash === lastAutosaveHashRef.current) {
+          return;
+        }
+
+        autosaveInFlightRef.current = true;
+
         // CRITICAL: Autosave only reads current editor content (TipTap JSON)
         // Converts to ThinkForgeBlocks ONLY for backend storage
         // NEVER calls setContent - user edits are the source of truth
@@ -849,25 +934,47 @@ export default function ScriptEditor({
         }
         
         // Send to backend (converting TipTap JSON → ThinkForgeBlocks only for storage)
-        if (scriptId && updatedScript.blocks) {
+        if (sessionId && updatedScript.blocks) {
           try {
-            const response = await fetch(`/api/services/thinkforge/script/blocks`, {
+            const response = await fetch(`/api/commands`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                scriptId: scriptId,
-                blocks: updatedScript.blocks,
-                richText: (updatedScript as any).richText, // Send TipTap JSON as richText
-                content: updatedScript.content,
+                type: 'ReplaceDocument',
+                sessionId: sessionId,
+                baseVersion: scriptVersionRef.current,
+                source: 'user',
+                payload: {
+                  scriptId: scriptResourceId,
+                  richText: (updatedScript as any).richText, // Send TipTap JSON as richText
+                  content: updatedScript.content,
+                  title: updatedScript.title
+                }
               }),
             });
             
             if (response.ok) {
+              const data = await response.json();
+              if (data?.script && typeof data.script.version === 'number') {
+                scriptVersionRef.current = data.script.version;
+                (updatedScript as any).version = data.script.version;
+              }
               setHasUnsavedChanges(false);
               setJustSaved(true);
               setTimeout(() => setJustSaved(false), 2000);
               // Mark that user is no longer actively typing after successful save
               isUserTypingRef.current = false;
+              lastAutosaveHashRef.current = currentHash;
+              lastAutosaveAtRef.current = Date.now();
+            } else if (response.status === 409) {
+              try {
+                const data = await response.json();
+                if (typeof data?.currentVersion === 'number') {
+                  scriptVersionRef.current = data.currentVersion;
+                }
+              } catch {}
+              // Keep unsaved changes; back off to avoid tight retry loop
+              lastAutosaveAtRef.current = Date.now();
             } else {
               console.error('Failed to save to backend');
             }
@@ -881,9 +988,47 @@ export default function ScriptEditor({
         autosaveTimerRef.current = null;
       } catch (error) {
         console.error('Autosave failed:', error);
+      } finally {
+        autosaveInFlightRef.current = false;
       }
     }, 1200);
-  }, [convertEditorToScript, onEditScript, scriptId, editor]);
+  }, [convertEditorToScript, onEditScript, sessionId, scriptResourceId, editor, createVersionSnapshot]);
+
+  // Pause autosave when tab/window is not active to avoid stale saves on return
+  useEffect(() => {
+    const handleVisibility = () => {
+      const hidden = typeof document !== 'undefined' && document.hidden;
+      autosavePausedRef.current = !!hidden;
+      if (hidden && autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+    const handleBlur = () => {
+      autosavePausedRef.current = true;
+      if (autosaveTimerRef.current) {
+        clearTimeout(autosaveTimerRef.current);
+        autosaveTimerRef.current = null;
+      }
+    };
+    const handleFocus = () => {
+      autosavePausedRef.current = false;
+    };
+
+    if (typeof window !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibility);
+      window.addEventListener('blur', handleBlur);
+      window.addEventListener('focus', handleFocus);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibility);
+        window.removeEventListener('blur', handleBlur);
+        window.removeEventListener('focus', handleFocus);
+      }
+    };
+  }, []);
 
   // Update refs after callbacks are defined
   useEffect(() => {
@@ -900,10 +1045,29 @@ export default function ScriptEditor({
       try {
         if (!editor) return;
         
+        if (!isSelectionEditable(editor)) {
+          setSelectedText('');
+          setSelectionRange(null);
+          setSelectionPos(null);
+          return;
+        }
+
         const { from, to } = editor.state.selection;
         const txt = editor.state.doc.textBetween(from, to, ' ');
+        if (!txt || txt.trim().length === 0) {
+          setSelectedText('');
+          setSelectionRange(null);
+          setSelectionPos(null);
+          return;
+        }
+        const selection = serializeSelectionToThinkForgeBlocks(editor);
         setSelectedText(txt);
-        setSelectionRange({ from, to });
+        setSelectionRange(selection.range);
+
+        if (isSelectingRef.current) {
+          setSelectionPos(null);
+          return;
+        }
         
         if (txt && typeof window !== 'undefined') {
           const sel = window.getSelection?.();
@@ -942,13 +1106,53 @@ export default function ScriptEditor({
           setSelectionPos(null);
         }
       } catch {}
-    }, 300);
+    }, 50);
+  }, [editor]);
+  // Track pointer/keyboard selection to avoid floating button stealing focus
+  useEffect(() => {
+    if (!editor) return;
+    const dom = editor.view.dom;
+    const handleMouseDown = () => {
+      isSelectingRef.current = true;
+      setIsSelecting(true);
+    };
+    const handleMouseUp = () => {
+      isSelectingRef.current = false;
+      setIsSelecting(false);
+      if (handleSelectionChangeRef.current) {
+        handleSelectionChangeRef.current();
+      }
+    };
+    const handleKeyUp = () => {
+      if (handleSelectionChangeRef.current) {
+        handleSelectionChangeRef.current();
+      }
+    };
+    dom.addEventListener('mousedown', handleMouseDown);
+    dom.addEventListener('mouseup', handleMouseUp);
+    dom.addEventListener('keyup', handleKeyUp);
+    return () => {
+      dom.removeEventListener('mousedown', handleMouseDown);
+      dom.removeEventListener('mouseup', handleMouseUp);
+      dom.removeEventListener('keyup', handleKeyUp);
+    };
   }, [editor]);
 
   // Update ref after handleSelectionChange is defined
   useEffect(() => {
     handleSelectionChangeRef.current = handleSelectionChange;
   }, [handleSelectionChange]);
+
+  // Allow external callers (chat panel) to clear the current selection highlight
+  useEffect(() => {
+    const clearSelection = () => {
+      setSelectedText('');
+      setSelectionRange(null);
+      setSelectionPos(null);
+    };
+    window.addEventListener('tf-clear-selection', clearSelection);
+    return () => window.removeEventListener('tf-clear-selection', clearSelection);
+  }, [editor]);
 
   // Detect when saving completes
   useEffect(() => {
@@ -983,47 +1187,46 @@ export default function ScriptEditor({
     }
   };
 
-  // Export to PDF
+  const handleExportError = (label: string, error: unknown) => {
+    console.error(`Failed to export ${label}:`, error);
+    alert(`Failed to export ${label}. Please try again.`);
+  };
+
   const handleExportPDF = async () => {
     try {
       if (!editor) return;
       const tiptapJSON = editor.getJSON() as TiptapJSON;
-      const blocks = tiptapJSONToThinkForgeBlocks(tiptapJSON);
-      const validated = validateThinkForgeBlocks(blocks);
       const title = script?.title || 'Script';
-      const safeText = blocksToPlainText(validated)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-      const printWindow = window.open('', '_blank');
-      if (printWindow) {
-        printWindow.document.write(`
-          <html>
-            <head>
-              <title>${title}</title>
-              <style>
-                body {
-                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                  line-height: 1.6;
-                  margin: 2cm;
-                  color: #000;
-                  white-space: pre-wrap;
-                }
-                h1 { color: #333; font-size: 24px; margin-bottom: 20px; }
-              </style>
-            </head>
-            <body>
-              <h1>${title}</h1>
-              <pre style="white-space: pre-wrap;">${safeText}</pre>
-            </body>
-          </html>
-        `);
-        printWindow.document.close();
-        printWindow.print();
-      }
+      const html = buildScriptHtmlDocument(tiptapJSON, title);
+      await printHtmlDocument(html);
     } catch (error) {
-      console.error('Failed to export PDF:', error);
-      alert('Failed to export PDF. Please try again.');
+      handleExportError('PDF', error);
+    }
+  };
+
+  const handleExportHTML = () => {
+    try {
+      if (!editor) return;
+      const tiptapJSON = editor.getJSON() as TiptapJSON;
+      const title = script?.title || 'Script';
+      const html = buildScriptHtmlDocument(tiptapJSON, title);
+      const filename = `${title.replace(/[^a-z0-9-_]+/gi, '_')}.html`;
+      downloadBlob(filename, html, 'text/html');
+    } catch (error) {
+      handleExportError('HTML', error);
+    }
+  };
+
+  const handleExportTXT = () => {
+    try {
+      if (!editor) return;
+      const tiptapJSON = editor.getJSON() as TiptapJSON;
+      const title = script?.title || 'Script';
+      const text = buildScriptText(tiptapJSON, title);
+      const filename = `${title.replace(/[^a-z0-9-_]+/gi, '_')}.txt`;
+      downloadBlob(filename, text, 'text/plain');
+    } catch (error) {
+      handleExportError('TXT', error);
     }
   };
 
@@ -1036,19 +1239,9 @@ export default function ScriptEditor({
       transition={{ duration: 0.5 }}
       className="space-y-4 relative max-w-5xl mx-auto"
     >
-      {/* Format Toolbar - Always at top when editing */}
-      {!isPreviewMode && (!generatingScript || script) && (
-        <div className="flex justify-center">
-          <FormatToolbar 
-            editor={editor} 
-            disabled={generatingScript && !script}
-          />
-        </div>
-      )}
-
-      {/* Header - All Tools Consolidated */}
-      <div className="flex items-center justify-between px-2">
-        {/* Left section: Tone indicator + New Script + History */}
+      {/* Header - All Tools Consolidated (Toolbar + View Toggle + Actions) */}
+      <div className="flex items-center justify-between gap-4 px-2">
+        {/* Left section: Tone indicator + New Script + History + Toolbar */}
         <div className="flex items-center gap-3">
           <div className={`w-3 h-3 rounded-full ${getToneColorClass(selectedIdea.tone)}`} />
           {generatingScript && !script && (
@@ -1118,6 +1311,16 @@ export default function ScriptEditor({
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
+
+          {/* Format Toolbar - Now inline with other tools */}
+          {!isPreviewMode && (!generatingScript || script) && (
+            <div className="border-l border-zinc-700 pl-3 ml-1">
+              <FormatToolbar 
+                editor={editor} 
+                disabled={generatingScript && !script}
+              />
+            </div>
+          )}
         </div>
         
         {/* Center section: Edit Mode Toggle */}
@@ -1157,24 +1360,41 @@ export default function ScriptEditor({
             </Tooltip>
           </TooltipProvider>
 
-          <TooltipProvider>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  onClick={handleExportPDF}
-                  variant="outline"
-                  size="sm"
-                  className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
-                  disabled={generatingScript && !script}
-                >
-                  <Download className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>Export PDF</p>
-              </TooltipContent>
-            </Tooltip>
-          </TooltipProvider>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-zinc-700 text-zinc-300 hover:bg-zinc-800 h-8 w-8 p-0"
+                disabled={generatingScript && !script}
+              >
+                <Download className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-zinc-900 border-zinc-700">
+              <DropdownMenuItem
+                onClick={handleExportPDF}
+                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                disabled={generatingScript && !script}
+              >
+                Export PDF
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleExportHTML}
+                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                disabled={generatingScript && !script}
+              >
+                Export HTML
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleExportTXT}
+                className="text-zinc-300 hover:bg-zinc-800 cursor-pointer"
+                disabled={generatingScript && !script}
+              >
+                Export TXT
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
           {/* More Actions Dropdown */}
           <DropdownMenu>
@@ -1261,7 +1481,7 @@ export default function ScriptEditor({
               )}
               
               {/* Selection floating button */}
-              {selectedText && selectedText.trim().length > 0 && selectionPos && (
+              {selectedText && selectedText.trim().length > 0 && selectionPos && !isSelecting && (
                 <div
                   className="absolute z-50 transition-all duration-200 animate-in fade-in zoom-in-95"
                   style={{ 
@@ -1275,9 +1495,12 @@ export default function ScriptEditor({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       try {
-                        if (onEditSelection && selectionRange && editor) {
+                        if (onEditSelection && editor) {
                           const selection = serializeSelectionToThinkForgeBlocks(editor);
-                          onEditSelection(selectedText, selectionRange, selection.blocks);
+                          if (selection.range && selection.blocks.length > 0) {
+                            onEditSelection(selectedText, selection.range, selection.blocks);
+                            return;
+                          }
                         } else if (typeof window !== 'undefined') {
                           // Fallback for backward compatibility
                           window.dispatchEvent(
@@ -1302,47 +1525,19 @@ export default function ScriptEditor({
       ) : null}
 
 
-      {/* Script History Panel Dialog */}
+      {/* Script Tabs Panel Dialog */}
       <Dialog open={showBranchEditor} onOpenChange={setShowBranchEditor}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-w-4xl h-[600px] p-0">
           <ScriptHistoryPanel
             sessionId={sessionId || null}
-            currentBlocks={(script?.blocks as any) || []}
-            onRestoreVersion={(blocks) => {
-              // CRITICAL: Restoring a version is the ONLY time we may call setContent
-              // Set restore flag before updating
-              isRestoringVersionRef.current = true;
-              hasLocalEditsRef.current = false; // Clear local edits flag on restore
-              
-              try {
-                // Convert blocks to TipTap JSON (runtime truth)
-                const tiptapContent = toTiptapJSON(blocks);
-                
-                // CRITICAL: Only call setContent when restoring (isRestoringVersionRef is true)
-                if (editor) {
-                  safeSetContent(tiptapContent, 'version-restore');
-                  // Update last loaded content ref
-                  lastLoadedContentRef.current = JSON.stringify(tiptapContent);
-                }
-                
-                // Convert blocks to script format for parent notification
-                const updatedScript: Script = {
-                  ...script,
-                  title: script?.title || 'Untitled Script',
-                  blocks: blocks as any,
-                  content: '',
-                  body: '',
-                  sections: script?.sections || [],
-                  tips: script?.tips || [],
-                };
-                onEditScript(updatedScript);
-              } finally {
-                // Clear restore flag after update
-                isRestoringVersionRef.current = false;
+            activeScriptId={scriptResourceId}
+            onSwitchScript={(id) => {
+              if (onSwitchScript) {
+                onSwitchScript(id);
               }
-              
               setShowBranchEditor(false);
             }}
+            onNewScript={onNewScript}
             onClose={() => setShowBranchEditor(false)}
           />
         </DialogContent>

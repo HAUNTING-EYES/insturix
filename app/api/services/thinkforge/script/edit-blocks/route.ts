@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
+import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { generateScriptDraft } from '@/lib/thinkforge/agents/script-draft-agent';
 import type { SessionState } from '@/lib/thinkforge/state/types';
 
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
   let instruction: string | undefined;
   let script: any | undefined;
   let sessionId: string | undefined;
+  let scriptId: string | undefined;
   let selection: string | undefined;
   let indices: number[] | undefined;
 
@@ -29,6 +31,7 @@ export async function POST(req: Request) {
     instruction = body?.instruction ? String(body.instruction) : undefined;
     script = body?.script;
     sessionId = body?.sessionId ? String(body.sessionId) : undefined;
+    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
     selection = body?.selection ? String(body.selection) : undefined;
     indices = Array.isArray(body?.indices) ? body.indices : undefined;
   } catch {
@@ -42,14 +45,16 @@ export async function POST(req: Request) {
   try {
     // Get existing script if not provided
     let existingScript = script;
+    let baseVersion = typeof script?.version === 'number' ? script.version : 0;
     if (!existingScript && sessionId) {
-      const dbScript = await db.getScript(sessionId);
+      const dbScript = await db.getScript(sessionId, scriptId || null);
       if (dbScript) {
         existingScript = {
           title: dbScript.title,
           content: dbScript.content,
           blocks: dbScript.blocks
         };
+        baseVersion = dbScript.version ?? 0;
       }
     }
 
@@ -85,11 +90,18 @@ export async function POST(req: Request) {
 
     // Save to database if sessionId provided
     if (sessionId && result) {
-      await db.saveScript(sessionId, {
-        title: result.title || existingScript?.title || 'Untitled Script',
-        content: result.content || '',
-        blocks: result.blocks || []
-      });
+      await applyCommand({
+        type: 'ReplaceDocument',
+        sessionId,
+        baseVersion,
+        source: 'ai',
+        payload: {
+          scriptId,
+          title: result.title || existingScript?.title || 'Untitled Script',
+          content: result.content || '',
+          blocks: result.blocks || []
+        }
+      }, userId);
     }
 
     return NextResponse.json({

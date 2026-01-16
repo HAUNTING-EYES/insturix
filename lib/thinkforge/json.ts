@@ -13,6 +13,7 @@ export type ScriptModel = {
   outline?: string | null;
   content?: string | null;
   blocks?: Block[] | null;
+  version?: number;
   metadata?: {
     workflow?: string;
     thoughts?: string;
@@ -93,5 +94,6 @@ export function sanitizeServerScript(input: any): ScriptModel {
   const title = typeof input?.title === 'string' ? input.title.slice(0, 160) : (input?.title ?? null);
   const blocks = validateThinkForgeBlocks(Array.isArray(input?.blocks) ? input.blocks : []);
   const metadata = input?.metadata ?? null;
-  return { title, outline: null, content: null, blocks, metadata };
+  const version = typeof input?.version === 'number' ? input.version : undefined;
+  return { title, outline: null, content: null, blocks, metadata, version };
 }

@@ -61,6 +61,7 @@ export async function POST(req: Request) {
         content: script.content,
         blocks: script.blocks || []
       } : null,
+      activeGeneration: session.activeGeneration || null,
       chat
     });
   } catch (error: any) {

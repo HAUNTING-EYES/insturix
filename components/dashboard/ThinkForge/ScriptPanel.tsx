@@ -12,18 +12,26 @@ interface ScriptPanelProps {
   onUpdate: (s: Script | null) => void;
   onBack: () => void;
   sessionId?: string | null;
+   scriptId?: string | null;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
   onNewScript?: () => void;
+   onSwitchScript?: (scriptId: string) => void;
   onTokenStream?: (callback: (tokens: string) => void) => void; // Callback setter for token streaming
-  onGetSelection?: (callback: () => { blocks: any[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting selection
+   onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting selection
   onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
+  generatingScript?: boolean;
+   onModeChange?: (mode: PanelMode) => void;
 }
 
 type PanelMode = 'scripting' | 'whiteboard';
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, isSaving, onImportScript, onNewScript, onTokenStream, onGetSelection, onEditSelection }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, scriptId, isSaving, onImportScript, onNewScript, onSwitchScript, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
+
+   React.useEffect(() => {
+      if (onModeChange) onModeChange(mode);
+   }, [mode, onModeChange]);
 
   return (
     <div className="flex flex-col h-full bg-neutral-950/50">
@@ -65,11 +73,13 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   script={script}
                   selectedIdea={selectedIdea}
                   sessionId={sessionId || undefined}
+                           scriptId={scriptId || undefined}
                   onBackToChat={onBack}
                   onEditScript={onUpdate}
                   isSaving={isSaving}
                   onImportScript={onImportScript}
                   onNewScript={onNewScript}
+                           onSwitchScript={onSwitchScript}
                   onTokenStream={(callback) => {
                     // Register callback with parent
                     if (onTokenStream) {
@@ -83,6 +93,7 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                     }
                   }}
                   onEditSelection={onEditSelection}
+                generatingScript={generatingScript}
                 />
              </div>
           ) : (

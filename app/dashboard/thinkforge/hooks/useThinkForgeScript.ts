@@ -9,15 +9,15 @@ const SAVE_TIMEOUT_MS = 8000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
 
-function saveLocal(sessionId: string, data: Partial<{ script: ScriptModel }>) {
+function saveLocal(sessionId: string, scriptId: string, data: Partial<{ script: ScriptModel }>) {
   try {
-    const key = `${LS_SESSION_PREFIX}${sessionId}`;
+    const key = `${LS_SESSION_PREFIX}${sessionId}_${scriptId}`;
     const prev = JSON.parse(localStorage.getItem(key) || "{}");
     localStorage.setItem(key, JSON.stringify({ ...prev, ...data }));
   } catch {}
 }
 
-export function useThinkForgeScript(sessionId: string | null) {
+export function useThinkForgeScript(sessionId: string | null, scriptId: string | null) {
   const [script, setScript] = useState<ScriptModel | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -28,18 +28,43 @@ export function useThinkForgeScript(sessionId: string | null) {
   const currentAbortControllerRef = useRef<AbortController | null>(null);
   const pendingSaveRef = useRef<ScriptModel | null>(null);
   const isSavingRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(sessionId);
+  const scriptIdRef = useRef<string | null>(scriptId);
+
+  const resetPendingSaves = useCallback(() => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (currentAbortControllerRef.current) {
+      currentAbortControllerRef.current.abort();
+      currentAbortControllerRef.current = null;
+    }
+    pendingSaveRef.current = null;
+    isSavingRef.current = false;
+    setIsSaving(false);
+  }, []);
 
   // Load script from local storage when sessionId changes
   useEffect(() => {
+    sessionIdRef.current = sessionId;
+    scriptIdRef.current = scriptId;
     if (!sessionId) {
       setScript(null);
       lastSavedSnapshotRef.current = "";
+      resetPendingSaves();
       return;
     }
 
+    // Clear stale script immediately when switching sessions
+    setScript(null);
+    lastSavedSnapshotRef.current = "";
+    resetPendingSaves();
+
+    const effectiveScriptId = scriptId || 'default';
     // Try to load script from local storage
     try {
-      const key = `${LS_SESSION_PREFIX}${sessionId}`;
+      const key = `${LS_SESSION_PREFIX}${sessionId}_${effectiveScriptId}`;
       const raw = localStorage.getItem(key);
       if (raw) {
         const cached = JSON.parse(raw);
@@ -51,13 +76,14 @@ export function useThinkForgeScript(sessionId: string | null) {
     } catch {
       // Ignore errors
     }
-  }, [sessionId]);
+  }, [sessionId, scriptId, resetPendingSaves]);
 
   const performSave = useCallback(async (
     scriptToSave: ScriptModel | null,
     attempt: number = 1
   ): Promise<boolean> => {
-    if (!sessionId) return false;
+    if (!sessionId || sessionIdRef.current !== sessionId) return false;
+    if (scriptIdRef.current !== scriptId) return false;
     
     const snapshot = JSON.stringify(scriptToSave || {});
     if (snapshot === lastSavedSnapshotRef.current) return true; // Already saved
@@ -73,22 +99,51 @@ export function useThinkForgeScript(sessionId: string | null) {
     try {
       const timeoutId = setTimeout(() => controller.abort(), SAVE_TIMEOUT_MS);
       
-      const res = await fetch("/api/services/thinkforge/script/save", {
+      const res = await fetch("/api/commands", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
         signal: controller.signal,
-        body: JSON.stringify({ sessionId, script: scriptToSave }),
+        body: JSON.stringify({
+          type: "ReplaceDocument",
+          sessionId,
+          baseVersion: typeof (scriptToSave as any)?.version === 'number' ? (scriptToSave as any).version : 0,
+          source: "user",
+          payload: {
+            scriptId: scriptId || 'default',
+            title: scriptToSave?.title || 'Untitled Script',
+            content: scriptToSave?.content || '',
+            blocks: scriptToSave?.blocks || [],
+            richText: (scriptToSave as any)?.richText
+          }
+        }),
       });
       
       clearTimeout(timeoutId);
       
       if (!res.ok) {
+        if (res.status === 409) {
+          try {
+            const data = await res.json();
+            if (typeof data?.currentVersion === 'number') {
+              const merged = { ...(scriptToSave || {}), version: data.currentVersion } as any;
+              setScript(merged);
+            }
+          } catch {}
+          return false;
+        }
         throw new Error(`Save failed: ${res.status}`);
       }
-      
-      // Success - update last saved snapshot
-      lastSavedSnapshotRef.current = snapshot;
+
+      const data = await res.json();
+      if (data?.script && typeof data.script.version === 'number') {
+        const merged = { ...(scriptToSave || {}), version: data.script.version } as any;
+        setScript(merged);
+        lastSavedSnapshotRef.current = JSON.stringify(merged || {});
+      } else {
+        // Success - update last saved snapshot
+        lastSavedSnapshotRef.current = snapshot;
+      }
       setRetryCount(0);
       return true;
     } catch (e: any) {
@@ -111,7 +166,8 @@ export function useThinkForgeScript(sessionId: string | null) {
   }, [sessionId]);
 
   const autosave = useCallback(async (scriptToSave?: ScriptModel | null) => {
-    if (!sessionId) return;
+    if (!sessionId || sessionIdRef.current !== sessionId) return;
+    if (scriptIdRef.current !== scriptId) return;
     const payloadScript = scriptToSave ?? script;
     
     // If already saving, queue this save for later
@@ -130,7 +186,7 @@ export function useThinkForgeScript(sessionId: string | null) {
       setSaveError(e?.message || "Failed to save");
       // Store in local storage as backup
       if (sessionId && payloadScript) {
-        saveLocal(sessionId, { script: payloadScript });
+        saveLocal(sessionId, scriptId || 'default', { script: payloadScript });
       }
     } finally {
       isSavingRef.current = false;
@@ -143,7 +199,9 @@ export function useThinkForgeScript(sessionId: string | null) {
         pendingSaveRef.current = null;
         // Schedule the pending save
         if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        const scheduledSessionId = sessionId;
         saveTimerRef.current = setTimeout(() => {
+          if (sessionIdRef.current !== scheduledSessionId) return;
           void autosave(pendingScript);
         }, 100); // Short delay to prevent immediate re-save
       }
@@ -156,7 +214,7 @@ export function useThinkForgeScript(sessionId: string | null) {
       
       // Always save to local storage first (synchronous, reliable)
       if (sessionId) {
-        saveLocal(sessionId, { script: next });
+        saveLocal(sessionId, scriptId || 'default', { script: next });
       }
       
       // Clear any pending debounced save
@@ -165,13 +223,15 @@ export function useThinkForgeScript(sessionId: string | null) {
       }
       
       // Queue server save with debounce
+      const scheduledSessionId = sessionId;
       saveTimerRef.current = setTimeout(() => {
+        if (sessionIdRef.current !== scheduledSessionId) return;
         void autosave(next);
       }, DEBOUNCE_MS);
       
       return next;
     });
-  }, [sessionId, autosave]);
+  }, [sessionId, scriptId, autosave]);
 
   // Update script state without triggering a server save
   // Use this when the save is already handled elsewhere (e.g., by ScriptEditor)
@@ -181,7 +241,7 @@ export function useThinkForgeScript(sessionId: string | null) {
       
       // Save to local storage for consistency
       if (sessionId) {
-        saveLocal(sessionId, { script: next });
+        saveLocal(sessionId, scriptId || 'default', { script: next });
       }
       
       // Update lastSavedSnapshot to prevent autosave from saving again
@@ -189,14 +249,22 @@ export function useThinkForgeScript(sessionId: string | null) {
       
       return next;
     });
-  }, [sessionId]);
+  }, [sessionId, scriptId]);
+
+  const resetSessionState = useCallback(() => {
+    resetPendingSaves();
+    setScript(null);
+    lastSavedSnapshotRef.current = "";
+    setSaveError(null);
+    setRetryCount(0);
+  }, [resetPendingSaves]);
 
   const runEdit = useCallback(async (instruction: string) => {
     const res = await fetch("/api/services/thinkforge/script/edit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
-      body: JSON.stringify({ instruction, script, sessionId }),
+      body: JSON.stringify({ instruction, script, sessionId, scriptId: scriptId || 'default' }),
     });
     if (!res.ok) throw new Error(`Edit failed: ${res.status}`);
     const data = await res.json();
@@ -210,13 +278,14 @@ export function useThinkForgeScript(sessionId: string | null) {
     };
     setScriptAndQueueSave(updated);
     return sanitized;
-  }, [script, sessionId, setScriptAndQueueSave]);
+  }, [script, sessionId, scriptId, setScriptAndQueueSave]);
 
   const runEditBlocks = useCallback(async (instruction: string, selection?: string, indices?: number[]) => {
     const payload = {
       instruction,
       script,
       sessionId,
+      scriptId: scriptId || 'default',
       selection: selection && selection.trim().length > 0 ? selection : undefined,
       indices: Array.isArray(indices) && indices.length > 0 ? indices : undefined,
     } as any;
@@ -239,7 +308,7 @@ export function useThinkForgeScript(sessionId: string | null) {
     };
     setScriptAndQueueSave(updated);
     return sanitized;
-  }, [script, sessionId, setScriptAndQueueSave]);
+  }, [script, sessionId, scriptId, setScriptAndQueueSave]);
 
   const importScript = useCallback((data: any) => {
     try {
@@ -283,6 +352,7 @@ export function useThinkForgeScript(sessionId: string | null) {
     runEditBlocks,
     importScript,
     replaceBlocks,
+    resetSessionState,
   } as const;
 }
 

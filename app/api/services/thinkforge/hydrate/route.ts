@@ -71,8 +71,11 @@ export async function POST(req: Request) {
       script: script ? {
         title: script.title,
         content: script.content,
-        blocks: script.blocks || []
+        blocks: script.blocks || [],
+        version: script.version ?? 1,
+        richText: script.richText || null
       } : null,
+      activeGeneration: session.activeGeneration || null,
       chat
     });
   } catch (error: any) {

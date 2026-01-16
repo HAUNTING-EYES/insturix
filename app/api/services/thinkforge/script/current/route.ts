@@ -41,7 +41,9 @@ export async function POST(req: Request) {
       script: {
         title: script.title,
         content: script.content,
-        blocks: script.blocks || []
+        blocks: script.blocks || [],
+        richText: script.richText || null,
+        version: script.version ?? 1
       }
     });
   } catch (error: any) {

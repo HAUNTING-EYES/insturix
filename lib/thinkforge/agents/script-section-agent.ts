@@ -7,6 +7,8 @@ import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { cleanThinkForgeBlocks, cleanAndTransformText, cleanRichTextAST } from '../utils/content-cleaner';
+import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
+import { validateDocumentContract, formatViolations } from '../validation/documentValidator';
 
 export interface SectionInput extends AgentInput {
   section: {
@@ -198,6 +200,8 @@ export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSc
     const operationalGoal = section.operational_goal || 'Action';
     return `You are an experienced creative strategist writing a production guide for a creative team. Write clear, actionable creative direction that enables immediate execution—storyboarding, directing, filming, and editing.
 
+${DOCUMENT_AUTHORING_CONTRACT}
+
 ## Creative Brief Context
 Project: ${context.projectSummary || '(No project context)'}
 Section: ${section.title}
@@ -220,26 +224,7 @@ Write like a creative director giving clear, confident guidance to a production 
    ❌ Never mention "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
    ✅ Write natural, flowing creative direction
 
-4. **Use strong visual hierarchy** with proper formatting:
-   - **Title/Document Identity**: Use heading level 1 (kind: "header" with level 1)
-   - **Major Sections**: Use heading level 2 (kind: "header" with level 2) for sections like "Creative Vision", "Core Message", "Emotional Structure"
-   - **Subsections**: Use heading level 3 (kind: "header" with level 3) for subsections like "Opening Hook (0–3s)", "Emotional Peak (18–26s)"
-   - **Body Paragraphs**: Use kind: "paragraph" - keep them SHORT (2-4 lines max). Whitespace is design.
-   - **Bullet Lists**: Use kind: "action" with bullet list formatting for execution clarity (e.g., "Aim for diversity across: Age, Accent, Energy")
-   - **Numbered Lists**: Use kind: "action" with ordered list formatting for sequences (e.g., "Each Reel should flow like this: 1. Human hook, 2. Personal truth...")
-   - **Callout Boxes**: Use kind: "why" or blockquote for critical insights, director's notes, creative rules
-   - **Visual Dividers**: Use horizontalRule between major sections for breathing room
-
-5. **Document Rhythm**: Create scannable, storyboard-ready structure:
-   - Big cinematic title (h1)
-   - Section headers (h2) 
-   - Short readable paragraphs
-   - Callout boxes for key insights
-   - Bullet clarity for execution
-   - Visual separation between beats
-   - Occasional dividers for breathing room
-
-6. **Sound confident and human**: Write as if you're an experienced creative strategist helping a real team execute production, not like system planning notes.
+4. **Sound confident and human**: Write as if you're an experienced creative strategist helping a real team execute production, not like system planning notes.
 
 ## Section Details
 Title: ${section.title}
@@ -278,74 +263,12 @@ Return ONLY valid JSON matching this structure:
   ]
 }
 
-## Visual Hierarchy Requirements (CRITICAL)
-Your output MUST follow this structure for professional, scannable documents:
-
-1. **Title/Document Identity** (if first section):
-   - Use kind: "header" with meta: { level: 1 }
-   - Example: "Voices for Peace" or "${section.title}"
-   - Creates big cinematic title
-
-2. **Major Section Headers**:
-   - Use kind: "header" with meta: { level: 2 }
-   - Examples: "Creative Vision", "Core Message", "Emotional Structure", "Visual Direction", "Editing Guidelines"
-   - These create scannability and document rhythm
-
-3. **Subsection Headers** (within sections):
-   - Use kind: "header" with meta: { level: 3 }
-   - Examples: "Opening Hook (0–3s)", "Emotional Peak (18–26s)"
-   - Use for breaking down sections into actionable beats
-
-4. **Body Paragraphs** (most common):
-   - Use kind: "paragraph" for regular body text
-   - Keep SHORT (2-4 lines max). Whitespace is design.
-   - Example: "This campaign is not about slogans.\n\nIt is about real voices carrying quiet power."
-   - Use for: narrative guidance, creative clarity, practical execution advice
-
-5. **Bullet Lists** (for execution clarity):
-   - Use kind: "action" with text formatted as bullet points (• or -)
-   - Format: "Aim for diversity across:\n• Age\n• Accent\n• Energy\n• Life experience"
-   - The system will automatically convert this to proper list structure
-   - Use for: execution checklists, options, features
-
-6. **Numbered Lists** (for sequences):
-   - Use kind: "action" with text formatted as numbered sequence
-   - Format: "Each Reel should flow like this:\n1. Human hook\n2. Personal truth\n3. Emotional peak\n4. Quiet close"
-   - The system will automatically convert this to proper list structure
-   - Use for: step-by-step sequences, storyboard structure, workflows
-
-7. **Callout Boxes** (critical for premium feel):
-   - Use kind: "why" for director's notes, creative rules, critical insights
-   - Example: "🎬 Director's Note\nLet silence breathe. Do not cut every pause."
-   - Or: "Creative Rule:\nIf it feels staged, it fails."
-   - This is where the document feels expensive and professional
-
-8. **Visual Dividers** (for rhythm):
-   - Use kind: "paragraph" with text: "---" between major sections
-   - Creates breathing space between sections
-   - Example: After "Creative Vision" section, add a divider before "Core Message"
-   - The system will automatically convert "---" to horizontal rule
-
 ## Critical Content Rules
 - Write natural, flowing creative direction—no "type: text" or "styles: bold" visible in the text
 - No placeholders like "Input:", "Output:", "Constraint:", "Define X", "Determine Y"
 - Convert abstract steps into concrete execution guidance
 - Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
 - Write as a creative strategist, not a planning system
-
-## Formatting Requirements
-- **Use proper visual hierarchy**: 
-  - meta.level: 1 for document title
-  - meta.level: 2 for major sections (Creative Vision, Core Message, etc.)
-  - meta.level: 3 for subsections (Opening Hook, Emotional Peak, etc.)
-- **Keep paragraphs short** (2-4 lines max) - whitespace is design. Use kind: "paragraph" for body text.
-- **Use lists** for execution clarity:
-  - Format bullets as "• Item" or "- Item" on separate lines
-  - Format numbers as "1. Item" or "1) Item" on separate lines
-  - System will auto-convert to proper list structure
-- **Use callout boxes** (kind: "why") for director's notes, creative rules, critical insights
-- **Use dividers** (text: "---") between major sections for visual breathing room
-- **Create document rhythm**: Title → Section headers → Short paragraphs → Callouts → Lists → Dividers
 
 ## Output Quality
 - Make it immediately usable for storyboarding, directing, filming, and editing
@@ -383,6 +306,14 @@ Your output MUST follow this structure for professional, scannable documents:
       // Clean blocks to remove schema artifacts and transform abstract instructions
       const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks);
       
+      // Validate against DOCUMENT_AUTHORING_CONTRACT (dev-only)
+      if (process.env.NODE_ENV === 'development') {
+        const validation = validateDocumentContract(cleanedBlocks);
+        if (!validation.valid) {
+          console.warn(`⚠️ Document contract violated in script-section-agent (${sectionId}):\n${formatViolations(validation.violations)}`);
+        }
+      }
+      
       // Convert to Tiptap JSON AST
       const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);
       return { sectionId, blocks: cleanedBlocks, richText };
@@ -411,6 +342,14 @@ Your output MUST follow this structure for professional, scannable documents:
         
         // Clean blocks to remove schema artifacts and transform abstract instructions
         const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks);
+        
+        // Validate against DOCUMENT_AUTHORING_CONTRACT (dev-only)
+        if (process.env.NODE_ENV === 'development') {
+          const validation = validateDocumentContract(cleanedBlocks);
+          if (!validation.valid) {
+            console.warn(`⚠️ Document contract violated in script-section-agent (${sectionId}):\n${formatViolations(validation.violations)}`);
+          }
+        }
         
         // Convert to Tiptap JSON AST
         const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);

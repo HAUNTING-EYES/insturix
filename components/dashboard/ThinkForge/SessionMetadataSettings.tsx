@@ -9,15 +9,15 @@ import { Idea } from "@/app/dashboard/thinkforge/types";
 import { getToneDescription } from "@/app/dashboard/thinkforge/utils/toneUtils";
 import { getToneColorClass } from "@/lib/thinkforge/tone";
 
-interface ProjectMetadataSettingsProps {
+interface SessionMetadataSettingsProps {
   idea: Idea;
   onProceedToChat: () => void;
   onGoBack: () => void;
   onUpdateIdea: (updatedIdea: Idea) => void;
   /** When true, hides the navigation buttons (used when opened from chat settings) */
   hideNavigation?: boolean;
-  /** Total project count for default naming (used for "Project #N") */
-  projectCount?: number;
+  /** Total session count for default naming (used for "Session #N") */
+  sessionCount?: number;
 }
 
 // Small pill buttons for tone selection
@@ -41,11 +41,14 @@ const FORMAT_OPTIONS = [
   'Short-form Video','Long-form Video','Blog Post','Tweet Thread','Carousel','Podcast Episode','Newsletter Issue','Script Outline','Listicle','Case Study','How-To Guide','Explainer'
 ];
 
-export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false, projectCount = 0 }: ProjectMetadataSettingsProps) {
-  // Generate default project name if not set
-  const defaultProjectName = idea.projectName || `Project #${projectCount + 1}`;
-  const [localIdea, setLocalIdea] = useState<Idea>({ ...idea, projectName: idea.projectName || defaultProjectName });
+export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBack, onUpdateIdea, hideNavigation = false, sessionCount = 0 }: SessionMetadataSettingsProps) {
+  // Generate default Session Name if not set
+  const getDefaultSessionName = (incoming: Idea) => (incoming.sessionName && incoming.sessionName.trim().length > 0)
+    ? incoming.sessionName
+    : `Session #${sessionCount + 1}`;
+  const [localIdea, setLocalIdea] = useState<Idea>({ ...idea, sessionName: getDefaultSessionName(idea) });
   const [saveState, setSaveState] = useState<'clean' | 'dirty' | 'saving' | 'saved'>('clean');
+  const [nameError, setNameError] = useState<string | null>(null);
   // Multi-value chip states (parsed from idea on mount)
   const [platforms, setPlatforms] = useState<string[]>(() => idea.platform.split(/,\s*/).filter(Boolean));
   const [styles, setStyles] = useState<string[]>(() => idea.style.split(/,\s*/).filter(Boolean));
@@ -56,41 +59,53 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
   const lastSavedIdeaRef = useRef<Idea>(idea);
 
   useEffect(() => {
-    // sync when idea prop changes (e.g., returning from script)
-    // Only if ID changed or we are initializing, to avoid overwriting local edits if prop updates from self
-    if (idea.id !== localIdea.id) {
-        setLocalIdea(idea);
-        setPlatforms(idea.platform.split(/,\s*/).filter(Boolean));
-        setStyles(idea.style.split(/,\s*/).filter(Boolean));
-        setFormats(idea.format.split(/,\s*/).filter(Boolean));
+    // Sync when idea prop changes (e.g., returning from script or switching session)
+    const prev = lastSavedIdeaRef.current;
+    const changed = (
+      idea.id !== prev.id ||
+      idea.sessionName !== prev.sessionName ||
+      idea.idea !== prev.idea ||
+      idea.purpose !== prev.purpose ||
+      idea.style !== prev.style ||
+      idea.format !== prev.format ||
+      idea.platform !== prev.platform ||
+      idea.tone !== prev.tone
+    );
+    if (changed) {
+      const normalizedIdea = { ...idea, sessionName: getDefaultSessionName(idea) };
+      setLocalIdea(normalizedIdea);
+      setPlatforms(idea.platform.split(/,\s*/).filter(Boolean));
+      setStyles(idea.style.split(/,\s*/).filter(Boolean));
+      setFormats(idea.format.split(/,\s*/).filter(Boolean));
+      if (!idea.sessionName || !idea.sessionName.trim()) {
+        setSaveState('dirty');
+      } else {
         setSaveState('clean');
-        lastSavedIdeaRef.current = idea;
+      }
+      lastSavedIdeaRef.current = normalizedIdea;
+      setNameError(null);
     }
-  }, [idea]);
+  }, [idea, sessionCount]);
 
   // Debounce propagate changes
   useEffect(() => {
-    // Check if actually changed from last saved state
     const isActuallyChanged = JSON.stringify(localIdea) !== JSON.stringify(lastSavedIdeaRef.current);
 
     if (!isActuallyChanged) {
-        if (saveState === 'dirty') setSaveState('clean');
-        return;
+      setSaveState('clean');
+      return;
     }
-    
-    // Only proceed if we marked it as dirty (which we do on input change)
-    if (saveState !== 'dirty') return;
-    
+
+    setSaveState('dirty');
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    
-    setSaveState('saving');
+
     saveTimeoutRef.current = setTimeout(async () => {
+      setSaveState('saving');
       try {
         await onUpdateIdea(localIdea);
         lastSavedIdeaRef.current = localIdea;
         setSaveState('saved');
-        
-        // Show "saved" indicator for 2 seconds, then go back to clean
+
         if (savedIndicatorTimeoutRef.current) clearTimeout(savedIndicatorTimeoutRef.current);
         savedIndicatorTimeoutRef.current = setTimeout(() => {
           setSaveState('clean');
@@ -100,11 +115,11 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
         setSaveState('clean');
       }
     }, 800);
-    
+
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [localIdea, saveState, onUpdateIdea]);
+  }, [localIdea, onUpdateIdea]);
 
   // When multi-value arrays change, reflect into localIdea fields
   useEffect(() => {
@@ -132,9 +147,24 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
   }, [formats]);
 
   const handleChange = (key: keyof Idea) => (e: ChangeEvent<HTMLTextAreaElement>) => {
-    setLocalIdea(prev => ({ ...prev, [key]: e.target.value }));
+    let value = e.target.value;
+    if (key === 'sessionName') {
+      value = value.slice(0, 100);
+      const trimmed = value.trim();
+      if (!trimmed) {
+        setNameError('Session Name is required');
+      } else {
+        setNameError(null);
+      }
+    }
+    setLocalIdea(prev => ({ ...prev, [key]: value }));
     setSaveState('dirty');
   };
+
+  const issessionNameValid = (() => {
+    const name = (localIdea.sessionName || '').trim();
+    return name.length > 0 && name.length <= 100;
+  })();
 
   const handleTone = (tone: Idea['tone']) => {
     setLocalIdea(prev => ({ ...prev, tone }));
@@ -165,13 +195,13 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
           <div className="space-y-0.5">
             <h2 className="text-xl font-semibold tracking-tight bg-gradient-to-br from-white via-white to-white/70 bg-clip-text text-transparent flex items-center gap-2">
               <Settings className="h-5 w-5 text-red-500" />
-              Project Settings
+              Session Settings
             </h2>
             <p className="text-[10px] uppercase tracking-[0.15em] text-white/40">Configure your project parameters</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3">
           {/* Save Status */}
           <AnimatePresence mode="wait">
             {saveState === 'saving' && (
@@ -200,20 +230,38 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
                 transition={{ duration: 0.2 }}
                 className="rounded-full border border-green-400/30 bg-green-500/10 px-3 py-1.5 text-[11px] font-medium text-green-300 whitespace-nowrap"
               >
-                ✓ Saved
+                ✓ Auto-saved
               </motion.div>
             )}
           </AnimatePresence>
           
-          {/* Create Project Button - only show when not hideNavigation */}
+          {/* Start Session Button - only show when not hideNavigation */}
           {!hideNavigation && (
             <Button
-              onClick={onProceedToChat}
+              onClick={async () => {
+                const trimmed = (localIdea.sessionName || '').trim();
+                if (!trimmed || trimmed.length > 100) {
+                  setNameError('Session Name is required (max 100 chars)');
+                  return;
+                }
+                const payload = { ...localIdea, sessionName: trimmed };
+                // Push latest idea to parent BEFORE proceeding
+                try {
+                  await onUpdateIdea(payload);
+                  lastSavedIdeaRef.current = payload;
+                  setSaveState('saved');
+                  setNameError(null);
+                } catch (e) {
+                  setNameError('Failed to save Session Name');
+                  return;
+                }
+                onProceedToChat();
+              }}
               className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-rose-700 via-red-500 to-rose-700 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-900/40 transition-all hover:from-red-500 hover:via-rose-500 hover:to-red-600 hover:shadow-xl hover:shadow-red-900/50"
             >
               <span className="relative z-10 flex items-center gap-2">
                 <Play className="h-4 w-4 fill-current" /> 
-                Create Project
+                Start Session
               </span>
               <span className="absolute inset-0 -z-0 opacity-0 group-hover:opacity-100 transition-opacity bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.3),transparent_60%)]" />
             </Button>
@@ -232,19 +280,26 @@ export default function ProjectMetadataSettings({ idea, onProceedToChat, onGoBac
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,0,0,0.15),transparent_60%)] opacity-50" />
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_80%_80%,rgba(59,130,246,0.1),transparent_70%)] opacity-30" />
           <div className="relative z-10 backdrop-blur-3xl rounded-[inherit] p-8 space-y-8">
-            {/* Project Name Field */}
+            {/* Session Name Field */}
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                  <div className={`h-4 w-4 flex-shrink-0 rounded-full ${getToneColorClass(localIdea.tone)}`}></div>
-                 <h3 className="text-lg font-semibold leading-snug text-white/90">Project Name</h3>
+                 <h3 className="text-lg font-semibold leading-snug text-white/90">Session Name</h3>
               </div>
               <EditableArea
-                label="Project Name"
+                label="Session Name"
                 placeholder="Enter a name for your project..."
-                value={localIdea.projectName || ''}
-                onChange={handleChange('projectName')}
+                value={localIdea.sessionName || ''}
+                onChange={handleChange('sessionName')}
                 rows={1}
+                maxLength={100}
               />
+              <div className="flex items-center justify-between text-[11px] text-white/40">
+                <span className={nameError ? "text-red-400" : "text-white/50"}>
+                  {nameError ? nameError : 'Max 100 characters'}
+                </span>
+                <span className="text-white/30">{(localIdea.sessionName || '').length}/100</span>
+              </div>
             </div>
 
             {/* Core Concept (Now Editable) */}
@@ -329,9 +384,10 @@ interface EditableAreaProps {
   onChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   rows?: number;
+  maxLength?: number;
 }
 
-function EditableArea({ label, value, onChange, placeholder, rows = 3 }: EditableAreaProps) {
+function EditableArea({ label, value, onChange, placeholder, rows = 3, maxLength }: EditableAreaProps) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -349,6 +405,7 @@ function EditableArea({ label, value, onChange, placeholder, rows = 3 }: Editabl
           onChange={onChange}
           rows={rows}
           placeholder={placeholder}
+          maxLength={maxLength}
           className={`w-full resize-none bg-transparent text-sm leading-relaxed text-white/90 outline-none placeholder:text-white/30 focus-visible:ring-0 overflow-y-auto pr-1 scrollbar-thin scrollbar-track-transparent scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20 transition-colors ${rows === 1 ? 'h-8 max-h-8' : 'h-20 max-h-40'}`}
         />
       </div>

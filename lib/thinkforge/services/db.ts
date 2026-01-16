@@ -75,26 +75,46 @@ let thinkforgeDbCached: { conn: typeof mongoose | null; promise: Promise<typeof 
  * Uses 'thinkforge_db' as the database name.
  */
 async function connectToThinkForgeDb(): Promise<typeof mongoose> {
-  if (thinkforgeDbCached.conn) {
+  // If already connected and ready, return immediately
+  if (thinkforgeDbCached.conn && mongoose.connection.readyState === 1) {
     return thinkforgeDbCached.conn;
   }
 
-  if (!thinkforgeDbCached.promise) {
-    const mongoUri = process.env.MONGODB_URI;
-    if (!mongoUri) {
-      throw new Error('MONGODB_URI environment variable is not defined');
+  // If connection is in progress, wait for it
+  if (thinkforgeDbCached.promise) {
+    try {
+      thinkforgeDbCached.conn = await thinkforgeDbCached.promise;
+      return thinkforgeDbCached.conn;
+    } catch (err) {
+      // Connection failed, reset and retry
+      console.error('[ThinkForge] DB connection failed, resetting:', err);
+      thinkforgeDbCached.promise = null;
+      thinkforgeDbCached.conn = null;
     }
-
-    const opts = {
-      bufferCommands: false,
-      dbName: THINKFORGE_DB_NAME,
-    };
-
-    thinkforgeDbCached.promise = mongoose.connect(mongoUri, opts).then((m) => {
-      console.log(`[ThinkForge] Connected to database: ${THINKFORGE_DB_NAME}`);
-      return m;
-    });
   }
+
+  const mongoUri = process.env.MONGODB_URI;
+  if (!mongoUri) {
+    throw new Error('MONGODB_URI environment variable is not defined');
+  }
+
+  const opts = {
+    bufferCommands: false,
+    dbName: THINKFORGE_DB_NAME,
+    serverSelectionTimeoutMS: 10000, // 10s timeout for server selection
+    connectTimeoutMS: 10000, // 10s timeout for initial connection
+  };
+
+  console.log('[ThinkForge] Connecting to database...');
+  thinkforgeDbCached.promise = mongoose.connect(mongoUri, opts).then((m) => {
+    console.log(`[ThinkForge] Connected to database: ${THINKFORGE_DB_NAME}`);
+    return m;
+  }).catch((err) => {
+    console.error('[ThinkForge] Failed to connect to database:', err?.message || err);
+    thinkforgeDbCached.promise = null;
+    thinkforgeDbCached.conn = null;
+    throw err;
+  });
 
   thinkforgeDbCached.conn = await thinkforgeDbCached.promise;
   return thinkforgeDbCached.conn;
@@ -116,21 +136,35 @@ const COLL_CONTENT_BLOCKS = 'thinkforge_content_blocks';
 const COLL_EVENTS = 'thinkforge_events';
 
 // ==================== V1 Types (Legacy) ====================
+export interface GenerationState {
+  id: string;
+  type: 'chat' | 'script_generate' | 'script_edit';
+  status: 'running' | 'completed' | 'cancelled' | 'failed';
+  intent?: string;
+  progress?: number;
+  startedAt: Date;
+  updatedAt: Date;
+  message?: string;
+}
+
 export interface Session {
   _id: string;
   userId: string;
   projectMeta?: ProjectMeta;
   createdAt: Date;
   updatedAt: Date;
+  activeGeneration?: GenerationState | null;
 }
 
 export interface Script {
   _id: string;
   sessionId: string;
+  scriptId?: string;
   title: string;
   content: string;
   blocks?: ThinkForgeBlock[];
   richText?: Record<string, any>; // Tiptap JSON AST
+  version?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -615,22 +649,26 @@ const SessionSchema = new Schema({
   _id: { type: String, required: true },
   userId: { type: String, required: true, index: true },
   projectMeta: { type: Schema.Types.Mixed, default: {} },
+  activeGeneration: { type: Schema.Types.Mixed, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_SESSIONS, timestamps: false });
 
 const ScriptSchema = new Schema({
   sessionId: { type: String, required: true, index: true },
+  scriptId: { type: String, index: true },
   title: { type: String, required: true },
   content: { type: String, default: '' },
   blocks: { type: Schema.Types.Mixed },
   richText: { type: Schema.Types.Mixed }, // Tiptap JSON AST
+  version: { type: Number, default: 1 },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_SCRIPTS, timestamps: false });
 
 const ChatMessageSchema = new Schema({
   sessionId: { type: String, required: true, index: true },
+  threadId: { type: String, index: true, default: 'default' },
   role: { type: String, required: true, enum: ['user', 'assistant'] },
   content: { type: String, required: true },
   createdAt: { type: Date, default: Date.now }
@@ -820,12 +858,13 @@ export async function getSession(sessionId: string, userId: string): Promise<Ses
       _id: String(doc._id),
       userId: doc.userId,
       projectMeta: doc.projectMeta || {},
+      activeGeneration: doc.activeGeneration || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
-  } catch (error) {
-    console.error('Error getting session:', error);
-    return null;
+  } catch (error: any) {
+    console.error('[ThinkForge][db] Error getting session:', error?.message || error);
+    throw error;
   }
 }
 
@@ -850,6 +889,7 @@ export async function getOrCreateSession(
             _id: String(existing._id),
             userId: existing.userId,
             projectMeta,
+            activeGeneration: existing.activeGeneration || null,
             createdAt: existing.createdAt,
             updatedAt: new Date()
           };
@@ -858,6 +898,7 @@ export async function getOrCreateSession(
           _id: String(existing._id),
           userId: existing.userId,
           projectMeta: existing.projectMeta || {},
+          activeGeneration: existing.activeGeneration || null,
           createdAt: existing.createdAt,
           updatedAt: existing.updatedAt
         };
@@ -871,6 +912,7 @@ export async function getOrCreateSession(
       _id: newSessionId,
       userId,
       projectMeta: projectMeta || {},
+      activeGeneration: null,
       createdAt: now,
       updatedAt: now
     };
@@ -883,32 +925,78 @@ export async function getOrCreateSession(
   }
 }
 
+export async function setActiveGeneration(sessionId: string, generation: GenerationState): Promise<void> {
+  const { SessionModel } = await getModels();
+  await SessionModel.updateOne(
+    { _id: sessionId },
+    { $set: { activeGeneration: generation, updatedAt: new Date() } }
+  );
+}
+
+export async function clearActiveGeneration(sessionId: string): Promise<void> {
+  const { SessionModel } = await getModels();
+  await SessionModel.updateOne(
+    { _id: sessionId },
+    { $set: { activeGeneration: null, updatedAt: new Date() } }
+  );
+}
+
+export async function getActiveGeneration(sessionId: string): Promise<GenerationState | null> {
+  const { SessionModel } = await getModels();
+  const doc = await SessionModel.findOne({ _id: sessionId }).lean() as any;
+  return doc?.activeGeneration || null;
+}
+
+export async function updateGenerationState(
+  sessionId: string, 
+  generationId: string, 
+  updates: Partial<GenerationState>
+): Promise<void> {
+  const { SessionModel } = await getModels();
+  const session = await SessionModel.findOne({ _id: sessionId }).lean() as any;
+  if (!session || !session.activeGeneration || session.activeGeneration.id !== generationId) {
+    return;
+  }
+
+  const updatedGen = {
+    ...session.activeGeneration,
+    ...updates,
+    updatedAt: new Date()
+  };
+
+  await SessionModel.updateOne(
+    { _id: sessionId },
+    { $set: { activeGeneration: updatedGen, updatedAt: new Date() } }
+  );
+}
+
 export async function updateSession(sessionId: string, updates: Partial<Session>): Promise<Session> {
   try {
     const { SessionModel } = await getModels();
     const updateDoc = {
       ...updates,
-      ...(updates.blocks ? { blocks: enforceThinkForgeBlocks(updates.blocks) } : {}),
+      ...((updates as any).blocks ? { blocks: enforceThinkForgeBlocks((updates as any).blocks) } : {}),
       updatedAt: new Date()
     };
-    
+
     const doc = await SessionModel.findByIdAndUpdate(
       sessionId,
       { $set: updateDoc },
       { new: true, lean: true }
     ) as any;
-    
+
     if (!doc) {
       throw new Error(`Session ${sessionId} not found`);
     }
-    
+
     return {
       _id: String(doc._id),
       userId: doc.userId,
       projectMeta: doc.projectMeta || {},
+      activeGeneration: doc.activeGeneration || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
-    };
+    } as Session;
   } catch (error) {
     console.error('Error updating session:', error);
     throw error;
@@ -926,6 +1014,7 @@ export async function getUserSessions(userId: string): Promise<Session[]> {
       _id: String(doc._id),
       userId: doc.userId,
       projectMeta: doc.projectMeta || {},
+      activeGeneration: doc.activeGeneration || null,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     }));
@@ -977,12 +1066,23 @@ export async function getSessionsCount(userId: string): Promise<number> {
 
 // ==================== Script Operations ====================
 
-export async function getScript(sessionId: string): Promise<Script | null> {
+export async function getScript(sessionId: string, scriptId?: string | null): Promise<Script | null> {
   try {
     const { ScriptModel } = await getModels();
-    const doc = await ScriptModel.findOne({ sessionId })
+    const filter: any = { sessionId };
+    if (scriptId) {
+      filter.scriptId = scriptId;
+    }
+    let doc = await ScriptModel.findOne(filter)
       .sort({ updatedAt: -1 })
       .lean() as any;
+
+    if (!doc && scriptId) {
+      // Fallback to legacy default (no scriptId set)
+      doc = await ScriptModel.findOne({ sessionId, scriptId: { $exists: false } })
+        .sort({ updatedAt: -1 })
+        .lean() as any;
+    }
     
     if (!doc) return null;
     
@@ -991,10 +1091,12 @@ export async function getScript(sessionId: string): Promise<Script | null> {
     return {
       _id: String(doc._id),
       sessionId: doc.sessionId,
+      scriptId: doc.scriptId || 'default',
       title: doc.title,
       content: doc.content || '',
       blocks,
       richText: doc.richText, // Tiptap JSON AST
+      version: typeof doc.version === 'number' ? doc.version : 1,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt
     };
@@ -1004,21 +1106,25 @@ export async function getScript(sessionId: string): Promise<Script | null> {
   }
 }
 
-export async function saveScript(sessionId: string, script: Partial<Script>): Promise<Script> {
+export async function saveScript(sessionId: string, script: Partial<Script>, scriptId?: string | null): Promise<Script> {
   try {
     const { ScriptModel } = await getModels();
     const now = new Date();
+    const effectiveScriptId = scriptId || (script as any)?.scriptId || 'default';
     
     // Check if script exists
-    const existing = await ScriptModel.findOne({ sessionId }).sort({ updatedAt: -1 });
+    const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
     
     if (existing) {
       // Update existing
       const blocks = script.blocks !== undefined ? enforceThinkForgeBlocks(script.blocks) : enforceThinkForgeBlocks(existing.blocks);
+      const nextVersion = (typeof existing.version === 'number' ? existing.version : 1) + 1;
       const updateDoc: Record<string, any> = {
+        scriptId: effectiveScriptId,
         title: script.title ?? existing.title,
         content: script.content ?? existing.content,
         blocks,
+        version: nextVersion,
         updatedAt: now
       };
       
@@ -1034,10 +1140,12 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
       return {
         _id: String(updated._id),
         sessionId: updated.sessionId,
+        scriptId: updated.scriptId || effectiveScriptId,
         title: updated.title,
         content: updated.content || '',
         blocks: updated.blocks,
         richText: updated.richText,
+        version: typeof updated.version === 'number' ? updated.version : nextVersion,
         createdAt: updated.createdAt,
         updatedAt: updated.updatedAt
       };
@@ -1046,9 +1154,11 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
       const blocks = enforceThinkForgeBlocks(script.blocks || []);
       const doc: Record<string, any> = {
         sessionId,
+        scriptId: effectiveScriptId,
         title: script.title || 'Untitled Script',
         content: script.content || '',
         blocks,
+        version: 1,
         createdAt: now,
         updatedAt: now
       };
@@ -1062,10 +1172,12 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
       return {
         _id: String(created._id),
         sessionId: created.sessionId,
+        scriptId: (created as any).scriptId || effectiveScriptId,
         title: created.title,
         content: created.content || '',
         blocks: created.blocks,
         richText: (created as any).richText,
+        version: typeof (created as any).version === 'number' ? (created as any).version : 1,
         createdAt: created.createdAt,
         updatedAt: created.updatedAt
       };
@@ -1076,17 +1188,20 @@ export async function saveScript(sessionId: string, script: Partial<Script>): Pr
   }
 }
 
-export async function updateScript(sessionId: string, updates: Partial<Script>): Promise<Script> {
+export async function updateScript(sessionId: string, updates: Partial<Script>, scriptId?: string | null): Promise<Script> {
   try {
     const { ScriptModel } = await getModels();
-    const existing = await ScriptModel.findOne({ sessionId }).sort({ updatedAt: -1 });
+    const effectiveScriptId = scriptId || (updates as any)?.scriptId || 'default';
+    const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
     
     if (!existing) {
       throw new Error(`Script not found for session ${sessionId}`);
     }
-    
+    const nextVersion = (typeof (existing as any).version === 'number' ? (existing as any).version : 1) + 1;
     const updateDoc = {
       ...updates,
+      scriptId: effectiveScriptId,
+      version: nextVersion,
       updatedAt: new Date()
     };
     
@@ -1097,10 +1212,12 @@ export async function updateScript(sessionId: string, updates: Partial<Script>):
     return {
       _id: String(updated._id),
       sessionId: updated.sessionId,
+      scriptId: updated.scriptId || effectiveScriptId,
       title: updated.title,
       content: updated.content || '',
       blocks: enforceThinkForgeBlocks(updated.blocks),
       richText: updated.richText,
+      version: typeof updated.version === 'number' ? updated.version : nextVersion,
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt
     };
@@ -1110,17 +1227,43 @@ export async function updateScript(sessionId: string, updates: Partial<Script>):
   }
 }
 
+export async function listScripts(sessionId: string): Promise<Array<{ scriptId: string; title: string; updatedAt: Date; createdAt: Date }>> {
+  try {
+    const { ScriptModel } = await getModels();
+    const docs = await ScriptModel.find({ sessionId }).sort({ updatedAt: -1 }).lean() as any[];
+    const seen = new Set<string>();
+    const items: Array<{ scriptId: string; title: string; updatedAt: Date; createdAt: Date }> = [];
+    for (const doc of docs) {
+      const sid = doc.scriptId || 'default';
+      if (seen.has(sid)) continue;
+      seen.add(sid);
+      items.push({
+        scriptId: sid,
+        title: doc.title || 'Untitled Script',
+        updatedAt: doc.updatedAt || doc.createdAt,
+        createdAt: doc.createdAt,
+      });
+    }
+    return items;
+  } catch (error) {
+    console.error('Error listing scripts:', error);
+    return [];
+  }
+}
+
 // ==================== Chat Operations ====================
 
 export async function appendChatMessage(
   sessionId: string,
   role: 'user' | 'assistant',
-  content: string
+  content: string,
+  threadId?: string | null
 ): Promise<void> {
   try {
     const { ChatModel } = await getModels();
     await ChatModel.create({
       sessionId,
+      threadId: threadId || 'default',
       role,
       content,
       createdAt: new Date()
@@ -1131,10 +1274,17 @@ export async function appendChatMessage(
   }
 }
 
-export async function getChatHistory(sessionId: string, limit: number = 50): Promise<ChatMessage[]> {
+export async function getChatHistory(sessionId: string, limit: number = 50, threadId?: string | null): Promise<ChatMessage[]> {
   try {
     const { ChatModel } = await getModels();
-    const docs = await ChatModel.find({ sessionId })
+    const filter: any = { sessionId };
+    if (threadId) {
+      filter.$or = [
+        { threadId },
+        ...(threadId === 'default' ? [{ threadId: { $exists: false } }] : [])
+      ];
+    }
+    const docs = await ChatModel.find(filter)
       .sort({ createdAt: 1 })
       .limit(limit)
       .lean() as any[];
@@ -1147,6 +1297,34 @@ export async function getChatHistory(sessionId: string, limit: number = 50): Pro
     }));
   } catch (error) {
     console.error('Error getting chat history:', error);
+    return [];
+  }
+}
+
+export async function listChatThreads(sessionId: string): Promise<Array<{ threadId: string; lastEdited: Date; lastMessage?: string }>> {
+  try {
+    const { ChatModel } = await getModels();
+    const docs = await ChatModel.aggregate([
+      { $match: { sessionId } },
+      { $addFields: { threadKey: { $ifNull: ['$threadId', 'default'] } } },
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: '$threadKey',
+          lastEdited: { $first: '$createdAt' },
+          lastMessage: { $first: '$content' }
+        }
+      },
+      { $sort: { lastEdited: -1 } }
+    ]);
+
+    return docs.map((d: any) => ({
+      threadId: d._id || 'default',
+      lastEdited: d.lastEdited,
+      lastMessage: d.lastMessage || ''
+    }));
+  } catch (error) {
+    console.error('Error listing chat threads:', error);
     return [];
   }
 }

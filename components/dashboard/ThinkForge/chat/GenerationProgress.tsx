@@ -8,6 +8,8 @@ interface GenerationProgressProps {
   active: boolean;
   intent?: string | null;
   label?: string;
+  progressOverride?: number | null;
+  messageOverride?: string | null;
 }
 
 /**
@@ -15,7 +17,13 @@ interface GenerationProgressProps {
  * Only appears for script-related intents (generation/refinement).
  * Uses a "forging" aesthetic with red/neutral tones.
  */
-export function GenerationProgress({ active, intent, label = "Forging Script..." }: GenerationProgressProps) {
+export function GenerationProgress({ 
+  active, 
+  intent, 
+  label = "Forging Script...",
+  progressOverride,
+  messageOverride 
+}: GenerationProgressProps) {
   const [percent, setPercent] = useState(0);
   const [messageIdx, setMessageIdx] = useState(0);
   const startRef = useRef<number | null>(null);
@@ -24,8 +32,9 @@ export function GenerationProgress({ active, intent, label = "Forging Script..."
   const settleRef = useRef<NodeJS.Timeout | null>(null);
 
   // Only show for script-related intents
-  const isScriptIntent = intent === 'SCRIPT_GENERATE' || intent === 'SCRIPT_EDIT';
-  const shouldShow = active && isScriptIntent;
+  const isScriptIntent = intent === 'draft' || intent === 'edit' || intent === 'hybrid';
+  const hasBackendSignal = progressOverride !== null && progressOverride !== undefined || !!messageOverride;
+  const shouldShow = active && (isScriptIntent || hasBackendSignal);
 
   const messages = useMemo(
     () => [
@@ -42,6 +51,15 @@ export function GenerationProgress({ active, intent, label = "Forging Script..."
     ],
     []
   );
+
+  // Display logic: Prefer backend message/progress if provided
+  const currentMessage = messageOverride || messages[messageIdx % messages.length];
+  const normalizedOverride = progressOverride !== null && progressOverride !== undefined
+    ? (() => {
+        const raw = progressOverride <= 1 ? progressOverride * 100 : progressOverride;
+        return Math.max(0, Math.min(100, Math.round(raw)));
+      })()
+    : null;
 
   // Reset when activation flips on
   useEffect(() => {
@@ -84,7 +102,7 @@ export function GenerationProgress({ active, intent, label = "Forging Script..."
     return () => clearInterval(interval);
   }, [shouldShow, messages.length]);
 
-  // Animation loop
+  // Animation loop for baseline progress
   useEffect(() => {
     if (!shouldShow) return;
 
@@ -100,15 +118,23 @@ export function GenerationProgress({ active, intent, label = "Forging Script..."
          targetRef.current = target;
       }
 
-      const timeProgress = (elapsed / target) * 100;
-      
-      setPercent((prev) => {
-        const targetVisual = Math.min(98, timeProgress);
-        const delta = (targetVisual - prev) * 0.04;
-        const creep = 0.015;
-        const next = prev + Math.max(delta, creep);
-        return Math.min(99, Math.max(0, next));
-      });
+      if (normalizedOverride !== null) {
+        setPercent((prev) => {
+          const delta = normalizedOverride - prev;
+          const next = prev + delta * 0.12;
+          return Math.max(0, Math.min(100, next));
+        });
+      } else {
+        const timeProgress = (elapsed / target) * 100;
+        
+        setPercent((prev) => {
+          const targetVisual = Math.min(98, timeProgress);
+          const delta = (targetVisual - prev) * 0.04;
+          const creep = 0.015;
+          const next = prev + Math.max(delta, creep);
+          return Math.min(99, Math.max(0, next));
+        });
+      }
       
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -117,7 +143,7 @@ export function GenerationProgress({ active, intent, label = "Forging Script..."
     return () => {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [shouldShow]);
+  }, [shouldShow, normalizedOverride]);
 
   if (!shouldShow && percent === 0) return null;
 
@@ -147,13 +173,13 @@ export function GenerationProgress({ active, intent, label = "Forging Script..."
           <div className="h-4 overflow-hidden">
             <AnimatePresence mode="wait">
               <motion.span
-                key={messageIdx}
+                key={currentMessage}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
                 className="text-[11px] font-medium text-neutral-500 italic block"
               >
-                {messages[messageIdx % messages.length]}
+                {currentMessage}
               </motion.span>
             </AnimatePresence>
           </div>

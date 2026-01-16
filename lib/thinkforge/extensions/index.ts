@@ -16,6 +16,7 @@ import { Extension } from '@tiptap/core';
 import { ActionBlock } from './action-block';
 import { WhyBlock } from './why-block';
 import { ExampleBlock } from './example-block';
+import { BlockIdExtension } from './block-id';
 
 // Re-export custom extensions
 export { ActionBlock } from './action-block';
@@ -112,6 +113,9 @@ export function getThinkForgeExtensions(options: ThinkForgeEditorOptions = {}): 
         },
       },
     }),
+
+    // Stable block IDs for all top-level blocks
+    BlockIdExtension,
 
     // Additional marks not in StarterKit
     Underline.configure({

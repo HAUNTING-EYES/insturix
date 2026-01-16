@@ -18,12 +18,14 @@ export async function POST(req: Request) {
   let sessionId: string | undefined;
   let action: 'get' | 'save' | 'update' | undefined;
   let script: any | undefined;
+  let baseVersion: number | undefined;
 
   try {
     const body = await req.json();
     sessionId = body?.sessionId ? String(body.sessionId) : undefined;
     action = body?.action;
     script = body?.script;
+    baseVersion = typeof body?.baseVersion === 'number' ? body.baseVersion : undefined;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -39,8 +41,10 @@ export async function POST(req: Request) {
   try {
     const result = await executeScriptOperation({
       sessionId,
+      userId,
       action,
-      script
+      script,
+      baseVersion
     });
 
     return NextResponse.json({ script: result });

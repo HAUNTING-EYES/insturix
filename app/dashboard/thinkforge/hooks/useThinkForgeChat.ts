@@ -2,7 +2,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "@/hooks/use-toast";
 
-const LS_SESSION_PREFIX = "thinkforge_session_";
+const LS_CHAT_PREFIX = "thinkforge_chat_";
+
+const isScriptIntent = (intent: string | null | undefined) =>
+  intent === "draft" || intent === "edit" || intent === "hybrid";
 
 export interface ChatMessage {
   id: string;
@@ -10,11 +13,16 @@ export interface ChatMessage {
   content: string;
   timestamp: Date;
   streaming?: boolean;
+  selectionText?: string | null;
 }
 
-function saveLocal(sessionId: string, data: Partial<{ chat: ChatMessage[] }>) {
+type ChatHookOptions = {
+  onRemoteScriptUpdate?: (script: any) => void;
+};
+
+function saveLocal(sessionId: string, threadId: string, data: Partial<{ chat: ChatMessage[] }>) {
   try {
-    const key = `${LS_SESSION_PREFIX}${sessionId}`;
+    const key = `${LS_CHAT_PREFIX}${sessionId}_${threadId}`;
     const prev = JSON.parse(localStorage.getItem(key) || "{}");
     localStorage.setItem(key, JSON.stringify({ ...prev, ...data }));
   } catch {}
@@ -27,17 +35,34 @@ function normalizeMessage(m: any): ChatMessage {
     content: m.content || '',
     timestamp: m.timestamp ? new Date(m.timestamp) : (m.ts ? new Date(m.ts) : new Date(m.createdAt || Date.now())),
     streaming: m.streaming || false,
+    selectionText: typeof m.selectionText === 'string' ? m.selectionText : null,
   };
 }
 
-export function useThinkForgeChat(sessionId: string | null, initialMessages?: any[]) {
+export function useThinkForgeChat(sessionId: string | null, threadId: string | null, initialMessages?: any[], options?: ChatHookOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [currentIntent, setCurrentIntent] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState<number | null>(null);
+  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   // CRITICAL: Track cancellation state to ignore stale chunks
   const isCancelledRef = useRef<boolean>(false);
   const generationIdRef = useRef<string | null>(null);
+  const optionsRef = useRef<ChatHookOptions | undefined>(options);
+  const generationPollRef = useRef<NodeJS.Timeout | null>(null);
+  const lastGenerationKeyRef = useRef<string | null>(null);
+  const intentRef = useRef<string | null>(null);
+  const rafFlushRef = useRef<number | null>(null);
+  const lastEventIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
+
+  useEffect(() => {
+    lastGenerationKeyRef.current = null;
+  }, [sessionId, threadId]);
 
   // Track previous sessionId to detect changes
   const prevSessionIdRef = useRef<string | null>(null);
@@ -48,35 +73,59 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
     const sessionChanged = prevSessionIdRef.current !== sessionId;
     prevSessionIdRef.current = sessionId;
     
-    if (!sessionId) {
+    if (!sessionId || !threadId) {
       setMessages([]);
+      setIsStreaming(false);
+      setCurrentIntent(null);
+      intentRef.current = null;
+      isCancelledRef.current = true;
+      generationIdRef.current = null;
+      lastEventIdRef.current = null;
+      setGenerationProgress(null);
+      setGenerationMessage(null);
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
       return;
     }
 
     // Clear messages when switching to a NEW session
     if (sessionChanged) {
       setMessages([]);
+      setIsStreaming(false);
+      setCurrentIntent(null);
+      intentRef.current = null;
+      isCancelledRef.current = true;
+      generationIdRef.current = null;
+      lastEventIdRef.current = null;
+      setGenerationProgress(null);
+      setGenerationMessage(null);
+      if (abortRef.current) {
+        abortRef.current.abort();
+        abortRef.current = null;
+      }
     }
 
     // Use initial messages if provided
     if (Array.isArray(initialMessages) && initialMessages.length > 0) {
       const normalized = initialMessages.map(normalizeMessage);
       setMessages(normalized);
-      saveLocal(sessionId, { chat: normalized } as any);
+      saveLocal(sessionId, threadId, { chat: normalized } as any);
       return;
     }
 
     let cancelled = false;
     const loadMessages = async () => {
       try {
-        const res = await fetch(`/api/services/thinkforge/chat/list?sessionId=${encodeURIComponent(sessionId)}&limit=50&offset=0`, { cache: 'no-store' });
+        const res = await fetch(`/api/services/thinkforge/chat/list?sessionId=${encodeURIComponent(sessionId)}&threadId=${encodeURIComponent(threadId)}&limit=50&offset=0`, { cache: 'no-store' });
         if (!res.ok || cancelled) return;
         const data = await res.json();
         const items: any[] = Array.isArray(data?.items) ? data.items : [];
         const normalized = items.map(normalizeMessage);
         if (!cancelled) {
           setMessages(normalized);
-          saveLocal(sessionId, { chat: normalized } as any);
+          saveLocal(sessionId, threadId, { chat: normalized } as any);
         }
       } catch (error) {
         console.error('Failed to load chat messages:', error);
@@ -85,7 +134,39 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
 
     loadMessages();
     return () => { cancelled = true; };
-  }, [sessionId, initialMessages]);
+  }, [sessionId, threadId, initialMessages]);
+
+  const stopStreaming = useCallback(() => {
+    // CRITICAL: Set cancellation flag FIRST to prevent processing stale chunks
+    isCancelledRef.current = true;
+    if (rafFlushRef.current) {
+      cancelAnimationFrame(rafFlushRef.current);
+      rafFlushRef.current = null;
+    }
+    const activeGenerationId = generationIdRef.current;
+    const activeSessionId = sessionId;
+    if (activeSessionId && activeGenerationId) {
+      // Fire-and-forget stop request so backend halts generation
+      void fetch('/api/services/thinkforge/generation/stop', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: activeSessionId, generationId: activeGenerationId }),
+        keepalive: true,
+      }).catch(() => {});
+    }
+    generationIdRef.current = null;
+    setCurrentIntent(null);
+    intentRef.current = null;
+    
+    // CRITICAL: Abort the fetch request to stop backend processing
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    setIsStreaming(false);
+    // Mark all streaming messages as stopped
+    setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
+  }, [sessionId]);
 
   const sendMessage = useCallback(async (
     prompt: string,
@@ -94,23 +175,54 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
       project?: any;
       selection?: string;
       selectionBlocks?: any[]; // Selected blocks from editor
+      selectionBlockIds?: string[]; // Selected block IDs from editor
       selectionRange?: { from: number; to: number }; // Selection range from editor
+      scriptId?: string; // Active script tab id
       onScriptUpdate?: (script: any) => void;
       onTokenStream?: (tokens: string) => void; // Callback for streaming tokens
+      intentContext?: {
+        editorFocused?: boolean;
+        hasSelection?: boolean;
+        workspaceMode?: "script" | "whiteboard" | "unknown";
+        lastUserAction?: string;
+      };
     }
   ) => {
-    if (!sessionId || !prompt.trim() || isStreaming) return;
+    console.log('[useThinkForgeChat.sendMessage] called', { sessionId, prompt: prompt.trim(), isStreaming });
+    if (!sessionId || !threadId) {
+      console.log('[useThinkForgeChat.sendMessage] No sessionId, returning');
+      return;
+    }
+    if (!prompt.trim()) {
+      console.log('[useThinkForgeChat.sendMessage] No prompt, returning');
+      return;
+    }
+    if (isStreaming) {
+      console.log('[useThinkForgeChat.sendMessage] Currently streaming, stopping...');
+      // Cancel any stuck stream to allow new message
+      stopStreaming();
+    }
+
+    // Stop any background polling while we start a new stream
+    if (generationPollRef.current) {
+      clearInterval(generationPollRef.current);
+      generationPollRef.current = null;
+    }
 
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: 'user',
       content: prompt,
       timestamp: new Date(),
+      selectionText: options?.selection || null,
     };
 
     setMessages(prev => [...prev, userMsg]);
     setIsStreaming(true);
     setCurrentIntent(null);
+    intentRef.current = null;
+    setGenerationProgress(null);
+    setGenerationMessage(null);
 
     const assistantId = crypto.randomUUID();
     const generationId = crypto.randomUUID();
@@ -131,6 +243,7 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
       const controller = new AbortController();
       abortRef.current = controller;
 
+      console.log('[useThinkForgeChat.sendMessage] Making fetch request to /api/services/thinkforge/chat');
       const res = await fetch('/api/services/thinkforge/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -141,10 +254,17 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
           project: options?.project,
           selection: options?.selection,
           selectionBlocks: options?.selectionBlocks, // Include selection blocks for surgical editing
+          selectionBlockIds: options?.selectionBlockIds,
           selectionRange: options?.selectionRange, // Include selection range for precise replacement
+          scriptId: options?.scriptId,
+          generationId,
+          threadId,
+          intentContext: options?.intentContext,
         }),
         signal: controller.signal,
       });
+
+      console.log('[useThinkForgeChat.sendMessage] Fetch response received', { status: res.status, ok: res.ok });
 
       if (res.status === 429) {
         const errorMsg: ChatMessage = {
@@ -167,165 +287,139 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let assistantContent = '';
-      let buffer = ''; // Buffer for incomplete SSE messages
-      let isScriptGeneration = false; // Track if this is script generation
-      // Assume script generation if onTokenStream callback is provided
-      // This allows streaming to start immediately, even before intent is received
-      if (options?.onTokenStream) {
-        isScriptGeneration = true;
-      }
+      let pendingDelta = '';
+      let buffer = '';
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      const doneReceivedRef = { current: false } as { current: boolean };
 
-        // CRITICAL: Check if cancelled before processing chunks
-        if (isCancelledRef.current || generationIdRef.current !== generationId) {
-          break;
+      const scheduleFlush = () => {
+        if (rafFlushRef.current) return;
+        rafFlushRef.current = requestAnimationFrame(() => {
+          rafFlushRef.current = null;
+          if (isCancelledRef.current) return;
+          setMessages(prev => prev.map(m =>
+            m.id === assistantId ? { ...m, content: assistantContent, streaming: true } : m
+          ));
+          if (pendingDelta && options?.onTokenStream) {
+            options.onTokenStream(pendingDelta);
+          }
+          pendingDelta = '';
+        });
+      };
+
+      const applyEventPayload = (data: any, eventId?: number | null) => {
+        if (typeof eventId === 'number') {
+          lastEventIdRef.current = eventId;
+        } else if (typeof data?.eventId === 'number') {
+          lastEventIdRef.current = data.eventId;
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        buffer += chunk;
-        
-        // Process complete SSE messages (ending with \n\n)
-        let lastIndex = 0;
-        while (true) {
-          // CRITICAL: Check cancellation again inside loop
-          if (isCancelledRef.current || generationIdRef.current !== generationId) {
-            break;
+        if (data?.type === 'token' && data.content) {
+          assistantContent += data.content;
+          pendingDelta += data.content;
+          scheduleFlush();
+        } else if (data?.type === 'intent') {
+          setCurrentIntent(data.intent);
+          intentRef.current = data.intent;
+        } else if (data?.type === 'progress') {
+          if (typeof data.progress === 'number') {
+            setGenerationProgress(Math.round(Math.max(0, Math.min(1, data.progress)) * 100));
           }
-          
-          const messageEnd = buffer.indexOf('\n\n', lastIndex);
-          if (messageEnd === -1) break; // No complete message found
-          
-          const message = buffer.slice(lastIndex, messageEnd);
-          lastIndex = messageEnd + 2; // Skip \n\n
-          
-          if (message.startsWith('data: ')) {
-            try {
-              const jsonStr = message.slice(6);
-              // Skip empty lines
-              if (!jsonStr.trim()) continue;
-              
-              // Quick validation: check if JSON appears complete
-              // (basic check - proper validation happens in JSON.parse)
-              const trimmed = jsonStr.trim();
-              if (trimmed.length > 0) {
-                // Check if it starts and ends with valid JSON delimiters
-                const startsValid = trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith('"');
-                const endsValid = trimmed.endsWith('}') || trimmed.endsWith(']') || trimmed.endsWith('"') ||
-                  trimmed.endsWith('true') || trimmed.endsWith('false') || trimmed.endsWith('null') ||
-                  /^\d+$/.test(trimmed);
-                
-                // If it doesn't look complete, it might be split - skip for now
-                if (startsValid && !endsValid && trimmed.length > 1000) {
-                  // Large JSON that doesn't end properly - likely incomplete
-                  continue;
-                }
-              }
-              
-              const data = JSON.parse(jsonStr);
-
-              // CRITICAL: Ignore stale chunks after cancellation
-              if (isCancelledRef.current || generationIdRef.current !== generationId) {
-                break;
-              }
-
-              if (data.type === 'token') {
-                assistantContent += data.content;
-                setMessages(prev => prev.map(m =>
-                  m.id === assistantId ? { ...m, content: assistantContent } : m
-                ));
-                // Stream tokens to callback if provided (stream immediately if callback exists)
-                if (options?.onTokenStream && isScriptGeneration) {
-                  options.onTokenStream(data.content);
-                }
-              } else if (data.type === 'intent') {
-                setCurrentIntent(data.intent);
-                // Update streaming flag based on intent
-                isScriptGeneration = data.intent === 'SCRIPT_GENERATE' || data.intent === 'SCRIPT_EDIT';
-              } else if (data.type === 'script_update' && options?.onScriptUpdate) {
-                // Handle script update with metadata
-                // Backend sends: { type: 'script_update', script: {...}, metadata: {...} }
-                const scriptData = {
-                  ...(data.script || {}),
-                  metadata: data.metadata || {},
-                };
-                options.onScriptUpdate(scriptData);
-              } else if (data.type === 'error') {
-                throw new Error(data.error);
-              } else if (data.type === 'done') {
-                // Stream complete
-              }
-            } catch (e: any) {
-              // Only log if it's not an incomplete JSON error (which is expected for large payloads)
-              if (e instanceof SyntaxError) {
-                // Check if JSON appears incomplete (doesn't end with } or ])
-                const trimmed = jsonStr.trim();
-                const isIncomplete = trimmed.length > 0 && 
-                  !trimmed.endsWith('}') && 
-                  !trimmed.endsWith(']') && 
-                  !trimmed.endsWith('"') &&
-                  !trimmed.endsWith('true') &&
-                  !trimmed.endsWith('false') &&
-                  !trimmed.endsWith('null');
-                
-                if (isIncomplete) {
-                  // This is expected - more data will arrive
-                  continue;
-                }
-              }
-              console.error('Error parsing SSE message:', e);
-              // Log a sample of the problematic JSON for debugging (first 500 chars)
-              if (message.length > 0) {
-                const sample = message.slice(0, Math.min(500, message.length));
-                console.error('Message sample:', sample);
-                if (message.length > 500) {
-                  console.error('... (truncated, total length:', message.length, ')');
-                }
-              }
-            }
+          if (typeof data.message === 'string') {
+            setGenerationMessage(data.message);
           }
+        } else if (data?.type === 'script_update' && options?.onScriptUpdate) {
+          options.onScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+        } else if (data?.type === 'done') {
+          doneReceivedRef.current = true;
         }
-        
-        // Keep remaining incomplete message in buffer
-        buffer = buffer.slice(lastIndex);
-      }
-      
-      // Process any remaining buffer (should be empty if stream ended properly)
-      if (buffer.trim()) {
-        if (buffer.startsWith('data: ')) {
+      };
+
+      const handleEvent = (event: string) => {
+        const lines = event.split('\n');
+        const idLine = lines.find((line) => line.startsWith('id:'));
+        const eventId = idLine ? Number(idLine.replace(/^id:\s?/, '')) : null;
+        const dataLines = lines
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.replace(/^data:\s?/, ''));
+        if (!dataLines.length) return;
+        const payload = dataLines.join('\n');
+        try {
+          const data = JSON.parse(payload);
+          applyEventPayload(data, Number.isFinite(eventId) ? eventId : null);
+        } catch {
+          // ignore malformed event
+        }
+      };
+
+      const replayEvents = async (): Promise<boolean> => {
+        if (!sessionId || !threadId || lastEventIdRef.current === null) return false;
+        try {
+          const res = await fetch(`/api/events?sessionId=${encodeURIComponent(sessionId)}&threadId=${encodeURIComponent(threadId)}&since=${encodeURIComponent(String(lastEventIdRef.current))}`, { cache: 'no-store' });
+          if (!res.ok) return false;
+          const data = await res.json();
+          const events: any[] = Array.isArray(data?.events) ? data.events : [];
+          events.forEach((evt) => {
+            const payload = evt?.data ? { ...evt.data, type: evt.event } : { type: evt.event };
+            applyEventPayload(payload, typeof evt?.id === 'number' ? evt.id : null);
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
+      const fallbackResync = async () => {
+        try {
+          await refreshMessages();
+        } catch {}
+        if (optionsRef.current?.onRemoteScriptUpdate && sessionId) {
           try {
-            const jsonStr = buffer.slice(6);
-            if (jsonStr.trim()) {
-              const data = JSON.parse(jsonStr);
-              
-              if (data.type === 'script_update' && options?.onScriptUpdate) {
-                const scriptData = {
-                  ...(data.script || {}),
-                  metadata: data.metadata || {},
-                };
-                options.onScriptUpdate(scriptData);
-              }
+            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options?.scriptId || 'default')}`, { cache: 'no-store' });
+            if (res.ok) {
+              const data = await res.json();
+              optionsRef.current.onRemoteScriptUpdate(data);
             }
-          } catch (e) {
-            console.error('Error parsing final buffer:', e);
+          } catch {}
+        }
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (isCancelledRef.current) break;
+          buffer += decoder.decode(value, { stream: true });
+          let idx = buffer.indexOf('\n\n');
+          while (idx !== -1) {
+            const event = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 2);
+            if (event) handleEvent(event);
+            idx = buffer.indexOf('\n\n');
           }
         }
+      } catch (readError) {
+        console.error('[useThinkForgeChat] Error reading stream:', readError);
       }
 
-      // Finalize message
       setMessages(prev => {
         const updated = prev.map(m =>
-          m.id === assistantId ? { ...m, content: assistantContent, streaming: false } : m
+          m.id === assistantId ? { ...m, content: assistantContent || '[No response received]', streaming: false } : m
         );
-        // Save to local storage
-        if (sessionId && assistantContent) {
-          saveLocal(sessionId, { chat: updated } as any);
+        if (sessionId && threadId && assistantContent) {
+          saveLocal(sessionId, threadId, { chat: updated } as any);
         }
         return updated;
       });
+
+      if (!isCancelledRef.current && !doneReceivedRef.current) {
+        const replayed = await replayEvents();
+        if (!replayed) {
+          await fallbackResync();
+        }
+      }
     } catch (e: any) {
+      console.error('[useThinkForgeChat.sendMessage] Error caught:', e?.name, e?.message, e);
       if (e?.name === 'AbortError' || isCancelledRef.current) {
         // Stream was cancelled - mark message as stopped
         isCancelledRef.current = true;
@@ -342,52 +436,160 @@ export function useThinkForgeChat(sessionId: string | null, initialMessages?: an
       };
       setMessages(prev => prev.map(m => m.id === assistantId ? errorMsg : m));
     } finally {
+      console.log('[useThinkForgeChat.sendMessage] finally block - cleaning up');
       setIsStreaming(false);
       abortRef.current = null;
+      generationIdRef.current = null;
+      intentRef.current = null;
+      if (rafFlushRef.current) {
+        cancelAnimationFrame(rafFlushRef.current);
+        rafFlushRef.current = null;
+      }
     }
-  }, [sessionId, isStreaming]);
-
-  const stopStreaming = useCallback(() => {
-    // CRITICAL: Set cancellation flag FIRST to prevent processing stale chunks
-    isCancelledRef.current = true;
-    generationIdRef.current = null;
-    
-    // CRITICAL: Abort the fetch request to stop backend processing
-    if (abortRef.current) {
-      abortRef.current.abort();
-      abortRef.current = null;
-    }
-    setIsStreaming(false);
-    // Mark all streaming messages as stopped
-    setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
-  }, []);
+  }, [sessionId, threadId, isStreaming, stopStreaming]);
 
   const refreshMessages = useCallback(async () => {
-    if (!sessionId) return;
+    if (!sessionId || !threadId) return;
     try {
-      const res = await fetch(`/api/services/thinkforge/chat/list?sessionId=${encodeURIComponent(sessionId)}&limit=100`, { cache: 'no-store' });
+      const res = await fetch(`/api/services/thinkforge/chat/list?sessionId=${encodeURIComponent(sessionId)}&threadId=${encodeURIComponent(threadId)}&limit=100`, { cache: 'no-store' });
       if (!res.ok) return;
       const data = await res.json();
       const items: any[] = Array.isArray(data?.items) ? data.items : [];
       const normalized = items.map(normalizeMessage);
       setMessages(normalized);
-      saveLocal(sessionId, { chat: normalized } as any);
+      saveLocal(sessionId, threadId, { chat: normalized } as any);
     } catch (error) {
       console.error('Failed to refresh messages:', error);
     }
-  }, [sessionId]);
+  }, [sessionId, threadId]);
+
+  const pollGenerationStatus = useCallback(async () => {
+    if (!sessionId) return;
+    // Don't poll if we recently cancelled - let the new stream take over
+    if (isCancelledRef.current) {
+      console.log('[useThinkForgeChat.pollGenerationStatus] Skipping - cancelled state active');
+      return;
+    }
+    try {
+      const res = await fetch(`/api/services/thinkforge/generation/status?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const gen = data?.generation;
+      
+      // If no generation or it's been cleared, reset state
+      if (!gen) {
+        if (generationIdRef.current && !isCancelledRef.current) {
+          // Generation was cleared server-side
+          generationIdRef.current = null;
+          setIsStreaming(false);
+          setCurrentIntent(null);
+          intentRef.current = null;
+          setGenerationProgress(null);
+          setGenerationMessage(null);
+        }
+        return;
+      }
+
+      const key = `${gen.id}:${gen.status}`;
+      if (lastGenerationKeyRef.current === key) return;
+      lastGenerationKeyRef.current = key;
+
+      // Don't update if we have a different active generation locally
+      if (generationIdRef.current && generationIdRef.current !== gen.id) {
+        console.log('[useThinkForgeChat.pollGenerationStatus] Ignoring stale generation', { local: generationIdRef.current, remote: gen.id });
+        return;
+      }
+
+      generationIdRef.current = gen.id;
+
+      if (gen.status === 'running') {
+        setIsStreaming(true);
+        const mappedIntent = gen.type === 'script_generate'
+          ? 'draft'
+          : gen.type === 'script_edit'
+            ? 'edit'
+            : (gen.intent || null);
+        setCurrentIntent(mappedIntent || null);
+        intentRef.current = mappedIntent || null;
+        const normalizedProgress = typeof gen.progress === 'number'
+          ? Math.round(Math.max(0, Math.min(1, gen.progress)) * 100)
+          : null;
+        setGenerationProgress(normalizedProgress);
+        setGenerationMessage(gen.message ?? null);
+      } else if (gen.status === 'completed') {
+        generationIdRef.current = null;
+        setIsStreaming(false);
+        setCurrentIntent(null);
+        intentRef.current = null;
+        setGenerationProgress(null);
+        setGenerationMessage(null);
+        if (data.script && optionsRef.current?.onRemoteScriptUpdate) {
+          optionsRef.current.onRemoteScriptUpdate(data.script);
+        }
+        await refreshMessages();
+      } else if (gen.status === 'cancelled') {
+        generationIdRef.current = null;
+        setIsStreaming(false);
+        setCurrentIntent(null);
+        intentRef.current = null;
+        setGenerationProgress(null);
+        setGenerationMessage(null);
+        setMessages(prev => prev.map(m => m.streaming ? { ...m, streaming: false } : m));
+      } else if (gen.status === 'failed') {
+        generationIdRef.current = null;
+        setIsStreaming(false);
+        setCurrentIntent(null);
+        intentRef.current = null;
+        setGenerationProgress(null);
+        setGenerationMessage(null);
+      }
+    } catch (error) {
+      console.error('Failed to poll generation status:', error);
+    }
+  }, [sessionId, refreshMessages]);
+
+  // Keep UI aligned with backend generation status (reconnect / reload resilience)
+  useEffect(() => {
+    if (!sessionId || !threadId) return;
+    if (!isStreaming) {
+      void pollGenerationStatus();
+    }
+    if (generationPollRef.current) {
+      clearInterval(generationPollRef.current);
+      generationPollRef.current = null;
+    }
+
+    // Only poll in the background when we are NOT streaming but a generation is active
+    if (!generationIdRef.current || isStreaming) {
+      return;
+    }
+
+    generationPollRef.current = setInterval(() => {
+      if (!generationIdRef.current || isStreaming) return;
+      void pollGenerationStatus();
+    }, 5000);
+
+    return () => {
+      if (generationPollRef.current) {
+        clearInterval(generationPollRef.current);
+        generationPollRef.current = null;
+      }
+    };
+  }, [sessionId, threadId, pollGenerationStatus, isStreaming]);
 
   const clearMessages = useCallback(() => {
     setMessages([]);
-    if (sessionId) {
-      saveLocal(sessionId, { chat: [] } as any);
+    if (sessionId && threadId) {
+      saveLocal(sessionId, threadId, { chat: [] } as any);
     }
-  }, [sessionId]);
+  }, [sessionId, threadId]);
 
   return {
     messages,
     isStreaming,
     currentIntent,
+    generationProgress,
+    generationMessage,
     sendMessage,
     stopStreaming,
     refreshMessages,

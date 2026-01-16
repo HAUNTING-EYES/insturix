@@ -7,8 +7,10 @@ import { chatAgent } from '../agents/chat-agent';
 import { generateScriptDraft } from '../agents/script-draft-agent';
 import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
 import { quickAssembleContext } from '../context';
-import { classifyIntent, intentRequiresSelection, type Intent } from '../intent/intent-gate';
+import { classifyIntent, intentRequiresSelection, type Intent, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
+import { applyCommand } from './command-service';
+import { appendEvent } from './event-log';
 import type { SessionState, ProjectMeta } from '../state/types';
 import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/thinkforge-block';
 import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
@@ -40,17 +42,50 @@ function blockToPlainText(block: any): string {
   return texts.join(' ').trim();
 }
 
-function resolveBlockIdsBySelection(blocks: any[], selection?: string | null): string[] {
-  if (!selection || !selection.trim() || !Array.isArray(blocks)) return [];
-  const needle = normalizeText(selection).slice(0, 400);
-  const matches: string[] = [];
-  blocks.forEach((b: any) => {
-    const text = normalizeText(blockToPlainText(b));
-    if (text.includes(needle) && typeof b?.id === 'string') {
-      matches.push(b.id);
+function getBlockIdsFromSelectionBlocks(blocks?: ThinkForgeBlock[] | null): string[] {
+  if (!Array.isArray(blocks)) return [];
+  return blocks.map((b) => b?.id).filter((id): id is string => typeof id === 'string');
+}
+
+function resolveSectionBlockIds(blocks: ThinkForgeBlock[], anchorIds: string[]): string[] {
+  if (!Array.isArray(blocks) || blocks.length === 0 || anchorIds.length === 0) return [];
+  const indices = anchorIds
+    .map((id) => blocks.findIndex((b) => b.id === id))
+    .filter((i) => i >= 0);
+  if (!indices.length) return [];
+
+  const firstIdx = Math.min(...indices);
+  const lastIdx = Math.max(...indices);
+
+  const findHeaderForIndex = (idx: number): number => {
+    for (let i = idx; i >= 0; i--) {
+      if (blocks[i].kind === 'header') return i;
     }
-  });
-  return matches;
+    return -1;
+  };
+
+  const headerIdx = findHeaderForIndex(firstIdx);
+  if (headerIdx < 0) return [];
+
+  // Ensure all anchors are within the same section header
+  const anchorHeaderIds = new Set(indices.map((idx) => findHeaderForIndex(idx)).filter((i) => i >= 0));
+  if (anchorHeaderIds.size > 1) return [];
+
+  const headerLevel = blocks[headerIdx].meta?.level ?? 2;
+
+  // Find next header of same or higher level after lastIdx
+  let endIdx = blocks.length - 1;
+  for (let i = Math.max(lastIdx + 1, headerIdx + 1); i < blocks.length; i++) {
+    if (blocks[i].kind === 'header') {
+      const lvl = blocks[i].meta?.level ?? 2;
+      if (lvl <= headerLevel) {
+        endIdx = i - 1;
+        break;
+      }
+    }
+  }
+
+  return blocks.slice(headerIdx, endIdx + 1).map((b) => b.id);
 }
 
 function resolveContextWindowTF(blocks: ThinkForgeBlock[], targetIds: string[], window: number = 1): ThinkForgeBlock[] {
@@ -89,7 +124,11 @@ export interface ChatRequest {
   project?: ProjectMeta | null;
   blockIds?: string[];
   selectionBlocks?: ThinkForgeBlock[]; // Selected blocks from Tiptap editor for surgical editing
+  selectionBlockIds?: string[]; // Structural block IDs from editor
   selectionRange?: { from: number; to: number }; // Tiptap selection range for precise replacement
+  scriptId?: string | null;
+  threadId?: string | null;
+  intentContext?: IntentContextSignals;
 }
 
 function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
@@ -123,17 +162,25 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     project: providedProject, 
     blockIds: providedBlockIds,
     selectionBlocks: providedSelectionBlocks,
+    selectionBlockIds: providedSelectionBlockIds,
     selectionRange: providedSelectionRange,
+    scriptId: providedScriptId,
+    threadId: providedThreadId,
+    intentContext: providedIntentContext,
   } = request;
+  const threadId = providedThreadId || 'default';
   
-  // Load or create session
+  // Load or create session - don't fail if session doesn't exist yet
   let session = sessionId ? await db.getSession(sessionId, userId) : null;
   if (!session && sessionId) {
-    throw new Error(`Session ${sessionId} not found`);
+    // Session doesn't exist yet - this can happen if the client sends a chat message
+    // before the session is created via hydrate. Create the session now.
+    console.log('[ThinkForge][chat-service] Session not found, creating new session:', sessionId);
+    session = await db.getOrCreateSession(userId, sessionId);
   }
   
   // Load script if session exists (prefer provided script)
-  const script = providedScript || (session ? await db.getScript(sessionId || session._id) : null);
+  const script = providedScript || (session ? await db.getScript(sessionId || session._id, providedScriptId || 'default') : null);
   
   const thinkforgeBlocks = validateThinkForgeBlocks(Array.isArray((script as any)?.blocks) ? (script as any).blocks : []);
   if (script && thinkforgeBlocks.length !== ((script as any)?.blocks?.length || 0)) {
@@ -141,7 +188,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   }
 
   // Load chat history
-  const chatHistory = session ? await db.getChatHistory(sessionId || session._id, 50) : [];
+  const chatHistory = session ? await db.getChatHistory(sessionId || session._id, 50, threadId) : [];
   
   // Load user preferences
   const preferences = await db.getUserPreferences(userId);
@@ -176,7 +223,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   
   // Persist user message
   if (session) {
-    await db.appendChatMessage(sessionId || session._id, 'user', prompt);
+    await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
     await db.recordChatUsage(userId, sessionId || session._id);
   }
   
@@ -204,6 +251,13 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       throw error;
     }
   };
+
+  const emitEvent = async (eventType: string, payload: Record<string, any>): Promise<boolean> => {
+    const sid = sessionId || session?._id || 'temp';
+    const record = appendEvent(sid, eventType, payload, threadId);
+    const data = { ...payload, type: eventType, eventId: record.id };
+    return safeWrite(`id: ${record.id}\nevent: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
   
   // Run in background
   (async () => {
@@ -222,7 +276,11 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const isMatch = (text: string, patterns: RegExp[]) => patterns.some(p => p.test(text.trim().replace(/[.!?]$/, '')));
 
       let effectivePrompt = prompt;
-      let blockIds = Array.isArray(providedBlockIds) ? providedBlockIds.filter(Boolean) : resolveBlockIdsBySelection(thinkforgeBlocks, selection);
+      const selectionBlockIds = Array.isArray(providedSelectionBlockIds) ? providedSelectionBlockIds.filter(Boolean) : [];
+      const selectionBlockIdsFromBlocks = getBlockIdsFromSelectionBlocks(providedSelectionBlocks || null);
+      let blockIds = Array.isArray(providedBlockIds) ? providedBlockIds.filter(Boolean) : [];
+      const hasSelectionBlocks = Array.isArray(providedSelectionBlocks) && providedSelectionBlocks.length > 0;
+      const hasSelectionRange = !!providedSelectionRange;
       let intentResult: any = null;
 
       if (isAwaitingConfirmation) {
@@ -236,7 +294,9 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
               else if (proposal.atEnd) blockIds = ["__END__"];
             
             intentResult = {
-              intent: 'SCRIPT_EDIT',
+              intent: 'edit',
+              confidence: 0.85,
+              scope: 'section',
               reason: 'confirmed_proposal',
               executable: true,
               signals: ['proposal_confirmed'],
@@ -247,60 +307,80 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
         } else if (isMatch(prompt, REJECT_PATTERNS)) {
           finalResponse = "Understood. I've cancelled that suggestion. What would you like to do instead?";
-          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
-          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`))) return;
-          if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
+          if (!(await emitEvent('token', { content: finalResponse }))) return;
+          if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+          if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
           return;
         }
       }
 
       if (!intentResult) {
-        intentResult = await classifyIntent(effectivePrompt, selection || null, hasExistingScript);
+        intentResult = await classifyIntent(
+          effectivePrompt,
+          selection || null,
+          hasExistingScript,
+          undefined,
+          providedIntentContext
+        );
+      }
+
+      if (intentResult.intent === 'edit' || intentResult.intent === 'hybrid') {
+        if (blockIds.length === 0) {
+          blockIds = selectionBlockIds.length > 0 ? selectionBlockIds : selectionBlockIdsFromBlocks;
+        }
+
+        if (intentResult.scope === 'document') {
+          blockIds = thinkforgeBlocks.map((b) => b.id);
+        }
+
+        if (intentResult.scope === 'section') {
+          const sectionIds = resolveSectionBlockIds(thinkforgeBlocks, blockIds);
+          if (sectionIds.length === 0) {
+            const clarification = 'Which section should I edit? Place your cursor inside the section or select the section heading.';
+            if (!(await emitEvent('token', { content: clarification }))) return;
+            if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+            if (session) await db.appendChatMessage(sessionId || session._id, 'assistant', clarification, threadId);
+            return;
+          }
+          blockIds = sectionIds;
+        }
       }
       
-      console.log('[ThinkForge][Intent]', { 
-        sessionId: session?._id, 
-        intent: intentResult.intent, 
-        reason: intentResult.reason, 
-        signals: intentResult.signals,
-        textSample: intentResult.textSample,
-        usedFallback: intentResult.usedFallback 
-      });
-
       // Send intent to client immediately
-      if (!(await safeWrite(`data: ${JSON.stringify({ type: 'intent', intent: intentResult.intent })}\n\n`))) {
+      if (!(await emitEvent('intent', { intent: intentResult.intent, confidence: intentResult.confidence, scope: intentResult.scope }))) {
         return; // Stream closed, exit early
       }
 
-      if (intentResult.intent === 'SCRIPT_EDIT' && !hasExistingScript) {
+      if (intentResult.intent === 'edit' && !hasExistingScript) {
         finalResponse = 'No script open. Open a script or start a new one before editing.';
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`))) return;
+        if (!(await emitEvent('token', { content: finalResponse }))) return;
+        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
         return;
       }
 
       // Enforce selection for edits
-      if (intentRequiresSelection(intentResult.intent) && blockIds.length === 0) {
+      if (intentRequiresSelection(intentResult.intent, intentResult.scope) && blockIds.length === 0 && !(hasSelectionBlocks && hasSelectionRange)) {
         if (intentResult.reason === 'missing_scope' && intentResult.proposal) {
           finalResponse = `I can perform that edit, but I need to know where. I suggest inserting it after a nearby action block. Confirm if this works, or select a different insertion point.`;
         } else if (intentResult.reason === 'missing_scope') {
           finalResponse = 'I can perform that edit, but I need to know where. Please select the block(s) you want to change or tell me where to insert the new content.';
         } else {
-          finalResponse = 'Select the blocks to edit and retry. No changes were made.';
+          finalResponse = 'I need a specific target. Please select the exact block(s) or place your cursor in the section you want to edit.';
         }
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`))) return;
+        if (!(await emitEvent('token', { content: finalResponse }))) return;
+        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
+          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
         }
         return;
       }
 
       const wantsFullRegenerate = detectFullRegenerate(effectivePrompt);
-      const isGenerateIntent = intentResult.intent === 'SCRIPT_GENERATE';
+      const isGenerateIntent = intentResult.intent === 'draft';
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
 
-      if (intentResult.intent === 'SCRIPT_EDIT' && hasExistingScript && !wantsFullRegenerate) {
+      const shouldRunEdit = intentResult.intent === 'edit' || intentResult.intent === 'hybrid';
+      if (shouldRunEdit && hasExistingScript && !wantsFullRegenerate) {
         // Use selection blocks if provided (surgical editing)
         const useSelectionBlocks = providedSelectionBlocks && providedSelectionBlocks.length > 0;
         const blocksToEdit = useSelectionBlocks 
@@ -372,7 +452,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             }
           };
 
-          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`))) return;
+          if (!(await emitEvent('script_update', scriptUpdate))) return;
         } else {
           // Traditional block-based editing
           const anchorId = blockIds[0];
@@ -387,13 +467,27 @@ CRITICAL: You are editing a SELECTION from a larger document.
           finalRichText = thinkForgeBlocksToTiptapJSON(mergedBlocks);
           finalBlocks = mergedBlocks;
 
+          let savedVersion: number | undefined;
           if (session) {
-            await db.saveScript(sessionId || session._id, {
-              title: refined.title || script!.title,
-              content: mergedContent || script!.content || '',
-              blocks: mergedBlocks,
-              richText: finalRichText as any,
-            });
+            const latest = await db.getScript(sessionId || session._id, providedScriptId || 'default');
+            let baseVersion = latest?.version ?? 0;
+            const saveResult = await applyCommand({
+              type: 'ReplaceDocument',
+              sessionId: sessionId || session._id,
+              baseVersion,
+              source: 'ai',
+              payload: {
+                scriptId: providedScriptId || 'default',
+                title: refined.title || script!.title,
+                content: mergedContent || script!.content || '',
+                blocks: mergedBlocks,
+                richText: finalRichText as any,
+              }
+            }, userId);
+            if (!saveResult.ok) {
+              throw new Error(saveResult.error);
+            }
+            savedVersion = saveResult.script.version;
           }
 
           const scriptUpdate = {
@@ -401,7 +495,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
               title: refined.title || script!.title,
               blocks: mergedBlocks,
               richText: finalRichText,
-              content: mergedContent || script!.content || ''
+              content: mergedContent || script!.content || '',
+              version: savedVersion
             },
             metadata: {
               workflow: 'refine',
@@ -411,20 +506,20 @@ CRITICAL: You are editing a SELECTION from a larger document.
             }
           };
 
-          if (!(await safeWrite(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`))) return;
+          if (!(await emitEvent('script_update', scriptUpdate))) return;
         }
 
         finalResponse = 'Update applied to selected blocks only.';
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
+        if (!(await emitEvent('token', { content: finalResponse }))) return;
 
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
+          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
         }
       } else if (shouldRunGeneration) {
         // Generate NEW script from scratch
         // Stream a "working" message first
         const workingMsg = 'Creating your script...';
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: workingMsg })}\n\n`))) return;
+        if (!(await emitEvent('token', { content: workingMsg }))) return;
         
         const draft = await generateScriptDraft(
           effectivePrompt,
@@ -437,13 +532,27 @@ CRITICAL: You are editing a SELECTION from a larger document.
         );
         
         // Save new script with richText (Tiptap JSON AST)
+        let savedVersion: number | undefined;
         if (session) {
-          await db.saveScript(sessionId || session._id, {
-            title: draft.title,
-            content: draft.content,
-            blocks: draft.blocks,
-            richText: draft.richText as any
-          });
+          const latest = await db.getScript(sessionId || session._id, providedScriptId || 'default');
+          let baseVersion = latest?.version ?? 0;
+          const saveResult = await applyCommand({
+            type: 'ReplaceDocument',
+            sessionId: sessionId || session._id,
+            baseVersion,
+            source: 'ai',
+            payload: {
+              scriptId: providedScriptId || 'default',
+              title: draft.title,
+              content: draft.content,
+              blocks: draft.blocks,
+              richText: draft.richText as any
+            }
+          }, userId);
+          if (!saveResult.ok) {
+            throw new Error(saveResult.error);
+          }
+          savedVersion = saveResult.script.version;
         }
         
         // Send script update as SSE event
@@ -452,7 +561,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
             title: draft.title,
             blocks: draft.blocks,
             richText: draft.richText,
-            content: draft.content
+            content: draft.content,
+            version: savedVersion
           },
           metadata: {
             workflow: 'create',
@@ -462,15 +572,15 @@ CRITICAL: You are editing a SELECTION from a larger document.
           }
         };
         
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'script_update', ...scriptUpdate })}\n\n`))) return;
+        if (!(await emitEvent('script_update', scriptUpdate))) return;
         
         // Send completion response
         finalResponse = `\n\nScript "${draft.title}" created successfully!`;
-        if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: finalResponse })}\n\n`))) return;
+        if (!(await emitEvent('token', { content: finalResponse }))) return;
         
         // Persist assistant message
         if (session) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your script...\n\nScript "${draft.title}" created successfully!`);
+          await db.appendChatMessage(sessionId || session._id, 'assistant', `Creating your script...\n\nScript "${draft.title}" created successfully!`, threadId);
         }
       } else {
         // Regular chat response - stream tokens
@@ -496,7 +606,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             finalResponse += chunk;
             
             // Send as token events - stop if stream is closed
-            if (!(await safeWrite(`data: ${JSON.stringify({ type: 'token', content: chunk })}\n\n`))) {
+            if (!(await emitEvent('token', { content: chunk }))) {
               break; // Stream closed, stop reading
             }
           }
@@ -509,13 +619,13 @@ CRITICAL: You are editing a SELECTION from a larger document.
         
         // Persist assistant message
         if (session && finalResponse) {
-          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse);
+          await db.appendChatMessage(sessionId || session._id, 'assistant', finalResponse, threadId);
         }
       }
       
       // Send done event (only if stream is still open)
       if (!isStreamClosed) {
-        await safeWrite(`data: ${JSON.stringify({ type: 'done', sessionId: session?._id })}\n\n`);
+        await emitEvent('done', { sessionId: session?._id });
       }
     } catch (error: any) {
       // Check if error is due to stream being closed (abort)
@@ -531,7 +641,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
       
       console.error('Error in chat stream:', error);
       // Try to send error, but don't fail if stream is closed
-      await safeWrite(`data: ${JSON.stringify({ type: 'error', error: error.message || 'Chat failed' })}\n\n`);
+      await emitEvent('error', { error: error.message || 'Chat failed' });
     } finally {
       // CRITICAL: Only close if stream is still open
       if (!isStreamClosed) {

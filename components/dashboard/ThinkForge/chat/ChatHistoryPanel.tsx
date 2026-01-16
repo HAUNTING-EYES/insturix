@@ -12,32 +12,20 @@ export interface ChatMessage {
   timestamp: Date;
 }
 
-interface SessionInfo {
+interface ThreadInfo {
   id: string;
   name: string;
-  tone: string;
   lastEdited: number;
-  projectMeta?: {
-    idea?: string;
-    purpose?: string;
-    tone?: string;
-    projectName?: string;
-  };
+  lastMessage?: string;
 }
 
 interface ChatHistoryPanelProps {
   open: boolean;
   onClose: () => void;
   sessionId: string | null;
-  currentMessages: ChatMessage[];
-  onSwitchSession?: (sessionId: string) => void;
-  /** Current project metadata to filter sessions by project */
-  currentProjectMeta?: {
-    idea?: string;
-    purpose?: string;
-    tone?: string;
-    projectName?: string;
-  };
+  currentThreadId: string | null;
+  localThreads?: ThreadInfo[];
+  onSwitchThread?: (threadId: string) => void;
   onNewChat?: () => void;
 }
 
@@ -45,65 +33,56 @@ export function ChatHistoryPanel({
   open, 
   onClose, 
   sessionId,
-  currentMessages,
-  onSwitchSession,
-  currentProjectMeta,
+  currentThreadId,
+  localThreads = [],
+  onSwitchThread,
   onNewChat
 }: ChatHistoryPanelProps) {
-  const [allSessions, setAllSessions] = useState<SessionInfo[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [threads, setThreads] = useState<ThreadInfo[]>([]);
+  const [loadingThreads, setLoadingThreads] = useState(false);
 
-  // Filter sessions to only show those from the current project
-  const projectSessions = useMemo(() => {
-    if (!currentProjectMeta?.idea) return allSessions;
-    
-    // Filter sessions that belong to the same project (matching idea text)
-    return allSessions.filter(session => {
-      const sessionIdea = session.projectMeta?.idea || '';
-      const currentIdea = currentProjectMeta.idea || '';
-      // Match by idea text (primary identifier for a project)
-      return sessionIdea.trim().toLowerCase() === currentIdea.trim().toLowerCase();
-    });
-  }, [allSessions, currentProjectMeta]);
-
-  // Load all sessions for the user
+  // Load threads for this session
   useEffect(() => {
-    if (!open) return;
+    if (!open || !sessionId) return;
     
     let cancelled = false;
     
-    async function loadSessions() {
-      setLoadingSessions(true);
+    async function loadThreads() {
+      setLoadingThreads(true);
       try {
-        const res = await fetch('/api/services/thinkforge/sessions/metadata?limit=50&offset=0', {
-          cache: 'no-store'
-        });
-        
-        if (!res.ok) throw new Error('Failed to load sessions');
-        
+        const res = await fetch(`/api/services/thinkforge/chat/threads?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to load threads');
         const data = await res.json();
-        const items = Array.isArray(data?.sessions) ? data.sessions : [];
-        
+        const items = Array.isArray(data?.threads) ? data.threads : [];
         if (!cancelled) {
-          const mapped: SessionInfo[] = items.map((it: any) => ({
-            id: it?.id || it?._id || "",
-            name: it?.projectMeta?.projectName || it?.name || it?.projectMeta?.idea || it?.projectMeta?.purpose || `Session ${String(it?.id || '').slice(-6)}`,
-            tone: it?.tone || it?.projectMeta?.tone || 'blue',
-            lastEdited: it?.lastEdited || (it?.updatedAt ? new Date(it.updatedAt).getTime() : Date.now()),
-            projectMeta: it?.projectMeta || {}
+          const mapped: ThreadInfo[] = items.map((it: any) => ({
+            id: it?.threadId || 'default',
+            name: it?.name || `Chat ${String(it?.threadId || 'default').slice(-6)}`,
+            lastEdited: it?.lastEdited ? new Date(it.lastEdited).getTime() : Date.now(),
+            lastMessage: it?.lastMessage || ''
           }));
-          setAllSessions(mapped);
+          setThreads(mapped);
         }
       } catch (e: any) {
-        console.error('Failed to load sessions:', e);
+        console.error('Failed to load threads:', e);
       } finally {
-        if (!cancelled) setLoadingSessions(false);
+        if (!cancelled) setLoadingThreads(false);
       }
     }
     
-    loadSessions();
+    loadThreads();
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, sessionId]);
+
+  const displayThreads = useMemo(() => {
+    const merged = [...threads];
+    for (const local of localThreads) {
+      if (!merged.some((t) => t.id === local.id)) {
+        merged.push(local);
+      }
+    }
+    return merged.sort((a, b) => (b.lastEdited || 0) - (a.lastEdited || 0));
+  }, [threads, localThreads]);
 
   const formatDate = useCallback((timestamp: number) => {
     const date = new Date(timestamp);
@@ -122,21 +101,12 @@ export function ChatHistoryPanel({
     }
   }, []);
 
-  const handleSessionClick = useCallback((clickedSessionId: string) => {
-    if (onSwitchSession) {
-      onSwitchSession(clickedSessionId);
-      onClose(); // Close panel after selection
+  const handleThreadClick = useCallback((clickedThreadId: string) => {
+    if (onSwitchThread) {
+      onSwitchThread(clickedThreadId);
+      onClose();
     }
-  }, [onSwitchSession, onClose]);
-
-  const toneBadgeColors: Record<string, string> = {
-    red: 'bg-red-500',
-    blue: 'bg-blue-500',
-    green: 'bg-green-500',
-    yellow: 'bg-yellow-400',
-    white: 'bg-white',
-    black: 'bg-zinc-700',
-  };
+  }, [onSwitchThread, onClose]);
 
   return (
     <AnimatePresence>
@@ -163,11 +133,19 @@ export function ChatHistoryPanel({
             <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-white/60" />
-                <h2 className="text-sm font-semibold text-white/90">Chat Sessions</h2>
+                <h2 className="text-sm font-semibold text-white/90">Chat Tabs</h2>
                 <span className="text-[10px] text-white/40 bg-white/5 px-2 py-0.5 rounded">
-                  {projectSessions.length} session{projectSessions.length !== 1 ? 's' : ''}
+                  {displayThreads.length} tab{displayThreads.length !== 1 ? 's' : ''}
                 </span>
               </div>
+              {onNewChat && (
+                <button
+                  onClick={onNewChat}
+                  className="text-[10px] px-2 py-1 rounded bg-white/5 text-white/60 hover:bg-white/10 hover:text-white transition-colors"
+                >
+                  New Chat
+                </button>
+              )}
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-lg text-white/60 hover:text-white hover:bg-white/10 transition-colors"
@@ -179,30 +157,29 @@ export function ChatHistoryPanel({
             {/* Content */}
             <ScrollArea className="flex-1">
               <div className="p-3 space-y-2">
-                {loadingSessions ? (
+                {loadingThreads ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-white/40" />
                   </div>
-                ) : projectSessions.length === 0 ? (
+                ) : displayThreads.length === 0 ? (
                   <div className="text-center py-12">
                     <MessageSquare className="h-8 w-8 mx-auto mb-2 text-white/20" />
-                    <p className="text-sm text-white/40">No chat sessions found</p>
+                    <p className="text-sm text-white/40">No chat tabs found</p>
                     <p className="text-xs text-white/30 mt-1">
-                      Start chatting to create your first session
+                      Start chatting to create your first tab
                     </p>
                   </div>
                 ) : (
-                  projectSessions.map((session, idx) => {
-                    const isActive = session.id === sessionId;
-                    const toneColor = toneBadgeColors[session.tone] || 'bg-blue-500';
+                  displayThreads.map((thread, idx) => {
+                    const isActive = thread.id === currentThreadId;
                     
                     return (
                       <motion.div
-                        key={session.id}
+                        key={thread.id}
                         initial={{ opacity: 0, x: -10 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.03 }}
-                        onClick={() => handleSessionClick(session.id)}
+                        onClick={() => handleThreadClick(thread.id)}
                         className={`
                           group p-3 rounded-xl border cursor-pointer transition-all
                           ${isActive 
@@ -213,13 +190,12 @@ export function ChatHistoryPanel({
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-start gap-3 flex-1 min-w-0">
-                            {/* Tone indicator */}
-                            <div className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${toneColor} ring-1 ring-black/30`} />
+                            <div className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${isActive ? 'bg-red-400' : 'bg-zinc-600'} ring-1 ring-black/30`} />
                             
                             <div className="flex-1 min-w-0">
                               {/* Session name */}
                               <p className="text-sm font-medium text-white/90 truncate">
-                                {session.name}
+                                {thread.name || `Chat ${String(thread.id).slice(-6)}`}
                               </p>
                               
                               {/* Last edited */}
@@ -227,7 +203,7 @@ export function ChatHistoryPanel({
                                 {isActive ? (
                                   <span className="text-red-400">Active now</span>
                                 ) : (
-                                  formatDate(session.lastEdited)
+                                  formatDate(thread.lastEdited)
                                 )}
                               </p>
                             </div>
@@ -245,7 +221,7 @@ export function ChatHistoryPanel({
             {/* Footer */}
             <div className="px-4 py-3 border-t border-white/5 text-center">
               <p className="text-[10px] text-white/30">
-                Showing {projectSessions.length} session{projectSessions.length !== 1 ? 's' : ''} in this project
+                Showing {displayThreads.length} chat tab{displayThreads.length !== 1 ? 's' : ''}
               </p>
             </div>
           </motion.div>

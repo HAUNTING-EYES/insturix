@@ -18,12 +18,13 @@ import { validateThinkForgeBlocks } from '../schemas/thinkforge-block';
  */
 export function getSelectedBlocks(editor: Editor): {
   blocks: ThinkForgeBlock[];
+  blockIds: string[];
   from: number;
   to: number;
   isEmpty: boolean;
 } {
   if (!editor) {
-    return { blocks: [], from: 0, to: 0, isEmpty: true };
+    return { blocks: [], blockIds: [], from: 0, to: 0, isEmpty: true };
   }
 
   const { from, to } = editor.state.selection;
@@ -31,7 +32,7 @@ export function getSelectedBlocks(editor: Editor): {
 
   if (isEmpty) {
     // No selection - return empty
-    return { blocks: [], from, to, isEmpty: true };
+    return { blocks: [], blockIds: [], from, to, isEmpty: true };
   }
 
   const $from = editor.state.selection.$from;
@@ -40,6 +41,7 @@ export function getSelectedBlocks(editor: Editor): {
 
   // Find all top-level block nodes that intersect with the selection
   const selectedNodes: TiptapBlockContent[] = [];
+  const selectedBlockIds: string[] = [];
   
   // Walk through the document's top-level content
   // In ProseMirror, doc.content is a Fragment containing top-level blocks
@@ -53,6 +55,8 @@ export function getSelectedBlocks(editor: Editor): {
       // Get the full node JSON
       const nodeJSON = node.toJSON();
       selectedNodes.push(nodeJSON as TiptapBlockContent);
+      const nodeId = (node.attrs && (node.attrs as any).id) ? String((node.attrs as any).id) : null;
+      if (nodeId) selectedBlockIds.push(nodeId);
     }
     
     // Move to next node position
@@ -75,6 +79,8 @@ export function getSelectedBlocks(editor: Editor): {
     if (blockNode) {
       const nodeJSON = blockNode.toJSON();
       selectedNodes.push(nodeJSON as TiptapBlockContent);
+      const nodeId = (blockNode.attrs && (blockNode.attrs as any).id) ? String((blockNode.attrs as any).id) : null;
+      if (nodeId) selectedBlockIds.push(nodeId);
     }
   }
 
@@ -93,6 +99,7 @@ export function getSelectedBlocks(editor: Editor): {
 
   return {
     blocks: validateThinkForgeBlocks(blocks),
+    blockIds: selectedBlockIds.filter(Boolean),
     from,
     to,
     isEmpty: false,
@@ -218,19 +225,21 @@ export function applyAIEditToSelection(
  */
 export function serializeSelectionToThinkForgeBlocks(editor: Editor): {
   blocks: ThinkForgeBlock[];
+  blockIds: string[];
   range: { from: number; to: number } | null;
   isEmpty: boolean;
 } {
   const range = getSelectionRange(editor);
   
   if (!range) {
-    return { blocks: [], range: null, isEmpty: true };
+    return { blocks: [], blockIds: [], range: null, isEmpty: true };
   }
 
-  const { blocks, from, to, isEmpty } = getSelectedBlocks(editor);
+  const { blocks, blockIds, from, to, isEmpty } = getSelectedBlocks(editor);
   
   return {
     blocks,
+    blockIds,
     range: { from, to },
     isEmpty,
   };

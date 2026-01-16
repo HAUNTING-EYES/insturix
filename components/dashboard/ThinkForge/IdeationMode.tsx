@@ -4,7 +4,7 @@ import React from "react";
 import clsx from "clsx";
 import { PromptPanel } from "@/components/dashboard/ThinkForge/PromptPanel";
 import { IdeaGrid, IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
-import ProjectMetadataSettings from "@/components/dashboard/ThinkForge/ProjectMetadataSettings";
+import SessionMetadataSettings from "@/components/dashboard/ThinkForge/SessionMetadataSettings";
 
 interface IdeationModeProps {
   phase: 'PROMPT' | 'IDEAS' | 'SELECTED';
@@ -22,8 +22,8 @@ interface IdeationModeProps {
   onUpdateIdea: (updated: IdeaCardData) => void;
   onManualSetup: () => void;
   isVisible: boolean;
-  /** Total project count for default naming */
-  projectCount?: number;
+  /** Total session count for default naming */
+  sessionCount?: number;
 }
 
 export default function IdeationMode({
@@ -42,7 +42,7 @@ export default function IdeationMode({
   onUpdateIdea,
   onManualSetup,
   isVisible,
-  projectCount = 0
+  sessionCount = 0
 }: IdeationModeProps) {
   return (
     <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
@@ -68,7 +68,7 @@ export default function IdeationMode({
 
       {phase === 'SELECTED' && selectedIdea && (
         <div className="relative w-full px-4 pb-32 pt-8 h-full overflow-y-auto">
-          <ProjectMetadataSettings
+          <SessionMetadataSettings
             idea={{
               id: Number(selectedIdea.id),
               idea: selectedIdea.idea,
@@ -77,12 +77,12 @@ export default function IdeationMode({
               format: selectedIdea.format,
               platform: selectedIdea.platform,
               tone: selectedIdea.tone as any,
-              projectName: selectedIdea.projectName
+              sessionName: selectedIdea.sessionName
             }}
             onProceedToChat={onProceedToChat}
             onGoBack={onGoBackToIdeas}
             onUpdateIdea={(upd) => onUpdateIdea({ ...upd, id: String(upd.id) })}
-            projectCount={projectCount}
+            sessionCount={sessionCount}
           />
         </div>
       )}

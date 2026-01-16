@@ -66,6 +66,17 @@ export function useThinkForgeSession() {
   const hydrate = useCallback(async (payload?: HydratePayload): Promise<HydrateResponse | null> => {
     setIsHydrating(true);
     const isCreateNew = !!(payload && !payload.sessionId && payload.projectMeta);
+
+    // If we're explicitly creating a new session, clear any stale state before requesting
+    if (isCreateNew) {
+      try {
+        localStorage.removeItem(LS_CURRENT_SESSION);
+      } catch {}
+      setSessionId(null);
+      setPreferences({});
+      setProjectMeta({});
+    }
+
     try {
       const res = await fetch("/api/services/thinkforge/hydrate", {
         method: "POST",
@@ -129,6 +140,7 @@ export function useThinkForgeSession() {
     try {
       if (sessionId) {
         localStorage.removeItem(LS_CURRENT_SESSION);
+        try { localStorage.removeItem(`${LS_SESSION_PREFIX}${sessionId}`); } catch {}
       }
       setSessionId(null);
       setPreferences({});

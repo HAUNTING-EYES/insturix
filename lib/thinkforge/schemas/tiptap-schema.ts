@@ -15,30 +15,30 @@ import { z } from 'zod';
 
 export const BoldMarkSchema = z.object({
   type: z.literal('bold'),
-});
+}).catchall(z.unknown());
 
 export const ItalicMarkSchema = z.object({
   type: z.literal('italic'),
-});
+}).catchall(z.unknown());
 
 export const UnderlineMarkSchema = z.object({
   type: z.literal('underline'),
-});
+}).catchall(z.unknown());
 
 export const StrikeMarkSchema = z.object({
   type: z.literal('strike'),
-});
+}).catchall(z.unknown());
 
 export const CodeMarkSchema = z.object({
   type: z.literal('code'),
-});
+}).catchall(z.unknown());
 
 export const HighlightMarkSchema = z.object({
   type: z.literal('highlight'),
   attrs: z.object({
     color: z.string().optional(),
-  }).optional(),
-});
+  }).catchall(z.unknown()).optional(),
+}).catchall(z.unknown());
 
 export const LinkMarkSchema = z.object({
   type: z.literal('link'),
@@ -47,10 +47,10 @@ export const LinkMarkSchema = z.object({
     target: z.string().optional(),
     rel: z.string().optional(),
     class: z.string().nullable().optional(),
-  }),
-});
+  }).catchall(z.unknown()),
+}).catchall(z.unknown());
 
-export const MarkSchema = z.discriminatedUnion('type', [
+export const MarkSchema = z.union([
   BoldMarkSchema,
   ItalicMarkSchema,
   UnderlineMarkSchema,
@@ -58,6 +58,10 @@ export const MarkSchema = z.discriminatedUnion('type', [
   CodeMarkSchema,
   HighlightMarkSchema,
   LinkMarkSchema,
+  z.object({
+    type: z.string(),
+    attrs: z.record(z.string(), z.unknown()).optional(),
+  }).catchall(z.unknown()),
 ]);
 
 export type TiptapMark = z.infer<typeof MarkSchema>;
@@ -70,16 +74,30 @@ export const TextNodeSchema = z.object({
   type: z.literal('text'),
   text: z.string(),
   marks: z.array(MarkSchema).optional(),
-});
+}).catchall(z.unknown());
 
 export type TiptapTextNode = z.infer<typeof TextNodeSchema>;
 
 // =============================================================================
-// INLINE CONTENT (text nodes with marks)
+// INLINE CONTENT (text nodes, hard breaks, etc.)
 // =============================================================================
 
-// Inline content is an array of text nodes
-export const InlineContentSchema = z.array(TextNodeSchema);
+// Hard Break
+export const HardBreakNodeSchema = z.object({
+  type: z.literal('hardBreak'),
+  attrs: z.record(z.string(), z.unknown()).optional(),
+}).catchall(z.unknown());
+
+export interface TiptapHardBreak {
+  type: 'hardBreak';
+  attrs?: Record<string, unknown>;
+}
+
+// Inline content is an array of text nodes or hard breaks
+export const InlineContentSchema = z.array(z.union([
+  TextNodeSchema,
+  HardBreakNodeSchema,
+]));
 
 export type TiptapInlineContent = z.infer<typeof InlineContentSchema>;
 
@@ -109,16 +127,14 @@ export type TiptapNode =
 // Paragraph
 export const ParagraphNodeSchema: z.ZodType<TiptapParagraph> = z.object({
   type: z.literal('paragraph'),
-  attrs: z.object({
-    id: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => InlineContentSchema).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapParagraph {
   type: 'paragraph';
-  attrs?: { id?: string };
-  content?: TiptapTextNode[];
+  attrs?: Record<string, unknown>;
+  content?: (TiptapTextNode | TiptapHardBreak)[];
 }
 
 // Heading (levels 1-3)
@@ -126,48 +142,43 @@ export const HeadingNodeSchema: z.ZodType<TiptapHeading> = z.object({
   type: z.literal('heading'),
   attrs: z.object({
     level: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-    id: z.string().optional(),
-  }),
+  }).catchall(z.unknown()),
   content: z.lazy(() => InlineContentSchema).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapHeading {
   type: 'heading';
-  attrs: { level: 1 | 2 | 3; id?: string };
-  content?: TiptapTextNode[];
+  attrs: { level: 1 | 2 | 3 } & Record<string, unknown>;
+  content?: (TiptapTextNode | TiptapHardBreak)[];
 }
 
 // List Item
 export const ListItemNodeSchema: z.ZodType<TiptapListItem> = z.object({
   type: z.literal('listItem'),
-  attrs: z.object({
-    id: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => z.array(z.union([
     ParagraphNodeSchema,
-    z.lazy(() => BulletListNodeSchema),
-    z.lazy(() => OrderedListNodeSchema),
+    BulletListNodeSchema,
+    OrderedListNodeSchema,
   ]))).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapListItem {
   type: 'listItem';
-  attrs?: { id?: string };
+  attrs?: Record<string, unknown>;
   content?: (TiptapParagraph | TiptapBulletList | TiptapOrderedList)[];
 }
 
 // Bullet List
 export const BulletListNodeSchema: z.ZodType<TiptapBulletList> = z.object({
   type: z.literal('bulletList'),
-  attrs: z.object({
-    id: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => z.array(ListItemNodeSchema)).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapBulletList {
   type: 'bulletList';
-  attrs?: { id?: string };
+  attrs?: Record<string, unknown>;
   content?: TiptapListItem[];
 }
 
@@ -176,34 +187,31 @@ export const OrderedListNodeSchema: z.ZodType<TiptapOrderedList> = z.object({
   type: z.literal('orderedList'),
   attrs: z.object({
     start: z.number().optional(),
-    id: z.string().optional(),
-  }).optional(),
+  }).catchall(z.unknown()).optional(),
   content: z.lazy(() => z.array(ListItemNodeSchema)).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapOrderedList {
   type: 'orderedList';
-  attrs?: { start?: number; id?: string };
+  attrs?: { start?: number } & Record<string, unknown>;
   content?: TiptapListItem[];
 }
 
 // Blockquote
 export const BlockquoteNodeSchema: z.ZodType<TiptapBlockquote> = z.object({
   type: z.literal('blockquote'),
-  attrs: z.object({
-    id: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => z.array(z.union([
     ParagraphNodeSchema,
     HeadingNodeSchema,
     BulletListNodeSchema,
     OrderedListNodeSchema,
   ]))).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapBlockquote {
   type: 'blockquote';
-  attrs?: { id?: string };
+  attrs?: Record<string, unknown>;
   content?: (TiptapParagraph | TiptapHeading | TiptapBulletList | TiptapOrderedList)[];
 }
 
@@ -212,34 +220,29 @@ export const CodeBlockNodeSchema: z.ZodType<TiptapCodeBlock> = z.object({
   type: z.literal('codeBlock'),
   attrs: z.object({
     language: z.string().nullable().optional(),
-    id: z.string().optional(),
-  }).optional(),
+  }).catchall(z.unknown()).optional(),
   content: z.lazy(() => InlineContentSchema).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapCodeBlock {
   type: 'codeBlock';
-  attrs?: { language?: string | null; id?: string };
-  content?: TiptapTextNode[];
+  attrs?: { language?: string | null } & Record<string, unknown>;
+  content?: (TiptapTextNode | TiptapHardBreak)[];
 }
 
 // Horizontal Rule
 export const HorizontalRuleNodeSchema = z.object({
   type: z.literal('horizontalRule'),
-});
+  attrs: z.record(z.string(), z.unknown()).optional(),
+}).catchall(z.unknown());
 
 export interface TiptapHorizontalRule {
   type: 'horizontalRule';
+  attrs?: Record<string, unknown>;
 }
 
 // Hard Break
-export const HardBreakNodeSchema = z.object({
-  type: z.literal('hardBreak'),
-});
-
-export interface TiptapHardBreak {
-  type: 'hardBreak';
-}
+// (already updated above)
 
 // Image
 export const ImageNodeSchema = z.object({
@@ -248,13 +251,12 @@ export const ImageNodeSchema = z.object({
     src: z.string(),
     alt: z.string().nullable().optional(),
     title: z.string().nullable().optional(),
-    id: z.string().optional(),
-  }),
-});
+  }).catchall(z.unknown()),
+}).catchall(z.unknown());
 
 export interface TiptapImage {
   type: 'image';
-  attrs: { src: string; alt?: string | null; title?: string | null; id?: string };
+  attrs: { src: string; alt?: string | null; title?: string | null } & Record<string, unknown>;
 }
 
 // Video (custom node)
@@ -263,13 +265,12 @@ export const VideoNodeSchema = z.object({
   attrs: z.object({
     src: z.string(),
     poster: z.string().nullable().optional(),
-    id: z.string().optional(),
-  }),
-});
+  }).catchall(z.unknown()),
+}).catchall(z.unknown());
 
 export interface TiptapVideo {
   type: 'video';
-  attrs: { src: string; poster?: string | null; id?: string };
+  attrs: { src: string; poster?: string | null } & Record<string, unknown>;
 }
 
 // =============================================================================
@@ -279,71 +280,65 @@ export interface TiptapVideo {
 // ActionBlock - represents action/instruction content
 export const ActionBlockNodeSchema: z.ZodType<TiptapActionBlock> = z.object({
   type: z.literal('actionBlock'),
-  attrs: z.object({
-    id: z.string().optional(),
-    role: z.string().optional(),
-    goal: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => z.array(z.union([
     ParagraphNodeSchema,
     HeadingNodeSchema,
     BulletListNodeSchema,
     OrderedListNodeSchema,
   ]))).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapActionBlock {
   type: 'actionBlock';
-  attrs?: { id?: string; role?: string; goal?: string };
+  attrs?: Record<string, unknown>;
   content?: (TiptapParagraph | TiptapHeading | TiptapBulletList | TiptapOrderedList)[];
 }
 
 // WhyBlock - represents explanation/reasoning content
 export const WhyBlockNodeSchema: z.ZodType<TiptapWhyBlock> = z.object({
   type: z.literal('whyBlock'),
-  attrs: z.object({
-    id: z.string().optional(),
-    role: z.string().optional(),
-    goal: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => z.array(z.union([
     ParagraphNodeSchema,
     HeadingNodeSchema,
     BulletListNodeSchema,
     OrderedListNodeSchema,
   ]))).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapWhyBlock {
   type: 'whyBlock';
-  attrs?: { id?: string; role?: string; goal?: string };
+  attrs?: Record<string, unknown>;
   content?: (TiptapParagraph | TiptapHeading | TiptapBulletList | TiptapOrderedList)[];
 }
 
 // ExampleBlock - represents example/code content
 export const ExampleBlockNodeSchema: z.ZodType<TiptapExampleBlock> = z.object({
   type: z.literal('exampleBlock'),
-  attrs: z.object({
-    id: z.string().optional(),
-    language: z.string().nullable().optional(),
-    role: z.string().optional(),
-    goal: z.string().optional(),
-  }).optional(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.lazy(() => z.array(z.union([
     ParagraphNodeSchema,
     CodeBlockNodeSchema,
   ]))).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapExampleBlock {
   type: 'exampleBlock';
-  attrs?: { id?: string; language?: string | null; role?: string; goal?: string };
+  attrs?: Record<string, unknown>;
   content?: (TiptapParagraph | TiptapCodeBlock)[];
 }
 
 // =============================================================================
 // DOCUMENT SCHEMA
 // =============================================================================
+
+// Generic block fallback
+export const GenericBlockSchema = z.object({
+  type: z.string(),
+  attrs: z.record(z.string(), z.unknown()).optional(),
+  content: z.array(z.unknown()).optional(),
+}).catchall(z.unknown());
 
 // Block-level content that can appear at the top level of a document
 export const BlockContentSchema = z.union([
@@ -354,11 +349,13 @@ export const BlockContentSchema = z.union([
   BlockquoteNodeSchema,
   CodeBlockNodeSchema,
   HorizontalRuleNodeSchema,
+  HardBreakNodeSchema,
   ImageNodeSchema,
   VideoNodeSchema,
   ActionBlockNodeSchema,
   WhyBlockNodeSchema,
   ExampleBlockNodeSchema,
+  GenericBlockSchema, // Fallback for any other node types
 ]);
 
 export type TiptapBlockContent = z.infer<typeof BlockContentSchema>;
@@ -366,11 +363,13 @@ export type TiptapBlockContent = z.infer<typeof BlockContentSchema>;
 // Document root node
 export const DocNodeSchema: z.ZodType<TiptapDoc> = z.object({
   type: z.literal('doc'),
+  attrs: z.record(z.string(), z.unknown()).optional(),
   content: z.array(BlockContentSchema).optional(),
-});
+}).catchall(z.unknown());
 
 export interface TiptapDoc {
   type: 'doc';
+  attrs?: Record<string, unknown>;
   content?: TiptapBlockContent[];
 }
 

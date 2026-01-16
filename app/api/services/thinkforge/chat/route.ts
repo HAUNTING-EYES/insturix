@@ -24,6 +24,10 @@ export async function POST(req: Request) {
   let project: any | undefined;
   let selectionBlocks: any[] | undefined;
   let selectionRange: { from: number; to: number } | undefined;
+  let scriptId: string | undefined;
+  let generationId: string | undefined;
+  let threadId: string | undefined;
+  let intentContext: any | undefined;
   
   try {
     const body = await req.json();
@@ -34,6 +38,10 @@ export async function POST(req: Request) {
     if (body?.project) project = body.project;
     if (body?.selectionBlocks) selectionBlocks = body.selectionBlocks;
     if (body?.selectionRange) selectionRange = body.selectionRange;
+    if (body?.scriptId) scriptId = String(body.scriptId);
+    if (body?.generationId) generationId = String(body.generationId);
+    if (body?.threadId) threadId = String(body.threadId);
+    if (body?.intentContext) intentContext = body.intentContext;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -52,13 +60,18 @@ export async function POST(req: Request) {
       project,
       selectionBlocks,
       selectionRange,
+      scriptId,
+      generationId,
+      threadId,
+      intentContext,
     });
 
-    return new NextResponse(stream, {
+    return new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no',
       },
     });
   } catch (error: any) {

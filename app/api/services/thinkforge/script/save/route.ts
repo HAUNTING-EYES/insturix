@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import * as db from '@/lib/thinkforge/services/db';
 
 export const runtime = 'nodejs';
@@ -23,11 +24,15 @@ export async function POST(req: Request) {
 
   let sessionId: string | undefined;
   let script: any | undefined;
+  let scriptId: string | undefined;
+  let baseVersion: number | undefined;
 
   try {
     const body = await req.json();
     sessionId = body?.sessionId ? String(body.sessionId) : undefined;
     script = body?.script;
+    scriptId = body?.scriptId ? String(body.scriptId) : undefined;
+    baseVersion = typeof body?.baseVersion === 'number' ? body.baseVersion : undefined;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -37,20 +42,39 @@ export async function POST(req: Request) {
   }
 
   try {
-    const saved = await db.saveScript(sessionId, {
-      title: script?.title || 'Untitled Script',
-      content: script?.content || '',
-      blocks: script?.blocks || [],
-      richText: script?.richText // Include Tiptap JSON AST if provided
-    });
+    let effectiveBaseVersion = typeof baseVersion === 'number' ? baseVersion : undefined;
+    if (effectiveBaseVersion === undefined) {
+      const existing = await db.getScript(sessionId, scriptId || null);
+      effectiveBaseVersion = existing?.version ?? 0;
+    }
+    const result = await applyCommand({
+      type: 'ReplaceDocument',
+      sessionId,
+      baseVersion: effectiveBaseVersion,
+      source: 'user',
+      payload: {
+        scriptId,
+        title: script?.title || 'Untitled Script',
+        content: script?.content || '',
+        blocks: script?.blocks || [],
+        richText: script?.richText,
+      }
+    }, userId);
+
+    if (!result.ok) {
+      const status = result.error === 'Version conflict' ? 409 : result.error === 'Session not found' ? 404 : 400;
+      return NextResponse.json({ error: result.error, currentVersion: result.currentVersion }, { status });
+    }
 
     return NextResponse.json({
       success: true,
       script: {
-        title: saved.title,
-        content: saved.content,
-        blocks: saved.blocks || [],
-        richText: saved.richText || null
+        scriptId: result.script.scriptId || scriptId || 'default',
+        title: result.script.title,
+        content: result.script.content,
+        blocks: result.script.blocks || [],
+        richText: result.script.richText || null,
+        version: result.script.version ?? 1,
       }
     });
   } catch (error: any) {

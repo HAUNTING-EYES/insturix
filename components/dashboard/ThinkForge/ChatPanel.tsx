@@ -13,15 +13,18 @@ import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForge
 interface ChatPanelProps {
   selectedIdea: Idea;
   script: Script | null;
+  scriptId?: string | null;
   onApplyEdit: (updated: Script) => void;
   onRunEdit?: (instruction: string, selection?: string) => Promise<any>;
   sessionId?: string | null;
   initialMessages?: any[];
   onOpenSettings?: () => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
-  onGetSelection?: () => { blocks: any[]; range: { from: number; to: number } | null } | null; // Get current selection from editor
+  onGetSelection?: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null; // Get current selection from editor
   editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
   onCancelEditSelection?: () => void;
+  onGenerationStateChange?: (state: { intent: string | null; isStreaming: boolean }) => void;
+  workspaceMode?: 'script' | 'whiteboard';
 }
 
 // Seed suggestions
@@ -62,6 +65,7 @@ function scriptToModel(s: Script | null): ScriptModel | null {
     title: s.title || null,
     content: s.content || null,
     blocks: Array.isArray((s as any).blocks) && (s as any).blocks.length > 0 ? (s as any).blocks : null,
+    version: (s as any).version,
     metadata: s.metadata || null,
   };
 }
@@ -75,6 +79,7 @@ function modelToScript(m: ScriptModel | null): Script | null {
   const htmlBody = [`<h1>${title}</h1>`, ...paras.map((p) => `<p>${p}</p>`)].join("\n");
   return {
     title,
+    version: (m as any).version,
     content,
     body: htmlBody,
     blocks: Array.isArray(m.blocks) && m.blocks.length > 0 ? (m.blocks as any) : undefined,
@@ -92,6 +97,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   script,
   onApplyEdit,
   sessionId,
+  scriptId,
   initialMessages,
   onOpenSettings,
   onSwitchSession,
@@ -99,19 +105,54 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   onGetSelection,
   editingSelection,
   onCancelEditSelection,
+  onGenerationStateChange,
+  workspaceMode = 'script',
 }) => {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeThreadId, setActiveThreadId] = useState<string>('default');
+  const [threadRegistry, setThreadRegistry] = useState<Array<{ id: string; name: string; lastEdited: number }>>([]);
 
-  const chat = useThinkForgeChat(sessionId || null, initialMessages);
+  const threadRegistryKey = useMemo(() => (
+    sessionId ? `thinkforge_chat_threads_${sessionId}` : null
+  ), [sessionId]);
 
-  // Initialize suggestions
   useEffect(() => {
-    if (chat.messages.length === 0 && selectedIdea) {
-      setSuggestions(getRandomSuggestions());
+    if (!sessionId) return;
+    try {
+      const savedActive = localStorage.getItem(`thinkforge_active_chat_${sessionId}`);
+      setActiveThreadId(savedActive || 'default');
+    } catch {
+      setActiveThreadId('default');
     }
-  }, [chat.messages.length, selectedIdea]);
+    try {
+      const raw = threadRegistryKey ? localStorage.getItem(threadRegistryKey) : null;
+      const parsed = raw ? JSON.parse(raw) : [];
+      setThreadRegistry(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setThreadRegistry([]);
+    }
+  }, [sessionId, threadRegistryKey]);
+
+  useEffect(() => {
+    if (!sessionId) return;
+    try {
+      localStorage.setItem(`thinkforge_active_chat_${sessionId}`, activeThreadId);
+    } catch {}
+  }, [sessionId, activeThreadId]);
+
+  const upsertThread = useCallback((id: string, updates: Partial<{ name: string; lastEdited: number }>) => {
+    if (!threadRegistryKey) return;
+    setThreadRegistry((prev) => {
+      const existing = prev.find((t) => t.id === id);
+      const next = existing
+        ? prev.map((t) => t.id === id ? { ...t, ...updates } : t)
+        : [{ id, name: updates.name || `Chat ${String(id).slice(-6)}`, lastEdited: updates.lastEdited || Date.now() }, ...prev];
+      try { localStorage.setItem(threadRegistryKey, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [threadRegistryKey]);
 
   // Handle script updates from chat
   const handleScriptUpdate = useCallback(
@@ -133,8 +174,19 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     [onApplyEdit]
   );
 
+  const chat = useThinkForgeChat(sessionId || null, activeThreadId || null, initialMessages, {
+    onRemoteScriptUpdate: handleScriptUpdate,
+  });
+
+  // Initialize suggestions
+  useEffect(() => {
+    if (chat.messages.length === 0 && selectedIdea) {
+      setSuggestions(getRandomSuggestions());
+    }
+  }, [chat.messages.length, selectedIdea]);
+
   // Build project payload from selected idea
-  const projectPayload = useMemo(
+  const sessionPayload = useMemo(
     () => ({
       idea: selectedIdea?.idea,
       purpose: (selectedIdea as any)?.purpose,
@@ -142,6 +194,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       format: (selectedIdea as any)?.format,
       platform: (selectedIdea as any)?.platform,
       tone: selectedIdea?.tone,
+      sessionName: (selectedIdea as any)?.sessionName,
     }),
     [selectedIdea]
   );
@@ -150,12 +203,23 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const scriptPayload = useMemo(() => scriptToModel(script), [script]);
 
   const handleSend = useCallback(() => {
-    if (!inputValue.trim() || !sessionId) return;
+    console.log('[ChatPanel.handleSend] called', { inputValue: inputValue.trim(), sessionId, isStreaming: chat.isStreaming });
+    if (!inputValue.trim()) {
+      console.log('[ChatPanel.handleSend] No input value, returning');
+      return;
+    }
+    if (!sessionId) {
+      console.log('[ChatPanel.handleSend] No sessionId, returning');
+      return;
+    }
     const originalPrompt = inputValue.trim();
+    if (activeThreadId) {
+      upsertThread(activeThreadId, { lastEdited: Date.now(), name: originalPrompt.slice(0, 60) });
+    }
     setInputValue("");
     
     // Get selection from editor if available (for surgical editing)
-    let selectionData: { blocks?: any[]; range?: { from: number; to: number } } | null = null;
+    let selectionData: { blocks?: any[]; blockIds?: string[]; range?: { from: number; to: number } } | null = null;
     
     // Prefer explicit editingSelection from edit button
     if (editingSelection) {
@@ -165,7 +229,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       };
     } else if (onGetSelection) {
       const selection = onGetSelection();
-      if (selection && !selection.isEmpty && selection.blocks.length > 0) {
+      if (selection && selection.blocks.length > 0) {
         selectionData = {
           blocks: selection.blocks,
           range: selection.range || undefined,
@@ -175,13 +239,38 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     
     // Display the original message to user (no enrichment visible)
     // Backend will handle enrichment internally using project payload
+    const hasSelection = Boolean(
+      (selectionData?.blockIds && selectionData.blockIds.length > 0) ||
+      (selectionData?.blocks && selectionData.blocks.length > 0)
+    );
+    const editorFocused = (() => {
+      if (typeof document === 'undefined') return false;
+      const active = document.activeElement as HTMLElement | null;
+      const editorEl = document.querySelector('.ProseMirror') as HTMLElement | null;
+      return !!(active && editorEl && (editorEl === active || editorEl.contains(active)));
+    })();
+    const lastUserAction = editingSelection
+      ? 'selection_edit'
+      : hasSelection
+        ? 'selection_active'
+        : 'chat_send';
+
     chat.sendMessage(originalPrompt, {
       script: scriptPayload,
-      project: projectPayload,
+      project: sessionPayload,
       onScriptUpdate: handleScriptUpdate,
       onTokenStream: onTokenStream, // Stream tokens for progressive rendering
+      selection: editingSelection?.text,
       selectionBlocks: selectionData?.blocks, // Include selection blocks for surgical editing
+      selectionBlockIds: selectionData?.blockIds,
       selectionRange: selectionData?.range, // Include selection range
+      scriptId: scriptId || undefined,
+      intentContext: {
+        editorFocused,
+        hasSelection,
+        workspaceMode,
+        lastUserAction,
+      },
     });
     
     // Clear editing selection after send
@@ -189,9 +278,12 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       // Ensure state update happens
       setTimeout(() => {
         onCancelEditSelection();
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('tf-clear-selection'));
+        }
       }, 0);
     }
-  }, [inputValue, sessionId, chat, scriptPayload, projectPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection]);
+  }, [inputValue, sessionId, activeThreadId, chat, scriptPayload, sessionPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection, upsertThread]);
 
   // Convert chat messages to the format expected by ChatMessages component
   const formattedMessages = useMemo(() => {
@@ -201,48 +293,40 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       content: msg.content,
       timestamp: msg.timestamp,
       streaming: msg.streaming,
+      selectionText: msg.selectionText || null,
     }));
   }, [chat.messages]);
 
   const handleOpenHistory = useCallback(() => {
     setHistoryOpen(true);
   }, []);
-
-  const handleNewChat = useCallback(async () => {
-    // CRITICAL: Create a new chat thread (new session)
-    // This does NOT affect script state - script stays in old session
-    if (onSwitchSession && selectedIdea) {
-      try {
-        // Create new session for chat with same project meta
-        const response = await fetch('/api/services/thinkforge/hydrate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            projectMeta: {
-              idea: selectedIdea.idea,
-              purpose: (selectedIdea as any)?.purpose,
-              style: (selectedIdea as any)?.style,
-              format: (selectedIdea as any)?.format,
-              platform: (selectedIdea as any)?.platform,
-              tone: selectedIdea.tone,
-              projectName: (selectedIdea as any)?.projectName
-            }
-          })
-        });
-        if (response.ok) {
-          const data = await response.json();
-          if (data?.sessionId) {
-            await onSwitchSession(data.sessionId);
-          }
-        }
-      } catch (error) {
-        console.error('Failed to create new chat:', error);
-      }
-    } else {
-      // Fallback: clear messages if no session switching available
-      chat.clearMessages();
+  const handleCancelEditSelection = useCallback(() => {
+    if (onCancelEditSelection) {
+      onCancelEditSelection();
     }
-  }, [chat, onSwitchSession, selectedIdea]);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('tf-clear-selection'));
+    }
+  }, [onCancelEditSelection]);
+
+  // Bubble generation state up so the editor can react to streaming
+  useEffect(() => {
+    if (onGenerationStateChange) {
+      onGenerationStateChange({
+        intent: chat.currentIntent || null,
+        isStreaming: chat.isStreaming,
+      });
+    }
+  }, [chat.currentIntent, chat.isStreaming, onGenerationStateChange]);
+
+  const handleNewChat = useCallback(() => {
+    if (!sessionId) return;
+    const newThreadId = crypto.randomUUID();
+    setActiveThreadId(newThreadId);
+    upsertThread(newThreadId, { name: `Chat ${String(newThreadId).slice(-6)}`, lastEdited: Date.now() });
+    chat.clearMessages();
+    setHistoryOpen(true);
+  }, [sessionId, chat, upsertThread]);
 
   return (
     <div className="flex flex-col h-full bg-neutral-900/40 backdrop-blur-xl animate-in fade-in-0 duration-300">
@@ -260,6 +344,8 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         <GenerationProgress 
           active={chat.isStreaming} 
           intent={chat.currentIntent}
+          progressOverride={chat.generationProgress}
+          messageOverride={chat.generationMessage}
         />
         
         {/* Decorative gradient at bottom of messages */}
@@ -274,6 +360,8 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         disabled={!sessionId}
         isStreaming={chat.isStreaming}
         suggestions={suggestions}
+        editingSelection={editingSelection}
+        onCancelEditSelection={handleCancelEditSelection}
       />
 
       {/* Chat History Panel */}
@@ -281,13 +369,11 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
         sessionId={sessionId || null}
-        currentMessages={formattedMessages}
-        onSwitchSession={onSwitchSession}
-        currentProjectMeta={{
-          idea: selectedIdea?.idea,
-          purpose: (selectedIdea as any)?.purpose,
-          tone: selectedIdea?.tone,
-          projectName: (selectedIdea as any)?.projectName,
+        currentThreadId={activeThreadId}
+        localThreads={threadRegistry}
+        onSwitchThread={(id) => {
+          setActiveThreadId(id);
+          setHistoryOpen(false);
         }}
         onNewChat={handleNewChat}
       />

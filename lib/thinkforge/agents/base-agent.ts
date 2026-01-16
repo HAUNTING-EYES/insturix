@@ -11,10 +11,11 @@
  * They only know: context in → reasoning → structured output
  */
 
-import { streamText, generateObject } from 'ai';
+import { streamText, generateObject, generateText } from 'ai';
 import type { LanguageModel } from 'ai';
 import type { z } from 'zod';
 import { createThinkForgeModel, ModelTier, validateTierForTask } from './model-factory';
+import { parseJsonLenient } from '@/lib/thinkforge/json';
 
 // Global manual-only constraints applied to every agent invocation to eliminate narrative bias
 const GLOBAL_OPERATION_CONSTRAINTS = [
@@ -73,6 +74,7 @@ export abstract class BaseAgent {
   protected model: LanguageModel;
   protected config: Required<AgentConfig>;
   protected modelTier?: ModelTier;
+  protected abortSignal?: AbortSignal;
   
   constructor(config: AgentConfig) {
     this.config = {
@@ -114,10 +116,19 @@ export abstract class BaseAgent {
    * Run the agent with streaming output
    * Returns an async generator that yields text chunks
    */
-  async run(input: AgentInput, overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>): Promise<AgentStreamOutput> {
+  setAbortSignal(signal?: AbortSignal) {
+    this.abortSignal = signal;
+  }
+
+  async run(
+    input: AgentInput,
+    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    abortSignal?: AbortSignal
+  ): Promise<AgentStreamOutput> {
     const startTime = Date.now();
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
+    const signal = abortSignal ?? this.abortSignal;
     
     try {
       const result = streamText({
@@ -125,6 +136,7 @@ export abstract class BaseAgent {
         prompt,
         temperature: gen.temperature,
         maxTokens: gen.maxTokens,
+        abortSignal: signal,
       });
       
       // Create async generator from the text stream
@@ -132,8 +144,10 @@ export abstract class BaseAgent {
       const self = this;
       
       async function* streamGenerator(): AsyncGenerator<string, void, unknown> {
+        let chunkCount = 0;
         try {
           for await (const chunk of textStream) {
+            chunkCount++;
             yield chunk;
           }
           
@@ -184,8 +198,12 @@ export abstract class BaseAgent {
    * Collect full response as string (non-streaming)
    * Useful for when you need the complete output
    */
-  async runComplete(input: AgentInput, overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>): Promise<{ text: string; metadata?: AgentMetadata }> {
-    const { stream, metadata } = await this.run(input, overrides);
+  async runComplete(
+    input: AgentInput,
+    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    abortSignal?: AbortSignal
+  ): Promise<{ text: string; metadata?: AgentMetadata }> {
+    const { stream, metadata } = await this.run(input, overrides, abortSignal);
     
     let fullText = '';
     for await (const chunk of stream) {
@@ -211,10 +229,15 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
   /**
    * Run the agent with structured output
    */
-  async runStructured(input: AgentInput, overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>): Promise<AgentStructuredOutput<TOutput>> {
+  async runStructured(
+    input: AgentInput,
+    overrides?: Partial<Pick<AgentConfig, 'maxTokens' | 'temperature'>>,
+    abortSignal?: AbortSignal
+  ): Promise<AgentStructuredOutput<TOutput>> {
     const startTime = Date.now();
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
+    const signal = abortSignal ?? this.abortSignal;
     
     try {
       const result = await generateObject({
@@ -223,6 +246,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         prompt,
         temperature: gen.temperature,
         maxTokens: gen.maxTokens,
+        abortSignal: signal,
       });
       
       logInvocation({
@@ -240,7 +264,55 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           model: this.config.modelName,
         },
       };
-    } catch (error) {
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      const isStructuredFailure = message?.toLowerCase().includes('_zod') || message?.toLowerCase().includes('structured');
+      
+      if (isStructuredFailure) {
+        // Fallback: ask model to return JSON manually and parse it
+        const fallback = await generateText({
+          model: this.model,
+          prompt: `${prompt}\n\nReturn ONLY valid JSON that matches this schema (no markdown): ${this.schema.toString()}`,
+          temperature: gen.temperature,
+          maxTokens: gen.maxTokens,
+          abortSignal: signal,
+        });
+        
+        const jsonText = fallback.text.trim();
+        try {
+          const parsed = parseJsonLenient(jsonText);
+          if (!parsed) {
+            throw new Error('Failed to parse fallback JSON');
+          }
+          
+          logInvocation({
+            type: 'ai_invocation',
+            agent: this.config.agentType,
+            model: this.config.modelName,
+            timestamp: new Date(),
+            durationMs: Date.now() - startTime,
+            success: true,
+            fallback: 'manual_json',
+          });
+          
+          return {
+            result: parsed as TOutput,
+            metadata: { model: this.config.modelName },
+          };
+        } catch (parseError) {
+          logInvocation({
+            type: 'ai_invocation',
+            agent: this.config.agentType,
+            model: this.config.modelName,
+            timestamp: new Date(),
+            durationMs: Date.now() - startTime,
+            success: false,
+            error: parseError instanceof Error ? parseError.message : String(parseError),
+          });
+          throw parseError;
+        }
+      }
+      
       logInvocation({
         type: 'ai_invocation',
         agent: this.config.agentType,
@@ -248,7 +320,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         timestamp: new Date(),
         durationMs: Date.now() - startTime,
         success: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: message,
       });
       throw error;
     }

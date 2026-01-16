@@ -22,11 +22,12 @@ export interface Idea {
   format: string;
   platform: string;
   tone: ThinkingHat;
-  projectName?: string;
+  sessionName?: string;
 }
 
 export interface Script {
   title?: string;
+  version?: number;
   originalPrompt?: string;
   duration?: string;
   targetAudience?: string;

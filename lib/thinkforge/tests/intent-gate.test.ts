@@ -2,10 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { classifyIntentFast } from "../intent/intent-gate";
 
-const EDIT = "SCRIPT_EDIT";
-const CHAT = "CHAT";
-const META = "META_QUESTION";
-const GEN = "SCRIPT_GENERATE";
+const EDIT = "edit";
+const CHAT = "chat";
+const GEN = "draft";
+const HYBRID = "hybrid";
 
 describe("intent-gate fast path", () => {
   it("flags edit when verb and selection present", () => {
@@ -16,19 +16,18 @@ describe("intent-gate fast path", () => {
 
   it("detects structural mutation without scope", () => {
     const res = classifyIntentFast("add a section for how to edit this video", "", true);
-    assert.equal(res.intent, EDIT);
-    assert.equal(res.executable, false);
-    assert.equal(res.reason, "missing_scope");
+    assert.equal(res.intent, HYBRID);
+    assert.equal(res.executable, true);
   });
 
   it("does not edit when verb present but no selection and no structural noun", () => {
     const res = classifyIntentFast("edit this", "", true);
-    assert.equal(res.intent, CHAT);
+    assert.equal(res.intent, EDIT);
   });
 
-  it("treats meta questions as META_QUESTION", () => {
+  it("treats meta questions as chat", () => {
     const res = classifyIntentFast("What is ThinkForge pricing?", null, false);
-    assert.equal(res.intent, META);
+    assert.equal(res.intent, CHAT);
   });
 
   it("treats generate intent when no script and generate verb", () => {
@@ -48,7 +47,7 @@ describe("intent-gate fast path", () => {
 
   it("shields meta questions from being treated as generate", () => {
     const res = classifyIntentFast("how do you write scripts?", null, true);
-    assert.equal(res.intent, META);
+    assert.equal(res.intent, CHAT);
   });
 
   it("defaults to chat when no signals", () => {

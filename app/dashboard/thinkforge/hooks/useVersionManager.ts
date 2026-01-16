@@ -39,6 +39,11 @@ interface VersionHistoryItem {
   isHead?: boolean;
 }
 
+interface CreateVersionOptions {
+  isAutoSave?: boolean;
+  metadata?: VersionMetadata;
+}
+
 interface UseVersionManagerReturn {
   // State
   isLoading: boolean;
@@ -47,8 +52,8 @@ interface UseVersionManagerReturn {
   hasVersions: boolean;
   
   // Version operations
-  createVersion: (changes: BlockTree, description?: string) => VersionNode | null;
-  createInitialVersion: (blocks: BlockTree, description?: string) => VersionNode | null;
+  createVersion: (changes: BlockTree, description?: string, options?: CreateVersionOptions) => VersionNode | null;
+  createInitialVersion: (blocks: BlockTree, description?: string, options?: CreateVersionOptions) => VersionNode | null;
   
   // Branch operations
   createBranch: (fromVersionId: string, newBlocks: BlockTree, description?: string) => VersionNode | null;
@@ -170,14 +175,16 @@ export function useVersionManager(sessionId: string | null): UseVersionManagerRe
   // Create version from current head
   const createVersion = useCallback((
     changes: BlockTree,
-    description?: string
+    description?: string,
+    options?: CreateVersionOptions
   ): VersionNode | null => {
     if (!managerRef.current) return null;
     
     try {
       const metadata: VersionMetadata = {
-        description: description || 'Manual save',
-        isAutoSave: false,
+        ...(options?.metadata || {}),
+        description: options?.metadata?.description || description || 'Manual save',
+        isAutoSave: options?.isAutoSave ?? options?.metadata?.isAutoSave ?? false,
       };
       
       const version = managerRef.current.createVersion(
@@ -200,14 +207,16 @@ export function useVersionManager(sessionId: string | null): UseVersionManagerRe
   // Create initial version (no parent)
   const createInitialVersion = useCallback((
     blocks: BlockTree,
-    description?: string
+    description?: string,
+    options?: CreateVersionOptions
   ): VersionNode | null => {
     if (!managerRef.current) return null;
     
     try {
       const metadata: VersionMetadata = {
-        description: description || 'Initial version',
-        isAutoSave: false,
+        ...(options?.metadata || {}),
+        description: options?.metadata?.description || description || 'Initial version',
+        isAutoSave: options?.isAutoSave ?? options?.metadata?.isAutoSave ?? false,
       };
       
       const version = managerRef.current.createVersion(

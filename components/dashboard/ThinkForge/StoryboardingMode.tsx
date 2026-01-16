@@ -7,13 +7,14 @@ import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { Script } from "@/app/dashboard/thinkforge/types";
-import ProjectMetadataSettings from "./ProjectMetadataSettings";
+import SessionMetadataSettings from "./SessionMetadataSettings";
 import { AnimatePresence, motion } from "framer-motion";
 
 interface StoryboardingModeProps {
   isVisible: boolean;
   selectedIdea: IdeaCardData | null;
   sessionId: string | null;
+  scriptId?: string | null;
   script: Script | null;
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
@@ -25,6 +26,7 @@ interface StoryboardingModeProps {
   onUpdateIdea?: (idea: IdeaCardData) => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
   onNewScript?: () => void;
+  onSwitchScript?: (scriptId: string) => void;
 }
 
 const MIN_WIDTH = 300;
@@ -36,6 +38,7 @@ export default function StoryboardingMode({
   isVisible,
   selectedIdea,
   sessionId,
+  scriptId,
   script,
   isSaving,
   onApplyEdit,
@@ -46,7 +49,8 @@ export default function StoryboardingMode({
   onGoToIdeation,
   onUpdateIdea,
   onSwitchSession,
-  onNewScript
+  onNewScript,
+  onSwitchScript
 }: StoryboardingModeProps) {
   const [chatWidth, setChatWidth] = useState(DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
@@ -55,6 +59,11 @@ export default function StoryboardingMode({
   
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
+  const [generationState, setGenerationState] = useState<{ intent: string | null; isStreaming: boolean }>({
+    intent: null,
+    isStreaming: false,
+  });
+  const [scriptPanelMode, setScriptPanelMode] = useState<'script' | 'whiteboard'>('script');
 
   const handleEditSelection = (text: string, range: { from: number; to: number }, blocks: any[]) => {
     setEditingSelection({ text, range, blocks });
@@ -76,7 +85,7 @@ export default function StoryboardingMode({
   }).current;
 
   // Selection getter callback - connects ChatPanel to ScriptEditor
-  const selectionGetterRef = useRef<(() => { blocks: any[]; range: { from: number; to: number } | null } | null) | null>(null);
+  const selectionGetterRef = useRef<(() => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) | null>(null);
   
   const handleGetSelection = useRef(() => {
     if (selectionGetterRef.current) {
@@ -177,9 +186,11 @@ export default function StoryboardingMode({
                   style: selectedIdea.style,
                   format: selectedIdea.format,
                   platform: selectedIdea.platform,
-                  tone: selectedIdea.tone as any
+                  tone: selectedIdea.tone as any,
+                  sessionName: selectedIdea.sessionName
                 }}
                 script={script}
+                scriptId={scriptId}
                 onApplyEdit={onApplyEdit}
                 onRunEdit={onRunEdit}
                 sessionId={sessionId}
@@ -189,6 +200,8 @@ export default function StoryboardingMode({
                 onGetSelection={handleGetSelection}
                 editingSelection={editingSelection}
                 onCancelEditSelection={() => setEditingSelection(null)}
+                onGenerationStateChange={setGenerationState}
+                workspaceMode={scriptPanelMode}
               />
               
               {/* Resize Handle - Desktop only */}
@@ -219,6 +232,7 @@ export default function StoryboardingMode({
                 }}
                 script={script}
                 sessionId={sessionId}
+                scriptId={scriptId}
                 isSaving={isSaving}
                 onTokenStream={(callback) => {
                   tokenStreamCallbackRef.current = callback;
@@ -230,7 +244,13 @@ export default function StoryboardingMode({
                 onBack={onBack}
                 onImportScript={onImportScript}
                 onNewScript={onNewScript}
+                onSwitchScript={onSwitchScript}
                 onEditSelection={handleEditSelection}
+                onModeChange={(mode) => setScriptPanelMode(mode === 'scripting' ? 'script' : 'whiteboard')}
+                generatingScript={
+                  generationState.isStreaming &&
+                  (generationState.intent === 'draft' || generationState.intent === 'edit' || generationState.intent === 'hybrid')
+                }
               />
             </div>
           </div>
@@ -263,7 +283,7 @@ export default function StoryboardingMode({
                   </button>
                   
                   <div className="bg-neutral-950 rounded-3xl border border-white/10 p-6 shadow-2xl">
-                    <ProjectMetadataSettings
+                    <SessionMetadataSettings
                       idea={{
                         id: Number(selectedIdea.id),
                         idea: selectedIdea.idea,
@@ -272,18 +292,19 @@ export default function StoryboardingMode({
                         format: selectedIdea.format,
                         platform: selectedIdea.platform,
                         tone: selectedIdea.tone as any,
-                        projectName: selectedIdea.projectName
+                        sessionName: selectedIdea.sessionName
                       }}
                       onProceedToChat={handleCloseSettings}
                       onGoBack={onGoToIdeation}
                       onUpdateIdea={(updatedIdea) => {
                         if (onUpdateIdea) {
-                          onUpdateIdea({
+                          return onUpdateIdea({
                             ...selectedIdea,
                             ...updatedIdea,
                             id: String(updatedIdea.id)
                           });
                         }
+                        return Promise.resolve();
                       }}
                       hideNavigation={true}
                     />

@@ -2,6 +2,7 @@ import { BaseAgent, type AgentConfig } from './base-agent';
 import type { AgentInput } from './types';
 import type { ScriptOutline } from './script-outline-agent';
 import type { NarrativeContract } from './script-contract-agent';
+import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
 
 export interface CoherenceInput extends AgentInput {
   outline: ScriptOutline;
@@ -32,6 +33,8 @@ export class ScriptCoherenceAgent extends BaseAgent {
     const forbidden = contract.forbidden?.join(', ') || 'none';
     return `You are a validator, not a rewriter. Operate only on headers and transitions.
 
+${DOCUMENT_AUTHORING_CONTRACT}
+
 ## Contract
 Medium: ${contract.medium}
 Narrator voice: ${contract.narrator_voice}
@@ -44,9 +47,10 @@ Style notes: ${(contract.style_notes || []).join('; ')}
 ${sectionList}
 
 ## Validator Task
-- Check ordering and duplication of sections.
+- Check ordering and duplication of sections (validate against DOCUMENT_AUTHORING_CONTRACT: exactly one H1, no duplicated headings).
 - Suggest transition fixes between sections in one short list.
 - Remove or flag redundancy in section headings only.
+- Validate structure compliance: ensure headings follow proper hierarchy (H1 → H2 → H3), no duplicate headings, proper separation.
 - Do NOT rewrite paragraphs; do NOT add examples; do NOT expand content.
 - Keep output under 900 tokens.
 

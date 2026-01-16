@@ -1,213 +1,140 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { History, Clock, RotateCcw, X, Loader2 } from 'lucide-react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { History, X, FileText, Loader2, ChevronRight, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useVersionManager } from '@/app/dashboard/thinkforge/hooks/useVersionManager';
-import type { BlockTree } from '@/lib/thinkforge/schemas/canonical';
-import type { CIRDocument, CIRSection } from '@/lib/thinkforge/schemas/cir';
 
-type BranchBlocks = BlockTree | CIRDocument | CIRSection[];
+interface ScriptTab {
+  scriptId: string;
+  title: string;
+  updatedAt: string | number | Date;
+  createdAt: string | number | Date;
+}
 
 interface ScriptHistoryPanelProps {
   sessionId: string | null;
-  currentBlocks: BranchBlocks;
-  onRestoreVersion: (blocks: BranchBlocks) => void;
+  activeScriptId: string | null;
+  onSwitchScript: (scriptId: string) => void;
+  onNewScript?: () => void;
   onClose: () => void;
 }
 
 export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
   sessionId,
-  currentBlocks,
-  onRestoreVersion,
+  activeScriptId,
+  onSwitchScript,
+  onNewScript,
   onClose,
 }) => {
-  const versionManager = useVersionManager(sessionId);
-  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
+  const [scripts, setScripts] = useState<ScriptTab[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  // Get timeline history (all versions, sorted by time)
-  const history = useMemo(() => {
-    const timeline = versionManager.getHistory('timeline');
-    // Reverse to show most recent first
-    return [...timeline].reverse();
-  }, [versionManager]);
-
-  // Format timestamp
-  const formatTimestamp = (date: Date) => {
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    
-    if (diff < 60000) return 'Just now';
-    if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
-    if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`;
-    
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  // Handle version restore
-  const handleRestoreVersion = useCallback((versionId: string) => {
-    const blocks = versionManager.getVersionBlocks(versionId);
-    if (blocks) {
-      onRestoreVersion(blocks);
-      versionManager.restoreVersion(versionId);
-      onClose();
-    }
-  }, [versionManager, onRestoreVersion, onClose]);
-
-  // Create initial version from current blocks if none exists
   useEffect(() => {
-    if (!versionManager.isLoading && !versionManager.hasVersions && currentBlocks && Array.isArray(currentBlocks) && currentBlocks.length > 0) {
-      // Auto-create initial version if we have content but no versions
-      versionManager.createInitialVersion(currentBlocks, 'Initial version');
+    if (!sessionId) return;
+    let cancelled = false;
+    async function load() {
+      setLoading(true);
+      try {
+        const res = await fetch(`/api/services/thinkforge/script/list?sessionId=${encodeURIComponent(sessionId)}`, { cache: 'no-store' });
+        if (!res.ok) throw new Error('Failed to load scripts');
+        const data = await res.json();
+        const items = Array.isArray(data?.scripts) ? data.scripts : [];
+        if (!cancelled) {
+          setScripts(items);
+        }
+      } catch {
+        if (!cancelled) setScripts([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     }
-  }, [versionManager.isLoading, versionManager.hasVersions, currentBlocks, versionManager]);
+    void load();
+    return () => { cancelled = true; };
+  }, [sessionId]);
 
-  if (versionManager.isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
-        <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
-      </div>
-    );
-  }
+  const ordered = useMemo(() => {
+    return [...scripts].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  }, [scripts]);
 
-  if (!sessionId) {
-    return (
-      <div className="flex flex-col h-full min-h-[400px]">
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-          <div className="flex items-center gap-3">
-            <History className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold text-zinc-100">Script History</h2>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-100"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
-          <History className="h-12 w-12 text-zinc-600 mb-4" />
-          <h3 className="text-lg font-medium text-zinc-300 mb-2">No Session Active</h3>
-          <p className="text-sm text-zinc-500">
-            Start working on a script to enable version history.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (versionManager.error) {
-    return (
-      <div className="flex flex-col h-full min-h-[400px]">
-        <div className="flex items-center justify-between p-4 border-b border-zinc-800">
-          <div className="flex items-center gap-3">
-            <History className="h-5 w-5 text-red-500" />
-            <h2 className="text-lg font-semibold text-zinc-100">Script History</h2>
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-100"
-          >
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-        <div className="flex flex-col items-center justify-center flex-1 p-8 text-center">
-          <History className="h-12 w-12 text-red-500/50 mb-4" />
-          <h3 className="text-lg font-medium text-zinc-300 mb-2">Error Loading History</h3>
-          <p className="text-sm text-red-400">{versionManager.error}</p>
-        </div>
-      </div>
-    );
-  }
+  const formatDate = useCallback((value: string | number | Date) => {
+    const date = new Date(value);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Yesterday';
+    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }, []);
 
   return (
-    <div className="flex flex-col h-full min-h-[400px]">
-      {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-zinc-800">
+    <div className="flex flex-col h-full min-h-[400px] bg-zinc-950/50 backdrop-blur-xl border-l border-white/5">
+      <div className="flex items-center justify-between p-5 border-b border-white/5 bg-zinc-950/30 sticky top-0 z-10 backdrop-blur-md">
         <div className="flex items-center gap-3">
-          <History className="h-5 w-5 text-red-500" />
-          <h2 className="text-lg font-semibold text-zinc-100">Version History</h2>
+          <div className="h-8 w-8 rounded-full bg-linear-to-br from-red-500/10 to-orange-500/10 flex items-center justify-center border border-white/5 shadow-inner shadow-white/5">
+            <History className="h-4 w-4 text-red-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-medium text-zinc-200">Script Tabs</h2>
+            <p className="text-[10px] text-zinc-500 font-medium">
+              {ordered.length} tab{ordered.length === 1 ? '' : 's'}
+            </p>
+          </div>
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onClose}
-          className="text-zinc-400 hover:text-zinc-100"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+        </div>
       </div>
 
-      {/* Version list */}
       <ScrollArea className="flex-1">
-        <div className="p-4 space-y-2">
-          {history.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <History className="h-12 w-12 text-zinc-600 mb-4" />
-              <h3 className="text-lg font-medium text-zinc-300 mb-2">No Version History</h3>
-              <p className="text-sm text-zinc-500">
-                Versions will appear here as you save your script.
+        <div className="p-5">
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-zinc-500" />
+            </div>
+          ) : ordered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <div className="h-16 w-16 rounded-full bg-zinc-900/50 flex items-center justify-center mb-4 ring-1 ring-white/5 shadow-2xl">
+                <FileText className="h-8 w-8 text-zinc-600" />
+              </div>
+              <h3 className="text-sm font-medium text-zinc-300 mb-1">No scripts yet</h3>
+              <p className="text-xs text-zinc-500 max-w-60 leading-relaxed">
+                Create a new script to start a fresh tab in this session.
               </p>
             </div>
           ) : (
-            history.map((item) => (
-              <div
-                key={item.id}
-                className={`p-4 rounded-lg border transition-colors ${
-                  item.id === versionManager.currentVersionId
-                    ? 'bg-green-500/10 border-green-500/30'
-                    : 'bg-zinc-800/50 border-zinc-700/50 hover:bg-zinc-800'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-mono text-zinc-400">
-                        Version {item.version}
-                      </span>
-                      {item.id === versionManager.currentVersionId && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">
-                          Current
-                        </span>
-                      )}
-                      {item.isAutoSave && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-700/50 text-zinc-400 border border-zinc-600/50">
-                          Auto-save
-                        </span>
-                      )}
+            <div className="space-y-3">
+              {ordered.map((item) => {
+                const isActive = item.scriptId === (activeScriptId || 'default');
+                return (
+                  <button
+                    key={item.scriptId}
+                    onClick={() => onSwitchScript(item.scriptId)}
+                    className={
+                      `w-full text-left rounded-xl border p-4 transition-all duration-300 ${
+                        isActive
+                          ? 'border-red-500/30 bg-red-500/10 ring-1 ring-red-500/20'
+                          : 'border-white/10 bg-white/5 hover:bg-white/10 hover:border-white/20'
+                      }`
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start gap-3 flex-1 min-w-0">
+                        <div className={`w-3 h-3 rounded-full mt-0.5 shrink-0 ${isActive ? 'bg-red-400' : 'bg-zinc-600'} ring-1 ring-black/30`} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-white/90 truncate">
+                            {item.title || `Script ${String(item.scriptId).slice(-6)}`}
+                          </p>
+                          <p className="text-[10px] text-white/40 mt-1">
+                            {isActive ? 'Active now' : formatDate(item.updatedAt)}
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${isActive ? 'text-red-400' : 'text-white/20 group-hover:text-white/40'}`} />
                     </div>
-                    {item.description && (
-                      <p className="text-xs text-zinc-400 mb-2">{item.description}</p>
-                    )}
-                    <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                      <Clock className="h-3.5 w-3.5" />
-                      {formatTimestamp(item.timestamp)}
-                    </div>
-                  </div>
-                  {item.id !== versionManager.currentVersionId && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleRestoreVersion(item.id)}
-                      className="border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:text-white shrink-0"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
-                      Restore
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))
+                  </button>
+                );
+              })}
+            </div>
           )}
         </div>
       </ScrollArea>

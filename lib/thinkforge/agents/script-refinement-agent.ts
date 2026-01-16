@@ -30,6 +30,8 @@ import { updateScriptState } from '../state/session-state';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { cleanRichTextAST, cleanAndTransformText, cleanThinkForgeBlocks } from '../utils/content-cleaner';
+import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
+import { validateDocumentContract, formatViolations } from '../validation/documentValidator';
 
 // =============================================================================
 // SCHEMA DEFINITIONS
@@ -99,6 +101,8 @@ ${context.currentScript || '(none)'}
 Requested change:
 ${userPrompt}
 
+${DOCUMENT_AUTHORING_CONTRACT}
+
 ## Your Writing Style
 - Write as a creative director giving clear, confident guidance
 - Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
@@ -108,10 +112,10 @@ ${userPrompt}
 
 ## Revision Rules (Selection-Based Editing)
 - Scope lock: edit ONLY the selected content provided above. Do not modify anything outside the selection.
-- Preserve structure: maintain headings (with levels), lists, blockquotes, horizontal rules exactly as they appear.
+- Structure improvements: You are allowed to improve structure if the selection violates DOCUMENT_AUTHORING_CONTRACT. You can fix paragraph length (split paragraphs exceeding 4 lines), list usage (convert 3+ items to lists), heading clarity (remove duplicates, ensure proper hierarchy), and add horizontal rules between major sections.
 - Preserve formatting: maintain inline emphasis (bold, italic), code, links when present.
 - Voice: confident, execution-focused. Avoid supervisory verbs ("ensure", "verify", "validate", "determine", "define").
-- Return refined blocks that match the structure of the input (same number of blocks, same types, same hierarchy).
+- Respect scope boundaries: stay within the selected content, but improve structure to comply with DOCUMENT_AUTHORING_CONTRACT.
 
 ## Output Format (JSON only, no markdown)
 {
@@ -127,6 +131,8 @@ ${context.currentScript || '(none)'}
 Requested change:
 ${userPrompt}
 
+${DOCUMENT_AUTHORING_CONTRACT}
+
 ## Your Writing Style
 - Write as a creative director giving clear, confident guidance
 - Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
@@ -136,6 +142,7 @@ ${userPrompt}
 
 ## Revision Rules
 - Scope lock: edit only the provided blockIds. Do not reorder unless blockId is NEW_BLOCK.
+- Structure improvements: You are allowed to improve structure if the blocks violate DOCUMENT_AUTHORING_CONTRACT. You can fix paragraph length (split paragraphs exceeding 4 lines), list usage (convert 3+ items to lists), heading clarity (remove duplicates, ensure proper hierarchy), and add horizontal rules between major sections.
 - Voice: confident, execution-focused. Avoid supervisory verbs ("ensure", "verify", "validate", "determine", "define").
 - Preserve formatting: maintain inline emphasis/code when present.
 - Examples: if unchanged, omit from patches.
@@ -199,6 +206,14 @@ ${userPrompt}
     
     // Clean blocks to remove any remaining artifacts
     const cleanedBlocks = cleanThinkForgeBlocks(patchedBlocks);
+    
+    // Validate against DOCUMENT_AUTHORING_CONTRACT (dev-only)
+    if (process.env.NODE_ENV === 'development') {
+      const validation = validateDocumentContract(cleanedBlocks);
+      if (!validation.valid) {
+        console.warn(`⚠️ Document contract violated in script-refinement-agent:\n${formatViolations(validation.violations)}`);
+      }
+    }
     
     // Convert to Tiptap JSON AST
     const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);

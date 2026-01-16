@@ -19,13 +19,14 @@ export async function GET(req: Request) {
   const sessionId = url.searchParams.get('sessionId');
   const limit = parseInt(url.searchParams.get('limit') || '50', 10);
   const offset = parseInt(url.searchParams.get('offset') || '0', 10);
+  const threadId = url.searchParams.get('threadId');
 
   if (!sessionId) {
     return NextResponse.json({ error: 'Missing sessionId' }, { status: 400 });
   }
 
   try {
-    const messages = await db.getChatHistory(sessionId, limit);
+    const messages = await db.getChatHistory(sessionId, limit, threadId || null);
     
     // Format messages for frontend
     const items = messages.map((msg: any, idx: number) => ({
