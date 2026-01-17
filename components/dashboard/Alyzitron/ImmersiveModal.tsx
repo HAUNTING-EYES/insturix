@@ -36,9 +36,9 @@ interface ImmersiveModalProps {
   onComplete: (analysisId: string, analysis: Analysis) => void;
   uploadStates: Map<string, any>;
   usageData?: {
-    minutesUsed: number;
-    minutesCap: number | string;
-    remaining: number | string;
+    creditsAvailable: number;
+    subscriptionCredits: number;
+    topupCredits: number;
   };
 }
 
@@ -768,18 +768,17 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   };
 
   const analysisCost = getAnalysisCost();
-  const remainingMinutes =
-    typeof usageData?.remaining === "string"
-      ? parseInt(usageData.remaining)
-      : usageData?.remaining || 0;
-  const hasInsufficientMinutes = analysisCost > remainingMinutes;
+  // Credits cost: 2 credits per minute of video
+  const creditsCost = analysisCost * 2;
+  const availableCredits = usageData?.creditsAvailable || 0;
+  const hasInsufficientCredits = creditsCost > availableCredits && availableCredits > 0;
 
   const canSubmit =
     source.type !== "none" &&
     context.niche &&
     context.audience &&
     context.tone &&
-    !hasInsufficientMinutes;
+    !hasInsufficientCredits;
 
   return (
     <>
@@ -1076,21 +1075,20 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     }}
                   />
 
-                  {/* Usage Info */}
+                  {/* Credits Info */}
                   <div className="text-xs text-zinc-400 space-y-1 p-3 bg-zinc-900/30 rounded-lg border border-zinc-800/40">
                     <div>
-                      Monthly allowance:{" "}
+                      Credits available:{" "}
                       <span className="text-zinc-200 font-medium">
-                        {usageData?.remaining || "-"} /{" "}
-                        {usageData?.minutesCap || "-"} minutes
-                      </span>{" "}
-                      remaining
+                        {usageData?.creditsAvailable || 0}
+                      </span>
                     </div>
                     <div className="text-blue-400">
                       This analysis will cost{" "}
                       <span className="text-blue-300 font-medium">
-                        {getAnalysisCost()} minute{getAnalysisCost() !== 1 ? "s" : ""}
+                        {creditsCost} credit{creditsCost !== 1 ? "s" : ""}
                       </span>
+                      {" "}(~{getAnalysisCost()} min)
                     </div>
                   </div>
                 </div>
@@ -1218,9 +1216,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                       Please fill all required fields
                     </div>
                   )}
-                  {hasInsufficientMinutes && (
+                  {hasInsufficientCredits && (
                     <div className="text-orange-400 font-medium">
-                      Not enough minutes left.
+                      Not enough credits.
                     </div>
                   )}
                 </div>
@@ -1249,13 +1247,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     onClick={handleStartAnalysis}
                     disabled={!canSubmit || isProcessing || isModalClosing}
                     className={`rounded-lg flex items-center gap-2 shadow-lg transition-all duration-200 ${
-                      hasInsufficientMinutes
+                      hasInsufficientCredits
                         ? "bg-orange-500/20 text-orange-300 border border-orange-500/30 hover:bg-orange-500/25 disabled:bg-orange-500/10 disabled:text-orange-400/60 disabled:border-orange-500/20"
                         : "bg-zinc-100 text-zinc-900 hover:bg-zinc-200 disabled:opacity-60"
                     }`}
                     title={
-                      hasInsufficientMinutes
-                        ? `Need ${analysisCost} minutes but only ${remainingMinutes} remaining`
+                      hasInsufficientCredits
+                        ? `Need ${creditsCost} credits but only ${availableCredits} available`
                         : !context.niche || !context.audience || !context.tone
                           ? "Please fill all required fields first"
                           : isModalClosing
@@ -1264,8 +1262,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     }
                   >
                     <span>
-                      {hasInsufficientMinutes
-                        ? "Usage Exhausted"
+                      {hasInsufficientCredits
+                        ? "Insufficient Credits"
                         : source.type === "file"
                             ? uploadProgress?.status === "completed"
                               ? "Begin Analysis"

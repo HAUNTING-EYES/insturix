@@ -59,35 +59,34 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   
   const { toast } = useToast();
 
-  // Fetch usage data using React Query
+  // Fetch usage data using React Query (now uses credits API)
   const { data: usageData } = useQuery({
-    queryKey: ['alyzitron-analytics'],
+    queryKey: ['credits-balance'],
     queryFn: async () => {
       try {
-        const response = await fetch('/api/user/service-usage?service=alyzitron');
+        const response = await fetch('/api/user/credits');
         if (!response.ok) {
-          throw new Error('Failed to fetch usage data');
+          throw new Error('Failed to fetch credits data');
         }
         const data = await response.json();
-        const alyzitronUsage = data.AnalysisMinutes;
-        if (alyzitronUsage) {
+        if (data.success && data.balance) {
           return {
-            minutesUsed: alyzitronUsage.currentUsage,
-            minutesCap: alyzitronUsage.maxUsage === -1 ? '∞' : alyzitronUsage.maxUsage,
-            remaining: alyzitronUsage.remaining === -1 ? '∞' : alyzitronUsage.remaining
+            creditsAvailable: data.balance.totalCredits,
+            subscriptionCredits: data.balance.subscriptionCredits,
+            topupCredits: data.balance.topupCredits,
           };
         }
         return {
-          minutesUsed: 0,
-          minutesCap: 60,
-          remaining: 60
+          creditsAvailable: 0,
+          subscriptionCredits: 0,
+          topupCredits: 0,
         };
       } catch (error) {
-        console.error('Failed to fetch usage data:', error);
+        console.error('Failed to fetch credits data:', error);
         return {
-          minutesUsed: 0,
-          minutesCap: 60,
-          remaining: 60
+          creditsAvailable: 0,
+          subscriptionCredits: 0,
+          topupCredits: 0,
         };
       }
     },

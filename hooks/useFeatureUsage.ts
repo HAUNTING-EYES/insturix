@@ -1,160 +1,93 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useUser } from '@clerk/nextjs';
 
-export interface FeatureUsageInfo {
-  hasAccess: boolean;
-  maxUsage: number;
-  currentUsage: number;
-  remaining: number;
-  resetPeriod: "weekly" | "monthly" | "daily" | "none";
-  lastReset?: Date;
-  isUnlimited: boolean;
+/**
+ * @deprecated This hook is deprecated. Use CreditsCard or /api/user/credits directly.
+ * Per-feature usage limits have been replaced by the unified credits system.
+ */
+
+export interface CreditsInfo {
+  subscriptionCredits: number;
+  topupCredits: number;
+  totalCredits: number;
 }
 
 export interface UseFeatureUsageReturn {
-  featureUsage: Record<string, FeatureUsageInfo>;
+  credits: CreditsInfo | null;
   loading: boolean;
   error: string | null;
-  refreshUsage: () => Promise<void>;
-  useFeature: (featureName: string, amount?: number) => Promise<boolean>;
-  canUseFeature: (featureName: string, amount?: number) => boolean;
-  getUsageDisplay: (featureName: string) => string;
+  refreshCredits: () => Promise<void>;
+  hasCredits: (amount: number) => boolean;
 }
 
 export const useFeatureUsage = (): UseFeatureUsageReturn => {
   const { user, isLoaded } = useUser();
-  const [featureUsage, setFeatureUsage] = useState<Record<string, FeatureUsageInfo>>({});
+  const [credits, setCredits] = useState<CreditsInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchFeatureUsage = useCallback(async () => {
+  const fetchCredits = useCallback(async () => {
     if (!user || !isLoaded) return;
 
     try {
       setLoading(true);
       setError(null);
       
-      const response = await fetch('/api/user/feature-usage');
+      const response = await fetch('/api/user/credits');
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || 'Failed to fetch feature usage');
+        throw new Error(result.error || 'Failed to fetch credits');
       }
 
-      setFeatureUsage(result.data || {});
-      
-      // Log if any features were reset
-      if (result.resetFeatures?.length > 0) {
-        console.log('Features reset:', result.resetFeatures);
+      if (result.success && result.balance) {
+        setCredits({
+          subscriptionCredits: result.balance.subscriptionCredits,
+          topupCredits: result.balance.topupCredits,
+          totalCredits: result.balance.totalCredits,
+        });
       }
     } catch (err) {
-      console.error('Error fetching feature usage:', err);
+      console.error('Error fetching credits:', err);
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
   }, [user, isLoaded]);
 
-  const useFeature = useCallback(async (featureName: string, amount: number = 1): Promise<boolean> => {
-    if (!user) {
-      setError('User not authenticated');
-      return false;
-    }
+  const hasCredits = useCallback((amount: number = 1): boolean => {
+    if (!credits) return false;
+    return credits.totalCredits >= amount;
+  }, [credits]);
 
-    try {
-      const response = await fetch('/api/user/feature-usage', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ featureName, amount }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        if (response.status === 403) {
-          // Usage limit exceeded - update local state with current usage
-          if (result.data) {
-            setFeatureUsage(prev => ({
-              ...prev,
-              [featureName]: result.data
-            }));
-          }
-          setError(`Usage limit exceeded for ${featureName}`);
-          return false;
-        }
-        throw new Error(result.error || 'Failed to use feature');
-      }
-
-      // Update local state with new usage info
-      setFeatureUsage(prev => ({
-        ...prev,
-        [featureName]: result.data
-      }));
-
-      setError(null);
-      return true;
-    } catch (err) {
-      console.error('Error using feature:', err);
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      return false;
-    }
-  }, [user]);
-
-  const canUseFeature = useCallback((featureName: string, amount: number = 1): boolean => {
-    const usage = featureUsage[featureName];
-    if (!usage) return false;
-    
-    if (usage.isUnlimited) return true;
-    return usage.remaining >= amount;
-  }, [featureUsage]);
-
-  const getUsageDisplay = useCallback((featureName: string): string => {
-    const usage = featureUsage[featureName];
-    if (!usage) return 'Not available';
-    
-    if (usage.isUnlimited) {
-      return `${usage.currentUsage} used (Unlimited)`;
-    }
-    
-    return `${usage.currentUsage}/${usage.maxUsage} used (${usage.remaining} remaining)`;
-  }, [featureUsage]);
-
-  const refreshUsage = useCallback(async () => {
-    await fetchFeatureUsage();
-  }, [fetchFeatureUsage]);
+  const refreshCredits = useCallback(async () => {
+    await fetchCredits();
+  }, [fetchCredits]);
 
   useEffect(() => {
     if (isLoaded) {
-      fetchFeatureUsage();
+      fetchCredits();
     }
-  }, [isLoaded, fetchFeatureUsage]);
+  }, [isLoaded, fetchCredits]);
 
   return {
-    featureUsage,
+    credits,
     loading,
     error,
-    refreshUsage,
-    useFeature,
-    canUseFeature,
-    getUsageDisplay,
+    refreshCredits,
+    hasCredits,
   };
 };
 
-// Hook for a specific feature
-export const useFeature = (featureName: string) => {
-  const { featureUsage, loading, error, useFeature, canUseFeature, getUsageDisplay, refreshUsage } = useFeatureUsage();
-  
-  const featureData = featureUsage[featureName];
+// Simplified hook for checking credits
+export const useCredits = () => {
+  const { credits, loading, error, refreshCredits, hasCredits } = useFeatureUsage();
   
   return {
-    usage: featureData,
+    balance: credits,
     loading,
     error,
-    canUse: (amount?: number) => canUseFeature(featureName, amount),
-    use: (amount?: number) => useFeature(featureName, amount),
-    displayText: getUsageDisplay(featureName),
-    refreshUsage,
+    refresh: refreshCredits,
+    hasEnough: hasCredits,
   };
 };

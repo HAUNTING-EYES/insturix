@@ -21,6 +21,11 @@ export interface AlyzitronStats {
   monthlyAnalyses: number;
   completedAnalyses: number;
   serviceLimits: Record<string, ServiceUsageInfo>;
+  credits?: {
+    subscriptionCredits: number;
+    topupCredits: number;
+    totalCredits: number;
+  } | null;
 }
 
 interface AnalyticsContextType {
@@ -57,14 +62,15 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
       setLoading(true);
       setError(null);
 
-      const [serviceResponse, statsResponse] = await Promise.all([
-        fetch('/api/user/feature-usage'),
+      const [creditsResponse, statsResponse] = await Promise.all([
+        fetch('/api/user/credits'),
         fetch('/api/services/alyzitron/stats')
       ]);
 
-      const serviceResult = await serviceResponse.json();
-      if (!serviceResponse.ok) {
-        throw new Error(serviceResult.error || 'Failed to fetch service usage');
+      const creditsResult = await creditsResponse.json();
+      if (!creditsResponse.ok) {
+        console.warn('Failed to fetch credits:', creditsResult.error);
+        // Continue even if credits fetch fails
       }
 
       const statsResult = await statsResponse.json();
@@ -72,13 +78,12 @@ export const AnalyticsProvider = ({ children }: { children: ReactNode }) => {
         throw new Error(statsResult.error || 'Failed to fetch analysis stats');
       }
 
-      const alyzitronLimits = serviceResult.data?.alyzitron || {};
-
       setStats({
         activeAnalyses: statsResult.activeAnalyses || 0,
         monthlyAnalyses: statsResult.monthlyAnalyses || 0,
         completedAnalyses: statsResult.completedAnalyses || 0,
-        serviceLimits: alyzitronLimits,
+        serviceLimits: {}, // Legacy - now using credits
+        credits: creditsResult.success ? creditsResult.balance : null,
       });
     } catch (err) {
       console.error('Error fetching Alyzitron stats:', err);
