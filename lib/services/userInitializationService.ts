@@ -6,6 +6,7 @@ import Socialize from "@/schemas/Socialize";
 import { UserType } from "@/types/userTypes";
 import { IServiceLimits } from "@/schemas/user";
 import { CreditsService } from "@/lib/services/creditsService";
+import { CreditsMigrationService } from "@/lib/services/creditsMigrationService";
 
 type DbUser = typeof User extends { schema: unknown }
   ? Awaited<ReturnType<(typeof User)["findOne"]>>
@@ -40,6 +41,10 @@ export class UserInitializationService {
           socializeProfile.profileImage = imageUrl;
           await socializeProfile.save();
         }
+        
+        // Lazy migration: ensure existing user has credits
+        await CreditsMigrationService.ensureMigrated(clerkUserId);
+        
         return { user, isNewUser: false };
       }
 
