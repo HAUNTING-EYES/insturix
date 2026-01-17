@@ -51,7 +51,7 @@ export function EditorHeader() {
    * - state: Current editor state
    * - renderType: Type of render
    */
-  const { renderMedia, state, saveProject, renderType } = useEditorContext();
+  const { renderMedia, state, saveProject, renderType, projectId } = useEditorContext();
 
   return (
     <header
@@ -67,6 +67,7 @@ export function EditorHeader() {
         state={state}
         saveProject={saveProject}
         renderType={renderType}
+        projectId={projectId}
       />
     </header>
   );

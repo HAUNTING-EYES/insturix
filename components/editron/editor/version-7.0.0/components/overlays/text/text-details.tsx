@@ -67,6 +67,7 @@ export const TextDetails: React.FC<TextDetailsProps> = ({
 
   /**
    * Handles changes to nested style properties
+   * Special handling for fontSize: auto-expands width/height if content would exceed bounds
    * @param {keyof TextOverlay["styles"]} field - The style field to update
    * @param {string} value - The new value
    */
@@ -75,11 +76,45 @@ export const TextDetails: React.FC<TextDetailsProps> = ({
     value: string
   ) => {
     console.log(field, value);
-    // Update local state immediately for responsive UI
-    setLocalOverlay({
+    
+    let updatedOverlay = {
       ...localOverlay,
       styles: { ...localOverlay.styles, [field]: value },
-    });
+    };
+    
+    // Auto-expand HEIGHT when fontSize changes (keep width constant to preserve wrapping)
+    if (field === "fontSize") {
+      const newFontSize = parseInt(value) || 32;
+      const content = localOverlay.content || '';
+      const explicitLines = content.split('\n');
+      
+      // Estimate chars per line based on current width and new fontSize
+      const charsPerLine = Math.max(1, Math.floor(localOverlay.width / (newFontSize * 0.6)));
+      
+      // Count total visual lines (including wrapped lines)
+      let totalVisualLines = 0;
+      for (const line of explicitLines) {
+        if (line.length === 0) {
+          totalVisualLines += 1; // Empty line still takes space
+        } else {
+          totalVisualLines += Math.ceil(line.length / charsPerLine);
+        }
+      }
+      
+      // Calculate required height
+      const requiredHeight = totalVisualLines * newFontSize * 1.4;
+      
+      // Only expand height if needed (never shrink)
+      if (requiredHeight > localOverlay.height) {
+        updatedOverlay = {
+          ...updatedOverlay,
+          height: requiredHeight,
+        };
+      }
+    }
+    
+    // Update local state immediately for responsive UI
+    setLocalOverlay(updatedOverlay);
 
     // Debounce the actual overlay update if an overlay is selected
     if (selectedOverlayId !== null) {
@@ -87,7 +122,8 @@ export const TextDetails: React.FC<TextDetailsProps> = ({
       if (overlay) {
         debouncedUpdateOverlay(selectedOverlayId, {
           ...overlay,
-          styles: { ...overlay.styles, [field]: value },
+          ...updatedOverlay,
+          styles: updatedOverlay.styles,
         } as TextOverlay);
       }
     }

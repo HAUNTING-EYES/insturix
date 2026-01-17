@@ -142,6 +142,7 @@ export const SelectionOutline: React.FC<{
       >
         {isSelected ? (
           <>
+            {/* Corner handles - scale proportionally (text: also scales fontSize) */}
             <ResizeHandle
               overlay={overlay}
               setOverlay={changeOverlay}
@@ -161,6 +162,27 @@ export const SelectionOutline: React.FC<{
               overlay={overlay}
               setOverlay={changeOverlay}
               type="bottom-right"
+            />
+            {/* Edge handles - change width/height only (text reflows) */}
+            <ResizeHandle
+              overlay={overlay}
+              setOverlay={changeOverlay}
+              type="top"
+            />
+            <ResizeHandle
+              overlay={overlay}
+              setOverlay={changeOverlay}
+              type="bottom"
+            />
+            <ResizeHandle
+              overlay={overlay}
+              setOverlay={changeOverlay}
+              type="left"
+            />
+            <ResizeHandle
+              overlay={overlay}
+              setOverlay={changeOverlay}
+              type="right"
             />
             <RotateHandle
               overlay={overlay}

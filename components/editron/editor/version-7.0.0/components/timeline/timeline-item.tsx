@@ -319,6 +319,15 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
         return isHandle
           ? "bg-rose-500/40 dark:bg-rose-500/40"
           : "bg-rose-500/15 hover:bg-rose-500/25 dark:bg-rose-500/15 dark:hover:bg-rose-500/25 border-rose-500/30 dark:border-rose-500/40 text-rose-500 dark:text-rose-400";
+      case OverlayType.HTML_SCENE:
+        return isHandle
+          ? "bg-cyan-500/40 dark:bg-cyan-500/40"
+          : "bg-cyan-500/15 hover:bg-cyan-500/25 dark:bg-cyan-500/15 dark:hover:bg-cyan-500/25 border-cyan-500/30 dark:border-cyan-500/40 text-cyan-500 dark:text-cyan-400";
+      case OverlayType.HTML_STICKER:
+        return isHandle
+          ? "bg-pink-500/40 dark:bg-pink-500/40"
+          : "bg-pink-500/15 hover:bg-pink-500/25 dark:bg-pink-500/15 dark:hover:bg-pink-500/25 border-pink-500/30 dark:border-pink-500/40 text-pink-500 dark:text-pink-400";
+
 
       default:
         return isHandle
@@ -338,9 +347,11 @@ const TimelineItem: React.FC<TimelineItemProps> = ({
       item.type === OverlayType.TEXT ||
       item.type === OverlayType.SOUND ||
       item.type === OverlayType.CAPTION ||
-      item.type === OverlayType.IMAGE
+      item.type === OverlayType.IMAGE ||
+      item.type === OverlayType.HTML_SCENE ||
+      item.type === OverlayType.HTML_STICKER
     ) {
-      setActivePanel(item.type);
+      setActivePanel(item.type === OverlayType.HTML_STICKER ? OverlayType.HTML_SCENE : item.type);
       setIsOpen(true);
     }
   };

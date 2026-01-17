@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Overlay } from "../types";
 
 interface HistoryState {
@@ -6,6 +6,9 @@ interface HistoryState {
   present: Overlay[];
   future: Overlay[][];
 }
+
+// Debounce delay for grouping rapid changes into single history entries
+const HISTORY_DEBOUNCE_MS = 150;
 
 export function useHistory(
   overlays: Overlay[],
@@ -17,17 +20,61 @@ export function useHistory(
     future: [],
   });
 
-  useEffect(() => {
-    setHistory((prev) => {
-      // Don't record history if this change was from undo/redo
-      if (prev.present === overlays) return prev;
+  // Ref to track if we're currently applying undo/redo to prevent recording
+  const isApplyingHistoryRef = useRef(false);
+  // Ref for debounce timer
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Ref to store the state before the current batch of changes started
+  const batchStartStateRef = useRef<Overlay[] | null>(null);
 
-      return {
-        past: [...prev.past, prev.present],
-        present: overlays,
-        future: [],
-      };
-    });
+  useEffect(() => {
+    // Don't record history if this change was from undo/redo
+    if (isApplyingHistoryRef.current) {
+      return;
+    }
+
+    // Clear any pending debounce
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // If this is the start of a new batch, save the starting state
+    if (batchStartStateRef.current === null) {
+      setHistory((prev) => {
+        batchStartStateRef.current = prev.present;
+        return prev;
+      });
+    }
+
+    // Debounce the history recording
+    debounceTimerRef.current = setTimeout(() => {
+      setHistory((prev) => {
+        // Use the batch start state as the "past" entry
+        const stateToSave = batchStartStateRef.current ?? prev.present;
+        batchStartStateRef.current = null;
+
+        // Skip if nothing actually changed
+        if (stateToSave === overlays) return prev;
+
+        return {
+          past: [...prev.past, stateToSave],
+          present: overlays,
+          future: [],
+        };
+      });
+    }, HISTORY_DEBOUNCE_MS);
+
+    // Update the present immediately for UI responsiveness
+    setHistory((prev) => ({
+      ...prev,
+      present: overlays,
+    }));
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
   }, [overlays]);
 
   const undo = useCallback(() => {
@@ -37,8 +84,13 @@ export function useHistory(
       const newPast = prev.past.slice(0, -1);
       const newPresent = prev.past[prev.past.length - 1];
 
-      // Update overlays directly
+      // Mark that we're applying history to prevent recording
+      isApplyingHistoryRef.current = true;
       setOverlays(newPresent);
+      // Reset on next tick
+      setTimeout(() => {
+        isApplyingHistoryRef.current = false;
+      }, 0);
 
       return {
         past: newPast,
@@ -55,8 +107,13 @@ export function useHistory(
       const newFuture = prev.future.slice(1);
       const newPresent = prev.future[0];
 
-      // Update overlays directly
+      // Mark that we're applying history to prevent recording
+      isApplyingHistoryRef.current = true;
       setOverlays(newPresent);
+      // Reset on next tick
+      setTimeout(() => {
+        isApplyingHistoryRef.current = false;
+      }, 0);
 
       return {
         past: [...prev.past, prev.present],

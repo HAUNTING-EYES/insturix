@@ -15,6 +15,7 @@ import { formatDistanceToNow } from "date-fns";
  * @property {string} id - Unique identifier for the render
  * @property {'success' | 'error'} status - Result of the render attempt
  * @property {string} error - Error message if render failed
+ * @property {Date} expiresAt - When the render file expires (7 days after creation)
  */
 interface RenderItem {
   url?: string;
@@ -22,6 +23,7 @@ interface RenderItem {
   id: string;
   status: "success" | "error";
   error?: string;
+  expiresAt?: Date;
 }
 
 /**
@@ -30,12 +32,14 @@ interface RenderItem {
  * @property {() => void} handleRender - Function to trigger a new render
  * @property {() => void} saveProject - Function to save the project
  * @property {('ssr' | 'lambda')?} renderType - Type of render (SSR or Lambda)
+ * @property {string} projectId - Project ID for fetching render history
  */
 interface RenderControlsProps {
   state: any;
   handleRender: () => void;
   saveProject?: () => Promise<void>;
   renderType?: "ssr" | "lambda";
+  projectId?: string;
 }
 
 /**
@@ -55,6 +59,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
   handleRender,
   saveProject,
   renderType = "ssr",
+  projectId,
 }) => {
   // Store multiple renders
   const [renders, setRenders] = React.useState<RenderItem[]>([]);
@@ -63,6 +68,34 @@ const RenderControls: React.FC<RenderControlsProps> = ({
 
   // Check if rendering is disabled via environment variable
   const isRenderDisabled = process.env.NEXT_PUBLIC_DISABLE_RENDER === "true";
+
+  // Fetch render history on mount (for persistence across refreshes)
+  React.useEffect(() => {
+    if (!projectId || renderType !== "lambda") return;
+
+    const fetchHistory = async () => {
+      try {
+        const response = await fetch(`/api/services/editron/render/history?projectId=${projectId}`);
+        const json = await response.json();
+        
+        if (json.type === "success" && json.data?.renders?.length > 0) {
+          const historyItems: RenderItem[] = json.data.renders.map((r: any) => ({
+            id: r.id,
+            url: r.url,
+            timestamp: new Date(r.completedAt),
+            status: r.status === "done" ? "success" : "error",
+            error: r.error,
+            expiresAt: r.expiresAt ? new Date(r.expiresAt) : undefined,
+          }));
+          setRenders(historyItems);
+        }
+      } catch (err) {
+        console.error("Error fetching render history:", err);
+      }
+    };
+
+    fetchHistory();
+  }, [projectId, renderType]);
 
   // Add new render to the list when completed
   React.useEffect(() => {
@@ -225,14 +258,21 @@ const RenderControls: React.FC<RenderControlsProps> = ({
                     </div>
                   </div>
                   {render.status === "success" && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-zinc-200 hover:text-gray-800 h-6 w-6"
-                      onClick={() => handleDownload(render.url!)}
-                    >
-                      <Download className="w-3.5 h-3.5" />
-                    </Button>
+                    (() => {
+                      const isExpired = render.expiresAt && new Date() > render.expiresAt;
+                      return isExpired ? (
+                        <span className="text-[10px] text-muted-foreground px-1.5">Expired</span>
+                      ) : (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-zinc-200 hover:text-gray-800 h-6 w-6"
+                          onClick={() => handleDownload(render.url!)}
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                        </Button>
+                      );
+                    })()
                   )}
                 </div>
               ))
@@ -254,7 +294,7 @@ const RenderControls: React.FC<RenderControlsProps> = ({
         ) : state.status === "rendering" ? (
           <>
             <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-            Rendering... {(state.progress * 100).toFixed(0)}%
+            Rendering... {state.progress.toFixed(0)}%
           </>
         ) : state.status === "invoking" ? (
           <>

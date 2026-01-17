@@ -106,7 +106,8 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   const { renderMedia, state } = useRendering(
     "TestComponent",
     inputProps,
-    RENDER_TYPE
+    RENDER_TYPE,
+    projectId // Enable resume-on-refresh
   );
 
   // Replace history management code with hook
@@ -171,7 +172,6 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]); // Only run when projectId changes (loadState is stable)
 
-  console.log("DEBUG: overlays", overlays);
   // Handle recovery dialog actions
   const handleRecoverAutosave = async () => {
     const loadedState = await loadState();
@@ -238,6 +238,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
 
     // Add renderType to the context
     renderType: RENDER_TYPE,
+    projectId,
     renderMedia,
     state,
 

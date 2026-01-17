@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CompositionProps } from "../types";
 import {
   getProgress as ssrGetProgress,
@@ -50,16 +50,93 @@ type RenderType = "ssr" | "lambda";
 export const useRendering = (
   id: string,
   inputProps: z.infer<typeof CompositionProps>,
-  renderType: RenderType = "ssr" // Default to SSR rendering
+  renderType: RenderType = "ssr", // Default to SSR rendering
+  projectId?: string // Optional projectId for resume-on-refresh
 ) => {
   // Maintain current state of the rendering process
   const [state, setState] = useState<State>({
     status: "init",
   });
 
+  // Check for active renders on mount (resume-on-refresh)
+  useEffect(() => {
+    if (renderType !== "lambda" || !projectId) return;
+
+    const checkActiveRender = async () => {
+      try {
+        const response = await fetch("/api/services/editron/render/active");
+        const json = await response.json();
+        
+        if (json.type === "success" && json.data?.renders?.length > 0) {
+          // Find render for this project
+          const activeRender = json.data.renders.find(
+            (r: any) => r.projectId === projectId && r.status === "rendering"
+          );
+          
+          if (activeRender) {
+
+            setState({
+              status: "rendering",
+              progress: activeRender.progress || 0,
+              renderId: activeRender.renderId,
+              bucketName: activeRender.bucketName,
+            });
+            // Start polling loop
+            pollProgress(activeRender.renderId, activeRender.bucketName || "");
+          }
+        }
+      } catch (err) {
+        console.error("Error checking for active renders:", err);
+      }
+    };
+
+    const pollProgress = async (renderId: string, bucketName: string) => {
+      const getProgress = lambdaGetProgress;
+      let pending = true;
+      
+      while (pending) {
+        try {
+          const result = await getProgress({ id: renderId, bucketName });
+          
+          switch (result.type) {
+            case "error":
+              setState({
+                status: "error",
+                renderId,
+                error: new Error(result.message),
+              });
+              pending = false;
+              break;
+            case "done":
+              setState({
+                size: result.size,
+                url: result.url,
+                status: "done",
+              });
+              pending = false;
+              break;
+            case "progress":
+              setState({
+                status: "rendering",
+                progress: result.progress,
+                renderId,
+                bucketName,
+              });
+              await wait(3000);
+          }
+        } catch (err) {
+          console.error("Error polling progress:", err);
+          pending = false;
+        }
+      }
+    };
+
+    checkActiveRender();
+  }, [renderType, projectId]);
+
   // Main function to handle the rendering process
   const renderMedia = useCallback(async () => {
-    console.log(`Starting renderMedia process using ${renderType}`);
+
     setState({
       status: "invoking",
     });
@@ -69,15 +146,15 @@ export const useRendering = (
       const getProgress =
         renderType === "ssr" ? ssrGetProgress : lambdaGetProgress;
 
-      console.log("Calling renderVideo API with inputProps", inputProps);
-      const response = await renderVideo({ id, inputProps });
+
+      const response = await renderVideo({ id, inputProps, projectId });
       const renderId = response.renderId;
       const bucketName =
         "bucketName" in response ? response.bucketName : undefined;
 
       // Check if render is already complete (synchronous Cloud Run)
       if ("publicUrl" in response && response.publicUrl) {
-        console.log("Render completed synchronously", response);
+
         setState({
           status: "done",
           url: response.publicUrl as string,
@@ -101,12 +178,12 @@ export const useRendering = (
       let pending = true;
 
       while (pending) {
-        console.log(`Checking progress for renderId=${renderId}`);
+
         const result = await getProgress({
           id: renderId,
           bucketName: typeof bucketName === "string" ? bucketName : "",
         });
-        console.log("result", result);
+
         switch (result.type) {
           case "error": {
             console.error(`Render error: ${result.message}`);
@@ -131,13 +208,13 @@ export const useRendering = (
             break;
           }
           case "progress": {
-            console.log(`Render progress: ${result.progress}%`);
+
             setState({
               status: "rendering",
               progress: result.progress,
               renderId: renderId,
             });
-            await wait(1000);
+            await wait(3000); // Poll every 3 seconds to avoid rate limits
           }
         }
       }
@@ -149,7 +226,7 @@ export const useRendering = (
         renderId: null,
       });
     }
-  }, [id, inputProps, renderType]);
+  }, [id, inputProps, renderType, projectId]);
 
   // Reset the rendering state back to initial
   const undo = useCallback(() => {

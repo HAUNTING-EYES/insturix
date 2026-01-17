@@ -98,6 +98,7 @@ export const LocalMediaProvider: React.FC<{ children: React.ReactNode }> = ({
           lastModified: Date.now(),
           thumbnail: mediaItem.thumbnail || "",
           duration: mediaItem.duration,
+          dimensions: mediaItem.dimensions, // Add dimensions for aspect ratio
         };
 
         // Update state with the new media file

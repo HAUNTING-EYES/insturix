@@ -48,8 +48,9 @@ gcloud run deploy $SERVICE_NAME \
   --platform managed \
   --region $REGION \
   --project $PROJECT_ID \
-  --memory 2Gi \
-  --timeout 300 \
+  --memory 8Gi \
+  --cpu 4 \
+  --timeout 600 \
   --allow-unauthenticated # For testing ease, restrict in production
 
 echo "Deployment complete!"

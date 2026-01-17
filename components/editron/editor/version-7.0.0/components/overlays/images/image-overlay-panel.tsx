@@ -45,7 +45,7 @@ export const ImageOverlayPanel: React.FC = () => {
     changeOverlay,
   } = useEditorContext();
   const { findNextAvailablePosition } = useTimelinePositioning();
-  const { getAspectRatioDimensions } = useAspectRatio();
+  const { getAspectRatioDimensions, calculateFitToFrameDimensions } = useAspectRatio();
   const { visibleRows } = useTimeline();
   const [localOverlay, setLocalOverlay] = useState<Overlay | null>(null);
 
@@ -78,10 +78,21 @@ export const ImageOverlayPanel: React.FC = () => {
   /**
    * Adds a new image overlay to the editor
    * @param image - The selected Pexels image to add
-   * Creates a new overlay with default positioning and animation settings
+   * Creates a new overlay with bounding box matching image aspect ratio, centered in frame
    */
   const handleAddImage = (image: PexelsImage) => {
-    const { width, height } = getAspectRatioDimensions();
+    const frameDimensions = getAspectRatioDimensions();
+    
+    // Calculate dimensions that preserve image aspect ratio and fit in frame
+    // Pexels API provides image.width and image.height
+    const imageWidth = (image as any).width || 1920;
+    const imageHeight = (image as any).height || 1080;
+    const fitted = calculateFitToFrameDimensions(imageWidth, imageHeight);
+    
+    // Center the overlay in the canvas
+    const left = (frameDimensions.width - fitted.width) / 2;
+    const top = (frameDimensions.height - fitted.height) / 2;
+    
     const { from, row } = findNextAvailablePosition(
       overlays,
       visibleRows,
@@ -89,10 +100,10 @@ export const ImageOverlayPanel: React.FC = () => {
     );
 
     const newOverlay: Overlay = {
-      left: 0,
-      top: 0,
-      width,
-      height,
+      left,
+      top,
+      width: fitted.width,
+      height: fitted.height,
       durationInFrames: 200,
       from,
       id: Date.now(),
@@ -102,15 +113,13 @@ export const ImageOverlayPanel: React.FC = () => {
       type: OverlayType.IMAGE,
       src: image.src.original,
       styles: {
-        objectFit: "cover",
+        objectFit: "cover", // Keep as cover so user can crop if needed
         animation: {
           enter: "fadeIn",
           exit: "fadeOut",
         },
       },
     };
-
-    console.log(newOverlay);
 
     addOverlay(newOverlay);
   };

@@ -7,6 +7,7 @@
 import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { refreshSignedUrl } from './gcs-service';
 import type { Overlay } from '@/components/editron/editor/version-7.0.0/types';
+import type { TranscriptionData } from './media/types';
 
 export interface MediaAsset {
   _id?: any;
@@ -28,6 +29,8 @@ export interface MediaAsset {
     height: number;
   };
   uploadedAt: Date;
+  /** Cached transcription data (0-based timestamps relative to video start) */
+  transcription?: TranscriptionData;
 }
 
 export class AssetResolver {

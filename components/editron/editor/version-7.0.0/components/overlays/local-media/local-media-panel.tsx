@@ -6,6 +6,7 @@ import { useAspectRatio } from "../../../hooks/use-aspect-ratio";
 import { useTimeline } from "../../../contexts/timeline-context";
 import { Overlay, OverlayType } from "../../../types";
 import { LocalMediaGallery } from "../../local-media/local-media-gallery";
+import { getMediaDimensionsFromUrl } from "../../../utils/media-upload";
 
 /**
  * LocalMediaPanel Component
@@ -20,56 +21,81 @@ import { LocalMediaGallery } from "../../local-media/local-media-gallery";
 export const LocalMediaPanel: React.FC = () => {
   const { addOverlay, overlays, durationInFrames } = useEditorContext();
   const { findNextAvailablePosition } = useTimelinePositioning();
-  const { getAspectRatioDimensions } = useAspectRatio();
+  const { getAspectRatioDimensions, calculateFitToFrameDimensions } = useAspectRatio();
   const { visibleRows } = useTimeline();
 
   /**
    * Add a media file to the timeline
+   * Calculates overlay dimensions to match media aspect ratio, centered in frame
    */
-  const handleAddToTimeline = (file: any) => {
-    const { width, height } = getAspectRatioDimensions();
+  const handleAddToTimeline = async (file: any) => {
+    const frameDimensions = getAspectRatioDimensions();
+    
+    // Calculate dimensions that preserve media aspect ratio and fit in frame
+    let width: number, height: number, left: number, top: number;
+    
+    // Get dimensions from file or extract from URL if not available
+    let mediaDimensions = file.dimensions;
+    
+    if (!mediaDimensions && file.path && (file.type === 'video' || file.type === 'image')) {
+      mediaDimensions = await getMediaDimensionsFromUrl(file.path, file.type);
+    }
+    
+    if (mediaDimensions?.width && mediaDimensions?.height) {
+      // Use actual media dimensions to calculate fitted size
+      const fitted = calculateFitToFrameDimensions(
+        mediaDimensions.width,
+        mediaDimensions.height
+      );
+      width = fitted.width;
+      height = fitted.height;
+      // Center the overlay in the canvas
+      left = (frameDimensions.width - fitted.width) / 2;
+      top = (frameDimensions.height - fitted.height) / 2;
+    } else {
+      // Fallback to frame dimensions if media dimensions not available
+      width = frameDimensions.width;
+      height = frameDimensions.height;
+      left = 0;
+      top = 0;
+    }
+    
     const { from, row } = findNextAvailablePosition(
       overlays,
       visibleRows,
       durationInFrames
-      /**
-       * Pass the current playhead position.
-       * This way, we can place the new overlay next to the playhead
-       * instead of always placing it at the start of the timeline
-       * and having to drag it to the playhead.
-       */
     );
 
     let newOverlay: Overlay;
 
     if (file.type === "video") {
       newOverlay = {
-        left: 0,
-        top: 0,
+        left,
+        top,
         width,
         height,
-        durationInFrames: file.duration ? Math.round(file.duration * 30) : 200, // Convert seconds to frames (assuming 30fps)
+        durationInFrames: file.duration ? Math.round(file.duration * 30) : 200,
         from,
         id: Date.now(),
         rotation: 0,
         row,
         isDragging: false,
         type: OverlayType.VIDEO,
-        assetId: file.assetId, // Store assetId for MongoDB
+        assetId: file.assetId,
         content: file.thumbnail || "",
-        src: file.path, // Signed URL for display
+        src: file.path,
         videoStartTime: 0,
         styles: {
           opacity: 1,
           zIndex: 100,
           transform: "none",
-          objectFit: "cover",
+          objectFit: "cover", // Keep as cover so user can crop if needed
         },
       };
     } else if (file.type === "image") {
       newOverlay = {
-        left: 0,
-        top: 0,
+        left,
+        top,
         width,
         height,
         durationInFrames: 200,
@@ -79,11 +105,11 @@ export const LocalMediaPanel: React.FC = () => {
         row,
         isDragging: false,
         type: OverlayType.IMAGE,
-        assetId: file.assetId, // Store assetId for MongoDB
-        src: file.path, // Signed URL for display
+        assetId: file.assetId,
+        src: file.path,
         content: file.path,
         styles: {
-          objectFit: "cover",
+          objectFit: "cover", // Keep as cover so user can crop if needed
           animation: {
             enter: "fadeIn",
             exit: "fadeOut",

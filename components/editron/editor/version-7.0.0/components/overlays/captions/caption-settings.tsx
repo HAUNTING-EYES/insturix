@@ -64,7 +64,7 @@ export const CaptionSettings: React.FC<CaptionSettingsProps> = ({
   const currentMs = (currentFrame / 30) * 1000;
 
   return (
-    <Tabs defaultValue="captions" className="w-full">
+    <Tabs defaultValue="display" className="w-full">
       {/* Tab Navigation */}
       <TabsList className="w-full grid grid-cols-3 bg-muted/50 backdrop-blur-sm rounded-sm border border-border gap-1">
         {/* Captions Tab */}
