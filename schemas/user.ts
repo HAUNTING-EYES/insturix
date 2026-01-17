@@ -51,6 +51,28 @@ export interface IUiMessage {
   };
 }
 
+// Credits system interfaces
+export interface ICreditTransaction {
+  id: string;
+  type: 'subscription_grant' | 'topup' | 'usage' | 'refund' | 'expiry' | 'adjustment';
+  amount: number; // Positive for additions, negative for usage
+  service?: string; // Which service consumed credits
+  action?: string; // What action was performed
+  model?: string; // Which model was used
+  taskId?: string; // Reference to specific task
+  timestamp: Date;
+  balanceAfter: number; // Balance after this transaction
+  metadata?: Record<string, unknown>; // Additional data
+}
+
+export interface ICreditsBalance {
+  subscriptionCredits: number; // Monthly credits from subscription (expire)
+  topupCredits: number; // Purchased credits (never expire)
+  lastSubscriptionGrant: Date | null; // When subscription credits were last granted
+  subscriptionCreditsExpiry: Date | null; // When current subscription credits expire
+  creditHistory: ICreditTransaction[]; // Transaction history (capped)
+}
+
 interface IUser extends Document {
   clerkUserId: string;
   username?: string; // Made optional to handle OAuth sign-ups
@@ -61,6 +83,7 @@ interface IUser extends Document {
   subscriptions: ISubscription[];
   uiMessages: IUiMessage[];
   trialUsed: boolean; // Track if user has used their one-time trial
+  creditsBalance: ICreditsBalance; // Credits system balance
   preferences: {
     currency: string;
     notifications: {
@@ -193,6 +216,36 @@ const subscriptionSchema = new Schema<ISubscription>({
   },
 }, { _id: false });
 
+// Credits transaction schema
+const creditTransactionSchema = new Schema<ICreditTransaction>({
+  id: { type: String, required: true },
+  type: {
+    type: String,
+    required: true,
+    enum: ['subscription_grant', 'topup', 'usage', 'refund', 'expiry', 'adjustment'],
+  },
+  amount: { type: Number, required: true },
+  service: { type: String },
+  action: { type: String },
+  model: { type: String },
+  taskId: { type: String },
+  timestamp: { type: Date, required: true, default: Date.now },
+  balanceAfter: { type: Number, required: true },
+  metadata: { type: Schema.Types.Mixed },
+}, { _id: false });
+
+// Credits balance schema
+const creditsBalanceSchema = new Schema<ICreditsBalance>({
+  subscriptionCredits: { type: Number, required: true, default: 0, min: 0 },
+  topupCredits: { type: Number, required: true, default: 0, min: 0 },
+  lastSubscriptionGrant: { type: Date, default: null },
+  subscriptionCreditsExpiry: { type: Date, default: null },
+  creditHistory: {
+    type: [creditTransactionSchema],
+    default: [],
+  },
+}, { _id: false });
+
 const userSchema = new Schema<IUser>({
   clerkUserId: {
     type: String,
@@ -247,6 +300,16 @@ const userSchema = new Schema<IUser>({
   trialUsed: {
     type: Boolean,
     default: false,
+  },
+  creditsBalance: {
+    type: creditsBalanceSchema,
+    default: () => ({
+      subscriptionCredits: 0,
+      topupCredits: 0,
+      lastSubscriptionGrant: null,
+      subscriptionCreditsExpiry: null,
+      creditHistory: [],
+    }),
   },
   preferences: {
     currency: {
