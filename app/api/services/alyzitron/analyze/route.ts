@@ -12,7 +12,8 @@ import { getCollections } from "../utils/mongodb";
 
 import { ObjectId } from "mongodb";
 import { Client } from "@upstash/qstash";
-import { processRefund } from "@/lib/services/tasks/simple-refund";
+import { CreditsService } from "@/lib/services/creditsService";
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { ContextValues } from "../types";
 import { youtube } from "googleapis/build/src/apis/youtube";
 
@@ -410,16 +411,20 @@ export async function POST(request: Request) {
         });
       }
 
-      // Refund usage if task creation failed
+      // Refund credits if task creation failed
       try {
-        await processRefund(
-          "alyzitron",
-          "analysis",
+        // Calculate credits to refund (same formula used for deduction)
+        const creditsToRefund = getCreditCost('alyzitron', 'video_analysis', {
+          durationMinutes: usageMinutes
+        });
+        await CreditsService.refundCredits(
           session.userId,
-          usageMinutes
+          creditsToRefund,
+          'Task creation failed',
+          { service: 'alyzitron', action: 'video_analysis' }
         );
         logger.info("Credits refunded after task creation failure", {
-          data: { userId: session.userId, minutes: usageMinutes },
+          data: { userId: session.userId, credits: creditsToRefund, minutes: usageMinutes },
         });
       } catch (refundError) {
         logger.error("Failed to refund credits", {
