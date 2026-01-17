@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CreateVariationRequest, ChatMessage } from '@/types/clickatron';
-export * from './clickatron-limits';
 
 // Polling utility for variation completion
 export const pollVariationCompletion = async (

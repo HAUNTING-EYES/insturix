@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { ClientWrapper } from "@/components/dashboard/Alyzitron/ClientWrapper";
-import { UsageDisplay } from "@/components/dashboard/Alyzitron/UsageDisplay";
+import { CreditsCard } from "@/components/shared/CreditsCard";
 
 // This is a Server Component. Do not use framer-motion primitives directly here.
 
@@ -21,8 +21,10 @@ export default async function AlyzitronDashboard() {
             Get your video&apos;s check-up.
           </h1>
 
-          {/* Usage display component - fetches data using React Query */}
-          <UsageDisplay />
+          {/* Credits display component */}
+          <div className="mt-4">
+            <CreditsCard className="max-w-sm" />
+          </div>
         </div>
 
         {/* Client-side Intake and History */}
@@ -36,3 +38,4 @@ export default async function AlyzitronDashboard() {
     </div>
   );
 }
+

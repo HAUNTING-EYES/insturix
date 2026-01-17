@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
-import { ServiceUsageService } from "@/lib/services/serviceUsageService";
-import { getAllLimitTypesForService } from "@/lib/config/serviceLimits";
+import { CreditsService } from "@/lib/services/creditsService";
 
 export async function GET() {
   try {
@@ -15,29 +14,13 @@ export async function GET() {
       );
     }
 
-    // Check if user has access to use Alyzitron service
+    // Check user's credits for access
+    let creditsBalance = null;
     try {
-      const alyzitronLimits = getAllLimitTypesForService('alyzitron');
-      const limitChecks = await Promise.all(
-        alyzitronLimits.map(limit =>
-          ServiceUsageService.canUseService(userId, 'alyzitron', limit.limitType)
-        )
-      );
-
-      // If user doesn't have access to any Alyzitron features, return empty stats
-      const hasAnyAccess = limitChecks.some(check => check.hasAccess);
-      if (!hasAnyAccess) {
-        console.warn(`User ${userId} has no access to Alyzitron services, returning empty stats`);
-        return NextResponse.json({
-          success: true,
-          activeAnalyses: 0,
-          monthlyAnalyses: 0,
-          completedAnalyses: 0,
-        });
-      }
+      creditsBalance = await CreditsService.getBalance(userId);
     } catch (error) {
-      console.error("Error checking Alyzitron access:", error);
-      // Continue with stats retrieval even if access check fails
+      console.error("Error checking credits:", error);
+      // Continue even if credits check fails
     }
 
     const { analyses } = await getCollections();
@@ -64,53 +47,17 @@ export async function GET() {
       status: "completed",
     });
 
-    // Also return per-limit usage for Alyzitron so the client can render "Service Limits"
-    // Use the existing public API that returns usage for all services, then pick 'alyzitron'
-    const usageAll = await ServiceUsageService.getServiceUsageForAllServices(userId);
-    const usageAly = (usageAll && (usageAll as any).alyzitron) || {};
-    const alyzitronLimits = getAllLimitTypesForService('alyzitron');
-
-    const serviceLimits: Record<string, {
-      currentUsage: number;
-      maxUsage: number; // -1 for unlimited
-      remaining: number;
-      resetPeriod: "daily" | "weekly" | "monthly" | "none" | string;
-      isUnlimited?: boolean;
-      timeUntilReset?: { days: number; hours: number; minutes: number; totalMs: number } | null;
-    }> = {};
-
-    try {
-      for (const limit of alyzitronLimits) {
-        const u = (usageAly as any)[limit.limitType] || {};
-        const currentUsage = typeof u.currentUsage === 'number' ? u.currentUsage : 0;
-        const maxUsage = typeof u.maxUsage === 'number' ? u.maxUsage : -1;
-        const remaining = typeof u.remaining === 'number'
-          ? u.remaining
-          : (maxUsage === -1 ? Number.POSITIVE_INFINITY : Math.max(maxUsage - currentUsage, 0));
-        const resetPeriod = (u.resetPeriod as any) ?? 'none';
-        const isUnlimited = typeof u.isUnlimited === 'boolean' ? u.isUnlimited : (maxUsage === -1);
-        const timeUntilReset = u.timeUntilReset ?? null;
-
-        serviceLimits[limit.limitType] = {
-          currentUsage,
-          maxUsage,
-          remaining,
-          resetPeriod,
-          isUnlimited,
-          timeUntilReset,
-        };
-      }
-    } catch (e) {
-      // If fetching per-limit usage fails, keep serviceLimits empty but still return counters
-      console.warn("Failed to assemble Alyzitron per-limit usage:", e);
-    }
-
     return NextResponse.json({
       success: true,
       activeAnalyses,
       monthlyAnalyses,
       completedAnalyses,
-      serviceLimits,
+      // Credits-based info (replaces legacy serviceLimits)
+      credits: creditsBalance ? {
+        available: creditsBalance.subscriptionCredits + creditsBalance.topupCredits,
+        subscriptionCredits: creditsBalance.subscriptionCredits,
+        topupCredits: creditsBalance.topupCredits,
+      } : null,
     });
   } catch (error) {
     console.error("Error fetching Alyzitron stats:", error);

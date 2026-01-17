@@ -23,7 +23,7 @@ import {
 
 import { Variation } from "@/types/clickatron";
 import { ImageDisplay } from "./ImageDisplay";
-import { LimitDisplay } from "../LimitDisplay";
+import { CreditsBadge } from "@/components/shared/CreditsCard";
 
 interface VariationsGalleryProps {
   variations: Variation[];
@@ -357,9 +357,9 @@ export function VariationsGallery({
         </AlertDialogContent>
       </AlertDialog>
       
-      {/* Usage Limits Display at the bottom */}
+      {/* Credits Display at the bottom */}
       <div className="p-4 border-t border-zinc-800/80 w-full h-auto">
-        <LimitDisplay compact />
+        <CreditsBadge />
       </div>
     </motion.div>
     </TooltipProvider>

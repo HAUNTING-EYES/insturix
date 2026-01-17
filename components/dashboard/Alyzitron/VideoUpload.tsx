@@ -11,7 +11,8 @@ import { Upload, ArrowRight, Loader2 } from 'lucide-react';
 import { useVideoAnalysis } from '@/app/dashboard/alyzitron/hooks/useVideoAnalysis';
 import { CreditsErrorPopup } from '@/components/shared/CreditsErrorPopup';
 import { CreditsTopupModal } from '@/components/shared/CreditsTopupModal';
-import { ContextSelector, type ContextValues } from './ContextSelector';
+import { ContextSelector } from './ContextSelector';
+import { ContextValues } from '@/app/api/services/alyzitron/types';
 import { ImmersiveModal } from './ImmersiveModal';
 import { useToast } from '@/hooks/use-toast';
 

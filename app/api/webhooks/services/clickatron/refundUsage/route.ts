@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { processRefund } from '@/lib/services/tasks/simple-refund';
+import { CreditsService } from '@/lib/services/creditsService';
 
 export async function POST(request: Request) {
   // 1. Authenticate the request
@@ -14,14 +14,31 @@ export async function POST(request: Request) {
   try {
     // 2. Parse request body
     const body = await request.json();
-    const { taskType, userid: userId } = body;
+    const { taskType, userid: userId, amount, transactionId } = body;
 
-    if (!taskType || !userId) {
-      return new NextResponse('Missing required fields: taskType or userid', { status: 400 });
+    if (!userId) {
+      return new NextResponse('Missing required field: userid', { status: 400 });
     }
 
-    // 3. Process refund
-    await processRefund('clickatron', taskType, userId);
+    // Default amount to 3 credits (standard clickatron variation cost)
+    const refundAmount = amount ?? 3;
+
+    // 3. Process credits refund
+    const result = await CreditsService.refundCredits(
+      userId,
+      refundAmount,
+      `Service failure refund: ${taskType || 'clickatron'}`,
+      {
+        service: 'clickatron',
+        action: taskType || 'variation',
+        originalTransactionId: transactionId,
+      }
+    );
+
+    if (!result.success) {
+      console.error('Failed to refund credits:', result.error);
+      return new NextResponse(`Refund failed: ${result.error}`, { status: 500 });
+    }
 
     return new NextResponse('Refund processed successfully', { status: 200 });
   } catch (error) {

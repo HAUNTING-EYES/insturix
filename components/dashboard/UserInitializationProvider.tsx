@@ -2,9 +2,15 @@
 
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useUser } from '@clerk/nextjs';
-import { computeServiceUsageFromUser } from '@/lib/utils/computeServiceUsage';
 
-export type ServiceUsageData = Record<string, Record<string, ServiceUsageInfo>>;
+// Credits balance type (simplified for frontend)
+export interface CreditsBalance {
+  subscriptionCredits: number;
+  topupCredits: number;
+  total: number;
+}
+
+export type ServiceUsageData = Record<string, Record<string, any>>;
 
 interface UserInitializationContextType {
   isInitialized: boolean;
@@ -13,7 +19,9 @@ interface UserInitializationContextType {
   userExists: boolean;
   user: User | null;
   featureUsage: ServiceUsageData;
+  creditsBalance: CreditsBalance | null;
   refreshFeatureUsage: () => Promise<void>;
+  refreshCredits: () => Promise<void>;
 }
 
 const UserInitializationContext = createContext<UserInitializationContextType>({
@@ -23,13 +31,14 @@ const UserInitializationContext = createContext<UserInitializationContextType>({
   userExists: false,
   user: null,
   featureUsage: {},
+  creditsBalance: null,
   refreshFeatureUsage: async () => {},
+  refreshCredits: async () => {},
 });
 
 export const useUserInitialization = () => useContext(UserInitializationContext);
 
 import { User } from "@/types/userTypes";
-import type { ServiceUsageInfo } from "@/lib/services/serviceUsageService";
 
 interface UserInitializationProviderProps {
   children: ReactNode;
@@ -41,34 +50,38 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
   
   // Initialize state directly from server-provided props
   const [userData, setUserData] = useState<User | null>(initialData);
-  const [featureUsage, setFeatureUsage] = useState<ServiceUsageData>(() =>
-    initialData ? computeServiceUsageFromUser(initialData) : {}
-  );
+  const [featureUsage, setFeatureUsage] = useState<ServiceUsageData>({});
+  const [creditsBalance, setCreditsBalance] = useState<CreditsBalance | null>(null);
   
   const [isInitialized, setIsInitialized] = useState(!!initialData);
-  const [isLoading, setIsLoading] = useState(!initialData); // Only loading if no initial data
+  const [isLoading, setIsLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
   const [userExists, setUserExists] = useState(!!initialData);
 
-  const refreshFeatureUsage = useCallback(async () => {
+  const refreshCredits = useCallback(async () => {
     if (!user) return;
 
     try {
-      setIsLoading(true);
-      setError(null);
-      const response = await fetch('/api/user/feature-usage', { cache: 'no-store' });
-      if (!response.ok) {
-        throw new Error('Failed to fetch feature usage');
+      const response = await fetch('/api/user/credits', { cache: 'no-store' });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.balance) {
+          setCreditsBalance({
+            subscriptionCredits: data.balance.subscriptionCredits,
+            topupCredits: data.balance.topupCredits,
+            total: data.balance.subscriptionCredits + data.balance.topupCredits,
+          });
+        }
       }
-      const result = await response.json();
-      setFeatureUsage(result.data || {});
     } catch (err) {
-      console.error('Error refreshing feature usage:', err);
-      setError(err instanceof Error ? err.message : 'Failed to refresh feature usage');
-    } finally {
-      setIsLoading(false);
+      console.error('Error refreshing credits:', err);
     }
   }, [user]);
+
+  const refreshFeatureUsage = useCallback(async () => {
+    // Now just refresh credits (legacy feature usage is deprecated)
+    await refreshCredits();
+  }, [refreshCredits]);
 
   // Effect to refresh data from server in the background after initial render
   useEffect(() => {
@@ -95,13 +108,9 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
         if (isMounted) {
           setUserData(data.user);
           setUserExists(true);
-          if (data.user) {
-            const computedUsage = computeServiceUsageFromUser(data.user);
-            setFeatureUsage(computedUsage);
-          }
           setIsInitialized(true);
-          // Also refresh from server to ensure consistency
-          refreshFeatureUsage();
+          // Refresh credits after initialization
+          refreshCredits();
         }
       } catch (err) {
         if (isMounted) {
@@ -122,7 +131,7 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
     return () => {
       isMounted = false;
     };
-  }, [isLoaded, user, initialData]);
+  }, [isLoaded, user, initialData, refreshCredits]);
 
   const contextValue: UserInitializationContextType = {
     isInitialized,
@@ -131,7 +140,9 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
     userExists,
     user: userData,
     featureUsage,
+    creditsBalance,
     refreshFeatureUsage,
+    refreshCredits,
   };
 
   return (

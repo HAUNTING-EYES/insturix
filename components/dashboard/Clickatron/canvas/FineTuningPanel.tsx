@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { CustomColorGrading } from './CustomColorGrading';
-import { LimitDisplay } from '../LimitDisplay';
+import { CreditsBadge } from '@/components/shared/CreditsCard';
 
 interface FineTuningControls {
   brightness: number;
@@ -277,9 +277,9 @@ export function FineTuningPanel({
         onApply={handleCustomGradingApply}
       />
       
-      {/* Usage Limits Display */}
+      {/* Credits Display */}
       <div className="p-4 border-t border-zinc-800/80">
-        <LimitDisplay compact />
+        <CreditsBadge />
       </div>
     </motion.div>
   );
