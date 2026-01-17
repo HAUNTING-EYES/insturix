@@ -9,7 +9,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Upload, ArrowRight, Loader2 } from 'lucide-react';
 import { useVideoAnalysis } from '@/app/dashboard/alyzitron/hooks/useVideoAnalysis';
-import { UsageLimitPopup } from './UsageLimitPopup';
+import { CreditsErrorPopup } from '@/components/shared/CreditsErrorPopup';
+import { CreditsTopupModal } from '@/components/shared/CreditsTopupModal';
 import { ContextSelector, type ContextValues } from './ContextSelector';
 import { ImmersiveModal } from './ImmersiveModal';
 import { useToast } from '@/hooks/use-toast';
@@ -41,13 +42,13 @@ const fadeIn = {
 export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   const [source, setSource] = useState<Source>({ type: 'none' });
   const [context, setContext] = useState<ContextValues>(defaultContext);
-  const [limitPopup, setLimitPopup] = useState<{
+  const [creditsError, setCreditsError] = useState<{
     isOpen: boolean;
-    limitType: 'total' | 'long_video' | 'general';
-    currentUsage?: number;
-    maxUsage?: number;
+    required?: number;
+    available?: number;
     savedFormData?: { source: Source; context: ContextValues };
-  }>({ isOpen: false, limitType: 'general' });
+  }>({ isOpen: false });
+  const [showTopup, setShowTopup] = useState(false);
 
   // Immersive flow modal state
   const [immersiveOpen, setImmersiveOpen] = useState(false);
@@ -518,19 +519,24 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
 
           {/* Progress overlay - moved to ImmersiveModal */}
 
-          <UsageLimitPopup
-            isOpen={limitPopup.isOpen}
+          <CreditsErrorPopup
+            isOpen={creditsError.isOpen}
             onClose={() => {
-              const saved = limitPopup.savedFormData;
+              const saved = creditsError.savedFormData;
               if (saved) {
                 setSource(saved.source);
                 setContext(saved.context);
               }
-              setLimitPopup(prev => ({ ...prev, isOpen: false, savedFormData: undefined }));
+              setCreditsError(prev => ({ ...prev, isOpen: false, savedFormData: undefined }));
             }}
-            limitType={limitPopup.limitType}
-            currentUsage={limitPopup.currentUsage}
-            maxUsage={limitPopup.maxUsage}
+            onTopup={() => setShowTopup(true)}
+            required={creditsError.required}
+            available={creditsError.available}
+            serviceName="video analysis"
+          />
+          <CreditsTopupModal 
+            isOpen={showTopup} 
+            onClose={() => setShowTopup(false)} 
           />
         </CardContent>
       </Card>

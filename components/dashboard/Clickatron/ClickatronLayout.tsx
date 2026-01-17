@@ -1,16 +1,23 @@
 "use client";
 
-import React from 'react';
+import React, { useState } from 'react';
 import { CanvasIdeaInput } from './CanvasIdeaInput';
 import { ClickatronHistory } from './ClickatronHistory';
-import { UsageDisplay } from './UsageDisplay';
+import { CreditsCard } from '@/components/shared/CreditsCard';
+import { CreditsTopupModal } from '@/components/shared/CreditsTopupModal';
 
 export function ClickatronLayout() {
+  const [showTopup, setShowTopup] = useState(false);
+
   return (
     <div className="space-y-8">
-      <UsageDisplay />
+      <CreditsCard onTopupClick={() => setShowTopup(true)} />
       <CanvasIdeaInput />
       <ClickatronHistory />
+      <CreditsTopupModal 
+        isOpen={showTopup} 
+        onClose={() => setShowTopup(false)} 
+      />
     </div>
   );
 }

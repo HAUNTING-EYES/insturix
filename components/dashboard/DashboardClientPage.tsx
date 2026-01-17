@@ -1,16 +1,14 @@
 "use client";
 
-import { lazy, Suspense, useState, useEffect } from "react";
-
+import { lazy, Suspense, useState } from "react";
+import { CreditsCard } from "@/components/shared/CreditsCard";
+import { CreditsTopupModal } from "@/components/shared/CreditsTopupModal";
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import("@/components/dashboard/Dashboard"));
 const CursorEffect = lazy(() => import("@/components/ui/CursorEffect"));
 const DashboardShell = lazy(
   () => import("@/components/dashboard/DashboardShell")
-);
-const FeatureUsageOverviewClient = lazy(
-  () => import("@/components/dashboard/FeatureUsageOverviewClient").then(mod => ({ default: mod.FeatureUsageOverviewClient }))
 );
 
 const THEME = {
@@ -22,7 +20,7 @@ const THEME = {
 };
 
 export default function DashboardClientPage() {
-
+  const [showTopup, setShowTopup] = useState(false);
 
   return (
     <>
@@ -39,8 +37,6 @@ export default function DashboardClientPage() {
         <Dashboard />
       </Suspense>
 
-
-
       <Suspense fallback={null}>
         <CursorEffect
           variant="glow"
@@ -50,27 +46,18 @@ export default function DashboardClientPage() {
         />
       </Suspense>
 
-      <Suspense
-        fallback={
-          <div className="p-8 mt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {[1, 2, 3].map((i) => (
-                <div
-                  key={i}
-                  className="p-4 rounded-lg bg-white/[0.02] border border-white/[0.08] animate-pulse"
-                >
-                  <div className="h-4 bg-white/10 rounded mb-2"></div>
-                  <div className="h-8 bg-white/5 rounded"></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        }
-      >
-        <DashboardShell>
-          <FeatureUsageOverviewClient />
-        </DashboardShell>
-      </Suspense>
+      {/* Credits Card - replaces old per-service usage overview */}
+      <div className="p-8 pt-4">
+        <CreditsCard 
+          onTopupClick={() => setShowTopup(true)} 
+          className="max-w-md"
+        />
+      </div>
+
+      <CreditsTopupModal 
+        isOpen={showTopup} 
+        onClose={() => setShowTopup(false)} 
+      />
     </>
   );
 }
