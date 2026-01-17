@@ -5,6 +5,7 @@ import Plan from "@/schemas/plans";
 import Socialize from "@/schemas/Socialize";
 import { UserType } from "@/types/userTypes";
 import { IServiceLimits } from "@/schemas/user";
+import { CreditsService } from "@/lib/services/creditsService";
 
 type DbUser = typeof User extends { schema: unknown }
   ? Awaited<ReturnType<(typeof User)["findOne"]>>
@@ -121,6 +122,14 @@ export class UserInitializationService {
         isNewUser = true;
         
         console.log(`Successfully created user account for: ${email}`);
+        
+        // Grant initial free tier credits
+        try {
+          await CreditsService.grantSubscriptionCredits(clerkUserId, 'free', 'monthly');
+          console.log(`Granted free tier credits to new user: ${email}`);
+        } catch (creditError) {
+          console.error(`Failed to grant initial credits to ${email}:`, creditError);
+        }
       } catch (upsertError: unknown) {
         // Handle duplicate username error
         if (upsertError && typeof upsertError === 'object' && 'code' in upsertError && upsertError.code === 11000) {
