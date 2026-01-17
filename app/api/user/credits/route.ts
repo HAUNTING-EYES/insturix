@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { CreditsService } from "@/lib/services/creditsService";
+import { CreditsMigrationService } from "@/lib/services/creditsMigrationService";
 
 export async function GET(request: NextRequest) {
   try {
@@ -18,6 +19,9 @@ export async function GET(request: NextRequest) {
         { status: 401 }
       );
     }
+
+    // Ensure existing users are migrated to credits system
+    await CreditsMigrationService.ensureMigrated(userId);
 
     const balance = await CreditsService.getBalance(userId);
 
@@ -39,3 +43,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+
