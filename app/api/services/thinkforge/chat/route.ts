@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { processChat } from '@/lib/thinkforge/services/chat-service';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -50,7 +51,20 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
   }
 
+  // Check credits before processing
+  // TODO: Add model detection from intentContext or processChat response
+  const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message', {
+    taskId: sessionId,
+  });
+
+  if (!creditCheck.allowed) {
+    return creditCheck.errorResponse;
+  }
+
   try {
+    // Deduct credits before starting the stream
+    await creditCheck.deduct();
+
     const stream = await processChat({
       sessionId,
       prompt,
@@ -76,6 +90,9 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Error in chat endpoint:', error);
+    
+    // Refund credits on failure
+    await creditCheck.refund(error?.message || 'Chat processing failed');
     
     // Handle rate limit errors
     if (error.message?.includes('limit reached')) {

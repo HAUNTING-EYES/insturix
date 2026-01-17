@@ -1,11 +1,15 @@
 import { createLimitMiddleware, LimitConfig } from '../limitMiddleware';
 
+// Clickatron service configuration - Credits-based billing (per request)
 export const CLICKATRON_LIMIT_CONFIG: LimitConfig = {
   serviceName: 'clickatron',
   limitMappings: {
     'variation': 'maxVariationGeneration',
  },
-  defaultLimitType: 'maxVariationGeneration'
+  defaultLimitType: 'maxVariationGeneration',
+  // Enable credits-based billing
+  useCredits: true,
+  creditAction: 'variation',
 };
 
 export const clickatronLimitMiddleware = createLimitMiddleware(CLICKATRON_LIMIT_CONFIG);

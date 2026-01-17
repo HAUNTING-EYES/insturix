@@ -1,11 +1,15 @@
 import { createLimitMiddleware, LimitConfig } from '../limitMiddleware';
 
+// Musitron service configuration - Credits-based billing (per generation)
 export const MUSITRON_LIMIT_CONFIG: LimitConfig = {
   serviceName: 'musitron',
   limitMappings: {
     'general': 'maxMusicGeneration',
   },
-  defaultLimitType: 'maxMusicGeneration'
+  defaultLimitType: 'maxMusicGeneration',
+  // Enable credits-based billing
+  useCredits: true,
+  creditAction: 'music_generation',
 };
 
 export const musitronLimitMiddleware = createLimitMiddleware(MUSITRON_LIMIT_CONFIG);

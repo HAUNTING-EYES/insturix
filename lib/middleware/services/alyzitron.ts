@@ -1,13 +1,16 @@
 import { createLimitMiddleware, LimitConfig } from '../limitMiddleware';
 
-// Alyzitron service configuration - Weekly limits based on technical factors
+// Alyzitron service configuration - Credits-based billing (per minute)
 export const ALYZITRON_LIMIT_CONFIG: LimitConfig = {
   serviceName: 'alyzitron',
   limitMappings: {
     // All analyses count toward total weekly limit (regardless of content type)
     'general': 'AnalysisMinutes',
   },
-  defaultLimitType: 'AnalysisMinutes'
+  defaultLimitType: 'AnalysisMinutes',
+  // Enable credits-based billing
+  useCredits: true,
+  creditAction: 'video_analysis',
 };
 
 // Create Alyzitron-specific middleware instance
