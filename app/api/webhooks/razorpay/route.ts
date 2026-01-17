@@ -6,6 +6,7 @@ import { User } from "@/schemas/user";
 import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
 import { updateUserPlan, downgradeUserToFreePlan, extendUserPlan, cancelUserPlan } from "@/lib/services/planService";
+import { CreditsService } from "@/lib/services/creditsService";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
@@ -52,6 +53,10 @@ interface RazorpayWebhookPayload {
           userType?: string;
           dbPlanId?: string;
           subscriptionId?: string;
+          // Credits topup fields
+          type?: string;
+          credits?: string;
+          packageId?: string;
         };
         error_reason?: string;
       };
@@ -219,6 +224,16 @@ export async function POST(request: NextRequest) {
         } catch (error) {
           console.error(`Error processing subscription activation: ${subscription.id}`, error);
         }
+
+        // Grant subscription credits
+        try {
+          const plan = await razorpay.plans.fetch(subscription.plan_id);
+          const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
+          await CreditsService.grantSubscriptionCredits(user.clerkUserId, userType, planPeriod);
+          console.log(`Granted subscription credits to user ${user.clerkUserId} for ${userType} plan`);
+        } catch (creditError) {
+          console.error(`Error granting subscription credits: ${subscription.id}`, creditError);
+        }
         break;
       }
       case "subscription.charged": {
@@ -300,6 +315,16 @@ export async function POST(request: NextRequest) {
             subscriptionId: subscription.id,
             latestInvoice: subscription.latest_invoice,
           });
+          
+          // Grant new subscription credits on renewal
+          try {
+            const plan = await razorpay.plans.fetch(subscription.plan_id);
+            const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
+            await CreditsService.grantSubscriptionCredits(user.clerkUserId, user.currentPlan.name, planPeriod);
+            console.log(`Granted renewal credits to user ${user.clerkUserId}`);
+          } catch (creditError) {
+            console.error(`Error granting renewal credits for subscription ${subscription.id}:`, creditError);
+          }
         }
         break;
       }
@@ -337,6 +362,25 @@ export async function POST(request: NextRequest) {
         const payment = webhookPayload.payment?.entity;
         if (payment) {
           console.log(`Payment event '${event}' received for payment ${payment.id}`);
+          
+          // Check if this is a credits topup payment
+          if (payment.notes?.type === 'credits_topup') {
+            const userId = payment.notes.userId;
+            const credits = parseInt(payment.notes.credits || '0', 10);
+            const packageId = payment.notes.packageId;
+            
+            if (userId && credits > 0) {
+              try {
+                await CreditsService.addTopupCredits(userId, credits, {
+                  paymentId: payment.id,
+                  packageId,
+                });
+                console.log(`[Credits Topup] Added ${credits} credits to user ${userId}`);
+              } catch (creditError) {
+                console.error(`[Credits Topup] Failed to add credits for payment ${payment.id}:`, creditError);
+              }
+            }
+          }
         }
         break;
       }
