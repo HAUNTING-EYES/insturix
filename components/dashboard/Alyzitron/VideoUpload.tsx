@@ -2,7 +2,6 @@
 
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useQuery } from '@tanstack/react-query';
 import { Analysis } from '@/app/dashboard/alyzitron/types/analysis';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,6 +14,7 @@ import { ContextSelector } from './ContextSelector';
 import { ContextValues } from '@/app/api/services/alyzitron/types';
 import { ImmersiveModal } from './ImmersiveModal';
 import { useToast } from '@/hooks/use-toast';
+import { useCredits } from '@/hooks/useCredits';
 
 interface VideoUploadProps {
   onSubmit: (analysisId: string, analysis: Analysis) => void;
@@ -27,31 +27,33 @@ type Source =
   | { type: 'file'; file: File; duration: number }
   | { type: 'link'; url: string; preview?: { title: string; thumbnail: string; videoId: string; duration: number } };
 
-
-const defaultContext: ContextValues = {
-  niche: "",
-  audience: "",
-  tone: "",
-};
-
 const fadeIn = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0, transition: { duration: 0.28, ease: 'easeOut' as const } },
   exit: { opacity: 0, y: 8, transition: { duration: 0.2, ease: 'easeIn' as const } }
 };
 
-export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
+
+export default function VideoUpload({ onSubmit, onComplete, activeAnalyses }: VideoUploadProps) {
   const [source, setSource] = useState<Source>({ type: 'none' });
-  const [context, setContext] = useState<ContextValues>(defaultContext);
+  const [context, setContext] = useState<ContextValues>({
+    niche: '',
+    audience: '',
+    tone: '',
+    additionalDetails: '',
+  });
+  const [showTopup, setShowTopup] = useState(false);
   const [creditsError, setCreditsError] = useState<{
     isOpen: boolean;
-    required?: number;
-    available?: number;
-    savedFormData?: { source: Source; context: ContextValues };
-  }>({ isOpen: false });
-  const [showTopup, setShowTopup] = useState(false);
+    required: number;
+    available: number;
+    savedFormData?: {
+      source: Source;
+      context: ContextValues;
+    };
+  }>({ isOpen: false, required: 0, available: 0 });
 
-  // Immersive flow modal state
+  // Track upload states from useVideoAnalysis
   const [immersiveOpen, setImmersiveOpen] = useState(false);
   
   // Loading state for preview fetching
@@ -59,40 +61,17 @@ export function VideoUpload({ onSubmit, onComplete }: VideoUploadProps) {
   
   const { toast } = useToast();
 
-  // Fetch usage data using React Query (now uses credits API)
-  const { data: usageData } = useQuery({
-    queryKey: ['credits-balance'],
-    queryFn: async () => {
-      try {
-        const response = await fetch('/api/user/credits');
-        if (!response.ok) {
-          throw new Error('Failed to fetch credits data');
-        }
-        const data = await response.json();
-        if (data.success && data.balance) {
-          return {
-            creditsAvailable: data.balance.totalCredits,
-            subscriptionCredits: data.balance.subscriptionCredits,
-            topupCredits: data.balance.topupCredits,
-          };
-        }
-        return {
-          creditsAvailable: 0,
-          subscriptionCredits: 0,
-          topupCredits: 0,
-        };
-      } catch (error) {
-        console.error('Failed to fetch credits data:', error);
-        return {
-          creditsAvailable: 0,
-          subscriptionCredits: 0,
-          topupCredits: 0,
-        };
-      }
-    },
-    staleTime: 5 * 60 * 1000, // 5 minutes
-    gcTime: 30 * 60 * 1000, // 30 minutes
-  });
+  // Use shared credits hook with React Query (auto-refreshes on invalidation)
+  const { balance, invalidateCredits } = useCredits();
+  const usageData = balance ? {
+    creditsAvailable: balance.totalCredits,
+    subscriptionCredits: balance.subscriptionCredits,
+    topupCredits: balance.topupCredits,
+  } : {
+    creditsAvailable: 0,
+    subscriptionCredits: 0,
+    topupCredits: 0,
+  };
 
   // Local input state to ensure a visible, controlled URL input when source.type === 'none'
   const [inputUrl, setInputUrl] = useState<string>('');

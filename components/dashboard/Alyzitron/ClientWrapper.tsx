@@ -3,7 +3,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState, lazy, Suspense } from 'react';
 // Lazy load heavy components
-const VideoUpload = lazy(() => import('./VideoUpload').then(mod => ({ default: mod.VideoUpload })));
+const VideoUpload = lazy(() => import('./VideoUpload'));
 const AlyzitronTaskHistory = lazy(() => import('./AlyzitronTaskHistory').then(mod => ({ default: mod.AlyzitronTaskHistory })));
 
 /**

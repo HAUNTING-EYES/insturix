@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Coins, 
@@ -15,23 +15,7 @@ import {
   X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-
-interface CreditsBalance {
-  subscriptionCredits: number;
-  topupCredits: number;
-  totalCredits: number;
-  subscriptionCreditsExpiry: string | null;
-}
-
-interface CreditTransaction {
-  id: string;
-  type: 'subscription_grant' | 'topup' | 'usage' | 'refund' | 'expiry' | 'adjustment';
-  amount: number;
-  service?: string;
-  action?: string;
-  timestamp: string;
-  balanceAfter: number;
-}
+import { useCredits, type CreditsBalance, type CreditTransaction } from "@/hooks/useCredits";
 
 interface CreditsCardProps {
   variant?: 'compact' | 'full';
@@ -58,35 +42,8 @@ const transactionLabels = {
 };
 
 export function CreditsCard({ variant = 'compact', className, onTopupClick }: CreditsCardProps) {
-  const [balance, setBalance] = useState<CreditsBalance | null>(null);
-  const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
+  const { balance, transactions, isLoading, error } = useCredits();
   const [expanded, setExpanded] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchCredits();
-  }, []);
-
-  const fetchCredits = async () => {
-    try {
-      setLoading(true);
-      const res = await fetch('/api/user/credits');
-      const data = await res.json();
-      
-      if (data.success) {
-        setBalance(data.balance);
-        setTransactions(data.recentTransactions || []);
-        setError(null);
-      } else {
-        setError(data.error || 'Failed to load credits');
-      }
-    } catch (err) {
-      setError('Failed to load credits');
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const getCreditsColor = (total: number) => {
     if (total <= 10) return 'text-red-500';
@@ -116,7 +73,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
     return `${daysLeft} days left`;
   };
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className={cn("rounded-xl border border-border/50 bg-card/50 p-4", className)}>
         <div className="animate-pulse flex items-center gap-3">
@@ -336,24 +293,13 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
 
 // Mini badge version for headers/navbars
 export function CreditsBadge({ className }: { className?: string }) {
-  const [balance, setBalance] = useState<number | null>(null);
+  const { balance, isLoading } = useCredits();
 
-  useEffect(() => {
-    fetch('/api/user/credits')
-      .then(res => res.json())
-      .then(data => {
-        if (data.success) {
-          setBalance(data.balance.totalCredits);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  if (balance === null) return null;
+  if (isLoading || !balance) return null;
 
   const getColor = () => {
-    if (balance <= 10) return 'bg-red-500/10 text-red-500 border-red-500/20';
-    if (balance <= 50) return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
+    if (balance.totalCredits <= 10) return 'bg-red-500/10 text-red-500 border-red-500/20';
+    if (balance.totalCredits <= 50) return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
     return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
   };
 
@@ -364,7 +310,7 @@ export function CreditsBadge({ className }: { className?: string }) {
       className
     )}>
       <Coins className="w-3 h-3" />
-      {balance.toLocaleString()}
+      {balance.totalCredits.toLocaleString()}
     </div>
   );
 }
