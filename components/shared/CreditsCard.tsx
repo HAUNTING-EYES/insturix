@@ -2,20 +2,9 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { 
-  Coins, 
-  ChevronDown, 
-  ChevronUp, 
-  Zap, 
-  Clock, 
-  Plus,
-  TrendingDown,
-  Gift,
-  RefreshCw,
-  X
-} from "lucide-react";
+import { ChevronDown, ChevronUp, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCredits, type CreditsBalance, type CreditTransaction } from "@/hooks/useCredits";
+import { useCredits, type CreditTransaction } from "@/hooks/useCredits";
 
 interface CreditsCardProps {
   variant?: 'compact' | 'full';
@@ -23,19 +12,10 @@ interface CreditsCardProps {
   onTopupClick?: () => void;
 }
 
-const transactionIcons = {
-  subscription_grant: Gift,
-  topup: Plus,
-  usage: TrendingDown,
-  refund: RefreshCw,
-  expiry: Clock,
-  adjustment: Zap,
-};
-
 const transactionLabels = {
-  subscription_grant: 'Subscription Grant',
-  topup: 'Credit Top-up',
-  usage: 'Usage',
+  subscription_grant: 'Plan Grant',
+  topup: 'Top-up',
+  usage: 'Used',
   refund: 'Refund',
   expiry: 'Expired',
   adjustment: 'Adjustment',
@@ -44,19 +24,6 @@ const transactionLabels = {
 export function CreditsCard({ variant = 'compact', className, onTopupClick }: CreditsCardProps) {
   const { balance, transactions, isLoading, error } = useCredits();
   const [expanded, setExpanded] = useState(false);
-
-  const getCreditsColor = (total: number) => {
-    if (total <= 10) return 'text-red-500';
-    if (total <= 50) return 'text-yellow-500';
-    return 'text-emerald-500';
-  };
-
-  const getCreditsBarColor = (total: number, max: number) => {
-    const percentage = (total / max) * 100;
-    if (percentage <= 20) return 'bg-red-500';
-    if (percentage <= 50) return 'bg-yellow-500';
-    return 'bg-emerald-500';
-  };
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -69,18 +36,17 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
     const now = new Date();
     const daysLeft = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
     if (daysLeft <= 0) return 'Expired';
-    if (daysLeft === 1) return '1 day left';
-    return `${daysLeft} days left`;
+    if (daysLeft === 1) return '1d left';
+    return `${daysLeft}d left`;
   };
 
   if (isLoading) {
     return (
-      <div className={cn("rounded-xl border border-border/50 bg-card/50 p-4", className)}>
+      <div className={cn("rounded-lg border border-border/50 bg-card/50 p-4", className)}>
         <div className="animate-pulse flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-muted" />
           <div className="flex-1 space-y-2">
-            <div className="h-4 bg-muted rounded w-20" />
-            <div className="h-3 bg-muted rounded w-32" />
+            <div className="h-5 bg-muted rounded w-16" />
+            <div className="h-2 bg-muted rounded w-24" />
           </div>
         </div>
       </div>
@@ -89,8 +55,8 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
 
   if (error || !balance) {
     return (
-      <div className={cn("rounded-xl border border-red-500/20 bg-red-500/5 p-4", className)}>
-        <p className="text-sm text-red-500">{error || 'Credits unavailable'}</p>
+      <div className={cn("rounded-lg border border-border/50 bg-card/50 p-4", className)}>
+        <p className="text-sm text-muted-foreground">{error || 'Credits unavailable'}</p>
       </div>
     );
   }
@@ -103,36 +69,28 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
       {/* Compact Card */}
       <motion.div
         className={cn(
-          "rounded-xl border border-border/50 bg-card/80 backdrop-blur-sm cursor-pointer",
-          "hover:border-primary/30 transition-colors",
-          expanded && "border-primary/50"
+          "rounded-lg border border-border/50 bg-card/80 backdrop-blur-sm cursor-pointer",
+          "hover:border-border transition-colors",
+          expanded && "border-border"
         )}
         onClick={() => setExpanded(!expanded)}
-        whileHover={{ scale: 1.01 }}
-        whileTap={{ scale: 0.99 }}
+        whileHover={{ scale: 1.005 }}
+        whileTap={{ scale: 0.995 }}
       >
         <div className="p-4 flex items-center gap-4">
-          {/* Icon */}
-          <div className={cn(
-            "w-10 h-10 rounded-full flex items-center justify-center",
-            "bg-gradient-to-br from-amber-500/20 to-orange-500/20"
-          )}>
-            <Coins className="w-5 h-5 text-amber-500" />
-          </div>
-
           {/* Balance */}
           <div className="flex-1 min-w-0">
             <div className="flex items-baseline gap-2">
-              <span className={cn("text-2xl font-bold", getCreditsColor(balance.totalCredits))}>
+              <span className="text-2xl font-semibold tabular-nums">
                 {balance.totalCredits.toLocaleString()}
               </span>
               <span className="text-sm text-muted-foreground">credits</span>
             </div>
             
             {/* Progress bar */}
-            <div className="mt-1.5 h-1.5 bg-muted rounded-full overflow-hidden">
+            <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
               <motion.div
-                className={cn("h-full rounded-full", getCreditsBarColor(balance.totalCredits, maxCredits))}
+                className="h-full rounded-full bg-foreground/20"
                 initial={{ width: 0 }}
                 animate={{ width: `${Math.min((balance.totalCredits / maxCredits) * 100, 100)}%` }}
                 transition={{ duration: 0.5 }}
@@ -140,14 +98,14 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
             </div>
 
             {/* Breakdown hint */}
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <span>{balance.subscriptionCredits} sub</span>
-              <span>•</span>
+            <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{balance.subscriptionCredits} plan</span>
+              <span className="opacity-50">·</span>
               <span>{balance.topupCredits} topup</span>
               {expiryText && (
                 <>
-                  <span>•</span>
-                  <span className="text-amber-500">{expiryText}</span>
+                  <span className="opacity-50">·</span>
+                  <span className="text-muted-foreground">{expiryText}</span>
                 </>
               )}
             </div>
@@ -155,7 +113,7 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
 
           {/* Expand/collapse */}
           <div className="text-muted-foreground">
-            {expanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+            {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           </div>
         </div>
       </motion.div>
@@ -177,16 +135,16 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
             <motion.div
               className={cn(
                 "absolute left-0 right-0 mt-2 z-50",
-                "rounded-xl border border-border bg-card shadow-xl"
+                "rounded-lg border border-border bg-card shadow-lg"
               )}
-              initial={{ opacity: 0, y: -10, scale: 0.95 }}
+              initial={{ opacity: 0, y: -10, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.95 }}
-              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              exit={{ opacity: 0, y: -10, scale: 0.98 }}
+              transition={{ type: "spring", damping: 25, stiffness: 350 }}
             >
               {/* Header */}
               <div className="p-4 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold">Credits Balance</h3>
+                <h3 className="text-sm font-medium">Credits Balance</h3>
                 <button
                   onClick={(e) => { e.stopPropagation(); setExpanded(false); }}
                   className="p-1 rounded-md hover:bg-muted transition-colors"
@@ -197,24 +155,17 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
 
               {/* Balance Breakdown */}
               <div className="p-4 space-y-3">
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-blue-500" />
-                    <span className="text-sm">Subscription Credits</span>
-                  </div>
-                  <span className="font-medium">{balance.subscriptionCredits}</span>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Plan Credits</span>
+                  <span className="font-medium tabular-nums">{balance.subscriptionCredits}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                    <span className="text-sm">Top-up Credits</span>
-                  </div>
-                  <span className="font-medium">{balance.topupCredits}</span>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Top-up Credits</span>
+                  <span className="font-medium tabular-nums">{balance.topupCredits}</span>
                 </div>
                 {expiryText && (
-                  <p className="text-xs text-amber-500 flex items-center gap-1">
-                    <Clock className="w-3 h-3" />
-                    Subscription credits: {expiryText}
+                  <p className="text-xs text-muted-foreground">
+                    Plan credits reset: {expiryText}
                   </p>
                 )}
               </div>
@@ -223,38 +174,28 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
               {transactions.length > 0 && (
                 <div className="border-t border-border">
                   <div className="p-3 pb-2">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase">Recent Activity</h4>
+                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Recent</h4>
                   </div>
-                  <div className="max-h-48 overflow-y-auto">
+                  <div className="max-h-40 overflow-y-auto">
                     {transactions.slice(0, 5).map((txn) => {
-                      const Icon = transactionIcons[txn.type];
                       const isPositive = txn.amount > 0;
                       return (
                         <div
                           key={txn.id}
-                          className="px-4 py-2 flex items-center gap-3 hover:bg-muted/50 transition-colors"
+                          className="px-4 py-2 flex items-center gap-3 text-sm"
                         >
-                          <div className={cn(
-                            "w-7 h-7 rounded-full flex items-center justify-center",
-                            isPositive ? "bg-emerald-500/10" : "bg-red-500/10"
-                          )}>
-                            <Icon className={cn(
-                              "w-3.5 h-3.5",
-                              isPositive ? "text-emerald-500" : "text-red-500"
-                            )} />
-                          </div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium truncate">
+                            <p className="font-medium truncate">
                               {transactionLabels[txn.type]}
-                              {txn.service && <span className="text-muted-foreground"> • {txn.service}</span>}
+                              {txn.service && <span className="text-muted-foreground font-normal"> · {txn.service}</span>}
                             </p>
                             <p className="text-xs text-muted-foreground">
                               {formatDate(txn.timestamp)}
                             </p>
                           </div>
                           <span className={cn(
-                            "text-sm font-medium",
-                            isPositive ? "text-emerald-500" : "text-red-500"
+                            "font-medium tabular-nums",
+                            isPositive ? "text-foreground" : "text-muted-foreground"
                           )}>
                             {isPositive ? '+' : ''}{txn.amount}
                           </span>
@@ -273,14 +214,12 @@ export function CreditsCard({ variant = 'compact', className, onTopupClick }: Cr
                     onTopupClick?.();
                   }}
                   className={cn(
-                    "w-full py-2.5 rounded-lg font-medium text-sm",
-                    "bg-gradient-to-r from-amber-500 to-orange-500 text-white",
-                    "hover:from-amber-600 hover:to-orange-600 transition-all",
-                    "flex items-center justify-center gap-2"
+                    "w-full py-2.5 rounded-lg text-sm font-medium",
+                    "bg-foreground text-background",
+                    "hover:bg-foreground/90 transition-colors"
                   )}
                 >
-                  <Plus className="w-4 h-4" />
-                  Top-up Credits
+                  Add Credits
                 </button>
               </div>
             </motion.div>
@@ -297,20 +236,14 @@ export function CreditsBadge({ className }: { className?: string }) {
 
   if (isLoading || !balance) return null;
 
-  const getColor = () => {
-    if (balance.totalCredits <= 10) return 'bg-red-500/10 text-red-500 border-red-500/20';
-    if (balance.totalCredits <= 50) return 'bg-amber-500/10 text-amber-500 border-amber-500/20';
-    return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
-  };
-
   return (
     <div className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border",
-      getColor(),
+      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium",
+      "bg-muted text-muted-foreground",
       className
     )}>
-      <Coins className="w-3 h-3" />
-      {balance.totalCredits.toLocaleString()}
+      <span className="tabular-nums">{balance.totalCredits.toLocaleString()}</span>
+      <span className="opacity-70">cr</span>
     </div>
   );
 }

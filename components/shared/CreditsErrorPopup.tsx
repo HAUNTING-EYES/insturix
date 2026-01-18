@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Coins, AlertCircle, Plus } from "lucide-react";
+import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CreditsErrorPopupProps {
@@ -33,20 +33,15 @@ export function CreditsErrorPopup({
         onClick={onClose}
       >
         <motion.div
-          className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
-          initial={{ scale: 0.9, opacity: 0 }}
+          className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-sm overflow-hidden"
+          initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
+          exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-6 pb-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 text-red-500" />
-              </div>
-              <h2 className="text-lg font-semibold">Insufficient Credits</h2>
-            </div>
+          <div className="p-5 pb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Insufficient Credits</h2>
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-muted transition-colors"
@@ -56,30 +51,30 @@ export function CreditsErrorPopup({
           </div>
 
           {/* Content */}
-          <div className="px-6 pb-6 space-y-4">
-            <p className="text-muted-foreground">
-              You don't have enough credits for {serviceName}.
+          <div className="px-5 pb-5 space-y-4">
+            <p className="text-muted-foreground text-sm">
+              You need more credits for {serviceName}.
             </p>
 
-            <div className="bg-muted/50 rounded-xl p-4 space-y-2">
+            <div className="bg-muted/50 rounded-lg p-4 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Required</span>
-                <span className="font-medium text-red-500">{required} credits</span>
+                <span className="text-muted-foreground">Required</span>
+                <span className="font-medium tabular-nums">{required} credits</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-sm text-muted-foreground">Available</span>
-                <span className="font-medium">{available} credits</span>
+                <span className="text-muted-foreground">Available</span>
+                <span className="font-medium tabular-nums">{available} credits</span>
               </div>
               <div className="border-t border-border pt-2 flex justify-between">
-                <span className="text-sm text-muted-foreground">Need</span>
-                <span className="font-medium text-amber-500">
-                  {Math.max(0, required - available)} more credits
+                <span className="text-muted-foreground">Need</span>
+                <span className="font-medium tabular-nums">
+                  {Math.max(0, required - available)} more
                 </span>
               </div>
             </div>
 
             {/* Actions */}
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-3 pt-1">
               <button
                 onClick={onClose}
                 className="flex-1 py-2.5 rounded-lg font-medium text-sm bg-muted hover:bg-muted/80 transition-colors"
@@ -92,14 +87,12 @@ export function CreditsErrorPopup({
                   onClose();
                 }}
                 className={cn(
-                  "flex-1 py-2.5 rounded-lg font-medium text-sm text-white",
-                  "bg-gradient-to-r from-amber-500 to-orange-500",
-                  "hover:from-amber-600 hover:to-orange-600 transition-all",
-                  "flex items-center justify-center gap-2"
+                  "flex-1 py-2.5 rounded-lg font-medium text-sm",
+                  "bg-foreground text-background",
+                  "hover:bg-foreground/90 transition-colors"
                 )}
               >
-                <Plus className="w-4 h-4" />
-                Top-up
+                Add Credits
               </button>
             </div>
           </div>

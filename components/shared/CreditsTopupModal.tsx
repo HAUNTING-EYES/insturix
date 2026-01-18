@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Coins, Check, Loader2 } from "lucide-react";
+import { X, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface CreditPackage {
@@ -78,7 +78,7 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           },
           prefill: {},
           theme: {
-            color: '#f59e0b',
+            color: '#18181b',
           },
         };
         
@@ -112,22 +112,17 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
         onClick={onClose}
       >
         <motion.div
-          className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md overflow-hidden"
-          initial={{ scale: 0.9, opacity: 0 }}
+          className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-md overflow-hidden"
+          initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          exit={{ scale: 0.9, opacity: 0 }}
+          exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="p-6 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-500/20 flex items-center justify-center">
-                <Coins className="w-5 h-5 text-amber-500" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">Top-up Credits</h2>
-                <p className="text-sm text-muted-foreground">Credits never expire</p>
-              </div>
+          <div className="p-5 border-b border-border flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold">Add Credits</h2>
+              <p className="text-sm text-muted-foreground">Credits never expire</p>
             </div>
             <button
               onClick={onClose}
@@ -138,16 +133,16 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           </div>
 
           {/* Currency selector */}
-          <div className="px-6 pt-4 flex gap-2">
+          <div className="px-5 pt-4 flex gap-2">
             {['USD', 'INR', 'EUR', 'GBP'].map((curr) => (
               <button
                 key={curr}
                 onClick={() => setCurrency(curr)}
                 className={cn(
-                  "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                   currency === curr
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted hover:bg-muted/80"
+                    ? "bg-foreground text-background"
+                    : "bg-muted hover:bg-muted/80 text-muted-foreground"
                 )}
               >
                 {curr}
@@ -156,10 +151,10 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           </div>
 
           {/* Packages */}
-          <div className="p-6 space-y-3">
+          <div className="p-5 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               </div>
             ) : (
               packages.map((pkg) => (
@@ -167,30 +162,30 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
                   key={pkg.id}
                   onClick={() => setSelectedPackage(pkg.id)}
                   className={cn(
-                    "w-full p-4 rounded-xl border-2 transition-all text-left",
+                    "w-full p-4 rounded-lg border transition-all text-left",
                     "flex items-center justify-between",
                     selectedPackage === pkg.id
-                      ? "border-amber-500 bg-amber-500/5"
-                      : "border-border hover:border-muted-foreground/30"
+                      ? "border-foreground/50 bg-muted/50"
+                      : "border-border hover:border-border/80"
                   )}
                 >
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xl font-bold">{pkg.credits}</span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xl font-semibold tabular-nums">{pkg.credits}</span>
                       <span className="text-sm text-muted-foreground">credits</span>
                     </div>
-                    <p className="text-lg font-semibold mt-1">
+                    <p className="text-base font-medium mt-0.5 text-muted-foreground">
                       {formatPrice(pkg.prices[currency] || pkg.prices.USD, currency)}
                     </p>
                   </div>
                   <div className={cn(
-                    "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors",
+                    "w-5 h-5 rounded-full border flex items-center justify-center transition-colors",
                     selectedPackage === pkg.id
-                      ? "border-amber-500 bg-amber-500"
+                      ? "border-foreground bg-foreground"
                       : "border-muted-foreground/30"
                   )}>
                     {selectedPackage === pkg.id && (
-                      <Check className="w-4 h-4 text-white" />
+                      <Check className="w-3 h-3 text-background" />
                     )}
                   </div>
                 </button>
@@ -199,28 +194,25 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           </div>
 
           {/* Purchase button */}
-          <div className="p-6 pt-0">
+          <div className="p-5 pt-0">
             <button
               onClick={handlePurchase}
               disabled={!selectedPackage || purchasing}
               className={cn(
-                "w-full py-3 rounded-xl font-semibold text-white transition-all",
-                "bg-gradient-to-r from-amber-500 to-orange-500",
-                "hover:from-amber-600 hover:to-orange-600",
+                "w-full py-3 rounded-lg font-medium transition-colors",
+                "bg-foreground text-background",
+                "hover:bg-foreground/90",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
                 "flex items-center justify-center gap-2"
               )}
             >
               {purchasing ? (
                 <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   Processing...
                 </>
               ) : (
-                <>
-                  <Coins className="w-5 h-5" />
-                  Purchase Credits
-                </>
+                'Purchase Credits'
               )}
             </button>
           </div>
