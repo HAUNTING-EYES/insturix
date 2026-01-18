@@ -178,7 +178,8 @@ function StackedRow({
         style={{ zIndex, willChange: "transform, opacity" }}
         className={cn(
             "absolute w-full px-2 md:px-0",
-            "flex items-center justify-center"
+            "flex items-center justify-center",
+            status !== "visible" && "pointer-events-none"
         )}
     >
         <div className={cn(
