@@ -47,7 +47,7 @@ Unified credits system replacing per-service usage limits. Credits are deducted 
 |---------|--------|-------------|
 | Alyzitron | ✅ | 2 per minute of video |
 | ThinkForge | ✅ | 1 per chat message |
-| Musitron | ✅ | 8 per music generation |
+| Musitron | ✅ | 3, 8, or 20 (Model Dependent) |
 | Clickatron | ✅ | 3 per variation |
 | **Editron** | ⏳ Pending | Token-based (TBD) |
 
@@ -116,18 +116,24 @@ components/shared/
 ## Remaining Work
 
 ### High Priority
-- [ ] **Editron Token Integration** - Use `TokenCreditTracker` for token-based billing
-- [ ] **Clickatron Full Migration** - Currently hybrid (limits + credits)
+- [ ] **Billing Page Overhaul**
+    - [ ] Remove all service-wise limit displays.
+    - [ ] Show clear credits balance and history.
+    - [ ] Add prominent top-up options.
+    - [ ] Ensure Razorpay flows (subscription + topup) are fully functional and tested.
+- [ ] **Data Migration & Cleanup**
+    - [ ] Update migration logic to completely detach from legacy service limits.
+    - [ ] Perform a full repo scan to identify and remove ALL legacy service limit code/usage.
+- [ ] **Editron Token Integration** - Use `TokenCreditTracker` for token-based billing.
+- [ ] **Clickatron Full Migration** - Currently hybrid (limits + credits).
 
 ### Medium Priority
-- [ ] Remove deprecated `useFeatureUsage` hook references
-- [ ] Clean up legacy `ServiceUsageService` code
-- [ ] Update billing page with credits summary
+- [ ] Remove deprecated `useFeatureUsage` hook references.
+- [ ] Clean up legacy `ServiceUsageService` code.
 
 ### Low Priority
-- [ ] Add credits usage analytics dashboard
-- [ ] Implement credits expiry warning emails
-- [ ] Add credits purchase history page
+- [ ] Add credits usage analytics dashboard.
+- [ ] Implement credits expiry warning emails.
 
 ---
 
