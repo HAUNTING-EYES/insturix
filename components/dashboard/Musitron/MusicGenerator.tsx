@@ -22,7 +22,7 @@ import { CreditCostBadge } from "@/components/shared/CreditCostBadge";
 import { useCredits } from "@/hooks/useCredits";
 
 const MUSIC_MODELS = [
-  { value: "fal-ai/sonauto/v2/text-to-music", label: "Sonauto V2" },
+  { value: "sonauto/v2/text-to-music", label: "Sonauto V2" },
   { value: "fal-ai/stable-audio/v2.5", label: "Stable Audio 2.5" },
   { value: "fal-ai/minimax-music/v2", label: "MiniMax Music V2" },
 ];
@@ -32,7 +32,7 @@ export default function MusicGenerator() {
   const [style, setStyle] = useState("");
   const [lyrics, setLyrics] = useState("");
   const [duration, setDuration] = useState(30); // default 30 seconds
-  const [model, setModel] = useState("fal-ai/sonauto/v2/text-to-music");
+  const [model, setModel] = useState("sonauto/v2/text-to-music");
   const MIN_DURATION = 5;
   const MAX_DURATION = 240;
   const [instrumental, setInstrumental] = useState(false);
@@ -280,7 +280,7 @@ export default function MusicGenerator() {
                     ? "Best for video background music; generates high-quality, structured instrumental tracks (up to 3 minutes) with distinct intro/outro sections in seconds."
                     : model === "fal-ai/minimax-music/v2"
                       ? "Best for complex compositions; excels at high-fidelity instrumentals and multi-language vocals that rival human performances, ideal for audiophiles."
-                      : "Best for viral hits; creates full songs with the most realistic, expressive vocals and lyrics, controllable via BPM and customizable text."}
+                      : "Best for viral hits (Sonauto); creates full songs with realistic, expressive vocals/lyrics, controllable via BPM and customizable text."}
                 </p>
               </div>
 
