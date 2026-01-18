@@ -1,5 +1,7 @@
 import { User } from '@/schemas/user';
 import { REFUND_MAPPING } from '../refund-config';
+import { CreditsService } from '@/lib/services/creditsService';
+import { getCreditCost } from '@/lib/config/creditCosts';
 
 interface FailureParams {
   taskId: string;
@@ -15,7 +17,7 @@ interface FailureParams {
 
 /**
  * Simplified function to handle task failures and refunds
- * Webhooks should already have updated the task status, so we only handle refunds
+ * Handles both legacy usage refunds and credits refunds
  */
 export async function handleTaskFailure({ taskId, serviceName, userId, taskType, task }: FailureParams): Promise<void> {
   if (!taskType) {
@@ -31,15 +33,41 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
     return;
   }
 
-  // Process standard refunds
-  const usageTypes = REFUND_MAPPING[serviceName]?.[taskType];
-  if (usageTypes) {
-    for (const usageType of usageTypes) {
-      await refundUsage(userId, serviceName, usageType);
+  // Handle credits refund for Alyzitron
+  if (serviceName === 'alyzitron') {
+    try {
+      // Get video duration from task to calculate credits to refund
+      const metadata = task?.metadata as Record<string, unknown> | undefined;
+      const videoDuration = task?.videoDuration || metadata?.videoDuration || metadata?.duration;
+      const durationMinutes = typeof videoDuration === 'number' ? Math.ceil(videoDuration / 60) : 1;
+
+      // Calculate credits to refund (same formula as deduction)
+      const creditsToRefund = getCreditCost('alyzitron', 'video_analysis', {
+        durationMinutes
+      });
+
+      await CreditsService.refundCredits(
+        userId,
+        creditsToRefund,
+        `Task timeout - ${taskId}`,
+        { service: 'alyzitron', action: 'video_analysis' }
+      );
+
+      console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Alyzitron task ${taskId}`);
+    } catch (refundError) {
+      console.error('[handleTaskFailure] Failed to refund Alyzitron credits:', refundError);
     }
   }
 
-  // No conditional refunds - taskType determines usage type directly
+  // Process legacy refunds for Clickatron (still uses per-usage limits)
+  if (serviceName === 'clickatron') {
+    const usageTypes = REFUND_MAPPING[serviceName]?.[taskType];
+    if (usageTypes) {
+      for (const usageType of usageTypes) {
+        await refundLegacyUsage(userId, serviceName, usageType);
+      }
+    }
+  }
 
   // Update database status
   try {
@@ -57,11 +85,12 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
         {
           status: 'failed',
           updatedAt: new Date(),
+          refunded: true,
           error_message: 'Task processing failed'
         }
       );
     } else if (serviceName === 'alyzitron') {
-      // Update Alyzitron task status directly in MongoDB (RTDB removed)
+      // Update Alyzitron task status directly in MongoDB
       try {
         const { getCollections } = await import('@/app/api/services/alyzitron/utils/mongodb');
         const { ObjectId } = await import('mongodb');
@@ -74,6 +103,7 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
               $set: {
                 status: 'failed',
                 updatedAt: new Date(),
+                refunded: true,
                 error: { code: 'processing_failed', message: 'Task processing failed' },
               },
             }
@@ -86,6 +116,7 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
               $set: {
                 status: 'failed',
                 updatedAt: new Date(),
+                refunded: true,
                 error: { code: 'processing_failed', message: 'Task processing failed' },
               },
             }
@@ -100,7 +131,8 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
   }
 }
 
-async function refundUsage(userId: string, serviceName: string, usageType: string) {
+// Legacy refund for services still using per-usage limits (Clickatron)
+async function refundLegacyUsage(userId: string, serviceName: string, usageType: string) {
   await User.updateOne(
     { clerkUserId: userId },
     { $inc: { [`currentPlan.serviceLimits.${serviceName}.$[elem].currentUsage`]: -1 } },
