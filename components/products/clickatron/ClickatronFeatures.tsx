@@ -8,42 +8,48 @@ const features = [
   {
     icon: Sparkles,
     title: "Intelligent Prompt Engine",
-    description: "Briefly describe the idea and watch AI expand it into multiple creative directions optimized for engagement.",
+    description:
+      "Briefly describe the idea and watch AI expand it into multiple creative directions optimized for engagement.",
     gradient: "from-purple-400 to-fuchsia-500",
     delay: 0.1,
   },
   {
     icon: Image,
     title: "High-Fidelity Renders",
-    description: "A reliable render pipeline produces crisp, high-contrast thumbnails tailored for attention and clarity.",
+    description:
+      "A reliable render pipeline produces crisp, high-contrast thumbnails tailored for attention and clarity.",
     gradient: "from-fuchsia-400 to-purple-400",
     delay: 0.2,
   },
   {
     icon: Edit,
     title: "Inline AI Editor",
-    description: "Tweak faces, swap text, or recolor scenes without leaving the canvas using AI-assisted brushes.",
+    description:
+      "Tweak faces, swap text, or recolor scenes without leaving the canvas using AI-assisted brushes.",
     gradient: "from-purple-500 to-fuchsia-400",
     delay: 0.3,
   },
   {
     icon: Palette,
     title: "Brand Palettes & Presets",
-    description: "Lock in brand-safe typography, LUTs, and gradient systems so every export feels consistent.",
+    description:
+      "Lock in brand-safe typography, LUTs, and gradient systems so every export feels consistent.",
     gradient: "from-fuchsia-500 to-purple-300",
     delay: 0.4,
   },
   {
     icon: Layers,
     title: "Realtime Task Tracking",
-    description: "Follow generation progress through Firebase streams and never wonder if a render stalled again.",
+    description:
+      "Follow generation progress through Firebase streams and never wonder if a render stalled again.",
     gradient: "from-purple-400 to-fuchsia-400",
     delay: 0.5,
   },
   {
     icon: Cloud,
     title: "Cloud-Native Delivery",
-    description: "Final assets are versioned in Google Cloud Storage and ready to sync with the Insturix dashboard.",
+    description:
+      "Final assets are versioned in Google Cloud Storage and ready to sync with the Insturix dashboard.",
     gradient: "from-fuchsia-400 to-purple-500",
     delay: 0.6,
   },
@@ -87,8 +93,14 @@ export default function ClickatronFeatures() {
       {/* Background Pattern */}
       <div className="absolute inset-0 z-0">
         <div className="absolute inset-0 bg-grid-neutral-100/5 dark:bg-grid-neutral-900/5 bg-[size:40px_40px]" />
-        <motion.div style={{ y: y1 }} className="absolute inset-0 bg-gradient-to-r from-purple-800/10 via-transparent to-fuchsia-800/10 blur-3xl" />
-        <motion.div style={{ y: y2 }} className="absolute top-1/2 left-1/2 w-96 h-96 bg-fuchsia-400/10 rounded-full blur-3xl" />
+        <motion.div
+          style={{ y: y1 }}
+          className="absolute inset-0 bg-gradient-to-r from-purple-800/10 via-transparent to-fuchsia-800/10 blur-3xl"
+        />
+        <motion.div
+          style={{ y: y2 }}
+          className="absolute top-1/2 left-1/2 w-96 h-96 bg-fuchsia-400/10 rounded-full blur-3xl"
+        />
       </div>
 
       <motion.div
@@ -114,7 +126,8 @@ export default function ClickatronFeatures() {
             </span>
           </h2>
           <p className="text-lg text-neutral-600 dark:text-neutral-300 max-w-3xl mx-auto leading-relaxed">
-            Clickatron is your AI-powered image and thumbnail studio. Generate, edit, and enhance visuals for your content in seconds.
+            Clickatron is your AI-powered image and thumbnail studio. Generate,
+            edit, and enhance visuals for your content in seconds.
           </p>
         </motion.div>
 
@@ -131,7 +144,9 @@ export default function ClickatronFeatures() {
             >
               <div className="relative h-full p-8 rounded-2xl bg-white/80 dark:bg-neutral-900/80 backdrop-blur-sm border border-neutral-200 dark:border-neutral-800 transition-all duration-300 group-hover:border-purple-500/50 group-hover:bg-white dark:group-hover:bg-neutral-900">
                 {/* Icon */}
-                <div className={`inline-flex p-3 rounded-lg bg-gray-100 dark:bg-neutral-800 mb-6 border border-neutral-200 dark:border-neutral-700`}>
+                <div
+                  className={`inline-flex p-3 rounded-lg bg-gray-100 dark:bg-neutral-800 mb-6 border border-neutral-200 dark:border-neutral-700`}
+                >
                   <feature.icon className="w-6 h-6 text-purple-500" />
                 </div>
                 {/* Content */}
@@ -147,10 +162,7 @@ export default function ClickatronFeatures() {
         </motion.div>
 
         {/* Bottom CTA */}
-        <motion.div
-          variants={itemVariants}
-          className="text-center mt-20"
-        >
+        <motion.div variants={itemVariants} className="text-center mt-20">
           <div className="inline-flex items-center gap-4 px-6 py-3 rounded-md bg-gray-100/80 dark:bg-neutral-900/80 border border-neutral-200 dark:border-neutral-800">
             <motion.span
               animate={{ rotate: 360 }}
@@ -167,4 +179,4 @@ export default function ClickatronFeatures() {
       </motion.div>
     </section>
   );
-} 
+}
