@@ -87,20 +87,39 @@ async function handler(request: Request) {
 
       // ⬆️ CONFIGURATION ADDED ⬆️
 
-      console.log(
-        "[Musitron Processor] Starting Fal AI generation with params:",
-        {
+      // Build input based on model requirements
+      let falInput: Record<string, any> = {};
+
+      if (model.includes("minimax-music")) {
+        falInput = {
           prompt: `${task.style}. ${task.title}`,
           lyrics_prompt: task.instrumental_only ? "[instrumental]" : (task.lyrics || "[instrumental]"),
-        }
-      );
+          audio_setting: { format: "mp3" },
+        };
+      } else if (model.includes("sonauto")) {
+        falInput = {
+          prompt: task.title,
+          lyrics_prompt: task.instrumental_only ? "[instrumental]" : (task.lyrics || "[instrumental]"),
+          prompt_strength: 2,
+          balance_strength: 0.7,
+          num_songs: 1,
+          output_format: "mp3",
+          bpm: "auto",
+        };
+      } else {
+        // Default to Stable Audio or generic params
+        falInput = {
+          prompt: `${task.style}. ${task.title}. ${!task.instrumental_only ? task.lyrics : ""}`,
+          instrumental: task.instrumental_only,
+          duration: Math.min(Math.max(task.duration, 5), 240),
+          number_of_steps: 27,
+          scheduler: "euler",
+          guidance_type: "apg",
+          guidance_scale: 15,
+        };
+      }
 
-      // Build input based on model requirements
-      const falInput: Record<string, unknown> = {
-        prompt: `${task.style}. ${task.title}`,
-        lyrics_prompt: task.instrumental_only ? "[instrumental]" : (task.lyrics || "[instrumental]"),
-        audio_setting: { format: "mp3" },
-      };
+      console.log("[Musitron Processor] Final Fal AI input:", falInput);
 
       const falResult = await fal.subscribe(model, {
         input: falInput,
@@ -279,7 +298,8 @@ async function handler(request: Request) {
           if (msg.includes("GCS") || msg.includes("bucket")) {
             return "Storage error: Failed to upload generated music.";
           }
-          return msg;
+          // Do not leak raw errors to the user
+          return "Music generation failed due to an unexpected server error.";
         }
         return "Music generation failed due to an unexpected error.";
       })();
