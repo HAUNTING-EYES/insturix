@@ -17,8 +17,9 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { FormLock } from "./FormLock";
+import { useQueryClient } from "@tanstack/react-query";
+import { CreditCostBadge } from "@/components/shared/CreditCostBadge";
+import { useCredits } from "@/hooks/useCredits";
 
 const MUSIC_MODELS = [
   { value: "fal-ai/sonauto/v2/text-to-music", label: "Sonauto V2" },
@@ -38,18 +39,7 @@ export default function MusicGenerator() {
   const [loading, setLoading] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
-
-  // Musitron usage stats via musitron-analytics cache
-  const { data: apiData } = useQuery({
-    queryKey: ["musitron-analytics"],
-    queryFn: async () => {
-      const res = await fetch("/api/services/musitron/stats");
-      if (!res.ok) throw new Error("Failed to fetch analytics");
-      return res.json();
-    },
-  });
-  const usage = apiData?.usage;
-  const isLocked = usage && usage.hasAccess === false;
+  const { invalidateCredits } = useCredits();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,10 +204,10 @@ export default function MusicGenerator() {
   return (
     <div className="space-y-6">
       <Card
-        className={`bg-black/40 border-zinc-800 relative overflow-hidden${isLocked ? "" : " backdrop-blur-xl"}`}
+        className="bg-black/40 border-zinc-800 relative overflow-hidden backdrop-blur-xl"
       >
         <CardContent className="min-h-[400px] p-6 space-y-6">
-          <div className={isLocked ? "blur-sm" : ""}>
+          <div>
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="grid gap-6 md:grid-cols-2">
                 <div className="space-y-2">
@@ -376,28 +366,29 @@ export default function MusicGenerator() {
                 </div>
               )}
 
-              <Button
-                type="submit"
-                className={`
-                w-full h-14 text-base font-medium tracking-wide rounded-lg
-                ${
-                  loading
-                    ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
-                    : "bg-yellow-600 hover:bg-yellow-700 text-white"
-                }
-                transition-all duration-300
-              `}
-                disabled={loading || isLocked}
-              >
-                {loading ? "Generating Music..." : "Generate Music"}
-              </Button>
+              <div className="flex items-center justify-between">
+                <CreditCostBadge service="musitron" action="music_generation" variant="tooltip" />
+                <Button
+                  type="submit"
+                  className={`
+                  h-14 text-base font-medium tracking-wide rounded-lg px-8
+                  ${
+                    loading
+                      ? "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                      : "bg-yellow-600 hover:bg-yellow-700 text-white"
+                  }
+                  transition-all duration-300
+                `}
+                  disabled={loading}
+                >
+                  {loading ? "Generating Music..." : "Generate Music"}
+                </Button>
+              </div>
             </form>
           </div>
         </CardContent>
-        {usage && usage.hasAccess === false && (
-          <FormLock timeUntilReset={usage.timeUntilReset} />
-        )}
       </Card>
     </div>
   );
 }
+

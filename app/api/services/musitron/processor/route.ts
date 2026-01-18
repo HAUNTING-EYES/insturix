@@ -2,7 +2,7 @@ import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import { NextResponse } from "next/server";
 import { getMusitronCollections } from "@/lib/services/musitron-mongo";
 import { ObjectId } from "mongodb";
-import { processRefund } from "@/lib/services/tasks/simple-refund";
+import { CreditsService } from "@/lib/services/creditsService";
 import { Storage } from "@google-cloud/storage";
 import { fal } from "@fal-ai/client"; // Note: named import instead of default import
 
@@ -80,6 +80,10 @@ async function handler(request: Request) {
         "[Musitron Processor] Starting Fal AI generation with model:",
         model
       );
+      console.log(
+        "[Musitron Processor] API Key present:",
+        !!process.env.FAL_AI_API_KEY
+      );
 
       // ⬆️ CONFIGURATION ADDED ⬆️
 
@@ -87,23 +91,19 @@ async function handler(request: Request) {
         "[Musitron Processor] Starting Fal AI generation with params:",
         {
           prompt: `${task.style}. ${task.title}`,
-          lyrics: task.lyrics || "[inst]",
-          duration: Math.min(Math.max(task.duration, 5), 240),
-          instrumental: task.instrumental_only,
+          lyrics_prompt: task.instrumental_only ? "[instrumental]" : (task.lyrics || "[instrumental]"),
         }
       );
 
-      // Use prompt-to-audio endpoint which takes a text prompt
+      // Build input based on model requirements
+      const falInput: Record<string, unknown> = {
+        prompt: `${task.style}. ${task.title}`,
+        lyrics_prompt: task.instrumental_only ? "[instrumental]" : (task.lyrics || "[instrumental]"),
+        audio_setting: { format: "mp3" },
+      };
+
       const falResult = await fal.subscribe(model, {
-        input: {
-          prompt: `${task.style}. ${task.title}`,
-          instrumental: task.instrumental_only,
-          duration: Math.min(Math.max(task.duration, 5), 240),
-          number_of_steps: 27,
-          scheduler: "euler",
-          guidance_type: "apg",
-          guidance_scale: 15,
-        },
+        input: falInput,
       });
       console.log(
         "[Musitron Processor] Fal AI SDK response received:",
@@ -260,10 +260,29 @@ async function handler(request: Request) {
         generationError
       );
 
-      const errorMessage =
-        generationError instanceof Error
-          ? generationError.message
-          : "Music generation failed";
+      const errorMessage = (() => {
+        if (generationError instanceof Error) {
+          const msg = generationError.message;
+          // Check for 404 (model not found/deprecated)
+          if (msg.includes("Not Found") || (generationError as any).status === 404) {
+            return `Model unavailable: The selected AI model may be deprecated or temporarily offline. Please try a different model.`;
+          }
+          if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed")) {
+            return "Network error: Failed to connect to generation service. Please try again later.";
+          }
+          if (msg.includes("timeout") || msg.includes("timed out")) {
+            return "Task timed out during generation or download. The file might be too large.";
+          }
+          if (msg.includes("FAL_AI_API_KEY")) {
+            return "Configuration error: Missing API Key.";
+          }
+          if (msg.includes("GCS") || msg.includes("bucket")) {
+            return "Storage error: Failed to upload generated music.";
+          }
+          return msg;
+        }
+        return "Music generation failed due to an unexpected error.";
+      })();
 
       // Update status to failed (MongoDB)
       await musicGenerations.updateOne(
@@ -280,10 +299,15 @@ async function handler(request: Request) {
         }
       );
 
-      // Refund credits
+      // Refund credits (8 for Musitron)
       try {
-        await processRefund("musitron", "music_generation", userId, 1);
-      } catch (refundError) {}
+        await CreditsService.refundCredits(userId, 8, "Music generation failed", {
+          service: "musitron",
+          action: "music_generation",
+        });
+      } catch (refundError) {
+        console.error("[Musitron Processor] Refund failed:", refundError);
+      }
 
       return NextResponse.json(
         {
@@ -298,7 +322,10 @@ async function handler(request: Request) {
     // Try to refund on catastrophic error
     try {
       if (userId) {
-        await processRefund("musitron", "music_generation", userId, 1);
+        await CreditsService.refundCredits(userId, 8, "Internal server error during music generation", {
+          service: "musitron",
+          action: "music_generation",
+        });
       }
     } catch (refundError) {}
 
@@ -343,7 +370,10 @@ export const POST = async (req: Request) => {
     // If we have userId, try to refund
     if (userId) {
       try {
-        await processRefund("musitron", "music_generation", userId, 1);
+        await CreditsService.refundCredits(userId, 8, "Signature verification failed", {
+          service: "musitron",
+          action: "music_generation",
+        });
         console.log("Refund processed successfully for user:", userId);
       } catch (refundError) {
         console.error(

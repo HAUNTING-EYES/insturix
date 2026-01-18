@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
-import {
-  checkMusitronLimits,
-  incrementMusitronUsage,
-} from "@/lib/middleware/services/musitron";
 import { ObjectId } from "mongodb";
 import { getMusitronCollections } from "@/lib/services/musitron-mongo";
 import { Client } from "@upstash/qstash";
-import { processRefund } from "@/lib/services/tasks/simple-refund";
+import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { z } from "zod";
 
 // Initialize QStash client
@@ -57,50 +53,40 @@ const generateSchema = z
     }
   });
 
+
 export async function POST(req: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return new NextResponse("Unauthorized", { status: 401 });
+  }
+
+  const body = await req.json();
+  const parsed = generateSchema.safeParse(body);
+
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.flatten() },
+      { status: 400 }
+    );
+  }
+  const {
+    title,
+    instrumental,
+    style,
+    lyrics = "",
+    duration = 30,
+    model,
+  } = parsed.data;
+
+  // Check credits (8 credits for music_generation)
+  const creditCheck = await checkCredits(userId, "musitron", "music_generation");
+  if (!creditCheck.allowed) {
+    return creditCheck.errorResponse;
+  }
+
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return new NextResponse("Unauthorized", { status: 401 });
-    }
-
-    const body = await req.json();
-    const parsed = generateSchema.safeParse(body);
-
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: parsed.error.flatten() },
-        { status: 400 }
-      );
-    }
-    const {
-      title,
-      instrumental,
-      style,
-      lyrics = "",
-      duration = 30,
-      model,
-    } = parsed.data;
-
-    // Usage check (Musitron-specific)
-    const limitResult = await checkMusitronLimits({ userId });
-    if (!limitResult.hasAccess) {
-      return NextResponse.json(
-        { error: "Usage limit exceeded" },
-        { status: 403 }
-      );
-    }
-    // Increment usage BEFORE processing
-    const usageResult = await incrementMusitronUsage({ userId });
-    if (!usageResult.success) {
-      return NextResponse.json(
-        {
-          error: "Unable to process request. Please try again later.",
-          success: false,
-        },
-        { status: 403 }
-      );
-    }
+    // Deduct credits before processing
+    await creditCheck.deduct();
 
     // Create task in MongoDB
     const { musicGenerations } = await getMusitronCollections();
@@ -122,7 +108,7 @@ export async function POST(req: Request) {
       taskId: taskId.toString(),
     };
 
-    const insertResult = await musicGenerations.insertOne(taskData);
+    await musicGenerations.insertOne(taskData);
 
     // Publish to QStash
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -156,13 +142,8 @@ export async function POST(req: Request) {
       taskId: taskId.toString(),
     });
   } catch (error) {
-    // Attempt to refund on error
-    try {
-      const { userId } = await auth();
-      if (userId) {
-        await processRefund("musitron", "music_generation", userId, 1);
-      }
-    } catch (refundError) {}
+    // Refund credits on failure
+    await creditCheck.refund("Music generation task failed to queue");
 
     return NextResponse.json(
       {

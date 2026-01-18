@@ -8,7 +8,7 @@ import { createJob, setIdempotencyKey, getIdempotencyKey } from '@/lib/clickatro
 import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
-import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 const GenerativeFillRequestSchema = z.object({
   prompt: z.string().min(1).max(2048),
@@ -33,16 +33,16 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check usage limits (generative fill uses same limit as variation generation)
-    const limitCheck = await clickatronLimitMiddleware.checkLimits({
-      limitType: 'variation'
-    });
-
-    if (!limitCheck.hasAccess) {
-      return clickatronLimitMiddleware.createLimitExceededResponse(limitCheck);
+    // Check credits (3 credits for a variation)
+    const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
     }
 
     const { id } = await params;
+
+    // Deduct credits before enqueuing
+    await creditCheck.deduct();
 
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
@@ -191,24 +191,23 @@ export async function POST(
 
     // Enqueue job
     console.log(`Enqueuing generative fill job with ID: ${jobId}`);
-    await enqueueClickatronJob({
-      jobId,
-      sessionId: id,
-      variationId: newVariation.id,
-      userId,
-      prompt: validatedData.prompt,
-      modelId: validatedData.modelId,
-      aspectRatio: parentVariation.aspectRatio,
-      parentVariationId: variationId,
-      maskUrl: rawMaskUrl,
-      referenceImageRefs: [],
-    });
-
-    // Increment usage (same as variation generation)
     try {
-      await clickatronLimitMiddleware.incrementUsage({ limitType: 'variation' });
-    } catch (usageErr) {
-      console.error('Failed to increment usage:', usageErr);
+      await enqueueClickatronJob({
+        jobId,
+        sessionId: id,
+        variationId: newVariation.id,
+        userId,
+        prompt: validatedData.prompt,
+        modelId: validatedData.modelId,
+        aspectRatio: parentVariation.aspectRatio,
+        parentVariationId: variationId,
+        maskUrl: rawMaskUrl,
+        referenceImageRefs: [],
+      });
+    } catch (enqueueErr) {
+      console.error('Failed to enqueue job:', enqueueErr);
+      await creditCheck.refund('Failed to enqueue generative fill job');
+      throw enqueueErr;
     }
 
     return NextResponse.json({

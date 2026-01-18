@@ -17,6 +17,7 @@ import { ImageUpload } from './ImageUpload';
 import { ModelSelector } from './stages/ModelSelector';
 import { Button } from '@/components/ui/button';
 import { MagicPromptEnhancerButton } from './MagicPromptEnhancerButton';
+import { CreditCostBadge } from '@/components/shared/CreditCostBadge';
 
 
 const fadeIn = {
@@ -595,7 +596,10 @@ export function CanvasIdeaInput() {
               </div>
             </div>
             
-            <div className="pt-2">
+            <div className="pt-2 space-y-2">
+              <div className="flex justify-center">
+                <CreditCostBadge service="clickatron" action="variation" variant="tooltip" />
+              </div>
               <Button
                 type="submit"
                 className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white font-semibold py-3 rounded-xl transition-all duration-200 shadow-lg hover:shadow-purple-500/25"

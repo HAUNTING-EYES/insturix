@@ -2,6 +2,7 @@
 
 import { useQueryClient } from '@tanstack/react-query';
 import { useState, lazy, Suspense } from 'react';
+import { useCredits } from '@/hooks/useCredits';
 // Lazy load heavy components
 const VideoUpload = lazy(() => import('./VideoUpload'));
 const AlyzitronTaskHistory = lazy(() => import('./AlyzitronTaskHistory').then(mod => ({ default: mod.AlyzitronTaskHistory })));
@@ -15,6 +16,7 @@ const AlyzitronTaskHistory = lazy(() => import('./AlyzitronTaskHistory').then(mo
 export function ClientWrapper() {
   const queryClient = useQueryClient();
   const [activeAnalyses] = useState<Set<string>>(new Set());
+  const { invalidateCredits } = useCredits();
 
 
 
@@ -31,8 +33,8 @@ export function ClientWrapper() {
             // No local cache mutation; polling and invalidation will refresh UI.
           }}
           onComplete={() => {
-            // Invalidate analytics on successful generation to refresh limits/counters
-            queryClient.invalidateQueries({ queryKey: ['alyzitron-analytics'], exact: false });
+            // Invalidate credits on successful generation to refresh balance
+            invalidateCredits();
             // History invalidation is handled by manual invalidation in useVideoAnalysis or polling.
           }}
           activeAnalyses={activeAnalyses}

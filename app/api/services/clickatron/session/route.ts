@@ -8,25 +8,23 @@ import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
 import { createJob } from '@/lib/clickatron-jobs';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { nanoid } from 'nanoid';
-import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
+
 
 // POST /api/services/clickatron/session - Create new session and generate the first variation
 export async function POST(request: Request) {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // Check credits (3 credits for a variation)
+  const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
+  if (!creditCheck.allowed) {
+    return creditCheck.errorResponse;
+  }
+
   try {
-    const { userId } = await auth();
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Check usage limits before processing
-    const limitCheck = await clickatronLimitMiddleware.checkLimits({
-      limitType: 'variation'
-    });
-
-    if (!limitCheck.hasAccess) {
-      return clickatronLimitMiddleware.createLimitExceededResponse(limitCheck);
-    }
-
     const contentType = request.headers.get('content-type') || '';
     if (!contentType.includes('multipart/form-data')) {
       return NextResponse.json({ error: 'Invalid content type. Must be multipart/form-data.' }, { status: 400 });
@@ -95,7 +93,10 @@ export async function POST(request: Request) {
     newTask.details.canvas.variations.push(newVariation);
     await newTask.save();
 
-    // 5. Create and Enqueue the Generation Job
+    // 5. Deduct credits
+    await creditCheck.deduct();
+
+    // 6. Create and Enqueue the Generation Job
     const jobData = {
       userId,
       sessionId: newTask._id.toString(),
@@ -112,27 +113,10 @@ export async function POST(request: Request) {
     try {
       console.log('Enqueuing job with ID:', jobId);
       await enqueueClickatronJob({ jobId, ...jobData });
-
-      // Increment usage after successful job creation
-      try {
-      await clickatronLimitMiddleware.incrementUsage({
-          limitType: 'variation'
-      });
-      } catch (usageError) {
-        console.error('Failed to increment usage:', usageError);
-        // Don't fail the entire operation if usage increment fails
-      }
     } catch (jobError) {
       console.error('Failed to enqueue job:', jobError);
-      // Try to decrement usage if job creation fails
-      try {
-        await clickatronLimitMiddleware.incrementUsage({
-          limitType: 'variation'
-        }, -1); // Decrement by 1
-      } catch (refundError) {
-        console.error('Failed to refund usage:', refundError);
-      }
-      // Re-throw the error to be handled by the outer catch block
+      // Refund credits if job enqueue fails
+      await creditCheck.refund('Failed to enqueue generation job');
       throw jobError;
     }
 

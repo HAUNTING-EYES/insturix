@@ -9,7 +9,7 @@ import { NextResponse } from 'next/server';
 import { Variation } from '@/types/clickatron';
 import { fal } from "@fal-ai/client";
 import { CLICKATRON_MODELS, generateModelPayload, processParentVariationImage, processReferenceImages, modelSupportsSeed } from '@/lib/config/clickatron-models';
-import { processRefund } from '@/lib/services/tasks/simple-refund';
+import { CreditsService } from '@/lib/services/creditsService';
 import sharp from 'sharp';
 
 // Configure Fal AI client
@@ -588,9 +588,12 @@ async function handler(req: Request) {
       });
       console.log('Worker: Failed job in QStash');
 
-      // Process refund for failed image generation
+      // Refund credits (3 for Clickatron variation)
       try {
-        await processRefund('clickatron', 'variation_gen', job.userId, 1);
+        await CreditsService.refundCredits(job.userId, 3, `Variation generation failed: ${errorMessage}`, {
+          service: 'clickatron',
+          action: 'variation',
+        });
         console.log('Refund processed successfully for user:', job.userId);
       } catch (refundError) {
         console.error('Failed to process refund for user:', job.userId, refundError);
@@ -636,9 +639,12 @@ async function handler(req: Request) {
               console.log('Worker: Updated variation status to failed in outer catch block');
             }
 
-            // Process refund for failed image generation
+            // Refund credits (3 for Clickatron variation)
             try {
-              await processRefund('clickatron', 'variation_gen', job.userId, 1);
+              await CreditsService.refundCredits(job.userId, 3, 'Outer catch block failure in Clickatron worker', {
+                service: 'clickatron',
+                action: 'variation',
+              });
               console.log('Refund processed successfully for user:', job.userId);
             } catch (refundError) {
               console.error('Failed to process refund for user:', job.userId, refundError);
@@ -690,7 +696,10 @@ export const POST = async (req: Request) => {
           const job = await getJob(jobId);
           if (job) {
             try {
-              await processRefund('clickatron', 'variation_gen', job.userId, 1);
+              await CreditsService.refundCredits(job.userId, 3, 'QStash signature verification failed in worker', {
+                service: 'clickatron',
+                action: 'variation',
+              });
               console.log('Refund processed successfully for user:', job.userId);
             } catch (refundError) {
               console.error('Failed to process refund for user:', job.userId, refundError);

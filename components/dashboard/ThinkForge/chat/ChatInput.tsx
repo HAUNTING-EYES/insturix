@@ -5,6 +5,7 @@ import { Send, Loader2, Square, Sparkles, X } from "lucide-react";
 import { ChatSuggestions } from "./ChatSuggestions";
 import { motion, AnimatePresence } from "framer-motion";
 import clsx from "clsx";
+import { CreditCostBadge } from "@/components/shared/CreditCostBadge";
 
 interface ChatInputProps {
   value: string;
@@ -155,7 +156,10 @@ export function ChatInput({
         </div>
       </div>
       
-      <div className="px-6 mt-2 flex justify-center">
+      <div className="px-6 mt-2 flex flex-col items-center gap-1">
+         <div className="opacity-60 scale-90 origin-center">
+            <CreditCostBadge service="thinkforge" action="chat_message" />
+         </div>
          <p className="text-[10px] text-zinc-600 text-center font-medium">
             Storyboarding Assistant • AI can make mistakes
          </p>

@@ -9,7 +9,7 @@ import { z } from 'zod';
 import { enqueueClickatronJob } from '@/lib/clickatron-qtask';
 import { getAvailableModels } from '@/lib/config/clickatron-models';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
-import { clickatronLimitMiddleware } from '@/lib/middleware/services/clickatron';
+import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 // POST /api/services/clickatron/session/:id/variation - Queue/generate a variation
 export async function POST(
@@ -22,16 +22,16 @@ export async function POST(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check usage limits before processing
-    const limitCheck = await clickatronLimitMiddleware.checkLimits({
-      limitType: 'variation'
-    });
-
-    if (!limitCheck.hasAccess) {
-      return clickatronLimitMiddleware.createLimitExceededResponse(limitCheck);
+    // Check credits (3 credits for a variation)
+    const creditCheck = await checkCredits(userId, 'clickatron', 'variation');
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
     }
 
     const { id } = await params;
+
+    // Deduct credits before enqueuing
+    await creditCheck.deduct();
 
     if (!id || typeof id !== 'string' || !id.match(/^[a-f\d]{24}$/i)) {
       return NextResponse.json({ error: 'Invalid Session ID' }, { status: 400 });
@@ -251,18 +251,18 @@ export async function POST(
     // Enqueue job with QStash
     try {
       const qstashResult = await enqueueClickatronJob({
-      jobId,
-      sessionId: id,
+        jobId,
+        sessionId: id,
         variationId: variationId,
-      prompt: validatedData.prompt,
-      userId,
-      parentVariationId: validatedData.parentVariationId,
+        prompt: validatedData.prompt,
+        userId,
+        parentVariationId: validatedData.parentVariationId,
         fineTuning: validatedData.fineTuning || {
           brightness: 100,
           contrast: 100,
           saturation: 100,
         },
-      metadata: validatedData.metadata,
+        metadata: validatedData.metadata,
         modelId: selectedModelId, // Use the selected modelId
         referenceImageRefs: referenceImageRefs || [], // Pass referenceImageRefs to the job
         aspectRatio: validatedData.aspectRatio || task.details.aspectRatio, // Use per-variation aspect ratio or fall back to global
@@ -270,18 +270,9 @@ export async function POST(
       console.log('QStash job enqueued successfully:', qstashResult);
     } catch (qstashError) {
       console.error('Failed to enqueue QStash job:', qstashError);
-      // Continue with the response even if QStash fails
-      // The job will be created in Redis but won't be processed
-    }
-
-    // Increment usage after successful job creation
-    try {
-      await clickatronLimitMiddleware.incrementUsage({
-        limitType: 'variation'
-      });
-    } catch (usageError) {
-      console.error('Failed to increment usage:', usageError);
-      // Don't fail the entire operation if usage increment fails
+      // Refund credits if QStash fails
+      await creditCheck.refund('Failed to enqueue generation job');
+      throw qstashError;
     }
 
     // Find the created/updated variation in the task

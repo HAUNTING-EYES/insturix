@@ -68,10 +68,16 @@ export function TaskDetails({ task, signedUrlApi }: TaskDetailsProps) {
             <FileText className="w-4 h-4" />
             <span>{task.style}</span>
           </div>
+          {task.error?.message && (
+            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded px-4 py-3 text-red-400 font-medium">
+              <AlertCircle className="w-5 h-5 mr-1 text-red-500 shrink-0 mt-0.5" />
+              <span>{task.error.message}</span>
+            </div>
+          )}
           {task.error?.action && (
-            <div className="flex items-center gap-2 bg-zinc-100 border border-zinc-200 rounded px-4 py-3 text-red-700 font-medium">
-              <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
-              <span className="text-red-700">{task.error.action}</span>
+            <div className="flex items-center gap-2 bg-zinc-800/50 border border-zinc-700 rounded px-4 py-3 text-zinc-300 font-medium">
+              <span className="text-zinc-400">Suggested Action:</span>
+              <span>{task.error.action}</span>
             </div>
           )}
           {/* Lyrics */}

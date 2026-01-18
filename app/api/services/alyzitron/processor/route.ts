@@ -1,7 +1,7 @@
 import { verifySignatureAppRouter } from "@upstash/qstash/nextjs";
 import { NextResponse, NextRequest } from "next/server";
 import { getCollections } from "../utils/mongodb";
-import { processRefund } from "@/lib/services/tasks/simple-refund";
+import { CreditsService } from "@/lib/services/creditsService";
 import { ObjectId } from "mongodb";
 import { analyzeVideoWithGemini } from "@/lib/services/vertexAiService";
 import { logger } from "../utils/logger";
@@ -104,10 +104,25 @@ async function handler(request: NextRequest) {
       });
     } catch (analysisError) {
       // 5. Handle analysis failure with robust refund logic
-      const errorMessage =
-        analysisError instanceof Error
-          ? analysisError.message
-          : "Analysis failed";
+      const errorMessage = (() => {
+        if (analysisError instanceof Error) {
+          const msg = analysisError.message;
+          if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("SocketTimeout")) {
+            return "Network error: Failed to reach AI analysis service. Please retry.";
+          }
+          if (msg.includes("permission") || msg.includes("API_KEY") || msg.includes("access denied")) {
+            return "Configuration error: AI service access denied.";
+          }
+          if (msg.includes("quota") || msg.includes("429")) {
+            return "Server busy: AI analysis quota exceeded. Please wait a few minutes.";
+          }
+          if (msg.includes("invalid") || msg.includes("format")) {
+            return "Processing error: The video format is not supported or the file is corrupted.";
+          }
+          return msg;
+        }
+        return "Video analysis failed due to an unexpected error.";
+      })();
       logger.error("Video analysis failed", {
         data: {
           taskId,
@@ -163,10 +178,14 @@ async function handler(request: NextRequest) {
 
       if (shouldRefund) {
         try {
-          // Perform refund
-          await processRefund("alyzitron", "analysis", userId, minutes);
+          // Perform refund (2 credits per minute for Alyzitron)
+          const creditsToRefund = minutes * 2;
+          await CreditsService.refundCredits(userId, creditsToRefund, `Video analysis failed: ${errorMessage}`, {
+            service: "alyzitron",
+            action: "video_analysis",
+          });
           logger.info("Credits refunded after analysis failure", {
-            data: { taskId, userId, minutes },
+            data: { taskId, userId, minutes, creditsToRefund },
           });
 
           // Ensure task has refunded flag set (best-effort)

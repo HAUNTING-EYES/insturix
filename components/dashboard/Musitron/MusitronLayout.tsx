@@ -2,11 +2,10 @@
 
 import { AudioWaveform } from "lucide-react";
 import { lazy, Suspense } from "react";
+import { CreditsCard } from "@/components/shared/CreditsCard";
 
 // Lazy load heavy components
 const ClientWrapper = lazy(() => import("@/components/dashboard/Musitron/ClientWrapper").then(mod => ({ default: mod.ClientWrapper })));
-const AnalyticsOverview = lazy(() => import("@/components/dashboard/Musitron/AnalyticsOverview").then(mod => ({ default: mod.AnalyticsOverview })));
-const CompactAnalytics = lazy(() => import("@/components/dashboard/Musitron/CompactAnalytics").then(mod => ({ default: mod.CompactAnalytics })));
 
 export function MusitronLayout() {
   return (
@@ -27,11 +26,9 @@ export function MusitronLayout() {
             </div>
           </div>
           
-          {/* Mobile Analytics */}
+          {/* Mobile Credits View */}
           <div className="block lg:hidden">
-            <Suspense fallback={<div className="h-20 bg-zinc-800/20 rounded animate-pulse"></div>}>
-              <CompactAnalytics />
-            </Suspense>
+            <CreditsCard />
           </div>
           
           {/* Client Components */}
@@ -40,11 +37,9 @@ export function MusitronLayout() {
           </Suspense>
         </div>
 
-        {/* Desktop Analytics */}
+        {/* Desktop Credits Sidebar */}
         <div className="hidden lg:block space-y-6 lg:space-y-8 sticky top-6">
-          <Suspense fallback={<div className="h-32 bg-zinc-800/20 rounded animate-pulse"></div>}>
-            <AnalyticsOverview />
-          </Suspense>
+          <CreditsCard />
         </div>
       </div>
     </div>

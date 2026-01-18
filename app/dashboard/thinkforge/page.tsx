@@ -105,8 +105,14 @@ export default function ThinkForgeLanding() {
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({ prompt })
 			});
-			if (res.status === 429) {
-				toast({ title: 'Idea limit reached', description: 'Please wait until the limit resets or upgrade your plan.' });
+			// Handle insufficient credits (new credits system)
+			if (res.status === 402) {
+				const errData = await res.json().catch(() => ({}));
+				toast({ 
+					title: 'Insufficient Credits', 
+					description: `You need ${errData.required || 1} credits, but have ${errData.available || 0}.`,
+					variant: 'destructive'
+				});
 				return; // do not proceed to IDEAS phase
 			}
 			if (!res.ok) throw new Error('bad');
@@ -122,6 +128,7 @@ export default function ThinkForgeLanding() {
 			setLoading(false);
 		}
 	}, [prompt]);
+
 
 	const onSubmit = (e: React.FormEvent) => {
 		e.preventDefault();

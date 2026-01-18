@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
-import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 
 export const runtime = 'nodejs';
@@ -29,17 +28,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    // If creating new session, check limits
-    if (!sessionId && projectMeta) {
-      try {
-        await ServiceUsageService.useService(userId, 'thinkforge' as any, 'maxSessions', 1);
-      } catch (e: any) {
-        const msg = e?.message || 'Weekly sessions limit exceeded';
-        return NextResponse.json({ success: false, error: msg }, { status: 429 });
-      }
-    }
-
-    // Get or create session
+    // Simplified session creation - no legacy limits
     const session = await db.getOrCreateSession(userId, sessionId, projectMeta);
 
     // Load script for session
@@ -66,15 +55,6 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Error in session endpoint:', error);
-    
-    // Roll back usage reservation if this was a create-new request that failed
-    if (!sessionId && projectMeta) {
-      try {
-        await ServiceUsageService.useService(userId, 'thinkforge' as any, 'maxSessions', -1);
-      } catch (rollbackErr) {
-        console.error('[Session] Failed to rollback usage after error:', rollbackErr);
-      }
-    }
     
     return NextResponse.json(
       { error: 'Session operation failed', details: error?.message },

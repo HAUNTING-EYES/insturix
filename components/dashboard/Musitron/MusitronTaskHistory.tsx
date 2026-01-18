@@ -89,10 +89,17 @@ function MusitronTaskCard({ task }: { task: MusitronTask }) {
                     transition={{ duration: 0.3 }}
                     className="flex items-center gap-2"
                   >
-                    <span className="text-xs text-red-400 flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3" />
-                      Failed
-                    </span>
+                    <div className="flex flex-col items-end">
+                      <span className="text-xs text-red-400 flex items-center gap-1">
+                        <AlertCircle className="h-3 w-3" />
+                        Failed
+                      </span>
+                      {task.error?.message && (
+                        <span className="text-[10px] text-red-500/70 max-w-[150px] truncate" title={task.error.message}>
+                          {task.error.message}
+                        </span>
+                      )}
+                    </div>
                     <ChevronRightIcon className="h-4 w-4 text-zinc-400 opacity-60" />
                   </motion.div>
                 )}

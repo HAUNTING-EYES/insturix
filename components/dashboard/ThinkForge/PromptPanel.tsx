@@ -3,6 +3,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import { Sparkles, Loader2, RefreshCw, Send, CornerDownLeft, Settings } from "lucide-react";
 import clsx from "clsx";
+import { CreditCostBadge } from "@/components/shared/CreditCostBadge";
 
 interface PromptPanelProps {
   prompt: string;
@@ -103,7 +104,8 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
         
         {/* Manual Setup Link - Only show if not submitted */}
         {!hasSubmitted && onManualSetup && (
-          <div className="flex justify-end -mt-2">
+          <div className="flex justify-between items-center -mt-2">
+            <CreditCostBadge service="thinkforge" action="chat_message" variant="tooltip" />
             <button 
               type="button"
               onClick={onManualSetup}
@@ -114,6 +116,12 @@ export const PromptPanel: React.FC<PromptPanelProps> = ({
             </button>
           </div>
         )}
+        {hasSubmitted && (
+          <div className="flex justify-center -mt-2">
+            <CreditCostBadge service="thinkforge" action="chat_message" variant="tooltip" />
+          </div>
+        )}
+
       </div>
     </motion.div>
   );

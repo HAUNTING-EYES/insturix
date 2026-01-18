@@ -339,14 +339,14 @@ export function AnalysisProgress({
           </div>
         </CardContent>
 
-        {/* {status === 'failed' && error?.message && (
+        {status === 'failed' && error?.message && (
           <div className="px-4 pb-4 -mt-2 relative z-10">
-            <p className="text-[11px] text-zinc-400 leading-relaxed bg-rose-500/5 border border-rose-500/10 rounded p-2 italic">
-              There might be an issue with the video. Please try again
+            <p className="text-[11px] text-rose-400/80 leading-relaxed bg-rose-500/5 border border-rose-500/10 rounded p-2 italic flex items-center gap-2">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              {error.message}
             </p>
-            
           </div>
-        )} */}
+        )}
       </Card>
     </motion.div>
   );

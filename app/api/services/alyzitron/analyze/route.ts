@@ -3,11 +3,7 @@ import { NextResponse } from "next/server";
 import { logger } from "../utils/logger";
 import { validateYouTubeVideo } from "../utils/youtube";
 import { GCSManager } from "../utils/gcs";
-import {
-  checkAlyzitronLimits,
-  incrementAlyzitronUsage,
-  createAlyzitronLimitResponse,
-} from "@/lib/middleware/services/alyzitron";
+import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { getCollections } from "../utils/mongodb";
 
 import { ObjectId } from "mongodb";
@@ -208,49 +204,19 @@ export async function POST(request: Request) {
         videoDuration = 60; // Default fallback
       }
     }
-    // Check service limits
-    const requestData = {
-      video_url,
-      context: parsedContext,
-      videoDuration,
-    };
-
-    const limitCheck = await checkAlyzitronLimits(requestData);
-
-    if (!limitCheck.success || !limitCheck.hasAccess) {
-      logger.warn("Service limit check failed", {
-        data: {
-          userId: session.userId,
-          limitInfo: limitCheck.limitInfo,
-          error: limitCheck.error,
-        },
-      });
-
-      return createAlyzitronLimitResponse(limitCheck);
-    }
-    // Increment usage
+    // Check service credits (Alyzitron uses duration-based billing)
     const usageMinutes = Math.ceil(videoDuration / 60);
-    const usageResult = await incrementAlyzitronUsage(
-      requestData,
-      usageMinutes
-    );
+    const creditCheck = await checkCredits(session.userId, 'alyzitron', 'video_analysis', {
+      durationMinutes: usageMinutes
+    });
 
-    if (!usageResult.success) {
-      logger.error("Failed to increment Alyzitron usage", {
-        data: {
-          userId: session.userId,
-          error: usageResult.error,
-        },
-      });
-
-      return NextResponse.json(
-        {
-          error: "Unable to process request. Please try again later.",
-          success: false,
-        },
-        { status: 403 }
-      );
+    if (!creditCheck.allowed) {
+      return creditCheck.errorResponse;
     }
+
+    // Deduct credits early to ensure consistency
+    await creditCheck.deduct();
+
     // Format video URL for GCS
     const finalVideoUrl = isGCS ? getGcsUrl(video_url) : video_url;
 
@@ -413,18 +379,9 @@ export async function POST(request: Request) {
 
       // Refund credits if task creation failed
       try {
-        // Calculate credits to refund (same formula used for deduction)
-        const creditsToRefund = getCreditCost('alyzitron', 'video_analysis', {
-          durationMinutes: usageMinutes
-        });
-        await CreditsService.refundCredits(
-          session.userId,
-          creditsToRefund,
-          'Task creation failed',
-          { service: 'alyzitron', action: 'video_analysis' }
-        );
+        await creditCheck.refund('Task creation failed');
         logger.info("Credits refunded after task creation failure", {
-          data: { userId: session.userId, credits: creditsToRefund, minutes: usageMinutes },
+          data: { userId: session.userId, minutes: usageMinutes },
         });
       } catch (refundError) {
         logger.error("Failed to refund credits", {
