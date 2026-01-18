@@ -78,8 +78,10 @@ export async function POST(req: Request) {
     model,
   } = parsed.data;
 
-  // Check credits (8 credits for music_generation)
-  const creditCheck = await checkCredits(userId, "musitron", "music_generation");
+  // Check credits (dynamic based on model)
+  const creditCheck = await checkCredits(userId, "musitron", "music_generation", {
+    model,
+  });
   if (!creditCheck.allowed) {
     return creditCheck.errorResponse;
   }

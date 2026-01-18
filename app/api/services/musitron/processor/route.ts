@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getMusitronCollections } from "@/lib/services/musitron-mongo";
 import { ObjectId } from "mongodb";
 import { CreditsService } from "@/lib/services/creditsService";
+import { getCreditCost } from "@/lib/config/creditCosts";
 import { Storage } from "@google-cloud/storage";
 import { fal } from "@fal-ai/client"; // Note: named import instead of default import
 
@@ -280,6 +281,25 @@ async function handler(request: Request) {
         "[Musitron Processor] Generation error caught:",
         generationError
       );
+
+      // Determine correct refund amount based on model
+      const refundAmount = getCreditCost("musitron", "music_generation", { 
+        model: task.model || model 
+      });
+
+      const creditCheck = {
+        refund: async (reason: string) => {
+          await CreditsService.refundCredits(
+            task.clerkUserId,
+            refundAmount,
+            reason,
+            {
+              service: "musitron",
+              action: "music_generation",
+            }
+          );
+        },
+      };
 
       const errorMessage = (() => {
         if (generationError instanceof Error) {

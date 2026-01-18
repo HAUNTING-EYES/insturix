@@ -25,6 +25,10 @@ interface CreditCostBadgeProps {
    */
   variant?: "inline" | "tooltip";
   /**
+   * Optional model ID for model-specific pricing lookup.
+   */
+  model?: string;
+  /**
    * Custom class name for wrapping div.
    */
   className?: string;
@@ -41,9 +45,10 @@ export function CreditCostBadge({
   action,
   costOverride,
   variant = "inline",
+  model,
   className,
 }: CreditCostBadgeProps) {
-  const cost = costOverride ?? getCreditCost(service, action);
+  const cost = costOverride ?? getCreditCost(service, action, { model });
 
   if (cost <= 0) {
     return null; // Don't render if no cost

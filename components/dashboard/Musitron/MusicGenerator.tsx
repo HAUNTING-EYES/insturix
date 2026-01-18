@@ -417,7 +417,13 @@ export default function MusicGenerator() {
               )}
 
               <div className="flex items-center justify-between">
-                <CreditCostBadge service="musitron" action="music_generation" variant="tooltip" />
+                <CreditCostBadge 
+                  service="musitron" 
+                  action="music_generation" 
+                  model={model}
+                  variant="tooltip" 
+                  className="bg-purple-500/10 text-purple-400 border-purple-500/20"
+                />
                 <Button
                   type="submit"
                   className={`

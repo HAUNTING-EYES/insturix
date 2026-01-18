@@ -76,10 +76,13 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       service: 'musitron',
       action: 'music_generation',
       billingType: 'per_request',
-      baseCost: 8,
+      baseCost: 1, // Base is 1, multipliers define the actual model cost
       description: 'Per music track generated',
-      // TBD: Add model multipliers
-      modelMultipliers: {},
+      modelMultipliers: {
+        'fal-ai/minimax-music/v2': 3,
+        'sonauto/v2/text-to-music': 8,
+        'fal-ai/stable-audio/v2.5': 20,
+      },
     },
   ],
   
