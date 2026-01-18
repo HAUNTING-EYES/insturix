@@ -14,6 +14,12 @@ import {
   SelectContent,
   SelectItem,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import { FileMusic, Mic2, Music4, PenTool } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
@@ -21,11 +27,40 @@ import { useQueryClient } from "@tanstack/react-query";
 import { CreditCostBadge } from "@/components/shared/CreditCostBadge";
 import { useCredits } from "@/hooks/useCredits";
 
-const MUSIC_MODELS = [
-  { value: "sonauto/v2/text-to-music", label: "Sonauto V2" },
-  { value: "fal-ai/stable-audio/v2.5", label: "Stable Audio 2.5" },
-  { value: "fal-ai/minimax-music/v2", label: "MiniMax Music V2" },
-];
+/**
+ * Model capabilities configuration. 
+ * Add new models or update capabilities here to automatically sync UI logic.
+ */
+const MUSIC_MODELS_CONFIG: Record<string, { 
+  label: string, 
+  hasDuration: boolean, 
+  description: string,
+  minDuration?: number,
+  maxDuration?: number
+}> = {
+  "sonauto/v2/text-to-music": {
+    label: "Sonauto V2",
+    hasDuration: false,
+    description: "Best for viral hits (Sonauto); creates full songs with realistic, expressive vocals/lyrics, controllable via BPM and customizable text."
+  },
+  "fal-ai/stable-audio/v2.5": {
+    label: "Stable Audio 2.5",
+    hasDuration: true,
+    minDuration: 5,
+    maxDuration: 240,
+    description: "Best for video background music; generates high-quality, structured instrumental tracks (up to 3 minutes) with distinct intro/outro sections in seconds."
+  },
+  "fal-ai/minimax-music/v2": {
+    label: "MiniMax Music V2",
+    hasDuration: false,
+    description: "Best for complex compositions; excels at high-fidelity instrumentals and multi-language vocals that rival human performances, ideal for audiophiles."
+  },
+};
+
+const MUSIC_MODELS = Object.entries(MUSIC_MODELS_CONFIG).map(([value, config]) => ({
+  value,
+  label: config.label
+}));
 
 export default function MusicGenerator() {
   const [title, setTitle] = useState("");
@@ -40,6 +75,9 @@ export default function MusicGenerator() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const { invalidateCredits } = useCredits();
+  
+  const currentModelConfig = MUSIC_MODELS_CONFIG[model];
+  const supportsDuration = currentModelConfig?.hasDuration;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -276,56 +314,68 @@ export default function MusicGenerator() {
                   </SelectContent>
                 </Select>
                 <p className="text-white/60 mt-2 text-sm font-light">
-                  {model === "fal-ai/stable-audio/v2.5"
-                    ? "Best for video background music; generates high-quality, structured instrumental tracks (up to 3 minutes) with distinct intro/outro sections in seconds."
-                    : model === "fal-ai/minimax-music/v2"
-                      ? "Best for complex compositions; excels at high-fidelity instrumentals and multi-language vocals that rival human performances, ideal for audiophiles."
-                      : "Best for viral hits (Sonauto); creates full songs with realistic, expressive vocals/lyrics, controllable via BPM and customizable text."}
+                  {currentModelConfig?.description}
                 </p>
               </div>
 
-              {/* Duration row: full width, single line */}
-              <div className="flex flex-col md:flex-row items-center gap-4 w-full">
-                <Label
-                  htmlFor="duration"
-                  className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2 min-w-[120px]"
-                >
-                  <Music4 className="h-4 w-4 text-yellow-500" />
-                  Duration (seconds)
-                </Label>
-                <Input
-                  id="duration"
-                  type="number"
-                  min={MIN_DURATION}
-                  max={MAX_DURATION}
-                  value={duration}
-                  onChange={(e) => {
-                    let val = Number(e.target.value);
-                    if (isNaN(val)) val = MIN_DURATION;
-                    if (val < MIN_DURATION) val = MIN_DURATION;
-                    if (val > MAX_DURATION) val = MAX_DURATION;
-                    setDuration(val);
-                  }}
-                  placeholder="Enter duration in seconds (e.g., 120)"
-                  className="w-24 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors"
-                  required
-                />
-                <Slider
-                  min={MIN_DURATION}
-                  max={MAX_DURATION}
-                  step={1}
-                  value={[Number(duration)]}
-                  onValueChange={([val]) => {
-                    if (val < MIN_DURATION) setDuration(MIN_DURATION);
-                    else if (val > MAX_DURATION) setDuration(MAX_DURATION);
-                    else setDuration(val);
-                  }}
-                  className="flex-1"
-                />
-                <span className="text-xs text-zinc-400 flex items-center">
-                  {duration} sec
-                </span>
-              </div>
+              {/* Duration row: with Tooltip support for unsupported models */}
+              <TooltipProvider>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <div className={`flex flex-col md:flex-row items-center gap-4 w-full ${!supportsDuration ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                      <Label
+                        htmlFor="duration"
+                        className="text-sm font-medium text-zinc-400 uppercase tracking-wider flex items-center gap-2 min-w-[120px]"
+                      >
+                        <Music4 className="h-4 w-4 text-yellow-500" />
+                        Duration (seconds)
+                      </Label>
+                      <Input
+                        id="duration"
+                        type="number"
+                        min={currentModelConfig?.minDuration || 30}
+                        max={currentModelConfig?.maxDuration || 30}
+                        value={supportsDuration ? duration : (model === "fal-ai/minimax-music/v2" ? 60 : 95)}
+                        disabled={!supportsDuration}
+                        onChange={(e) => {
+                          let val = Number(e.target.value);
+                          const min = currentModelConfig?.minDuration || 5;
+                          const max = currentModelConfig?.maxDuration || 240;
+                          if (isNaN(val)) val = min;
+                          if (val < min) val = min;
+                          if (val > max) val = max;
+                          setDuration(val);
+                        }}
+                        className="w-24 bg-black/20 border-zinc-800 text-zinc-100 placeholder:text-zinc-500 focus:border-purple-500/50 transition-colors disabled:cursor-not-allowed"
+                        required
+                      />
+                      <Slider
+                        min={currentModelConfig?.minDuration || 5}
+                        max={currentModelConfig?.maxDuration || 240}
+                        step={1}
+                        value={[supportsDuration ? Number(duration) : (model === "fal-ai/minimax-music/v2" ? 60 : 95)]}
+                        disabled={!supportsDuration}
+                        onValueChange={([val]) => {
+                          const min = currentModelConfig?.minDuration || 5;
+                          const max = currentModelConfig?.maxDuration || 240;
+                          if (val < min) setDuration(min);
+                          else if (val > max) setDuration(max);
+                          else setDuration(val);
+                        }}
+                        className="flex-1"
+                      />
+                      <span className="text-xs text-zinc-400 flex items-center">
+                        {supportsDuration ? duration : (model === "fal-ai/minimax-music/v2" ? 60 : 95)} sec
+                      </span>
+                    </div>
+                  </TooltipTrigger>
+                  {!supportsDuration && (
+                    <TooltipContent side="top" className="bg-zinc-800 border-zinc-700 text-zinc-100 text-xs">
+                      <p>The chosen model ({currentModelConfig?.label}) uses a fixed duration and does not support custom length.</p>
+                    </TooltipContent>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
 
               <div className="flex items-center justify-between p-3 rounded-lg bg-black/20">
                 <div className="flex items-center gap-3">

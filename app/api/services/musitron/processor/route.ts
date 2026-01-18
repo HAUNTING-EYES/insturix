@@ -108,10 +108,11 @@ async function handler(request: Request) {
         };
       } else {
         // Default to Stable Audio or generic params
+        // Stable Audio 2.5 uses 'seconds_total' instead of 'duration'
         falInput = {
           prompt: `${task.style}. ${task.title}. ${!task.instrumental_only ? task.lyrics : ""}`,
           instrumental: task.instrumental_only,
-          duration: Math.min(Math.max(task.duration, 5), 240),
+          seconds_total: Math.min(Math.max(task.duration, 5), 240),
           number_of_steps: 27,
           scheduler: "euler",
           guidance_type: "apg",
@@ -130,7 +131,8 @@ async function handler(request: Request) {
       );
 
       // Get audio URL from Fal AI response
-      const audioUrl = falResult.data?.audio?.url;
+      // Some models return a single object, others (like Sonauto) return an array
+      const audioUrl = falResult.data?.audio?.url || falResult.data?.audio?.[0]?.url;
 
       if (!audioUrl) {
         throw new Error(
