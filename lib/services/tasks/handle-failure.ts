@@ -1,5 +1,3 @@
-import { User } from '@/schemas/user';
-import { REFUND_MAPPING } from '../refund-config';
 import { CreditsService } from '@/lib/services/creditsService';
 import { getCreditCost } from '@/lib/config/creditCosts';
 
@@ -17,7 +15,7 @@ interface FailureParams {
 
 /**
  * Simplified function to handle task failures and refunds
- * Handles both legacy usage refunds and credits refunds
+ * Uses the new credits system for all services
  */
 export async function handleTaskFailure({ taskId, serviceName, userId, taskType, task }: FailureParams): Promise<void> {
   if (!taskType) {
@@ -59,13 +57,25 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
     }
   }
 
-  // Process legacy refunds for Clickatron (still uses per-usage limits)
+  // Handle credits refund for Clickatron
   if (serviceName === 'clickatron') {
-    const usageTypes = REFUND_MAPPING[serviceName]?.[taskType];
-    if (usageTypes) {
-      for (const usageType of usageTypes) {
-        await refundLegacyUsage(userId, serviceName, usageType);
-      }
+    try {
+      // Determine the action from taskType
+      const action = taskType === 'variation' ? 'generate_variation' : 'generate_ad';
+      
+      // Calculate credits to refund (base cost for the action)
+      const creditsToRefund = getCreditCost('clickatron', action, {});
+
+      await CreditsService.refundCredits(
+        userId,
+        creditsToRefund,
+        `Task timeout - ${taskId}`,
+        { service: 'clickatron', action }
+      );
+
+      console.log(`[handleTaskFailure] Refunded ${creditsToRefund} credits to ${userId} for Clickatron task ${taskId}`);
+    } catch (refundError) {
+      console.error('[handleTaskFailure] Failed to refund Clickatron credits:', refundError);
     }
   }
 
@@ -129,13 +139,4 @@ export async function handleTaskFailure({ taskId, serviceName, userId, taskType,
   } catch (dbError) {
     console.warn('Failed to update task status', { userId, taskId, serviceName, dbError });
   }
-}
-
-// Legacy refund for services still using per-usage limits (Clickatron)
-async function refundLegacyUsage(userId: string, serviceName: string, usageType: string) {
-  await User.updateOne(
-    { clerkUserId: userId },
-    { $inc: { [`currentPlan.serviceLimits.${serviceName}.$[elem].currentUsage`]: -1 } },
-    { arrayFilters: [{ 'elem.limitType': usageType, 'elem.currentUsage': { $gt: 0 } }] }
-  );
 }
