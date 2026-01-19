@@ -27,47 +27,24 @@ interface PlanSelectionProps {
   } | null;
 }
 
-// Service limits data structure
-const serviceLimits = {
-  [UserType.Free]: {
-    alyzitron: { analyses: 12, overTwentyMins: 4 },
-    clickatron: { thumbnails: 12 },
-    editron: { edits: 1 },
-    socialize: { links: 5, oneTime: true },
-    musitron: { tracks: 8 },
-    thinkforge: { sessions: 10 },
-    shield: { applications: 1 },
-  },
-  [UserType.Plus]: {
-    alyzitron: { analyses: 60, overTwentyMins: 20 },
-    clickatron: { thumbnails: 60 },
-    editron: { edits: 10 },
-    socialize: { links: "Unlimited" },
-    musitron: { tracks: 40 },
-    thinkforge: { sessions: 25 },
-    shield: { applications: 3 },
-  },
-  [UserType.Pro]: {
-    alyzitron: { analyses: 200, overTwentyMins: 80 },
-    clickatron: { thumbnails: 120 },
-    editron: { edits: 25 },
-    socialize: { links: "Unlimited" },
-    musitron: { tracks: 100 },
-    thinkforge: { sessions: 100 },
-    shield: { applications: 3 },
-  },
-  [UserType.Premium]: {
-    alyzitron: { analyses: "Unlimited", fairUsage: true },
-    clickatron: { thumbnails: "Unlimited", fairUsage: true },
-    editron: { edits: 40 },
-    socialize: { links: "Unlimited" },
-    musitron: { tracks: 160 },
-    thinkforge: { sessions: "Unlimited", fairUsage: true },
-    shield: { applications: 3 },
-  },
+// Credit allocations per plan (monthly)
+const planCredits = {
+  [UserType.Free]: 50,
+  [UserType.Plus]: 500,
+  [UserType.Pro]: 2000,
+  [UserType.Premium]: 5000,
 };
 
-// Creator perks data structure
+// Example credit costs for reference
+const creditCostExamples = [
+  { name: "Video Analysis", cost: "2 credits/min", icon: "📊" },
+  { name: "Thumbnail Gen", cost: "3 credits each", icon: "🖼️" },
+  { name: "AI Chat (Editron)", cost: "2 credits/msg", icon: "💬" },
+  { name: "Music Track", cost: "3-20 credits", icon: "🎵" },
+  { name: "Content Ideation", cost: "1 credit/chat", icon: "💡" },
+];
+
+// Creator perks data structure (kept for perks comparison table)
 const creatorPerks = {
   [UserType.Free]: {
     prioritySupport: false,
@@ -106,63 +83,6 @@ const creatorPerks = {
     creatorCohorts: true,
   },
 };
-
-const serviceRows = [
-  {
-    name: "Alyzitron",
-    description: "(Video Analysis)",
-    key: "alyzitron",
-    formatter: (limits: any) =>
-      limits?.analyses === "Unlimited"
-        ? "✅ Unlimited (Fair usage)"
-        : `${limits?.analyses || 0} analyses${limits?.overTwentyMins ? `, ${limits.overTwentyMins} over 20 mins` : ""}`,
-  },
-  {
-    name: "Clickatron",
-    description: "(Thumbnail Gen)",
-    key: "clickatron",
-    formatter: (limits: any) =>
-      limits?.thumbnails === "Unlimited"
-        ? "✅ Unlimited (Fair usage)"
-        : `${limits?.thumbnails || 0} thumbnails`,
-  },
-  {
-    name: "Editron",
-    description: "(AI Video Edits)",
-    key: "editron",
-    formatter: (limits: any) => `${limits?.edits || 0} edits`,
-  },
-  {
-    name: "Socialize",
-    description: "(Smart Links Page)",
-    key: "socialize",
-    formatter: (limits: any) =>
-      limits?.links === "Unlimited"
-        ? "✅ Unlimited links"
-        : `${limits?.links || 0} links${limits?.oneTime ? " (one-time)" : ""}`,
-  },
-  {
-    name: "Musitron",
-    description: "(AI Music Tracks)",
-    key: "musitron",
-    formatter: (limits: any) => `${limits?.tracks || 0} tracks`,
-  },
-  {
-    name: "ThinkForge",
-    description: "(Content Ideation)",
-    key: "thinkforge",
-    formatter: (limits: any) =>
-      limits?.sessions === "Unlimited"
-        ? "✅ Unlimited (Fair usage)"
-        : `${limits?.sessions || 0} sessions`,
-  },
-  {
-    name: "Shield",
-    description: "(Protection Applications)",
-    key: "shield",
-    formatter: (limits: any) => `${limits?.applications || 0}/month`,
-  },
-];
 
 const perkRows = [
   { name: "Priority Customer Support", key: "prioritySupport" },
@@ -560,32 +480,35 @@ export function PlanSelection({
                         })}
                       </ul>
 
-                      {/* Service Limits Section */}
+                      {/* Credits Included Section */}
                       <div className="mt-6 pt-4 border-t border-white/10">
                         <h4 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
                           <AlignEndHorizontal className="w-4 h-4" />
-                          Service Limits
+                          Credits Included
                         </h4>
-                        <div className="space-y-2">
-                          {serviceRows.map((service) => {
-                            const limits =
-                              serviceLimits[plan.userType]?.[
-                                service.key as keyof (typeof serviceLimits)[UserType.Free]
-                              ];
-                            return (
-                              <div
-                                key={service.key}
-                                className="flex justify-between items-center text-xs"
-                              >
-                                <span className="text-gray-400">
-                                  {service.name}
-                                </span>
-                                <span className="text-gray-300 font-medium">
-                                  {service.formatter(limits)}
-                                </span>
-                              </div>
-                            );
-                          })}
+                        <div className="bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-lg p-3 mb-3">
+                          <div className="text-center">
+                            <span className="text-2xl font-bold text-white">
+                              {planCredits[plan.userType]?.toLocaleString()}
+                            </span>
+                            <span className="text-sm text-gray-400 ml-1">credits/month</span>
+                          </div>
+                        </div>
+                        <p className="text-xs text-gray-400 mb-2">Use credits across all services:</p>
+                        <div className="space-y-1">
+                          {creditCostExamples.slice(0, 3).map((example) => (
+                            <div
+                              key={example.name}
+                              className="flex justify-between items-center text-xs"
+                            >
+                              <span className="text-gray-400">
+                                {example.icon} {example.name}
+                              </span>
+                              <span className="text-gray-300 font-medium">
+                                {example.cost}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       </div>
                     </motion.div>

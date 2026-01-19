@@ -5,6 +5,7 @@ import {
   Share2,
   Video,
   Sparkles,
+  CreditCard,
 } from "lucide-react"
 import type { Product } from "./types"
 
@@ -66,6 +67,15 @@ export const growthLegalTools: Product[] = [
     description: "Social Media Manager",
     color: "#0ea5e9",
     hoverColor: "#38bdf8",
+    isPro: false,
+  },
+  {
+    name: "Billing",
+    path: "/dashboard/billing",
+    icon: CreditCard,
+    description: "Credits & Usage",
+    color: "#10b981",
+    hoverColor: "#34d399",
     isPro: false,
   },
 ]

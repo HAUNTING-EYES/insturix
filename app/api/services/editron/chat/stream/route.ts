@@ -6,6 +6,9 @@ import { chatService } from '@/lib/editron/services/chat-service';
 import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
+import { CreditsService } from '@/lib/services/creditsService';
+
+const EDITRON_CREDIT_COST = 2; // Credits per chat message (simplified, not token-based yet)
 
 export const maxDuration = 60; // Allow longer timeout for agent execution
 
@@ -32,9 +35,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Credits check - deduct upfront (will refund on failure)
+    const creditsCheck = await CreditsService.hasCredits(userId, 'editron', 'ai_operation', {});
+    if (!creditsCheck.hasCredits) {
+      return NextResponse.json(
+        { 
+          error: 'Insufficient credits',
+          creditsInfo: {
+            required: EDITRON_CREDIT_COST,
+            available: creditsCheck.available,
+          }
+        },
+        { status: 402 }
+      );
+    }
+
+    // Deduct credits upfront
+    const deductResult = await CreditsService.deductCredits(userId, 'editron', 'ai_operation', {
+      tokenCount: EDITRON_CREDIT_COST * 1000, // Simplified: treat credit cost as equivalent to 1000 tokens per credit
+    });
+    if (!deductResult.success) {
+      return NextResponse.json({ error: deductResult.error || 'Failed to deduct credits' }, { status: 402 });
+    }
+    const creditTransactionId = deductResult.transactionId;
+
     const { message, projectId, sessionId } = await req.json();
 
     if (!message || !projectId) {
+      // Refund credits if request is invalid
+      await CreditsService.refundCredits(userId, EDITRON_CREDIT_COST, 'Invalid request - missing fields', {
+        service: 'editron',
+        action: 'ai_operation',
+        originalTransactionId: creditTransactionId,
+      });
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -215,6 +248,12 @@ export async function POST(req: NextRequest) {
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: actualSessionId })}\n\n`));
       } catch (error: any) {
         console.error("Agent error:", error);
+        // Refund credits on agent failure
+        await CreditsService.refundCredits(userId, EDITRON_CREDIT_COST, `Agent error: ${error.message}`, {
+          service: 'editron',
+          action: 'ai_operation',
+          originalTransactionId: creditTransactionId,
+        });
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
       } finally {
         await writer.close();

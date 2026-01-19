@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, CheckCircle, Crown } from "lucide-react";
+import { ArrowRight, CheckCircle, Crown, Coins, Globe } from "lucide-react";
 import { useRouter } from "next/navigation";
 // import { useUser } from "@clerk/nextjs"; // Removed useUser
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import { UserType } from "@/types/userTypes";
 import { useToast } from "@/hooks/use-toast";
 import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
 import { CurrencySelector } from "../CurrencySelector";
+import { CreditsTopupModal } from "@/components/shared/CreditsTopupModal";
 // import { usePlansFromDB } from "@/lib/hooks/usePlansFromDB"; // Removed usePlansFromDB
 
 type PlanFeature = {
@@ -91,37 +92,48 @@ export function UpgradePageContent({
   const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
   const [dynamicPlans, setDynamicPlans] = useState(serverPlans);
   const [plansLoading, setPlansLoading] = useState(false);
+  const [showTopupModal, setShowTopupModal] = useState(false);
 
-  // Only fetch plans client-side if server plans are not available or if currency changes
- useEffect(() => {
+  // Only INR supports subscriptions, other currencies get credits only
+  const isINR = selectedCurrency === 'INR';
+
+  // Track if we need to refetch due to currency change from server-rendered value
+  const [initialCurrency] = useState(() => {
+    // Server plans were fetched with the currency from cookies/headers
+    // If user changes currency client-side, we need to refetch
+    return serverPlans?.[0]?.pricing?.monthly?.currency || 'USD';
+  });
+
+  // Fetch plans client-side when currency changes OR if no server plans
+  useEffect(() => {
     const fetchPlansForCurrency = async () => {
-      if (!serverPlans || serverPlans.length === 0) {
-        setPlansLoading(true);
-        try {
-          const response = await fetch(`/api/plans?currency=${selectedCurrency}`, { cache: "no-store" });
-          if (!response.ok) {
-            // Handle non-200 responses to prevent processing HTML error pages
-            const errorText = await response.text();
-            console.error('[UpgradePageContent] fetch error:', response.status, errorText);
-            // Optionally set an error state or show a message
-            return;
-          }
-          const data = await response.json();
-          setDynamicPlans(data.plans);
-        } catch (error) {
-          console.error('[UpgradePageContent] fetch error:', error);
-          // Optionally set an error state or show a message
-        } finally {
-          setPlansLoading(false);
-        }
-      } else {
-        // If server plans are available, use them directly and only refetch on currency change
+      // Refetch if: no server plans, OR currency changed from server-rendered value
+      const needsRefetch = !serverPlans || serverPlans.length === 0 || selectedCurrency !== initialCurrency;
+      
+      if (!needsRefetch) {
         setDynamicPlans(serverPlans);
+        return;
+      }
+
+      setPlansLoading(true);
+      try {
+        const response = await fetch(`/api/plans?currency=${selectedCurrency}`, { cache: "no-store" });
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[UpgradePageContent] fetch error:', response.status, errorText);
+          return;
+        }
+        const data = await response.json();
+        setDynamicPlans(data.plans);
+      } catch (error) {
+        console.error('[UpgradePageContent] fetch error:', error);
+      } finally {
+        setPlansLoading(false);
       }
     };
 
     fetchPlansForCurrency();
-  }, [serverPlans, selectedCurrency]);
+  }, [serverPlans, selectedCurrency, initialCurrency]);
 
 
   const convertedPlans: Plan[] = useMemo(() => {
@@ -438,12 +450,59 @@ export function UpgradePageContent({
          </div>
       )}
 
-      {currentStep < 3 && (
+      {/* International Credits Only View (non-INR) */}
+      {!isINR && (
+        <Card className="backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl overflow-hidden mb-8">
+          <CardContent className="p-8 text-center">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex justify-center mb-4">
+                <div className="p-4 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20">
+                  <Globe className="h-10 w-10 text-purple-400" />
+                </div>
+              </div>
+              <h2 className="text-2xl font-bold text-white mb-2">International Payments</h2>
+              <p className="text-white/70 max-w-md mx-auto mb-6">
+                Subscriptions are currently available only in INR. For other currencies, 
+                you can purchase credit packages that work across all our services.
+              </p>
+              
+              <div className="bg-white/5 rounded-lg p-4 mb-6 max-w-sm mx-auto">
+                <div className="flex items-center justify-center gap-2 text-white mb-2">
+                  <Coins className="h-5 w-5 text-amber-400" />
+                  <span className="font-semibold">Credits never expire</span>
+                </div>
+                <p className="text-sm text-white/60">
+                  Use credits across all services: video analysis, thumbnail generation, AI chat, music creation, and more.
+                </p>
+              </div>
+
+              <Button
+                onClick={() => setShowTopupModal(true)}
+                className={`${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white px-8 py-3`}
+              >
+                <Coins className="h-4 w-4 mr-2" />
+                Buy Credits
+              </Button>
+
+              <p className="text-xs text-white/50 mt-4">
+                Want INR pricing? Change currency above to access subscription plans.
+              </p>
+            </motion.div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Subscription Plans (INR only) */}
+      {isINR && currentStep < 3 && (
         <div className="mb-8">
           <StepIndicator currentStep={currentStep} totalSteps={2} />
         </div>
       )}
 
+      {isINR && (
       <Card className="backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl overflow-hidden">
         <CardContent className="p-8">
           <div>
@@ -516,6 +575,13 @@ export function UpgradePageContent({
           )}
         </CardContent>
       </Card>
+      )}
+
+      {/* Credits Top-up Modal for international users */}
+      <CreditsTopupModal 
+        isOpen={showTopupModal} 
+        onClose={() => setShowTopupModal(false)} 
+      />
     </div>
   );
 }

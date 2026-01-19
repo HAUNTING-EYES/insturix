@@ -14,6 +14,11 @@ export interface ServiceUsageInfo {
   timeUntilReset?: { days: number; hours: number; minutes: number; totalMs: number } | null;
 }
 
+/**
+ * @deprecated This service is deprecated. Use CreditsService from '@/lib/services/creditsService' instead.
+ * All billing is now handled via the universal credits system.
+ * This class is retained only for potential data migration and will be removed in a future release.
+ */
 export class ServiceUsageService {
   /**
    * Check if user can use a specific service feature

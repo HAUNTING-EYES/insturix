@@ -64,10 +64,10 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
     {
       service: 'editron',
       action: 'ai_operation',
-      billingType: 'per_token',
-      baseCost: 1, // Per 1000 tokens
-      description: 'Token-based billing like ChatGPT (input + output tokens)',
-      // Token pricing is calculated separately
+      billingType: 'per_request',
+      baseCost: 2, // Credits per AI chat message
+      description: 'Per AI chat message/operation',
+      // TODO: Migrate to per_token billing with actual token counting
     },
   ],
   
