@@ -1363,33 +1363,56 @@ export async function saveUserPreferences(userId: string, preferences: Record<st
 
 // ==================== Rate Limiting ====================
 
+export interface ChatLimitStatus {
+  allowed: boolean;
+  planName: string;
+  remaining: number;
+  maxAllowed: number;
+  currentUsage: number;
+  resetAt: Date;
+}
+
+export const CHAT_LIMITS: Record<string, number> = {
+  free: 50,
+  plus: 200,
+  pro: 500,
+  premium: 5000
+};
+
+export function getChatMaxAllowed(planName: string): number {
+  const key = (planName || '').toLowerCase();
+  return CHAT_LIMITS[key] ?? CHAT_LIMITS.free;
+}
+
+export function evaluateChatLimit(planName: string, currentUsage: number): { allowed: boolean; remaining: number; maxAllowed: number } {
+  const maxAllowed = getChatMaxAllowed(planName);
+  const remaining = Math.max(0, maxAllowed - Math.max(0, currentUsage || 0));
+  return {
+    allowed: remaining > 0,
+    remaining,
+    maxAllowed,
+  };
+}
+
 export async function checkChatLimit(
   userId: string,
   sessionId: string,
   planName: string
-): Promise<boolean> {
+): Promise<ChatLimitStatus> {
+  const normalizedPlan = (planName || 'free').toLowerCase();
   try {
     const { RateUsageModel } = await getModels();
-    
-    // Plan limits (messages per week)
-    const limits: Record<string, number> = {
-      free: 50,
-      pro: 500,
-      premium: 5000
-    };
-    
-    const maxAllowed = limits[planName.toLowerCase()] || limits.free;
     const now = new Date();
     const resetAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
     
     // Find or create usage record
-    let usage = await RateUsageModel.findOne({ userId, sessionId, planName });
+    let usage = await RateUsageModel.findOne({ userId, sessionId, planName: normalizedPlan });
     
     if (!usage) {
       usage = await RateUsageModel.create({
         userId,
         sessionId,
-        planName,
+        planName: normalizedPlan,
         count: 0,
         resetAt
       });
@@ -1401,28 +1424,41 @@ export async function checkChatLimit(
       usage.resetAt = resetAt;
       await usage.save();
     }
-    
-    return usage.count < maxAllowed;
+
+    const evaluation = evaluateChatLimit(normalizedPlan, usage.count);
+    return {
+      allowed: evaluation.allowed,
+      planName: normalizedPlan,
+      remaining: evaluation.remaining,
+      maxAllowed: evaluation.maxAllowed,
+      currentUsage: usage.count,
+      resetAt: usage.resetAt || resetAt,
+    };
   } catch (error) {
     console.error('Error checking chat limit:', error);
-    // Fail open - allow request on error
-    return true;
+    const evaluation = evaluateChatLimit(normalizedPlan, 0);
+    // Fail open - allow request on error, but provide telemetry
+    return {
+      allowed: true,
+      planName: normalizedPlan,
+      remaining: evaluation.remaining,
+      maxAllowed: evaluation.maxAllowed,
+      currentUsage: 0,
+      resetAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    };
   }
 }
 
-export async function recordChatUsage(userId: string, sessionId: string): Promise<void> {
+export async function recordChatUsage(userId: string, sessionId: string, planName: string): Promise<void> {
   try {
     const { RateUsageModel } = await getModels();
     
-    // Get plan name from user (default to 'free')
-    // For now, we'll use a default - in production, get from user profile
-    const planName = 'free';
-    
+    const normalizedPlan = (planName || 'free').toLowerCase();
     const now = new Date();
     const resetAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     
     await RateUsageModel.findOneAndUpdate(
-      { userId, sessionId, planName },
+      { userId, sessionId, planName: normalizedPlan },
       {
         $inc: { count: 1 },
         $setOnInsert: { resetAt, createdAt: now },

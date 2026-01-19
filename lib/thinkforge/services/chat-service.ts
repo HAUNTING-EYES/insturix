@@ -16,6 +16,7 @@ import { validateThinkForgeBlocks, type ThinkForgeBlock } from '../schemas/think
 import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/thinkforge-block-patch';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
+import { ServiceUsageService } from '@/lib/services/serviceUsageService';
 
 // Generator may be imperfect. Renderer must never fail.
 
@@ -214,19 +215,6 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     lastUpdated: new Date()
   };
   
-  // Check rate limits
-  const planName = 'free'; // TODO: Get from user profile
-  const canChat = await db.checkChatLimit(userId, sessionState.sessionId, planName);
-  if (!canChat) {
-    throw new Error('Chat limit reached. Please upgrade your plan.');
-  }
-  
-  // Persist user message
-  if (session) {
-    await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
-    await db.recordChatUsage(userId, sessionId || session._id);
-  }
-  
   // Create SSE stream
   const stream = new TransformStream();
   const writer = stream.writable.getWriter();
@@ -264,6 +252,33 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     try {
       let finalResponse = '';
       const hasExistingScript = !!script && thinkforgeBlocks.length > 0;
+
+      // Resolve user plan and enforce rate limits
+      let planName = 'free';
+      try {
+        planName = await ServiceUsageService.getUserPlanName(userId);
+      } catch (planError) {
+        console.error('[ThinkForge][chat-service] Failed to resolve plan name:', planError);
+      }
+
+      const chatLimit = await db.checkChatLimit(userId, sessionState.sessionId, planName);
+      if (!chatLimit.allowed) {
+        const quota = {
+          planName: chatLimit.planName,
+          remaining: chatLimit.remaining,
+          maxAllowed: chatLimit.maxAllowed,
+          resetAt: chatLimit.resetAt,
+        };
+        await emitEvent('error', { error: 'Chat limit reached. Please upgrade your plan.', quota });
+        await emitEvent('done', { sessionId: session?._id, quota });
+        return;
+      }
+
+      // Persist user message
+      if (session) {
+        await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
+        await db.recordChatUsage(userId, sessionId || session._id, chatLimit.planName);
+      }
 
       // 1. Check for confirmation of a previous proposal
       // If a placement proposal is pending, intent classification is suspended.

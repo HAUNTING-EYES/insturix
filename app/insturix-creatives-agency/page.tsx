@@ -10,6 +10,7 @@ import ProgressBarWrapper from "@/components/ProgressBarWrapper";
 const EnterpriseHeroSection = dynamic(() => import("@/components/Enterprise/HeroSection"), { ssr: true });
 const TrustedBy = dynamic(() => import("@/components/Enterprise/TrustedBy"), { ssr: true });
 const CompanyGoals = dynamic(() => import("@/components/Enterprise/CompanyGoals"), { ssr: true });
+const PortfolioGallerySection = dynamic(() => import("@/components/Enterprise/PortfolioGallerySection"), { ssr: true });
 const EnterpriseFeatures = dynamic(() => import("@/components/Enterprise/EnterpriseFeatures"), { ssr: true });
 const EnterpriseBenefits = dynamic(() => import("@/components/Enterprise/EnterpriseBenefits"), { ssr: true });
 // const Testimonials = dynamic(() => import("@/components/Enterprise/Testimonials"), { ssr: true });
@@ -46,6 +47,9 @@ export default function EnterprisePage() {
       </Suspense>
       <Suspense fallback={<LoadingScreen />}>
         <TrustedBy />
+      </Suspense>
+      <Suspense fallback={<LoadingScreen />}>
+        <PortfolioGallerySection />
       </Suspense>
       <Suspense fallback={<LoadingScreen />}>
         <EnterpriseFeatures />

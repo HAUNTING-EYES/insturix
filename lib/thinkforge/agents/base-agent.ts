@@ -141,9 +141,8 @@ export abstract class BaseAgent {
       
       // Create async generator from the text stream
       const textStream = result.textStream;
-      const self = this;
       
-      async function* streamGenerator(): AsyncGenerator<string, void, unknown> {
+      const streamGenerator = async function* (): AsyncGenerator<string, void, unknown> {
         let chunkCount = 0;
         try {
           for await (const chunk of textStream) {
@@ -154,8 +153,8 @@ export abstract class BaseAgent {
           // Log successful invocation
           logInvocation({
             type: 'ai_invocation',
-            agent: self.config.agentType,
-            model: self.config.modelName,
+            agent: this.config.agentType,
+            model: this.config.modelName,
             timestamp: new Date(),
             durationMs: Date.now() - startTime,
             success: true,
@@ -163,8 +162,8 @@ export abstract class BaseAgent {
         } catch (error) {
           logInvocation({
             type: 'ai_invocation',
-            agent: self.config.agentType,
-            model: self.config.modelName,
+            agent: this.config.agentType,
+            model: this.config.modelName,
             timestamp: new Date(),
             durationMs: Date.now() - startTime,
             success: false,
@@ -172,7 +171,7 @@ export abstract class BaseAgent {
           });
           throw error;
         }
-      }
+      }.bind(this);
       
       return {
         stream: streamGenerator(),

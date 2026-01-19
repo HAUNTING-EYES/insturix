@@ -21,6 +21,22 @@ export interface ServiceUsageInfo {
  */
 export class ServiceUsageService {
   /**
+   * Resolve the user's normalized plan name.
+   */
+  static async getUserPlanName(userId: string): Promise<"free" | "plus" | "pro" | "premium"> {
+    await connectToDatabase();
+
+    const user = await User.findOne({ clerkUserId: userId }).select('currentPlan.name');
+    if (!user) {
+      console.error(`[UserNotFound] userId: '${userId}' | Query result:`, user);
+      throw new Error(`User not found: ${userId}`);
+    }
+
+    const planName = (user as any)?.currentPlan?.name;
+    return ServiceUsageService.normalizePlanType(String(planName || 'free'));
+  }
+
+  /**
    * Check if user can use a specific service feature
    */
   static async canUseService(

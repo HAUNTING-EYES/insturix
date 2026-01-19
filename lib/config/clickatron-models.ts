@@ -46,7 +46,7 @@ export interface ModelConstraints {
 export interface ModelConfig {
   id: string;
   name: string;
-  type: ModelType;
+  types: ModelType[];
   isDefault?: boolean;
   isInpaintingCapable?: boolean;
   parameterMapping: ParameterMapping;
@@ -61,7 +61,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/imagen4/preview': {
     id: 'fal-ai/imagen4/preview',
     name: 'Google Imagen4',
-    type: 'text-to-image',
+    types: ['text-to-image'],
     isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
@@ -79,7 +79,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/bytedance/seedream/v4/edit': {
     id: 'fal-ai/bytedance/seedream/v4/edit',
     name: 'Seedream V4 Edit',
-    type: 'inpainting',
+    types: ['inpainting', 'image-to-image'],
     isDefault: true, // Primary inpainting model (proven working on Fal AI)
     isInpaintingCapable: true,
     parameterMapping: {
@@ -101,7 +101,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/flux-kontext/dev': {
     id: 'fal-ai/flux-kontext/dev',
     name: 'Flux Kontext Dev',
-    type: 'image-to-image',
+    types: ['image-to-image'],
     parameterMapping: {
       prompt: 'prompt',
       image_url: 'image_url',
@@ -122,8 +122,8 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   },
   'fal-ai/bytedance/seedream/v4/text-to-image': {
     id: 'fal-ai/bytedance/seedream/v4/text-to-image',
-    name: 'Seedream V4 Text-to-Image',
-    type: 'text-to-image',
+    name: 'Seedream V4',
+    types: ['text-to-image'],
     isDefault: true,
     parameterMapping: {
       prompt: 'prompt',
@@ -143,7 +143,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/flux/dev/inpainting': {
     id: 'fal-ai/flux/dev/inpainting',
     name: 'FLUX Dev Inpainting',
-    type: 'inpainting',
+    types: ['inpainting'],
     parameterMapping: {
       prompt: 'prompt',
       image_url: 'image_url',
@@ -166,7 +166,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/flux-pro/v1/fill': {
     id: 'fal-ai/flux-pro/v1/fill',
     name: 'FLUX Pro Fill',
-    type: 'inpainting',
+    types: ['inpainting'],
     parameterMapping: {
       prompt: 'prompt',
       image_url: 'image_url',
@@ -188,7 +188,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/flux-kontext/dev/inpainting': {
     id: 'fal-ai/flux-kontext/dev/inpainting',
     name: 'Kontext Inpainting with LoRA',
-    type: 'inpainting',
+    types: ['inpainting'],
     parameterMapping: {
       prompt: 'prompt',
       image_url: 'image_url',
@@ -206,11 +206,128 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
     },
   },
+  // Nanobanana (Text-to-Image)
+  'fal-ai/nano-banana': {
+    id: 'fal-ai/nano-banana',
+    name: 'Nanobanana',
+    types: ['text-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      seed: 'seed'
+    },
+    constraints: {
+      promptMaxLength: 2048,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    },
+  },
+  // Nanobanana (Edit)
+  'fal-ai/nano-banana/edit': {
+    id: 'fal-ai/nano-banana/edit',
+    name: 'Nanobanana Edit',
+    types: ['image-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_urls: 'image_urls',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      seed: 'seed'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 1,
+      maxImages: 1,
+    },
+  },
+  // Nanobanana Pro (Text-to-Image)
+  'fal-ai/nano-banana-pro': {
+    id: 'fal-ai/nano-banana-pro',
+    name: 'Nanobanana Pro',
+    types: ['text-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      seed: 'seed'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    },
+  },
+  // Nanobanana Pro (Edit)
+  'fal-ai/nano-banana-pro/edit': {
+    id: 'fal-ai/nano-banana-pro/edit',
+    name: 'Nanobanana Pro Edit',
+    types: ['image-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_urls: 'image_urls',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      seed: 'seed'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 1,
+      maxImages: 1,
+    },
+  },
+  // Seedream 4.5 (Text-to-Image)
+  'fal-ai/bytedance/seedream/v4.5/text-to-image': {
+    id: 'fal-ai/bytedance/seedream/v4.5/text-to-image',
+    name: 'Seedream 4.5',
+    types: ['text-to-image'],
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      max_images: 'max_images',
+      enable_safety_checker: 'enable_safety_checker'
+    },
+    constraints: {
+      promptMaxLength: 1024, 
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 0,
+      maxImages: 0,
+    },
+  },
+  // Seedream 4.5 (Edit)
+  'fal-ai/bytedance/seedream/v4.5/edit': {
+    id: 'fal-ai/bytedance/seedream/v4.5/edit',
+    name: 'Seedream 4.5 Edit',
+    types: ['image-to-image', 'inpainting'],
+    isInpaintingCapable: true,
+    parameterMapping: {
+      prompt: 'prompt',
+      image_size: 'image_size',
+      num_images: 'num_images',
+      max_images: 'max_images',
+      enable_safety_checker: 'enable_safety_checker',
+      image_urls: 'image_urls',
+      mask_url: 'mask_url'
+    },
+    constraints: {
+       promptMaxLength: 1024,
+       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+       minImages: 1,
+       maxImages: 4,
+    },
+  },
   // DEPRECATED: Mapped to FLUX Pro Fill for backward compatibility
   'fal-ai/stable-diffusion-inpainting': {
     id: 'fal-ai/stable-diffusion-inpainting', // Keep origin ID to avoid duplicate key errors
     name: 'Stable Diffusion Inpainting (Deprecated)',
-    type: 'inpainting',
+    types: ['inpainting'],
     parameterMapping: {
       prompt: 'prompt',
       image_url: 'image_url',
@@ -270,8 +387,11 @@ export function getAvailableModels(
     return allModels.filter(model => allowedModels.includes(model.id));
   }
 
-  // For regular variation flows, exclude inpainting models (they require masks)
-  const nonInpaintingModels = allModels.filter(model => model.type !== 'inpainting');
+  // For regular variation flows, exclude strictly inpainting models (that require masks)
+  // Allow models that support text-to-image or image-to-image
+  const nonInpaintingModels = allModels.filter(model => {
+    return model.types.includes('image-to-image') || model.types.includes('text-to-image');
+  });
 
   // Calculate total reference images based on context
   let referenceImageCount = userAttachedImages;
@@ -595,12 +715,43 @@ export function generateModelPayload(
         generationParams.mask_url // Pass mask_url for inpainting
       );
     case 'fal-ai/bytedance/seedream/v4/text-to-image':
+    case 'fal-ai/bytedance/seedream/v4.5/text-to-image':
       return generateSeedreamV4TextToImagePayload(
         job,
         width,
         height,
         generationParams.num_images || 1,
         generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false
+      );
+    case 'fal-ai/nano-banana':
+    case 'fal-ai/nano-banana-pro':
+       return {
+          prompt: job.prompt,
+          image_size: { width, height },
+          num_images: generationParams.num_images || 1,
+          enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          seed: generationParams.seed
+       };
+    case 'fal-ai/nano-banana-pro/edit':
+    case 'fal-ai/nano-banana/edit':
+        return {
+            prompt: job.prompt,
+            image_urls: generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []),
+            num_images: generationParams.num_images || 1,
+            enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+            seed: generationParams.seed,
+            // strength parameter is not supported by Nanobanana models (instruction-based editing)
+        };
+    case 'fal-ai/bytedance/seedream/v4/edit':
+    case 'fal-ai/bytedance/seedream/v4.5/edit':
+      return generateSeedreamV4EditPayload(
+        job,
+        width,
+        height,
+        generationParams.num_images || 1,
+        generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+        generationParams.image_urls,
+        generationParams.mask_url // Pass mask_url for inpainting
       );
     case 'fal-ai/flux/dev/inpainting':
     case 'fal-ai/flux-pro/v1/fill':
