@@ -65,6 +65,13 @@ export interface ICreditTransaction {
   metadata?: Record<string, unknown>; // Additional data
 }
 
+// Organization membership for user
+export interface IUserOrganization {
+  clerkOrgId: string;
+  role: 'owner' | 'admin' | 'member';
+  joinedAt: Date;
+}
+
 export interface ICreditsBalance {
   subscriptionCredits: number; // Monthly credits from subscription (expire)
   topupCredits: number; // Purchased credits (never expire)
@@ -84,6 +91,7 @@ interface IUser extends Document {
   uiMessages: IUiMessage[];
   trialUsed: boolean; // Track if user has used their one-time trial
   creditsBalance: ICreditsBalance; // Credits system balance
+  organizations: IUserOrganization[]; // User's organization memberships
   preferences: {
     currency: string;
     notifications: {
@@ -310,6 +318,14 @@ const userSchema = new Schema<IUser>({
       subscriptionCreditsExpiry: null,
       creditHistory: [],
     }),
+  },
+  organizations: {
+    type: [new Schema<IUserOrganization>({
+      clerkOrgId: { type: String, required: true },
+      role: { type: String, required: true, enum: ['owner', 'admin', 'member'] },
+      joinedAt: { type: Date, required: true, default: Date.now },
+    }, { _id: false })],
+    default: [],
   },
   preferences: {
     currency: {

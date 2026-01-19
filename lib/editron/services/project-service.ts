@@ -8,6 +8,7 @@ import { getDatabase, COLLECTIONS } from '../db/mongodb';
 import { assetResolver } from './asset-resolver';
 import type { Overlay, AspectRatio } from '@/components/editron/editor/version-7.0.0/types';
 import { nanoid } from 'nanoid';
+import { orgMemberService } from '@/lib/services/orgMemberService';
 
 export interface EditorState {
   overlays: Overlay[];
@@ -37,6 +38,10 @@ export interface Project {
   createdAt: Date;
   updatedAt: Date;
   lastAutosaveAt?: Date;
+  // Organization support
+  orgId?: string;              // null = personal project, set = org project
+  sharedWith?: string[];       // explicit user IDs for sharing
+  visibility: 'private' | 'org' | 'shared';  // access level
 }
 
 export interface ProjectListItem {
@@ -50,7 +55,28 @@ export interface ProjectListItem {
 
 export class ProjectService {
   /**
-   * Create new project
+   * Check if user can access a project (owner, org member, or explicitly shared)
+   */
+  async canAccessProject(userId: string, project: Project): Promise<boolean> {
+    // Owner always has access
+    if (project.userId === userId) return true;
+    
+    // Check org membership if project belongs to org
+    if (project.orgId && project.visibility === 'org') {
+      const isMember = await orgMemberService.isMember(userId, project.orgId);
+      if (isMember) return true;
+    }
+    
+    // Check explicit sharing
+    if (project.visibility === 'shared' && project.sharedWith?.includes(userId)) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  /**
+   * Create new personal project
    */
   async createProject(userId: string, name: string, templateId?: string): Promise<Project> {
     const projectId = `proj_${nanoid(12)}`;
@@ -67,6 +93,43 @@ export class ProjectService {
       },
       fps: 30,
       durationInFrames: 0,
+      visibility: 'private',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const db = await getDatabase();
+    await db.collection(COLLECTIONS.PROJECTS).insertOne(project);
+
+    return project;
+  }
+
+  /**
+   * Create new organization project
+   */
+  async createOrgProject(userId: string, orgId: string, name: string): Promise<Project> {
+    // Verify user is member of org
+    const isMember = await orgMemberService.isMember(userId, orgId);
+    if (!isMember) {
+      throw new Error('User is not a member of this organization');
+    }
+
+    const projectId = `proj_${nanoid(12)}`;
+    
+    const project: Project = {
+      projectId,
+      userId,
+      orgId,
+      name,
+      overlays: [],
+      aspectRatio: '16:9',
+      playerDimensions: {
+        width: 1920,
+        height: 1080,
+      },
+      fps: 30,
+      durationInFrames: 0,
+      visibility: 'org',
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -84,15 +147,16 @@ export class ProjectService {
     const db = await getDatabase();
     const project = await db
       .collection(COLLECTIONS.PROJECTS)
-      .findOne({ projectId }) as unknown as Project | null; // Filter by unique projectId only
+      .findOne({ projectId }) as unknown as Project | null;
 
     if (!project) {
       return null;
     }
 
-    // Verify userId matches (security check)
-    if (project.userId !== userId) {
-      console.warn(`User ${userId} attempted to access project ${projectId} owned by ${project.userId}`);
+    // Check access using org-aware access control
+    const hasAccess = await this.canAccessProject(userId, project);
+    if (!hasAccess) {
+      console.warn(`User ${userId} attempted to access project ${projectId} without permission`);
       return null;
     }
 
@@ -235,6 +299,63 @@ export class ProjectService {
         updatedAt: 1,
         durationInFrames: 1,
         aspectRatio: 1,
+      })
+      .sort(sortOrder)
+      .skip(skip)
+      .limit(limit)
+      .toArray() as unknown as ProjectListItem[];
+
+    return {
+      projects,
+      total,
+      page,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * List organization's projects
+   */
+  async listOrgProjects(
+    userId: string,
+    orgId: string,
+    page = 1,
+    limit = 20,
+    sortBy: 'createdAt' | 'updatedAt' | 'name' = 'updatedAt'
+  ): Promise<{
+    projects: ProjectListItem[];
+    total: number;
+    page: number;
+    totalPages: number;
+  }> {
+    // Verify user is member of org
+    const isMember = await orgMemberService.isMember(userId, orgId);
+    if (!isMember) {
+      throw new Error('User is not a member of this organization');
+    }
+
+    const db = await getDatabase();
+    const collection = db.collection(COLLECTIONS.PROJECTS);
+
+    const query = { orgId, visibility: 'org' };
+    const total = await collection.countDocuments(query);
+    const skip = (page - 1) * limit;
+
+    const sortOrder: any = {};
+    sortOrder[sortBy] = sortBy === 'name' ? 1 : -1;
+
+    const projects = await collection
+      .find(query)
+      .project({
+        projectId: 1,
+        name: 1,
+        thumbnail: 1,
+        updatedAt: 1,
+        durationInFrames: 1,
+        aspectRatio: 1,
+        orgId: 1,
+        visibility: 1,
+        userId: 1,
       })
       .sort(sortOrder)
       .skip(skip)
