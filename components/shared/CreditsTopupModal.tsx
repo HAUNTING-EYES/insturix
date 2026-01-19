@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Check, Loader2 } from "lucide-react";
+import { X, Check, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useCredits } from "@/hooks/useCredits";
+import { useToast } from "@/hooks/use-toast";
 
 interface CreditPackage {
   id: string;
@@ -24,36 +26,89 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [currency, setCurrency] = useState('USD');
+  const [error, setError] = useState<string | null>(null);
+  const [scriptLoaded, setScriptLoaded] = useState(false);
+  
+  const { invalidateCredits } = useCredits();
+  const { toast } = useToast();
 
+  // Load Razorpay script
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
+    // Check if already loaded
+    if ((window as any).Razorpay) {
+      setScriptLoaded(true);
+      return;
+    }
+
+    const script = document.createElement('script');
+    script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+    script.async = true;
+    script.onload = () => setScriptLoaded(true);
+    script.onerror = () => {
+      setError('Failed to load payment system. Please refresh the page.');
+    };
+    document.body.appendChild(script);
+
+    return () => {
+      // Cleanup if needed
+    };
+  }, []);
+
+  // Fetch packages when modal opens
   useEffect(() => {
     if (isOpen) {
       fetchPackages();
+      setError(null);
     }
   }, [isOpen]);
 
   const fetchPackages = async () => {
     try {
       setLoading(true);
+      setError(null);
       const res = await fetch('/api/user/credits/topup');
+      
+      if (!res.ok) {
+        throw new Error('Failed to fetch credit packages');
+      }
+      
       const data = await res.json();
       if (data.success) {
         setPackages(data.packages);
         if (data.packages.length > 0) {
           setSelectedPackage(data.packages[1]?.id || data.packages[0]?.id);
         }
+      } else {
+        throw new Error(data.error || 'Failed to load packages');
       }
     } catch (err) {
-      console.error('Failed to fetch packages:', err);
+      const message = err instanceof Error ? err.message : 'Failed to load packages';
+      setError(message);
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handlePurchase = async () => {
+  const handlePurchase = useCallback(async () => {
     if (!selectedPackage) return;
 
+    // Check if Razorpay is loaded
+    if (!scriptLoaded || !(window as any).Razorpay) {
+      setError('Payment system is still loading. Please wait a moment.');
+      return;
+    }
+
+    setError(null);
+    setPurchasing(true);
+
     try {
-      setPurchasing(true);
       const res = await fetch('/api/user/credits/topup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -62,8 +117,14 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
       
       const data = await res.json();
       
-      if (data.success && data.order) {
-        // Initialize Razorpay checkout
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create payment order');
+      }
+      
+      if (data.order) {
+        const selectedPkg = packages.find(p => p.id === selectedPackage);
+        
+        // Initialize Razorpay checkout with full options
         const options = {
           key: data.key,
           amount: data.order.amount,
@@ -71,27 +132,113 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           name: 'Insturix Credits',
           description: data.package.name,
           order_id: data.order.id,
-          handler: function (response: any) {
-            console.log('Payment successful:', response);
-            onSuccess?.();
-            onClose();
+          handler: async function (response: any) {
+            // Payment successful - now verify and add credits
+            console.log('Payment successful, verifying:', response);
+            
+            try {
+              // Call verify endpoint to add credits directly
+              const verifyRes = await fetch('/api/user/credits/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  packageId: selectedPackage,
+                }),
+              });
+              
+              const verifyData = await verifyRes.json();
+              
+              if (verifyRes.ok && verifyData.success) {
+                // Credits added successfully
+                toast({
+                  title: "Payment Successful! 🎉",
+                  description: `${verifyData.creditsAdded || selectedPkg?.credits || data.package.credits} credits have been added to your account.`,
+                });
+                
+                // Invalidate credits query to refresh balance
+                invalidateCredits();
+                
+                // Call success callback
+                onSuccess?.();
+                
+                // Close modal
+                onClose();
+              } else {
+                // Verification failed but payment went through
+                // This means webhook should eventually process it
+                console.warn('Verify failed:', verifyData);
+                toast({
+                  title: "Payment Received",
+                  description: "Your payment was successful. Credits will be added shortly.",
+                });
+                onSuccess?.();
+                onClose();
+              }
+            } catch (verifyError) {
+              console.error('Verify error:', verifyError);
+              // Payment succeeded but verification call failed
+              // Webhook should handle it
+              toast({
+                title: "Payment Received",
+                description: "Your payment was successful. Credits will be added shortly.",
+              });
+              onSuccess?.();
+              onClose();
+            }
           },
           prefill: {},
           theme: {
             color: '#18181b',
           },
+          modal: {
+            ondismiss: function() {
+              // User closed the payment modal
+              setPurchasing(false);
+              toast({
+                title: "Payment Cancelled",
+                description: "You cancelled the payment. No charges were made.",
+                variant: "default",
+              });
+            },
+            confirm_close: true,
+            escape: true,
+          },
         };
+
+        // Add payment failure handler
+        const rzp = new (window as any).Razorpay(options);
         
-        // @ts-ignore - Razorpay is loaded via script
-        const rzp = new window.Razorpay(options);
+        rzp.on('payment.failed', function (response: any) {
+          console.error('Payment failed:', response.error);
+          setPurchasing(false);
+          
+          const errorMessage = response.error?.description || 'Payment failed. Please try again.';
+          setError(errorMessage);
+          
+          toast({
+            title: "Payment Failed",
+            description: errorMessage,
+            variant: "destructive",
+          });
+        });
+        
         rzp.open();
       }
     } catch (err) {
-      console.error('Failed to create order:', err);
-    } finally {
+      const message = err instanceof Error ? err.message : 'Failed to process payment';
+      setError(message);
       setPurchasing(false);
+      
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      });
     }
-  };
+  }, [selectedPackage, scriptLoaded, currency, packages, toast, invalidateCredits, onSuccess, onClose]);
 
   const formatPrice = (price: number, curr: string) => {
     return new Intl.NumberFormat('en-US', {
@@ -127,10 +274,28 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-muted transition-colors"
+              disabled={purchasing}
             >
               <X className="w-5 h-5" />
             </button>
           </div>
+
+          {/* Error Banner */}
+          <AnimatePresence>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="px-5 pt-4"
+              >
+                <div className="flex items-start gap-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive">
+                  <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <p className="text-sm">{error}</p>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Currency selector */}
           <div className="px-5 pt-4 flex gap-2">
@@ -138,11 +303,13 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
               <button
                 key={curr}
                 onClick={() => setCurrency(curr)}
+                disabled={purchasing}
                 className={cn(
                   "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                   currency === curr
                     ? "bg-foreground text-background"
-                    : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                    : "bg-muted hover:bg-muted/80 text-muted-foreground",
+                  purchasing && "opacity-50 cursor-not-allowed"
                 )}
               >
                 {curr}
@@ -161,12 +328,14 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
                 <button
                   key={pkg.id}
                   onClick={() => setSelectedPackage(pkg.id)}
+                  disabled={purchasing}
                   className={cn(
                     "w-full p-4 rounded-lg border transition-all text-left",
                     "flex items-center justify-between",
                     selectedPackage === pkg.id
                       ? "border-foreground/50 bg-muted/50"
-                      : "border-border hover:border-border/80"
+                      : "border-border hover:border-border/80",
+                    purchasing && "opacity-50 cursor-not-allowed"
                   )}
                 >
                   <div>
@@ -197,7 +366,7 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           <div className="p-5 pt-0">
             <button
               onClick={handlePurchase}
-              disabled={!selectedPackage || purchasing}
+              disabled={!selectedPackage || purchasing || !scriptLoaded}
               className={cn(
                 "w-full py-3 rounded-lg font-medium transition-colors",
                 "bg-foreground text-background",
@@ -206,7 +375,12 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
                 "flex items-center justify-center gap-2"
               )}
             >
-              {purchasing ? (
+              {!scriptLoaded ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Loading...
+                </>
+              ) : purchasing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
                   Processing...
@@ -215,6 +389,11 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
                 'Purchase Credits'
               )}
             </button>
+            
+            {/* Security note */}
+            <p className="text-xs text-muted-foreground text-center mt-3">
+              Payments are processed securely by Razorpay
+            </p>
           </div>
         </motion.div>
       </motion.div>

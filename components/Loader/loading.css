@@ -9,21 +9,21 @@
     align-items: center;
     justify-content: center;
     gap: 2rem;
-    background-color: rgb(var(--background));
+    background-color: hsl(var(--background));
     z-index: 100;
 }
 
 .loading-square {
     width: 60px;
     height: 60px;
-    border: 1.5px solid rgb(var(--foreground));
+    border: 1.5px solid hsl(var(--foreground));
     background-color: transparent;
 }
 
 .loading-text {
     font-size: 1.25rem;
     font-weight: 200;
-    color: rgb(var(--foreground));
+    color: hsl(var(--foreground));
     letter-spacing: 0.35em;
     text-transform: uppercase;
     margin-top: 0.5rem;

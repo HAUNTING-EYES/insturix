@@ -18,7 +18,7 @@
     "start:production": "node scripts/set-env.js production.env next start",
     "lint": "next lint",
     "postbuild": "next-sitemap",
-    "setup-plans": "node scripts/setupPlans.js",
+    "setup-plans": "npx ts-node scripts/seed-plans.ts",
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
     "test": "tsx --test tests/**/*.test.ts",

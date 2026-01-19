@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
     const order = await razorpay.orders.create({
       amount: Math.round(price * 100), // Convert to smallest currency unit
       currency: currency,
-      receipt: `credits_${userId}_${Date.now()}`,
+      receipt: `cr_${userId.slice(-12)}_${Date.now().toString(36)}`,
       notes: {
         userId,
         packageId,

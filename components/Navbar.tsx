@@ -339,6 +339,12 @@ function UserMenu() {
   const { isSignedIn, signOut } = useAuth();
   const { user } = useUser();
   const [isAdmin, setIsAdmin] = React.useState(false);
+  const [mounted, setMounted] = React.useState(false);
+
+  // Prevent hydration mismatch by only rendering auth-dependent content after mount
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Check if user is admin
   React.useEffect(() => {
@@ -361,10 +367,19 @@ function UserMenu() {
     }
   };
 
+  // Return consistent placeholder during SSR to prevent hydration mismatch
+  if (!mounted) {
+    return (
+      <div className="flex items-center gap-2">
+        <div className="h-9 w-16 bg-transparent" />
+      </div>
+    );
+  }
+
   return (
     <>
       {isSignedIn ? (
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center gap-2">
           {isAdmin && (
             <Link href="/admin/dashboard">
               <Button
