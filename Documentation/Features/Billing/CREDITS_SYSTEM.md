@@ -1,7 +1,7 @@
 # Credits-Based Billing System
 
 **Status:** ✅ Core Implementation Complete  
-**Last Updated:** January 18, 2026
+**Last Updated:** January 20, 2026
 
 ---
 
@@ -49,7 +49,7 @@ Unified credits system replacing per-service usage limits. Credits are deducted 
 | ThinkForge | ✅ | 1 per chat message |
 | Musitron | ✅ | 3, 8, or 20 (Model Dependent) |
 | Clickatron | ✅ | 3 per variation |
-| **Editron** | ⏳ Pending | Token-based (TBD) |
+| **Editron** | ✅ | 0.5 per 1K tokens |
 
 ### ✅ Frontend Components
 - `hooks/useCredits.ts` - React Query hook with auto-refresh
@@ -121,8 +121,10 @@ components/shared/
 - [x] **Clickatron Credits Integration** - Fully migrated to credits system.
 - [x] **Legacy Code Deprecation** - `serviceLimits.ts` and `serviceUsageService.ts` marked deprecated.
 
+- [x] **Editron Token Integration** - Token-based billing implemented using `TokenTracker` and Gemini `usageMetadata`.
+
 ### ⏳ Pending
-- [ ] **Editron Token Integration** - Use `TokenCreditTracker` for token-based billing (High effort).
+(None)
 
 ### Low Priority (Future)
 - [ ] Add credits usage analytics dashboard.

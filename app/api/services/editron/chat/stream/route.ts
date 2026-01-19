@@ -7,8 +7,10 @@ import { projectService } from '@/lib/editron/services/project-service';
 import { generateProjectSummary, formatSummaryForPrompt } from '@/lib/editron/utils/project-summary';
 import { checkRateLimit } from '@/lib/editron/utils/rate-limiter';
 import { CreditsService } from '@/lib/services/creditsService';
+import { TokenTracker } from '@/lib/editron/utils/token-tracker';
 
-const EDITRON_CREDIT_COST = 2; // Credits per chat message (simplified, not token-based yet)
+// Minimum credits required to start a chat (actual cost calculated post-hoc based on tokens)
+const MINIMUM_CREDITS_REQUIRED = 1;
 
 export const maxDuration = 60; // Allow longer timeout for agent execution
 
@@ -35,14 +37,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Credits check - deduct upfront (will refund on failure)
-    const creditsCheck = await CreditsService.hasCredits(userId, 'editron', 'ai_operation', {});
+    // Credits check - ensure user has minimum credits available
+    // We use post-hoc billing based on actual token usage
+    const creditsCheck = await CreditsService.hasCredits(userId, 'editron', 'ai_chat', {
+      tokenCount: MINIMUM_CREDITS_REQUIRED * 1000, // Check if they have at least minimum credits
+    });
     if (!creditsCheck.hasCredits) {
       return NextResponse.json(
         { 
           error: 'Insufficient credits',
           creditsInfo: {
-            required: EDITRON_CREDIT_COST,
+            required: MINIMUM_CREDITS_REQUIRED,
             available: creditsCheck.available,
           }
         },
@@ -50,24 +55,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Deduct credits upfront
-    const deductResult = await CreditsService.deductCredits(userId, 'editron', 'ai_operation', {
-      tokenCount: EDITRON_CREDIT_COST * 1000, // Simplified: treat credit cost as equivalent to 1000 tokens per credit
-    });
-    if (!deductResult.success) {
-      return NextResponse.json({ error: deductResult.error || 'Failed to deduct credits' }, { status: 402 });
-    }
-    const creditTransactionId = deductResult.transactionId;
-
     const { message, projectId, sessionId } = await req.json();
 
     if (!message || !projectId) {
-      // Refund credits if request is invalid
-      await CreditsService.refundCredits(userId, EDITRON_CREDIT_COST, 'Invalid request - missing fields', {
-        service: 'editron',
-        action: 'ai_operation',
-        originalTransactionId: creditTransactionId,
-      });
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
@@ -178,12 +168,16 @@ export async function POST(req: NextRequest) {
           }
         };
 
+        // Create token tracker for billing
+        const tokenTracker = new TokenTracker('gemini-2.5-flash');
+
         console.log('[STREAM-ROUTE] Invoking agent...');
         const result = await agent.invoke(inputs, {
           recursionLimit: 50, // Allow up to 50 tool calls per request
           configurable: {
             projectId,
             streamCallback,
+            tokenTracker,
           }
         });
         console.log('[STREAM-ROUTE] Agent.invoke completed. Callback was invoked', callbackInvocationCount, 'times');
@@ -245,15 +239,32 @@ export async function POST(req: NextRequest) {
           toolResults: toolResults.length > 0 ? toolResults : undefined,
         });
 
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'done', sessionId: actualSessionId })}\n\n`));
+        // Calculate and deduct actual credits based on token usage (post-hoc billing)
+        const tokensUsed = tokenTracker.getTotalTokens();
+        const creditsConsumed = tokenTracker.getCreditsConsumed();
+        
+        if (creditsConsumed > 0) {
+          const deductResult = await CreditsService.deductCredits(userId, 'editron', 'ai_chat', {
+            tokenCount: tokensUsed,
+            model: 'gemini-2.5-flash',
+          });
+          
+          if (!deductResult.success) {
+            console.error('[STREAM-ROUTE] Failed to deduct credits:', deductResult.error);
+          } else {
+            console.log(`[STREAM-ROUTE] Deducted ${creditsConsumed.toFixed(2)} credits for ${tokensUsed} tokens`);
+          }
+        }
+
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ 
+          type: 'done', 
+          sessionId: actualSessionId,
+          creditsConsumed: Math.round(creditsConsumed * 100) / 100,
+          tokensUsed,
+        })}\n\n`));
       } catch (error: any) {
         console.error("Agent error:", error);
-        // Refund credits on agent failure
-        await CreditsService.refundCredits(userId, EDITRON_CREDIT_COST, `Agent error: ${error.message}`, {
-          service: 'editron',
-          action: 'ai_operation',
-          originalTransactionId: creditTransactionId,
-        });
+        // No refund needed since we're using post-hoc billing
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`));
       } finally {
         await writer.close();

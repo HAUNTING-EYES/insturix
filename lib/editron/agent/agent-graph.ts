@@ -33,6 +33,7 @@
 import { SystemMessage, ToolMessage, AIMessage } from '@langchain/core/messages';
 import { StateGraph, MessagesAnnotation } from '@langchain/langgraph';
 import { createTools } from './tools';
+import { TokenTracker } from '../utils/token-tracker';
 
 // Define the agent state
 // We use the default MessagesAnnotation which just has 'messages'
@@ -56,6 +57,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
   async function callModel(state: typeof MessagesAnnotation.State, config: any) {
     const projectId = config.configurable?.projectId;
     const streamCallback: StreamCallback | undefined = config.configurable?.streamCallback;
+    const tokenTracker: TokenTracker | undefined = config.configurable?.tokenTracker;
     if (!projectId) throw new Error("Project ID is required");
     
     // Bind tools with projectId for this specific request
@@ -589,6 +591,17 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
           if (chunkCount > 0 && (textContent.length > 0 || toolCalls.length > 0)) {
             needsRetry = false; // Success!
             debugLog(`Attempt ${attempt} succeeded`);
+            
+            // Extract token usage from the aggregated response for billing
+            try {
+              const aggregatedResponse = await streamResult.response;
+              if (aggregatedResponse.usageMetadata && tokenTracker) {
+                tokenTracker.addUsage(aggregatedResponse.usageMetadata);
+                debugLog('Token usage:', aggregatedResponse.usageMetadata);
+              }
+            } catch (usageError) {
+              debugWarn('Could not extract token usage:', usageError);
+            }
           } else {
             // Empty response - should we retry?
             if (attempt < MAX_RETRIES) {
@@ -633,6 +646,12 @@ ${projectContext ? `**Current Project State**:\n${projectContext}` : ''}`;
               args: parseArgs(part.functionCall.args || {})
             });
           }
+        }
+        
+        // Extract token usage for non-streaming mode
+        if (response.usageMetadata && tokenTracker) {
+          tokenTracker.addUsage(response.usageMetadata);
+          debugLog('Token usage (non-streaming):', response.usageMetadata);
         }
       }
       

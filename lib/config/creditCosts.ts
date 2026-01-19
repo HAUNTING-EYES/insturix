@@ -63,11 +63,17 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
   editron: [
     {
       service: 'editron',
-      action: 'ai_operation',
-      billingType: 'per_request',
-      baseCost: 2, // Credits per AI chat message
-      description: 'Per AI chat message/operation',
-      // TODO: Migrate to per_token billing with actual token counting
+      action: 'ai_chat',
+      billingType: 'per_token',
+      baseCost: 0.5, // Credits per 1000 tokens (input + output combined)
+      description: 'Per 1000 tokens consumed',
+      // Model-specific multipliers (gemini-2.5-flash is baseline 1x)
+      modelMultipliers: {
+        'gemini-2.5-flash': 1,
+        'gemini-2.0-flash': 1.2,
+        'gemini-1.5-pro': 3,
+        'gemini-1.5-flash': 0.8,
+      },
     },
   ],
   

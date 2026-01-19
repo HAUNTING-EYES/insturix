@@ -93,7 +93,7 @@ interface ICreditCost {
 | 6 | Add top-up purchase flow (Razorpay) | ✅ DONE | Medium | Top-up modal and API routes implemented |
 | 7 | Add credit refund on task failure | ✅ DONE | Medium | Auto-refund in `handleTaskFailure` and cron job |
 | 8 | Create credits dashboard UI | ✅ DONE | Medium | `CreditsCard` and `CreditsBadge` components added |
-| **9** | **Editron Token-Based Integration** | ⏳ PENDING | High | Requires token counting logic for Editron AI |
+| **9** | **Editron Token-Based Integration** | ✅ DONE | High | Implemented with `TokenTracker` and Gemini `usageMetadata` |
 
 ### Benefits Over Current System
 

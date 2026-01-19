@@ -37,6 +37,7 @@ import { ToolCallIndicator } from "./tool-call-indicator";
 import { getUserFriendlyErrorMessage } from "@/lib/editron/utils/error-handling";
 import html2canvas from "html2canvas";
 import { useAIDebugStore } from "@/lib/editron/stores/ai-debug-store";
+import { useCredits } from "@/hooks/useCredits";
 
 interface ContentSegment {
   type: 'text' | 'tool';
@@ -61,6 +62,8 @@ interface ChatMessage {
   }>;
   // Segments track the interleaved order of text and tool calls
   contentSegments?: ContentSegment[];
+  // Credits consumed for this message (token-based billing)
+  creditsConsumed?: number;
 }
 
 interface ChatSession {
@@ -109,6 +112,7 @@ export function AIChatPanel() {
   } = useEditorContext();
   const { toast } = useToast();
   const userId = getUserId();
+  const { invalidateCredits } = useCredits();
   
   // State
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -340,6 +344,24 @@ export function AIChatPanel() {
         }),
       });
 
+      // Handle insufficient credits (402)
+      if (response.status === 402) {
+        const errorData = await response.json();
+        const errorMsg: ChatMessage = {
+          role: "assistant",
+          content: `⚠️ **Insufficient Credits**\n\nYou need more credits to use the AI assistant. You have ${errorData.creditsInfo?.available || 0} credits remaining.\n\n[🔗 Top up credits](/dashboard/billing)`,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => prev.map(msg => 
+          (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
+            ? errorMsg
+            : msg
+        ));
+        setIsProcessing(false);
+        setIsAIProcessing(false);
+        return;
+      }
+
       if (!response.ok) throw new Error('Failed to start stream');
       if (!response.body) throw new Error('No response body');
 
@@ -462,7 +484,19 @@ export function AIChatPanel() {
                 }
 
               } else if (data.type === 'done') {
-                 addLog('info', 'Stream finished');
+                 addLog('info', 'Stream finished', { creditsConsumed: data.creditsConsumed, tokensUsed: data.tokensUsed });
+                 
+                 // Update the message with credits consumed
+                 if (data.creditsConsumed !== undefined) {
+                   setMessages((prev) => prev.map(msg => 
+                     (msg.role === 'assistant' && msg.timestamp.getTime() === assistantMsgId)
+                       ? { ...msg, creditsConsumed: data.creditsConsumed }
+                       : msg
+                   ));
+                   
+                   // Refresh the credits badge in the navbar
+                   invalidateCredits();
+                 }
                  // Final reload check removed as it's handled per-tool now
               } else if (data.type === 'error') {
                 addLog('error', 'Stream error', data);
@@ -769,6 +803,14 @@ export function AIChatPanel() {
                           : "bg-muted/50 border rounded-tl-sm"
                       )}
                     >
+                      {/* Credits consumed indicator for AI messages */}
+                      {msg.role === "assistant" && msg.creditsConsumed !== undefined && msg.creditsConsumed > 0 && (
+                        <div className="flex items-center justify-end mb-2 -mt-1 -mr-1">
+                          <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                            {msg.creditsConsumed.toFixed(1)} credits
+                          </span>
+                        </div>
+                      )}
                       {/* User messages: just show content */}
                       {msg.role === "user" && msg.content.trim() && (
                         <div className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</div>
