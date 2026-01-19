@@ -1,3 +1,15 @@
+/**
+ * @deprecated This file is deprecated. Billing is now handled via the credits system.
+ * See `lib/services/creditsService.ts` and `lib/config/creditCosts.ts` for the new implementation.
+ * 
+ * This file is retained for:
+ * - Legacy data reference
+ * - Potential migration scripts
+ * - Historical plan limit information
+ * 
+ * DO NOT add new service limits here. Use credit costs in `creditCosts.ts` instead.
+ */
+
 // Central configuration for all service limits
 // This is the single source of truth for limit types, names, descriptions, and plan configurations
 

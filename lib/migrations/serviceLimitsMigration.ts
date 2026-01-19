@@ -1,3 +1,14 @@
+/**
+ * @deprecated This migration service is deprecated. The credits system is now the primary billing method.
+ * Use `creditsMigrationService.ts` for migrating users to the credits system.
+ * 
+ * This file is retained for:
+ * - Historical reference
+ * - Potential edge-case data migrations
+ * 
+ * DO NOT use this for new migrations.
+ */
+
 import mongoose from 'mongoose';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
 import { User } from '@/schemas/user';

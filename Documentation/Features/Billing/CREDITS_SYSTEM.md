@@ -115,25 +115,19 @@ components/shared/
 
 ## Remaining Work
 
-### High Priority
-- [ ] **Billing Page Overhaul**
-    - [ ] Remove all service-wise limit displays.
-    - [ ] Show clear credits balance and history.
-    - [ ] Add prominent top-up options.
-    - [ ] Ensure Razorpay flows (subscription + topup) are fully functional and tested.
-- [ ] **Data Migration & Cleanup**
-    - [ ] Update migration logic to completely detach from legacy service limits.
-    - [ ] Perform a full repo scan to identify and remove ALL legacy service limit code/usage.
-- [ ] **Editron Token Integration** - Use `TokenCreditTracker` for token-based billing.
-- [ ] **Clickatron Full Migration** - Currently hybrid (limits + credits).
+### ✅ Completed
+- [x] **Billing Page Overhaul** - Credits-based billing page with balance display, transaction history, and top-up flow.
+- [x] **Data Migration & Cleanup** - `ServiceUsageService` deprecated, `creditsMigrationService` handles lazy migration.
+- [x] **Clickatron Credits Integration** - Fully migrated to credits system.
+- [x] **Legacy Code Deprecation** - `serviceLimits.ts` and `serviceUsageService.ts` marked deprecated.
 
-### Medium Priority
-- [ ] Remove deprecated `useFeatureUsage` hook references.
-- [ ] Clean up legacy `ServiceUsageService` code.
+### ⏳ Pending
+- [ ] **Editron Token Integration** - Use `TokenCreditTracker` for token-based billing (High effort).
 
-### Low Priority
+### Low Priority (Future)
 - [ ] Add credits usage analytics dashboard.
 - [ ] Implement credits expiry warning emails.
+
 
 ---
 
