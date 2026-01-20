@@ -6,7 +6,7 @@ import { getClickatronDb } from '@/lib/clickatron-mongo';
 // GET /api/services/clickatron/history - Fetch all tasks for the user
 export async function GET(request: Request) {
   try {
-    const { userId } = await auth();
+    const { userId, orgId } = await auth();
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
@@ -17,12 +17,19 @@ export async function GET(request: Request) {
 
     await getClickatronDb();
 
-    const tasks = await ClickatronTask.find({ clerkUserId: userId })
+    // Build query based on org context
+    // In org context: show all org items
+    // In personal context: show only items without orgId (personal items)
+    const query = orgId
+      ? { orgId }  // Org context: filter by orgId
+      : { clerkUserId: userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };  // Personal: user's items without orgId
+
+    const tasks = await ClickatronTask.find(query)
       .sort({ updatedAt: -1 })
       .skip(offset)
       .limit(limit);
 
-    const total = await ClickatronTask.countDocuments({ clerkUserId: userId });
+    const total = await ClickatronTask.countDocuments(query);
 
     const history = tasks.map(task => ({
       sessionId: task._id.toString(),

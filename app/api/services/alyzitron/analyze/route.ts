@@ -103,6 +103,7 @@ export async function POST(request: Request) {
     if (!session?.userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    const { userId, orgId } = session;
     const body = await request.json();
     const { video_url, context, metadata } = body;
 
@@ -206,7 +207,7 @@ export async function POST(request: Request) {
     }
     // Check service credits (Alyzitron uses duration-based billing)
     const usageMinutes = Math.ceil(videoDuration / 60);
-    const creditCheck = await checkCredits(session.userId, 'alyzitron', 'video_analysis', {
+    const creditCheck = await checkCredits(userId, 'alyzitron', 'video_analysis', {
       durationMinutes: usageMinutes
     });
 
@@ -265,7 +266,8 @@ export async function POST(request: Request) {
       const taskData = {
         _id: taskId,
         taskId: taskId.toString(),
-        clerkUserId: session.userId,
+        clerkUserId: userId,
+        orgId: orgId || undefined,  // Store org context (undefined = personal)
         videoUrl: finalVideoUrl,
         context: parsedContext,
         metadata: finalMetadata,
@@ -308,7 +310,8 @@ export async function POST(request: Request) {
 
       logger.info("Analysis task created and queued successfully", {
         data: {
-          userId: session.userId,
+          userId,
+          orgId: orgId || 'personal',
           taskId: taskId.toString(),
         },
       });
@@ -324,7 +327,7 @@ export async function POST(request: Request) {
             processingError instanceof Error
               ? processingError.message
               : String(processingError),
-          userId: session.userId,
+          userId,
         },
       });
 
@@ -381,7 +384,7 @@ export async function POST(request: Request) {
       try {
         await creditCheck.refund('Task creation failed');
         logger.info("Credits refunded after task creation failure", {
-          data: { userId: session.userId, minutes: usageMinutes },
+          data: { userId, minutes: usageMinutes },
         });
       } catch (refundError) {
         logger.error("Failed to refund credits", {

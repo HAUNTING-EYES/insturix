@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  * Handles get or create session with full state loading
  */
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -28,8 +28,8 @@ export async function POST(req: Request) {
   }
 
   try {
-    // Simplified session creation - no legacy limits
-    const session = await db.getOrCreateSession(userId, sessionId, projectMeta);
+    // Create/get session with org context
+    const session = await db.getOrCreateSession(userId, sessionId, projectMeta, orgId);
 
     // Load script for session
     const script = await db.getScript(session._id);
@@ -43,6 +43,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       sessionId: session._id,
       userId: session.userId,
+      orgId: session.orgId,
       projectMeta: session.projectMeta || {},
       preferences,
       script: script ? {

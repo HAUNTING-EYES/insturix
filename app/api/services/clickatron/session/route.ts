@@ -13,7 +13,7 @@ import { checkCredits } from '@/lib/services/creditsMiddleware';
 
 // POST /api/services/clickatron/session - Create new session and generate the first variation
 export async function POST(request: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     // 1. Create the new Task (Session)
     const newTask = new ClickatronTask({
       clerkUserId: userId,
+      orgId: orgId || undefined,  // Store org context (undefined = personal)
       title: `project ${validatedData.aspectRatio} #${Date.now()}`, // Use a generic title
       details: {
         // The videoIdea field is now repurposed to store the initial prompt

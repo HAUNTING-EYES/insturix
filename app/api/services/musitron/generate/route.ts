@@ -55,7 +55,7 @@ const generateSchema = z
 
 
 export async function POST(req: Request) {
-  const { userId } = await auth();
+  const { userId, orgId } = await auth();
   if (!userId) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
@@ -97,6 +97,7 @@ export async function POST(req: Request) {
     const taskData = {
       _id: taskId,
       clerkUserId: userId,
+      orgId: orgId || undefined,  // Store org context (undefined = personal)
       title: title.trim(),
       style: style.trim(),
       model: model,

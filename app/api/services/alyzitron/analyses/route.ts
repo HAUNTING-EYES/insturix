@@ -14,6 +14,7 @@ export async function GET(request: Request) {
       );
     }
 
+    const { userId, orgId } = session;
     const url = new URL(request.url);
     const page = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '10');
@@ -21,8 +22,13 @@ export async function GET(request: Request) {
 
     const { analyses } = await getCollections();
 
-    // Build query object
-    const queryObj: any = { clerkUserId: session.userId };
+    // Build query object based on org context
+    // In org context: show all org items
+    // In personal context: show only items without orgId (personal items)
+    const queryObj: any = orgId
+      ? { orgId }  // Org context: filter by orgId
+      : { clerkUserId: userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };  // Personal: user's items without orgId
+    
     const statusParam = url.searchParams.get('status');
     if (statusParam) {
       const statusArray = statusParam.split(',').map(s => s.trim());
