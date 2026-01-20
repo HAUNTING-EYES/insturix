@@ -6,6 +6,7 @@ import {
   Video,
   Sparkles,
   CreditCard,
+  Users,
 } from "lucide-react"
 import type { Product } from "./types"
 
@@ -67,6 +68,15 @@ export const growthLegalTools: Product[] = [
     description: "Social Media Manager",
     color: "#0ea5e9",
     hoverColor: "#38bdf8",
+    isPro: false,
+  },
+  {
+    name: "Organizations",
+    path: "/dashboard/org",
+    icon: Users,
+    description: "Team Collaboration",
+    color: "#a855f7",
+    hoverColor: "#c084fc",
     isPro: false,
   },
   {
