@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
 import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, CheckCircle, AlertCircle } from "lucide-react";
+import { YouTubeConnectionStatus } from "./YouTubeConnectionStatus";
 
 type Platform = { key: string; label: string };
 
@@ -39,15 +40,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const [defaultTags, setDefaultTags] = useState("");
   const [privacyStatus, setPrivacyStatus] = useState("private");
   const [uploadResult, setUploadResult] = useState<{ success: boolean; videoUuid?: string; error?: string } | null>(null);
-  const [isYouTubeConnected, setIsYouTubeConnected] = useState(false);
 
-  // Check connection status on mount
-  // Check connection status on mount
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsYouTubeConnected(!!localStorage.getItem("youtube_token"));
-    }
-  }, []);
 
   const isReady = useMemo(() => !!videoFile && Object.values(selectedPlatforms).some(Boolean), [videoFile, selectedPlatforms]);
 
@@ -86,47 +79,38 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
         });
 
         // 🚀 Auto-upload to YouTube if selected
+        // 🚀 Auto-upload to YouTube if selected
         if (selectedPlatforms.youtube) {
-          const token = localStorage.getItem("youtube_token");
-          if (token) {
-            toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
+          toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
 
-            // Auto-append #Shorts if type is shorts/reels
-            let finalTitle = defaultTitle || videoFile.name;
-            let finalDescription = defaultDescription;
+          // Auto-append #Shorts if type is shorts/reels
+          let finalTitle = defaultTitle || videoFile.name;
+          let finalDescription = defaultDescription;
 
-            if (activeType === 'short') {
-              if (!finalTitle.toLowerCase().includes('#shorts')) finalTitle += ' #Shorts';
-              if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
-            }
+          if (activeType === 'short') {
+            if (!finalTitle.toLowerCase().includes('#shorts')) finalTitle += ' #Shorts';
+            if (!finalDescription.toLowerCase().includes('#shorts')) finalDescription += ' #Shorts';
+          }
 
-            const ytResult = await uploadToYouTube(
-              result.videoUuid,
-              result.gcsPath,
-              videoFile.name,
-              token,
-              finalTitle,
-              finalDescription,
-              privacyStatus
-            );
+          const ytResult = await uploadToYouTube(
+            result.videoUuid,
+            result.gcsPath,
+            videoFile.name,
+            finalTitle,
+            finalDescription,
+            privacyStatus
+          );
 
-            if (ytResult.success) {
-              toast({
-                title: "✅ YouTube Upload Complete",
-                description: "Your video is now live on YouTube (Unlisted)."
-              });
-              // Optional: Show link or open dialog
-            } else {
-              toast({
-                title: "⚠️ YouTube Upload Failed",
-                description: ytResult.error,
-                variant: "destructive"
-              });
-            }
+          if (ytResult.success) {
+            toast({
+              title: "✅ YouTube Upload Complete",
+              description: "Your video is now live on YouTube."
+            });
+            // Optional: Show link or open dialog
           } else {
             toast({
-              title: "YouTube Skipped",
-              description: "You selected YouTube but are not connected. Please connect in settings.",
+              title: "⚠️ YouTube Upload Failed",
+              description: ytResult.error,
               variant: "destructive"
             });
           }
@@ -307,20 +291,11 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
                 );
               })}
             </div>
-            {/* 🔗 Connection Warning / Button */}
-            {selectedPlatforms.youtube && !isYouTubeConnected && (
-              <div className="mt-3 p-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg flex items-center justify-between">
-                <div className="text-xs text-yellow-200">
-                  <span className="font-semibold">Not Connected:</span> Link YouTube to auto-upload.
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => window.location.href = "/api/services/uploaderx/youtube/auth"}
-                  className="h-7 text-xs border-yellow-500/50 text-yellow-200 hover:bg-yellow-900/40"
-                >
-                  Connect Now
-                </Button>
+
+            {/* 🔗 Connection Status Card */}
+            {selectedPlatforms.youtube && (
+              <div className="mt-4">
+                <YouTubeConnectionStatus />
               </div>
             )}
           </div>

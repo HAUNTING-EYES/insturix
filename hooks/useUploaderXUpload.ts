@@ -281,7 +281,6 @@ export function useUploaderXUpload() {
     videoUuid: string,
     gcsPath: string,
     filename: string,
-    accessToken: string,
     title?: string,
     description?: string,
     privacyStatus?: string
@@ -294,7 +293,6 @@ export function useUploaderXUpload() {
           gcsPath,
           filename,
           videoUuid,
-          accessToken,
           title,
           description,
           privacyStatus

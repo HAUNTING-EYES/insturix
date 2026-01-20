@@ -130,22 +130,7 @@ export function VideoManager({
     fetchVideos();
   }, [toast]);
 
-  // 🔑 Capture YouTube Token from URL (OAuth Callback)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("token");
-    if (token) {
-      localStorage.setItem("youtube_token", token);
-      toast({
-        title: "YouTube Connected",
-        description: "Your account has been successfully linked.",
-      });
-      console.log("✅ YouTube token saved:", token);
 
-      // Clean URL
-      window.history.replaceState({}, document.title, window.location.pathname);
-    }
-  }, [toast]);
 
   const filteredVideos = videos.filter(video => {
     const matchesSearch = video.filename.toLowerCase().includes(searchTerm.toLowerCase());
@@ -274,20 +259,10 @@ export function VideoManager({
     return `${mb.toFixed(1)} MB`;
   };
   // ================== 📺 Upload to YouTube ===================
+  // ================== 📺 Upload to YouTube ===================
   const handleYouTubeUpload = async (video: VideoItem) => {
     try {
-      // 1. Get existing token or redirect to OAuth
-      let accessToken = localStorage.getItem("youtube_token");
-      if (!accessToken) {
-        toast({
-          title: "Connecting to YouTube...",
-          description: "Please authorize YouTube access in a new tab.",
-        });
-        window.location.href = "/api/services/uploaderx/youtube/auth"; // redirect to OAuth
-        return;
-      }
-
-      // 2. Send video details to backend route for YouTube upload
+      // Direct call to backend - Clerk handles the token
       toast({
         title: "Uploading to YouTube...",
         description: `Sending ${video.filename} to your YouTube channel.`,
@@ -300,11 +275,14 @@ export function VideoManager({
           gcsPath: video.gcsPath,
           filename: video.filename,
           videoUuid: video.videoUuid,
-          accessToken,
         }),
       });
 
       const data = await res.json();
+      if (!data.success && res.status === 403) {
+        throw new Error("Please sign in with Google again to grant YouTube permissions.");
+      }
+
       if (data.success) {
         toast({
           title: "✅ Uploaded to YouTube",
@@ -312,7 +290,6 @@ export function VideoManager({
         });
 
         console.log("🎬 YouTube Link:", data.youtubeUrl);
-        // alert(`🎥 Video uploaded successfully!\n\nYouTube Link: ${data.youtubeUrl}`);
         setUploadedVideoLink(data.youtubeUrl);
         setShowUploadDialog(true);
 

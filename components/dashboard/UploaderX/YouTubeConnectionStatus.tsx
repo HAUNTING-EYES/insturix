@@ -1,37 +1,41 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Youtube, CheckCircle, XCircle, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Youtube, CheckCircle, XCircle, Settings, ExternalLink } from "lucide-react";
+import { useUser, useClerk } from "@clerk/nextjs";
 
 export function YouTubeConnectionStatus() {
-    const [isConnected, setIsConnected] = useState(false);
-    const [isChecking, setIsChecking] = useState(true);
+    const { user, isLoaded } = useUser();
+    const { openUserProfile } = useClerk();
 
-    useEffect(() => {
-        const checkConnection = () => {
-            const token = localStorage.getItem("youtube_token");
-            setIsConnected(!!token);
-            setIsChecking(false);
-        };
+    const googleAccount = user?.externalAccounts.find(
+        (acc) => acc.provider === "google" || (acc.provider as string) === "oauth_google" || acc.verification?.strategy === "oauth_google"
+    );
 
-        checkConnection();
+    const isConnected = !!googleAccount;
+    // Check for the upload scope.
+    const SCOPE = "https://www.googleapis.com/auth/youtube.upload";
+    const hasScope = googleAccount?.approvedScopes?.includes(SCOPE);
 
-        // Re-check every 30 seconds
-        const interval = setInterval(checkConnection, 30000);
-        return () => clearInterval(interval);
-    }, []);
-
-    const handleConnect = () => {
-        window.location.href = "/api/services/uploaderx/youtube/auth";
+    const handleConnect = async () => {
+        if (hasScope === false) {
+            alert("⚠️ SECURITY ACTION REQUIRED\n\nTo fix the missing permissions, you must manually reset the connection:\n\n1. The settings window will open.\n2. Find 'Google' in Connected Accounts.\n3. Click 'Remove' or 'Disconnect'.\n4. Click 'Connect Account' and link Google again.\n\nMake sure to check the 'Manage YouTube Videos' box!");
+            openUserProfile();
+        } else {
+            // Standard connect for new users
+            try {
+                await user?.createExternalAccount({
+                    strategy: "oauth_google",
+                    redirectUrl: window.location.href,
+                    additionalScopes: [SCOPE]
+                });
+            } catch (err) {
+                openUserProfile();
+            }
+        }
     };
 
-    const handleDisconnect = () => {
-        localStorage.removeItem("youtube_token");
-        setIsConnected(false);
-    };
-
-    if (isChecking) {
+    if (!isLoaded) {
         return null;
     }
 
@@ -47,10 +51,17 @@ export function YouTubeConnectionStatus() {
                 <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                         {isConnected ? (
-                            <>
-                                <CheckCircle className="h-4 w-4 text-green-500" />
-                                <span className="text-sm text-green-200">Connected</span>
-                            </>
+                            hasScope !== false ? ( // Default to true if approvedScopes is undefined to avoid false positives
+                                <>
+                                    <CheckCircle className="h-4 w-4 text-green-500" />
+                                    <span className="text-sm text-green-200">Connected</span>
+                                </>
+                            ) : (
+                                <>
+                                    <XCircle className="h-4 w-4 text-yellow-500" />
+                                    <span className="text-sm text-yellow-200">Missing Permissions</span>
+                                </>
+                            )
                         ) : (
                             <>
                                 <XCircle className="h-4 w-4 text-red-500" />
@@ -58,46 +69,54 @@ export function YouTubeConnectionStatus() {
                             </>
                         )}
                     </div>
-                    <Badge variant={isConnected ? "default" : "destructive"} className="text-xs">
-                        {isConnected ? "Active" : "Inactive"}
-                    </Badge>
                 </div>
 
+                {isConnected && googleAccount && (
+                    <p className="text-xs text-zinc-400 truncate">
+                        Linked as: <span className="text-zinc-300">{googleAccount.username || googleAccount.emailAddress}</span>
+                    </p>
+                )}
+
+                {isConnected && hasScope === false && (
+                    <div className="p-2 bg-yellow-900/20 border border-yellow-500/30 rounded text-xs text-yellow-200">
+                        You are connected, but missing permission to upload videos.
+                    </div>
+                )}
+
                 {isConnected ? (
-                    <div className="flex gap-2">
+                    hasScope === false ? (
+                        <Button
+                            size="sm"
+                            onClick={handleConnect}
+                            className="w-full h-8 text-xs bg-yellow-600 hover:bg-yellow-500"
+                        >
+                            <Settings className="h-3 w-3 mr-1" />
+                            Fix Permissions
+                        </Button>
+                    ) : (
                         <Button
                             size="sm"
                             variant="outline"
-                            onClick={handleConnect}
-                            className="flex-1 h-8 text-xs"
+                            onClick={() => openUserProfile()}
+                            className="w-full h-8 text-xs border-zinc-700 hover:bg-zinc-800"
                         >
-                            <RefreshCw className="h-3 w-3 mr-1" />
-                            Reconnect
+                            <Settings className="h-3 w-3 mr-1" />
+                            Manage Connection
                         </Button>
-                        <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={handleDisconnect}
-                            className="h-8 text-xs text-red-400 hover:text-red-300"
-                        >
-                            Disconnect
-                        </Button>
-                    </div>
+                    )
                 ) : (
                     <Button
                         size="sm"
                         onClick={handleConnect}
                         className="w-full h-8 text-xs bg-red-600 hover:bg-red-500"
                     >
-                        <Youtube className="h-3 w-3 mr-1" />
+                        <ExternalLink className="h-3 w-3 mr-1" />
                         Connect YouTube
                     </Button>
                 )}
 
-                <p className="text-xs text-zinc-400">
-                    {isConnected
-                        ? "Videos will auto-upload to YouTube when selected."
-                        : "Connect your YouTube account to enable auto-uploads."}
+                <p className="text-xs text-zinc-500">
+                    To enable uploads, ensure your Google account has YouTube permissions in your Clerk profile.
                 </p>
             </CardContent>
         </Card>
