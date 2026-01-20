@@ -150,6 +150,7 @@ export interface GenerationState {
 export interface Session {
   _id: string;
   userId: string;
+  orgId?: string;  // null = personal, set = org-owned
   projectMeta?: ProjectMeta;
   createdAt: Date;
   updatedAt: Date;
@@ -648,11 +649,15 @@ export async function deleteVersion(): Promise<never> {
 const SessionSchema = new Schema({
   _id: { type: String, required: true },
   userId: { type: String, required: true, index: true },
+  orgId: { type: String, index: true },  // Index for org-level queries
   projectMeta: { type: Schema.Types.Mixed, default: {} },
   activeGeneration: { type: Schema.Types.Mixed, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_SESSIONS, timestamps: false });
+
+// Compound index for org-level session queries
+SessionSchema.index({ orgId: 1, updatedAt: -1 });
 
 const ScriptSchema = new Schema({
   sessionId: { type: String, required: true, index: true },
@@ -871,7 +876,8 @@ export async function getSession(sessionId: string, userId: string): Promise<Ses
 export async function getOrCreateSession(
   userId: string,
   sessionId?: string,
-  projectMeta?: ProjectMeta
+  projectMeta?: ProjectMeta,
+  orgId?: string | null  // null = personal, set = org-owned
 ): Promise<Session> {
   try {
     const { SessionModel } = await getModels();
@@ -888,6 +894,7 @@ export async function getOrCreateSession(
           return {
             _id: String(existing._id),
             userId: existing.userId,
+            orgId: existing.orgId,
             projectMeta,
             activeGeneration: existing.activeGeneration || null,
             createdAt: existing.createdAt,
@@ -897,6 +904,7 @@ export async function getOrCreateSession(
         return {
           _id: String(existing._id),
           userId: existing.userId,
+          orgId: existing.orgId,
           projectMeta: existing.projectMeta || {},
           activeGeneration: existing.activeGeneration || null,
           createdAt: existing.createdAt,
@@ -911,6 +919,7 @@ export async function getOrCreateSession(
     const doc = {
       _id: newSessionId,
       userId,
+      orgId: orgId || undefined,  // Store org context (undefined = personal)
       projectMeta: projectMeta || {},
       activeGeneration: null,
       createdAt: now,
@@ -918,7 +927,7 @@ export async function getOrCreateSession(
     };
     
     await SessionModel.create(doc);
-    return doc;
+    return doc as Session;
   } catch (error) {
     console.error('Error creating session:', error);
     throw error;
@@ -1003,16 +1012,25 @@ export async function updateSession(sessionId: string, updates: Partial<Session>
   }
 }
 
-export async function getUserSessions(userId: string): Promise<Session[]> {
+export async function getUserSessions(userId: string, orgId?: string | null): Promise<Session[]> {
   try {
     const { SessionModel } = await getModels();
-    const docs = await SessionModel.find({ userId })
+    
+    // Build query based on org context
+    // In org context: show all org items
+    // In personal context (orgId = null or undefined): show only items without orgId
+    const query = orgId
+      ? { orgId }  // Org context: filter by orgId
+      : { userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };  // Personal: user's items without orgId
+    
+    const docs = await SessionModel.find(query)
       .sort({ updatedAt: -1 })
       .lean() as any[];
     
     return docs.map(doc => ({
       _id: String(doc._id),
       userId: doc.userId,
+      orgId: doc.orgId,
       projectMeta: doc.projectMeta || {},
       activeGeneration: doc.activeGeneration || null,
       createdAt: doc.createdAt,

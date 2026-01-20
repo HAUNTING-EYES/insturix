@@ -12,6 +12,7 @@ const ALLOWED_MODELS = [
 ] as const;
 export interface IMusitronTask extends Document {
   clerkUserId: string;
+  orgId?: string;  // null = personal, set = org-owned
   title: string;
   style: string;
   instrumental_only: boolean;
@@ -30,7 +31,8 @@ export interface IMusitronTask extends Document {
 }
 
 const MusitronTaskSchema: Schema = new Schema({
-  clerkUserId: { type: String, required: true },
+  clerkUserId: { type: String, required: true, index: true },
+  orgId: { type: String, index: true },  // Index for org-level queries
   title: { type: String, required: true },
   style: { type: String, required: true },
   instrumental_only: { type: Boolean, required: true },
@@ -48,6 +50,9 @@ const MusitronTaskSchema: Schema = new Schema({
   updatedAt: { type: Date, default: Date.now },
   refunded: { type: Boolean, default: false },
 });
+
+// Compound index for org-level queries
+MusitronTaskSchema.index({ orgId: 1, createdAt: -1 });
 
 export const MusitronTask =
   mongoose.models.MusitronTask ||

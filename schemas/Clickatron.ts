@@ -52,6 +52,7 @@ const CanvasSchema = new Schema({
 export interface IClickatronTask extends Document {
   _id: Types.ObjectId;
   clerkUserId: string;
+  orgId?: string;  // null = personal, set = org-owned
   title?: string;
   details: {
     videoIdea: string;
@@ -68,6 +69,7 @@ export interface IClickatronTask extends Document {
 const ClickatronTaskSchema = new Schema<IClickatronTask>(
   {
     clerkUserId: { type: String, required: true, index: true },
+    orgId: { type: String, index: true },  // Index for org-level queries
     title: { type: String },
     details: {
       videoIdea: { type: String, required: true },
@@ -83,6 +85,9 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
 
 // Compound index for efficient querying by clerkUserId, status, and createdAt
 ClickatronTaskSchema.index({ clerkUserId: 1, createdAt: -1 });
+
+// Compound index for org-level queries
+ClickatronTaskSchema.index({ orgId: 1, createdAt: -1 });
 
 // Force model refresh by deleting cached model
 if (mongoose.models.ClickatronTask) {
