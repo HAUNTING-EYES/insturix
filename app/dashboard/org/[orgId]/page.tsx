@@ -3,23 +3,16 @@
 /**
  * Organization Dashboard Page
  * 
- * Main org view showing projects and team overview.
+ * Main org view showing team members and activity.
+ * Note: Projects are created from individual services (Editron, etc.)
+ * when in org context, not from this page.
  */
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useOrganizationDetail, useOrgMembers } from '@/hooks/useOrganization';
-import { MemberList, OrgProjectsList } from '@/components/org';
+import { useOrganizationDetail } from '@/hooks/useOrganization';
+import { MemberList } from '@/components/org';
 import { cn } from '@/lib/utils';
-
-interface OrgProject {
-  projectId: string;
-  name: string;
-  thumbnail?: string;
-  updatedAt: string;
-  durationInFrames: number;
-  aspectRatio: string;
-}
 
 export default function OrgDashboardPage() {
   const params = useParams();
@@ -27,50 +20,10 @@ export default function OrgDashboardPage() {
   const orgId = params.orgId as string;
   
   const { data: orgData, isLoading: orgLoading } = useOrganizationDetail(orgId);
-  const [projects, setProjects] = useState<OrgProject[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'projects' | 'members'>('projects');
-
-  // Fetch projects
-  useEffect(() => {
-    if (!orgId) return;
-    
-    const fetchProjects = async () => {
-      try {
-        const res = await fetch(`/api/org/${orgId}/projects`);
-        const data = await res.json();
-        if (data.success) {
-          setProjects(data.projects);
-        }
-      } catch (err) {
-        console.error('Failed to fetch projects:', err);
-      } finally {
-        setProjectsLoading(false);
-      }
-    };
-
-    fetchProjects();
-  }, [orgId]);
-
-  const handleCreateProject = async () => {
-    try {
-      const res = await fetch(`/api/org/${orgId}/projects`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: 'Untitled Project' }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        router.push(`/dashboard/editron/${data.project.projectId}`);
-      }
-    } catch (err) {
-      console.error('Failed to create project:', err);
-    }
-  };
 
   if (orgLoading) {
     return (
-      <div className="p-6 md:p-8 max-w-6xl mx-auto animate-pulse">
+      <div className="p-6 md:p-8 max-w-4xl mx-auto animate-pulse">
         <div className="h-8 bg-white/10 rounded w-48 mb-2" />
         <div className="h-4 bg-white/5 rounded w-32" />
       </div>
@@ -79,7 +32,7 @@ export default function OrgDashboardPage() {
 
   if (!orgData) {
     return (
-      <div className="p-6 md:p-8 max-w-6xl mx-auto">
+      <div className="p-6 md:p-8 max-w-4xl mx-auto">
         <p className="text-white/40">Organization not found</p>
       </div>
     );
@@ -89,7 +42,7 @@ export default function OrgDashboardPage() {
   const canManage = userRole === 'owner' || userRole === 'admin';
 
   return (
-    <div className="p-6 md:p-8 max-w-6xl mx-auto">
+    <div className="p-6 md:p-8 max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-8">
         <div className="flex items-start justify-between gap-4">
@@ -102,73 +55,33 @@ export default function OrgDashboardPage() {
             </p>
           </div>
 
-          {/* Actions */}
-          <div className="flex items-center gap-2">
-            {canManage && (
-              <button
-                onClick={() => router.push(`/dashboard/org/${orgId}/settings`)}
-                className="px-3 py-1.5 text-sm text-white/60 hover:text-white/80 transition-colors"
-              >
-                Settings
-              </button>
-            )}
+          {canManage && (
             <button
-              onClick={handleCreateProject}
-              className={cn(
-                "px-4 py-1.5 text-sm font-medium rounded-md",
-                "bg-white text-black hover:bg-white/90 transition-colors"
-              )}
+              onClick={() => router.push(`/dashboard/org/${orgId}/settings`)}
+              className="px-3 py-1.5 text-sm text-white/60 hover:text-white/80 transition-colors"
             >
-              New Project
+              Settings
             </button>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-1 mb-6 border-b border-white/[0.06]">
-        <button
-          onClick={() => setActiveTab('projects')}
-          className={cn(
-            "px-4 py-2 text-sm transition-colors relative",
-            activeTab === 'projects' 
-              ? "text-white" 
-              : "text-white/40 hover:text-white/60"
-          )}
-        >
-          Projects
-          {activeTab === 'projects' && (
-            <span className="absolute bottom-0 left-0 right-0 h-px bg-white" />
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab('members')}
-          className={cn(
-            "px-4 py-2 text-sm transition-colors relative",
-            activeTab === 'members' 
-              ? "text-white" 
-              : "text-white/40 hover:text-white/60"
-          )}
-        >
-          Members
-          {activeTab === 'members' && (
-            <span className="absolute bottom-0 left-0 right-0 h-px bg-white" />
-          )}
-        </button>
+      {/* Info */}
+      <div className="mb-8 p-4 rounded-lg border border-white/[0.06] bg-white/[0.02]">
+        <p className="text-sm text-white/60">
+          Switch to this organization using the org switcher in the sidebar. 
+          All work done while in org context (Editron, Alyzitron, etc.) will be shared with team members.
+        </p>
       </div>
 
-      {/* Content */}
-      {activeTab === 'projects' ? (
-        <OrgProjectsList 
-          orgId={orgId} 
-          projects={projects} 
-          isLoading={projectsLoading} 
-        />
-      ) : (
-        <div className="max-w-md">
+      {/* Members */}
+      <div>
+        <h2 className="text-lg font-medium text-white mb-4">Team Members</h2>
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-2">
           <MemberList orgId={orgId} />
         </div>
-      )}
+      </div>
     </div>
   );
 }
+
