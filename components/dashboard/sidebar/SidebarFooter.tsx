@@ -3,6 +3,7 @@
 import { motion } from "framer-motion"
 import { useUser } from "@clerk/nextjs"
 import UserDropdown from "@/components/ui/CustomToolTip"
+import { OrgSwitcher } from "@/components/org/OrgSwitcher"
 
 interface SidebarFooterProps {
   isExpanded: boolean
@@ -18,9 +19,13 @@ export function SidebarFooter({ isExpanded, onSettingsClick, onUpgradeClick, onD
 
   return (
     <motion.div 
-      className="border-t border-white/10 py-4 px-2 mt-2"
+      className="border-t border-white/10 py-4 px-2 mt-2 space-y-3"
       layout
     >
+      {/* Organization Switcher */}
+      <OrgSwitcher isExpanded={isExpanded} />
+      
+      {/* User Profile Dropdown */}
       <motion.div className="w-full" layout>
         <UserDropdown
           onSettingsClick={onSettingsClick}

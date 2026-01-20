@@ -10,10 +10,10 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, X } from 'lucide-react';
+import { ChevronUp, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOrganizations, OrganizationListItem } from '@/hooks/useOrganization';
-import { useOrganization as useClerkOrg } from '@clerk/nextjs';
+import { useOrganization as useClerkOrg, useOrganizationList } from '@clerk/nextjs';
 
 interface OrgSwitcherProps {
   isExpanded: boolean;
@@ -24,17 +24,31 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
   const [isOpen, setIsOpen] = useState(false);
   const router = useRouter();
   const { data: organizations, isLoading } = useOrganizations();
-  const { organization: activeOrg, setActive } = useClerkOrg();
+  const { organization: activeOrg } = useClerkOrg();
+  const { setActive, isLoaded } = useOrganizationList();
 
   const handleSelectOrg = async (org: OrganizationListItem | null) => {
-    if (org) {
-      await setActive?.({ organization: org.clerkOrgId });
-      router.push(`/dashboard/org/${org.clerkOrgId}`);
-    } else {
-      await setActive?.({ organization: null });
-      router.push('/dashboard');
+    console.log('[OrgSwitcher] handleSelectOrg called:', org ? org.name : 'Personal');
+    
+    if (!isLoaded || !setActive) {
+      console.error('[OrgSwitcher] setActive not available');
+      return;
     }
-    setIsOpen(false);
+
+    try {
+      if (org) {
+        console.log('[OrgSwitcher] Switching to org:', org.clerkOrgId);
+        await setActive({ organization: org.clerkOrgId });
+        router.push(`/dashboard/org/${org.clerkOrgId}`);
+      } else {
+        console.log('[OrgSwitcher] Switching to personal');
+        await setActive({ organization: null });
+        router.push('/dashboard');
+      }
+      setIsOpen(false);
+    } catch (error) {
+      console.error('[OrgSwitcher] Error switching context:', error);
+    }
   };
 
   const handleCreateOrg = () => {
@@ -86,13 +100,13 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
           <p className="text-sm font-medium text-white truncate">{currentName}</p>
           <p className="text-[11px] text-white/40">{currentLabel}</p>
         </div>
-        <ChevronDown className={cn(
+        <ChevronUp className={cn(
           "w-3.5 h-3.5 text-white/40 transition-transform",
           isOpen && "rotate-180"
         )} />
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown - opens UPWARD since we're at bottom of sidebar */}
       <AnimatePresence>
         {isOpen && (
           <>
@@ -102,12 +116,12 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
             />
             
             <motion.div
-              initial={{ opacity: 0, y: -4 }}
+              initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -4 }}
+              exit={{ opacity: 0, y: 4 }}
               transition={{ duration: 0.12 }}
               className={cn(
-                "absolute left-0 right-0 top-full mt-1 z-50",
+                "absolute left-0 right-0 bottom-full mb-1 z-50",
                 "bg-zinc-900 border border-white/10 rounded-lg shadow-xl overflow-hidden"
               )}
             >
@@ -184,3 +198,4 @@ export function OrgSwitcher({ isExpanded, className }: OrgSwitcherProps) {
     </div>
   );
 }
+
