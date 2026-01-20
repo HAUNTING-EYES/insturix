@@ -102,6 +102,7 @@ export default function OrgSettingsPage() {
           "[&_.cl-formFieldInput]:border-white/10 [&_.cl-formFieldInput]:text-white"
         )}>
           <OrganizationProfile
+            routing="hash"
             appearance={{
               elements: {
                 rootBox: 'w-full',
