@@ -13,6 +13,7 @@ const ALLOWED_MODELS = [
 export interface IMusitronTask extends Document {
   clerkUserId: string;
   orgId?: string;  // null = personal, set = org-owned
+  createdByName?: string;  // Creator's display name for org context
   title: string;
   style: string;
   instrumental_only: boolean;
@@ -33,6 +34,7 @@ export interface IMusitronTask extends Document {
 const MusitronTaskSchema: Schema = new Schema({
   clerkUserId: { type: String, required: true, index: true },
   orgId: { type: String, index: true },  // Index for org-level queries
+  createdByName: { type: String },  // Creator's name for display
   title: { type: String, required: true },
   style: { type: String, required: true },
   instrumental_only: { type: Boolean, required: true },

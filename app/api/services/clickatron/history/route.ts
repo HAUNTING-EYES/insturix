@@ -36,6 +36,7 @@ export async function GET(request: Request) {
       title: task.title || 'Untitled Session',
       updatedAt: task.updatedAt,
       variationsCount: task.details?.canvas?.variations?.length || 0,
+      createdByName: task.createdByName,  // Include for org context display
     }));
 
     return NextResponse.json({ history, total });

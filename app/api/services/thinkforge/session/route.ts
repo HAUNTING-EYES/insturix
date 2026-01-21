@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import * as db from '@/lib/thinkforge/services/db';
 import type { ProjectMeta } from '@/lib/thinkforge/state/types';
 
@@ -28,8 +28,22 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Get creator name for org context display (only for new sessions)
+    let createdByName: string | undefined;
+    if (orgId && !sessionId) {
+      try {
+        const client = await clerkClient();
+        const user = await client.users.getUser(userId);
+        createdByName = user.firstName 
+          ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+          : user.username || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'Unknown';
+      } catch (e) {
+        console.error('[ThinkForge] Failed to get user name:', e);
+      }
+    }
+
     // Create/get session with org context
-    const session = await db.getOrCreateSession(userId, sessionId, projectMeta, orgId);
+    const session = await db.getOrCreateSession(userId, sessionId, projectMeta, orgId, createdByName);
 
     // Load script for session
     const script = await db.getScript(session._id);
@@ -44,6 +58,7 @@ export async function POST(req: Request) {
       sessionId: session._id,
       userId: session.userId,
       orgId: session.orgId,
+      createdByName: session.createdByName,
       projectMeta: session.projectMeta || {},
       preferences,
       script: script ? {
@@ -63,5 +78,3 @@ export async function POST(req: Request) {
     );
   }
 }
-
-

@@ -151,6 +151,7 @@ export interface Session {
   _id: string;
   userId: string;
   orgId?: string;  // null = personal, set = org-owned
+  createdByName?: string;  // Creator's display name for org context
   projectMeta?: ProjectMeta;
   createdAt: Date;
   updatedAt: Date;
@@ -650,6 +651,7 @@ const SessionSchema = new Schema({
   _id: { type: String, required: true },
   userId: { type: String, required: true, index: true },
   orgId: { type: String, index: true },  // Index for org-level queries
+  createdByName: { type: String },  // Creator's name for display
   projectMeta: { type: Schema.Types.Mixed, default: {} },
   activeGeneration: { type: Schema.Types.Mixed, default: null },
   createdAt: { type: Date, default: Date.now },
@@ -877,7 +879,8 @@ export async function getOrCreateSession(
   userId: string,
   sessionId?: string,
   projectMeta?: ProjectMeta,
-  orgId?: string | null  // null = personal, set = org-owned
+  orgId?: string | null,  // null = personal, set = org-owned
+  createdByName?: string  // Creator's name for org context display
 ): Promise<Session> {
   try {
     const { SessionModel } = await getModels();
@@ -895,6 +898,7 @@ export async function getOrCreateSession(
             _id: String(existing._id),
             userId: existing.userId,
             orgId: existing.orgId,
+            createdByName: existing.createdByName,
             projectMeta,
             activeGeneration: existing.activeGeneration || null,
             createdAt: existing.createdAt,
@@ -905,6 +909,7 @@ export async function getOrCreateSession(
           _id: String(existing._id),
           userId: existing.userId,
           orgId: existing.orgId,
+          createdByName: existing.createdByName,
           projectMeta: existing.projectMeta || {},
           activeGeneration: existing.activeGeneration || null,
           createdAt: existing.createdAt,
@@ -920,6 +925,7 @@ export async function getOrCreateSession(
       _id: newSessionId,
       userId,
       orgId: orgId || undefined,  // Store org context (undefined = personal)
+      createdByName,  // Store creator name for org display
       projectMeta: projectMeta || {},
       activeGeneration: null,
       createdAt: now,
@@ -1031,6 +1037,7 @@ export async function getUserSessions(userId: string, orgId?: string | null): Pr
       _id: String(doc._id),
       userId: doc.userId,
       orgId: doc.orgId,
+      createdByName: doc.createdByName,
       projectMeta: doc.projectMeta || {},
       activeGeneration: doc.activeGeneration || null,
       createdAt: doc.createdAt,

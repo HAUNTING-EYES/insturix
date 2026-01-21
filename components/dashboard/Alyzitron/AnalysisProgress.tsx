@@ -35,6 +35,7 @@ interface AnalysisProgressProps {
     videoDuration?: number;
     videoSize?: number;
   };
+  createdByName?: string;
   onClick?: () => void;
 }
 
@@ -52,6 +53,7 @@ export function AnalysisProgress({
   itemsPerPage,
   videoUrl,
   metadata,
+  createdByName,
   onClick
 }: AnalysisProgressProps) {
   const router = useRouter();
@@ -242,6 +244,14 @@ export function AnalysisProgress({
             <div className="flex items-center gap-2 mt-0.5">
               {metadata?.videoDuration && (
                 <p className="text-[10px] text-zinc-500">{formatDuration(metadata.videoDuration)}</p>
+              )}
+              {createdByName && (
+                <div className="flex items-center gap-1 ml-1 pl-2 border-l border-zinc-800">
+                  <span className="text-[9px] text-zinc-600 font-medium uppercase tracking-tighter">BY</span>
+                  <span className="text-[10px] text-zinc-400 font-bold truncate max-w-[80px]">
+                    {createdByName}
+                  </span>
+                </div>
               )}
             </div>
           </div>

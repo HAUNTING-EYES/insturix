@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { ObjectId } from "mongodb";
 import { getMusitronCollections } from "@/lib/services/musitron-mongo";
 import { Client } from "@upstash/qstash";
@@ -90,6 +90,20 @@ export async function POST(req: Request) {
     // Deduct credits before processing
     await creditCheck.deduct();
 
+    // Get creator name for org context display
+    let createdByName: string | undefined;
+    if (orgId) {
+      try {
+        const client = await clerkClient();
+        const user = await client.users.getUser(userId);
+        createdByName = user.firstName 
+          ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+          : user.username || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'Unknown';
+      } catch (e) {
+        console.error('[Musitron] Failed to get user name:', e);
+      }
+    }
+
     // Create task in MongoDB
     const { musicGenerations } = await getMusitronCollections();
     const taskId = new ObjectId();
@@ -98,6 +112,7 @@ export async function POST(req: Request) {
       _id: taskId,
       clerkUserId: userId,
       orgId: orgId || undefined,  // Store org context (undefined = personal)
+      createdByName,  // Store creator name for org display
       title: title.trim(),
       style: style.trim(),
       model: model,

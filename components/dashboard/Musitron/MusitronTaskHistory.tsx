@@ -10,7 +10,11 @@ import { cn } from "@/lib/utils";
 import type { MusitronTask } from "@/app/api/services/musitron/types/shared";
 import { useQuery } from "@tanstack/react-query";
 
-function MusitronTaskCard({ task }: { task: MusitronTask }) {
+interface MusitronTaskWithCreator extends MusitronTask {
+  createdByName?: string;
+}
+
+function MusitronTaskCard({ task }: { task: MusitronTaskWithCreator }) {
   const router = useRouter();
   const displayTitle = task.title || `Music Task #${task._id?.toString().slice(-6)}`;
   const isClickable = task.status === "completed" || task.status === "failed";
@@ -48,6 +52,14 @@ function MusitronTaskCard({ task }: { task: MusitronTask }) {
                 <div className="flex items-center gap-1">
                   <Clock className="h-3 w-3" />
                   {new Date(task.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+              )}
+              {task.createdByName && (
+                <div className="flex items-center gap-1.5 pl-2 border-l border-zinc-800">
+                  <span className="text-[10px] text-zinc-600 font-medium tracking-tight">BY</span>
+                  <span className="text-[10px] text-zinc-400 font-bold tracking-tight uppercase">
+                    {task.createdByName}
+                  </span>
                 </div>
               )}
             </div>
@@ -137,7 +149,7 @@ export function MusitronTaskHistory() {
       if (!response.ok) throw new Error("Failed to fetch Musitron tasks");
       const result = await response.json();
       const list = Array.isArray(result?.data) ? result.data : [];
-      const mapped: MusitronTask[] = (list as any[]).map((task: any) => ({
+      const mapped: MusitronTaskWithCreator[] = (list as any[]).map((task: any) => ({
         ...task,
         createdAt: new Date(task.createdAt),
         updatedAt: new Date(task.updatedAt),

@@ -9,6 +9,7 @@ import { AnalysisProgress } from './AnalysisProgress';
 import type { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
 interface FetchedAlyzitronAnalysis extends AlyzitronAnalysis {
   expectedWaitSeconds?: number;
+  createdByName?: string;
 }
 
 export interface PaginatedResponse {
@@ -122,6 +123,7 @@ export function AnalysisList({ itemsPerPage = DEFAULT_ITEMS_PER_PAGE }: Analysis
               expectedDurationSeconds={analysis.expectedDurationSeconds}
               videoUrl={analysis.videoUrl}
               metadata={analysis.metadata}
+              createdByName={analysis.createdByName}
               // Pass down necessary props for cache update
               queryClient={queryClient}
               currentPage={currentPage}

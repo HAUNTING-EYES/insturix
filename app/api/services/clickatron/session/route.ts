@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { ClickatronTask } from '@/schemas/Clickatron';
 import { getClickatronDb } from '@/lib/clickatron-mongo';
 import { CreateSessionRequestSchema } from '@/types/clickatron';
@@ -42,10 +42,25 @@ export async function POST(request: Request) {
 
     await getClickatronDb();
 
+    // Get creator name for org context display
+    let createdByName: string | undefined;
+    if (orgId) {
+      try {
+        const client = await clerkClient();
+        const user = await client.users.getUser(userId);
+        createdByName = user.firstName 
+          ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+          : user.username || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'Unknown';
+      } catch (e) {
+        console.error('[Clickatron] Failed to get user name:', e);
+      }
+    }
+
     // 1. Create the new Task (Session)
     const newTask = new ClickatronTask({
       clerkUserId: userId,
       orgId: orgId || undefined,  // Store org context (undefined = personal)
+      createdByName,  // Store creator name for org display
       title: `project ${validatedData.aspectRatio} #${Date.now()}`, // Use a generic title
       details: {
         // The videoIdea field is now repurposed to store the initial prompt
@@ -57,6 +72,7 @@ export async function POST(request: Request) {
         },
       },
     });
+
 
     // 2. Create the first Variation
     const newVariationId = nanoid();

@@ -1,4 +1,4 @@
-import { auth } from "@clerk/nextjs/server";
+import { auth, clerkClient } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import { logger } from "../utils/logger";
 import { validateYouTubeVideo } from "../utils/youtube";
@@ -263,11 +263,26 @@ export async function POST(request: Request) {
       analyses = collections.analyses;
       taskId = new ObjectId();
 
+      // Get creator name for org context display
+      let createdByName: string | undefined;
+      if (orgId) {
+        try {
+          const client = await clerkClient();
+          const user = await client.users.getUser(userId);
+          createdByName = user.firstName 
+            ? `${user.firstName}${user.lastName ? ' ' + user.lastName : ''}`
+            : user.username || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'Unknown';
+        } catch (e) {
+          console.error('[Alyzitron] Failed to get user name:', e);
+        }
+      }
+
       const taskData = {
         _id: taskId,
         taskId: taskId.toString(),
         clerkUserId: userId,
         orgId: orgId || undefined,  // Store org context (undefined = personal)
+        createdByName,  // Store creator name for org display
         videoUrl: finalVideoUrl,
         context: parsedContext,
         metadata: finalMetadata,

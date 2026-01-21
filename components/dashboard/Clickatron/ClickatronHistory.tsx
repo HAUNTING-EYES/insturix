@@ -58,6 +58,7 @@ interface HistoryItem {
     title: string;
     updatedAt: string;
     variationsCount: number;
+    createdByName?: string;
 }
 
 interface ClickatronHistoryProps {
@@ -311,12 +312,20 @@ export function ClickatronHistory({ onSessionDeleted }: ClickatronHistoryProps) 
                       </div>
                       <span>{item.variationsCount} variations</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <div className="p-0.5 bg-zinc-700/50 rounded-full">
                         <Clock className="h-3 w-3 text-zinc-500" />
                       </div>
                       <span>{formatTimeAgo(item.updatedAt)}</span>
                     </div>
+                    {item.createdByName && (
+                      <div className="flex items-center gap-1.5 ml-auto truncate pl-2 border-l border-zinc-800">
+                        <span className="text-[10px] text-zinc-500 font-medium">by</span>
+                        <span className="text-[10px] text-zinc-400 font-semibold truncate hover:text-purple-400 transition-colors">
+                          {item.createdByName}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               </CardContent>

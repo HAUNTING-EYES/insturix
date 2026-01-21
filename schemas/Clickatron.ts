@@ -53,6 +53,7 @@ export interface IClickatronTask extends Document {
   _id: Types.ObjectId;
   clerkUserId: string;
   orgId?: string;  // null = personal, set = org-owned
+  createdByName?: string;  // Creator's display name for org context
   title?: string;
   details: {
     videoIdea: string;
@@ -70,6 +71,7 @@ const ClickatronTaskSchema = new Schema<IClickatronTask>(
   {
     clerkUserId: { type: String, required: true, index: true },
     orgId: { type: String, index: true },  // Index for org-level queries
+    createdByName: { type: String },  // Creator's name for display
     title: { type: String },
     details: {
       videoIdea: { type: String, required: true },

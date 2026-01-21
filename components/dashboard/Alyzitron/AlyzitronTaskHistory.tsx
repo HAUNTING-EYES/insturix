@@ -31,6 +31,7 @@ interface AlyzitronTaskHistoryProps {
 
 interface AnalysisDisplay extends AlyzitronAnalysis {
   expectedWaitSeconds?: number;
+  createdByName?: string;
 }
 
 interface PaginatedAnalysisResponse {
@@ -204,6 +205,7 @@ export function AlyzitronTaskHistory({
                 videoUrl={analysis.videoUrl}
                 expectedDurationSeconds={analysis.expectedDurationSeconds}
                 processingStartTime={analysis.processingStartTime}
+                createdByName={analysis.createdByName}
                 onClick={() => handleAnalysisClick(analysis)}
               />
             ))}
@@ -248,6 +250,7 @@ export function AlyzitronTaskHistory({
                 error={analysis.error}
                 metadata={analysis.metadata}
                 videoUrl={analysis.videoUrl}
+                createdByName={analysis.createdByName}
                 onClick={() => handleAnalysisClick(analysis)}
               />
             ))}

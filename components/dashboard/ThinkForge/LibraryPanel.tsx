@@ -8,6 +8,7 @@ export interface SessionMeta {
   name: string;
   tone: string;
   lastEdited: number; // epoch ms
+  createdByName?: string;
 }
 
 interface LibraryPanelProps {
@@ -106,7 +107,8 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
           const name: string = it?.name || pm?.sessionName || pm?.idea || pm?.purpose || `Session ${String(id).slice(-6)}`;
           const tone: string = it?.tone || pm?.tone || "blue";
           const lastEdited: number = (it?.updatedAt ? new Date(it.updatedAt).getTime() : Date.now());
-          return { id, name, tone, lastEdited };
+          const createdByName: string = it?.createdByName || "";
+          return { id, name, tone, lastEdited, createdByName };
         });
         if (!cancelled) setLoaded(mapped);
       } catch (e: any) {
@@ -239,6 +241,9 @@ export const LibraryPanel: React.FC<LibraryPanelProps> = ({ open, onClose, panel
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-white/40 tracking-wide">Last edit: {formatTime(s.lastEdited)}</span>
+                  {s.createdByName && (
+                    <span className="text-[9px] text-white/30 font-medium uppercase truncate pl-4">by {s.createdByName}</span>
+                  )}
                 </div>
               </motion.li>
             ))}

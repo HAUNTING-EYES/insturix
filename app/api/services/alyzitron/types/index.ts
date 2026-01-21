@@ -60,6 +60,8 @@ export interface AlyzitronAnalysis {
   _id: string;
   taskId: string;            // Redundant but indexed ID
   clerkUserId: string;
+  orgId?: string;           // null = personal, set = org-owned
+  createdByName?: string;    // Creator's name for org display
   videoUrl: string;
   status: AnalysisStatus;
   estimatedTime?: number;    // in seconds
