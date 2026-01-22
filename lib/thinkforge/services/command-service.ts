@@ -109,12 +109,21 @@ export async function applyCommand(request: CommandRequest, userId: string): Pro
     ? payload.content
     : computeContentFromBlocks(nextBlocks);
 
-  const saved = await db.saveScript(sessionId, {
-    title: nextTitle,
-    content: nextContent,
-    blocks: nextBlocks,
-    richText: nextRichText || undefined,
-  }, scriptId);
+  const saveResult = await db.saveScriptWithVersion(
+    sessionId,
+    {
+      title: nextTitle,
+      content: nextContent,
+      blocks: nextBlocks,
+      richText: nextRichText || undefined,
+    },
+    baseVersion,
+    scriptId
+  );
 
-  return { ok: true, script: saved };
+  if (!saveResult.ok) {
+    return { ok: false, error: saveResult.error, currentVersion: saveResult.currentVersion };
+  }
+
+  return { ok: true, script: saveResult.script };
 }

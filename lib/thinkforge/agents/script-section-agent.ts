@@ -8,7 +8,7 @@ import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { cleanThinkForgeBlocks, cleanAndTransformText, cleanRichTextAST } from '../utils/content-cleaner';
 import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
-import { validateDocumentContract, formatViolations } from '../validation/documentValidator';
+import { validateDocumentContract } from '../validation/documentValidator';
 
 export interface SectionInput extends AgentInput {
   section: {
@@ -48,7 +48,7 @@ export interface SectionOutput {
 const richTextNodeSchema: z.ZodType<any> = z.object({
   type: z.enum(['text', 'link']),
   text: z.string().optional(),
-  styles: z.record(z.boolean()).optional(),
+  styles: z.record(z.string(), z.boolean()).optional(),
   href: z.string().optional(),
   content: z.array(z.any()).optional(),
 });
@@ -63,50 +63,11 @@ const sectionSchema = z.object({
 
 const ALLOWED_KINDS = ['header', 'action', 'why', 'example', 'paragraph'] as const;
 
-const phraseRewrites: Array<[RegExp, string]> = [
-  [/validate cohesion/i, 'check that these elements support each other'],
-  [/ensure alignment/i, 'keep the tone aligned and human'],
-  [/ensure consistency/i, 'keep the tone consistent'],
-  [/ensure clarity/i, 'keep it clear'],
-  [/ensure/i, 'make sure'],
-  [/validate/i, 'check'],
-  [/cohesion/i, 'fit together'],
-  [/leverage/i, 'use'],
-  [/utilize/i, 'use'],
-  [/framework/i, 'plan'],
-];
-
-function simplifySentence(text: string): string {
-  let next = text;
-  for (const [re, replacement] of phraseRewrites) {
-    next = next.replace(re, replacement);
-  }
-  return next.trim();
-}
-
-function sentenceSplit(text: string): string[] {
-  return text
-    .split(/(?<=[\.\!\?])\s+|\n+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
-}
-
-function extractTextFromContent(content: any): string {
-  const nodes = normalizeThinkForgeRichText(content);
-  return nodes
-    .map((n) => {
-      if (n.type === 'link') return n.content.map((c) => (c.text || '')).join(' ');
-      return n.text || '';
-    })
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 function makeBlock(kind: ThinkForgeBlock['kind'], text: string, meta?: any): ThinkForgeBlock | null {
   // Clean and transform text to remove artifacts and convert abstract to concrete
   let clean = cleanAndTransformText(text);
-  clean = simplifySentence(clean).trim();
+  clean = clean.trim();
   if (!clean) return null;
   return {
     id: ensureThinkForgeBlockId(),
@@ -138,46 +99,6 @@ function toThinkForgeBlock(raw: any): ThinkForgeBlock | null {
   };
 }
 
-function splitDenseBlocks(blocks: ThinkForgeBlock[]): ThinkForgeBlock[] {
-  const output: ThinkForgeBlock[] = [];
-
-  for (const block of blocks) {
-    const text = extractTextFromContent(block.content);
-    if (!text) continue;
-
-    // Header stays single
-    if (block.kind === 'header') {
-      output.push(makeBlock('header', text, block.meta) as ThinkForgeBlock);
-      continue;
-    }
-
-    // If very dense or has multiple commas, split into sentences and map to actions
-    const sentences = sentenceSplit(text);
-    const isDense = text.split(/\s+/).length > 25 || (text.match(/,/g) || []).length >= 2 || sentences.length > 1;
-
-    if (isDense) {
-      sentences.forEach((s, idx) => {
-        if (!s) return;
-        // If the sentence explains a reason, route to why; else action
-        const lower = s.toLowerCase();
-        const isWhy = /because|so that|so you can|so they can/.test(lower);
-        const kind = isWhy ? 'why' : 'action';
-        const made = makeBlock(kind, s, block.meta);
-        if (made) output.push(made);
-        // Add spacing by keeping them as separate blocks
-      });
-      continue;
-    }
-
-    // Not dense: keep kind if action/why/example/paragraph, but ensure one idea
-    const kind = block.kind === 'why' ? 'why' : block.kind === 'example' ? 'example' : 'action';
-    const made = makeBlock(kind, text, block.meta);
-    if (made) output.push(made);
-  }
-
-  return output;
-}
-
 export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSchema>> {
   protected schema = sectionSchema;
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
@@ -198,7 +119,7 @@ export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSc
     const generationMode = (input as any).generationMode || 'manual';
     const knowledgeRole = section.knowledge_role || 'Operator';
     const operationalGoal = section.operational_goal || 'Action';
-    return `You are an experienced creative strategist writing a production guide for a creative team. Write clear, actionable creative direction that enables immediate execution—storyboarding, directing, filming, and editing.
+    return `You are a senior creative director writing for professional filmmakers. Your output must be immediately usable for production without interpretation. Write clear, actionable creative direction that enables immediate execution—storyboarding, directing, filming, and editing.
 
 ${DOCUMENT_AUTHORING_CONTRACT}
 
@@ -224,7 +145,14 @@ Write like a creative director giving clear, confident guidance to a production 
    ❌ Never mention "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
    ✅ Write natural, flowing creative direction
 
-4. **Sound confident and human**: Write as if you're an experienced creative strategist helping a real team execute production, not like system planning notes.
+4. **Sound confident and human**: Write as if you're a senior creative director helping a real team execute production, not like system planning notes.
+
+## Structural Planning (silent)
+Before writing content, silently plan the structure:
+- Decide the exact H2/H3 hierarchy
+- Decide where callouts belong
+- Decide which parts require lists
+Then write the blocks following that plan.
 
 ## Section Details
 Title: ${section.title}
@@ -255,7 +183,7 @@ Return ONLY valid JSON matching this structure:
         }
       ],
       "meta": {
-        "level": 1 | 2 | 3,  // For headers: 1=title, 2=major section, 3=subsection
+        "level": 2 | 3,  // For headers: 2=major section, 3=subsection (H1 is injected by system)
         "role": "optional",
         "goal": "optional"
       }
@@ -268,7 +196,28 @@ Return ONLY valid JSON matching this structure:
 - No placeholders like "Input:", "Output:", "Constraint:", "Define X", "Determine Y"
 - Convert abstract steps into concrete execution guidance
 - Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
-- Write as a creative strategist, not a planning system
+- Write as a creative director, not a planning system
+- Do NOT include an H1 header in your output; the system will provide the single H1
+- Only use H2 and H3 headers for sub-sections
+- Never repeat a header title within a section
+- Keep each section between 8–18 blocks maximum
+- Prefer precision over volume
+- If tempted to repeat ideas, compress instead
+- Do not restate concepts covered earlier
+- Repetition is a failure. If you are about to repeat an idea, delete or merge instead. Each block must introduce new value.
+- If you are uncertain about structure, simplify. Fewer blocks with clarity is always better than more blocks with noise.
+
+## Pre-Return Validation (silent)
+Before finalizing your output, silently validate your draft against DOCUMENT_AUTHORING_CONTRACT:
+- Zero H1 headers exist in your output (H1 is injected by system)
+- No heading is duplicated
+- No empty headers
+- Lists are used for sequences of 3+ items
+- Every "Director’s Note" is formatted as a callout block (kind: "why")
+- Horizontal dividers exist between major H2 sections
+
+If any rule is violated, you must rewrite the output to fix it before returning.
+Do not mention this validation step in your final answer.
 
 ## Output Quality
 - Make it immediately usable for storyboarding, directing, filming, and editing
@@ -282,13 +231,12 @@ Return ONLY valid JSON matching this structure:
     const attempt = async () => this.runStructured(input, overrides);
     try {
       const { result } = await attempt();
-      const rawBlocks = Array.isArray((result as any)?.blocks)
+      const shaped = Array.isArray((result as any)?.blocks)
         ? (result as any).blocks.map(toThinkForgeBlock).filter(Boolean) as ThinkForgeBlock[]
         : [];
-      const shaped = splitDenseBlocks(rawBlocks);
       const blocks = validateThinkForgeBlocks([
         // Always lead with a header using the section title
-        makeBlock('header', input.section.title, { role: input.section.role, goal: input.section.goal })!,
+        makeBlock('header', input.section.title, { role: input.section.role, goal: input.section.goal, level: 1 })!,
         ...shaped,
       ]);
       const sectionId = (result as any)?.sectionId || input.section.id;
@@ -304,14 +252,17 @@ Return ONLY valid JSON matching this structure:
       ];
       
       // Clean blocks to remove schema artifacts and transform abstract instructions
-      const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks);
+      const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks as ThinkForgeBlock[]);
       
-      // Validate against DOCUMENT_AUTHORING_CONTRACT (dev-only)
-      if (process.env.NODE_ENV === 'development') {
-        const validation = validateDocumentContract(cleanedBlocks);
-        if (!validation.valid) {
-          console.warn(`⚠️ Document contract violated in script-section-agent (${sectionId}):\n${formatViolations(validation.violations)}`);
-        }
+      // Validate against DOCUMENT_AUTHORING_CONTRACT (enforced in all environments)
+      const validation = validateDocumentContract(cleanedBlocks);
+      if (!validation.valid) {
+        console.error(`[ThinkForge][script-section-agent] Document contract violated (${sectionId}):`, {
+          sectionId,
+          violations: validation.violations,
+          blockCount: cleanedBlocks.length,
+          timestamp: new Date().toISOString(),
+        });
       }
       
       // Convert to Tiptap JSON AST
@@ -320,12 +271,11 @@ Return ONLY valid JSON matching this structure:
     } catch (err) {
       try {
         const { result } = await attempt();
-        const rawBlocks = Array.isArray((result as any)?.blocks)
+        const shaped = Array.isArray((result as any)?.blocks)
           ? (result as any).blocks.map(toThinkForgeBlock).filter(Boolean) as ThinkForgeBlock[]
           : [];
-        const shaped = splitDenseBlocks(rawBlocks);
         const blocks = validateThinkForgeBlocks([
-          makeBlock('header', input.section.title, { role: input.section.role, goal: input.section.goal })!,
+          makeBlock('header', input.section.title, { role: input.section.role, goal: input.section.goal, level: 1 })!,
           ...shaped,
         ]);
         const sectionId = (result as any)?.sectionId || input.section.id;
@@ -341,14 +291,17 @@ Return ONLY valid JSON matching this structure:
         ];
         
         // Clean blocks to remove schema artifacts and transform abstract instructions
-        const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks);
+        const cleanedBlocks = cleanThinkForgeBlocks(safeBlocks as ThinkForgeBlock[]);
         
-        // Validate against DOCUMENT_AUTHORING_CONTRACT (dev-only)
-        if (process.env.NODE_ENV === 'development') {
-          const validation = validateDocumentContract(cleanedBlocks);
-          if (!validation.valid) {
-            console.warn(`⚠️ Document contract violated in script-section-agent (${sectionId}):\n${formatViolations(validation.violations)}`);
-          }
+        // Validate against DOCUMENT_AUTHORING_CONTRACT (enforced in all environments)
+        const validation = validateDocumentContract(cleanedBlocks);
+        if (!validation.valid) {
+          console.error(`[ThinkForge][script-section-agent] Document contract violated (${sectionId}):`, {
+            sectionId,
+            violations: validation.violations,
+            blockCount: cleanedBlocks.length,
+            timestamp: new Date().toISOString(),
+          });
         }
         
         // Convert to Tiptap JSON AST

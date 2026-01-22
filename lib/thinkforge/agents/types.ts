@@ -81,6 +81,7 @@ export type AgentType =
   | 'chat'
   | 'ideas'
   | 'script_draft'
+  | 'script_author'
   | 'script_refinement'
   | 'script_outline'
   | 'script_section'

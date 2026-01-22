@@ -29,7 +29,7 @@ import { ensureThinkForgeBlockId } from '../schemas/thinkforge-block';
 import { updateScriptState } from '../state/session-state';
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
-import { cleanRichTextAST, cleanAndTransformText, cleanThinkForgeBlocks } from '../utils/content-cleaner';
+import { cleanRichTextAST } from '../utils/content-cleaner';
 import { DOCUMENT_AUTHORING_CONTRACT } from './document-authoring-contract';
 import { validateDocumentContract, formatViolations } from '../validation/documentValidator';
 
@@ -95,7 +95,7 @@ export class ScriptRefinementAgent extends StructuredAgent<ScriptRefinedOutput> 
     
     const basePrompt = 'You are a creative strategist revising production guidance. Write clear, actionable creative direction—not system planning notes.\n\n';
     
-    const selectionEditPrompt = `Selected content to revise:
+    const selectionEditPrompt = `Document to polish:
 ${context.currentScript || '(none)'}
 
 Requested change:
@@ -107,15 +107,13 @@ ${DOCUMENT_AUTHORING_CONTRACT}
 - Write as a creative director giving clear, confident guidance
 - Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
 - Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
-- Convert abstract steps into concrete execution guidance
-- Write content that enables immediate storyboarding, directing, filming, and editing
+- Preserve voice and cadence; do not simplify language or shorten mechanically
 
-## Revision Rules (Selection-Based Editing)
-- Scope lock: edit ONLY the selected content provided above. Do not modify anything outside the selection.
-- Structure improvements: You are allowed to improve structure if the selection violates DOCUMENT_AUTHORING_CONTRACT. You can fix paragraph length (split paragraphs exceeding 4 lines), list usage (convert 3+ items to lists), heading clarity (remove duplicates, ensure proper hierarchy), and add horizontal rules between major sections.
-- Preserve formatting: maintain inline emphasis (bold, italic), code, links when present.
-- Voice: confident, execution-focused. Avoid supervisory verbs ("ensure", "verify", "validate", "determine", "define").
-- Respect scope boundaries: stay within the selected content, but improve structure to comply with DOCUMENT_AUTHORING_CONTRACT.
+## Revision Rules (Full-Document Polish)
+- Focus on cohesion, rhythm, transitions, and tonal consistency across the document
+- Make the smallest set of changes that delivers a director's polish
+- Improve structure only when it clarifies flow (lists, headers, separators)
+- Preserve formatting: maintain inline emphasis (bold, italic), code, links when present
 
 ## Output Format (JSON only, no markdown)
 {
@@ -125,7 +123,7 @@ ${DOCUMENT_AUTHORING_CONTRACT}
   "title"?: string
 }`;
 
-    const blockEditPrompt = `Blocks to revise (blockId | kind):
+    const blockEditPrompt = `Document to polish (blockId | kind):
 ${context.currentScript || '(none)'}
 
 Requested change:
@@ -137,13 +135,12 @@ ${DOCUMENT_AUTHORING_CONTRACT}
 - Write as a creative director giving clear, confident guidance
 - Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
 - Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
-- Convert abstract steps into concrete execution guidance
-- Write content that enables immediate storyboarding, directing, filming, and editing
+- Preserve voice and cadence; do not simplify language or shorten mechanically
 
-## Revision Rules
-- Scope lock: edit only the provided blockIds. Do not reorder unless blockId is NEW_BLOCK.
-- Structure improvements: You are allowed to improve structure if the blocks violate DOCUMENT_AUTHORING_CONTRACT. You can fix paragraph length (split paragraphs exceeding 4 lines), list usage (convert 3+ items to lists), heading clarity (remove duplicates, ensure proper hierarchy), and add horizontal rules between major sections.
-- Voice: confident, execution-focused. Avoid supervisory verbs ("ensure", "verify", "validate", "determine", "define").
+## Revision Rules (Full-Document Polish)
+- Focus on cohesion, rhythm, transitions, and tonal consistency across the document
+- Make the smallest set of changes that delivers a director's polish
+- Improve structure only when it clarifies flow (lists, headers, separators)
 - Preserve formatting: maintain inline emphasis/code when present.
 - Examples: if unchanged, omit from patches.
 - If adding, emit blockId: "NEW_BLOCK" with kind and clean creative direction (no schema artifacts).
@@ -183,9 +180,8 @@ ${DOCUMENT_AUTHORING_CONTRACT}
           content = cleanRichTextAST(content);
         }
         let text = typeof (p as any).text === 'string' ? (p as any).text : undefined;
-        // Clean and transform text
         if (text) {
-          text = cleanAndTransformText(text);
+          text = text.trim();
         }
         const kind = (p as any).kind as ThinkForgeBlockKind | undefined;
         const meta = (p as any).meta as { role?: string; goal?: string } | undefined;
@@ -204,24 +200,24 @@ ${DOCUMENT_AUTHORING_CONTRACT}
     // Apply patches to get the updated blocks
     const patchedBlocks = applyThinkForgeBlockPatches(originalBlocks, filtered);
     
-    // Clean blocks to remove any remaining artifacts
-    const cleanedBlocks = cleanThinkForgeBlocks(patchedBlocks);
-    
-    // Validate against DOCUMENT_AUTHORING_CONTRACT (dev-only)
-    if (process.env.NODE_ENV === 'development') {
-      const validation = validateDocumentContract(cleanedBlocks);
-      if (!validation.valid) {
-        console.warn(`⚠️ Document contract violated in script-refinement-agent:\n${formatViolations(validation.violations)}`);
-      }
+    // Validate against DOCUMENT_AUTHORING_CONTRACT (enforced in all environments)
+    const validation = validateDocumentContract(patchedBlocks);
+    if (!validation.valid) {
+      console.error(`[ThinkForge][script-refinement-agent] Document contract violated:`, {
+        violations: validation.violations,
+        patchCount: filtered.length,
+        blockCount: patchedBlocks.length,
+        timestamp: new Date().toISOString(),
+      });
     }
     
     // Convert to Tiptap JSON AST
-    const richText = thinkForgeBlocksToTiptapJSON(cleanedBlocks);
+    const richText = thinkForgeBlocksToTiptapJSON(patchedBlocks);
 
     return {
       title: result.title || '',
       patches: filtered,
-      blocks: cleanedBlocks,
+      blocks: patchedBlocks,
       richText,
       draft: false,
     };

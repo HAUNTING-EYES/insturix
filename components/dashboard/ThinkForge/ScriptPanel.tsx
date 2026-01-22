@@ -15,7 +15,7 @@ interface ScriptPanelProps {
    scriptId?: string | null;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string } | { ok: boolean; applied?: any; error?: string }> | { ok: boolean; applied?: any; error?: string };
-  onNewScript?: () => void;
+   onScriptCreated?: (scriptId: string) => void;
    onSwitchScript?: (scriptId: string) => void;
   onTokenStream?: (callback: (tokens: string) => void) => void; // Callback setter for token streaming
    onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting selection
@@ -26,7 +26,7 @@ interface ScriptPanelProps {
 
 type PanelMode = 'scripting' | 'whiteboard';
 
-export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, scriptId, isSaving, onImportScript, onNewScript, onSwitchScript, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange }) => {
+export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, onUpdate, onBack, sessionId, scriptId, isSaving, onImportScript, onScriptCreated, onSwitchScript, onTokenStream, onGetSelection, onEditSelection, generatingScript, onModeChange }) => {
   const [mode, setMode] = useState<PanelMode>('scripting');
 
    React.useEffect(() => {
@@ -78,7 +78,6 @@ export const ScriptPanel: React.FC<ScriptPanelProps> = ({ selectedIdea, script, 
                   onEditScript={onUpdate}
                   isSaving={isSaving}
                   onImportScript={onImportScript}
-                  onNewScript={onNewScript}
                            onSwitchScript={onSwitchScript}
                   onTokenStream={(callback) => {
                     // Register callback with parent

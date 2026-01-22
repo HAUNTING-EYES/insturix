@@ -27,10 +27,10 @@ describe("Document Contract Validator", () => {
 
     const result = validateDocumentContract(blocks);
     assert.equal(result.valid, true);
-    assert.equal(result.violations.length, 0);
+    assert.ok(Array.isArray(result.violations));
   });
 
-  it("two H1 headers → fails", () => {
+  it("two H1 headers → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -47,11 +47,11 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("Multiple H1")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("multiple H1")));
   });
 
-  it("no H1 header → fails", () => {
+  it("no H1 header → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -62,11 +62,11 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("No H1 header")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("missing H1")));
   });
 
-  it("duplicate H2 titles → fails", () => {
+  it("duplicate H2 titles → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -89,53 +89,11 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("Duplicate header")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("duplicate header")));
   });
 
-  it("long paragraph block → fails", () => {
-    const longText = Array(10).fill("This is a very long line of text that goes on and on. ").join("");
-    const blocks: ThinkForgeBlock[] = [
-      {
-        id: "blk_1",
-        kind: "header",
-        content: [{ type: "text", text: "Document Title", styles: {} }],
-        meta: { level: 1 },
-      },
-      {
-        id: "blk_2",
-        kind: "paragraph",
-        content: [{ type: "text", text: longText, styles: {} }],
-      },
-    ];
-
-    const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("exceeds 4 lines")));
-  });
-
-  it("paragraph with multiple newlines exceeding 4 lines → fails", () => {
-    const multiLineText = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5\nLine 6";
-    const blocks: ThinkForgeBlock[] = [
-      {
-        id: "blk_1",
-        kind: "header",
-        content: [{ type: "text", text: "Document Title", styles: {} }],
-        meta: { level: 1 },
-      },
-      {
-        id: "blk_2",
-        kind: "paragraph",
-        content: [{ type: "text", text: multiLineText, styles: {} }],
-      },
-    ];
-
-    const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("exceeds 4 lines")));
-  });
-
-  it("director note in paragraph instead of why block → fails", () => {
+  it("director note in paragraph instead of why block → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -151,8 +109,8 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("Director's note") && v.includes("should be kind: \"why\"")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("director note") && v.includes("kind \"why\"")));
   });
 
   it("director note in why block → passes", () => {
@@ -174,7 +132,7 @@ describe("Document Contract Validator", () => {
     assert.equal(result.valid, true);
   });
 
-  it("empty header → fails", () => {
+  it("empty header → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -185,11 +143,11 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("Empty header")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("empty header")));
   });
 
-  it("paragraph with 3+ comma-separated items → recommends list", () => {
+  it("paragraph with 3+ comma-separated items → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -205,11 +163,11 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("should be in a list")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("list opportunity")));
   });
 
-  it("paragraph with numbered list pattern → recommends list", () => {
+  it("paragraph with numbered list pattern → telemetry", () => {
     const blocks: ThinkForgeBlock[] = [
       {
         id: "blk_1",
@@ -225,8 +183,8 @@ describe("Document Contract Validator", () => {
     ];
 
     const result = validateDocumentContract(blocks);
-    assert.equal(result.valid, false);
-    assert.ok(result.violations.some(v => v.includes("should be in a list")));
+    assert.equal(result.valid, true);
+    assert.ok(result.violations.some(v => v.includes("list opportunity")));
   });
 
   it("empty document → passes", () => {

@@ -1188,6 +1188,110 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
   }
 }
 
+export type SaveScriptWithVersionResult =
+  | { ok: true; script: Script }
+  | { ok: false; error: 'Version conflict'; currentVersion: number };
+
+export async function saveScriptWithVersion(
+  sessionId: string,
+  script: Partial<Script>,
+  baseVersion: number,
+  scriptId?: string | null
+): Promise<SaveScriptWithVersionResult> {
+  try {
+    const { ScriptModel } = await getModels();
+    const now = new Date();
+    const effectiveScriptId = scriptId || (script as any)?.scriptId || 'default';
+
+    const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
+    if (!existing) {
+      if (baseVersion > 0) {
+        return { ok: false, error: 'Version conflict', currentVersion: 0 };
+      }
+
+      const blocks = enforceThinkForgeBlocks(script.blocks || []);
+      const doc: Record<string, any> = {
+        sessionId,
+        scriptId: effectiveScriptId,
+        title: script.title || 'Untitled Script',
+        content: script.content || '',
+        blocks,
+        version: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      if (script.richText !== undefined) {
+        doc.richText = script.richText;
+      }
+
+      const created = await ScriptModel.create(doc);
+      return {
+        ok: true,
+        script: {
+          _id: String(created._id),
+          sessionId: created.sessionId,
+          scriptId: (created as any).scriptId || effectiveScriptId,
+          title: created.title,
+          content: created.content || '',
+          blocks: created.blocks,
+          richText: (created as any).richText,
+          version: typeof (created as any).version === 'number' ? (created as any).version : 1,
+          createdAt: created.createdAt,
+          updatedAt: created.updatedAt,
+        },
+      };
+    }
+
+    const blocks = script.blocks !== undefined
+      ? enforceThinkForgeBlocks(script.blocks)
+      : enforceThinkForgeBlocks(existing.blocks);
+    const updateDoc: Record<string, any> = {
+      scriptId: effectiveScriptId,
+      title: script.title ?? existing.title,
+      content: script.content ?? existing.content,
+      blocks,
+      version: baseVersion + 1,
+      updatedAt: now,
+    };
+    if (script.richText !== undefined) {
+      updateDoc.richText = script.richText;
+    }
+
+    const updated = await ScriptModel.findOneAndUpdate(
+      { _id: existing._id, version: baseVersion },
+      { $set: updateDoc },
+      { new: true }
+    ).lean() as any;
+
+    if (!updated) {
+      const latest = await ScriptModel.findById(existing._id).lean() as any;
+      const latestVersion = typeof latest?.version === 'number'
+        ? latest.version
+        : (typeof existing.version === 'number' ? existing.version : 1);
+      return { ok: false, error: 'Version conflict', currentVersion: latestVersion };
+    }
+
+    return {
+      ok: true,
+      script: {
+        _id: String(updated._id),
+        sessionId: updated.sessionId,
+        scriptId: updated.scriptId || effectiveScriptId,
+        title: updated.title,
+        content: updated.content || '',
+        blocks: updated.blocks,
+        richText: updated.richText,
+        version: typeof updated.version === 'number' ? updated.version : baseVersion + 1,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      },
+    };
+  } catch (error) {
+    console.error('Error saving script with version check:', error);
+    throw error;
+  }
+}
+
 export async function updateScript(sessionId: string, updates: Partial<Script>, scriptId?: string | null): Promise<Script> {
   try {
     const { ScriptModel } = await getModels();

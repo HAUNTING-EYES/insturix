@@ -180,6 +180,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       scriptId?: string; // Active script tab id
       onScriptUpdate?: (script: any) => void;
       onTokenStream?: (tokens: string) => void; // Callback for streaming tokens
+      onScriptCreated?: (scriptId: string) => void;
       intentContext?: {
         editorFocused?: boolean;
         hasSelection?: boolean;
@@ -328,8 +329,17 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           if (typeof data.message === 'string') {
             setGenerationMessage(data.message);
           }
-        } else if (data?.type === 'script_update' && options?.onScriptUpdate) {
-          options.onScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+        } else if (data?.type === 'script_update') {
+          if (options?.onScriptUpdate) {
+            options.onScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+          }
+          if (optionsRef.current?.onRemoteScriptUpdate) {
+            optionsRef.current.onRemoteScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+          }
+        } else if (data?.type === 'script_created') {
+          if (options?.onScriptCreated && typeof data?.scriptId === 'string') {
+            options.onScriptCreated(data.scriptId);
+          }
         } else if (data?.type === 'done') {
           doneReceivedRef.current = true;
         }
@@ -373,9 +383,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         try {
           await refreshMessages();
         } catch {}
-        if (optionsRef.current?.onRemoteScriptUpdate && sessionId) {
+        if (optionsRef.current?.onRemoteScriptUpdate && sessionId && options?.scriptId) {
           try {
-            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options?.scriptId || 'default')}`, { cache: 'no-store' });
+            const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options.scriptId)}`, { cache: 'no-store' });
             if (res.ok) {
               const data = await res.json();
               optionsRef.current.onRemoteScriptUpdate(data);
@@ -584,6 +594,16 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     }
   }, [sessionId, threadId]);
 
+  const appendMessage = useCallback((message: ChatMessage) => {
+    setMessages(prev => {
+      const next = [...prev, message];
+      if (sessionId && threadId) {
+        saveLocal(sessionId, threadId, { chat: next } as any);
+      }
+      return next;
+    });
+  }, [sessionId, threadId]);
+
   return {
     messages,
     isStreaming,
@@ -594,6 +614,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     stopStreaming,
     refreshMessages,
     clearMessages,
+    appendMessage,
   } as const;
 }
 

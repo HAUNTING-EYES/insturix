@@ -20,6 +20,7 @@ interface ChatPanelProps {
   initialMessages?: any[];
   onOpenSettings?: () => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
+  onScriptCreated?: (scriptId: string) => void;
   onGetSelection?: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null; // Get current selection from editor
   editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
   onCancelEditSelection?: () => void;
@@ -101,6 +102,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   initialMessages,
   onOpenSettings,
   onSwitchSession,
+  onScriptCreated,
   onTokenStream,
   onGetSelection,
   editingSelection,
@@ -113,6 +115,11 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const [historyOpen, setHistoryOpen] = useState(false);
   const [activeThreadId, setActiveThreadId] = useState<string>('default');
   const [threadRegistry, setThreadRegistry] = useState<Array<{ id: string; name: string; lastEdited: number }>>([]);
+  const scriptIdRef = React.useRef<string | null>(scriptId || null);
+
+  useEffect(() => {
+    scriptIdRef.current = scriptId || null;
+  }, [scriptId]);
 
   const threadRegistryKey = useMemo(() => (
     sessionId ? `thinkforge_chat_threads_${sessionId}` : null
@@ -176,6 +183,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
 
   const chat = useThinkForgeChat(sessionId || null, activeThreadId || null, initialMessages, {
     onRemoteScriptUpdate: handleScriptUpdate,
+    onScriptCreated,
   });
 
   // Initialize suggestions
@@ -212,6 +220,8 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       console.log('[ChatPanel.handleSend] No sessionId, returning');
       return;
     }
+
+
     const originalPrompt = inputValue.trim();
     if (activeThreadId) {
       upsertThread(activeThreadId, { lastEdited: Date.now(), name: originalPrompt.slice(0, 60) });
@@ -255,16 +265,18 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         ? 'selection_active'
         : 'chat_send';
 
+    const currentScriptId = scriptIdRef.current || undefined;
     chat.sendMessage(originalPrompt, {
       script: scriptPayload,
       project: sessionPayload,
       onScriptUpdate: handleScriptUpdate,
       onTokenStream: onTokenStream, // Stream tokens for progressive rendering
+      onScriptCreated: onScriptCreated,
       selection: editingSelection?.text,
       selectionBlocks: selectionData?.blocks, // Include selection blocks for surgical editing
       selectionBlockIds: selectionData?.blockIds,
       selectionRange: selectionData?.range, // Include selection range
-      scriptId: scriptId || undefined,
+      scriptId: currentScriptId,
       intentContext: {
         editorFocused,
         hasSelection,
