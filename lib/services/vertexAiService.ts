@@ -67,7 +67,7 @@ export async function analyzeVideoWithGemini(
         },
         remarks: {
           type: SchemaType.STRING,
-          description: "Brief professional assessment",
+          description: "Brief professional assessment, specifically considering the chosen location's context and norms",
         },
         target_audience: {
           type: SchemaType.STRING,
@@ -174,7 +174,7 @@ export async function analyzeVideoWithGemini(
       ],
     });
 
-    // Create analysis prompt with explicit JSON formatting instructions
+    // analysis prompt with explicit JSON formatting instructions
     const prompt = `
 Analyze this video and provide a structured JSON response based on the video content.
 
@@ -183,20 +183,45 @@ VIDEO METADATA:
 - Title: ${metadata.originalFilename}
 - Video URL: ${videoUrl}
 
-USER CONTEXT:
-- Niche: ${context.niche}
-- Audience: ${context.audience}
-- Tone: ${context.tone}
+USER CONTEXT & SAFETY SETTINGS:
+- Family-Friendly Handling: ${context.familyFriendly ? "Enabled (Strict)" : "Disabled (Standard Safety)"}
+- Platform: ${context.platform}
+- Location/Legal Context: ${context.location}
 - Additional Details: ${context.additionalDetails || "None"}
+
+GUIDELINES:
+${
+  context.familyFriendly
+    ? "1. FAMILY FRIENDLY MODE: Ensure the analysis and language are suitable for all age groups. Avoid violence, abusive language, adult themes, hate speech, or offensive humor."
+    : "1. CONTENT SAFETY: Avoid illegal or extremely explicit content."
+}
+
+2. PLATFORM AWARENESS (${context.platform}):
+   - Adapt tone, depth, and language according to the selected platform.
+   - Social Media: Short, engaging, simple language.
+   - Documentary: Informative, neutral, factual.
+   - Television/News: Formal, unbiased, professional.
+   - OTT/YouTube: Platform-appropriate but compliant.
+
+3. LOCATION & LEGAL SENSITIVITY (${context.location}):
+   - Analyze the video through the lens of ${context.location === "Global" ? "international" : context.location} laws, cultural norms, and sensitivities.
+   - For specific countries (e.g., India, USA, UAE), apply their unique regulatory frameworks (e.g., IT Act 2000 for India, COPPA/Section 230 for USA).
+   - Do NOT make statements that violate local regulations or cultural taboos of the selected region.
+   - Do NOT criticize, insult, or make negative remarks about high authorities (e.g., PM, President, Government bodies, National institutions) if the location's laws prohibit such speech.
+   - Identify risks that are specific to ${context.location} (e.g., certain hand gestures, linguistic nuances, or restricted symbols).
+
+4. CONTENT SAFETY:
+   - Do not spread misinformation, hate, discrimination, or illegal advice.
+   - Ensure the analysis is respectful, neutral, and responsible.
 
 ANALYSIS REQUIREMENTS:
 1. Provide a detailed summary of what happens in the video
 2. Identify key moments with timestamps (format: "MM:SS") and descriptions
-3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better).
+3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better). This score MUST reflect compliance with the selected location's (${context.location}) standards.
 4. For all analysis metrics and compliance risks, use a scale of 1-100.
    - For Quality/Performance metrics: Higher score = better performance.
    - For Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
-5. Give specific recommendations for improvement based on the user's context
+5. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
 6. List any content warnings if applicable
 
 CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.

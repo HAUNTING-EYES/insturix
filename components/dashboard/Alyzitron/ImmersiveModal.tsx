@@ -53,9 +53,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 }) => {
   // Modal manages its own state
   const [context, setContext] = useState<ContextValues>({
-    niche: "",
-    audience: "",
-    tone: "",
+    familyFriendly: true,
+    platform: "",
+    location: "Global (International)",
     additionalDetails: "",
   });
 
@@ -93,7 +93,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const isYouTubeUrl = useCallback(
     (url: string): boolean =>
       /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.?be)\/.+$/.test(url),
-    []
+    [],
   );
 
   const extractYouTubeVideoId = useCallback((url: string): string | null => {
@@ -127,7 +127,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       try {
         // Use our link-preview endpoint for robustness (title/image fallback)
         const res = await fetch(
-          `/api/link-preview?url=${encodeURIComponent(url)}`
+          `/api/link-preview?url=${encodeURIComponent(url)}`,
         );
         const meta = await res.json();
         const title = meta.title || "YouTube Video";
@@ -146,7 +146,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         };
       }
     },
-    [extractYouTubeVideoId]
+    [extractYouTubeVideoId],
   );
 
   // Handle file upload only (for auto-upload when modal opens)
@@ -172,23 +172,23 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setTimeout(
           () =>
             setUploadProgress((prev) =>
-              prev?.status === "uploading" ? { ...prev, progress: 25 } : prev
+              prev?.status === "uploading" ? { ...prev, progress: 25 } : prev,
             ),
-          500
+          500,
         );
         setTimeout(
           () =>
             setUploadProgress((prev) =>
-              prev?.status === "uploading" ? { ...prev, progress: 50 } : prev
+              prev?.status === "uploading" ? { ...prev, progress: 50 } : prev,
             ),
-          1500
+          1500,
         );
         setTimeout(
           () =>
             setUploadProgress((prev) =>
-              prev?.status === "uploading" ? { ...prev, progress: 75 } : prev
+              prev?.status === "uploading" ? { ...prev, progress: 75 } : prev,
             ),
-          3000
+          3000,
         );
 
         const uploadResult = await uploadVideo(file, submissionId);
@@ -242,7 +242,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setIsProcessing(false);
       }
     },
-    [analysisId, uploadVideo, resetState, toast]
+    [analysisId, uploadVideo, resetState, toast],
   );
 
   // Handle analysis start (for when user clicks "Begin Analysis")
@@ -250,7 +250,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     async (
       source: Source,
       context: ContextValues,
-      onSubmit: (analysisId: string, analysis: Analysis) => void
+      onSubmit: (analysisId: string, analysis: Analysis) => void,
     ) => {
       console.log("🔧 handleStartAnalysisOnly called with context:", context);
       if (!source.type) return;
@@ -270,7 +270,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         const contextForAnalysis = JSON.parse(JSON.stringify(context));
         console.log(
           "📋 Context being sent to startAnalysis:",
-          contextForAnalysis
+          contextForAnalysis,
         );
 
         if (source.type === "file") {
@@ -283,14 +283,14 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
             console.error("❌ No gcsPath available for file analysis");
             throw new Error("File upload not completed. Please try again.");
           }
-          
+
           // Prepare metadata for the file
           const metadata = {
             duration: source.duration > 0 ? source.duration : undefined,
             fileSize: source.file.size,
             filename: source.file.name,
           };
-          
+
           const payload = {
             videoUrl: gcsPath,
             submissionId: submissionId,
@@ -300,13 +300,13 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           };
           console.log(
             "🚀 Sending payload to analyze route (file):",
-            JSON.stringify(payload, null, 2)
+            JSON.stringify(payload, null, 2),
           );
           result = await startAnalysis(
             gcsPath,
             submissionId,
             contextForAnalysis,
-            metadata
+            metadata,
           );
         } else if (source.type === "link") {
           if (!isYouTubeUrl(source.url)) {
@@ -327,12 +327,12 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           };
           console.log(
             "🚀 Sending payload to analyze route (link):",
-            JSON.stringify(payload, null, 2)
+            JSON.stringify(payload, null, 2),
           );
           result = await startAnalysis(
             source.url,
             submissionId,
-            contextForAnalysis
+            contextForAnalysis,
           );
         }
 
@@ -420,7 +420,15 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setIsProcessing(false);
       }
     },
-    [analysisId, gcsPath, onOpenChange, uploadCompleted, isYouTubeUrl, startAnalysis, toast]
+    [
+      analysisId,
+      gcsPath,
+      onOpenChange,
+      uploadCompleted,
+      isYouTubeUrl,
+      startAnalysis,
+      toast,
+    ],
   );
 
   // Handle analysis completion
@@ -428,7 +436,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     (
       analysisId: string,
       uploadStates: Map<string, any>,
-      onComplete: (analysisId: string, analysis: Analysis) => void
+      onComplete: (analysisId: string, analysis: Analysis) => void,
     ) => {
       const currentUploadState = uploadStates.get(analysisId)?.uploadState;
       const currentAnalysisState = uploadStates.get(analysisId)
@@ -465,7 +473,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
         setUploadProgress(null);
       }
     },
-    [source]
+    [source],
   );
 
   // Create object URL for local file preview
@@ -584,7 +592,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
           .catch((error) => {
             console.warn(
               "Failed to cleanup uploaded file on modal close:",
-              error
+              error,
             );
           })
           .finally(() => {
@@ -646,7 +654,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
     if (uploadProgress?.status === "completed") {
       const timer = setTimeout(() => {
         setUploadProgress((prev) =>
-          prev ? { ...prev, status: "idle" as const } : null
+          prev ? { ...prev, status: "idle" as const } : null,
         );
       }, 1500);
       return () => clearTimeout(timer);
@@ -709,19 +717,26 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
       isProcessing,
     });
 
-    if (!source.type || !context.niche || !context.audience || !context.tone) {
+    // Validate mandatory fields: platform is a strict requirement
+    // Location defaults to Global, Family-Friendly defaults to true.
+    if (!source.type || !context.platform) {
       console.warn("❌ Missing required context fields:", {
         hasSource: !!source.type,
-        hasNiche: !!context.niche,
-        hasAudience: !!context.audience,
-        hasTone: !!context.tone,
+        hasPlatform: !!context.platform,
       });
-      setError("Please fill all context fields");
+      setError("Please fill required field");
       return;
     }
 
+    // For now, let's assume ContextSelector enforces selection from list.
+    // If we want backend to receive "Global" even if empty string:
+    const finalContext = {
+      ...context,
+      location: context.location || "Global",
+    };
+
     // Start analysis only (file should already be uploaded)
-    await handleStartAnalysisOnly(source, context, onSubmit);
+    await handleStartAnalysisOnly(source, finalContext, onSubmit);
   };
 
   const handleCancel = async () => {
@@ -775,11 +790,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   const hasInsufficientMinutes = analysisCost > remainingMinutes;
 
   const canSubmit =
-    source.type !== "none" &&
-    context.niche &&
-    context.audience &&
-    context.tone &&
-    !hasInsufficientMinutes;
+    source.type !== "none" && context.platform && !hasInsufficientMinutes;
 
   return (
     <>
@@ -1070,7 +1081,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     onChange={(newContext) => {
                       console.log(
                         "🔄 ContextSelector onChange called:",
-                        newContext
+                        newContext,
                       );
                       setContext(newContext);
                     }}
@@ -1089,7 +1100,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     <div className="text-blue-400">
                       This analysis will cost{" "}
                       <span className="text-blue-300 font-medium">
-                        {getAnalysisCost()} minute{getAnalysisCost() !== 1 ? "s" : ""}
+                        {getAnalysisCost()} minute
+                        {getAnalysisCost() !== 1 ? "s" : ""}
                       </span>
                     </div>
                   </div>
@@ -1123,7 +1135,10 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                             Analysis Initiated
                           </h4>
                           <p className="text-xs text-zinc-400">
-                            Task ID: <span className="font-mono text-zinc-300">{createdTaskId.slice(0, 8)}</span>
+                            Task ID:{" "}
+                            <span className="font-mono text-zinc-300">
+                              {createdTaskId.slice(0, 8)}
+                            </span>
                           </p>
                         </div>
                       </div>
@@ -1132,7 +1147,7 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                           Queued
                         </span>
                         <div className="h-4 w-[1px] bg-zinc-800 mx-1"></div>
-                        <motion.div 
+                        <motion.div
                           animate={{ opacity: [1, 0.4, 1] }}
                           transition={{ duration: 1.5, repeat: Infinity }}
                           className="text-[10px] text-zinc-500 font-medium whitespace-nowrap"
@@ -1213,9 +1228,9 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
 
               <div className="flex items-center justify-between">
                 <div className="text-xs space-y-1">
-                  {(!context.niche || !context.audience || !context.tone) && (
+                  {!context.platform && (
                     <div className="text-red-400">
-                      Please fill all required fields
+                      Please fill required field
                     </div>
                   )}
                   {hasInsufficientMinutes && (
@@ -1256,8 +1271,8 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                     title={
                       hasInsufficientMinutes
                         ? `Need ${analysisCost} minutes but only ${remainingMinutes} remaining`
-                        : !context.niche || !context.audience || !context.tone
-                          ? "Please fill all required fields first"
+                        : !context.platform
+                          ? "Please fill required field"
                           : isModalClosing
                             ? "Modal is closing..."
                             : undefined
@@ -1267,14 +1282,18 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
                       {hasInsufficientMinutes
                         ? "Usage Exhausted"
                         : source.type === "file"
-                            ? uploadProgress?.status === "completed"
-                              ? "Begin Analysis"
-                              : isProcessing || isModalClosing
-                                ? isProcessing ? "Uploading..." : "Closing..."
-                                : "Start Analysis"
+                          ? uploadProgress?.status === "completed"
+                            ? "Begin Analysis"
                             : isProcessing || isModalClosing
-                              ? isProcessing ? "Starting..." : "Closing..."
-                              : "Start Analysis"}
+                              ? isProcessing
+                                ? "Uploading..."
+                                : "Closing..."
+                              : "Start Analysis"
+                          : isProcessing || isModalClosing
+                            ? isProcessing
+                              ? "Starting..."
+                              : "Closing..."
+                            : "Start Analysis"}
                     </span>
                     <ArrowRight className="h-4 w-4" />
                   </Button>

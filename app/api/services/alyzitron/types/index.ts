@@ -15,9 +15,9 @@ export interface AlyzitronUserData {
 export type AnalysisStatus = 'listed' | 'queued' | 'processing' | 'completed' | 'failed';
 
 export type ContextValues = {
-  niche: string;
-  audience: string;
-  tone: string;
+  familyFriendly: boolean;
+  platform: string;
+  location: string;
   additionalDetails?: string;
 };
 

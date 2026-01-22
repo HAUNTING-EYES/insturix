@@ -48,13 +48,21 @@ const qstash = new Client({
 function normalizeContext(context: any): ContextValues {
   if (typeof context === "object" && context !== null) {
     return {
-      niche: context.niche || "",
-      audience: context.audience || "",
-      tone: context.tone || "",
+      familyFriendly:
+        typeof context.familyFriendly === "boolean"
+          ? context.familyFriendly
+          : true,
+      platform: context.platform || "Social Media",
+      location: context.location || "Global",
       additionalDetails: context.additionalDetails || context.details || "",
     };
   }
-  return { niche: "", audience: "", tone: "", additionalDetails: "" };
+  return {
+    familyFriendly: true,
+    platform: "Social Media",
+    location: "Global",
+    additionalDetails: "",
+  };
 }
 
 function normalizeMetadata(

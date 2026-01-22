@@ -125,7 +125,7 @@ function ShareButton({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ isPublic: newIsPublic }),
-        }
+        },
       );
 
       if (response.ok) {
@@ -336,7 +336,8 @@ export function AnalysisDetails({
     if (analysisData.titles && analysisData.titles.length > 1) {
       setCurrentTitleIndex(
         (prev) =>
-          (prev - 1 + analysisData.titles!.length) % analysisData.titles!.length
+          (prev - 1 + analysisData.titles!.length) %
+          analysisData.titles!.length,
       );
     }
   };
@@ -344,7 +345,7 @@ export function AnalysisDetails({
   const nextDescription = () => {
     if (analysisData.descriptions && analysisData.descriptions.length > 1) {
       setCurrentDescriptionIndex(
-        (prev) => (prev + 1) % analysisData.descriptions!.length
+        (prev) => (prev + 1) % analysisData.descriptions!.length,
       );
     }
   };
@@ -354,7 +355,7 @@ export function AnalysisDetails({
       setCurrentDescriptionIndex(
         (prev) =>
           (prev - 1 + analysisData.descriptions!.length) %
-          analysisData.descriptions!.length
+          analysisData.descriptions!.length,
       );
     }
   };
@@ -627,7 +628,7 @@ export function AnalysisDetails({
                           onClick={() =>
                             handleCopy(
                               analysisData.titles[currentTitleIndex],
-                              `current-title`
+                              `current-title`,
                             )
                           }
                           className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
@@ -750,7 +751,9 @@ export function AnalysisDetails({
                         <div className="flex-1 min-w-0">
                           <p className="text-zinc-300 leading-relaxed text-sm">
                             {formatDescription(
-                              analysisData.descriptions[currentDescriptionIndex]
+                              analysisData.descriptions[
+                                currentDescriptionIndex
+                              ],
                             )}
                           </p>
                         </div>
@@ -760,7 +763,7 @@ export function AnalysisDetails({
                               analysisData.descriptions[
                                 currentDescriptionIndex
                               ],
-                              `current-description`
+                              `current-description`,
                             )
                           }
                           className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-zinc-700 transition-all duration-200 shrink-0"
@@ -875,12 +878,15 @@ export function AnalysisDetails({
                         </div>
                         <div className="flex items-center ml-4 shrink-0">
                           {value.score ? (
-                            <ScoreIndicator score={value.score} />
+                            <ScoreIndicator
+                              score={value.score}
+                              invert={section === "compliance_risks"}
+                            />
                           ) : null}
                         </div>
                       </div>
                     </div>
-                  )
+                  ),
                 )}
               </CardContent>
             </Card>
@@ -910,7 +916,7 @@ export function AnalysisDetails({
                     <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
                     <span className="leading-relaxed">{strength}</span>
                   </li>
-                )
+                ),
               ) || []}
             </ul>
           </div>
@@ -928,7 +934,7 @@ export function AnalysisDetails({
                     <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0" />
                     <span className="leading-relaxed">{improvement}</span>
                   </li>
-                )
+                ),
               ) || []}
             </ul>
           </div>
@@ -1098,7 +1104,7 @@ export function AnalysisError({
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4 justify-end">
+          <div className="flex flex-col sm:flex-row gap-4 pt-2 mb-4float-end">
             <Link
               href="/dashboard/alyzitron"
               className="relative inline-flex items-center justify-center gap-3 px-8 py-3 bg-black/40 hover:bg-black/60 text-red-400 hover:text-red-300 font-semibold rounded-xl border border-red-500/30 hover:border-red-500/50 backdrop-blur-xl transition-all duration-300 hover:scale-[1.01] hover:-translate-y-0.5 shadow-lg shadow-red-500/5 hover:shadow-red-500/10 active:scale-100 group overflow-hidden"
