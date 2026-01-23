@@ -165,6 +165,9 @@ export interface Script {
   blocks?: ThinkForgeBlock[];
   richText?: Record<string, any>; // Tiptap JSON AST
   version?: number;
+  parentScriptId?: string;
+  forkReason?: string;
+  createdFromIntent?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -662,6 +665,9 @@ const ScriptSchema = new Schema({
   blocks: { type: Schema.Types.Mixed },
   richText: { type: Schema.Types.Mixed }, // Tiptap JSON AST
   version: { type: Number, default: 1 },
+  parentScriptId: { type: String },
+  forkReason: { type: String },
+  createdFromIntent: { type: String },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_SCRIPTS, timestamps: false });
