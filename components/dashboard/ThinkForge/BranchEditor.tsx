@@ -40,6 +40,7 @@ type BranchBlocks = BlockTree | CIRDocument | CIRSection[];
 
 interface BranchEditorProps {
   sessionId: string | null;
+  scriptId?: string | null;
   currentBlocks: BranchBlocks;
   onRestoreVersion: (blocks: BranchBlocks) => void;
   onClose: () => void;
@@ -49,11 +50,12 @@ type ViewMode = 'linear' | 'branched' | 'timeline';
 
 export const BranchEditor: React.FC<BranchEditorProps> = ({
   sessionId,
+  scriptId,
   currentBlocks,
   onRestoreVersion,
   onClose,
 }) => {
-  const versionManager = useVersionManager(sessionId);
+  const versionManager = useVersionManager(sessionId, scriptId);
   const [viewMode, setViewMode] = useState<ViewMode>('timeline');
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [isCreatingBranch, setIsCreatingBranch] = useState(false);

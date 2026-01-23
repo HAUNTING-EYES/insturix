@@ -10,7 +10,6 @@ import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeSession } from "./hooks/useThinkForgeSession";
 import { useThinkForgeScript } from "./hooks/useThinkForgeScript";
 import { ScriptModel } from "./hooks/useThinkForgeClient";
-import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import Dock from "@/components/dashboard/ThinkForge/Dock";
 import { WorkspaceMode } from "@/components/dashboard/ThinkForge/ModeSwitcher";
 import IdeationMode from "@/components/dashboard/ThinkForge/IdeationMode";
@@ -314,16 +313,7 @@ export default function ThinkForgeLanding() {
 				});
 				if (created?.sessionId) {
 					setPendingSessionId(created.sessionId);
-					if (created?.script) {
-						const sanitized = created.script ? sanitizeServerScript(created.script) : null;
-						if (sanitized) {
-							scriptHook.setScriptAndQueueSave(sanitized);
-						} else {
-							scriptHook.resetSessionState();
-						}
-					} else {
-						scriptHook.resetSessionState();
-					}
+					scriptHook.resetSessionState();
 				}
 			} catch {}
 			finally {
@@ -481,17 +471,7 @@ export default function ThinkForgeLanding() {
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
-						// Ensure hook script state is set promptly to avoid UI race
-						if (data.script) {
-							const sanitized = data?.script ? sanitizeServerScript(data.script) : null;
-							if (sanitized) {
-								scriptHook.setScriptAndQueueSave(sanitized);
-							} else {
-								scriptHook.resetSessionState();
-							}
-						} else {
-							scriptHook.resetSessionState();
-						}
+						scriptHook.resetSessionState();
 						// Reconstruct selected idea from project meta
 						const pm = data.projectMeta || {};
 						// Derive a stable numeric id from the session id to keep UI keys stable
@@ -576,46 +556,15 @@ export default function ThinkForgeLanding() {
 					setIdeationPhase('PROMPT');
 					setWorkspaceMode('ideation');
 				}}
-				onNewScript={async () => {
-					if (!activeSessionId) return;
-					try {
-						setOpeningSession(true);
-						const newScriptId = crypto.randomUUID();
-						setActiveScriptId(newScriptId);
-						scriptHook.resetSessionState();
-						const title = selectedIdea?.idea || 'New Script';
-						await fetch('/api/commands', {
-							method: 'POST',
-							headers: { 'Content-Type': 'application/json' },
-							body: JSON.stringify({
-								type: 'ReplaceDocument',
-								sessionId: activeSessionId,
-								baseVersion: 0,
-								source: 'user',
-								payload: {
-									scriptId: newScriptId,
-									title,
-									content: '',
-									blocks: [],
-								}
-							}),
-						});
-						scriptHook.setScriptWithoutSave({
-							title,
-							content: '',
-							blocks: null,
-							metadata: null,
-						});
-					} catch (error) {
-						console.error('Failed to create new script tab:', error);
-						toast({
-							title: 'New script failed',
-							description: 'Could not start a fresh script tab.',
-							variant: 'destructive',
-						});
-					} finally {
-						setTimeout(() => setOpeningSession(false), 250);
-					}
+				onScriptCreated={(scriptId) => {
+					setActiveScriptId(scriptId);
+					scriptHook.resetSessionState();
+					scriptHook.setScriptWithoutSave({
+						title: 'New Script',
+						content: '',
+						blocks: null,
+						metadata: null,
+					});
 				}}
 				onSwitchScript={async (scriptId) => {
 					if (!activeSessionId) return;
@@ -626,22 +575,6 @@ export default function ThinkForgeLanding() {
 						}
 						setActiveScriptId(scriptId);
 						scriptHook.resetSessionState();
-						const res = await fetch(`/api/services/thinkforge/script/get?sessionId=${encodeURIComponent(activeSessionId)}&scriptId=${encodeURIComponent(scriptId)}`, { cache: 'no-store' });
-						if (res.ok) {
-							const data = await res.json();
-							const scriptData = data?.script || null;
-							if (scriptData) {
-								const sanitized = sanitizeServerScript(scriptData);
-								scriptHook.setScriptWithoutSave(sanitized);
-							} else {
-								scriptHook.setScriptWithoutSave({
-									title: 'Untitled Script',
-									content: '',
-									blocks: null,
-									metadata: null,
-								});
-							}
-						}
 					} finally {
 						setTimeout(() => setOpeningSession(false), 200);
 					}
@@ -669,17 +602,7 @@ export default function ThinkForgeLanding() {
 						if (!data) { setOpeningSession(false); return; }
 						const sid = data.sessionId;
 						setPendingSessionId(sid);
-						// Ensure hook script state is set promptly to avoid UI race
-						if (data.script) {
-							const sanitized = data.script ? sanitizeServerScript(data.script) : null;
-							if (sanitized) {
-								scriptHook.setScriptAndQueueSave(sanitized);
-							} else {
-								scriptHook.resetSessionState();
-							}
-						} else {
-							scriptHook.resetSessionState();
-						}
+						scriptHook.resetSessionState();
 						// Reconstruct selected idea from project meta
 						const pm = data.projectMeta || {};
 						// Derive a stable numeric id from the session id to keep UI keys stable
@@ -729,16 +652,7 @@ export default function ThinkForgeLanding() {
 						const data = await session.hydrate({ sessionId });
 						if (data?.sessionId) {
 							setPendingSessionId(data.sessionId);
-							if (data.script) {
-								const sanitized = data.script ? sanitizeServerScript(data.script) : null;
-								if (sanitized) {
-									scriptHook.setScriptAndQueueSave(sanitized);
-								} else {
-									scriptHook.resetSessionState();
-								}
-							} else {
-								scriptHook.resetSessionState();
-							}
+							scriptHook.resetSessionState();
 							
 							// Reconstruct idea from project meta if available
 							const pm = data.projectMeta || {};

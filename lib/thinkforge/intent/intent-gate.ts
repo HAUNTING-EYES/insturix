@@ -26,6 +26,49 @@ export interface IntentGateResult {
   textSample?: string;
 }
 
+type IntentCacheEntry = {
+  value: IntentGateResult;
+  expiresAt: number;
+};
+
+const INTENT_CACHE_TTL_MS = 2 * 60 * 1000;
+const INTENT_CACHE_MAX = 300;
+const intentFallbackCache = new Map<string, IntentCacheEntry>();
+
+function getIntentCacheKey(input: {
+  prompt: string;
+  hasScript: boolean;
+  hasSelection: boolean;
+  context?: IntentContextSignals;
+}): string {
+  const normalizedPrompt = normalizeWhitespace(input.prompt).toLowerCase();
+  const ctx = input.context;
+  const ctxKey = [
+    ctx?.editorFocused ? "1" : "0",
+    ctx?.workspaceMode || "unknown",
+    (ctx?.lastUserAction || "").toLowerCase(),
+  ].join("|");
+  return [normalizedPrompt, input.hasScript ? "1" : "0", input.hasSelection ? "1" : "0", ctxKey].join("::");
+}
+
+function getCachedIntent(key: string): IntentGateResult | null {
+  const cached = intentFallbackCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    intentFallbackCache.delete(key);
+    return null;
+  }
+  return cached.value;
+}
+
+function setCachedIntent(key: string, value: IntentGateResult): void {
+  intentFallbackCache.set(key, { value, expiresAt: Date.now() + INTENT_CACHE_TTL_MS });
+  if (intentFallbackCache.size > INTENT_CACHE_MAX) {
+    const oldestKey = intentFallbackCache.keys().next().value as string | undefined;
+    if (oldestKey) intentFallbackCache.delete(oldestKey);
+  }
+}
+
 // CHAT is a fallback, never a guess.
 // If the user is clearly authoring or mutating content, it must not be CHAT.
 // If the user requests a document mutation, it is never CHAT.
@@ -136,8 +179,13 @@ export function fastIntentHeuristic(input: {
   }
 
   if (wantsDraft) {
-    const draftConfidence = hasScript ? confidence + 0.05 : confidence + 0.15;
-    return { intent: "draft", confidence: Math.min(0.8, draftConfidence), scope: "document", signals: [...signals, "draft_signal"] };
+    const draftConfidence = hasScript ? confidence + 0.25 : confidence + 0.3;
+    return {
+      intent: "draft",
+      confidence: Math.min(0.9, Math.max(0.7, draftConfidence)),
+      scope: "document",
+      signals: [...signals, "draft_signal"],
+    };
   }
 
   if (isQuestion) {
@@ -196,6 +244,17 @@ async function classifyIntentFallback(
   hasSelection: boolean,
   context?: IntentContextSignals
 ): Promise<IntentGateResult> {
+  const cacheKey = getIntentCacheKey({
+    prompt,
+    hasScript,
+    hasSelection,
+    context,
+  });
+  const cached = getCachedIntent(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const model = createModelByTier(ModelTier.Structural);
   const promptText = buildIntentClassifierPrompt({
     message: prompt,
@@ -225,10 +284,29 @@ async function classifyIntentFallback(
     const confidence = typeof parsed?.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0.6;
     const scope = parsed?.scope === "selection" || parsed?.scope === "section" || parsed?.scope === "document" ? (parsed.scope as IntentScope) : undefined;
     const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
-    return { intent, confidence, scope, reason: "fallback_llm", usedFallback: true, textSample, signals: ["llm_fallback"] };
+    const result: IntentGateResult = {
+      intent,
+      confidence,
+      scope,
+      reason: "fallback_llm",
+      usedFallback: true,
+      textSample,
+      signals: ["llm_fallback"],
+    };
+    setCachedIntent(cacheKey, result);
+    return result;
   } catch (_error) {
     const textSample = prompt.length > 80 ? prompt.slice(0, 80) + "..." : prompt;
-    return { intent: "chat", confidence: 0.4, reason: "llm_failed_default_chat", usedFallback: true, textSample, signals: ["llm_failure"] };
+    const result: IntentGateResult = {
+      intent: "chat",
+      confidence: 0.4,
+      reason: "llm_failed_default_chat",
+      usedFallback: true,
+      textSample,
+      signals: ["llm_failure"],
+    };
+    setCachedIntent(cacheKey, result);
+    return result;
   }
 }
 

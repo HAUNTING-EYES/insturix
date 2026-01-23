@@ -17,6 +17,7 @@ import { applyThinkForgeBlockPatches, extractTextFromRichText } from '../utils/t
 import { thinkForgeBlocksToTiptapJSON } from '../mappers/thinkforge-to-tiptap';
 import type { TiptapJSON } from '../schemas/tiptap-schema';
 import { ServiceUsageService } from '@/lib/services/serviceUsageService';
+import crypto from 'crypto';
 
 // Generator may be imperfect. Renderer must never fail.
 
@@ -128,6 +129,7 @@ export interface ChatRequest {
   selectionBlockIds?: string[]; // Structural block IDs from editor
   selectionRange?: { from: number; to: number }; // Tiptap selection range for precise replacement
   scriptId?: string | null;
+  generationId?: string | null;
   threadId?: string | null;
   intentContext?: IntentContextSignals;
 }
@@ -166,6 +168,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     selectionBlockIds: providedSelectionBlockIds,
     selectionRange: providedSelectionRange,
     scriptId: providedScriptId,
+    generationId: providedGenerationId,
     threadId: providedThreadId,
     intentContext: providedIntentContext,
   } = request;
@@ -180,8 +183,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     session = await db.getOrCreateSession(userId, sessionId);
   }
   
+  let effectiveScriptId = typeof providedScriptId === 'string' && providedScriptId.trim()
+    ? providedScriptId
+    : null;
+
   // Load script if session exists (prefer provided script)
-  const script = providedScript || (session ? await db.getScript(sessionId || session._id, providedScriptId || 'default') : null);
+  const script = providedScript || (session ? await db.getScript(sessionId || session._id, effectiveScriptId) : null);
   
   const thinkforgeBlocks = validateThinkForgeBlocks(Array.isArray((script as any)?.blocks) ? (script as any).blocks : []);
   if (script && thinkforgeBlocks.length !== ((script as any)?.blocks?.length || 0)) {
@@ -249,6 +256,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   
   // Run in background
   (async () => {
+    let activeGenerationId: string | null = null;
     try {
       let finalResponse = '';
       const hasExistingScript = !!script && thinkforgeBlocks.length > 0;
@@ -393,8 +401,61 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       const wantsFullRegenerate = detectFullRegenerate(effectivePrompt);
       const isGenerateIntent = intentResult.intent === 'draft';
       const shouldRunGeneration = isGenerateIntent || (hasExistingScript && wantsFullRegenerate);
-
       const shouldRunEdit = intentResult.intent === 'edit' || intentResult.intent === 'hybrid';
+
+      const isCanvasEmpty = (() => {
+        if (!script) return true;
+        const hasBlocks = Array.isArray((script as any)?.blocks) && (script as any).blocks.length > 0;
+        const hasRichText = (script as any)?.richText && Array.isArray((script as any).richText?.content) && (script as any).richText.content.length > 0;
+        const hasContent = typeof (script as any)?.content === 'string' && (script as any).content.trim().length > 0;
+        return !(hasBlocks || hasRichText || hasContent);
+      })();
+
+      if (isGenerateIntent) {
+        if (!session) {
+          finalResponse = 'No active session. Start a session first.';
+          if (!(await emitEvent('token', { content: finalResponse }))) return;
+          if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+          return;
+        }
+
+        // If current canvas is empty, draft into it. Otherwise create a new script.
+        if (isCanvasEmpty && effectiveScriptId) {
+          // Use the current scriptId as-is.
+        } else {
+          const newScriptId = crypto.randomUUID();
+          const initialTitle = 'New Script';
+          const createResult = await applyCommand({
+            type: 'ReplaceDocument',
+            sessionId: sessionId || session._id,
+            baseVersion: 0,
+            source: 'ai',
+            payload: {
+              scriptId: newScriptId,
+              title: initialTitle,
+              content: '',
+              blocks: [],
+            }
+          }, userId);
+
+          if (!createResult.ok) {
+            finalResponse = createResult.error || 'Failed to create new script.';
+            if (!(await emitEvent('token', { content: finalResponse }))) return;
+            if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+            return;
+          }
+
+          effectiveScriptId = newScriptId;
+          await emitEvent('script_created', { scriptId: newScriptId, title: initialTitle });
+        }
+      }
+
+      if ((shouldRunGeneration || shouldRunEdit) && !effectiveScriptId) {
+        finalResponse = 'No active script. Create a new script first, then generate.';
+        if (!(await emitEvent('token', { content: finalResponse }))) return;
+        if (!(await emitEvent('done', { sessionId: session?._id }))) return;
+        return;
+      }
       if (shouldRunEdit && hasExistingScript && !wantsFullRegenerate) {
         // Use selection blocks if provided (surgical editing)
         const useSelectionBlocks = providedSelectionBlocks && providedSelectionBlocks.length > 0;
@@ -484,7 +545,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
 
           let savedVersion: number | undefined;
           if (session) {
-            const latest = await db.getScript(sessionId || session._id, providedScriptId || 'default');
+            const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
             let baseVersion = latest?.version ?? 0;
             const saveResult = await applyCommand({
               type: 'ReplaceDocument',
@@ -492,7 +553,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
               baseVersion,
               source: 'ai',
               payload: {
-                scriptId: providedScriptId || 'default',
+                scriptId: effectiveScriptId,
                 title: refined.title || script!.title,
                 content: mergedContent || script!.content || '',
                 blocks: mergedBlocks,
@@ -535,6 +596,21 @@ CRITICAL: You are editing a SELECTION from a larger document.
         // Stream a "working" message first
         const workingMsg = 'Creating your script...';
         if (!(await emitEvent('token', { content: workingMsg }))) return;
+
+        activeGenerationId = providedGenerationId || `gen_${Date.now()}`;
+        if (session) {
+          await db.setActiveGeneration(sessionId || session._id, {
+            id: activeGenerationId,
+            type: 'script_generate',
+            status: 'running',
+            intent: 'draft',
+            progress: 0.01,
+            message: 'Starting script generation',
+            startedAt: new Date(),
+            updatedAt: new Date(),
+          });
+        }
+        if (!(await emitEvent('progress', { progress: 0.01, message: 'Starting script generation' }))) return;
         
         const draft = await generateScriptDraft(
           effectivePrompt,
@@ -543,13 +619,46 @@ CRITICAL: You are editing a SELECTION from a larger document.
             title: script?.title || '',
             blocks: script?.blocks || [],
             content: script?.content || ''
-          } : null
+          } : null,
+          undefined,
+          {
+            onProgress: async ({ progress, message, completed, total }) => {
+              if (session) {
+                await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+                  progress,
+                  message,
+                  status: 'running',
+                });
+              }
+              await emitEvent('progress', { progress, message, completed, total });
+            },
+            onPartial: async ({ title, blocks, richText, content, completed, total }) => {
+              const partialUpdate = {
+                script: {
+                  title,
+                  blocks,
+                  richText,
+                  content,
+                },
+                metadata: {
+                  workflow: 'create',
+                  thoughts: 'Streaming draft in progress',
+                  duration_ms: 0,
+                  agent_steps: [],
+                  streaming: true,
+                  completed,
+                  total,
+                }
+              };
+              await emitEvent('script_update', partialUpdate);
+            }
+          }
         );
         
         // Save new script with richText (Tiptap JSON AST)
         let savedVersion: number | undefined;
         if (session) {
-          const latest = await db.getScript(sessionId || session._id, providedScriptId || 'default');
+          const latest = await db.getScript(sessionId || session._id, effectiveScriptId);
           let baseVersion = latest?.version ?? 0;
           const saveResult = await applyCommand({
             type: 'ReplaceDocument',
@@ -557,7 +666,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
             baseVersion,
             source: 'ai',
             payload: {
-              scriptId: providedScriptId || 'default',
+              scriptId: effectiveScriptId,
               title: draft.title,
               content: draft.content,
               blocks: draft.blocks,
@@ -588,6 +697,14 @@ CRITICAL: You are editing a SELECTION from a larger document.
         };
         
         if (!(await emitEvent('script_update', scriptUpdate))) return;
+
+        if (session) {
+          await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+            status: 'completed',
+            progress: 1,
+            message: 'Script generated',
+          });
+        }
         
         // Send completion response
         finalResponse = `\n\nScript "${draft.title}" created successfully!`;
@@ -655,6 +772,12 @@ CRITICAL: You are editing a SELECTION from a larger document.
       }
       
       console.error('Error in chat stream:', error);
+      if (session && activeGenerationId) {
+        await db.updateGenerationState(sessionId || session._id, activeGenerationId, {
+          status: 'failed',
+          message: error?.message || 'Generation failed',
+        });
+      }
       // Try to send error, but don't fail if stream is closed
       await emitEvent('error', { error: error.message || 'Chat failed' });
     } finally {

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { processChat } from '@/lib/thinkforge/services/chat-service';
+import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
+import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,7 +53,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const stream = await processChat({
+    const stream = await retryOnceOnOverload(() => processChat({
       sessionId,
       prompt,
       selection,
@@ -64,7 +66,7 @@ export async function POST(req: Request) {
       generationId,
       threadId,
       intentContext,
-    });
+    }));
 
     return new Response(stream, {
       headers: {
@@ -84,10 +86,8 @@ export async function POST(req: Request) {
         { status: 429 }
       );
     }
-    
-    return NextResponse.json(
-      { error: 'Chat failure', details: error?.message },
-      { status: 500 }
-    );
+
+    const normalized = toThinkForgeErrorResponse(error);
+    return NextResponse.json(normalized.body, { status: normalized.status });
   }
 }

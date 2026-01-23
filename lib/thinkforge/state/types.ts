@@ -3,6 +3,7 @@
  */
 
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
+import type { ScriptIntent } from '../protocol/intent';
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -41,6 +42,9 @@ export interface ScriptState {
   content: string;
   draft: boolean;
   version: number;
+  parentScriptId?: string;
+  forkReason?: string;
+  createdFromIntent?: ScriptIntent;
 }
 
 export interface SessionState {

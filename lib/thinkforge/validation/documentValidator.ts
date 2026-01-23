@@ -1,8 +1,8 @@
 /**
  * Document Contract Validator
  * 
- * Validates ThinkForgeBlock[] against DOCUMENT_AUTHORING_CONTRACT rules.
- * This is a guardrail to prevent regressions and make violations observable.
+ * Emits soft diagnostics about structure and voice quality.
+ * This validator is telemetry-only and never blocks output.
  */
 
 import type { ThinkForgeBlock } from '../schemas/thinkforge-block';
@@ -11,20 +11,6 @@ import { extractTextFromRichText } from '../utils/thinkforge-block-patch';
 export interface ValidationResult {
   valid: boolean;
   violations: string[];
-}
-
-/**
- * Count lines in text (approximate - counts newlines + 1)
- * Also considers character length as a fallback (roughly 80 chars per line)
- */
-function countLines(text: string): number {
-  if (!text) return 0;
-  const newlineCount = (text.match(/\n/g) || []).length;
-  if (newlineCount > 0) {
-    return newlineCount + 1;
-  }
-  // Fallback: estimate by character length (roughly 80 chars per line)
-  return Math.ceil(text.length / 80);
 }
 
 /**
@@ -73,8 +59,46 @@ function countListItems(text: string): number {
   return 0;
 }
 
+function detectWeakVoice(text: string): string[] {
+  const signals: string[] = [];
+  const lower = text.toLowerCase();
+  const genericPhrases = [
+    'in this section',
+    'this section will',
+    'it is important to',
+    'make sure to',
+    'ensure that',
+    'you should',
+    'we will',
+    'the goal is to',
+  ];
+  const genericHits = genericPhrases.filter((p) => lower.includes(p));
+  if (genericHits.length >= 2) {
+    signals.push('Weak voice: generic phrasing detected');
+  }
+
+  const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
+  const starts = sentences.map((s) => s.split(/\s+/)[0]?.toLowerCase() || '').filter(Boolean);
+  const startCounts = starts.reduce<Record<string, number>>((acc, s) => {
+    acc[s] = (acc[s] || 0) + 1;
+    return acc;
+  }, {});
+  if (Object.values(startCounts).some((n) => n >= 4)) {
+    signals.push('Repetitive phrasing: repeated sentence starts');
+  }
+
+  if (sentences.length >= 4) {
+    const avgLen = sentences.reduce((sum, s) => sum + s.length, 0) / sentences.length;
+    if (avgLen < 60) {
+      signals.push('Flat tone risk: short, uniform sentences');
+    }
+  }
+
+  return signals;
+}
+
 /**
- * Validate ThinkForgeBlock[] against DOCUMENT_AUTHORING_CONTRACT
+ * Validate ThinkForgeBlock[] against DOCUMENT_AUTHORING_CONTRACT (telemetry only)
  */
 export function validateDocumentContract(blocks: ThinkForgeBlock[]): ValidationResult {
   const violations: string[] = [];
@@ -83,12 +107,12 @@ export function validateDocumentContract(blocks: ThinkForgeBlock[]): ValidationR
     return { valid: true, violations: [] }; // Empty documents are valid
   }
   
-  // 1. Exactly one H1 (meta.level === 1)
+  // Structure diagnostics
   const h1Blocks = blocks.filter(b => b.kind === 'header' && b.meta?.level === 1);
   if (h1Blocks.length === 0) {
-    violations.push('No H1 header found (exactly one H1 required)');
+    violations.push('Structure: missing H1 header');
   } else if (h1Blocks.length > 1) {
-    violations.push(`Multiple H1 headers found (${h1Blocks.length} found, exactly one required)`);
+    violations.push(`Structure: multiple H1 headers (${h1Blocks.length})`);
   }
   
   // 2. No duplicated header text across H1/H2/H3
@@ -108,7 +132,7 @@ export function validateDocumentContract(blocks: ThinkForgeBlock[]): ValidationR
   for (const [text, indices] of headerTexts.entries()) {
     if (indices.length > 1) {
       const level = blocks[indices[0]].meta?.level || 'unknown';
-      violations.push(`Duplicate header text: "${text.substring(0, 50)}" (found ${indices.length} times, level ${level})`);
+      violations.push(`Structure: duplicate header "${text.substring(0, 50)}" (count ${indices.length}, level ${level})`);
     }
   }
   
@@ -117,45 +141,39 @@ export function validateDocumentContract(blocks: ThinkForgeBlock[]): ValidationR
     if (block.kind === 'header') {
       const text = extractTextFromRichText(block.content).trim();
       if (!text) {
-        violations.push(`Empty header at index ${index}`);
+        violations.push(`Structure: empty header at index ${index}`);
       }
     }
   });
   
-  // 4. No paragraph exceeding ~4 lines
-  blocks.forEach((block, index) => {
-    if (block.kind === 'paragraph') {
-      const text = extractTextFromRichText(block.content);
-      const lineCount = countLines(text);
-      if (lineCount > 4) {
-        violations.push(`Paragraph at index ${index} exceeds 4 lines (${lineCount} lines): "${text.substring(0, 100)}..."`);
-      }
-    }
-  });
   
-  // 5. If 3+ sibling items appear in a paragraph, recommend list usage
+  // List formatting suggestion
   blocks.forEach((block, index) => {
     if (block.kind === 'paragraph') {
       const text = extractTextFromRichText(block.content);
       const itemCount = countListItems(text);
       if (itemCount >= 3) {
-        violations.push(`Paragraph at index ${index} contains ${itemCount} items that should be in a list: "${text.substring(0, 100)}..."`);
+        violations.push(`Structure: list opportunity at paragraph ${index} (${itemCount} items)`);
       }
     }
   });
   
-  // 6. All director notes must be kind: "why"
+  // Director note placement suggestion
   blocks.forEach((block, index) => {
     if (block.kind !== 'why') {
       const text = extractTextFromRichText(block.content);
       if (isDirectorNote(text)) {
-        violations.push(`Director's note found in ${block.kind} block at index ${index} (should be kind: "why"): "${text.substring(0, 100)}..."`);
+        violations.push(`Structure: director note should be kind "why" (index ${index})`);
       }
     }
   });
+
+  // Voice diagnostics (soft signals)
+  const fullText = blocks.map((b) => extractTextFromRichText(b.content)).join('\n');
+  violations.push(...detectWeakVoice(fullText));
   
   return {
-    valid: violations.length === 0,
+    valid: true,
     violations,
   };
 }

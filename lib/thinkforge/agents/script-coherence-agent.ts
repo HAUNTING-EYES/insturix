@@ -28,7 +28,7 @@ export class ScriptCoherenceAgent extends BaseAgent {
   buildPrompt(input: AgentInput): string {
     const { outline, contract } = input as CoherenceInput;
     const sectionList = outline.sections
-      .map((s) => `${s.id}: ${s.title} — role=${s.role || 'NA'} | layer=${(s as any).knowledge_layer || 'NA'} | mode=${(s as any).mode || 'Mode B'}`)
+      .map((s) => `${s.id}: ${s.title} — beat=${(s as any).beat || 'NA'} | level=${(s as any).level || 'act'} | tone=${(s as any).tone || 'NA'}`)
       .join('\n');
     const forbidden = contract.forbidden?.join(', ') || 'none';
     return `You are a validator, not a rewriter. Operate only on headers and transitions.
