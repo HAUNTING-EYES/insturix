@@ -52,12 +52,39 @@ export const ImmersiveModal: React.FC<ImmersiveModalProps> = ({
   usageData,
 }) => {
   // Modal manages its own state
+  const PREFS_KEY = "alyzitron_user_preferences";
   const [context, setContext] = useState<ContextValues>({
     familyFriendly: true,
     platform: "",
     location: "Global (International)",
     additionalDetails: "",
   });
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Load preferences on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem(PREFS_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          console.log("📂 Loading saved preferences:", parsed);
+          setContext((prev) => ({ ...prev, ...parsed }));
+        } catch (e) {
+          console.error("Failed to parse saved preferences", e);
+        }
+      }
+      setIsHydrated(true);
+    }
+  }, []);
+
+  // Save preferences on change
+  useEffect(() => {
+    if (isHydrated && typeof window !== "undefined") {
+      console.log("💾 Saving preferences to localStorage:", context);
+      localStorage.setItem(PREFS_KEY, JSON.stringify(context));
+    }
+  }, [context, isHydrated]);
 
   // Log context changes for debugging
   const [isProcessing, setIsProcessing] = useState(false);
