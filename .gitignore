@@ -38,3 +38,5 @@ tsconfig.tsbuildinfo
 /cloud-run-renderer/node_modules/
 /cloud-run-renderer/dist/
 /cloud-run-renderer/package-lock.json
+.vercel
+.env*.local
