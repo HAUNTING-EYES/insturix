@@ -84,7 +84,7 @@ interface UseVersionManagerReturn {
  * Provides intent-based API for version management.
  * Hides internal tree/graph structures from the UI.
  */
-export function useVersionManager(sessionId: string | null): UseVersionManagerReturn {
+export function useVersionManager(sessionId: string | null, scriptId?: string | null): UseVersionManagerReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentVersionId, setCurrentVersionIdState] = useState<string | null>(null);
@@ -92,7 +92,7 @@ export function useVersionManager(sessionId: string | null): UseVersionManagerRe
   
   // Internal structures (not exposed directly)
   const managerRef = useRef<BranchManager | null>(null);
-  const scriptIdRef = useRef<string>(`script_${sessionId || 'default'}`);
+  const scriptIdRef = useRef<string>(`script_${sessionId || 'default'}_${scriptId || 'default'}`);
   
   // Initialize manager
   useEffect(() => {
@@ -107,10 +107,10 @@ export function useVersionManager(sessionId: string | null): UseVersionManagerRe
       setError(null);
       
       try {
-        scriptIdRef.current = `script_${sessionId}`;
+        scriptIdRef.current = `script_${sessionId}_${scriptId || 'default'}`;
         
         // Try to load from local storage
-        const storageKey = `${VERSION_STORAGE_PREFIX}${sessionId}`;
+        const storageKey = `${VERSION_STORAGE_PREFIX}${sessionId}_${scriptId || 'default'}`;
         const stored = localStorage.getItem(storageKey);
         
         if (stored) {
@@ -136,27 +136,27 @@ export function useVersionManager(sessionId: string | null): UseVersionManagerRe
     };
     
     initialize();
-  }, [sessionId]);
+  }, [sessionId, scriptId]);
   
   // Save to local storage
   const save = useCallback(() => {
     if (!sessionId || !managerRef.current) return;
     
     try {
-      const storageKey = `${VERSION_STORAGE_PREFIX}${sessionId}`;
+      const storageKey = `${VERSION_STORAGE_PREFIX}${sessionId}_${scriptId || 'default'}`;
       const data = managerRef.current.toJSON();
       localStorage.setItem(storageKey, JSON.stringify(data));
     } catch (e) {
       console.error('Failed to save version history:', e);
     }
-  }, [sessionId]);
+  }, [sessionId, scriptId]);
   
   // Load from local storage
   const load = useCallback(() => {
     if (!sessionId) return;
     
     try {
-      const storageKey = `${VERSION_STORAGE_PREFIX}${sessionId}`;
+      const storageKey = `${VERSION_STORAGE_PREFIX}${sessionId}_${scriptId || 'default'}`;
       const stored = localStorage.getItem(storageKey);
       
       if (stored) {
@@ -170,7 +170,7 @@ export function useVersionManager(sessionId: string | null): UseVersionManagerRe
     } catch (e) {
       console.error('Failed to load version history:', e);
     }
-  }, [sessionId]);
+  }, [sessionId, scriptId]);
   
   // Create version from current head
   const createVersion = useCallback((

@@ -21,7 +21,10 @@ const ScriptStateSchema = new Schema({
   blocks: { type: Schema.Types.Mixed, required: true },
   content: { type: String, required: true },
   draft: { type: Boolean, default: true },
-  version: { type: Number, default: 1 }
+  version: { type: Number, default: 1 },
+  parentScriptId: { type: String },
+  forkReason: { type: String },
+  createdFromIntent: { type: String }
 }, { _id: false });
 
 const SessionSchema = new Schema({

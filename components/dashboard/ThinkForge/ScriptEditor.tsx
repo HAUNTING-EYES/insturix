@@ -110,7 +110,7 @@ interface ScriptEditorProps {
   generatingScript?: boolean;
   isSaving?: boolean;
   onImportScript?: (data: any) => Promise<{ ok: boolean; applied?: any; error?: string }>;
-  onNewScript?: () => void;
+  onNewScript?: () => Promise<string | null>;
   onSwitchScript?: (scriptId: string) => void;
   onTokenStream?: (callback: (tokens: string) => void) => void; // Callback setter for token streaming
   onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void; // Callback setter for getting current selection
@@ -160,6 +160,7 @@ export default function ScriptEditor({
   const MIN_AUTOSAVE_INTERVAL_MS = 4000;
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
+  const isSwitchingScriptRef = useRef(false);
   
   // CRITICAL: Track user typing state to prevent remote updates from overwriting user input
   const isUserTypingRef = useRef(false);
@@ -182,7 +183,7 @@ export default function ScriptEditor({
   const scriptResourceId = useMemo(() => {
     return scriptId || 'default';
   }, [scriptId]);
-  const versionManager = useVersionManager(sessionId || null);
+  const versionManager = useVersionManager(sessionId || null, scriptResourceId);
   const {
     createVersion,
     getVersionBlocks,
@@ -480,6 +481,31 @@ export default function ScriptEditor({
     }
   }, [editor]);
 
+  // Sync hydrated content into parent state (no backend save)
+  const notifyHydratedScript = useCallback((tiptapContent: TiptapJSON) => {
+    if (!onEditScript) return;
+    try {
+      const blocks = tiptapJSONToThinkForgeBlocks(tiptapContent);
+      const validated = validateThinkForgeBlocks(blocks);
+      onEditScript({
+        title: script?.title || 'Untitled Script',
+        version: (script as any)?.version ?? scriptVersionRef.current,
+        blocks: validated,
+        richText: tiptapContent,
+        content: '',
+        body: '',
+        sections: script?.sections || [],
+        tips: script?.tips || [],
+        duration: script?.duration,
+        targetAudience: script?.targetAudience,
+        tone: script?.tone,
+        metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
+      } as any);
+    } catch (error) {
+      console.error('ScriptEditor: Failed to sync hydrated script', error);
+    }
+  }, [onEditScript, script]);
+
   // Load blocks from API or script.blocks prop - only on initial mount or scriptId change
   // CRITICAL: Must never overwrite user edits during load
   const initialLoadDoneRef = useRef(false);
@@ -487,20 +513,21 @@ export default function ScriptEditor({
   useEffect(() => {
     const loadBlocks = async () => {
       if (!editor) return;
+      const forceHydration = isSwitchingScriptRef.current;
       
       // CRITICAL: Skip if user is actively editing or has unsaved changes
       // User input is always the source of truth
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
       
-      if (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped) {
+      if (!forceHydration && (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped)) {
         console.log('ScriptEditor: Skipping load, user is actively editing');
         return;
       }
       
-      // Try to fetch from API if session is available
-      if (sessionId) {
-        try {
+      try {
+        // Try to fetch from API if session is available
+        if (sessionId) {
           const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${sessionId}&scriptId=${encodeURIComponent(scriptResourceId)}`, {
             cache: 'no-store',
             headers: { 'Cache-Control': 'no-cache' }
@@ -512,11 +539,13 @@ export default function ScriptEditor({
             }
             
             // Check if response has richText (Tiptap JSON) or blocks (ThinkForge format)
-            let tiptapContent: TiptapJSON;
+            let tiptapContent: TiptapJSON | null = null;
             if (data.richText && isTiptapJSON(data.richText)) {
               tiptapContent = data.richText;
             } else if (data.blocks) {
               tiptapContent = toTiptapJSON(data.blocks);
+            } else if (forceHydration) {
+              tiptapContent = DEFAULT_EMPTY_DOCUMENT as TiptapJSON;
             } else {
               console.warn('ScriptEditor: API returned no valid content');
               return;
@@ -524,43 +553,58 @@ export default function ScriptEditor({
             
             // CRITICAL: Final check before applying - user might have typed during fetch
             const finalCheck = Date.now() - lastUserInputTimeRef.current;
-            if (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges) {
+            if (!forceHydration && (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges)) {
               console.log('ScriptEditor: Skipping load, user typed during fetch');
               return;
             }
             
-            if (tiptapContent.content && tiptapContent.content.length > 0) {
+            const hasContent = !!(tiptapContent?.content && tiptapContent.content.length > 0);
+            if (tiptapContent && (hasContent || forceHydration)) {
               const applied = applyContentToEditor(tiptapContent, 'initial-load-api');
               if (applied) {
                 initialLoadDoneRef.current = true;
+                notifyHydratedScript(tiptapContent);
                 console.log('ScriptEditor: Loaded content from API');
               }
               return;
             }
             console.warn('ScriptEditor: API returned empty content');
           }
-        } catch (error) {
-          console.error("ScriptEditor: Failed to fetch from API:", error);
         }
-      }
 
-      // Fallback: use script.blocks prop if available
-      // CRITICAL: Only load from prop if user isn't actively editing
-      if (script?.blocks) {
-        const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
-        const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
-        
-        if (!hasUnsavedChanges && !userRecentlyTyped) {
-          const tiptapContent = toTiptapJSON(script.blocks);
-          if (tiptapContent.content && tiptapContent.content.length > 0) {
-            const applied = applyContentToEditor(tiptapContent, 'initial-load-prop');
-            if (applied) {
-              initialLoadDoneRef.current = true;
-              console.log('ScriptEditor: Loaded content from prop');
+        // Fallback: use script.blocks prop if available
+        // CRITICAL: Only load from prop if user isn't actively editing
+        if (script?.blocks) {
+          const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
+          const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
+          
+          if (forceHydration || (!hasUnsavedChanges && !userRecentlyTyped)) {
+            const tiptapContent = toTiptapJSON(script.blocks);
+            const hasContent = !!(tiptapContent.content && tiptapContent.content.length > 0);
+            if (hasContent || forceHydration) {
+              const applied = applyContentToEditor(tiptapContent, 'initial-load-prop');
+              if (applied) {
+                initialLoadDoneRef.current = true;
+                notifyHydratedScript(tiptapContent);
+                console.log('ScriptEditor: Loaded content from prop');
+              }
+            } else {
+              console.warn('ScriptEditor: Prop blocks were invalid');
             }
-          } else {
-            console.warn('ScriptEditor: Prop blocks were invalid');
           }
+        } else if (forceHydration) {
+          const tiptapContent = DEFAULT_EMPTY_DOCUMENT as TiptapJSON;
+          const applied = applyContentToEditor(tiptapContent, 'initial-load-prop');
+          if (applied) {
+            initialLoadDoneRef.current = true;
+            notifyHydratedScript(tiptapContent);
+          }
+        }
+      } catch (error) {
+        console.error("ScriptEditor: Failed to fetch from API:", error);
+      } finally {
+        if (forceHydration) {
+          isSwitchingScriptRef.current = false;
         }
       }
     };
@@ -569,11 +613,12 @@ export default function ScriptEditor({
     if (editor && !initialLoadDoneRef.current) {
       loadBlocks();
     }
-  }, [sessionId, scriptResourceId, editor, hasUnsavedChanges]);
+  }, [sessionId, scriptResourceId, editor, hasUnsavedChanges, notifyHydratedScript]);
   
   // Reset state when script tab changes
   // CRITICAL: Reset all tracking refs to prevent stale state from affecting new session
   useEffect(() => {
+    isSwitchingScriptRef.current = true;
     initialLoadDoneRef.current = false;
     lastLoadedContentRef.current = '';
     prevScriptBlocksRef.current = '';
@@ -583,6 +628,10 @@ export default function ScriptEditor({
     lastUserInputTimeRef.current = 0;
     hasLocalEditsRef.current = false; // Clear local edits on session change
     isRestoringVersionRef.current = false; // Clear restore flag on session change
+    if (autosaveTimerRef.current) {
+      clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
     
     // Clear the editor content for new sessions
     if (editor && !sessionId) {
@@ -886,6 +935,9 @@ export default function ScriptEditor({
   // CRITICAL: This marks user input as the source of truth
   // CRITICAL: Autosave NEVER calls setContent - only reads current content and sends to backend
   const handleContentChange = useCallback(() => {
+    if (isSwitchingScriptRef.current) {
+      return;
+    }
     if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current || generatingScript || autosavePausedRef.current) {
       return;
     }
@@ -1255,20 +1307,6 @@ export default function ScriptEditor({
                 <Button
                   onClick={() => {
                     if (onNewScript) {
-                      // Clear editor immediately before calling onNewScript
-                      if (editor) {
-                        try {
-                          isUpdatingFromPropsRef.current = true;
-                          safeSetContent(DEFAULT_EMPTY_DOCUMENT as TiptapJSON, 'new-script-button');
-                          lastLoadedContentRef.current = JSON.stringify(DEFAULT_EMPTY_DOCUMENT);
-                          hasLocalEditsRef.current = false;
-                          setHasUnsavedChanges(false);
-                          isUpdatingFromPropsRef.current = false;
-                        } catch (error) {
-                          console.error('Failed to clear editor:', error);
-                          isUpdatingFromPropsRef.current = false;
-                        }
-                      }
                       onNewScript();
                     }
                   }}

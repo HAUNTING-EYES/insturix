@@ -25,7 +25,7 @@ interface StoryboardingModeProps {
   onGoToIdeation: () => void;
   onUpdateIdea?: (idea: IdeaCardData) => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
-  onNewScript?: () => void;
+  onScriptCreated?: (scriptId: string) => void;
   onSwitchScript?: (scriptId: string) => void;
 }
 
@@ -49,7 +49,7 @@ export default function StoryboardingMode({
   onGoToIdeation,
   onUpdateIdea,
   onSwitchSession,
-  onNewScript,
+  onScriptCreated,
   onSwitchScript
 }: StoryboardingModeProps) {
   const [chatWidth, setChatWidth] = useState(DEFAULT_WIDTH);
@@ -196,6 +196,7 @@ export default function StoryboardingMode({
                 sessionId={sessionId}
                 onOpenSettings={handleOpenSettings}
                 onSwitchSession={onSwitchSession}
+                onScriptCreated={onScriptCreated}
                 onTokenStream={handleTokenStream}
                 onGetSelection={handleGetSelection}
                 editingSelection={editingSelection}
@@ -243,7 +244,7 @@ export default function StoryboardingMode({
                 onUpdate={onUpdateScript}
                 onBack={onBack}
                 onImportScript={onImportScript}
-                onNewScript={onNewScript}
+                onScriptCreated={onScriptCreated}
                 onSwitchScript={onSwitchScript}
                 onEditSelection={handleEditSelection}
                 onModeChange={(mode) => setScriptPanelMode(mode === 'scripting' ? 'script' : 'whiteboard')}

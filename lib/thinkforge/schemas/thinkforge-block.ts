@@ -16,6 +16,7 @@ export interface ThinkForgeBlock {
   id: string;
   kind: ThinkForgeBlockKind;
   content: RichTextAST;
+  blockHash?: string;
   meta?: {
     role?: string;
     goal?: string;

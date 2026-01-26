@@ -4,6 +4,8 @@ import * as db from '@/lib/thinkforge/services/db';
 import { applyCommand } from '@/lib/thinkforge/services/command-service';
 import { generateScriptDraft } from '@/lib/thinkforge/agents/script-draft-agent';
 import type { SessionState } from '@/lib/thinkforge/state/types';
+import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
+import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -73,7 +75,7 @@ export async function POST(req: Request) {
     };
 
     // Generate edited script
-    const result = await generateScriptDraft(instruction, sessionState, existingScript);
+    const result = await retryOnceOnOverload(() => generateScriptDraft(instruction, sessionState, existingScript));
 
     // Save to database if sessionId provided
     if (sessionId && result) {
@@ -99,10 +101,8 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error('Error editing script:', error);
-    return NextResponse.json(
-      { error: 'Failed to edit script', details: error?.message },
-      { status: 500 }
-    );
+    const normalized = toThinkForgeErrorResponse(error);
+    return NextResponse.json(normalized.body, { status: normalized.status });
   }
 }
 

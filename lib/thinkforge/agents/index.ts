@@ -66,6 +66,12 @@ export {
   generateScriptDraft,
 } from './script-draft-agent';
 
+// Script Author Agent
+export {
+  ScriptAuthorAgent,
+  createScriptAuthorAgent,
+} from './script-author-agent';
+
 export {
   ScriptContractAgent,
   createScriptContractAgent,
