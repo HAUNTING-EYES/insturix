@@ -6,6 +6,18 @@ const isProtectedRoute = createRouteMatcher([
   '/admin(.*)',
 ]);
 
+// Resolve authorized parties from env or dynamic Vercel URLs
+const getAuthorizedParties = () => {
+  const envParties = process.env.NEXT_PUBLIC_AUTHORIZED_PARTIES?.split(',') || [];
+  
+  // In Vercel preview environments, add the VERCEL_URL to the list
+  if (process.env.VERCEL_URL) {
+    envParties.push(`https://${process.env.VERCEL_URL}`);
+  }
+  
+  return envParties.length > 0 ? envParties : undefined;
+};
+
 export default clerkMiddleware(async (auth, req) => {
   // Only protect routes that actually need authentication
   if (isProtectedRoute(req)) {
@@ -13,6 +25,7 @@ export default clerkMiddleware(async (auth, req) => {
   }
   // Public routes like /ics25, /, /products etc. skip auth checks entirely
 }, {
+  authorizedParties: getAuthorizedParties(),
   afterSignInUrl: "/dashboard",
   afterSignUpUrl: "/dashboard",
 });
