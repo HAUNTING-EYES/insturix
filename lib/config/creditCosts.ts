@@ -110,15 +110,70 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
   ],
 };
 
-/**
- * Subscription plan credit allocations (monthly)
- * These credits expire at the end of each billing cycle
- */
+// Subscription Plans (USD Only)
+export interface SubscriptionPlan {
+  id: string; // Internal ID (e.g. 'plus', 'pro')
+  name: string;
+  description: string;
+  credits: number;
+  price: number; // USD
+  currency: 'USD';
+  features: string[];
+  popular?: boolean;
+}
+
+export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'plus',
+    name: 'Plus',
+    description: 'Perfect for growing creators',
+    credits: 500,
+    price: 9.99,
+    currency: 'USD',
+    features: [
+      '500 Monthly Credits',
+      'Access to all tools',
+      'Priority support',
+      'Rollover up to 1000 credits'
+    ]
+  },
+  {
+    id: 'pro',
+    name: 'Pro',
+    description: 'For professional content creators',
+    credits: 2000,
+    price: 29.99,
+    currency: 'USD',
+    popular: true,
+    features: [
+      '2,000 Monthly Credits',
+      'Access to all tools',
+      'Faster processing',
+      'Rollover up to 5000 credits'
+    ]
+  },
+  {
+    id: 'premium',
+    name: 'Premium',
+    description: 'Ultimate creator experience',
+    credits: 5000,
+    price: 79.99,
+    currency: 'USD',
+    features: [
+      '5,000 Monthly Credits',
+      'Access to all tools',
+      'Highest priority',
+      'Unlimited rollover'
+    ]
+  }
+];
+
+// Legacy support helpers
 export const PLAN_CREDIT_ALLOCATIONS: Record<string, number> = {
   free: 50,
   plus: 500,
   pro: 2000,
-  premium: 5000,
+  premium: 5000
 };
 
 /**
@@ -134,35 +189,26 @@ export interface CreditPackage {
 export const CREDIT_PACKAGES: CreditPackage[] = [
   {
     id: 'topup_100',
-    name: '100 Credits',
+    name: 'Standard Pack',
     credits: 100,
     prices: {
       USD: 4.99,
-      INR: 399,
-      EUR: 4.49,
-      GBP: 3.99,
     },
   },
   {
     id: 'topup_500',
-    name: '500 Credits',
+    name: 'Value Pack',
     credits: 500,
     prices: {
       USD: 19.99,
-      INR: 1599,
-      EUR: 17.99,
-      GBP: 15.99,
     },
   },
   {
     id: 'topup_1000',
-    name: '1000 Credits',
+    name: 'Pro Pack',
     credits: 1000,
     prices: {
       USD: 34.99,
-      INR: 2799,
-      EUR: 31.99,
-      GBP: 27.99,
     },
   },
 ];

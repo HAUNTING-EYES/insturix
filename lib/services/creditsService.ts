@@ -195,6 +195,79 @@ export class CreditsService {
   }
 
   /**
+   * Add credits to user balance (Top-up or Subscription Grant)
+   */
+  static async addCredits(
+    clerkUserId: string,
+    amount: number,
+    type: 'topup' | 'subscription_grant' | 'adjustment' | 'refund' | 'bonus',
+    description?: string,
+    referenceId?: string
+  ): Promise<CreditsPurchaseResult> {
+    await connectToDatabase();
+
+    const user = await User.findOne({ clerkUserId });
+    if (!user) {
+        return { success: false, error: `User not found: ${clerkUserId}` };
+    }
+
+    if (!user.creditsBalance) {
+        user.creditsBalance = {
+            subscriptionCredits: 0,
+            topupCredits: 0,
+            lastSubscriptionGrant: null,
+            subscriptionCreditsExpiry: null,
+            creditHistory: [],
+        };
+    }
+
+    const balance = user.creditsBalance;
+    
+    // Determine where to add credits
+    if (type === 'subscription_grant') {
+        balance.subscriptionCredits = (balance.subscriptionCredits || 0) + amount;
+        balance.lastSubscriptionGrant = new Date();
+        // Set expiry to 30 days from now for subscription credits
+        const expiryDate = new Date();
+        expiryDate.setDate(expiryDate.getDate() + 30);
+        balance.subscriptionCreditsExpiry = expiryDate;
+    } else {
+        // Top-ups, bonuses, etc. go to topup bucket which doesn't expire
+        balance.topupCredits = (balance.topupCredits || 0) + amount;
+    }
+
+    // Create transaction
+    const transaction: ICreditTransaction = {
+        id: `txn_${nanoid(12)}`,
+        type: type,
+        amount: amount,
+        service: 'billing',
+        action: type,
+        timestamp: new Date(),
+        balanceAfter: balance.subscriptionCredits + balance.topupCredits,
+        metadata: {
+            description,
+            referenceId,
+        }
+    };
+
+    balance.creditHistory.push(transaction);
+    if (balance.creditHistory.length > MAX_CREDIT_HISTORY) {
+        balance.creditHistory = balance.creditHistory.slice(-MAX_CREDIT_HISTORY);
+    }
+
+    user.markModified('creditsBalance');
+    await user.save();
+
+    console.log(`[CreditsService] Added ${amount} credits to user ${clerkUserId} via ${type}`);
+
+    return {
+        success: true,
+        balance: user.creditsBalance
+    };
+  }
+
+  /**
    * Refund credits (e.g., when a task fails)
    */
   static async refundCredits(

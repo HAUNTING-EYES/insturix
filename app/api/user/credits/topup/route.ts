@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import Razorpay from "razorpay";
-import { CREDIT_PACKAGES } from "@/lib/config/creditCosts";
+import { CREDIT_PACKAGES, SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
 
 if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
   console.error("Razorpay credentials not configured for credits topup");
@@ -38,7 +38,8 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { packageId, currency = "USD" } = body;
+    const { packageId } = body;
+    const currency = "USD";
 
     if (!packageId) {
       return NextResponse.json(
@@ -47,34 +48,50 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Find the credit package
+    // Find the credit package or subscription plan
+    let selectedItem: { price: number; name: string; credits: number; id: string; type: 'package' | 'plan' } | null = null;
+
     const creditPackage = CREDIT_PACKAGES.find(p => p.id === packageId);
-    if (!creditPackage) {
-      return NextResponse.json(
-        { error: "Invalid package ID" },
-        { status: 400 }
-      );
+    
+    if (creditPackage) {
+      selectedItem = {
+        price: creditPackage.prices[currency],
+        name: creditPackage.name,
+        credits: creditPackage.credits,
+        id: creditPackage.id,
+        type: 'package',
+      };
+    } else {
+      // Check subscription plans
+      const plan = SUBSCRIPTION_PLANS.find(p => p.id === packageId);
+      if (plan) {
+        selectedItem = {
+          price: plan.price,
+          name: `${plan.name} Plan (1 Month)`,
+          credits: plan.credits,
+          id: plan.id,
+          type: 'plan',
+        };
+      }
     }
 
-    // Get price for the selected currency
-    const price = creditPackage.prices[currency];
-    if (!price) {
-      return NextResponse.json(
-        { error: `Currency ${currency} not supported for this package` },
+    if (!selectedItem) {
+       return NextResponse.json(
+        { error: "Invalid package or plan ID" },
         { status: 400 }
       );
     }
 
     // Create Razorpay order for one-time payment
     const order = await razorpay.orders.create({
-      amount: Math.round(price * 100), // Convert to smallest currency unit
+      amount: Math.round(selectedItem.price * 100), // Convert to smallest currency unit
       currency: currency,
       receipt: `cr_${userId.slice(-12)}_${Date.now().toString(36)}`,
       notes: {
         userId,
         packageId,
-        credits: creditPackage.credits.toString(),
-        type: "credits_topup",
+        credits: selectedItem.credits.toString(),
+        type: selectedItem.type === 'plan' ? 'subscription_plan' : 'credits_topup',
       },
     });
 
@@ -86,10 +103,10 @@ export async function POST(request: NextRequest) {
         currency: order.currency,
       },
       package: {
-        id: creditPackage.id,
-        name: creditPackage.name,
-        credits: creditPackage.credits,
-        price,
+        id: selectedItem.id,
+        name: selectedItem.name,
+        credits: selectedItem.credits,
+        price: selectedItem.price,
       },
       key: process.env.RAZORPAY_KEY_ID,
     });

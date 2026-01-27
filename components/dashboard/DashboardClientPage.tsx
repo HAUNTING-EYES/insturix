@@ -2,7 +2,7 @@
 
 import { lazy, Suspense, useState } from "react";
 import { CreditsCard } from "@/components/shared/CreditsCard";
-import { CreditsTopupModal } from "@/components/shared/CreditsTopupModal";
+import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 
 // Lazy load heavy components
 const Dashboard = lazy(() => import("@/components/dashboard/Dashboard"));
@@ -54,7 +54,7 @@ export default function DashboardClientPage() {
         />
       </div>
 
-      <CreditsTopupModal 
+      <BillingPaymentModal 
         isOpen={showTopup} 
         onClose={() => setShowTopup(false)} 
       />

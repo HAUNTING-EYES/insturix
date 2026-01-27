@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Upload, ArrowRight, Loader2 } from 'lucide-react';
 import { useVideoAnalysis } from '@/app/dashboard/alyzitron/hooks/useVideoAnalysis';
 import { CreditsErrorPopup } from '@/components/shared/CreditsErrorPopup';
-import { CreditsTopupModal } from '@/components/shared/CreditsTopupModal';
+import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 import { ContextSelector } from './ContextSelector';
 import { ContextValues } from '@/app/api/services/alyzitron/types';
 import { ImmersiveModal } from './ImmersiveModal';
@@ -513,7 +513,7 @@ export default function VideoUpload({ onSubmit, onComplete, activeAnalyses }: Vi
             available={creditsError.available}
             serviceName="video analysis"
           />
-          <CreditsTopupModal 
+          <BillingPaymentModal 
             isOpen={showTopup} 
             onClose={() => setShowTopup(false)} 
           />

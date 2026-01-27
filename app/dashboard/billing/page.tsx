@@ -1,16 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useCredits, CreditTransaction } from "@/hooks/useCredits";
-import { CreditsTopupModal } from "@/components/shared/CreditsTopupModal";
-import { CreditCard, Coins, ArrowUpRight, ArrowDownRight, RefreshCw, Gift, Clock, ExternalLink } from "lucide-react";
+import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
+import { Coins, ArrowUpRight, ArrowDownRight, RefreshCw, Gift, Clock, Crown, Calendar, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
+interface CurrentPlan {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
+  price: number;
+  currency: string;
+  status: string;
+}
+
 const transactionIcons = {
   subscription_grant: Gift,
-  topup: Coins,
+  topup: ArrowUpRight,
   usage: ArrowDownRight,
   refund: RefreshCw,
   expiry: Clock,
@@ -29,6 +40,34 @@ const transactionLabels = {
 export default function BillingPage() {
   const { balance, transactions, isLoading, error, invalidateCredits } = useCredits();
   const [showTopupModal, setShowTopupModal] = useState(false);
+  const [currentPlan, setCurrentPlan] = useState<CurrentPlan | null>(null);
+  const [planLoading, setPlanLoading] = useState(true);
+  const searchParams = useSearchParams();
+  const upgradePlanId = searchParams.get('upgrade');
+
+  useEffect(() => {
+    if (upgradePlanId) {
+      setShowTopupModal(true);
+    }
+  }, [upgradePlanId]);
+
+  // Fetch current plan
+  useEffect(() => {
+    async function fetchPlan() {
+      try {
+        const res = await fetch('/api/user/plans');
+        const data = await res.json();
+        if (data.currentPlan) {
+          setCurrentPlan(data.currentPlan);
+        }
+      } catch (err) {
+        console.error('Failed to fetch plan:', err);
+      } finally {
+        setPlanLoading(false);
+      }
+    }
+    fetchPlan();
+  }, []);
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -38,6 +77,17 @@ export default function BillingPage() {
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+    });
+  };
+
+  const formatPlanDate = (dateStr: string | null | undefined) => {
+    if (!dateStr) return 'Lifetime';
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'Lifetime';
+    return date.toLocaleDateString('en-US', { 
+      month: 'long', 
+      day: 'numeric', 
+      year: 'numeric',
     });
   };
 
@@ -51,7 +101,7 @@ export default function BillingPage() {
     return `${daysLeft} days remaining`;
   };
 
-  if (isLoading) {
+  if (isLoading || planLoading) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
         <div className="animate-pulse space-y-6">
@@ -81,6 +131,7 @@ export default function BillingPage() {
   }
 
   const expiryText = formatExpiry(balance.subscriptionCreditsExpiry);
+  const planExpiryText = currentPlan?.endDate ? formatExpiry(currentPlan.endDate) : null;
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-8">
@@ -88,16 +139,93 @@ export default function BillingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Billing & Credits</h1>
-          <p className="text-muted-foreground text-sm mt-1">Manage your credits and subscription</p>
+          <p className="text-muted-foreground text-sm mt-1">Manage your subscription and credits</p>
         </div>
         <Link 
           href="/upgrade"
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-border bg-card hover:bg-muted transition text-sm font-medium"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 transition text-xs font-bold uppercase tracking-wider"
         >
-          Manage Plan
-          <ExternalLink className="w-4 h-4" />
+          {currentPlan ? 'Upgrade Plan' : 'Get Started'}
+          <ArrowUpRight className="w-3 h-3" />
         </Link>
       </div>
+
+      {/* Current Plan Card */}
+      <motion.div 
+        className="rounded-xl border border-border bg-card overflow-hidden"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+      >
+        <div className="p-6">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Current Plan</p>
+              <p className="text-3xl font-black text-white mt-1">
+                {currentPlan?.name && currentPlan.name.toLowerCase() !== 'free' ? currentPlan.name : 'Insturix Free'}
+              </p>
+              {(currentPlan?.status === 'active' || !currentPlan) && (
+                <p className="text-sm text-green-500 mt-1 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                  Active
+                </p>
+              )}
+            </div>
+            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+              <Crown className="w-5 h-5 text-amber-400" />
+            </div>
+          </div>
+
+          {currentPlan ? (
+            <div className="mt-6 grid grid-cols-2 gap-4">
+              <div className="p-4 rounded-lg bg-muted/50">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium flex items-center gap-1">
+                  <Calendar className="w-3 h-3" /> Started
+                </p>
+                <p className="text-sm font-medium mt-1">{formatPlanDate(currentPlan.startDate)}</p>
+              </div>
+              <div className="p-4 rounded-lg bg-muted/50">
+                <p className="text-xs text-muted-foreground uppercase tracking-wide font-medium flex items-center gap-1">
+                  <Clock className="w-3 h-3" /> {currentPlan.endDate ? 'Renews' : 'Status'}
+                </p>
+                <p className="text-sm font-medium mt-1">
+                  {currentPlan.endDate ? formatPlanDate(currentPlan.endDate) : 'Never Expires'}
+                </p>
+                {planExpiryText && (
+                  <p className="text-xs text-muted-foreground">{planExpiryText}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="mt-4 p-4 rounded-lg bg-muted/30 border border-white/5">
+              <p className="text-sm text-muted-foreground">
+                You&apos;re on the Free plan. Upgrade to get monthly credits and unlock premium features.
+              </p>
+            </div>
+          )}
+
+          {/* Plan Actions */}
+          <div className="mt-6 flex gap-3">
+            <Link
+              href="/upgrade"
+              className="flex-1 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition text-center"
+            >
+              {currentPlan ? 'Change Plan' : 'Subscribe Now'}
+            </Link>
+            {currentPlan && currentPlan.status === 'active' && (
+              <button
+                onClick={() => {
+                  // TODO: Implement cancel subscription flow via Razorpay
+                  alert('Please contact support@insturix.com to cancel your subscription.');
+                }}
+                className="px-4 py-3 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 transition flex items-center gap-2 text-sm font-medium"
+              >
+                <XCircle className="w-4 h-4" />
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+      </motion.div>
 
       {/* Credit Balance Card */}
       <motion.div 
@@ -108,13 +236,13 @@ export default function BillingPage() {
         <div className="p-6">
           <div className="flex items-start justify-between">
             <div>
-              <p className="text-sm text-muted-foreground font-medium">Total Credits</p>
-              <p className="text-4xl font-bold tabular-nums mt-1">
+              <p className="text-[10px] font-bold text-white/40 uppercase tracking-widest">Available Balance</p>
+              <p className="text-5xl font-black text-white tabular-nums mt-1">
                 {balance.totalCredits.toLocaleString()}
               </p>
             </div>
-            <div className="p-3 rounded-xl bg-primary/10">
-              <Coins className="w-6 h-6 text-primary" />
+            <div className="p-3 rounded-xl bg-white/5 border border-white/10">
+              <RefreshCw className="w-5 h-5 text-white/40" />
             </div>
           </div>
 
@@ -158,10 +286,12 @@ export default function BillingPage() {
         </div>
 
         {transactions.length === 0 ? (
-          <div className="p-8 text-center text-muted-foreground">
-            <Coins className="w-10 h-10 mx-auto mb-3 opacity-50" />
-            <p>No transactions yet</p>
-            <p className="text-sm mt-1">Your credit activity will appear here</p>
+          <div className="p-12 text-center text-white/20">
+            <div className="w-12 h-12 rounded-full border border-white/5 bg-white/[0.02] flex items-center justify-center mx-auto mb-4">
+              <Clock className="w-5 h-5 opacity-50" />
+            </div>
+            <p className="text-sm font-medium">No transactions yet</p>
+            <p className="text-xs mt-1">Activity from your purchases and usage will appear here</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -207,9 +337,25 @@ export default function BillingPage() {
       </motion.div>
 
       {/* Top-up Modal */}
-      <CreditsTopupModal 
+      <BillingPaymentModal 
         isOpen={showTopupModal} 
-        onClose={() => setShowTopupModal(false)} 
+        onClose={() => {
+          setShowTopupModal(false);
+          // Clear URL param when closing
+          if (upgradePlanId) {
+            window.history.replaceState({}, '', '/dashboard/billing');
+          }
+        }}
+        initialPackageId={upgradePlanId}
+        onSuccess={() => {
+          invalidateCredits();
+          // Refetch plan after successful subscription
+          fetch('/api/user/plans')
+            .then(res => res.json())
+            .then(data => {
+              if (data.currentPlan) setCurrentPlan(data.currentPlan);
+            });
+        }}
       />
     </div>
   );

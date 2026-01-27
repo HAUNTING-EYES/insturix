@@ -5,7 +5,8 @@
  * Use `invalidateCredits()` to trigger refresh after any credits-changing action.
  */
 
-import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '@clerk/nextjs';
 
 // Query key for credits - used to invalidate from anywhere
 export const CREDITS_QUERY_KEY = ['user', 'credits'];
@@ -47,14 +48,16 @@ async function fetchCredits(): Promise<CreditsData> {
 }
 
 export function useCredits() {
+  const { userId } = useAuth();
   const queryClient = useQueryClient();
   
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: CREDITS_QUERY_KEY,
     queryFn: fetchCredits,
-    staleTime: 30 * 1000, // Consider fresh for 30 seconds
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes
-    refetchOnWindowFocus: true, // Refresh when user returns to tab
+    enabled: !!userId, // Only fetch if user is signed in
+    staleTime: 30 * 1000, 
+    gcTime: 5 * 60 * 1000, 
+    refetchOnWindowFocus: true, 
   });
 
   // Function to invalidate and refetch credits from anywhere

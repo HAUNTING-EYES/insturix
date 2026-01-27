@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, Check, Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import { X, Check, Loader2, AlertCircle, CheckCircle2, Globe, Sparkles, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCredits } from "@/hooks/useCredits";
 import { useToast } from "@/hooks/use-toast";
@@ -14,18 +14,27 @@ interface CreditPackage {
   prices: Record<string, number>;
 }
 
+// Add Plan type definition locally or import if possible, but for modal we can unify
+import { SUBSCRIPTION_PLANS, SubscriptionPlan } from "@/lib/config/creditCosts";
+
 interface TopupModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  initialPackageId?: string | null;
 }
 
-export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProps) {
+export function BillingPaymentModal({ isOpen, onClose, onSuccess, initialPackageId }: TopupModalProps) {
   const [packages, setPackages] = useState<CreditPackage[]>([]);
-  const [selectedPackage, setSelectedPackage] = useState<string | null>(null);
+  // We'll treat subscription plans as a separate state or just find it from config
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  
+  // Combine logic: check if ID is a plan first, else check packages
+  const isSubscription = initialPackageId && SUBSCRIPTION_PLANS.some(p => p.id === initialPackageId);
+  const [selectedPackage, setSelectedPackage] = useState<string | null>(initialPackageId || null);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
-  const [currency, setCurrency] = useState('USD');
+  const [currency] = useState('USD');
   const [error, setError] = useState<string | null>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
   
@@ -77,8 +86,15 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
       const data = await res.json();
       if (data.success) {
         setPackages(data.packages);
-        if (data.packages.length > 0) {
+        
+        // If it's a subscription, we don't need to auto-select a credit package unless we want to switch
+        if (initialPackageId && SUBSCRIPTION_PLANS.some(p => p.id === initialPackageId)) {
+             // It's a plan, do nothing for packages selection yet
+             setSelectedPackage(initialPackageId);
+        } else if (!selectedPackage && data.packages.length > 0) {
           setSelectedPackage(data.packages[1]?.id || data.packages[0]?.id);
+        } else if (initialPackageId) {
+          setSelectedPackage(initialPackageId);
         }
       } else {
         throw new Error(data.error || 'Failed to load packages');
@@ -109,42 +125,62 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
     setPurchasing(true);
 
     try {
-      const res = await fetch('/api/user/credits/topup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ packageId: selectedPackage, currency }),
-      });
+      const isPlan = SUBSCRIPTION_PLANS.some(p => p.id === selectedPackage);
       
-      const data = await res.json();
+      let res, data;
       
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Failed to create payment order');
+      if (isPlan) {
+        // Handle native subscription
+        res = await fetch('/api/create-subscription', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            planType: selectedPackage, 
+            currency: 'USD', 
+            billingCycle: 'monthly' 
+          }),
+        });
+      } else {
+        // Handle common top-up
+        res = await fetch('/api/user/credits/topup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ packageId: selectedPackage, currency }),
+        });
       }
       
-      if (data.order) {
-        const selectedPkg = packages.find(p => p.id === selectedPackage);
+      data = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to initiate payment');
+      }
+      
+      if (data.order || data.subscriptionId) {
+        const selectedPkg = packages.find(p => p.id === selectedPackage) || SUBSCRIPTION_PLANS.find(p => p.id === selectedPackage);
         
         // Initialize Razorpay checkout with full options
-        const options = {
-          key: data.key,
-          amount: data.order.amount,
-          currency: data.order.currency,
-          name: 'Insturix Credits',
-          description: data.package.name,
-          order_id: data.order.id,
+        const options: any = {
+          key: data.razorpayKey || data.key,
+          name: isPlan ? `Insturix ${selectedPkg?.name} Plan` : 'Insturix Credits',
+          description: isPlan ? `Monthly Subscription` : selectedPkg?.name,
+          prefill: {},
+          theme: { color: '#18181b' },
           handler: async function (response: any) {
-            // Payment successful - now verify and add credits
+            // Payment successful - now verify
             console.log('Payment successful, verifying:', response);
             
             try {
-              // Call verify endpoint to add credits directly
-              const verifyRes = await fetch('/api/user/credits/verify', {
+              const verifyUrl = isPlan ? '/api/user/plans/verify' : '/api/user/credits/verify';
+              
+              // Call verify endpoint
+              const verifyRes = await fetch(verifyUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   razorpay_order_id: response.razorpay_order_id,
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
+                  razorpay_subscription_id: response.razorpay_subscription_id,
                   packageId: selectedPackage,
                 }),
               });
@@ -189,13 +225,8 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
               onClose();
             }
           },
-          prefill: {},
-          theme: {
-            color: '#18181b',
-          },
           modal: {
             ondismiss: function() {
-              // User closed the payment modal
               setPurchasing(false);
               toast({
                 title: "Payment Cancelled",
@@ -207,6 +238,14 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
             escape: true,
           },
         };
+
+        if (data.subscriptionId) {
+          options.subscription_id = data.subscriptionId;
+        } else if (data.order) {
+          options.order_id = data.order.id;
+          options.amount = data.order.amount;
+          options.currency = data.order.currency;
+        }
 
         // Add payment failure handler
         const rzp = new (window as any).Razorpay(options);
@@ -265,20 +304,59 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
           exit={{ scale: 0.95, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
-          <div className="p-5 border-b border-border flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold">Add Credits</h2>
-              <p className="text-sm text-muted-foreground">Credits never expire</p>
+          {/* Modal Header */}
+          <div className="flex items-center gap-4 px-5 pt-8 pb-4">
+            <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-amber-500/80" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-xl font-bold text-white tracking-tight">
+                {isSubscription ? 'Upgrade Plan' : 'Refuel Account'}
+              </h2>
+              <p className="text-[10px] text-white/20 font-bold uppercase tracking-widest mt-0.5">
+                {isSubscription ? 'Monthly Benefits • Higher Priority' : 'Instant Activation • No Expiry'}
+              </p>
             </div>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-muted transition-colors"
+              className="p-2 rounded-lg hover:bg-white/5 transition-colors"
               disabled={purchasing}
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4 text-white/20" />
             </button>
           </div>
+
+          {/* Plan Info for Subscriptions */}
+          {isSubscription && !loading && (
+            <div className="px-5 py-4">
+              {(() => {
+                const plan = SUBSCRIPTION_PLANS.find(p => p.id === selectedPackage);
+                if (!plan) return null;
+                return (
+                  <div className="p-4 rounded-xl bg-amber-500/5 border border-amber-500/10 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-bold text-white text-lg">{plan.name} Plan</h3>
+                        <p className="text-sm text-white/60">{plan.credits.toLocaleString()} credits / month</p>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xl font-black text-amber-500">${plan.price}</div>
+                        <div className="text-[10px] text-white/20 font-bold uppercase tracking-wider">USD / MO</div>
+                      </div>
+                    </div>
+                    <div className="space-y-2 pt-2 border-t border-white/5">
+                      {plan.features.slice(0, 3).map((feature, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs text-white/40">
+                          <CheckCircle2 className="w-3 h-3 text-amber-500/50" />
+                          {feature}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
 
           {/* Error Banner */}
           <AnimatePresence>
@@ -297,28 +375,17 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
             )}
           </AnimatePresence>
 
-          {/* Currency selector */}
-          <div className="px-5 pt-4 flex gap-2">
-            {['USD', 'INR', 'EUR', 'GBP'].map((curr) => (
-              <button
-                key={curr}
-                onClick={() => setCurrency(curr)}
-                disabled={purchasing}
-                className={cn(
-                  "px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
-                  currency === curr
-                    ? "bg-foreground text-background"
-                    : "bg-muted hover:bg-muted/80 text-muted-foreground",
-                  purchasing && "opacity-50 cursor-not-allowed"
-                )}
-              >
-                {curr}
-              </button>
-            ))}
+          {/* Checkout Info */}
+          <div className="px-5 pt-4">
+            <div className="flex items-center gap-2 text-[10px] font-bold text-white/20 uppercase tracking-[0.15em]">
+              <Globe className="w-3 h-3" />
+              Secure Checkout • USD
+            </div>
           </div>
 
-          {/* Packages */}
-          <div className="p-5 space-y-3">
+          {/* Packages - Only show if not a direct subscription upgrade or if we want to allow switching */}
+          {!isSubscription && (
+            <div className="p-5 space-y-3">
             {loading ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
@@ -361,6 +428,7 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
               ))
             )}
           </div>
+          )}
 
           {/* Purchase button */}
           <div className="p-5 pt-0">
@@ -368,17 +436,18 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
               onClick={handlePurchase}
               disabled={!selectedPackage || purchasing || !scriptLoaded}
               className={cn(
-                "w-full py-3 rounded-lg font-medium transition-colors",
-                "bg-foreground text-background",
-                "hover:bg-foreground/90",
+                "w-full py-4 rounded-xl font-bold transition-all duration-300",
+                isSubscription 
+                  ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
+                  : "bg-white text-black hover:bg-white/90 shadow-xl",
                 "disabled:opacity-50 disabled:cursor-not-allowed",
-                "flex items-center justify-center gap-2"
+                "flex items-center justify-center gap-2 text-base"
               )}
             >
               {!scriptLoaded ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading...
+                  Initialising...
                 </>
               ) : purchasing ? (
                 <>
@@ -386,13 +455,13 @@ export function CreditsTopupModal({ isOpen, onClose, onSuccess }: TopupModalProp
                   Processing...
                 </>
               ) : (
-                'Purchase Credits'
+                isSubscription ? 'Activate Plan' : 'Purchase Credits'
               )}
             </button>
             
             {/* Security note */}
-            <p className="text-xs text-muted-foreground text-center mt-3">
-              Payments are processed securely by Razorpay
+            <p className="text-[10px] text-white/20 text-center mt-4 font-medium uppercase tracking-widest">
+              Secure Global Payments via Razorpay
             </p>
           </div>
         </motion.div>

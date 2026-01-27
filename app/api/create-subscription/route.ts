@@ -27,9 +27,30 @@ export async function POST(request: NextRequest) {
     }
 
     // Get the specific Razorpay Plan ID for the selected currency and cycle
-    const razorpayPlanId = dbPlan.pricing[currency]?.[billingCycle]?.paymentProvider?.provider === 'razorpay' ? dbPlan.pricing[currency]?.[billingCycle]?.paymentProvider?.planId : undefined;
+    const planObj = dbPlan.toObject();
+    const currencyPricing = planObj.pricing?.[currency];
+    const pricing = currencyPricing?.[billingCycle];
+    
+    console.log(`[Subscription] Debugging pricing for ${planType} ${currency} ${billingCycle}:`, {
+      hasCurrencyPricing: !!currencyPricing,
+      hasPricing: !!pricing,
+      providerPlanIds: pricing?.providerPlanIds
+    });
+
+    let razorpayPlanId = null;
+    if (pricing?.providerPlanIds) {
+      if (pricing.providerPlanIds instanceof Map) {
+        razorpayPlanId = pricing.providerPlanIds.get('razorpay');
+      } else {
+        razorpayPlanId = pricing.providerPlanIds.razorpay;
+      }
+    }
+
     if (!razorpayPlanId) {
-      return NextResponse.json({ error: `Razorpay plan ID not found for ${planType} ${currency} ${billingCycle}` }, { status: 400 });
+      return NextResponse.json({ 
+        error: `Razorpay plan ID not found for ${planType} ${currency} ${billingCycle}. Please re-seed plans.`,
+        debug: { pricing }
+      }, { status: 400 });
     }
 
     const subscription = await razorpay.subscriptions.create({

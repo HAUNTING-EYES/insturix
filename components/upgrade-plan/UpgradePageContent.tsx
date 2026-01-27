@@ -1,586 +1,288 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, CheckCircle, Crown, Coins, Globe } from "lucide-react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-// import { useUser } from "@clerk/nextjs"; // Removed useUser
-import { Button } from "@/components/ui/button";
+import { motion } from "framer-motion";
+import { CheckCircle, Coins, Globe } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { StepIndicator } from "@/components/upgrade-plan/StepIndicator";
-import { PlanSelection } from "@/components/upgrade-plan/PaymentSelection";
-import { PaymentForm } from "@/components/upgrade-plan/PaymentForm";
-import { useCurrency } from "@/lib/CurrencyContext";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { UserType } from "@/types/userTypes";
-import { useToast } from "@/hooks/use-toast";
-import { PLAN_THEME, getGradientClass } from "@/lib/themeConfig";
-import { CurrencySelector } from "../CurrencySelector";
-import { CreditsTopupModal } from "@/components/shared/CreditsTopupModal";
-// import { usePlansFromDB } from "@/lib/hooks/usePlansFromDB"; // Removed usePlansFromDB
-
-type PlanFeature = {
-  id: string
-  name: string
-  included: boolean
-  highlight?: boolean
-}
-
-export type Plan = {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  features: PlanFeature[];
-  popularPlan?: boolean;
-  savings?: number;
-  color?: string;
-  gradient?: string;
-  userType: UserType;
-  billingPeriod: "monthly" | "yearly";
-  paymentProvider?: { provider: string; planId: string; };
-};
-
-
-import { Plan as ClientPlan } from "@/lib/data/plans";
-
-import { PlansResponse } from "@/schemas/plans"; // Import PlansResponse
+import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
+import { CREDIT_PACKAGES, CreditPackage, SUBSCRIPTION_PLANS, SubscriptionPlan } from "@/lib/config/creditCosts";
+import { useUser, SignInButton } from "@clerk/nextjs";
 
 export interface UpgradePageContentProps {
   mode?: "popup" | "page";
-  onComplete?: (selectedPlan: Plan) => void;
-  onCancel?: () => void;
-  initialPlan?: string;
-  showNavigation?: boolean;
-  isDevelopment: boolean;
-  currentUserPlan: UserType | null; // Add currentUserPlan prop
-  currentPlanData: { endDate: Date | null; startDate: Date; status: string; } | null; // Add currentPlanData prop
-  plans: PlansResponse["plans"]; // Add plans prop
-  success: PlansResponse["success"]; // Add success prop
 }
 
 export function UpgradePageContent({
-  mode = "page",
-  onComplete,
-  onCancel,
-  initialPlan,
-  showNavigation = true,
-  isDevelopment,
-  currentUserPlan: initialUserPlan, // Destructure new props
-  currentPlanData: initialPlanData, // Destructure new props
-  plans: serverPlans, // Rename plans to serverPlans to match existing logic
-  success: plansSuccess, // Rename success to plansSuccess
+  mode = "page"
 }: UpgradePageContentProps) {
   const router = useRouter();
-  // const { user } = useUser(); // Removed useUser
-  const { selectedCurrency } = useCurrency();
-  // const { plans: serverPlans, isLoading: plansLoading, isError: plansError } = usePlansFromDB(); // Removed usePlansFromDB
-  const { toast } = useToast();
-  
-  const [currentStep, setCurrentStep] = useState(1);
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null);
-  const [animationDirection, setAnimationDirection] = useState<"forward" | "backward">("forward");
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [currentUserPlan] = useState<UserType | null>(initialUserPlan); // Initialize with prop
-  const [currentPlanData] = useState<{ // Initialize with prop
-    endDate: Date | null;
-    startDate: Date;
-    status: string;
-  } | null>(initialPlanData);
-  // Determine authentication from server-provided prop: null means not signed in
-  const isAuthenticated = currentUserPlan !== null;
-  const [billingCycle, setBillingCycle] = useState<"monthly" | "yearly">("monthly");
-  const [dynamicPlans, setDynamicPlans] = useState(serverPlans);
-  const [plansLoading, setPlansLoading] = useState(false);
+  const { isSignedIn } = useUser();
   const [showTopupModal, setShowTopupModal] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<CreditPackage | null>(null);
+  const [viewMode, setViewMode] = useState<'plans' | 'credits'>('plans');
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'yearly'>('monthly');
 
-  // Only INR supports subscriptions, other currencies get credits only
-  const isINR = selectedCurrency === 'INR';
+  // Need to fetch plans from API since we're using dynamic DB-seeded plans now
+  const [plans, setPlans] = useState<any[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
 
-  // Track if we need to refetch due to currency change from server-rendered value
-  const [initialCurrency] = useState(() => {
-    // Server plans were fetched with the currency from cookies/headers
-    // If user changes currency client-side, we need to refetch
-    return serverPlans?.[0]?.pricing?.monthly?.currency || 'USD';
-  });
-
-  // Fetch plans client-side when currency changes OR if no server plans
-  useEffect(() => {
-    const fetchPlansForCurrency = async () => {
-      // Refetch if: no server plans, OR currency changed from server-rendered value
-      const needsRefetch = !serverPlans || serverPlans.length === 0 || selectedCurrency !== initialCurrency;
-      
-      if (!needsRefetch) {
-        setDynamicPlans(serverPlans);
-        return;
-      }
-
-      setPlansLoading(true);
+  React.useEffect(() => {
+    async function fetchPlans() {
       try {
-        const response = await fetch(`/api/plans?currency=${selectedCurrency}`, { cache: "no-store" });
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('[UpgradePageContent] fetch error:', response.status, errorText);
-          return;
-        }
-        const data = await response.json();
-        setDynamicPlans(data.plans);
-      } catch (error) {
-        console.error('[UpgradePageContent] fetch error:', error);
+        const res = await fetch('/api/user/plans');
+        const data = await res.json();
+        if (data.plans) setPlans(data.plans);
+      } catch (e) {
+        console.error("Failed to fetch plans", e);
       } finally {
-        setPlansLoading(false);
-      }
-    };
-
-    fetchPlansForCurrency();
-  }, [serverPlans, selectedCurrency, initialCurrency]);
-
-
-  const convertedPlans: Plan[] = useMemo(() => {
-    if (!dynamicPlans) return [];
-
-    const plansArray = dynamicPlans.map((clientPlan: ClientPlan): Plan => {
-      const cyclePricing = billingCycle === "monthly" ? clientPlan.pricing.monthly : clientPlan.pricing.yearly;
-      const monthlyPrice = clientPlan.pricing.monthly.amount;
-      const yearlyPrice = clientPlan.pricing.yearly.amount;
-
-      const basePrice = cyclePricing.amount;
-      
-      const planId = cyclePricing.paymentProvider?.planId || '';
-      const provider = cyclePricing.paymentProvider?.provider || '';
-      
-      const features : PlanFeature[] = (() => {
-        switch (clientPlan.type) {
-          case "free":
-            return [
-              { id: "feature-1", name: "Basic AI tools access", included: true },
-              { id: "feature-2", name: "Community support", included: true },
-              { id: "feature-3", name: "Monthly usage limits", included: true },
-              { id: "feature-4", name: "Standard processing speed", included: true },
-            ];
-          case "plus":
-            return [
-              { id: "feature-1", name: "Enhanced AI capabilities", included: true, highlight: true },
-              { id: "feature-2", name: "Increased usage quotas", included: true, highlight: true },
-              { id: "feature-3", name: "Email support", included: true },
-              { id: "feature-4", name: "Standard processing speed", included: true },
-              { id: "feature-5", name: "Export & sharing options", included: true },
-            ];
-          case "pro":
-            return [
-              { id: "feature-1", name: "Advanced AI features", included: true, highlight: true },
-              { id: "feature-2", name: "High usage limits", included: true, highlight: true },
-              { id: "feature-3", name: "Priority support", included: true, highlight: true },
-              { id: "feature-4", name: "Faster processing", included: true },
-              { id: "feature-5", name: "Early access to beta tools", included: true, highlight: true },
-              { id: "feature-6", name: "Creator community access", included: true, highlight: true },
-            ];
-          case "premium":
-            return [
-              { id: "feature-1", name: "Unlimited AI access", included: true, highlight: true },
-              { id: "feature-2", name: "Premium processing speed", included: true, highlight: true },
-              { id: "feature-3", name: "24/7 priority support", included: true, highlight: true },
-              { id: "feature-4", name: "Dedicated success manager", included: true, highlight: true },
-              { id: "feature-5", name: "Exclusive creator events", included: true, highlight: true },
-              { id: "feature-6", name: "All beta features included", included: true },
-            ];
-          default:
-            return [
-              { id: "feature-1", name: "Core functionality", included: true },
-              { id: "feature-2", name: "Priority support", included: true, highlight: clientPlan.type === "plus" || clientPlan.type === "pro" },
-              { id: "feature-3", name: "Advanced features", included: clientPlan.type === "pro" || clientPlan.type === "premium" },
-            ];
-        }
-      })();
-
-      const convertedPlan = {
-        id: clientPlan.type,
-        name: clientPlan.name || '',
-        description: clientPlan.description || '',
-        price: Number(basePrice) || 0,
-        billingPeriod: billingCycle,
-        features: features,
-        popularPlan: clientPlan.type === "plus",
-        color: PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors] || 'gray',
-        gradient: `from-${(PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors] || 'gray')}-500 to-${(PLAN_THEME.planColors[clientPlan.type as keyof typeof PLAN_THEME.planColors] || 'gray')}-600`,
-        userType: clientPlan.type as UserType,
-        savings: billingCycle === "yearly" ? (monthlyPrice * 12) - yearlyPrice : undefined,
-        paymentProvider: provider ? { provider, planId } : undefined,
-      };
-
-      try {
-        const singleStr = JSON.stringify(convertedPlan);
-        console.log('[DEBUG] Converted single plan', clientPlan.type, 'serializes OK');
-      } catch (err) {
-        console.error('[DEBUG] Cannot serialize converted plan', clientPlan.type, ':', err);
-      }
-
-      return convertedPlan;
-    });
-
-    try {
-      const allStr = JSON.stringify(plansArray);
-      console.log('[DEBUG] Full convertedPlans array serializes OK');
-    } catch (err) {
-      console.error('[DEBUG] Cannot serialize full convertedPlans:', err);
-    }
-
-    console.log('[DEBUG] Completed convertedPlans computation');
-
-    return plansArray;
-  }, [dynamicPlans, billingCycle]);
-
-  // Removed useEffect for fetching user plan
-  // useEffect(() => {
-  //   const fetchUserPlan = async () => {
-  //     if (!user) {
-  //       setCurrentUserPlan(null); // Set to null if no user is logged in
-  //       setIsLoading(false);
-  //       return;
-  //     }
-
-  //     try {
-  //       const response = await fetch('/api/user/plans');
-  //       if (response.ok) {
-  //         const data = await response.json();
-  //         setCurrentUserPlan(data.userType || UserType.Free);
-          
-  //         if (data.currentPlan) {
-  //           setCurrentPlanData({
-  //             endDate: data.currentPlan.endDate ? new Date(data.currentPlan.endDate) : null,
-  //             startDate: new Date(data.currentPlan.startDate),
-  //             status: data.currentPlan.status
-  //           });
-  //         }
-  //       }
-  //     } catch (error) {
-  //       console.error('Error fetching user plan:', error);
-  //     } finally {
-  //       setIsLoading(false);
-  //     }
-  //   };
-
-  //   fetchUserPlan();
-  // }, [user, selectedCurrency]); // Added selectedCurrency to re-fetch user plan if currency changes
-
-  // Keep this useEffect for initialPlan and convertedPlans
-  // This useEffect should still run on the client to set the initial selected plan based on searchParams
-  useEffect(() => {
-    if (initialPlan && convertedPlans.length > 0) {
-      const plan = convertedPlans.find(p => p.id === initialPlan || p.name.toLowerCase() === initialPlan.toLowerCase());
-      if (plan) {
-        setSelectedPlan(plan);
+        setLoadingPlans(false);
       }
     }
-  }, [initialPlan, convertedPlans]);
+    fetchPlans();
+  }, []);
 
-  useEffect(() => {
-    // Debug: log incoming SSR props for current user plan
-    console.log('[UpgradePageContent] debug props:', { initialUserPlan, initialPlanData });
-  }, [initialUserPlan, initialPlanData]);
-
-  // Keep this useEffect for selectedPlan
-  useEffect(() => {
-    if (selectedPlan) {
-      const updatedPlan = convertedPlans.find(p => p.id === selectedPlan.id);
-      if (updatedPlan) {
-        setSelectedPlan(updatedPlan);
-      }
-    }
-  }, [convertedPlans, selectedPlan]);
-
-  const handlePlanSelect = (plan: Plan) => {
-    setSelectedPlan(plan);
+  const handleSelectPackage = (pkg: CreditPackage) => {
+    if (!isSignedIn) return;
+    setSelectedPackage(pkg);
+    setShowTopupModal(true);
   };
-
-  const handleBillingCycleChange = (cycle: "monthly" | "yearly") => {
-    setBillingCycle(cycle);
+  
+  const handleSelectPlan = (planId: string) => {
+    if (!isSignedIn) return;
+    console.log("Selected plan:", planId);
+    // Give immediate visual feedback
+    router.push(`/dashboard/billing?upgrade=${planId}`);
   };
-
-  const handleNextStep = () => {
-    if (currentStep < 2) { // Only 2 steps now: Plan Selection and Payment
-      if (!selectedPlan) return;
-
-      // If plan costs > 0, require authentication
-      if (selectedPlan.price > 0 && !isAuthenticated) {
-        toast({
-          title: 'Sign in required',
-          description: 'Please sign in to continue to payment.',
-        });
-        // Redirect to sign in page
-        router.push('/signin');
-        return;
-      }
-
-      // Free plans complete immediately
-      if (selectedPlan.price === 0 && currentStep === 1) {
-        handlePaymentSuccess();
-        return;
-      }
-
-      setAnimationDirection("forward");
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-
-  const calculateTotal = (price: number) => {
-    return price; // No taxes
-  };
-
-  const handlePaymentSuccess = () => {
-    setPaymentSuccess(true);
-    toast({
-      title: "Success",
-      description: "Payment successful! Your plan has been upgraded.",
-    });
-    
-    setTimeout(() => {
-      if (onComplete && selectedPlan) {
-        onComplete(selectedPlan);
-      } else {
-        router.push('/dashboard');
-      }
-    }, 2000);
-  };
-
-  const handlePaymentError = (error: string) => {
-    toast({
-      title: "Error",
-      description: `Payment failed: ${error}`,
-      variant: "destructive",
-    });
-  };
-
-  const handleCancel = () => {
-    if (onCancel) {
-      onCancel();
-    } else {
-      router.back();
-    }
-  };
-
-  if (plansLoading || !plansSuccess) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (paymentSuccess) {
-    return (
-      <div className={cn(
-        "flex items-center justify-center",
-        mode === "popup" ? "min-h-[400px]" : "min-h-screen"
-      )}>
-        <Card className="w-full max-w-md backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl">
-          <CardContent className="p-8 text-center">
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", duration: 0.5 }}
-              className="mb-4"
-            >
-              <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
-            </motion.div>
-            <motion.h2
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="text-2xl font-bold text-white mb-2"
-            >
-              Payment Successful!
-            </motion.h2>
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="text-white/70 mb-4"
-            >
-              Your {selectedPlan?.name} plan has been activated successfully.
-            </motion.p>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-            >
-              <Button
-                onClick={() => {
-                  if (onComplete && selectedPlan) {
-                    onComplete(selectedPlan);
-                  } else {
-                    router.push('/dashboard');
-                  }
-                }}
-                className={`${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')}`}
-              >
-                Continue to Dashboard
-              </Button>
-            </motion.div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
 
   return (
-    <div className="w-full max-w-7xl mx-auto">
-      {mode === "page" && (
-        <div className="text-center mb-12">
-          <div className="flex items-center justify-center mb-4">
-            <div className="mr-3">
-              <Crown className="h-8 w-8 text-amber-500" />
-            </div>
-            <h1 className="text-4xl md:text-6xl font-bold text-white">
-              Upgrade Your Experience
-            </h1>
-          </div>
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-8">
-            Choose the perfect plan to unlock premium features and take your productivity to the next level
-          </p>
+    <div className={cn(
+      "w-full max-w-7xl mx-auto px-4 py-12",
+      mode === "popup" && "py-4 px-2"
+    )}>
+      {/* Header Section */}
+      <div className="text-center mb-12 relative">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.7, ease: "easeOut" }}
+          className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-8"
+        >
+          <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
+          Choose Your Path
+        </motion.div>
 
-          {isDevelopment && (
-            
-          <div className="flex justify-center mb-6">
-            <CurrencySelector />
-          </div>
-          )}
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5 }}
+          className="mb-6"
+        >
+          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-none mb-4">
+            Flexible <span className="text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40">Pricing</span>
+          </h1>
+        </motion.div>
+        
+        <p className="text-lg text-white/40 max-w-2xl mx-auto font-medium leading-relaxed mb-8">
+          Subscribe for monthly benefits or top-up credits as you go. <br className="hidden md:block" />
+          Both in USD. Cancel anytime.
+        </p>
 
-         </div>
-      )}
-
-      {/* International Credits Only View (non-INR) */}
-      {!isINR && (
-        <Card className="backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl overflow-hidden mb-8">
-          <CardContent className="p-8 text-center">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <div className="flex justify-center mb-4">
-                <div className="p-4 rounded-full bg-gradient-to-r from-purple-500/20 to-pink-500/20">
-                  <Globe className="h-10 w-10 text-purple-400" />
-                </div>
-              </div>
-              <h2 className="text-2xl font-bold text-white mb-2">International Payments</h2>
-              <p className="text-white/70 max-w-md mx-auto mb-6">
-                Subscriptions are currently available only in INR. For other currencies, 
-                you can purchase credit packages that work across all our services.
-              </p>
-              
-              <div className="bg-white/5 rounded-lg p-4 mb-6 max-w-sm mx-auto">
-                <div className="flex items-center justify-center gap-2 text-white mb-2">
-                  <Coins className="h-5 w-5 text-amber-400" />
-                  <span className="font-semibold">Credits never expire</span>
-                </div>
-                <p className="text-sm text-white/60">
-                  Use credits across all services: video analysis, thumbnail generation, AI chat, music creation, and more.
-                </p>
-              </div>
-
-              <Button
-                onClick={() => setShowTopupModal(true)}
-                className={`${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white px-8 py-3`}
-              >
-                <Coins className="h-4 w-4 mr-2" />
-                Buy Credits
-              </Button>
-
-              <p className="text-xs text-white/50 mt-4">
-                Want INR pricing? Change currency above to access subscription plans.
-              </p>
-            </motion.div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Subscription Plans (INR only) */}
-      {isINR && currentStep < 3 && (
-        <div className="mb-8">
-          <StepIndicator currentStep={currentStep} totalSteps={2} />
-        </div>
-      )}
-
-      {isINR && (
-      <Card className="backdrop-blur-sm bg-black/40 border border-white/10 shadow-xl rounded-xl overflow-hidden">
-        <CardContent className="p-8">
-          <div>
-            {currentStep === 1 && (
-              (() => {
-                try {
-                  console.log('[DEBUG] Attempting to render PlanSelection');
-                  return (
-                    <PlanSelection
-                      plans={convertedPlans.map(p => ({ ...p }))}
-                      selectedPlan={selectedPlan}
-                      onSelectPlan={handlePlanSelect}
-                      billingCycle={billingCycle}
-                      onBillingCycleChange={handleBillingCycleChange}
-                      currentUserPlan={currentUserPlan}
-                      currentPlanData={currentPlanData}
-                    />
-                  );
-                } catch (err) {
-                  console.error('[DEBUG] Error rendering PlanSelection:', err);
-                  return <div>Error rendering plan selection</div>;
-                }
-              })()
-            )}
-
-            {currentStep === 2 && selectedPlan && (
-              <PaymentForm
-                plan={selectedPlan}
-                billingCycle={billingCycle}
-                totalAmount={calculateTotal(selectedPlan.price)}
-                onPaymentSuccess={handlePaymentSuccess}
-                onPaymentError={handlePaymentError}
-              />
-            )}
-          </div>
-
-          {showNavigation && currentStep < 2 && ( // Navigation only for step 1
-            <>
-              <div className="flex justify-between mt-8 pt-6 border-t border-white/10">
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button
-                    variant="outline"
-                    onClick={handleCancel}
-                    className="bg-transparent border-white/20 hover:bg-white/10"
-                  >
-                    Cancel
-                  </Button>
-                </motion.div>
-
-                <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
-                  <Button
-                    onClick={handleNextStep}
-                    disabled={!selectedPlan || (!!selectedPlan && selectedPlan.price > 0 && !isAuthenticated)}
-                    className={cn(
-                      "flex items-center gap-2 transition-all duration-300 shadow-lg",
-                      selectedPlan?.color
-                        ? `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
-                        : `${getGradientClass('primaryDark')} hover:${getGradientClass('primaryHover')} text-white`
-                    )}
-                  >
-                    Continue to Payment
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </motion.div>
-              </div>
-              {selectedPlan && selectedPlan.price > 0 && !isAuthenticated && (
-                <p className="text-sm text-muted-foreground mt-2">You must be signed in to purchase paid plans. Click continue to sign in.</p>
+        {/* Toggle Switch */}
+        <div className="flex justify-center mb-12">
+          <div className="bg-white/5 p-1 rounded-xl inline-flex border border-white/10">
+            <button
+              onClick={() => setViewMode('plans')}
+              className={cn(
+                "px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300",
+                viewMode === 'plans' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
               )}
-            </>
-          )}
-        </CardContent>
-      </Card>
-      )}
+            >
+              Monthly Plans
+            </button>
+            <button
+              onClick={() => setViewMode('credits')}
+              className={cn(
+                "px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300",
+                viewMode === 'credits' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
+              )}
+            >
+              Credit Refills
+            </button>
+          </div>
+        </div>
 
-      {/* Credits Top-up Modal for international users */}
-      <CreditsTopupModal 
+        {/* Abstract Background Glow for Header */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-amber-500/10 blur-[120px] -z-10 pointer-events-none" />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+          {viewMode === 'plans' ? (
+            // PLANS VIEW
+            SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan) => (
+             <Card 
+              key={plan.id} 
+              className={cn(
+                "relative overflow-hidden group cursor-pointer border-white/5 bg-white/[0.03] backdrop-blur-xl hover:border-amber-500/30 transition-all duration-500",
+                plan.popular && "border-amber-500/20 bg-amber-500/[0.02]"
+              )}
+              onClick={() => handleSelectPlan(plan.id)}
+            >
+                {plan.popular && (
+                  <div className="absolute top-4 right-4 text-[8px] font-black px-2 py-0.5 rounded border border-amber-500/50 text-amber-500 uppercase tracking-widest bg-amber-500/5">
+                    Recommended
+                  </div>
+                )}
+                
+                <CardContent className="p-8">
+                  <div className="mb-6">
+                    <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
+                    <p className="text-xs text-white/40 h-8 line-clamp-2">{plan.description}</p>
+                    <div className="flex items-baseline gap-1 mt-4">
+                      <span className="text-4xl font-black text-white tracking-tight">${plan.price}</span>
+                      <span className="text-sm font-medium text-white/40">/mo</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 mb-8">
+                    <div className="flex items-center gap-3 text-sm text-white/60">
+                      <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
+                        <span className="text-amber-500 font-bold text-xs">Cr</span>
+                      </div>
+                      <span className="font-medium text-white">{plan.credits.toLocaleString()} Monthly Credits</span>
+                    </div>
+                    {plan.features.slice(1).map((feature: string, i: number) => (
+                      <div key={i} className="flex items-center gap-3 text-sm text-white/60">
+                         <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
+                          <CheckCircle className="w-4 h-4 text-white/20" />
+                        </div>
+                        <span className="font-medium">{feature}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                 {isSignedIn ? (
+                    <Button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleSelectPlan(plan.id);
+                      }}
+                      className={cn(
+                        "w-full py-6 text-lg font-bold rounded-xl transition-all duration-300 cursor-pointer pointer-events-auto",
+                         plan.popular
+                          ? "bg-amber-500 text-black hover:bg-amber-400" 
+                          : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
+                      )}
+                    >
+                      Subscribe Now
+                    </Button>
+                 ) : (
+                    <SignInButton mode="modal">
+                      <Button className="w-full py-6 text-lg font-bold rounded-xl bg-white/10 text-white hover:bg-white/20 border border-white/10 cursor-pointer pointer-events-auto">
+                        Sign in to Subscribe
+                      </Button>
+                    </SignInButton>
+                 )}
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            // CREDITS VIEW
+            CREDIT_PACKAGES.map((pkg) => (
+              <Card key={pkg.id} className={cn(
+                "relative overflow-hidden group cursor-pointer border-white/5 bg-white/[0.03] backdrop-blur-xl hover:border-amber-500/30 transition-all duration-500",
+                pkg.id === 'topup_500' && "border-amber-500/20 bg-amber-500/[0.02]"
+              )}
+              onClick={() => handleSelectPackage(pkg)}>
+                {pkg.id === 'topup_500' && (
+                  <div className="absolute top-4 right-4 text-[8px] font-black px-2 py-0.5 rounded border border-amber-500/50 text-amber-500 uppercase tracking-widest bg-amber-500/5">
+                    Recommended
+                  </div>
+                )}
+                
+                <CardContent className="p-8 text-left">
+                  <div className="mb-6">
+                    <h3 className="text-lg font-bold text-white/50 mb-1 group-hover:text-white transition-colors">{pkg.name}</h3>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-5xl font-black text-white">{pkg.credits}</span>
+                      <span className="text-lg font-bold text-amber-500">Credits</span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 mb-8">
+                    <div className="flex items-center gap-3 text-white/70 text-sm">
+                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      Use for AI Video, Chat & Imaging
+                    </div>
+                    <div className="flex items-center gap-3 text-white/70 text-sm">
+                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      Priority processing speed
+                    </div>
+                    <div className="flex items-center gap-3 text-white/70 text-sm">
+                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                      Credits never expire
+                    </div>
+                  </div>
+
+                  <div className="mt-auto">
+                    <div className="text-3xl font-bold text-white mb-6">
+                      ${pkg.prices.USD}
+                      <span className="text-sm font-medium text-white/40 ml-2">USD</span>
+                    </div>
+                    {isSignedIn ? (
+                      <Button
+                        className={cn(
+                          "w-full py-6 text-lg font-bold rounded-xl transition-all duration-300",
+                          pkg.id === 'topup_500' 
+                            ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.2)]" 
+                            : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
+                        )}
+                      >
+                        Select Package
+                      </Button>
+                    ) : (
+                      <SignInButton mode="modal">
+                        <Button
+                          className={cn(
+                            "w-full py-6 text-lg font-bold rounded-xl transition-all duration-300 cursor-pointer",
+                            "bg-white/10 text-white hover:bg-white/20 border border-white/10"
+                          )}
+                        >
+                          Sign in to Purchase
+                        </Button>
+                      </SignInButton>
+                    )}
+                  </div>
+                </CardContent>
+                
+                {/* Hover Glow Effect */}
+                <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+              </Card>
+            ))
+          )}
+      </div>
+
+      <div className="text-center max-w-2xl mx-auto pt-16 border-t border-white/5">
+        <h3 className="text-sm font-bold text-white/40 uppercase tracking-[0.2em] mb-6">
+          Global Payment Support
+        </h3>
+        <p className="text-white/30 text-xs leading-relaxed max-w-md mx-auto mb-8">
+          Secure international payments powered by Razorpay. We support all major credit cards, debit cards, and digital wallets worldwide. All transactions are securely processed in USD.
+        </p>
+        <div className="flex justify-center gap-8 grayscale opacity-20 hover:opacity-40 transition-all duration-500">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-4" />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-4" />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg" alt="PayPal" className="h-4" />
+        </div>
+      </div>
+
+      {/* Credits Top-up Modal */}
+      <BillingPaymentModal 
         isOpen={showTopupModal} 
-        onClose={() => setShowTopupModal(false)} 
+        onClose={() => setShowTopupModal(false)}
+        initialPackageId={selectedPackage?.id}
       />
     </div>
   );

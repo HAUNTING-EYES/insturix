@@ -1,65 +1,35 @@
 "use client";
 
-import React, { createContext, useContext, ReactNode, useState, useEffect } from 'react';
-import { usePricing } from './PricingContext';
+import React, { createContext, useContext, ReactNode, useState } from 'react';
 
 interface CurrencyContextType {
   selectedCurrency: string;
   selectedSymbol: string;
   setSelectedCurrency: (currency: string, symbol: string) => void;
   isUserSelected: boolean;
-  version: number; // New version number
+  version: number;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
 
 export function CurrencyProvider({ children }: { children: ReactNode }) {
-  const { locationData } = usePricing();
-  const [selectedCurrency, setStateCurrency] = useState<string>("USD");
-  const [selectedSymbol, setStateSymbol] = useState<string>("$");
-  const [isUserSelected, setIsUserSelected] = useState<boolean>(false);
-  const [version, setVersion] = useState<number>(0);
+  // Hardcoded to USD only
+  const [selectedCurrency] = useState<string>("USD");
+  const [selectedSymbol] = useState<string>("$");
+  const [isUserSelected] = useState<boolean>(true);
+  const [version] = useState<number>(0);
 
-  const setSelectedCurrency = (currency: string, symbol: string) => {
-    setStateCurrency(currency);
-    setStateSymbol(symbol);
-    setVersion(prev => prev + 1);
-  };
-
-  const updateSelectedCurrencyState = (currency: string, symbol: string) => {
-    // Only update if currency actually changed
-    if (selectedCurrency !== currency || selectedSymbol !== symbol) {
-      setSelectedCurrency(currency, symbol);
-      setIsUserSelected(true);
-      
-      localStorage.setItem('preferred-currency', currency);
-      localStorage.setItem('preferred-symbol', symbol);
-    }
+  const setSelectedCurrency = () => {
+    // No-op for USD-only transition
   };
 
   const contextValue: CurrencyContextType = {
     selectedCurrency,
     selectedSymbol,
-    setSelectedCurrency: updateSelectedCurrencyState,
+    setSelectedCurrency,
     isUserSelected,
-    version // Add version to context
+    version
   };
-  
-  useEffect(() => {
-    const savedCurrency = localStorage.getItem('preferred-currency');
-    const savedSymbol = localStorage.getItem('preferred-symbol');
-    
-    if (savedCurrency && savedSymbol) {
-      setSelectedCurrency(savedCurrency, savedSymbol);
-      setIsUserSelected(true);
-    } else if (locationData?.currency && locationData?.symbol) {
-      setSelectedCurrency(locationData.currency, locationData.symbol);
-      setIsUserSelected(false);
-    } else {
-      setSelectedCurrency("USD", "$");
-      setIsUserSelected(false);
-    }
-  }, [locationData]);
 
   return (
     <CurrencyContext.Provider value={contextValue}>

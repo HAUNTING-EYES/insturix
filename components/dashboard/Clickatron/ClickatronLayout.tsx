@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { CanvasIdeaInput } from './CanvasIdeaInput';
 import { ClickatronHistory } from './ClickatronHistory';
 import { CreditsCard } from '@/components/shared/CreditsCard';
-import { CreditsTopupModal } from '@/components/shared/CreditsTopupModal';
+import { BillingPaymentModal } from '@/components/shared/BillingPaymentModal';
 
 export function ClickatronLayout() {
   const [showTopup, setShowTopup] = useState(false);
@@ -14,7 +14,7 @@ export function ClickatronLayout() {
       <CreditsCard onTopupClick={() => setShowTopup(true)} />
       <CanvasIdeaInput />
       <ClickatronHistory />
-      <CreditsTopupModal 
+      <BillingPaymentModal 
         isOpen={showTopup} 
         onClose={() => setShowTopup(false)} 
       />
