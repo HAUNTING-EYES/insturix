@@ -8,7 +8,8 @@ import { ChatInput } from "./chat/ChatInput";
 import { ChatHistoryPanel } from "./chat/ChatHistoryPanel";
 import { GenerationProgress } from "./chat/GenerationProgress";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
-import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeClient";
+import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeSession";
+import { toast } from "@/hooks/use-toast";
 
 interface ChatPanelProps {
   selectedIdea: Idea;
@@ -218,6 +219,10 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     }
     if (!sessionId) {
       console.log('[ChatPanel.handleSend] No sessionId, returning');
+      toast({
+        title: "Session not ready",
+        description: "Please wait a moment while the session loads, then try again.",
+      });
       return;
     }
 
@@ -233,8 +238,12 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     
     // Prefer explicit editingSelection from edit button
     if (editingSelection) {
+      const derivedBlockIds = Array.isArray(editingSelection.blocks)
+        ? editingSelection.blocks.map((b: any) => b?.id).filter((id: any) => typeof id === 'string')
+        : [];
       selectionData = {
         blocks: editingSelection.blocks,
+        blockIds: derivedBlockIds.length > 0 ? derivedBlockIds : undefined,
         range: editingSelection.range,
       };
     } else if (onGetSelection) {
@@ -242,6 +251,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       if (selection && selection.blocks.length > 0) {
         selectionData = {
           blocks: selection.blocks,
+          blockIds: selection.blockIds && selection.blockIds.length > 0 ? selection.blockIds : undefined,
           range: selection.range || undefined,
         };
       }

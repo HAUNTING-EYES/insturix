@@ -3,10 +3,34 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
-import type { ScriptModel } from "./useThinkForgeClient";
+
+// Canonical type definitions - single source of truth for session types
+export type Block = any;
+export type ScriptModel = {
+  title?: string | null;
+  outline?: string | null;
+  content?: string | null;
+  blocks?: Block[] | null;
+  version?: number;
+  metadata?: {
+    workflow?: string;
+    thoughts?: string;
+    duration_ms?: number;
+    agent_steps?: Array<{
+      agent?: string;
+      step?: string;
+      output?: string;
+    }>;
+    quality_metrics?: {
+      score?: number;
+      feedback?: string;
+    };
+  } | null;
+};
 
 const LS_CURRENT_SESSION = "thinkforge_current_session";
 const LS_SESSION_PREFIX = "thinkforge_session_";
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours TTL for cached sessions
 
 export type HydratePayload = {
   userId?: string;
@@ -23,20 +47,39 @@ export type HydrateResponse = {
   chat: any[];
 };
 
+type CachedSession = Partial<HydrateResponse & { script: ScriptModel }> & {
+  cachedAt?: number;
+};
+
 function saveLocal(sessionId: string, data: Partial<HydrateResponse & { script: ScriptModel }>) {
   try {
     const key = `${LS_SESSION_PREFIX}${sessionId}`;
     const prev = JSON.parse(localStorage.getItem(key) || "{}");
-    localStorage.setItem(key, JSON.stringify({ ...prev, ...data }));
-  } catch {}
+    // STEP 2: Add cachedAt timestamp for TTL validation
+    localStorage.setItem(key, JSON.stringify({ ...prev, ...data, cachedAt: Date.now() }));
+  } catch (e) {
+    console.error('[useThinkForgeSession] saveLocal failed:', e);
+  }
 }
 
 function getLocal(sessionId: string): Partial<HydrateResponse & { script: ScriptModel }> | null {
   try {
     const key = `${LS_SESSION_PREFIX}${sessionId}`;
     const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
+    if (!raw) return null;
+    
+    const cached: CachedSession = JSON.parse(raw);
+    
+    // STEP 2: TTL validation - discard stale sessions older than 24 hours
+    if (cached.cachedAt && Date.now() - cached.cachedAt > SESSION_TTL_MS) {
+      console.warn(`[useThinkForgeSession] Discarding stale cached session ${sessionId} (expired after 24h)`);
+      localStorage.removeItem(key);
+      return null;
+    }
+    
+    return cached;
+  } catch (e) {
+    console.error('[useThinkForgeSession] getLocal failed:', e);
     return null;
   }
 }
@@ -60,7 +103,10 @@ export function useThinkForgeSession() {
           setProjectMeta(cached.projectMeta || {});
         }
       }
-    } catch {}
+    } catch (err) {
+      // STEP 7: Log localStorage errors instead of silent swallow
+      console.error('[useThinkForgeSession] Failed to recover session from localStorage:', err);
+    }
   }, []);
 
   const hydrate = useCallback(async (payload?: HydratePayload): Promise<HydrateResponse | null> => {
@@ -71,14 +117,16 @@ export function useThinkForgeSession() {
     if (isCreateNew) {
       try {
         localStorage.removeItem(LS_CURRENT_SESSION);
-      } catch {}
+      } catch (e) {
+        console.warn('[useThinkForgeSession] Failed to clear localStorage on new session:', e);
+      }
       setSessionId(null);
       setPreferences({});
       setProjectMeta({});
     }
 
     try {
-      const res = await fetch("/api/services/thinkforge/hydrate", {
+      const res = await fetch("/api/services/thinkforge/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -94,7 +142,14 @@ export function useThinkForgeSession() {
               description: message,
               variant: "destructive",
             });
-          } catch {}
+          } catch (e) {
+            console.error('[useThinkForgeSession] Failed to parse 429 response:', e);
+            toast({
+              title: "Limit reached",
+              description: "Max ThinkForge sessions reached. Please upgrade your plan.",
+              variant: "destructive",
+            });
+          }
           router.push('/dashboard');
           return null;
         }
@@ -114,8 +169,9 @@ export function useThinkForgeSession() {
       saveLocal(data.sessionId, cachePayload);
       return data;
     } catch (e) {
+      console.error('[useThinkForgeSession] Hydration error:', e);
       if (isCreateNew) {
-        try { localStorage.removeItem(LS_CURRENT_SESSION); } catch {}
+        try { localStorage.removeItem(LS_CURRENT_SESSION); } catch (lsErr) { console.warn('[useThinkForgeSession] localStorage cleanup failed:', lsErr); }
         setSessionId(null);
         setPreferences({});
         setProjectMeta({});
@@ -140,12 +196,14 @@ export function useThinkForgeSession() {
     try {
       if (sessionId) {
         localStorage.removeItem(LS_CURRENT_SESSION);
-        try { localStorage.removeItem(`${LS_SESSION_PREFIX}${sessionId}`); } catch {}
+        try { localStorage.removeItem(`${LS_SESSION_PREFIX}${sessionId}`); } catch (e) { console.warn('[useThinkForgeSession] Failed to remove session cache:', e); }
       }
       setSessionId(null);
       setPreferences({});
       setProjectMeta({});
-    } catch {}
+    } catch (e) {
+      console.error('[useThinkForgeSession] closeSession error:', e);
+    }
   }, [sessionId]);
 
   const getSessionsCount = useCallback(async () => {
@@ -160,6 +218,50 @@ export function useThinkForgeSession() {
     return res.json();
   }, []);
 
+  // STEP 4: Session verification handshake - verify session exists on backend
+  const verifySession = useCallback(async (sid?: string): Promise<{ valid: boolean; error?: string }> => {
+    const targetSessionId = sid || sessionId;
+    if (!targetSessionId) {
+      return { valid: false, error: 'No session to verify' };
+    }
+
+    try {
+      const res = await fetch(`/api/services/thinkforge/session/verify?sessionId=${encodeURIComponent(targetSessionId)}`, {
+        method: 'GET',
+        cache: 'no-store',
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const errorMsg = data?.error || `Verification failed: ${res.status}`;
+        console.warn(`[useThinkForgeSession] Session verification failed for ${targetSessionId}:`, errorMsg);
+        
+        // If session doesn't exist, clear local state
+        if (res.status === 404) {
+          try {
+            localStorage.removeItem(LS_CURRENT_SESSION);
+            localStorage.removeItem(`${LS_SESSION_PREFIX}${targetSessionId}`);
+          } catch (e) {
+            console.warn('[useThinkForgeSession] Failed to clear invalid session from localStorage:', e);
+          }
+          if (sessionId === targetSessionId) {
+            setSessionId(null);
+            setPreferences({});
+            setProjectMeta({});
+          }
+        }
+        
+        return { valid: false, error: errorMsg };
+      }
+
+      const data = await res.json();
+      return { valid: data.valid === true };
+    } catch (e: any) {
+      console.error('[useThinkForgeSession] Session verification error:', e);
+      return { valid: false, error: e?.message || 'Verification request failed' };
+    }
+  }, [sessionId]);
+
   return {
     sessionId,
     preferences,
@@ -167,6 +269,7 @@ export function useThinkForgeSession() {
     isHydrating,
     hydrate,
     closeSession,
+    verifySession,
     getSessionsCount,
     getSessionsList,
   } as const;

@@ -25,7 +25,9 @@ function saveLocal(sessionId: string, threadId: string, data: Partial<{ chat: Ch
     const key = `${LS_CHAT_PREFIX}${sessionId}_${threadId}`;
     const prev = JSON.parse(localStorage.getItem(key) || "{}");
     localStorage.setItem(key, JSON.stringify({ ...prev, ...data }));
-  } catch {}
+  } catch (e) {
+    console.warn('[useThinkForgeChat] saveLocal failed:', e);
+  }
 }
 
 function normalizeMessage(m: any): ChatMessage {
@@ -191,7 +193,13 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
   ) => {
     console.log('[useThinkForgeChat.sendMessage] called', { sessionId, prompt: prompt.trim(), isStreaming });
     if (!sessionId || !threadId) {
-      console.log('[useThinkForgeChat.sendMessage] No sessionId, returning');
+      // STEP 7: Surface errors to UI instead of silent return
+      console.error('[useThinkForgeChat.sendMessage] Missing sessionId or threadId - cannot send message');
+      toast({
+        title: 'Session not ready',
+        description: 'Please wait for the session to initialize before sending messages.',
+        variant: 'destructive',
+      });
       return;
     }
     if (!prompt.trim()) {
@@ -374,7 +382,8 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
             applyEventPayload(payload, typeof evt?.id === 'number' ? evt.id : null);
           });
           return true;
-        } catch {
+        } catch (e) {
+          console.warn('[useThinkForgeChat] Failed to parse SSE event:', e);
           return false;
         }
       };
@@ -382,7 +391,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       const fallbackResync = async () => {
         try {
           await refreshMessages();
-        } catch {}
+        } catch (e) {
+          console.error('[useThinkForgeChat] fallbackResync refreshMessages failed:', e);
+        }
         if (optionsRef.current?.onRemoteScriptUpdate && sessionId && options?.scriptId) {
           try {
             const res = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(options.scriptId)}`, { cache: 'no-store' });
@@ -390,7 +401,9 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
               const data = await res.json();
               optionsRef.current.onRemoteScriptUpdate(data);
             }
-          } catch {}
+          } catch (e) {
+            console.error('[useThinkForgeChat] fallbackResync script fetch failed:', e);
+          }
         }
       };
 

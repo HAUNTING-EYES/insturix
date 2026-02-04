@@ -51,7 +51,7 @@ export function ChatInput({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!disabled && value.trim() && !isStreaming) {
+      if (!disabled && value.trim()) {
         onSend();
       }
     }
@@ -106,20 +106,23 @@ export function ChatInput({
         )}>
             <div className="flex items-end gap-2 p-2">
                 <div className="flex-1 min-w-0 relative">
-                     <textarea
+                    <textarea
                         ref={textareaRef}
                         value={value}
                         onChange={(e) => onChange(e.target.value)}
                         onKeyDown={handleKeyDown}
                         placeholder={editingSelection ? "Tell me how to change this selection..." : placeholder}
-                        className="w-full max-h-[160px] min-h-[44px] py-3 pl-4 pr-2 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none resize-none scrollbar-thin scrollbar-thumb-zinc-700/50 scrollbar-track-transparent"
-                        disabled={disabled || isStreaming}
+                      className={clsx(
+                        "w-full max-h-40 min-h-11 py-3 pl-4 pr-2 bg-transparent text-sm text-zinc-200 placeholder:text-zinc-600 focus:outline-none resize-none scrollbar-thin scrollbar-thumb-zinc-700/50 scrollbar-track-transparent",
+                        disabled && "opacity-80"
+                      )}
+                      aria-disabled={disabled}
                         rows={1}
                     />
                 </div>
               
                 <AnimatePresence mode="wait">
-                    {isStreaming && onStop ? (
+                  {isStreaming && onStop && !value.trim() ? (
                     <motion.button
                         key="stop"
                         initial={{ opacity: 0, scale: 0.8 }}
@@ -143,7 +146,7 @@ export function ChatInput({
                         disabled={disabled || !value.trim()}
                         className={clsx(
                             "h-10 w-10 shrink-0 flex items-center justify-center rounded-full transition-all duration-200 mb-0.5",
-                            (!disabled && value.trim())
+                          (!disabled && value.trim())
                                 ? "bg-red-600 text-white shadow-lg shadow-red-900/30 hover:bg-red-500 hover:scale-105 active:scale-95" 
                                 : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
                         )}

@@ -174,13 +174,19 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   } = request;
   const threadId = providedThreadId || 'default';
   
-  // Load or create session - don't fail if session doesn't exist yet
+  // STEP 5: Explicit session existence verification before processing
+  // Load session - require it to exist (no auto-create for chat operations)
   let session = sessionId ? await db.getSession(sessionId, userId) : null;
   if (!session && sessionId) {
-    // Session doesn't exist yet - this can happen if the client sends a chat message
-    // before the session is created via hydrate. Create the session now.
-    console.log('[ThinkForge][chat-service] Session not found, creating new session:', sessionId);
-    session = await db.getOrCreateSession(userId, sessionId);
+    // Session doesn't exist - this is an error condition for chat operations
+    // The client should have created the session via hydrate first
+    console.error('[ThinkForge][chat-service] Session not found:', sessionId);
+    throw new Error(`Session not found: ${sessionId}. Please ensure the session is created before sending chat messages.`);
+  }
+  
+  if (!session) {
+    // No sessionId provided - also an error for chat operations
+    throw new Error('sessionId is required for chat operations');
   }
   
   let effectiveScriptId = typeof providedScriptId === 'string' && providedScriptId.trim()

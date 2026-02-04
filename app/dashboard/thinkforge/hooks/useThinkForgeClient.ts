@@ -1,32 +1,24 @@
 "use client";
+/**
+ * @deprecated This hook is DEPRECATED and will be removed in a future release.
+ * Use `useThinkForgeSession` instead as the single source of truth for session state.
+ * 
+ * Migration guide:
+ * - Import ScriptModel, HydratePayload, HydrateResponse from './useThinkForgeSession'
+ * - Replace useThinkForgeClient() with useThinkForgeSession()
+ * 
+ * This file is kept temporarily for backwards compatibility but should not be used
+ * in new code. All session state should flow through useThinkForgeSession to prevent
+ * split-brain state issues.
+ */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "@/hooks/use-toast";
 import { sanitizeServerScript, applyBlockPatches } from "@/lib/thinkforge/json";
 
-// Lightweight script model
-export type Block = any;
-export type ScriptModel = {
-  title?: string | null;
-  outline?: string | null;
-  content?: string | null;
-  blocks?: Block[] | null;
-  version?: number;
-  metadata?: {
-    workflow?: string;
-    thoughts?: string;
-    duration_ms?: number;
-    agent_steps?: Array<{
-      agent?: string;
-      step?: string;
-      output?: string;
-    }>;
-    quality_metrics?: {
-      score?: number;
-      feedback?: string;
-    };
-  } | null;
-};
+// Re-export types from canonical source for backwards compatibility
+export type { ScriptModel, Block } from "./useThinkForgeSession";
+import type { ScriptModel, Block } from "./useThinkForgeSession";
 
 export type HydratePayload = {
   userId?: string;
@@ -93,14 +85,17 @@ export function useThinkForgeClient() {
           setProjectMeta(cached.projectMeta || {});
         }
       }
-    } catch {}
+    } catch (err) {
+      // STEP 7: Log localStorage errors instead of silent swallow
+      console.error('[useThinkForgeClient] Failed to recover session from localStorage:', err);
+    }
   }, []);
 
   const hydrate = useCallback(async (payload?: HydratePayload) => {
     setIsHydrating(true);
     const isCreateNew = !!(payload && !payload.sessionId && payload.projectMeta);
     try {
-      const res = await fetch("/api/services/thinkforge/hydrate", {
+      const res = await fetch("/api/services/thinkforge/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",

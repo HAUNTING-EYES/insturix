@@ -9,7 +9,7 @@ import { BackgroundDecor } from "@/components/dashboard/ThinkForge/BackgroundDec
 import { Script } from "@/app/dashboard/thinkforge/types";
 import { useThinkForgeSession } from "./hooks/useThinkForgeSession";
 import { useThinkForgeScript } from "./hooks/useThinkForgeScript";
-import { ScriptModel } from "./hooks/useThinkForgeClient";
+import { ScriptModel } from "./hooks/useThinkForgeSession";
 import Dock from "@/components/dashboard/ThinkForge/Dock";
 import { WorkspaceMode } from "@/components/dashboard/ThinkForge/ModeSwitcher";
 import IdeationMode from "@/components/dashboard/ThinkForge/IdeationMode";
@@ -170,7 +170,7 @@ export default function ThinkForgeLanding() {
 			return;
 		}
 		// Ensure any previous session is fully closed before entering SCRIPT
-		try { await session.closeSession(); } catch {}
+		try { await session.closeSession(); } catch (err) { console.warn('[ThinkForge] closeSession warning:', err); }
 		// Clear any stale script immediately before creating a new session
 		scriptHook.resetSessionState();
 		setPendingSessionId(null);
@@ -260,7 +260,7 @@ export default function ThinkForgeLanding() {
 						const key = `thinkforge_session_${activeSessionId}`;
 						const cached = JSON.parse(localStorage.getItem(key) || '{}');
 						localStorage.setItem(key, JSON.stringify({ ...cached, projectMeta: projectMetaPayload }));
-					} catch {}
+						} catch (cacheErr) { console.warn('[ThinkForge] localStorage cache warning:', cacheErr); }
 				} catch (err) {
 					console.error('Error saving session meta:', err);
 				}
@@ -288,21 +288,62 @@ export default function ThinkForgeLanding() {
 	// Hydrate backend session when entering SCRIPTING mode
 	const hasHydratedRef = useRef(false);
 	const creationTimerRef = useRef<NodeJS.Timeout | null>(null);
+	const isMountedRef = useRef(true); // Track mount state to prevent post-unmount execution
+	const hydratingRef = useRef(false); // STEP 1: Hydration mutex - prevents overlapping hydration calls
+	
+	// Track mounted state for cleanup
 	useEffect(() => {
-		if (workspaceMode !== 'scripting' || !selectedIdea) return;
-		// If opening an existing session from Library, or a session already exists, do not create a new one
-		if (session.sessionId || pendingSessionId) return;
-		// Only hydrate once per entry into script phase until idea changes
+		isMountedRef.current = true;
+		return () => {
+			isMountedRef.current = false;
+			// Clear any pending timers on unmount
+			if (creationTimerRef.current) {
+				clearTimeout(creationTimerRef.current);
+				creationTimerRef.current = null;
+			}
+		};
+	}, []);
+	
+	// Cache stable primitive values to avoid effect retriggers (STEP 4)
+	const currentSessionId = session.sessionId;
+	const selectedIdeaId = selectedIdea?.id;
+	const selectedIdeaText = selectedIdea?.idea;
+	const selectedIdeaTone = selectedIdea?.tone;
+	
+	useEffect(() => {
+		// STEP 2: Strengthened guard - all conditions must pass
+		if (workspaceMode !== 'scripting') return;
+		if (!selectedIdea) return;
+		if (currentSessionId || pendingSessionId) return;
 		if (hasHydratedRef.current) return;
+		if (hydratingRef.current) {
+			console.log('[ThinkForge] Hydration skipped — already in progress');
+			return;
+		}
+		
 		// Debounce creation slightly and cancel if user navigates away
 		if (creationTimerRef.current) clearTimeout(creationTimerRef.current);
 		creationTimerRef.current = setTimeout(async () => {
-			// Re-check conditions at execution time
+			// Early exit if component unmounted during debounce window
+			if (!isMountedRef.current) {
+				console.warn('[ThinkForge] Hydration aborted - component unmounted');
+				return;
+			}
+			// Re-check ALL conditions at execution time (STEP 2)
 			if (workspaceMode !== 'scripting' || !selectedIdea) return;
-			if (session.sessionId || pendingSessionId) return;
+			if (currentSessionId || pendingSessionId) return;
 			if (hasHydratedRef.current) return;
-			hasHydratedRef.current = true;
+			if (hydratingRef.current) {
+				console.log('[ThinkForge] Hydration skipped — already in progress');
+				return;
+			}
+			
+			// STEP 1: Acquire mutex
+			hydratingRef.current = true;
+			console.log('[ThinkForge] Hydration start');
+			
 			try {
+				if (!isMountedRef.current) return;
 				setOpeningSession(true);
 				await session.closeSession();
 				// Ensure UI is cleared before creating a fresh session
@@ -318,16 +359,47 @@ export default function ThinkForgeLanding() {
 						sessionName: (selectedIdea as any)?.sessionName
 					}
 				});
+				// Check mount state after async operations
+				if (!isMountedRef.current) {
+					console.warn('[ThinkForge] Hydration completed but component unmounted - skipping state update');
+					return;
+				}
 				if (created?.sessionId) {
+					// STEP 3: Immediately persist sessionId - hydration is now complete
+					// hasHydratedRef stays true to prevent any future hydration until idea resets
+					hasHydratedRef.current = true;
 					setPendingSessionId(created.sessionId);
 					scriptHook.resetSessionState();
+					console.log('[ThinkForge] Hydration success', created.sessionId);
+				} else {
+					// Hydration returned null - allow retry by NOT setting hasHydratedRef
+					console.error('[ThinkForge] Hydration returned null, allowing retry');
+					toast({
+						title: 'Session creation failed',
+						description: 'Could not create session. Please try again.',
+						variant: 'destructive',
+					});
 				}
-			} catch {}
+			} catch (err) {
+				// Do NOT set hasHydratedRef on failure - allow retry
+				console.error('[ThinkForge] Hydration failed:', err);
+				if (isMountedRef.current) {
+					toast({
+						title: 'Session error',
+						description: 'Failed to initialize session. Please try again.',
+						variant: 'destructive',
+					});
+				}
+			}
 			finally {
-				setTimeout(() => setOpeningSession(false), 250);
+				// STEP 1: Release mutex in finally block
+				hydratingRef.current = false;
+				if (isMountedRef.current) {
+					setOpeningSession(false);
+				}
 			}
 		}, 220);
-	}, [workspaceMode, selectedIdea, session.sessionId, pendingSessionId, session, scriptHook]);
+	}, [workspaceMode, selectedIdeaId, currentSessionId, pendingSessionId]); // STEP 4: Stable primitives only
 
 	// Clear temporary pendingSessionId once the hook has the active sessionId
 	useEffect(() => {
@@ -337,9 +409,21 @@ export default function ThinkForgeLanding() {
 	}, [openingSession, pendingSessionId, session.sessionId]);
 
 	// Reset hydrate flag when idea changes
-	useEffect(() => { hasHydratedRef.current = false; }, [selectedIdea?.id]);
+	useEffect(() => { 
+		hasHydratedRef.current = false; 
+		hydratingRef.current = false; // Also reset mutex on idea change
+	}, [selectedIdeaId]);
 	// Reset hydrate flag when leaving SCRIPTING
-	useEffect(() => { if (workspaceMode !== 'scripting') { hasHydratedRef.current = false; if (creationTimerRef.current) { clearTimeout(creationTimerRef.current); creationTimerRef.current = null; } } }, [workspaceMode]);
+	useEffect(() => { 
+		if (workspaceMode !== 'scripting') { 
+			hasHydratedRef.current = false; 
+			hydratingRef.current = false; // Also reset mutex
+			if (creationTimerRef.current) { 
+				clearTimeout(creationTimerRef.current); 
+				creationTimerRef.current = null; 
+			} 
+		} 
+	}, [workspaceMode]);
 
 	// Map between hook ScriptModel and UI Script
 	const modelToScript = useCallback((m: ScriptModel | null): Script | null => {
@@ -502,11 +586,16 @@ export default function ThinkForgeLanding() {
 						setSelectedIdea(ideaObj);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
 						setWorkspaceMode('scripting');
-					} catch {
-						// leave overlay to close below
+					} catch (err) {
+						console.error('[ThinkForge] Failed to open session:', err);
+						toast({
+							title: 'Failed to open session',
+							description: 'Could not load the selected session.',
+							variant: 'destructive',
+						});
 					} finally {
-						// Slight delay to let initial ChatPanel fetch complete before removing overlay
-						setTimeout(() => setOpeningSession(false), 250);
+						// Immediately clear overlay - no setTimeout for correctness
+						setOpeningSession(false);
 					}
 				}}
 			/>
@@ -582,8 +671,11 @@ export default function ThinkForgeLanding() {
 						}
 						setActiveScriptId(scriptId);
 						scriptHook.resetSessionState();
+					} catch (err) {
+						console.error('[ThinkForge] Failed to switch script:', err);
 					} finally {
-						setTimeout(() => setOpeningSession(false), 200);
+						// Immediately clear overlay - no setTimeout for correctness
+						setOpeningSession(false);
 					}
 				}}
 				onImportScript={async (data) => {
@@ -633,11 +725,16 @@ export default function ThinkForgeLanding() {
 						setSelectedIdea(ideaObj);
 						// Switch to Script mode so ChatPanel mounts and loads recent chats
 						setWorkspaceMode('scripting');
-					} catch {
-						// leave overlay to close below
+					} catch (err) {
+						console.error('[ThinkForge] Failed to switch session:', err);
+						toast({
+							title: 'Failed to switch session',
+							description: 'Could not load the selected session.',
+							variant: 'destructive',
+						});
 					} finally {
-						// Slight delay to let initial ChatPanel fetch complete before removing overlay
-						setTimeout(() => setOpeningSession(false), 250);
+						// Immediately clear overlay - no setTimeout for correctness
+						setOpeningSession(false);
 					}
 				}}
 				onUpdateIdea={(updatedIdea) => {

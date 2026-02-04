@@ -21,14 +21,17 @@ const LS_CONTENT_CARDS = 'thinkforge_content_cards';
 function saveLocal(cards: ContentCard[]) {
   try {
     localStorage.setItem(LS_CONTENT_CARDS, JSON.stringify(cards));
-  } catch {}
+  } catch (e) {
+    console.warn('[useContentPlanning] saveLocal failed:', e);
+  }
 }
 
 function getLocal(): ContentCard[] {
   try {
     const raw = localStorage.getItem(LS_CONTENT_CARDS);
     return raw ? JSON.parse(raw) : [];
-  } catch {
+  } catch (e) {
+    console.warn('[useContentPlanning] getLocal failed:', e);
     return [];
   }
 }

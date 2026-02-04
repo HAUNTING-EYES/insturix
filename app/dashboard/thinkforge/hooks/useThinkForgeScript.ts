@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
-import type { ScriptModel } from "./useThinkForgeClient";
+import type { ScriptModel } from "./useThinkForgeSession";
 
 const LS_SESSION_PREFIX = "thinkforge_session_";
 const DEBOUNCE_MS = 800;
@@ -14,7 +14,9 @@ function saveLocal(sessionId: string, scriptId: string, data: Partial<{ script: 
     const key = `${LS_SESSION_PREFIX}${sessionId}_${scriptId}`;
     const prev = JSON.parse(localStorage.getItem(key) || "{}");
     localStorage.setItem(key, JSON.stringify({ ...prev, ...data }));
-  } catch {}
+  } catch (e) {
+    console.warn('[useThinkForgeScript] saveLocal failed:', e);
+  }
 }
 
 export function useThinkForgeScript(sessionId: string | null, scriptId: string | null) {
@@ -129,7 +131,9 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
               const merged = { ...(scriptToSave || {}), version: data.currentVersion } as any;
               setScript(merged);
             }
-          } catch {}
+          } catch (e) {
+            console.warn('[useThinkForgeScript] Failed to parse 409 conflict response:', e);
+          }
           return false;
         }
         throw new Error(`Save failed: ${res.status}`);

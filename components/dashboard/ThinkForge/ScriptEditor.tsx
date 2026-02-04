@@ -162,6 +162,10 @@ export default function ScriptEditor({
   const scriptVersionRef = useRef<number>(0);
   const isSwitchingScriptRef = useRef(false);
   
+  // CRITICAL: Pending blocks queue for deterministic hydration
+  // Stores blocks that arrived before editor was ready
+  const pendingBlocksRef = useRef<any[] | null>(null);
+  
   // CRITICAL: Track user typing state to prevent remote updates from overwriting user input
   const isUserTypingRef = useRef(false);
   const lastUserInputTimeRef = useRef<number>(0);
@@ -279,6 +283,37 @@ export default function ScriptEditor({
     }
   }, [onTokenStream, generatingScript, streamingTiptap]);
 
+  // CRITICAL: Hydrate pending blocks when editor becomes ready
+  // This ensures blocks that arrived before editor initialization are not lost
+  useEffect(() => {
+    if (!editor) return;
+    
+    // Check if there are pending blocks waiting for hydration
+    if (pendingBlocksRef.current && pendingBlocksRef.current.length > 0) {
+      console.log('[Script] Editor ready — hydrating', pendingBlocksRef.current.length, 'pending blocks');
+      try {
+        const tiptapContent = toTiptapJSON(pendingBlocksRef.current);
+        const contentHash = JSON.stringify(tiptapContent);
+        
+        // Only apply if not already loaded
+        if (contentHash !== lastLoadedContentRef.current) {
+          isUpdatingFromPropsRef.current = true;
+          editor.commands.setContent(tiptapContent);
+          isUpdatingFromPropsRef.current = false;
+          lastLoadedContentRef.current = contentHash;
+          console.log('[Script] Pending hydration success');
+        } else {
+          console.log('[Script] Pending blocks already loaded (same hash)');
+        }
+      } catch (error) {
+        console.error('[Script] Pending hydration failed:', error);
+      } finally {
+        // Clear pending blocks regardless of success
+        pendingBlocksRef.current = null;
+      }
+    }
+  }, [editor]); // Run when editor becomes available
+
   // Expose selection getter to parent components
   useEffect(() => {
     if (onGetSelection && editor) {
@@ -388,30 +423,33 @@ export default function ScriptEditor({
       
       const isInitialLoad = reason === 'initial-load-api' || reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
+      const isAIUpdate = reason === 'ai-update';  // AI-generated content should be allowed
       
-      // CRITICAL: Never apply remote updates if user is actively typing (except initial load/restore)
+      // CRITICAL: Never apply remote updates if user is actively typing (except initial load/restore/AI)
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
       
-      if (userRecentlyTyped && !isInitialLoad && !isVersionRestore) {
-        console.log(`ScriptEditor: Skipping ${reason}, user is actively typing`);
+      if (userRecentlyTyped && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
+        console.log(`[Script] Blocking ${reason} — user is actively typing`);
         return false;
       }
       
-      // CRITICAL: Never overwrite if user has unsaved changes (unless initial load/restore)
-      if (hasUnsavedChanges && !isInitialLoad && !isVersionRestore) {
-        console.log(`ScriptEditor: Skipping ${reason}, user has unsaved changes`);
+      // CRITICAL: Never overwrite if user has unsaved changes (unless initial load/restore/AI)
+      // AI updates are allowed because they're the result of user's explicit request
+      if (hasUnsavedChanges && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
+        console.log(`[Script] Blocking ${reason} — user has unsaved changes`);
         return false;
       }
       
-      // CRITICAL: Never overwrite if user has local edits (unless initial load/restore)
-      if (hasLocalEditsRef.current && !isInitialLoad && !isVersionRestore) {
-        console.log(`ScriptEditor: Skipping ${reason}, user has local edits`);
+      // CRITICAL: Never overwrite if user has local edits (unless initial load/restore/AI)
+      if (hasLocalEditsRef.current && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
+        console.log(`[Script] Blocking ${reason} — user has local edits`);
         return false;
       }
       
       const contentHash = JSON.stringify(content);
       if (contentHash === lastLoadedContentRef.current) {
+        console.log(`[Script] Skipping ${reason} — content hash unchanged`);
         return false;
       }
       
@@ -421,6 +459,11 @@ export default function ScriptEditor({
       if (isInitialLoad) {
         setHasUnsavedChanges(false);
         hasLocalEditsRef.current = false; // Clear local edits on initial load
+      }
+      // Clear flags after AI update to reflect that content is now synced
+      if (isAIUpdate) {
+        setHasUnsavedChanges(false);
+        hasLocalEditsRef.current = false;
       }
       lastLoadedContentRef.current = contentHash;
       return true;
@@ -727,22 +770,33 @@ export default function ScriptEditor({
     
     const metadataSource = (script?.metadata as any)?.source;
     if (metadataSource === 'editor') {
+      console.log('[Script] Skipping hydration — source is editor (already synced)');
       return;
     }
-    // Check if this is a new script from AI
+    // Check if this is a script update from AI
+    // CRITICAL: Include ALL workflow types that AI generation can produce
     const isAIGenerated = script?.metadata?.workflow === 'create' || 
                           script?.metadata?.workflow === 'edit' ||
-                          script?.metadata?.workflow === 'draft';
+                          script?.metadata?.workflow === 'draft' ||
+                          script?.metadata?.workflow === 'refine' ||  // <-- ADDED: surgical refinements
+                          script?.metadata?.workflow === 'hybrid';    // <-- ADDED: hybrid edits
     
     if (!isAIGenerated) {
+      console.log('[Script] Skipping hydration — not AI workflow:', script?.metadata?.workflow);
       return;
     }
+    
+    console.log('[Script] Blocks received from AI:', { 
+      blockCount: Array.isArray(script.blocks) ? script.blocks.length : 0,
+      workflow: script?.metadata?.workflow 
+    });
     
     const scriptBlocksHash = JSON.stringify(script.blocks);
     const metadataHash = JSON.stringify(script.metadata);
     
     // Skip if already processed
     if (scriptBlocksHash === prevScriptBlocksRef.current && metadataHash === prevMetadataRef.current) {
+      console.log('[Script] Skipping hydration — already processed (same hash)');
       return;
     }
     
@@ -758,15 +812,24 @@ export default function ScriptEditor({
       
       // Defer content update to avoid React lifecycle conflicts
       requestAnimationFrame(() => {
+        if (!editor) {
+          console.log('[Script] Editor not ready — queued hydration');
+          // Store pending blocks for retry
+          pendingBlocksRef.current = script.blocks;
+          return;
+        }
+        console.log('[Script] Hydrating editor with', Array.isArray(script.blocks) ? script.blocks.length : 0, 'blocks');
         const tiptapContent = toTiptapJSON(script.blocks);
         const applied = applyContentToEditor(tiptapContent, 'ai-update');
         if (applied) {
-          console.log('ScriptEditor: Updated with AI-generated content');
+          console.log('[Script] Hydration success — editor updated');
           createVersionSnapshot('AI edit');
+        } else {
+          console.log('[Script] Hydration blocked by applyContentToEditor guards');
         }
       });
     } catch (error) {
-      console.error('ScriptEditor: Failed to apply AI-generated content:', error);
+      console.error('[Script] Hydration failed:', error);
     }
   }, [script?.blocks, script?.metadata, editor, generatingScript, streamingTiptap, createVersionSnapshot]);
 

@@ -26,6 +26,7 @@ export async function POST(req: Request) {
   let script: any | undefined;
   let project: any | undefined;
   let selectionBlocks: any[] | undefined;
+  let selectionBlockIds: string[] | undefined;
   let selectionRange: { from: number; to: number } | undefined;
   let scriptId: string | undefined;
   let generationId: string | undefined;
@@ -40,6 +41,7 @@ export async function POST(req: Request) {
     if (body?.script) script = body.script;
     if (body?.project) project = body.project;
     if (body?.selectionBlocks) selectionBlocks = body.selectionBlocks;
+    if (Array.isArray(body?.selectionBlockIds)) selectionBlockIds = body.selectionBlockIds.map((id: any) => String(id));
     if (body?.selectionRange) selectionRange = body.selectionRange;
     if (body?.scriptId) scriptId = String(body.scriptId);
     if (body?.generationId) generationId = String(body.generationId);
@@ -51,6 +53,12 @@ export async function POST(req: Request) {
 
   if (!prompt?.trim()) {
     return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
+  }
+
+  // STEP 6: Defensive validation - sessionId is required for chat
+  if (!sessionId) {
+    console.error('[ThinkForge Chat] Missing sessionId in request');
+    return NextResponse.json({ error: 'Missing sessionId - session must be created first' }, { status: 400 });
   }
 
   // Check credits before processing
@@ -75,6 +83,7 @@ export async function POST(req: Request) {
       script,
       project,
       selectionBlocks,
+      selectionBlockIds,
       selectionRange,
       scriptId,
       generationId,
