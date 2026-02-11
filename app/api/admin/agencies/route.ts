@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
-import Contact from '@/schemas/ContactSchema';
+import ContactSales from '@/schemas/ContactSalesSchema';
 
 /**
- * GET /api/admin/contacts
- * Returns paginated contact us form responses
+ * GET /api/admin/agencies
+ * Returns paginated agency/contact sales form responses
  */
 export async function GET(req: NextRequest) {
   // Verify admin access
@@ -47,18 +47,18 @@ export async function GET(req: NextRequest) {
     const filter = conditions.length > 0 ? { $and: conditions } : {};
     const skip = (page - 1) * limit;
 
-    // Fetch contacts sorted by newest first
-    const contacts = await Contact.find(filter)
+    // Fetch agencies sorted by newest first
+    const agencies = await ContactSales.find(filter)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
     // Get total count for pagination
-    const total = await Contact.countDocuments(filter);
+    const total = await ContactSales.countDocuments(filter);
 
     return NextResponse.json({
       ok: true,
-      contacts,
+      agencies,
       pagination: {
         total,
         page,
@@ -67,9 +67,9 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('Error fetching contacts:', error);
+    console.error('Error fetching agencies:', error);
     return NextResponse.json(
-      { ok: false, message: 'Failed to fetch contact messages' },
+      { ok: false, message: 'Failed to fetch agency messages' },
       { status: 500 }
     );
   }

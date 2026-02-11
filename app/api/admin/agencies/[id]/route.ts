@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyAdminForApi } from '@/lib/auth/adminAuth';
 import connectToDatabase from '@/schemas/ConnectToDatabase';
-import Contact from '@/schemas/ContactSchema';
+import ContactSales from '@/schemas/ContactSalesSchema';
 
 /**
- * PATCH /api/admin/contacts/:id
+ * PATCH /api/admin/agencies/:id
  * Body: { read?: boolean, deleted?: boolean }
  */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -35,19 +35,19 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       return NextResponse.json({ ok: false, message: 'Invalid payload' }, { status: 400 });
     }
 
-    const updated = await Contact.findByIdAndUpdate(
+    const updated = await ContactSales.findByIdAndUpdate(
       id,
       { $set: updateFields },
       { new: true, strict: false }
     );
 
     if (!updated) {
-      return NextResponse.json({ ok: false, message: 'Contact not found' }, { status: 404 });
+      return NextResponse.json({ ok: false, message: 'Agency not found' }, { status: 404 });
     }
 
-    return NextResponse.json({ ok: true, contact: updated });
+    return NextResponse.json({ ok: true, agency: updated });
   } catch (error) {
-    console.error('Error updating contact status:', error);
+    console.error('Error updating agency status:', error);
     return NextResponse.json({ ok: false, message: 'Failed to update status' }, { status: 500 });
   }
 }

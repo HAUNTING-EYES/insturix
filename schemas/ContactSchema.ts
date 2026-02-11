@@ -7,6 +7,8 @@ interface IContact extends Document {
   message: string;
   read?: boolean;
   readAt?: Date | null;
+  deleted?: boolean;
+  deletedAt?: Date | null;
 }
 
 const contactSchema = new Schema<IContact>(
@@ -33,6 +35,15 @@ const contactSchema = new Schema<IContact>(
       default: false,
     },
     readAt: {
+      type: Date,
+      required: false,
+      default: null,
+    },
+    deleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
       type: Date,
       required: false,
       default: null,

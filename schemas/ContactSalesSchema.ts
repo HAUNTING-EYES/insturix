@@ -7,6 +7,10 @@ interface IContactSales extends Document {
   phone?: string;
   companySize?: string;
   message: string;
+  read?: boolean;
+  readAt?: Date | null;
+  deleted?: boolean;
+  deletedAt?: Date | null;
 }
 
 const contactSalesSchema = new Schema<IContactSales>(
@@ -35,6 +39,24 @@ const contactSalesSchema = new Schema<IContactSales>(
     message: {
       type: String,
       required: true,
+    },
+    read: {
+      type: Boolean,
+      default: false,
+    },
+    readAt: {
+      type: Date,
+      required: false,
+      default: null,
+    },
+    deleted: {
+      type: Boolean,
+      default: false,
+    },
+    deletedAt: {
+      type: Date,
+      required: false,
+      default: null,
     },
   },
   {
