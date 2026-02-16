@@ -20,16 +20,16 @@ import type { LanguageModel } from 'ai';
  * - Reasoning: prose/synthesis/advanced reasoning (flash/preview models)
  */
 export enum ModelTier {
-  Structural = 'structural',  // gemini-1.5-flash
-  Reasoning = 'reasoning',    // gemini-1.5-flash or gemini-1.5-pro
+  Structural = 'structural',  // gemini-2.0-flash
+  Reasoning = 'reasoning',    // gemini-2.0-flash or gemini-2.0-pro
 }
 
 /**
  * Model spec map by tier
  */
 const TIER_MODEL_MAP: Record<ModelTier, string> = {
-  [ModelTier.Structural]: 'gemini-1.5-flash',
-  [ModelTier.Reasoning]: 'gemini-1.5-flash',
+  [ModelTier.Structural]: 'gemini-2.0-flash',
+  [ModelTier.Reasoning]: 'gemini-2.0-flash',
 };
 
 // Cache the provider instance
@@ -89,11 +89,11 @@ export function createModelByTier(tier: ModelTier): LanguageModel {
 /**
  * Create a model instance for ThinkForge agents
  * 
- * @param modelName - Model name (defaults to gemini-1.5-flash)
+ * @param modelName - Model name (defaults to gemini-2.0-flash)
  * @returns Model instance compatible with Vercel AI SDK
  * @deprecated Use createModelByTier for new code
  */
-export function createThinkForgeModel(modelName: string = 'gemini-1.5-flash'): LanguageModel {
+export function createThinkForgeModel(modelName: string = 'gemini-2.0-flash'): LanguageModel {
   const provider = getProvider();
   return provider(modelName) as unknown as LanguageModel;
 }
