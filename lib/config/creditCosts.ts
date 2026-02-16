@@ -70,9 +70,8 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       // Model-specific multipliers (gemini-2.5-flash is baseline 1x)
       modelMultipliers: {
         'gemini-2.5-flash': 1,
-        'gemini-2.0-flash': 1.2,
+        'gemini-2.0-flash': 1,
         'gemini-1.5-pro': 3,
-        'gemini-1.5-flash': 0.8,
       },
     },
   ],
