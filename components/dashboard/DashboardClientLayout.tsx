@@ -11,9 +11,6 @@ import { lazy, Suspense } from "react";
 
 // Lazy load heavy components
 const DashboardSidebar = lazy(() => import("@/components/dashboard/DashboardSidebar"));
-const TaskNotificationManager = lazy(() => import("@/components/dashboard/rtdb/TaskNotificationManager").then(mod => ({ default: mod.TaskNotificationManager })));
-// const RtdbProvider = lazy(() => import("@/providers/RtdbProvider").then(mod => ({ default: mod.RtdbProvider })));
-
 export default function DashboardClientLayout({
   children,
   initialUserData,
@@ -43,11 +40,6 @@ export default function DashboardClientLayout({
                 {children}
               </div>
             </main>
-           {!pathname.startsWith("/dashboard/musitron") && (
-              <Suspense fallback={null}>
-                <TaskNotificationManager />
-              </Suspense>
-            )}
           </ServiceProviders>
         </Suspense>
       </UserInitializationProvider>

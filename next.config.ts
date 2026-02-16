@@ -17,7 +17,6 @@ const nextConfig: NextConfig = {
       'lucide-react',
       'framer-motion',
       '@tanstack/react-query',
-      'firebase'
     ],
   },
   // Turbopack configuration (moved from experimental.turbo)
@@ -50,13 +49,6 @@ const nextConfig: NextConfig = {
             chunks: 'all',
             test: /node_modules\/(framer-motion|@radix-ui|lucide-react)/,
             priority: 30,
-          },
-          // Firebase chunk
-          firebase: {
-            name: 'firebase',
-            chunks: 'all',
-            test: /node_modules\/firebase/,
-            priority: 25,
           },
           // Common chunk for shared code
           common: {
