@@ -4,6 +4,7 @@ import { getCollections } from "@/app/api/services/alyzitron/utils/mongodb";
 import { notFound } from "next/navigation";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
 import { AnalysisDetails, AnalysisError, PrivateAnalysisView } from "./components";
+import { getGcsSignedUrl } from "../../utils/GcsSignedUrl";
 
 export const dynamic = "force-dynamic";
 
@@ -142,12 +143,20 @@ export default async function AnalysisReport({ params }: PageProps) {
     analysisData.compliance_risks = complianceMetrics;
   }
 
+  // Check if videoUrl is not a YouTube URL and get signed GCS video url
+  const isYouTubeUrl =
+    analysis.videoUrl &&
+    (analysis.videoUrl.includes("youtube.com") || analysis.videoUrl.includes("youtu.be"));
+
+  const signedUrl = !isYouTubeUrl ? await getGcsSignedUrl(analysis.videoUrl) : null;
+
   return (
     <div className="container mx-auto p-8">
       <div className="max-w-5xl mx-auto">
         <AnalysisDetails
           analysisData={analysisData}
           videoUrl={analysis.videoUrl}
+          signedUrl={signedUrl}
           videoTitle={analysis.metadata?.originalFilename}
           createdAt={analysis.createdAt}
           analysisId={analysis._id}

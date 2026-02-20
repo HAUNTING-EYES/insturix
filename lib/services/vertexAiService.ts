@@ -214,24 +214,36 @@ ${
    - Do not spread misinformation, hate, discrimination, or illegal advice.
    - Ensure the analysis is respectful, neutral, and responsible.
 
+CRITICAL TIMESTAMP INSTRUCTIONS:
+- Include timestamps in [HH:MM:SS] format naturally WITHIN the description text, NOT as a separate field
+- ONLY include timestamps when pointing to a SPECIFIC moment in the video
+- If an observation applies generally to the entire video, DO NOT include a timestamp
+- Format: Use square brackets like [00:01:23] embedded naturally in the sentence
+- Examples:
+  ✅ GOOD: "The voiceover at [00:00:15] is clear and engaging"
+  ✅ GOOD: "Potential copyright issue visible at [00:01:30] with the background music"
+  ✅ GOOD: "The video maintains consistent quality throughout" (no timestamp - general)
+  ❌ BAD: Don't add timestamps to every single description
+
 ANALYSIS REQUIREMENTS:
 1. Provide a detailed summary of what happens in the video
-2. Identify key moments with timestamps (format: "MM:SS") and descriptions
+2. Identify key moments with timestamps (format: "HH:MM:SS") and descriptions
 3. Assess video quality (audio, visuals, pacing, engagement) with overall_score on a scale of 1-100 (Higher is Better). This score MUST reflect compliance with the selected location's (${context.location}) standards.
 4. For all analysis metrics and compliance risks, use a scale of 1-100.
    - For Quality/Performance metrics: Higher score = better performance.
    - For Risk/Issue/Compliance metrics: Higher score = higher risk/problem (Lower is Better for the user).
-5. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
-6. List any content warnings if applicable
+5. Include timestamps [HH:MM:SS] naturally in descriptions ONLY when referring to specific moments
+6. Give specific suggestions and remarks for improvement that are strategically aligned with the user's context (${context.platform}, ${context.location}). For example, if location is India, suggest optimizations for Indian viewers or compliance with Indian ad standards.
+7. List any content warnings if applicable
 
 CRITICAL: Return ONLY raw JSON without any markdown formatting, backticks, or explanatory text.
 
-JSON STRUCTURE:
+JSON STRUCTURE EXAMPLE:
 {
   "summary": "Detailed summary here",
   "keyMoments": [
-    {"timestamp": "00:00", "description": "Description here"},
-    {"timestamp": "00:30", "description": "Description here"}
+    {"timestamp": "00:00:00", "description": "Video starts with intro"},
+    {"timestamp": "00:00:30", "description": "Main content begins"}
   ],
   "qualityAssessment": {
     "score": 85,
@@ -239,10 +251,29 @@ JSON STRUCTURE:
   },
   "recommendations": ["Recommendation 1", "Recommendation 2"],
   "contentWarnings": ["Warning 1", "Warning 2"],
+  "analysis": [
+    {
+      "category_name": "Visuals",
+      "metrics": [
+        {
+          "name": "Map Animation & Clarity",
+          "score": 90,
+          "description": "Clear satellite imagery with effective highlighting",
+        }
+      ]
+    }
+  ],
+  "compliance_risks": [
+    {
+      "name": "Misinformation Risk",
+      "score": 10,
+      "description": "Content is factual",
+    }
+  ],
   "analysisTime": "${new Date().toISOString()}"
 }
 
-Be specific and reference actual content from the video.
+Be specific and reference actual content from the video with precise timestamps.
 `;
 
     // Prepare request parts

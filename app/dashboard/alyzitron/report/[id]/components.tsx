@@ -18,7 +18,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
 
@@ -31,6 +31,88 @@ const copyToClipboard = async (text: string): Promise<boolean> => {
     console.error("Failed to copy:", err);
     return false;
   }
+};
+
+// Helper function to convert HH:MM:SS timestamp to seconds
+const timestampToSeconds = (timestamp: string): number => {
+  const parts = timestamp.split(':').map(Number);
+  
+  if (parts.length === 3) {
+    // HH:MM:SS format
+    const [hours, minutes, seconds] = parts;
+    return hours * 3600 + minutes * 60 + seconds;
+  } else if (parts.length === 2) {
+    // MM:SS format (fallback)
+    const [minutes, seconds] = parts;
+    return minutes * 60 + seconds;
+  } else if (parts.length === 1) {
+    // Just seconds (fallback)
+    return parts[0];
+  }
+  
+  return 0;
+};
+
+// Component to render text with clickable timestamps
+
+const TimestampText = ({ text, onTimestampClick }: {text: string, onTimestampClick: (timestamp: string) => void}) => {
+  // Regex to match [HH:MM:SS], [MM:SS], or [H:MM:SS] format
+  const timestampRegex = /\[(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})\]/g;
+  
+  const parts = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = timestampRegex.exec(text)) !== null) {
+    // Add text before the timestamp
+    if (match.index > lastIndex) {
+      parts.push({
+        type: 'text',
+        content: text.substring(lastIndex, match.index),
+        key: `text-${lastIndex}`
+      });
+    }
+    
+    // Add the timestamp as a clickable button
+    const timestamp = match[1]; // Extract timestamp without brackets
+    parts.push({
+      type: 'timestamp',
+      content: timestamp,
+      key: `timestamp-${match.index}`
+    });
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text after the last timestamp
+  if (lastIndex < text.length) {
+    parts.push({
+      type: 'text',
+      content: text.substring(lastIndex),
+      key: `text-${lastIndex}`
+    });
+  }
+
+  return (
+    <>
+      {parts.map((part) => {
+        if (part.type === 'timestamp') {
+          return (
+            <button
+              key={part.key}
+              onClick={() => onTimestampClick(part.content)}
+              className="inline-flex items-center gap-0.5 text-blue-400 hover:text-blue-300 hover:underline font-mono text-xs transition-colors mx-0.5"
+              title={`Jump to ${part.content}`}
+            >
+              {part.content}
+            </button>
+          );
+        } else {
+          return <span key={part.key}>{part.content}</span>;
+        }
+      })}
+    </>
+  );
 };
 
 // Helper function to format description with hashtags
@@ -73,6 +155,7 @@ const ScoreIndicator = ({
 interface AnalysisDetailsProps {
   analysisData: AnalysisData;
   videoUrl?: string;
+  signedUrl?: string;
   videoTitle?: string;
   createdAt?: Date;
   analysisId?: string;
@@ -272,6 +355,7 @@ function ShareButton({
 export function AnalysisDetails({
   analysisData,
   videoUrl,
+  signedUrl,
   videoTitle,
   createdAt,
   analysisId,
@@ -285,6 +369,10 @@ export function AnalysisDetails({
   const [showAllDescriptions, setShowAllDescriptions] = useState(false);
   const [copiedItems, setCopiedItems] = useState<Set<string>>(new Set());
 
+  // Video player refs for both YouTube and uploaded videos
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
   // Helper function to handle copy with visual feedback
   const handleCopy = async (text: string, itemId: string) => {
     const success = await copyToClipboard(text);
@@ -297,6 +385,42 @@ export function AnalysisDetails({
           return newSet;
         });
       }, 2000);
+    }
+  };
+
+  // Function to handle timestamp clicks
+  const handleTimestampClick = (timestamp: string) => {
+    if (!timestamp || timestamp === "00:00:00") {
+      // If timestamp is 00:00:00 or empty, just scroll to video
+      window.scrollTo({
+        top: 0,
+        behavior: 'smooth'
+      });
+      return;
+    }
+
+    const seconds = timestampToSeconds(timestamp);
+
+    // For YouTube videos
+    if (isYouTubeUrl && youtubeVideoId && iframeRef.current) {
+      // Update YouTube iframe src with time parameter
+      const currentSrc = iframeRef.current.src;
+      const baseUrl = currentSrc.split('?')[0];
+      iframeRef.current.src = `${baseUrl}?start=${Math.floor(seconds)}&autoplay=1`;
+      
+      // Scroll to video
+      iframeRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } 
+    // For uploaded videos
+    else if (videoRef.current) {
+      videoRef.current.currentTime = seconds;
+      videoRef.current.play().catch(err => {
+        console.log("Autoplay prevented:", err);
+        // If autoplay is prevented, just seek to the timestamp
+      });
+      
+      // Scroll to video
+      videoRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
   };
 
@@ -432,7 +556,7 @@ export function AnalysisDetails({
       </div>
 
       {/* Video Section */}
-      {youtubeVideoId && (
+      {youtubeVideoId ? (
         <div className="mb-8">
           <div className="bg-black/40 border border-zinc-800 rounded-lg p-6 backdrop-blur-xl">
             <div className="flex flex-col lg:flex-row gap-6">
@@ -442,6 +566,7 @@ export function AnalysisDetails({
                   style={{ paddingBottom: "56.25%" /* 16:9 aspect ratio */ }}
                 >
                   <iframe
+                    ref={iframeRef}
                     className="absolute top-0 left-0 w-full h-full rounded-lg"
                     src={`https://www.youtube.com/embed/${youtubeVideoId}`}
                     title="YouTube video player"
@@ -454,6 +579,52 @@ export function AnalysisDetails({
               <div className="lg:w-1/3 flex flex-col justify-center">
                 <h2 className="text-xl font-semibold text-zinc-100 mb-3">
                   {videoTitle || "YouTube Video"}
+                </h2>
+                <p className="text-zinc-400 text-sm mb-4">
+                  Original video being analyzed
+                </p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Video Type:</span>
+                    <span className="text-zinc-300">
+                      {analysisData.category}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Overall Score:</span>
+                    <span className="text-zinc-100 font-semibold">
+                      {overallScore}/100
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mb-8">
+          <div className="bg-black/40 border border-zinc-800 rounded-lg p-6 backdrop-blur-xl">
+            <div className="flex flex-col lg:flex-row gap-6">
+              <div className="lg:w-2/3">
+                <div
+                  className="relative w-full bg-black rounded-lg overflow-hidden"
+                  style={{ paddingBottom: "56.25%" }} // 16:9 aspect ratio
+                >
+                  <video
+                    ref={videoRef}
+                    className="absolute inset-0 w-full h-full object-contain block"
+                    controls
+                    playsInline
+                    preload="metadata"
+                  >
+                    <source src={signedUrl} type="video/mp4" />
+                    Your browser does not support the video tag.
+                  </video>
+                </div>
+              </div>
+              <div className="lg:w-1/3 flex flex-col justify-center">
+                <h2 className="text-xl font-semibold text-zinc-100 mb-3">
+                  {videoTitle?.split('_').join(' ') || "YouTube Video"} {/*Convert single-word string to multi-word*/}
                 </h2>
                 <p className="text-zinc-400 text-sm mb-4">
                   Original video being analyzed
@@ -873,7 +1044,10 @@ export function AnalysisDetails({
                             {key.replace(/_/g, " ")}
                           </div>
                           <p className="text-sm text-zinc-400 leading-relaxed">
-                            {value.description}
+                            <TimestampText 
+                              text={value.description} 
+                              onTimestampClick={handleTimestampClick}
+                            />
                           </p>
                         </div>
                         <div className="flex items-center ml-4 shrink-0">
