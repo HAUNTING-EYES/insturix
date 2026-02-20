@@ -313,16 +313,7 @@ export class UserInitializationService {
     // Convert plan serviceLimits to user serviceLimits structure
     const convertedLimits = this.convertPlanLimitsToUserLimits(freePlan.serviceLimits as unknown);
 
-    // Check if conversion resulted in valid limits
-    const hasValidLimits = Object.values(convertedLimits).some(
-      (limits) => Array.isArray(limits) && limits.length > 0
-    );
-
-    if (!hasValidLimits) {
-      throw new Error("Free plan serviceLimits conversion resulted in empty limits. Database setup is incomplete.");
-    }
-
-    console.log("Using Free plan limits from database");
+    console.log("Using Free plan limits from database (credits-based billing; empty limits are expected)");
     return convertedLimits;
   }
 
