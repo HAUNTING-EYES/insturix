@@ -179,7 +179,7 @@ export default function IntelligenceLayer() {
                   </linearGradient>
                 </defs>
                 {services.map((service, i) => {
-                  const radius = 35;
+                  const radius = 42;
                   const startRadius = 12;
                   const rad = (service.angle * Math.PI) / 180;
                   const x1 = 50 + startRadius * Math.cos(rad);
