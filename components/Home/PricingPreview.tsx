@@ -99,7 +99,7 @@ export default function PricingPreview() {
                 ))}
               </ul>
 
-              <Link href="/pricing">
+              <Link href="/upgrade">
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
@@ -126,7 +126,7 @@ export default function PricingPreview() {
           className="mt-12 text-center"
         >
           <p className="text-zinc-500 text-sm">
-            Need more? <Link href="/pricing" className="text-zinc-300 hover:text-white underline underline-offset-4">Top-up credits</Link> as you go.
+            Need more? <Link href="/upgrade" className="text-zinc-300 hover:text-white underline underline-offset-4">Top-up credits</Link> as you go.
           </p>
         </motion.div>
       </div>

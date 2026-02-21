@@ -31,7 +31,7 @@ const config = {
   additionalPaths: async () => {
     // Create a set to track URLs we've already added to prevent duplicates
     const addedPaths = new Set();
-    
+
     const blogPosts = await fetchBlogPosts();
     const blogPaths = blogPosts.map((post) => ({
       loc: `/resources/blogs/${post.slug}`,
@@ -98,7 +98,7 @@ const config = {
 
     // Combine all paths
     const paths = [...blogPaths, ...productPaths, ...staticPages];
-    
+
     // Only return paths that haven't been added yet
     const uniquePaths = paths.filter(path => {
       if (addedPaths.has(path.loc)) {
@@ -147,7 +147,7 @@ const config = {
   transform: async (config, path) => {
     // Custom transform function to set priority and changefreq
     const url = config?.loc || "/";
-    
+
     // Skip duplicate entries for the same URL
     // This is to prevent multiple entries for the homepage
     if (url === "/" && path === "/") {
@@ -201,7 +201,7 @@ const config = {
     } else if (path?.startsWith("/about") || path?.startsWith("/contactus")) {
       priority = 0.8;
       changefreq = "weekly";
-    } else if (path?.startsWith("/pricing")) {
+    } else if (path?.startsWith("/upgrade")) {
       priority = 0.9;
       changefreq = "daily";
     }
