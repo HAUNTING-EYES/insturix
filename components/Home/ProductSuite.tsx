@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { motion, useScroll, useMotionValueEvent, AnimatePresence } from "framer-motion";
 import Link from "next/link";
-import { ArrowRight, Play, Wand2, BarChart3, Edit3, Music, Share2, Compass, CheckCircle, AlertCircle, MousePointer2, Sparkles, SlidersHorizontal, Plus, GripVertical, ExternalLink, Edit2, Trash2, Link2, User, Copy, Video, Type, Image as ImageIcon, Smile, Folder, LayoutTemplate, Bot, History, Send, Save, Bell, RotateCw, Undo, Redo, ZoomIn, Maximize2, Settings, Layers, Mic, Volume2, FastForward, Rewind, SkipBack, SkipForward, Repeat, Youtube, Instagram, LineChart, Network, Users, MousePointerClick, Calendar, Clock, PenTool, Beaker, FileText, ListChecks, BookOpen, Brain, Loader2 } from "lucide-react";
+import { ArrowRight, Play, Wand2, BarChart3, Edit3, Music, Share2, Compass, CheckCircle, AlertCircle, MousePointer2, Sparkles, SlidersHorizontal, Plus, GripVertical, ExternalLink, Edit2, Trash2, Link2, User, Copy, Video, Type, Image as ImageIcon, Smile, Folder, LayoutTemplate, Bot, History, Send, Save, Bell, RotateCw, Undo, Redo, ZoomIn, Maximize2, Settings, Layers, Mic, Volume2, FastForward, Rewind, SkipBack, SkipForward, Repeat, Youtube, Instagram, LineChart, Network, Users, MousePointerClick, Calendar, Clock, PenTool, Beaker, FileText, ListChecks, BookOpen, Brain, Loader2, Scissors, Upload } from "lucide-react";
 
 const products = [
   {
@@ -11,8 +11,8 @@ const products = [
     name: "Editron",
     tagline: "AI Video Editor",
     description: "Upload raw footage, let AI cut filler, add captions, and match your brand's pacing. Zero editing experience needed.",
-    color: "#34D399",
-    icon: Play,
+    color: "#14b8a6",
+    icon: Scissors,
     href: "/products/editron",
     visual: () => (
       <div className="w-full h-full flex relative bg-[#0E0E10] overflow-hidden text-zinc-300 rounded-xl">
@@ -259,8 +259,8 @@ const products = [
     name: "Clickatron",
     tagline: "AI Image Studio",
     description: "Generate scroll-stopping thumbnails and visuals. Sketch-to-edit, generative fill, and intelligent A/B testing built in.",
-    color: "#818CF8",
-    icon: Wand2,
+    color: "#8B5CF6",
+    icon: Sparkles,
     href: "/products/clickatron",
     visual: () => (
       <div className="w-full h-full p-4 flex gap-4 relative bg-zinc-950 overflow-hidden text-zinc-300">
@@ -415,8 +415,8 @@ const products = [
     name: "Alyzitron",
     tagline: "Content Analyzer",
     description: "Score your content before publishing. Deep analytics, compliance checks, and SEO optimization powered by brand-aware AI.",
-    color: "#60A5FA",
-    icon: BarChart3,
+    color: "#3B82F6",
+    icon: Video,
     href: "/products/alyzitron",
     visual: () => (
       <div className="w-full h-full flex flex-col relative bg-zinc-950 overflow-hidden">
@@ -552,8 +552,8 @@ const products = [
     name: "ThinkForge",
     tagline: "AI Scriptwriter",
     description: "Turn ideas into brand-aligned scripts. Web search, tone matching, and structured markdown editing in one workspace.",
-    color: "#F87171",
-    icon: Edit3,
+    color: "#EF4444",
+    icon: Brain,
     href: "/products/thinkforge",
     visual: () => (
       <div className="w-full h-full flex flex-col relative bg-[#0A0A0A] overflow-hidden text-zinc-300 rounded-xl font-sans">
@@ -741,7 +741,7 @@ const products = [
     name: "Musitron",
     tagline: "AI Music Generator",
     description: "Generate copyright-free background music that fits your mood and pacing. Prompt-based creation.",
-    color: "#FBBF24",
+    color: "#EAB308",
     icon: Music,
     href: "/products/musitron",
     visual: () => (
@@ -941,7 +941,7 @@ const products = [
     tagline: "Multi-Platform Distribution",
     description: "Publish to YouTube, Instagram, TikTok, and Meta simultaneously. Schedule, optimize, and track.",
     color: "#2DD4BF",
-    icon: Share2,
+    icon: Upload,
     href: "/products/uploaderx",
     visual: () => (
       <div className="w-full h-full p-4 flex gap-4 relative bg-[#0E0E10] overflow-hidden text-zinc-300 font-sans">
@@ -1098,8 +1098,8 @@ const products = [
     name: "Socialize",
     tagline: "Link-in-Bio Builder",
     description: "A smart link-in-bio that auto-updates with your latest content. Custom banners and AI styling.",
-    color: "#FB923C",
-    icon: Compass,
+    color: "#0EA5E9",
+    icon: Share2,
     href: "/products/socialize",
     visual: () => (
       <div className="w-full h-full p-4 flex gap-4 relative bg-[#0E0E10] overflow-hidden text-zinc-300">
