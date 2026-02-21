@@ -113,7 +113,7 @@ export default function IntelligenceLayer() {
                 </div>
               </motion.div>
               
-              {/* Service nodes — staggered entrance from edges */}
+              {/* Service nodes — staggered entrance, static positions */}
               {services.map((service, i) => {
                 const radius = 42;
                 const rad = (service.angle * Math.PI) / 180;
@@ -121,51 +121,44 @@ export default function IntelligenceLayer() {
                 const y = 50 + radius * Math.sin(rad);
                 const Icon = service.icon;
                 
-                // Calculate the direction the node comes from (outward from center)
-                const startX = 50 + (radius + 20) * Math.cos(rad);
-                const startY = 50 + (radius + 20) * Math.sin(rad);
-                
                 return (
-                  <motion.div
+                  <div
                     key={service.name}
-                    initial={{
-                      left: `${startX}%`,
-                      top: `${startY}%`,
-                      opacity: 0,
-                      scale: 0.5,
-                    }}
-                    whileInView={{
+                    className="absolute z-10"
+                    style={{
                       left: `${x}%`,
                       top: `${y}%`,
-                      opacity: 1,
-                      scale: 1,
+                      transform: 'translate(-50%, -50%)',
                     }}
-                    viewport={{ once: true }}
-                    transition={{
-                      duration: 0.6,
-                      delay: 0.5 + i * 0.08,
-                      ease,
-                    }}
-                    className="absolute z-10"
-                    style={{ transform: 'translate(-50%, -50%)' }}
                   >
                     <motion.div
-                      whileHover={{ scale: 1.15, y: -4 }}
-                      transition={{ type: "spring", stiffness: 400 }}
-                      className="flex flex-col items-center cursor-pointer relative"
+                      initial={{ opacity: 0, scale: 0.5 }}
+                      whileInView={{ opacity: 1, scale: 1 }}
+                      viewport={{ once: true }}
+                      transition={{
+                        duration: 0.6,
+                        delay: 0.5 + i * 0.08,
+                        ease,
+                      }}
                     >
-                      <div 
-                        className="w-12 h-12 rounded-xl border flex items-center justify-center shadow-lg bg-zinc-900 relative overflow-hidden"
-                        style={{ borderColor: `${service.color}30` }}
+                      <motion.div
+                        whileHover={{ scale: 1.15, y: -4 }}
+                        transition={{ type: "spring", stiffness: 400 }}
+                        className="flex flex-col items-center cursor-pointer relative"
                       >
-                        <div className="absolute inset-0 opacity-10" style={{ backgroundColor: service.color }} />
-                        <Icon className="w-5 h-5 relative z-10" style={{ color: service.color }} />
-                      </div>
-                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] font-semibold text-zinc-400 whitespace-nowrap">
-                        {service.name}
-                      </span>
+                        <div 
+                          className="w-12 h-12 rounded-xl border flex items-center justify-center shadow-lg bg-zinc-900 relative overflow-hidden"
+                          style={{ borderColor: `${service.color}30` }}
+                        >
+                          <div className="absolute inset-0 opacity-10" style={{ backgroundColor: service.color }} />
+                          <Icon className="w-5 h-5 relative z-10" style={{ color: service.color }} />
+                        </div>
+                        <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] font-semibold text-zinc-400 whitespace-nowrap">
+                          {service.name}
+                        </span>
+                      </motion.div>
                     </motion.div>
-                  </motion.div>
+                  </div>
                 );
               })}
 
