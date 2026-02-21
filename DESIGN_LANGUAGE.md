@@ -13,26 +13,25 @@ The core objective is to simulate the experience of a high-end production studio
 
 ---
 
-## 2. Color System: "Warm Charcoal"
+## 2. Color System: "Monochrome Studio"
 
-### Base Palette
-Used for the structural layer of the application.
+### Structural Palette
+The foundation is purely monochrome to allow product-specific colors to pop.
 - **Background**: `#09090B` (Zinc-950) — A deep, warm charcoal.
 - **Text (Primary)**: `#FAFAFA` (Zinc-50) — High-contrast warm white.
 - **Text (Secondary)**: `#A1A1AA` (Zinc-400) — Muted zinc for body copy.
-- **Border/Dividers**: `#18181B` (Zinc-900) — Subtle structural lines.
+- **Border/Dividers**: `#18181B` (Zinc-900) — Subtle structural lines (often 1px).
 
-### Functional Accents
-Used for interaction and service identity. 
-- **Global Action (CTA)**: `#F59E0B` (Amber-500) — The primary "Energy" color.
-- **Product Signature Colors**: Used only within a product's specific context (cards, visualizations).
-  - **Editron**: `#34D399` (Emerald-400)
-  - **Clickatron**: `#C084FC` (Purple-400)
-  - **Alyzitron**: `#60A5FA` (Blue-400)
-  - **ThinkForge**: `#F87171` (Red-400)
-  - **Musitron**: `#FBBF24` (Amber-400)
-  - **UploaderX**: `#2DD4BF` (Teal-400)
-  - **Socialize**: `#FB923C` (Orange-400)
+### Functional & Interaction
+- **Global Action (CTA)**: Pure White/Black — We avoid a specific brand accent color in favor of a neutral, high-end monochrome look (similar to Linear or Vercel). High-utility buttons use white backgrounds with black text.
+- **Product Signature Colors**: Used only within a product's specific context (cards, visualizations, dashboard elements).
+  - **Editron**: `#10B981` (Emerald-500)
+  - **Clickatron**: `#A855F7` (Purple-500)
+  - **Alyzitron**: `#3B82F6` (Blue-500)
+  - **ThinkForge**: `#EF4444` (Red-500)
+  - **Musitron**: `#F59E0B` (Amber-500)
+  - **UploaderX**: `#14B8A6` (Teal-500)
+  - **Socialize**: `#3B82F6` (Indigo/Blue-500) — Deep blue to differentiate from Alyzitron's sky blue.
 
 ---
 
@@ -46,23 +45,28 @@ Insturix uses a dual-font system to balance character with utility.
 
 ## 4. Visual Components
 
-### The Dashboard Mockup
-Always represent the product using high-fidelity CSS mockups that mirror real app states (Sidebars, Timelines, Preview panes) rather than abstract wireframes.
+### High-Fidelity Mockups
+Always represent products using interactive CSS/Framer-Motion dashboards. These are not static screenshots but living representations of:
+- **Editron**: Multi-pane video editors with timelines and AI chat sidebars.
+- **ThinkForge**: Structured scriptwriting documents with floating toolbars.
+- **Musitron**: Dynamic waveforms and track-mixing consoles.
 
-### Bespoke Visualizations
-Avoid generic Lucide/Tabler icons for representing services. Use bespoke, simplified representations of the tool's output:
-- **Editron**: Timeline layers and playheads.
-* **Musitron**: Frequency waveforms and progress sliders.
-* **Alyzitron**: Strategic scoring boards and performance bars.
-* **Clickatron**: Comparison grids and variant generators.
-
-### Texture & Depth
-- **Film Grain/Noise**: A subtle SVG noise texture (`opacity: 0.025`) is applied to background layers to add tactile depth.
-- **Shadows**: Deep, soft shadows (`shadow-2xl shadow-black/50`) for elevated elements like the browser mockup.
+### Performance-First Aesthetics
+We prioritize site speed and core web vitals over complex decorative effects:
+- **No SVG Filters**: High-performance over visual grain. Avoid `filter: url(#noiseFilter)`.
+- **Minimal Blurs**: Limit the use of `backdrop-blur` and heavy `blur-xl` containers which can cause paint lag.
+- **Structural Depth**: Use 1px borders and subtle background value shifts (`bg-zinc-900/50`) instead of heavy shadows or glows.
 
 ---
 
-## 5. Tone of Voice
+## 5. Texture & Depth
+- **Contrast over Glow**: Depth is created through high-contrast text against various shades of zinc.
+- **Motion**: Use `Framer Motion` for entrance transitions and scroll-driven interactions (e.g., the ProductSuite switcher) to make the page feel alive.
+- **Borders**: Layering is achieved via clean `border-zinc-800` lines rather than complex skeuomorphism.
+
+---
+
+## 6. Tone of Voice
 - **Authoritative**: We are the Operating System for content. We don't "help," we "orchestrate."
 - **Empowering**: Focus on the creator's output, not the AI's "magic."
 - **Professional**: Clean, direct, and free from excessive marketing fluff.
