@@ -1,17 +1,46 @@
-# Insturix Platform
+# INSTURIX: Platform Overview & Strategic Vision
 
-A modern full-stack web application built with Next.js 15.3, React 19.1, and TypeScript 5.7, featuring innovative AI-powered tools, creator services, and robust data management with MongoDB.
+INSTURIX is a Gen-AI-focused platform building an end-to-end ecosystem for the creator economy and B2B digital marketing teams. Currently operating on a pay-as-you-go credit system (deployed via Vercel), the platform allows users to manage the entire content lifecycle—from ideation to upload—under a single unified subscription. The ecosystem is currently composed of multiple functional web-based micro-services with foundational team collaboration features.
 
-## 🚀 Features
-- **Multiple AI-Powered Products**:
-  - Alyzitron: Content analysis and moderation
-  - Editron: AI-powered video editing
-  - Musitron: AI music generation
-  - ThinkForge: Creative ideation and brainstorming
-  - Meditron: Creator-business matching
-  - Shield: Digital protection for creators
-  - Socialize: Social media landing page builder
-  - Kundli: Data analysis
+## 1. What INSTURIX is Right Now
+INSTURIX provides an end-to-end ecosystem for the creator economy, allowing users to manage their content lifecycle from ideation to upload. The platform is powered by Gen-AI and operates on a unified credit-based service model.
+
+## 2. Product Suite: Current State & Future Vision
+
+### Editron (AI Video Editor & Agent)
+* **Current State:** A web-based AI video editor powered by multi-modal LLMs. It can analyze audio and transcripts to cut, trim, split, and remove filler words automatically. It also features a unique internal code-generation engine to create accurate, scalable motion graphics and captions.
+* **Vision:** To evolve into a General AI Video Agent. A user with zero technical knowledge will be able to upload raw footage and use natural language to command the AI to produce a complete, upload-ready video that perfectly aligns with their specific brand language.
+
+### Alyzitron (AI Content Analyzer)
+* **Current State:** A video analysis tool where users upload files or paste YouTube links. The AI scores the video across various dynamic metrics (out of 100), performs basic compliance checks, and suggests SEO titles and descriptions. It is currently adding a "chat-with-analysis" feature.
+* **Vision:** To become a flawless omni-content analyzer (video, text, image). It will precisely pinpoint brand alignment, flag copyright risks, and run deep post-mortem analytics on published content to definitively answer *why* a piece of content succeeded or failed.
+
+### Clickatron (AI Image Editor & Generator)
+* **Current State:** An image generation and editing suite utilizing 3rd-party foundation models but enhanced with custom controls. Features include generative fill, sketch-to-edit, aspect ratio variations, and granular color grading/brightness controls within project folders.
+* **Vision:** To be the ultimate balanced design tool offering both high-level autonomy and deep granular control. Future updates will include format auto-conversion (horizontal to vertical thumbnails) and a self-iterating AI loop that automatically reviews and corrects its own generations before presenting them to the user.
+
+### ThinkForge (AI Ideation & Scripting)
+* **Current State:** A text-based ideation tool (similar to ChatGPT) capable of web search, script generation, and Markdown-based editing.
+* **Vision:** To transition from a generic text generator into a highly specialized brand architect. It will deeply understand a brand’s prior scripts, keywords, and style guidelines to generate perfectly tailored, highly specific content ideas and scripts.
+
+### UploaderX (Multi-Platform Distribution)
+* **Current State:** Currently in active development. The MVP is focused strictly on video distribution to Meta and YouTube.
+* **Vision:** To be a universal content courier, allowing users to upload and schedule all formats of content (video, image, text) seamlessly across all major social media platforms at once.
+
+### Musitron (AI Music Generator)
+* **Current State:** A streamlined UI/UX API wrapper utilizing top open-source and closed-source music models (like Google's new model). Users input prompts and duration parameters to generate tracks.
+* **Vision:** To provide an instant, frictionless way for creators to generate exact, mood-specific, no-copyright background music, bypassing traditional compliance and licensing hurdles.
+
+### Socialize (Link-in-Bio Alternative)
+* **Current State:** A streamlined link-tree alternative allowing users to add links, bios, time-limited messages, and customizable banner colors/images.
+* **Vision:** To integrate AI customization, allowing the system to automatically generate, beautify, and update the UI based on the creator's latest content drops or aesthetic preferences.
+
+## 3. The Long-Term Horizon: Universal Features & Ecosystem Orchestration
+
+While individual services will continue to scale, the ultimate defensibility and value of INSTURIX lie in uniting these fragmented tools into a single, cohesive intelligence layer.
+
+* **The Central Memory Layer (Brand Vault):** We are building a persistent, platform-wide memory system. This database will store and protect the user’s "Brand Language"—including tone, visual style, pacing preferences, and historical data. Every product in the INSTURIX suite will automatically query this vault, ensuring any script, video, or image generated is natively aligned with the user’s unique brand identity.
+* **The Universal Agent:** INSTURIX will introduce a master orchestrator. Instead of manually clicking through different web apps, the user will interact with a single chat interface. This Universal Agent will have the autonomy to act on the user's behalf—calling Editron to cut a video, Clickatron to make the thumbnail, and UploaderX to post it—executing complex, multi-service workflows entirely through natural language commands.
 
 - **Authentication**: Secure user authentication powered by Clerk
 - **Payment System**: Multi-tier subscription management with Razorpay integration
@@ -265,17 +294,20 @@ WEBHOOK_SECRET=your_webhook_secret
 pnpm install
 ```
 
-2 **Set Up Environment Variables**
+2. **Set Up Environment Variables**
+
+Use the provided `.env` file for local development. Ensure you update any relevant environment variables, especially those related to QStash.
+
+3. **Run Development Server**
+
+Run the following command to start the development server and QStash dev server:
 
 ```bash
-cp .env.example .env.local
-# Edit .env.local with your credentials
-```
-
-3 **Run Development Server**
-
-```bash
+# Start Next.js dev server
 pnpm dev
+
+# In a separate terminal, start QStash dev server
+qstash dev
 ```
 
 4 **Build for Production**
