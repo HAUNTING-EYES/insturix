@@ -152,7 +152,7 @@ export default function IntelligenceLayer() {
                     <motion.div
                       whileHover={{ scale: 1.15, y: -4 }}
                       transition={{ type: "spring", stiffness: 400 }}
-                      className="flex flex-col items-center gap-1.5 cursor-pointer"
+                      className="flex flex-col items-center cursor-pointer relative"
                     >
                       <div 
                         className="w-12 h-12 rounded-xl border flex items-center justify-center shadow-lg bg-zinc-900 relative overflow-hidden"
@@ -161,7 +161,9 @@ export default function IntelligenceLayer() {
                         <div className="absolute inset-0 opacity-10" style={{ backgroundColor: service.color }} />
                         <Icon className="w-5 h-5 relative z-10" style={{ color: service.color }} />
                       </div>
-                      <span className="text-[10px] font-semibold text-zinc-400 whitespace-nowrap">{service.name}</span>
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] font-semibold text-zinc-400 whitespace-nowrap">
+                        {service.name}
+                      </span>
                     </motion.div>
                   </motion.div>
                 );
