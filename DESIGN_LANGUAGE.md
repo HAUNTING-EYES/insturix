@@ -59,14 +59,38 @@ We prioritize site speed and core web vitals over complex decorative effects:
 
 ---
 
-## 5. Texture & Depth
-- **Contrast over Glow**: Depth is created through high-contrast text against various shades of zinc.
-- **Motion**: Use `Framer Motion` for entrance transitions and scroll-driven interactions (e.g., the ProductSuite switcher) to make the page feel alive.
-- **Borders**: Layering is achieved via clean `border-zinc-800` lines rather than complex skeuomorphism.
+## 5. Navigation Architecture: "The Floating Pill"
+Navigation is treated as a persistent, high-utility layer that adapts to user context.
+- **Scroll Transformation**: Transitions from a full-width header to a floating, condensed pill mid-scroll using smooth layout-aware transforms.
+- **Adaptive Backdrop**: High-opacity blurs (`backdrop-blur-xl`) and subtle borders ensure visibility against both dark and light section backgrounds.
+- **Z-Index Hierarchy**: Navigation and the scroll progress indicator occupy the highest layers (`z-70+`) to maintain clear visual priority.
 
 ---
 
-## 6. Tone of Voice
+## 6. Section Geometry & Rhythm
+Traditional horizontal boundaries are replaced with bold, technical geometry.
+- **Skewed Transitions**: Use `clip-path: polygon()` for diagonal section edges (e.g., 80px skews) to create a sense of forward momentum.
+- **Rhythmic Contrast**: Alternating between "Deep Dark" (Zinc-950) and "High Light" (Zinc-50) sections to provide visual pacing and prevent "scroll fatigue."
+- **Full-Bleed Media**: Media elements (like the Hero Dashboard) break container constraints to feel "unbounded."
+
+---
+
+## 7. Motion Design: "Choreographed Entrance"
+Motion is never purely decorative; it is a tool for information hierarchy.
+- **Staggered Orchestration**: Components don't "appear"—they unfold. Headlines use word-by-word blur-to-sharp transitions, followed by a sequential reveal of UI panels.
+- **Spring Physics**: Interactive elements (badges, nodes) use spring animations (`stiffness: 300`, `damping: 20`) for a tactile, responsive feel.
+- **Ambient Breathing**: Low-frequency pulses (e.g., trust dots, dashboard glows) create a "living" interface without distraction.
+
+---
+
+## 8. Texture & Ambient Depth
+- **Ambient Lighting**: Use massive, low-opacity colored blurs (`blur-[100px]`) behind complex mockups to provide context color without visual clutter.
+- **Metallic Gradients**: UI "chrome" uses subtle linear gradients (Zinc-800 to Zinc-900) to simulate physical hardware materials.
+- **Micro-shadows**: Content cards use shadow expansion on hover to communicate lift and interactability.
+
+---
+
+## 9. Tone of Voice
 - **Authoritative**: We are the Operating System for content. We don't "help," we "orchestrate."
 - **Empowering**: Focus on the creator's output, not the AI's "magic."
 - **Professional**: Clean, direct, and free from excessive marketing fluff.
