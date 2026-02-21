@@ -156,6 +156,7 @@ export default function Navbar() {
   // Keep navbar above transient banners (like ICS25Banner) and popovers.
   // The banner uses z-40; set navbar to z-50 so dropdowns and mobile menu render above it.
   const isHome = pathname === "/";
+  const isStudioPage = pathname === "/" || pathname === "/upgrade";
 
   // Compute individual animatable values for a smooth, seamless pill transition
   const pillScrolled = scrolled && !isMobile && !isOpen;
@@ -167,11 +168,11 @@ export default function Navbar() {
     if (isOpen) return "rgba(9,9,11,1)";
     if (isMobile && scrolled) return "rgba(9,9,11,0.9)";
     if (scrolled) return "rgba(24,24,27,0.65)";
-    if (isHome) return "rgba(0,0,0,0)";
+    if (isStudioPage) return "rgba(0,0,0,0)";
     return "rgba(9,9,11,0.9)";
   })();
   const navBorderColor = (() => {
-    if (isOpen || (!isHome && !scrolled)) return "rgba(63,63,70,0.8)";
+    if (isOpen || (!isStudioPage && !scrolled)) return "rgba(63,63,70,0.8)";
     if (scrolled) return "rgba(255,255,255,0.08)";
     return "rgba(0,0,0,0)";
   })();

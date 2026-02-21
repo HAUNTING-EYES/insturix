@@ -3,13 +3,16 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import { CheckCircle, Coins, Globe } from "lucide-react";
+import { CheckCircle, Coins, Globe, ArrowRight, Check } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { BillingPaymentModal } from "@/components/shared/BillingPaymentModal";
 import { CREDIT_PACKAGES, CreditPackage, SUBSCRIPTION_PLANS, SubscriptionPlan } from "@/lib/config/creditCosts";
 import { useUser, SignInButton } from "@clerk/nextjs";
+import { ScannerDivider } from "@/components/ui/ScannerDivider";
+
+const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
 
 export interface UpgradePageContentProps {
   mode?: "popup" | "page";
@@ -59,222 +62,273 @@ export function UpgradePageContent({
 
   return (
     <div className={cn(
-      "w-full max-w-7xl mx-auto px-4 py-12",
+      "w-full max-w-7xl mx-auto px-4 py-24",
       mode === "popup" && "py-4 px-2"
     )}>
-      {/* Header Section */}
-      <div className="text-center mb-12 relative">
+      {/* Header Section — staggered entrance */}
+      <motion.div
+        initial="hidden"
+        animate="show"
+        variants={{
+          hidden: {},
+          show: { transition: { staggerChildren: 0.1 } },
+        }}
+        className="text-center mb-16 relative"
+      >
         <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, ease: "easeOut" }}
-          className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/5 border border-white/10 text-[10px] font-bold uppercase tracking-[0.2em] text-white/40 mb-8"
+          variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
+          className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-8"
         >
-          <span className="w-1 h-1 rounded-full bg-amber-500 animate-pulse" />
-          Choose Your Path
+          <span className="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" />
+          The Operating System for Content
         </motion.div>
 
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.5 }}
+          variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } } }}
           className="mb-6"
         >
-          <h1 className="text-5xl md:text-7xl font-black text-white tracking-tighter leading-none mb-4">
-            Flexible <span className="text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40">Pricing</span>
+          <h1 className="text-5xl md:text-7xl font-bold text-white tracking-tighter leading-none mb-4 font-space-grotesk">
+            Scale your <span className="text-zinc-500">production.</span>
           </h1>
         </motion.div>
         
-        <p className="text-lg text-white/40 max-w-2xl mx-auto font-medium leading-relaxed mb-8">
-          Subscribe for monthly benefits or top-up credits as you go. <br className="hidden md:block" />
-          Both in USD. Cancel anytime.
-        </p>
+        <motion.p
+          variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
+          className="text-lg text-zinc-400 max-w-2xl mx-auto font-medium leading-relaxed mb-12 font-inter"
+        >
+          Subscribe for monthly orchestration benefits or top-up credits as you go. 
+          Professional tools for professional creators.
+        </motion.p>
 
-        {/* Toggle Switch */}
-        <div className="flex justify-center mb-12">
-          <div className="bg-white/5 p-1 rounded-xl inline-flex border border-white/10">
+        {/* Toggle Switch — Minimal Studio Style */}
+        <motion.div 
+          variants={{ hidden: { opacity: 0, scale: 0.95 }, show: { opacity: 1, scale: 1, transition: { duration: 0.4, ease } } }}
+          className="flex justify-center mb-12"
+        >
+          <div className="bg-zinc-900 p-1 rounded-xl inline-flex border border-zinc-800">
             <button
               onClick={() => setViewMode('plans')}
               className={cn(
-                "px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300",
-                viewMode === 'plans' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
+                "px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 font-inter",
+                viewMode === 'plans' ? "bg-white text-zinc-950 shadow-lg" : "text-zinc-500 hover:text-zinc-300"
               )}
             >
-              Monthly Plans
+              Subscription Plans
             </button>
             <button
               onClick={() => setViewMode('credits')}
               className={cn(
-                "px-6 py-2.5 rounded-lg text-sm font-bold transition-all duration-300",
-                viewMode === 'credits' ? "bg-white text-black shadow-lg" : "text-white/40 hover:text-white"
+                "px-6 py-2.5 rounded-lg text-sm font-semibold transition-all duration-300 font-inter",
+                viewMode === 'credits' ? "bg-white text-zinc-950 shadow-lg" : "text-zinc-500 hover:text-zinc-300"
               )}
             >
-              Credit Refills
+              Credit Top-ups
             </button>
           </div>
-        </div>
+        </motion.div>
 
         {/* Abstract Background Glow for Header */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-amber-500/10 blur-[120px] -z-10 pointer-events-none" />
-      </div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-zinc-500/5 blur-[120px] -z-10 pointer-events-none" />
+      </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16 max-w-6xl mx-auto">
           {viewMode === 'plans' ? (
-            // PLANS VIEW
-            SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan) => (
-             <Card 
-              key={plan.id} 
+            // PLANS VIEW — Staggered and monochrome
+            SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan, i: number) => (
+             <motion.div
+              key={plan.id}
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: i * 0.1, ease }}
+              whileHover={{ y: -8, transition: { duration: 0.3, ease: "easeOut" } }}
               className={cn(
-                "relative overflow-hidden group cursor-pointer border-white/5 bg-white/[0.03] backdrop-blur-xl hover:border-amber-500/30 transition-all duration-500",
-                plan.popular && "border-amber-500/20 bg-amber-500/[0.02]"
+                "relative p-8 rounded-2xl flex flex-col transition-shadow border min-h-[500px]",
+                plan.popular
+                  ? "bg-zinc-900 border-white/20 shadow-xl hover:shadow-2xl hover:shadow-white/5"
+                  : "bg-zinc-900/50 border-zinc-800 hover:shadow-xl hover:shadow-white/[0.02]"
               )}
               onClick={() => handleSelectPlan(plan.id)}
             >
                 {plan.popular && (
-                  <div className="absolute top-4 right-4 text-[8px] font-black px-2 py-0.5 rounded border border-amber-500/50 text-amber-500 uppercase tracking-widest bg-amber-500/5">
-                    Recommended
-                  </div>
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.5, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: 0.4 + i * 0.1, type: "spring", stiffness: 300 }}
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-zinc-950 text-[10px] uppercase font-bold tracking-widest px-4 py-1 rounded-full whitespace-nowrap"
+                  >
+                    Recommended Choice
+                  </motion.div>
                 )}
                 
-                <CardContent className="p-8">
-                  <div className="mb-6">
-                    <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
-                    <p className="text-xs text-white/40 h-8 line-clamp-2">{plan.description}</p>
-                    <div className="flex items-baseline gap-1 mt-4">
-                      <span className="text-4xl font-black text-white tracking-tight">${plan.price}</span>
-                      <span className="text-sm font-medium text-white/40">/mo</span>
-                    </div>
+                <div className="mb-6">
+                  <h3 className="text-xl font-bold text-white mb-2 font-space-grotesk">{plan.name}</h3>
+                  <div className="flex items-baseline gap-1 mt-4">
+                    <span className="text-4xl font-bold text-white tracking-tight">${plan.price}</span>
+                    <span className="text-sm font-medium text-zinc-500">/mo</span>
                   </div>
+                  <p className="text-sm text-zinc-500 mt-4 font-inter leading-relaxed">{plan.description}</p>
+                </div>
 
-                  <div className="space-y-4 mb-8">
-                    <div className="flex items-center gap-3 text-sm text-white/60">
-                      <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
-                        <span className="text-amber-500 font-bold text-xs">Cr</span>
-                      </div>
-                      <span className="font-medium text-white">{plan.credits.toLocaleString()} Monthly Credits</span>
+                <ul className="space-y-4 mb-8 flex-1">
+                  <motion.li
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.3, delay: 0.3 + i * 0.1, ease }}
+                    className="flex items-center gap-3 text-sm text-zinc-300"
+                  >
+                    <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
+                      <Check className="w-3 h-3 text-emerald-500" />
                     </div>
-                    {plan.features.slice(1).map((feature: string, i: number) => (
-                      <div key={i} className="flex items-center gap-3 text-sm text-white/60">
-                         <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center shrink-0">
-                          <CheckCircle className="w-4 h-4 text-white/20" />
-                        </div>
-                        <span className="font-medium">{feature}</span>
-                      </div>
-                    ))}
-                  </div>
+                    <span className="font-semibold text-white">{plan.credits.toLocaleString()} Credits</span>
+                  </motion.li>
+                  {plan.features.slice(1).map((feature: string, fi: number) => (
+                    <motion.li
+                      key={fi}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3, delay: 0.3 + i * 0.1 + (fi + 1) * 0.05, ease }}
+                      className="flex items-center gap-3 text-sm text-zinc-400"
+                    >
+                      <Check className="w-4 h-4 text-zinc-700 shrink-0" />
+                      <span className="font-medium">{feature}</span>
+                    </motion.li>
+                  ))}
+                </ul>
 
                  {isSignedIn ? (
-                    <Button
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleSelectPlan(plan.id);
                       }}
                       className={cn(
-                        "w-full py-6 text-lg font-bold rounded-xl transition-all duration-300 cursor-pointer pointer-events-auto",
+                        "w-full py-4 text-sm font-bold rounded-xl transition-all duration-300 flex items-center justify-center gap-2",
                          plan.popular
-                          ? "bg-amber-500 text-black hover:bg-amber-400" 
-                          : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
+                          ? "bg-white text-zinc-950 hover:bg-zinc-100" 
+                          : "bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700"
                       )}
                     >
                       Subscribe Now
-                    </Button>
+                      <ArrowRight className="w-4 h-4" />
+                    </motion.button>
                  ) : (
                     <SignInButton mode="modal">
-                      <Button className="w-full py-6 text-lg font-bold rounded-xl bg-white/10 text-white hover:bg-white/20 border border-white/10 cursor-pointer pointer-events-auto">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full py-4 text-sm font-bold rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700 flex items-center justify-center gap-2"
+                      >
                         Sign in to Subscribe
-                      </Button>
+                        <ArrowRight className="w-4 h-4" />
+                      </motion.button>
                     </SignInButton>
                  )}
-                </CardContent>
-              </Card>
+              </motion.div>
             ))
           ) : (
-            // CREDITS VIEW
-            CREDIT_PACKAGES.map((pkg) => (
-              <Card key={pkg.id} className={cn(
-                "relative overflow-hidden group cursor-pointer border-white/5 bg-white/[0.03] backdrop-blur-xl hover:border-amber-500/30 transition-all duration-500",
-                pkg.id === 'topup_500' && "border-amber-500/20 bg-amber-500/[0.02]"
-              )}
-              onClick={() => handleSelectPackage(pkg)}>
+            // CREDITS VIEW — Staggered and technical
+            CREDIT_PACKAGES.map((pkg, i) => (
+              <motion.div
+                key={pkg.id}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.5, delay: i * 0.1, ease }}
+                whileHover={{ y: -8, transition: { duration: 0.3, ease: "easeOut" } }}
+                className={cn(
+                  "relative p-8 rounded-2xl flex flex-col transition-shadow border min-h-[500px]",
+                  pkg.id === 'topup_500'
+                    ? "bg-zinc-900 border-white/20 shadow-xl hover:shadow-2xl hover:shadow-white/5"
+                    : "bg-zinc-900/50 border-zinc-800 hover:shadow-xl hover:shadow-white/[0.02]"
+                )}
+                onClick={() => handleSelectPackage(pkg)}
+              >
                 {pkg.id === 'topup_500' && (
-                  <div className="absolute top-4 right-4 text-[8px] font-black px-2 py-0.5 rounded border border-amber-500/50 text-amber-500 uppercase tracking-widest bg-amber-500/5">
-                    Recommended
-                  </div>
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.5, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ duration: 0.5, delay: 0.4 + i * 0.1, type: "spring", stiffness: 300 }}
+                    className="absolute -top-3 left-1/2 -translate-x-1/2 bg-white text-zinc-950 text-[10px] uppercase font-bold tracking-widest px-4 py-1 rounded-full whitespace-nowrap"
+                  >
+                    Recommended Refill
+                  </motion.div>
                 )}
                 
-                <CardContent className="p-8 text-left">
-                  <div className="mb-6">
-                    <h3 className="text-lg font-bold text-white/50 mb-1 group-hover:text-white transition-colors">{pkg.name}</h3>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-5xl font-black text-white">{pkg.credits}</span>
-                      <span className="text-lg font-bold text-amber-500">Credits</span>
-                    </div>
+                <div className="mb-6">
+                  <h3 className="text-lg font-bold text-zinc-500 mb-1 font-inter uppercase tracking-widest">{pkg.name}</h3>
+                  <div className="flex items-baseline gap-2 mt-4">
+                    <span className="text-5xl font-bold text-white font-space-grotesk">{pkg.credits}</span>
+                    <span className="text-lg font-bold text-zinc-400 font-inter">Credits</span>
                   </div>
+                </div>
 
-                  <div className="space-y-4 mb-8">
-                    <div className="flex items-center gap-3 text-white/70 text-sm">
-                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                      Use for AI Video, Chat & Imaging
-                    </div>
-                    <div className="flex items-center gap-3 text-white/70 text-sm">
-                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                      Priority processing speed
-                    </div>
-                    <div className="flex items-center gap-3 text-white/70 text-sm">
-                      <div className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                      Credits never expire
-                    </div>
+                <div className="space-y-4 mb-8 flex-1">
+                  {['Use for AI Video, Chat & Imaging', 'Priority processing speed', 'Credits never expire'].map((feature, fi) => (
+                    <motion.div
+                      key={fi}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.3, delay: 0.3 + i * 0.1 + (fi + 1) * 0.05, ease }}
+                      className="flex items-center gap-3 text-zinc-400 text-sm font-inter"
+                    >
+                      <div className="h-1.5 w-1.5 rounded-full bg-zinc-700" />
+                      {feature}
+                    </motion.div>
+                  ))}
+                </div>
+
+                <div className="mt-auto">
+                  <div className="text-3xl font-bold text-white mb-6 font-space-grotesk">
+                    ${pkg.prices.USD}
+                    <span className="text-sm font-medium text-zinc-500 ml-2">USD</span>
                   </div>
-
-                  <div className="mt-auto">
-                    <div className="text-3xl font-bold text-white mb-6">
-                      ${pkg.prices.USD}
-                      <span className="text-sm font-medium text-white/40 ml-2">USD</span>
-                    </div>
-                    {isSignedIn ? (
-                      <Button
-                        className={cn(
-                          "w-full py-6 text-lg font-bold rounded-xl transition-all duration-300",
-                          pkg.id === 'topup_500' 
-                            ? "bg-amber-500 text-black hover:bg-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.2)]" 
-                            : "bg-white/10 text-white hover:bg-white/20 border border-white/10"
-                        )}
+                  {isSignedIn ? (
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={cn(
+                        "w-full py-4 text-sm font-bold rounded-xl transition-all duration-300 flex items-center justify-center gap-2",
+                        pkg.id === 'topup_500' 
+                          ? "bg-white text-zinc-950 hover:bg-zinc-100" 
+                          : "bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700"
+                      )}
+                    >
+                      Select Package
+                      <ArrowRight className="w-4 h-4" />
+                    </motion.button>
+                  ) : (
+                    <SignInButton mode="modal">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="w-full py-4 text-sm font-bold rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700 flex items-center justify-center gap-2"
                       >
-                        Select Package
-                      </Button>
-                    ) : (
-                      <SignInButton mode="modal">
-                        <Button
-                          className={cn(
-                            "w-full py-6 text-lg font-bold rounded-xl transition-all duration-300 cursor-pointer",
-                            "bg-white/10 text-white hover:bg-white/20 border border-white/10"
-                          )}
-                        >
-                          Sign in to Purchase
-                        </Button>
-                      </SignInButton>
-                    )}
-                  </div>
-                </CardContent>
-                
-                {/* Hover Glow Effect */}
-                <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
-              </Card>
+                        Sign in to Purchase
+                        <ArrowRight className="w-4 h-4" />
+                      </motion.button>
+                    </SignInButton>
+                  )}
+                </div>
+              </motion.div>
             ))
           )}
       </div>
 
-      <div className="text-center max-w-2xl mx-auto pt-16 border-t border-white/5">
-        <h3 className="text-sm font-bold text-white/40 uppercase tracking-[0.2em] mb-6">
+      <ScannerDivider />
+
+      <div className="text-center max-w-2xl mx-auto pt-16">
+        <h3 className="text-[11px] font-bold text-zinc-500 uppercase tracking-[0.2em] mb-6 font-inter">
           Global Payment Support
         </h3>
-        <p className="text-white/30 text-xs leading-relaxed max-w-md mx-auto mb-8">
+        <p className="text-zinc-500 text-xs leading-relaxed max-w-md mx-auto mb-10 font-inter">
           Secure international payments powered by Razorpay. We support all major credit cards, debit cards, and digital wallets worldwide. All transactions are securely processed in USD.
         </p>
-        <div className="flex justify-center gap-8 grayscale opacity-20 hover:opacity-40 transition-all duration-500">
-          <img src="https://upload.wikimedia.org/wikipedia/commons/5/5e/Visa_Inc._logo.svg" alt="Visa" className="h-4" />
-          <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-4" />
-          <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg" alt="PayPal" className="h-4" />
+        <div className="flex justify-center items-center gap-10 grayscale opacity-20 hover:opacity-100 transition-all duration-700">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/9/98/Visa_Inc._logo_%282005%E2%80%932014%29.svg" alt="Visa" className="h-6 md:h-8" />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/2/2a/Mastercard-logo.svg" alt="Mastercard" className="h-8 md:h-10" />
+          <img src="https://upload.wikimedia.org/wikipedia/commons/b/b5/PayPal.svg" alt="PayPal" className="h-6 md:h-8" />
+          <img src="/razorpay.svg" alt="Razorpay" className="h-6 md:h-8 invert" />
         </div>
       </div>
 

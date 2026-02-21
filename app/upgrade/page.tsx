@@ -6,33 +6,14 @@ import { UpgradePageContent } from "@/components/upgrade-plan/UpgradePageContent
 
 export default async function UpgradePage() {
   return (
-    <div className="min-h-screen bg-background relative pt-24">
+    <div className="min-h-screen bg-zinc-950 relative selection:bg-zinc-800 selection:text-white">
       <Navbar />
-      <DashboardProviders>
-        <UpgradePageContent />
-      </DashboardProviders>
+      <main>
+        <DashboardProviders>
+          <UpgradePageContent />
+        </DashboardProviders>
+      </main>
       <Footer />
-      {/* Background pattern */}
-      <div className="fixed inset-0 -z-20">
-        <div className="absolute inset-0 opacity-[0.05] dark:opacity-[0.05]">
-          <svg className="w-full h-full">
-            <pattern
-              id="grid"
-              width="32"
-              height="32"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M0 .5H32M.5 0V32"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
-            </pattern>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
-      </div>
     </div>
   );
 }
