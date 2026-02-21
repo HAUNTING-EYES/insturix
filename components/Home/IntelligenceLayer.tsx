@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Play, Wand2, BarChart3, Edit3, Music, Share2, Compass, Database } from "lucide-react";
+import { ScannerDivider } from "@/components/ui/ScannerDivider";
 
 export default function IntelligenceLayer() {
   const services = [
@@ -164,7 +165,9 @@ export default function IntelligenceLayer() {
       </div>
 
       {/* Section divider */}
-      <div className="h-px w-full bg-zinc-800 mt-24" />
+      <div className="mt-24">
+        <ScannerDivider />
+      </div>
     </section>
   );
 }

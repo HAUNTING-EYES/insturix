@@ -1302,7 +1302,7 @@ export default function ProductSuite() {
   return (
     <section id="suite" className="bg-zinc-950 relative" ref={containerRef}>
       <div style={{ height: `${products.length * 100}vh` }}>
-        <div className="sticky top-0 h-screen w-full flex flex-col justify-center overflow-hidden">
+        <div className="sticky top-16 h-[calc(100vh-4rem)] w-full flex flex-col justify-center overflow-hidden">
           <div className="container mx-auto px-4 sm:px-6 flex flex-col h-full py-16 md:py-20">
             
             <div className="mb-8 md:mb-12">
@@ -1400,14 +1400,21 @@ export default function ProductSuite() {
               </div>
 
               {/* Right: Immersive App Visual */}
-              <div className="hidden lg:flex lg:col-span-8 flex-col justify-center max-h-[600px] h-full">
-                <div className="w-full h-full rounded-2xl bg-zinc-900/50 border border-zinc-800 relative overflow-hidden flex flex-col">
+              <div className="hidden lg:flex lg:col-span-8 flex-col justify-center max-h-[600px] h-full relative">
+                
+                {/* Ambient Glow */}
+                <motion.div 
+                  className="absolute inset-10 blur-[100px] opacity-20 transition-colors duration-1000 -z-10 rounded-full"
+                  animate={{ backgroundColor: products[activeItem].color }}
+                />
+
+                <div className="w-full h-full rounded-2xl bg-zinc-950 border border-zinc-700/50 relative overflow-hidden flex flex-col shadow-2xl shadow-black ring-1 ring-white/5">
                   {/* Chrome top bar */}
-                  <div className="h-10 bg-zinc-900 border-b border-zinc-800 flex items-center px-4 gap-2 shrink-0">
+                  <div className="h-10 bg-gradient-to-b from-zinc-800 to-zinc-900 border-b border-zinc-950 flex items-center px-4 gap-2 shrink-0 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
                      <div className="flex gap-1.5">
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
-                      <div className="w-2.5 h-2.5 rounded-full bg-zinc-700" />
+                      <div className="w-3 h-3 rounded-full bg-zinc-700/80 shadow-[inset_0_1px_1px_rgba(0,0,0,0.5)]" />
+                      <div className="w-3 h-3 rounded-full bg-zinc-700/80 shadow-[inset_0_1px_1px_rgba(0,0,0,0.5)]" />
+                      <div className="w-3 h-3 rounded-full bg-zinc-700/80 shadow-[inset_0_1px_1px_rgba(0,0,0,0.5)]" />
                     </div>
                   </div>
                   {/* Dynamic Visual Area */}

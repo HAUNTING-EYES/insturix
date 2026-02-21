@@ -155,28 +155,51 @@ export default function Navbar() {
 
   // Keep navbar above transient banners (like ICS25Banner) and popovers.
   // The banner uses z-40; set navbar to z-50 so dropdowns and mobile menu render above it.
-  const navClasses = `fixed top-0 left-0 right-0 z-50 transition-all border-transparent ${
-    isMobile ? "duration-150" : "duration-500"
-  }`;
-  const mobileOpenScrolledClasses =
-    "bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20";
-  const scrolledClasses =
-    "bg-zinc-50/80 dark:bg-[rgb(var(--surface-0))]/80 border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 backdrop-blur-xl";
-  const transparentClasses =
-    "bg-transparent dark:bg-transparent border-transparent";
+  const isHome = pathname === "/";
 
-  const getNavClasses = () => {
-    if (pathname === "/") {
-      if (isMobile && (isOpen || scrolled)) return mobileOpenScrolledClasses;
-      return scrolled ? scrolledClasses : transparentClasses;
-    }
-    return isMobile ? mobileOpenScrolledClasses : scrolledClasses;
-  };
+  // Compute individual animatable values for a smooth, seamless pill transition
+  const pillScrolled = scrolled && !isMobile && !isOpen;
+  const navTop = pillScrolled ? 16 : 0;
+  const navLeft = pillScrolled ? "4%" : "0%";
+  const navRight = pillScrolled ? "4%" : "0%";
+  const navBorderRadius = pillScrolled ? 9999 : 0;
+  const navBgColor = (() => {
+    if (isOpen) return "rgba(9,9,11,1)";
+    if (isMobile && scrolled) return "rgba(9,9,11,0.9)";
+    if (scrolled) return "rgba(24,24,27,0.65)";
+    if (isHome) return "rgba(0,0,0,0)";
+    return "rgba(9,9,11,0.9)";
+  })();
+  const navBorderColor = (() => {
+    if (isOpen || (!isHome && !scrolled)) return "rgba(63,63,70,0.8)";
+    if (scrolled) return "rgba(255,255,255,0.08)";
+    return "rgba(0,0,0,0)";
+  })();
 
   return (
     <>
-    <nav className={`${navClasses} ${getNavClasses()}`}>
-      <div className="w-full max-w-none px-6">
+    <motion.nav
+      initial={{
+        top: 0,
+        left: "0%",
+        right: "0%",
+        borderRadius: 0,
+        backgroundColor: isHome ? "rgba(0,0,0,0)" : "rgba(9,9,11,0.9)",
+        borderColor: isHome ? "rgba(0,0,0,0)" : "rgba(63,63,70,0.8)",
+      }}
+      animate={{
+        top: navTop,
+        left: navLeft,
+        right: navRight,
+        borderRadius: navBorderRadius,
+        backgroundColor: navBgColor,
+        borderColor: navBorderColor,
+      }}
+      transition={{ duration: 0.5, ease: [0.4, 0, 0.2, 1] }}
+      className="fixed z-50 border backdrop-blur-xl shadow-2xl"
+      style={{ backdropFilter: 'blur(20px)', WebkitBackdropFilter: 'blur(20px)' }}
+    >
+      <div className="px-6">
         <div className="flex h-16 items-center justify-between">
           {/* Logo Section */}
           <div className="flex-none">
@@ -270,7 +293,7 @@ export default function Navbar() {
               duration: 0.15, // Slightly faster for better performance
               ease: "easeOut",
             }}
-            className="fixed inset-x-0 top-16 z-50 bg-zinc-50 dark:bg-[rgb(var(--surface-0))] border-b border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 shadow-xs md:hidden"
+            className="fixed inset-x-0 top-16 z-50 bg-zinc-950 border-b border-zinc-800 shadow-xl md:hidden"
           >
             <div className="px-6 py-4">
               <div className="space-y-2">
@@ -286,7 +309,7 @@ export default function Navbar() {
                       <Link
                         href={item.href}
                         onClick={closeMenu}
-                        className="mobile-nav-item block hover:bg-zinc-100 dark:hover:bg-[rgb(var(--surface-1))]"
+                        className="mobile-nav-item block hover:bg-zinc-900"
                       >
                         {item.title}
                       </Link>
@@ -318,7 +341,7 @@ export default function Navbar() {
                 ))}
               </div>
 
-              <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-[rgb(var(--border-light))]/20">
+              <div className="mt-4 pt-4 border-t border-zinc-800">
                 <div className="flex items-center justify-between">
                   <UserMenu />
                   {/* <ThemeToggle /> */}
@@ -328,7 +351,7 @@ export default function Navbar() {
           </motion.div>
         )}
       </AnimatePresence>
-    </nav>
+    </motion.nav>
     {/* Spacer to offset fixed navbar height so page content isn't hidden */}
     <div className="h-16" aria-hidden />
     </>
@@ -475,7 +498,7 @@ function MobileNavItem({
       }}
       className={cn(
         "mobile-nav-item flex items-center justify-between w-full focus:bg-transparent focus-visible:ring-0",
-        isActive && "bg-zinc-100 dark:bg-[rgb(var(--surface-1))]"
+        isActive && "bg-zinc-900"
       )}
     >
       <span>{item.title}</span>

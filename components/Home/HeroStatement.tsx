@@ -2,7 +2,8 @@
 
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { ArrowRight, Play } from "lucide-react";
+import { ArrowRight, Play, RotateCw } from "lucide-react";
+import { ScannerDivider } from "@/components/ui/ScannerDivider";
 
 const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
 
@@ -203,7 +204,7 @@ export default function HeroStatement() {
       </div>
 
       {/* Section divider */}
-      <div className="h-px w-full bg-zinc-800" />
+      <ScannerDivider />
     </section>
   );
 }

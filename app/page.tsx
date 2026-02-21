@@ -13,6 +13,7 @@ import IntelligenceLayer from "@/components/Home/IntelligenceLayer";
 import PricingPreview from "@/components/Home/PricingPreview";
 import AgencyPreview from "@/components/Home/AgencyPreview";
 import ClosingCTA from "@/components/Home/ClosingCTA";
+import { ScannerDivider } from "@/components/ui/ScannerDivider";
 
 export const metadata: Metadata = {
   title: "Insturix | The Operating System for Content Production",
@@ -86,9 +87,9 @@ export default function Home() {
         <ProductSuite />
         <IntelligenceLayer />
         <AgencyPreview />
-        <div className="h-px w-full bg-zinc-800" />
+        <ScannerDivider />
         <PricingPreview />
-        <div className="h-px w-full bg-zinc-800" />
+        <ScannerDivider />
         <ClosingCTA />
       </main>
 
