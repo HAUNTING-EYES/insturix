@@ -7,6 +7,32 @@ import { ScannerDivider } from "@/components/ui/ScannerDivider";
 
 const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
 
+// Stagger container variant
+const stagger = {
+  hidden: {},
+  show: {
+    transition: {
+      staggerChildren: 0.08,
+      delayChildren: 0.8,
+    },
+  },
+};
+
+const fadeSlideUp = {
+  hidden: { opacity: 0, y: 12 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } },
+};
+
+const slideInLeft = {
+  hidden: { opacity: 0, x: -20 },
+  show: { opacity: 1, x: 0, transition: { duration: 0.5, ease } },
+};
+
+const scaleIn = {
+  hidden: { opacity: 0, scale: 0.92 },
+  show: { opacity: 1, scale: 1, transition: { duration: 0.6, ease } },
+};
+
 export default function HeroStatement() {
   return (
     <section className="relative w-full bg-zinc-950 overflow-hidden">
@@ -29,22 +55,43 @@ export default function HeroStatement() {
             The all-in-one platform for creators
           </motion.p>
 
-          {/* Headline */}
+          {/* Headline — word-by-word stagger */}
           <motion.h1
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.1, ease }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.3, delay: 0.1 }}
             className="text-4xl sm:text-5xl md:text-7xl font-bold tracking-tight text-zinc-50 leading-[1.1] mb-6"
           >
-            Your entire content operation.{" "}
-            <span className="text-zinc-500">One platform.</span>
+            {"Your entire content operation. ".split(" ").map((word, i) => (
+              <motion.span
+                key={i}
+                initial={{ opacity: 0, y: 30, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                transition={{ duration: 0.5, delay: 0.15 + i * 0.06, ease }}
+                className="inline-block mr-[0.25em]"
+              >
+                {word}
+              </motion.span>
+            ))}
+            <br className="hidden sm:block" />
+            {"One platform.".split(" ").map((word, i) => (
+              <motion.span
+                key={`sub-${i}`}
+                initial={{ opacity: 0, y: 30, filter: "blur(4px)" }}
+                animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+                transition={{ duration: 0.5, delay: 0.55 + i * 0.06, ease }}
+                className="inline-block mr-[0.25em] text-zinc-500"
+              >
+                {word}
+              </motion.span>
+            ))}
           </motion.h1>
 
           {/* Subtitle */}
           <motion.p
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.2, ease }}
+            transition={{ duration: 0.8, delay: 0.5, ease }}
             className="text-lg md:text-xl text-zinc-400 max-w-2xl mx-auto mb-10 leading-relaxed"
           >
             Edit videos, generate thumbnails, analyze performance, write scripts, compose music, and distribute everywhere — all powered by AI that learns your brand.
@@ -54,29 +101,37 @@ export default function HeroStatement() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.3, ease }}
+            transition={{ duration: 0.8, delay: 0.6, ease }}
             className="flex flex-col sm:flex-row items-center justify-center gap-4"
           >
             <Link href="/signup">
-              <button className="px-8 py-3.5 bg-white hover:bg-zinc-100 text-zinc-950 font-semibold rounded-lg transition-colors flex items-center gap-2 shadow-lg">
+              <motion.button
+                whileHover={{ scale: 1.04, boxShadow: "0 8px 30px rgba(255,255,255,0.15)" }}
+                whileTap={{ scale: 0.97 }}
+                className="px-8 py-3.5 bg-white hover:bg-zinc-100 text-zinc-950 font-semibold rounded-lg transition-colors flex items-center gap-2 shadow-lg"
+              >
                 Start Building Free
                 <ArrowRight className="w-4 h-4" />
-              </button>
+              </motion.button>
             </Link>
             <Link href="#suite">
-              <button className="px-7 py-3.5 border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 font-medium rounded-lg transition-colors flex items-center gap-2">
+              <motion.button
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.97 }}
+                className="px-7 py-3.5 border border-zinc-800 hover:border-zinc-600 text-zinc-300 hover:text-zinc-100 font-medium rounded-lg transition-colors flex items-center gap-2"
+              >
                 <Play className="w-4 h-4 fill-zinc-400 text-zinc-400" />
                 See how it works
-              </button>
+              </motion.button>
             </Link>
           </motion.div>
         </div>
 
-        {/* Dashboard Mockup */}
+        {/* Dashboard Mockup — with staggered internal reveals */}
         <motion.div
-          initial={{ opacity: 0, y: 40, scale: 0.98 }}
+          initial={{ opacity: 0, y: 60, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={{ duration: 1.2, delay: 0.5, ease }}
+          transition={{ duration: 1.4, delay: 0.7, ease }}
           className="mt-20 max-w-6xl mx-auto relative"
         >
           <div className="relative rounded-xl border border-zinc-800 bg-zinc-900/90 shadow-2xl overflow-hidden">
@@ -94,16 +149,28 @@ export default function HeroStatement() {
               </div>
             </div>
 
-            {/* App body */}
-            <div className="flex h-[380px] md:h-[500px]">
+            {/* App body — staggered children */}
+            <motion.div
+              variants={stagger}
+              initial="hidden"
+              animate="show"
+              className="flex h-[380px] md:h-[500px]"
+            >
               {/* Sidebar */}
-              <div className="hidden md:flex flex-col w-56 border-r border-zinc-800 bg-zinc-950/50 p-3 gap-1">
+              <motion.div
+                variants={slideInLeft}
+                className="hidden md:flex flex-col w-56 border-r border-zinc-800 bg-zinc-950/50 p-3 gap-1"
+              >
                 <div className="h-10 rounded-md bg-zinc-800/50 mb-3 flex items-center px-3 border border-zinc-700/50">
                   <div className="w-6 h-6 rounded bg-zinc-700 mr-2" />
                   <div className="w-20 h-3 bg-zinc-700 rounded" />
                 </div>
                 {["Editron", "Clickatron", "Alyzitron", "ThinkForge", "Musitron"].map((name, i) => (
-                  <div key={name} className={`h-9 rounded-md flex items-center px-3 gap-2 text-sm ${i === 0 ? "bg-zinc-800 text-zinc-200" : "text-zinc-500"}`}>
+                  <motion.div
+                    key={name}
+                    variants={fadeSlideUp}
+                    className={`h-9 rounded-md flex items-center px-3 gap-2 text-sm ${i === 0 ? "bg-zinc-800 text-zinc-200" : "text-zinc-500"}`}
+                  >
                     <div className={`w-2 h-2 rounded-full ${
                       i === 0 ? "bg-emerald-400" : 
                       i === 1 ? "bg-indigo-400" : 
@@ -111,7 +178,7 @@ export default function HeroStatement() {
                       i === 3 ? "bg-red-400" : "bg-amber-400"
                     }`} />
                     <span className="font-medium">{name}</span>
-                  </div>
+                  </motion.div>
                 ))}
                 <div className="mt-auto border-t border-zinc-800 pt-3">
                   <div className="h-9 rounded-md flex items-center px-3 gap-2 text-sm text-zinc-500">
@@ -119,10 +186,10 @@ export default function HeroStatement() {
                     <div className="w-16 h-3 bg-zinc-800 rounded" />
                   </div>
                 </div>
-              </div>
+              </motion.div>
 
               {/* Main content area */}
-              <div className="flex-1 p-4 md:p-6 flex flex-col gap-4 relative overflow-hidden">
+              <motion.div variants={scaleIn} className="flex-1 p-4 md:p-6 flex flex-col gap-4 relative overflow-hidden">
                 {/* Top bar */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -141,9 +208,13 @@ export default function HeroStatement() {
                 <div className="flex-1 bg-zinc-950 rounded-lg border border-zinc-800 relative flex items-center justify-center">
                   <div className="absolute inset-0 bg-gradient-to-br from-zinc-900 to-zinc-950" />
                   <div className="relative flex flex-col items-center gap-3">
-                    <div className="w-14 h-14 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center">
+                    <motion.div
+                      animate={{ scale: [1, 1.08, 1] }}
+                      transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+                      className="w-14 h-14 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center"
+                    >
                       <Play className="w-5 h-5 text-zinc-400 fill-zinc-400 ml-0.5" />
-                    </div>
+                    </motion.div>
                     <span className="text-xs text-zinc-600 font-medium">Preview</span>
                   </div>
                   <div className="absolute top-3 left-3 flex gap-2">
@@ -152,10 +223,19 @@ export default function HeroStatement() {
                   </div>
                 </div>
 
-                {/* Timeline */}
-                <div className="h-20 md:h-28 bg-zinc-950 rounded-lg border border-zinc-800 p-3 flex flex-col gap-1.5">
+                {/* Timeline tracks — slide in from right */}
+                <motion.div
+                  initial={{ opacity: 0, x: 40 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.8, delay: 1.3, ease }}
+                  className="h-20 md:h-28 bg-zinc-950 rounded-lg border border-zinc-800 p-3 flex flex-col gap-1.5"
+                >
                   <div className="flex gap-1.5 flex-1 relative">
-                    <div className="absolute left-1/3 top-0 bottom-0 w-px bg-white/30 z-10" />
+                    <motion.div
+                      animate={{ left: ["20%", "50%", "20%"] }}
+                      transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+                      className="absolute top-0 bottom-0 w-px bg-white/30 z-10"
+                    />
                     <div className="w-14 shrink-0 text-[10px] text-zinc-600 flex items-center">Video</div>
                     <div className="flex-1 flex gap-1">
                       <div className="flex-[3] bg-emerald-500/15 border border-emerald-500/30 rounded h-full" />
@@ -176,25 +256,39 @@ export default function HeroStatement() {
                       <div className="flex-[3] bg-blue-500/10 border border-blue-500/15 rounded h-full" />
                     </div>
                   </div>
-                </div>
-              </div>
+                </motion.div>
+              </motion.div>
 
-              {/* Right panel */}
-              <div className="hidden lg:flex flex-col w-60 border-l border-zinc-800 bg-zinc-950/50 p-4 gap-4">
+              {/* Right panel — staggered */}
+              <motion.div
+                variants={slideInLeft}
+                className="hidden lg:flex flex-col w-60 border-l border-zinc-800 bg-zinc-950/50 p-4 gap-4"
+              >
                 <div className="text-xs text-zinc-500 font-semibold uppercase tracking-wider">AI Actions</div>
-                {["Remove filler words", "Auto-cut silences", "Add captions", "Match brand pacing"].map((action) => (
-                  <div key={action} className="h-10 rounded-md bg-zinc-800/30 border border-zinc-800 flex items-center px-3 text-xs text-zinc-400">
+                {["Remove filler words", "Auto-cut silences", "Add captions", "Match brand pacing"].map((action, i) => (
+                  <motion.div
+                    key={action}
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ duration: 0.4, delay: 1.2 + i * 0.1, ease }}
+                    whileHover={{ x: 4, backgroundColor: "rgba(63,63,70,0.3)" }}
+                    className="h-10 rounded-md bg-zinc-800/30 border border-zinc-800 flex items-center px-3 text-xs text-zinc-400 cursor-pointer transition-colors"
+                  >
                     {action}
-                  </div>
+                  </motion.div>
                 ))}
                 <div className="mt-auto">
                   <div className="text-xs text-zinc-500 font-semibold uppercase tracking-wider mb-2">Brand Vault</div>
-                  <div className="h-20 rounded-md bg-zinc-800/20 border border-zinc-800 border-dashed flex items-center justify-center text-xs text-zinc-600">
+                  <motion.div
+                    animate={{ borderColor: ["rgba(63,63,70,0.5)", "rgba(52,211,153,0.3)", "rgba(63,63,70,0.5)"] }}
+                    transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+                    className="h-20 rounded-md bg-zinc-800/20 border border-dashed flex items-center justify-center text-xs text-zinc-600"
+                  >
                     Connected
-                  </div>
+                  </motion.div>
                 </div>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           </div>
 
           {/* Bottom fade */}
