@@ -156,7 +156,8 @@ export default function Navbar() {
   // Keep navbar above transient banners (like ICS25Banner) and popovers.
   // The banner uses z-40; set navbar to z-50 so dropdowns and mobile menu render above it.
   const isHome = pathname === "/";
-  const isStudioPage = pathname === "/" || pathname === "/upgrade" || pathname?.startsWith("/about");
+  // The user wants the Studio aesthetic globally.
+  const isStudioPage = true;
 
   // Compute individual animatable values for a smooth, seamless pill transition
   const pillScrolled = scrolled && !isMobile && !isOpen;
