@@ -106,7 +106,7 @@ export default function ProductsPage() {
                 transition={{ duration: 1, delay: 0.3 }}
                 className="text-lg md:text-xl text-neutral-500 dark:text-neutral-400 max-w-lg mx-auto"
               >
-                Seven AI-powered tools. One creative ecosystem.
+                Six AI-powered tools. One creative ecosystem.
               </motion.p>
               <motion.div
                 initial={{ opacity: 0 }}
