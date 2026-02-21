@@ -69,190 +69,190 @@ export default function ContactUsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))] relative flex items-center">
-      {/* Animated background pattern - uses CSS to avoid performance issues */}
+    <div className="min-h-screen bg-[#09090B] relative font-sans text-zinc-400">
+      {/* Structural Background Pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0 opacity-[0.015] dark:opacity-[0.03]">
+        <div className="absolute inset-0 opacity-[0.03]">
           <svg className="w-full h-full">
-            <pattern
-              id="grid"
-              width="32"
-              height="32"
-              patternUnits="userSpaceOnUse"
-            >
-              <path
-                d="M0 .5H32M.5 0V32"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1"
-              />
+            <pattern id="contact-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M0 40V0h40" fill="none" stroke="currentColor" strokeWidth="0.5" />
             </pattern>
-            <rect width="100%" height="100%" fill="url(#grid)" />
+            <rect width="100%" height="100%" fill="url(#contact-grid)" />
           </svg>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-16 relative">
+      <div className="container mx-auto px-4 py-32 relative">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="max-w-5xl mx-auto"
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true }}
+          variants={{
+            hidden: { opacity: 0 },
+            show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+          }}
+          className="max-w-6xl mx-auto"
         >
-          <h1 className="text-3xl font-semibold mb-2 relative">
-            Contact Us
-            <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl"></div>
-          </h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mb-8">
-            Have questions? We&apos;d love to hear from you.
-          </p>
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+            }}
+            className="mb-16"
+          >
+            <h1 className="text-4xl md:text-5xl font-bold mb-6 text-zinc-50 tracking-tighter font-heading">
+              Get in Touch
+            </h1>
+            <p className="text-zinc-400 text-lg leading-relaxed max-w-2xl">
+              Have technical questions or partnership proposals? Our team typically responds within 24 business hours.
+            </p>
+          </motion.div>
 
-          <div className="grid lg:grid-cols-5 gap-8">
+          <div className="grid lg:grid-cols-5 gap-12">
             {/* Contact Form */}
             <motion.div
               className="lg:col-span-3"
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.2 }}
+              variants={{
+                hidden: { opacity: 0, x: -20 },
+                show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } }
+              }}
             >
-              <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-transform hover:scale-[1.01] hover:shadow-lg">
-                <form onSubmit={formik.handleSubmit} className="space-y-4">
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <div>
-                      <Label htmlFor="name">Name</Label>
+              <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-2xl">
+                <form onSubmit={formik.handleSubmit} className="space-y-6">
+                  <div className="grid sm:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <Label htmlFor="name" className="text-zinc-300">Name</Label>
                       <Input
                         id="name"
                         placeholder="Your name"
                         {...formik.getFieldProps("name")}
-                        className={
-                          formik.touched.name && formik.errors.name
-                            ? "border-red-500"
-                            : ""
-                        }
+                        className={`bg-zinc-800/50 border-zinc-800 text-zinc-50 focus:border-zinc-500 focus:ring-zinc-500 transition-all ${
+                          formik.touched.name && formik.errors.name ? "border-red-500/50" : ""
+                        }`}
                       />
                       {formik.touched.name && formik.errors.name && (
-                        <p className="mt-1 text-sm text-red-500">
-                          {formik.errors.name}
-                        </p>
+                        <p className="text-xs text-red-400">{formik.errors.name}</p>
                       )}
                     </div>
-                    <div>
-                      <Label htmlFor="email">Email</Label>
+                    <div className="space-y-2">
+                      <Label htmlFor="email" className="text-zinc-300">Email</Label>
                       <Input
                         id="email"
                         type="email"
                         placeholder="Your email"
                         {...formik.getFieldProps("email")}
-                        className={
-                          formik.touched.email && formik.errors.email
-                            ? "border-red-500"
-                            : ""
-                        }
+                        className={`bg-zinc-800/50 border-zinc-800 text-zinc-50 focus:border-zinc-500 focus:ring-zinc-500 transition-all ${
+                          formik.touched.email && formik.errors.email ? "border-red-500/50" : ""
+                        }`}
                       />
                       {formik.touched.email && formik.errors.email && (
-                        <p className="mt-1 text-sm text-red-500">
-                          {formik.errors.email}
-                        </p>
+                        <p className="text-xs text-red-400">{formik.errors.email}</p>
                       )}
                     </div>
                   </div>
 
-                  <div>
-                    <Label htmlFor="subject">Subject</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="subject" className="text-zinc-300">Subject</Label>
                     <Input
                       id="subject"
                       placeholder="Message subject"
                       {...formik.getFieldProps("subject")}
-                      className={
-                        formik.touched.subject && formik.errors.subject
-                          ? "border-red-500"
-                          : ""
-                      }
+                      className={`bg-zinc-800/50 border-zinc-800 text-zinc-50 focus:border-zinc-500 focus:ring-zinc-500 transition-all ${
+                        formik.touched.subject && formik.errors.subject ? "border-red-500/50" : ""
+                      }`}
                     />
                     {formik.touched.subject && formik.errors.subject && (
-                      <p className="mt-1 text-sm text-red-500">
-                        {formik.errors.subject}
-                      </p>
+                      <p className="text-xs text-red-400">{formik.errors.subject}</p>
                     )}
                   </div>
 
-                  <div>
-                    <Label htmlFor="message">Message</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="message" className="text-zinc-300">Message</Label>
                     <Textarea
                       id="message"
-                      placeholder="Your message"
+                      placeholder="Detailed project description or query"
                       {...formik.getFieldProps("message")}
-                      className={`h-32 ${
-                        formik.touched.message && formik.errors.message
-                          ? "border-red-500"
-                          : ""
+                      className={`h-40 bg-zinc-800/50 border-zinc-800 text-zinc-50 focus:border-zinc-500 focus:ring-zinc-500 transition-all resize-none ${
+                        formik.touched.message && formik.errors.message ? "border-red-500/50" : ""
                       }`}
                     />
                     {formik.touched.message && formik.errors.message && (
-                      <p className="mt-1 text-sm text-red-500">
-                        {formik.errors.message}
-                      </p>
+                      <p className="text-xs text-red-400">{formik.errors.message}</p>
                     )}
                   </div>
 
-                  <Button type="submit" className="w-full">
+                  <Button 
+                    type="submit" 
+                    className="w-full bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold py-6 text-lg transition-all"
+                  >
                     Send Message
                     <Send className="ml-2 h-4 w-4" />
                   </Button>
                 </form>
-              </Card>
+              </div>
             </motion.div>
 
             {/* Contact Info */}
             <motion.div
-              className="lg:col-span-2"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.3 }}
+              className="lg:col-span-2 space-y-6"
+              variants={{
+                hidden: { opacity: 0, x: 20 },
+                show: { opacity: 1, x: 0, transition: { duration: 0.7, ease: [0.16, 1, 0.3, 1] } }
+              }}
             >
-              <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs border-zinc-200/40 dark:border-[rgb(var(--border-light))]/20 transition-transform hover:scale-[1.01] hover:shadow-lg">
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="font-medium mb-4">Contact Information</h3>
-                    <div className="space-y-3">
-                      <div className="flex items-center text-sm">
-                        <Mail className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>support@insturix.com</span>
+              <div className="p-8 bg-zinc-900/40 border border-zinc-900 rounded-2xl h-full space-y-12">
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-50 mb-6 font-heading tracking-tight">Technical Contact</h3>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-4 text-zinc-400 group cursor-pointer hover:text-zinc-200 transition-colors">
+                      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center group-hover:bg-zinc-700">
+                        <Mail className="h-5 w-5" />
                       </div>
-                      <div className="flex items-center text-sm">
-                        <User className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>+91 92201-21372</span>
+                      <span className="text-sm font-medium">support@insturix.com</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-zinc-400 group cursor-pointer hover:text-zinc-200 transition-colors">
+                      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center group-hover:bg-zinc-700">
+                        <User className="h-5 w-5" />
                       </div>
-                      <div className="flex items-center text-sm">
-                        <MapPin className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>A-10 sector 62 Noida</span>
+                      <span className="text-sm font-medium">+91 92201-21372</span>
+                    </div>
+                    <div className="flex items-center gap-4 text-zinc-400 group cursor-pointer hover:text-zinc-200 transition-colors">
+                      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center group-hover:bg-zinc-700">
+                        <MapPin className="h-5 w-5" />
                       </div>
+                      <span className="text-sm font-medium">A-10 sector 62 Noida</span>
                     </div>
                   </div>
+                </div>
 
-                  <div>
-                    <h3 className="font-medium mb-4">Office Hours</h3>
-                    <div className="space-y-3 text-sm">
-                      <div className="flex items-center">
-                        <Clock className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>Monday - Friday: 9:00 AM - 8:00 PM</span>
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-50 mb-6 font-heading tracking-tight">Operational Hours</h3>
+                  <div className="space-y-4 text-sm text-zinc-400">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center">
+                        <Clock className="h-5 w-5" />
                       </div>
-                      <div className="flex items-center">
-                        <Clock className="h-4 w-4 mr-3 text-zinc-500" />
-                        <span>Saturday & Sunday: Closed</span>
+                      <div>
+                        <p className="font-medium text-zinc-200">Monday - Friday</p>
+                        <p>9:00 AM - 8:00 PM IST</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 opacity-50">
+                      <div className="w-10 h-10 rounded-lg bg-zinc-800 flex items-center justify-center">
+                        <Clock className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-zinc-200">Weekend</p>
+                        <p>Emergency Support Only</p>
                       </div>
                     </div>
                   </div>
                 </div>
-              </Card>
+              </div>
             </motion.div>
           </div>
         </motion.div>
       </div>
-
-      {/* Decorative gradient orbs */}
-      <div className="absolute top-1/4 left-0 w-96 h-96 bg-blue-500/10 dark:bg-blue-500/5 rounded-full blur-3xl -translate-x-1/2"></div>
-      <div className="absolute bottom-1/4 right-0 w-96 h-96 bg-purple-500/10 dark:bg-purple-500/5 rounded-full blur-3xl translate-x-1/2"></div>
     </div>
   );
 }

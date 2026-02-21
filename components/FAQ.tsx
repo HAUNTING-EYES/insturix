@@ -61,99 +61,102 @@ const faqs = [
 
 export default function FAQ() {
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))] relative">
-      {/* Background Pattern */}
+    <div className="min-h-screen bg-[#09090B] relative font-sans text-zinc-400">
+      {/* Structural Background Pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute inset-0">
-          {[...Array(20)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute w-2 h-2 bg-blue-500/10 dark:bg-blue-400/5 rounded-full"
-              animate={{
-                scale: [1, 1.2, 1],
-                opacity: [0.1, 0.3, 0.1],
-              }}
-              transition={{
-                duration: Math.random() * 5 + 5,
-                repeat: Infinity,
-                repeatType: "reverse",
-                delay: Math.random() * 2,
-              }}
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-              }}
-            />
-          ))}
+        <div className="absolute inset-0 opacity-[0.03]">
+          <svg className="w-full h-full">
+            <pattern id="faq-grid" width="40" height="40" patternUnits="userSpaceOnUse">
+              <path d="M0 40V0h40" fill="none" stroke="currentColor" strokeWidth="0.5" />
+            </pattern>
+            <rect width="100%" height="100%" fill="url(#faq-grid)" />
+          </svg>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-24">
+      <div className="container mx-auto px-4 py-32 relative">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="max-w-4xl mx-auto"
+          initial="hidden"
+          whileInView="show"
+          viewport={{ once: true }}
+          variants={{
+            hidden: { opacity: 0 },
+            show: { opacity: 1, transition: { staggerChildren: 0.1 } }
+          }}
+          className="max-w-3xl mx-auto"
         >
-          <h1 className="text-3xl font-semibold mb-2 relative">
-            Frequently Asked Questions
-            <div className="absolute -top-1.5 -left-3 w-12 h-12 bg-blue-500/10 rounded-full blur-xl" />
-          </h1>
-          <p className="text-zinc-600 dark:text-zinc-400 mb-12 text-lg">
-            Find answers to common questions about our products and services
-          </p>
+          <motion.div 
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+            }}
+            className="mb-16"
+          >
+            <h1 className="text-4xl md:text-5xl font-bold mb-6 text-zinc-50 tracking-tighter font-heading">
+              Frequently Asked Questions
+            </h1>
+            <p className="text-zinc-400 text-lg leading-relaxed max-w-2xl">
+              Technical details and platform specifications for creators and teams.
+            </p>
+          </motion.div>
 
-          <Card className="p-6 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
+          <motion.div
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+            }}
+            className="border-t border-zinc-900"
+          >
             <Accordion type="single" collapsible className="w-full">
               {faqs.map((faq, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
+                <AccordionItem 
+                  key={index} 
+                  value={`item-${index}`}
+                  className="border-b border-zinc-900 px-0"
                 >
-                  <AccordionItem value={`item-${index}`}>
-                    <AccordionTrigger className="text-left hover:no-underline">
-                      <span className="text-base font-medium">
-                        {faq.question}
-                      </span>
-                    </AccordionTrigger>
-                    <AccordionContent>
-                      <p className="text-zinc-600 dark:text-zinc-400">
+                  <AccordionTrigger className="text-left hover:no-underline py-6 group transition-all">
+                    <span className="text-lg font-medium text-zinc-300 group-hover:text-zinc-50 transition-colors">
+                      {faq.question}
+                    </span>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="pb-6 pr-12">
+                      <p className="text-zinc-400 leading-relaxed text-base">
                         {faq.answer}
                       </p>
-                    </AccordionContent>
-                  </AccordionItem>
-                </motion.div>
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
               ))}
             </Accordion>
-          </Card>
+          </motion.div>
 
           {/* Support CTA */}
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            className="mt-12 text-center"
+            variants={{
+              hidden: { opacity: 0, y: 20 },
+              show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } }
+            }}
+            className="mt-24 p-12 border border-zinc-900 bg-zinc-900/40 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-8"
           >
-            <Card className="inline-block p-8 bg-white/50 dark:bg-[rgb(var(--surface-1))]/50 backdrop-blur-xs">
-              <h3 className="text-xl font-semibold mb-2">
-                Still have questions?
+            <div className="text-center md:text-left">
+              <h3 className="text-2xl font-bold text-zinc-50 mb-2 font-heading tracking-tight">
+                Can't find what you're looking for?
               </h3>
-              <p className="text-zinc-600 dark:text-zinc-400 mb-4">
-                Our support team is here to help you
+              <p className="text-zinc-400">
+                Our support team is available for deep technical queries.
               </p>
-              <Link href="/resources/support">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="inline-flex items-center justify-center px-6 py-3 font-medium text-white bg-linear-to-r from-blue-500 to-blue-600 rounded-lg hover:from-blue-600 hover:to-blue-700 transition-all duration-200 shadow-lg hover:shadow-xl"
-                >
-                  Contact Support
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </motion.button>
-              </Link>
-            </Card>
+            </div>
+            <Link href="/resources/support">
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="px-8 py-4 bg-zinc-50 hover:bg-zinc-200 text-zinc-950 font-bold rounded-lg transition-colors flex items-center gap-2"
+              >
+                Contact Support
+                <ArrowRight className="w-4 h-4" />
+              </motion.button>
+            </Link>
           </motion.div>
         </motion.div>
       </div>
