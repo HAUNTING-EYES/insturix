@@ -3,41 +3,9 @@
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { ArrowRight, Check } from "lucide-react";
+import { SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
 
 const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
-
-const plans = [
-  {
-    name: "Free",
-    price: "₹0",
-    period: "forever",
-    description: "Get started with basic access to all tools.",
-    features: ["50 credits/month", "720p exports", "All 7 tools", "Community support"],
-    cta: "Start Free",
-    href: "/signup",
-    highlighted: false,
-  },
-  {
-    name: "Pro",
-    price: "₹999",
-    period: "/month",
-    description: "For creators who need serious processing power.",
-    features: ["2,500 credits/month", "4K exports", "Priority processing", "Brand Vault", "Email support"],
-    cta: "Upgrade to Pro",
-    href: "/pricing",
-    highlighted: true,
-  },
-  {
-    name: "Credits",
-    price: "₹149",
-    period: "per 100",
-    description: "Pay-as-you-go. No subscription needed.",
-    features: ["Never expire", "Works across all tools", "Buy any amount", "Instant delivery"],
-    cta: "Buy Credits",
-    href: "/pricing",
-    highlighted: false,
-  },
-];
 
 export default function PricingPreview() {
   return (
@@ -71,15 +39,15 @@ export default function PricingPreview() {
             variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
             className="text-lg text-zinc-400"
           >
-            Choose a plan or just buy credits. No hidden fees.
+            Flexible monthly plans or top-up credits. Cancel anytime.
           </motion.p>
         </motion.div>
 
         {/* Pricing Cards — staggered with scale on highlighted */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-          {plans.map((plan, i) => (
+          {SUBSCRIPTION_PLANS.map((plan, i) => (
             <motion.div
-              key={plan.name}
+              key={plan.id}
               initial={{ opacity: 0, y: 40, scale: 0.95 }}
               whileInView={{ opacity: 1, y: 0, scale: 1 }}
               viewport={{ once: true, margin: "-40px" }}
@@ -89,12 +57,12 @@ export default function PricingPreview() {
                 transition: { duration: 0.3, ease: "easeOut" },
               }}
               className={`relative p-8 rounded-2xl flex flex-col transition-shadow ${
-                plan.highlighted
+                plan.popular
                   ? "bg-zinc-900 border-2 border-white/20 shadow-xl hover:shadow-2xl hover:shadow-white/5"
                   : "bg-zinc-900/50 border border-zinc-800 hover:shadow-xl hover:shadow-white/[0.02]"
               }`}
             >
-              {plan.highlighted && (
+              {plan.popular && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.5, y: 10 }}
                   whileInView={{ opacity: 1, scale: 1, y: 0 }}
@@ -109,8 +77,8 @@ export default function PricingPreview() {
               <div className="mb-6">
                 <h3 className="text-lg font-semibold text-white mb-2">{plan.name}</h3>
                 <div className="flex items-baseline gap-1">
-                  <span className="text-4xl font-bold text-white">{plan.price}</span>
-                  <span className="text-sm text-zinc-500">{plan.period}</span>
+                  <span className="text-4xl font-bold text-white">${plan.price}</span>
+                  <span className="text-sm text-zinc-500">/mo</span>
                 </div>
                 <p className="text-sm text-zinc-500 mt-3">{plan.description}</p>
               </div>
@@ -131,23 +99,36 @@ export default function PricingPreview() {
                 ))}
               </ul>
 
-              <Link href={plan.href}>
+              <Link href="/pricing">
                 <motion.button
                   whileHover={{ scale: 1.03 }}
                   whileTap={{ scale: 0.97 }}
                   className={`w-full py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 ${
-                    plan.highlighted
+                    plan.popular
                       ? "bg-white text-zinc-950 hover:bg-zinc-100"
                       : "bg-zinc-800 text-white hover:bg-zinc-700 border border-zinc-700"
                   }`}
                 >
-                  {plan.cta}
+                  Get Started
                   <ArrowRight className="w-4 h-4" />
                 </motion.button>
               </Link>
             </motion.div>
           ))}
         </div>
+
+        {/* Note about Credits */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          whileInView={{ opacity: 1 }}
+          viewport={{ once: true }}
+          transition={{ delay: 0.8 }}
+          className="mt-12 text-center"
+        >
+          <p className="text-zinc-500 text-sm">
+            Need more? <Link href="/pricing" className="text-zinc-300 hover:text-white underline underline-offset-4">Top-up credits</Link> as you go.
+          </p>
+        </motion.div>
       </div>
     </section>
   );
