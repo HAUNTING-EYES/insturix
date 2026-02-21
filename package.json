@@ -72,6 +72,7 @@
     "@radix-ui/react-toggle": "^1.1.10",
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.4.2",
     "@remotion/bundler": "4.0.398",
     "@remotion/captions": "4.0.398",
@@ -189,6 +190,7 @@
     "@types/uuid": "^11.0.0",
     "eslint": "^9.39.1",
     "eslint-config-next": "15.3.4",
+    "node-mocks-http": "^1.12.0",
     "postcss": "^8.5.6",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.7.1",
@@ -197,8 +199,7 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
-    "vitest": "^1.0.0",
-    "node-mocks-http": "^1.12.0"
+    "vitest": "^1.0.0"
   },
   "eslintConfig": {
     "extends": [

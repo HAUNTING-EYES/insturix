@@ -1,86 +1,54 @@
 import { Metadata } from "next";
-import dynamic from "next/dynamic";
 import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
-import WhoWeAre from "@/components/WhoWeAre";
-import { WhyUs } from "@/components/WhyUs";
-import BentoGrid from "@/components/Home/BentoGrid";
 import Script from "next/script";
 import { Suspense } from "react";
 import { LoadingScreen } from "@/components/Loader/LoadingScreen";
 import { getBaseUrl } from "@/lib/env";
-
-// Dynamically import client components
-const ClientHeroSection = dynamic(() => import("@/components/Home/HeroSection"), { ssr: true });
 import ProgressBarWrapper from "@/components/ProgressBarWrapper";
 
+import HeroStatement from "@/components/Home/HeroStatement";
+import ProductSuite from "@/components/Home/ProductSuite";
+import IntelligenceLayer from "@/components/Home/IntelligenceLayer";
+import PricingPreview from "@/components/Home/PricingPreview";
+import AgencyPreview from "@/components/Home/AgencyPreview";
+import ClosingCTA from "@/components/Home/ClosingCTA";
+
 export const metadata: Metadata = {
-  title: "Insturix | Building Future, Together",
-  description: "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
+  title: "Insturix | The Operating System for Content Production",
+  description: "Edit, analyze, generate, and distribute your content with AI that learns your brand. Seven tools, one ecosystem.",
   alternates: {
     canonical: "/",
   },
   openGraph: {
-    title: "Insturix | Building Future, Together",
-    description: "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
+    title: "Insturix | The Operating System for Content Production",
+    description: "Edit, analyze, generate, and distribute your content with AI that learns your brand. Seven tools, one ecosystem.",
     images: [
       {
         url: "/icons/og-image.jpg",
         width: 1200,
         height: 630,
-        alt: "Insturix - Building Future, Together",
+        alt: "Insturix - Content Production Ecosystem",
       },
     ],
   },
 };
 
 export default function Home() {
-  // Organization structured data for rich search results
   const organizationStructuredData = {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "Insturix",
     url: getBaseUrl(),
     logo: `${getBaseUrl()}/icons/logo.png`,
-    description: "Your all-in-one platform for creator protection, AI-powered tools, and brand collaborations.",
+    description: "Your all-in-one platform for AI-powered content production.",
     sameAs: [
       "https://twitter.com/insturix",
       "https://www.linkedin.com/company/insturix",
       "https://www.instagram.com/insturix"
-    ],
-    contactPoint: {
-      "@type": "ContactPoint",
-      email: "contact@insturix.com",
-      contactType: "customer service"
-    },
-    // Product categories
-    hasOfferCatalog: {
-      "@type": "OfferCatalog",
-      name: "Insturix Products",
-      itemListElement: [
-        {
-          "@type": "Product",
-          name: "AI Video Editor",
-          description: "AI-powered video editing tools for content creators",
-          url: `${getBaseUrl()}/products/ai-video-editor`
-        },
-        {
-          "@type": "Product",
-          name: "Influencer Protection",
-          description: "Digital insurance and protection for influencers",
-          url: `${getBaseUrl()}/products/influencer-protection`
-        },
-        {
-          "@type": "Product",
-          name: "Business Analytics",
-          description: "AI-driven insights for content creators",
-          url: `${getBaseUrl()}/products/business-analytics`
-        }
-      ]
-    }
+    ]
   };
 
-  // WebSite structured data for enhanced search appearance
   const websiteStructuredData = {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -97,7 +65,7 @@ export default function Home() {
   };
 
   return (
-    <div className="relative w-full bg-neutral-950">
+    <div className="relative w-full bg-zinc-950 selection:bg-zinc-800 selection:text-white">
       <Script 
         id="organization-structured-data"
         type="application/ld+json"
@@ -110,15 +78,20 @@ export default function Home() {
       />
       <ProgressBarWrapper />
       <Navbar />
-      <Suspense fallback={<LoadingScreen />}>
-        <ClientHeroSection />
-      </Suspense>
-      <div id="features">
-        <BentoGrid />
-      </div>
-      <WhoWeAre />
-      <WhyUs />
-      {/* <Testimo /> */}
+      
+      <main>
+        <Suspense fallback={<LoadingScreen />}>
+          <HeroStatement />
+        </Suspense>
+        <ProductSuite />
+        <IntelligenceLayer />
+        <AgencyPreview />
+        <div className="h-px w-full bg-zinc-800" />
+        <PricingPreview />
+        <div className="h-px w-full bg-zinc-800" />
+        <ClosingCTA />
+      </main>
+
       <Footer />
     </div>
   );

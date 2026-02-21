@@ -5,6 +5,9 @@ INSTURIX is a Gen-AI-focused platform building an end-to-end ecosystem for the c
 ## 1. What INSTURIX is Right Now
 INSTURIX provides an end-to-end ecosystem for the creator economy, allowing users to manage their content lifecycle from ideation to upload. The platform is powered by Gen-AI and operates on a unified credit-based service model.
 
+> [!NOTE]
+> All interface and interaction design follows [The Studio Brand Language](file:///Users/akshit2434/github/Front-end/DESIGN_LANGUAGE.md).
+
 ## 2. Product Suite: Current State & Future Vision
 
 ### Editron (AI Video Editor & Agent)
