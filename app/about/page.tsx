@@ -5,16 +5,12 @@ import CursorEffect from "@/components/ui/CursorEffect";
 
 export default function AboutPage() {
   return (
-    <>
-      <CursorEffect
-        variant="glow"
-        color="rgba(59, 130, 246, 0.15)"
-        size={500}
-        blur={100}
-      />
+    <div className="selection:bg-zinc-800 selection:text-white">
       <Navbar />
-      <AboutContent />
+      <main>
+        <AboutContent />
+      </main>
       <Footer />
-    </>
+    </div>
   );
 }

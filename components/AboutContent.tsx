@@ -1,196 +1,148 @@
 "use client";
 
-import { motion, useMotionValue, useSpring } from "framer-motion";
-import { Card } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ArrowRight } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowRight, Check } from "lucide-react";
 import Link from "next/link";
 import Timeline from "./TimeLine";
-import { useEffect } from "react";
+import { ScannerDivider } from "@/components/ui/ScannerDivider";
+
+const ease = [0.16, 1, 0.3, 1] as [number, number, number, number];
 
 export default function AboutContent() {
-  const mouseX = useMotionValue(0);
-  const mouseY = useMotionValue(0);
-
-  const springConfig = { damping: 30, stiffness: 200 };
-  const moveX = useSpring(mouseX, springConfig);
-  const moveY = useSpring(mouseY, springConfig);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      // Convert mouse position to relative values (-0.5 to 0.5)
-      const x = (e.clientX / window.innerWidth - 0.5);
-      const y = (e.clientY / window.innerHeight - 0.5);
-      mouseX.set(x);
-      mouseY.set(y);
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, [mouseX, mouseY]);
-
   return (
-    <div className="min-h-screen bg-zinc-50 dark:bg-[rgb(var(--surface-0))] relative">
-      {/* Background dots with perspective movement */}
-      <motion.div 
-        className="absolute inset-0 overflow-hidden pointer-events-none"
-        style={{
-          perspective: "1000px",
-          transformStyle: "preserve-3d"
-        }}
-      >
-        <motion.div 
-          className="absolute inset-0"
-          style={{
-            rotateX: moveY.get() * 20,
-            rotateY: moveX.get() * -20,
-            transformStyle: "preserve-3d"
-          }}
-        >
-          {[...Array(150)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute w-1.5 h-1.5 bg-blue-500/20 dark:bg-blue-400/10 rounded-full"
-              initial={{ opacity: 0 }}
-              animate={{
-                opacity: [0.1, 0.3, 0.1],
-                scale: [1, 1.2, 1],
-                z: Math.random() * 100 - 50 // Random Z position for depth
-              }}
-              transition={{
-                duration: Math.random() * 3 + 2,
-                repeat: Infinity,
-                delay: Math.random() * 2,
-              }}
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                transform: `translateZ(${Math.random() * 50}px)`
-              }}
-            />
-          ))}
-        </motion.div>
-      </motion.div>
+    <div className="min-h-screen bg-zinc-950 relative overflow-hidden font-inter">
+      {/* Background radial gradient for subtle depth */}
+      <div className="absolute inset-0 pointer-events-none">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1200px] h-[600px] bg-gradient-radial from-zinc-900/50 to-transparent rounded-full opacity-30" />
+      </div>
 
-      <div className="container mx-auto px-4 py-16 sm:py-32">
+      <div className="container mx-auto px-4 py-24 sm:py-32 relative z-10">
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-          className="max-w-6xl mx-auto space-y-24"
+          initial="hidden"
+          animate="show"
+          variants={{
+            hidden: {},
+            show: { transition: { staggerChildren: 0.1 } },
+          }}
+          className="max-w-6xl mx-auto space-y-32"
         >
           {/* Hero Section */}
-          <section className="text-center py-16 relative">
-            <motion.h1 
-              className="text-5xl sm:text-7xl font-bold mb-6 relative inline-block"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ duration: 0.5 }}
+          <section className="text-center relative">
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
+              className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-[10px] font-bold uppercase tracking-[0.2em] text-zinc-500 mb-8"
             >
-              About Insturix
-              <div className="absolute -top-8 -left-8 w-32 h-32 bg-blue-500/10 rounded-full blur-2xl" />
-              <div className="absolute -bottom-8 -right-8 w-32 h-32 bg-purple-500/10 rounded-full blur-2xl" />
+              <span className="w-1 h-1 rounded-full bg-zinc-500 animate-pulse" />
+              Our Evolution
+            </motion.div>
+
+            <motion.h1 
+              variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.5, ease } } }}
+              className="text-5xl sm:text-7xl font-bold mb-8 tracking-tighter text-white font-space-grotesk"
+            >
+              The Studio <span className="text-zinc-500">Vision.</span>
             </motion.h1>
-            <p className="text-xl sm:text-2xl text-zinc-600 dark:text-zinc-400 max-w-3xl mx-auto mb-12">
-              Building the future of digital solutions
-            </p>
+
+            <motion.p 
+              variants={{ hidden: { opacity: 0, y: 15 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
+              className="text-xl sm:text-2xl text-zinc-400 max-w-3xl mx-auto leading-relaxed"
+            >
+              Building the operating system for the next generation of content production.
+            </motion.p>
           </section>
 
           {/* Vision & Mission Section */}
           <section className="grid lg:grid-cols-2 gap-8">
             <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.2 }}
+              variants={{ hidden: { opacity: 0, x: -20 }, show: { opacity: 1, x: 0, transition: { duration: 0.6, ease } } }}
             >
-              <Card className="p-8 bg-white/40 dark:bg-[rgb(var(--surface-1))]/40 backdrop-blur-lg border border-white/20 dark:border-white/10 shadow-xl hover:shadow-2xl transition-all duration-300 h-full">
-                <h2 className="text-2xl font-semibold mb-6">Our Vision</h2>
-                <p className="text-zinc-600 dark:text-zinc-400 mb-6 text-lg">
-                  To become the leading platform that revolutionizes the
+              <div className="p-10 rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 transition-all duration-300 h-full flex flex-col justify-center">
+                <h2 className="text-2xl font-bold mb-6 text-white font-space-grotesk tracking-tight">Our Vision</h2>
+                <p className="text-zinc-400 mb-6 text-lg leading-relaxed">
+                  To become the definitive platform that revolutionizes the
                   influencer ecosystem by merging protection, innovation, and
-                  growth, ensuring every creator feels secure, valued, and
-                  unstoppable in their journey.
+                  growth.
                 </p>
-                <p className="text-zinc-600 dark:text-zinc-400 text-lg">
-                  As we evolve, our vision extends toward integrating
-                  groundbreaking technologies like General AI, paving the way
-                  for a future where creators can collaborate with tools that
-                  understand and grow with them—transforming HUMAN aspirations
-                  into tangible results.
+                <p className="text-zinc-500 text-lg leading-relaxed">
+                  We are building toward a future where creators collaborate with 
+                  autonomous tools that understand their brand language — 
+                  transforming technical barriers into creative flow.
                 </p>
-              </Card>
+              </div>
             </motion.div>
+
             <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.3 }}
+              variants={{ hidden: { opacity: 0, x: 20 }, show: { opacity: 1, x: 0, transition: { duration: 0.6, ease } } }}
             >
-              <Card className="p-8 bg-white/40 dark:bg-[rgb(var(--surface-1))]/40 backdrop-blur-lg border border-white/20 dark:border-white/10 shadow-xl hover:shadow-2xl transition-all duration-300 h-full">
-                <h2 className="text-2xl font-semibold mb-6">Our Mission</h2>
-                <p className="text-zinc-600 dark:text-zinc-400 mb-6 text-lg">
-                  To empower social media users, influencers, and content
-                  creators by safeguarding their digital presence, simplifying
-                  their growth journey, and providing them with tools to focus
-                  on what they do best—creating impactful content thus creating
-                  a whole ecosystem for the creators.
+              <div className="p-10 rounded-2xl bg-zinc-900/50 border border-zinc-800 hover:border-zinc-700 transition-all duration-300 h-full flex flex-col justify-center">
+                <h2 className="text-2xl font-bold mb-6 text-white font-space-grotesk tracking-tight">Our Mission</h2>
+                <p className="text-zinc-400 mb-8 text-lg leading-relaxed">
+                  To empower social media users and creators by safeguarding their 
+                  digital presence and providing the technical orchestration required 
+                  to scale their impact globally.
                 </p>
                 <Link href="/about/team">
-                  <Button className="w-full group text-lg py-6">
+                  <motion.button 
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    className="w-full py-5 bg-white text-zinc-950 font-bold rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-zinc-100"
+                  >
                     Meet Our Team
-                    <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-                  </Button>
+                    <ArrowRight className="w-5 h-5" />
+                  </motion.button>
                 </Link>
-              </Card>
+              </div>
             </motion.div>
           </section>
 
+          <ScannerDivider />
+
           {/* Values Section */}
           <section>
-            <h2 className="text-3xl font-semibold mb-8 text-center">Our Values</h2>
+            <motion.h2 
+              variants={{ hidden: { opacity: 0, y: 10 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, ease } } }}
+              className="text-3xl font-bold mb-12 text-center text-white font-space-grotesk tracking-tight"
+            >
+              Studio Principles
+            </motion.h2>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
               {[
                 {
                   title: "Empowerment",
                   description:
-                    "We strive to provide creators with the tools and confidence to grow without fear of setbacks.",
+                    "Providing the tools and confidence to scale production without technical bottlenecks.",
                 },
                 {
                   title: "Innovation",
                   description:
-                    "Leveraging cutting-edge technology to deliver unique, reliable, and scalable solutions",
+                    "Leveraging multi-modal AI to deliver unique, reliable, and scalable orchestration solutions.",
                 },
                 {
                   title: "Integrity",
                   description:
-                    "We operate transparently and uphold trust as the foundation of our business.",
+                    "Operating with transparency as the foundation for our users' protected growth.",
                 },
                 {
                   title: "Community First",
                   description:
-                    "Supporting creators by fostering collaboration, inclusivity, and mutual growth.",
+                    "Fostering collaboration and inclusivity within the global creator economy.",
                 },
               ].map((value, index) => (
                 <motion.div
                   key={value.title}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  whileHover={{ y: -5 }}
-                  viewport={{ once: true }}
-                  transition={{ 
-                    delay: index * 0.1,
-                    duration: 0.3
-                  }}
+                  variants={{ hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.4, delay: index * 0.05, ease } } }}
+                  whileHover={{ y: -8, transition: { duration: 0.3 } }}
+                  className="p-8 rounded-2xl bg-zinc-900/30 border border-zinc-800/50 hover:border-zinc-700 transition-all duration-300 h-full"
                 >
-                  <Card className="p-6 bg-white/40 dark:bg-[rgb(var(--surface-1))]/40 backdrop-blur-lg border border-white/20 dark:border-white/10 shadow-lg hover:shadow-xl transition-all duration-300 h-full">
-                    <h3 className="text-xl font-semibold mb-4">
-                      {value.title}
-                    </h3>
-                    <p className="text-zinc-600 dark:text-zinc-400 text-base">
-                      {value.description}
-                    </p>
-                  </Card>
+                  <div className="w-8 h-8 rounded-lg bg-zinc-800 flex items-center justify-center mb-6">
+                    <Check className="w-4 h-4 text-emerald-500" />
+                  </div>
+                  <h3 className="text-lg font-bold mb-4 text-white font-space-grotesk tracking-tight">
+                    {value.title}
+                  </h3>
+                  <p className="text-zinc-500 text-sm leading-relaxed">
+                    {value.description}
+                  </p>
                 </motion.div>
               ))}
             </div>
@@ -198,18 +150,27 @@ export default function AboutContent() {
 
           {/* Journey Section */}
           <section>
-            <Card className="p-8 bg-white/40 dark:bg-[rgb(var(--surface-1))]/40 backdrop-blur-lg border border-white/20 dark:border-white/10 shadow-xl hover:shadow-2xl transition-all duration-300 overflow-hidden">
-              <Timeline />
-            </Card>
+            <motion.div
+              variants={{ hidden: { opacity: 0, y: 30 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease } } }}
+              className="p-1 rounded-2xl bg-gradient-to-br from-zinc-800 to-transparent border border-zinc-800 overflow-hidden"
+            >
+              <div className="p-8 bg-zinc-950 rounded-[14px]">
+                <Timeline />
+              </div>
+            </motion.div>
           </section>
 
           {/* CTA Section */}
           <section className="text-center py-16">
             <Link href="/about/team">
-              <Button size="lg" className="group text-lg py-6 px-8">
-                Meet Our Team
-                <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-              </Button>
+              <motion.button 
+                whileHover={{ scale: 1.04 }}
+                whileTap={{ scale: 0.98 }}
+                className="inline-flex items-center justify-center px-10 py-5 bg-zinc-900 border border-zinc-800 text-white font-bold rounded-xl gap-3 transition-all hover:bg-zinc-800 hover:border-zinc-700"
+              >
+                Meet the Architects
+                <ArrowRight className="w-5 h-5 text-zinc-500" />
+              </motion.button>
             </Link>
           </section>
         </motion.div>

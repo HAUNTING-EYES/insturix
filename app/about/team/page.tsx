@@ -5,16 +5,12 @@ import CursorEffect from "@/components/ui/CursorEffect";
 
 export default function TeamPage() {
   return (
-    <>
-      <CursorEffect
-        variant="glow"
-        color="rgba(59, 130, 246, 0.15)"
-        size={500}
-        blur={100}
-      />
+    <div className="selection:bg-zinc-800 selection:text-white">
       <Navbar />
-      <TeamContent />
+      <main>
+        <TeamContent />
+      </main>
       <Footer />
-    </>
+    </div>
   );
 }
