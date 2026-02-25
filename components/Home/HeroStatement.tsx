@@ -52,7 +52,7 @@ export default function HeroStatement() {
             transition={{ duration: 0.6, ease }}
             className="text-zinc-500 font-semibold text-sm tracking-[0.15em] uppercase mb-6"
           >
-            The all-in-one platform for creators
+            The all-in-one platform for content production
           </motion.p>
 
           {/* Headline — word-by-word stagger */}
