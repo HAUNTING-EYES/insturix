@@ -24,7 +24,8 @@ export {
 export {
   analyzeContent,
   analysisToTimelineFrames,
-} from './audio-analysis-service';
+  analyzeClipAudioService
+} from './analysis-service';
 
 // Caption
 export {

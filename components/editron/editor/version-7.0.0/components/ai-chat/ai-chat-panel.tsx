@@ -463,10 +463,13 @@ export function AIChatPanel() {
                   'generate_html_scene',
                   'generate_html_sticker',
                   // Video auto-edit tools
+                  'analyze_clip_video',
                   'add_captions',
                   'add_fancy_captions',
                   'refresh_captions',
                   'close_gaps',
+                  // Music tools
+                  'analyze_clip_audio',
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {

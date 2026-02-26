@@ -338,8 +338,8 @@ export function getStyleConfig(preset: CaptionStylePreset): {
  * @param params.newStyle - Optional new style to apply
  */
 export async function refreshCaptions(params: {
-  captionOverlay: CaptionOverlay;
-  videoOverlay: ClipOverlay;
+  captionOverlay: CaptionOverlay | any;
+  videoOverlay: ClipOverlay | any;
   userId: string;
   playerDimensions: { width: number; height: number };
   fps?: number;

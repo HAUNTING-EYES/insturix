@@ -1,18 +1,24 @@
-import { tool } from '@langchain/core/tools';
-import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
-import { HumanMessage, SystemMessage } from '@langchain/core/messages';
-import { z } from 'zod';
-import { projectService } from '../services/project-service';
-import { generateTimelineView } from '../utils/timeline-utils';
-import { Overlay, OverlayType as EditorOverlayType, HtmlGenerationMetadata } from '@/components/editron/editor/version-7.0.0/types';
-import { 
-  findBestRow, 
-  resolveCoordinates, 
-  getDefaultSize, 
+import { tool } from "@langchain/core/tools";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
+import { z } from "zod";
+import { projectService } from "../services/project-service";
+import { generateTimelineView } from "../utils/timeline-utils";
+import {
+  Overlay,
+  OverlayType as EditorOverlayType,
+  HtmlGenerationMetadata,
+  CaptionOverlay,
+  ClipOverlay,
+} from "@/components/editron/editor/version-7.0.0/types";
+import {
+  findBestRow,
+  resolveCoordinates,
+  getDefaultSize,
   hasCollisionOnRow,
   OverlayType,
-  ExistingOverlay 
-} from '../core/physics';
+  ExistingOverlay,
+} from "../core/physics";
 import {
   sanitizeHtml,
   createSandboxedWrapper,
@@ -21,8 +27,18 @@ import {
   buildFancyCaptionPrompt,
   injectFancyCaptionTiming,
   type WordTiming,
-} from '../utils/html-generator-utils';
-
+} from "../utils/html-generator-utils";
+import {
+  formatSecondsToHHMMSS,
+  framesToSeconds,
+  parsePromptTimeRange,
+  parseTimeToSeconds,
+} from "../utils/analysis";
+import { assetResolver } from "../services/asset-resolver";
+import {
+  sampleVideoClip,
+  sendVideoToGemini,
+} from "../services/media/analysis-service";
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
@@ -69,7 +85,7 @@ export const createTools = (userId: string, projectId: string) => {
     const result = { ...input };
     for (const key of Object.keys(result)) {
       const value = result[key];
-      
+
       if (typeof value === 'string') {
         // Handle time strings: "3s", "3sec", "3 seconds" → frame count at 30fps
         const timeMatch = value.match(/^(\d+(?:\.\d+)?)\s*(s|sec|seconds?)$/i);
@@ -98,7 +114,7 @@ export const createTools = (userId: string, projectId: string) => {
           (result as any)[key] = parseFloat(value);
         }
       }
-      
+
       // Coerce string booleans
       if (value === 'true') (result as any)[key] = true;
       if (value === 'false') (result as any)[key] = false;
@@ -121,7 +137,7 @@ export const createTools = (userId: string, projectId: string) => {
       try {
         const { mode, start, end, trackIds } = input;
         const project = await loadProject();
-        
+
         // Strip bloated fields that waste LLM tokens (base64 thumbnails, signed URLs)
         const sanitizeForLLM = (proj: any) => {
           const sanitized = { ...proj };
@@ -142,7 +158,7 @@ export const createTools = (userId: string, projectId: string) => {
           }
           return sanitized;
         };
-        
+
         const sanitizedProject = sanitizeForLLM(project);
         const canonical = JSON.stringify(sanitizedProject, null, 2);
         const canvas = getCanvasDimensions(project);
@@ -183,7 +199,7 @@ export const createTools = (userId: string, projectId: string) => {
       name: 'read_project_file',
       description: 'Read the project JSON file to understand its structure, overlays, and content.',
       schema: readProjectFileSchema,
-    }
+    },
   );
 
   const getTimelineViewSchema = z.object({
@@ -201,29 +217,29 @@ export const createTools = (userId: string, projectId: string) => {
         const input = coerceInput(rawInput);
         const project = await loadProject();
         const fps = project.fps || 30;
-        
+
         // Build trackTypes array based on boolean flags
         const trackTypes: Array<'text' | 'image' | 'audio' | 'video'> = [];
         if (input.includeVideo) trackTypes.push('video');
         if (input.includeAudio) trackTypes.push('audio');
         if (input.includeText) trackTypes.push('text');
-        
+
         // Build timeWindow if specified
         const timeWindow = (input.fromFrame !== undefined && input.toFrame !== undefined)
-          ? { fromFrame: input.fromFrame, toFrame: input.toFrame }
-          : undefined;
-        
-        const view = generateTimelineView(project, { 
-          granularity: input.granularity, 
-          timeWindow, 
+            ? { fromFrame: input.fromFrame, toFrame: input.toFrame }
+            : undefined;
+
+        const view = generateTimelineView(project, {
+          granularity: input.granularity,
+          timeWindow,
           trackTypes: trackTypes.length > 0 ? trackTypes : undefined 
         });
-        
+
         // Detect gaps between video clips
         const videoClips = project.overlays
           .filter((o: any) => o.type === 'video')
           .sort((a: any, b: any) => a.from - b.from);
-        
+
         const gaps: Array<{ fromFrame: number; toFrame: number; durationSeconds: number }> = [];
         for (let i = 0; i < videoClips.length - 1; i++) {
           const currentEnd = videoClips[i].from + videoClips[i].durationInFrames;
@@ -232,17 +248,18 @@ export const createTools = (userId: string, projectId: string) => {
             gaps.push({
               fromFrame: currentEnd,
               toFrame: nextStart,
-              durationSeconds: Math.round(((nextStart - currentEnd) / fps) * 10) / 10,
+              durationSeconds:
+                Math.round(((nextStart - currentEnd) / fps) * 10) / 10,
             });
           }
         }
-        
+
         // Calculate total video duration (from first clip start to last clip end)
         const allOverlays = project.overlays.filter((o: any) => ['video', 'audio', 'text', 'caption'].includes(o.type));
         const totalDurationFrames = allOverlays.length > 0
           ? Math.max(...allOverlays.map((o: any) => o.from + o.durationInFrames))
-          : 0;
-        
+            : 0;
+
         return JSON.stringify({
           ...view,
           totalDurationFrames,
@@ -273,28 +290,28 @@ Call with no arguments to get full timeline.`,
 
   const addOverlaySchema = z.object({
     type: z.enum(['text', 'image', 'video', 'sound', 'shape', 'sticker']).describe("Type of overlay to add"),
-    
+
     // Timing (required)
     start: z.coerce.number().describe("Start frame (0-based)"),
     duration: z.coerce.number().describe("Duration in frames"),
-    
+
     // Content (type-specific)
     text: z.string().optional().describe("Text content (required for type='text')"),
     assetId: z.string().optional().describe("Asset ID (required for image/video/sound)"),
-    
+
     // Position - accepts numbers (pixels) or strings (percentages like '50%' or 'center')
     x: z.union([z.coerce.number(), z.string()]).optional().describe("X position: number for pixels, string for '50%' or 'center'. Default: center"),
     y: z.union([z.coerce.number(), z.string()]).optional().describe("Y position: number for pixels, string for '50%' or 'center'. Default: center"),
     width: z.union([z.coerce.number(), z.string()]).optional().describe("Width: number for pixels, string for '50%'. Default: type-specific"),
     height: z.union([z.coerce.number(), z.string()]).optional().describe("Height: number for pixels, string for '50%'. Default: type-specific"),
     rotation: z.coerce.number().optional().default(0),
-    
+
     // Row override (Smart Placement by default)
     row: z.coerce.number().optional().describe("Force specific row. If omitted, Physics Engine auto-places: Videos at bottom, Text on top."),
-    
+
     // Styles (all optional, type-specific fields ignored if not applicable)
     styles: z.object({
-      // Text styles
+        // Text styles
       fontSize: z.coerce.number().optional().describe("Font size in pixels (for text). e.g., 32 for body, 48 for title"),
       fontFamily: z.enum([
         'font-sans',      // Inter (modern sans-serif)
@@ -308,8 +325,8 @@ Call with no arguments to get full timeline.`,
       color: z.string().optional().describe("Text color hex (for text). Default: #ffffff"),
       textAlign: z.enum(['left', 'center', 'right']).optional().describe("Text alignment. Default: center"),
       backgroundColor: z.string().optional().describe("Background color (for text). Default: transparent"),
-      
-      // Animation (for text - recommended to use fade by default)
+
+        // Animation (for text - recommended to use fade by default)
       animation: z.object({
         enter: z.enum([
           'fade',       // Simple fade in (default, recommended)
@@ -338,21 +355,21 @@ Call with no arguments to get full timeline.`,
           'swipeReveal'
         ]).optional().describe("Exit animation. Default: fade"),
       }).optional().describe("Animation config. Recommended: use fade for smooth transitions"),
-      
-      // Media styles
+
+        // Media styles
       objectFit: z.enum(['cover', 'contain', 'fill']).optional().describe("Object fit (for image/video)"),
       volume: z.coerce.number().optional().describe("Volume 0-1 (for video/sound)"),
-      
-      // Shape styles
-      fill: z.string().optional().describe("Fill color (for shape)"),
-      stroke: z.string().optional().describe("Stroke color (for shape)"),
+
+        // Shape styles
+        fill: z.string().optional().describe("Fill color (for shape)"),
+        stroke: z.string().optional().describe("Stroke color (for shape)"),
       strokeWidth: z.coerce.number().optional().describe("Stroke width (for shape)"),
-      
-      // Common styles
-      opacity: z.coerce.number().optional().describe("Opacity 0-1"),
+
+        // Common styles
+        opacity: z.coerce.number().optional().describe("Opacity 0-1"),
       borderRadius: z.string().optional().describe("Border radius (e.g. '8px')"),
     }).optional(),
-    
+
     // Video-specific
     videoStartTime: z.coerce.number().optional().describe("Start time within source video in seconds (for video)"),
     startFromSound: z.coerce.number().optional().describe("Start time within source audio in seconds (for sound)"),
@@ -364,7 +381,7 @@ Call with no arguments to get full timeline.`,
         const project = await loadProject();
         const canvas = getCanvasDimensions(project);
         const existingOverlays = toExistingOverlays(project.overlays || []);
-        
+
         // Validate type-specific required fields
         if (input.type === 'text' && !input.text) {
           return JSON.stringify({ status: 'error', message: "'text' field is required for type='text'" });
@@ -372,10 +389,10 @@ Call with no arguments to get full timeline.`,
         if (['image', 'video', 'sound'].includes(input.type) && !input.assetId) {
           return JSON.stringify({ status: 'error', message: `'assetId' field is required for type='${input.type}'` });
         }
-        
+
         // Generate unique ID
         const id = Date.now() + Math.floor(Math.random() * 10000);
-        
+
         // Smart row placement via Physics Engine
         const physicsType = input.type === 'sound' ? OverlayType.SOUND : 
                            input.type === 'video' ? OverlayType.VIDEO :
@@ -383,14 +400,14 @@ Call with no arguments to get full timeline.`,
                            input.type === 'text' ? OverlayType.TEXT :
                            input.type === 'shape' ? OverlayType.SHAPE :
                            OverlayType.STICKER;
-        
+
         const row = findBestRow(
           physicsType,
           { from: input.start, duration: input.duration },
           existingOverlays,
           input.row // forceRow override
         );
-        
+
         // Resolve coordinates using Physics Engine
         const defaultSize = getDefaultSize(physicsType);
         const coords = resolveCoordinates(
@@ -398,7 +415,7 @@ Call with no arguments to get full timeline.`,
           canvas,
           defaultSize
         );
-        
+
         // Build base overlay
         const baseOverlay = {
           id,
@@ -413,24 +430,24 @@ Call with no arguments to get full timeline.`,
           rotation: input.rotation ?? 0,
           isDragging: false,
         };
-        
+
         // Build type-specific overlay
         let newOverlay: any;
-        
+
         switch (input.type) {
           case 'text': {
             const fontSize = input.styles?.fontSize ?? 32;
             const textContent = input.text || '';
             const explicitLines = textContent.split('\n');
             const maxLineChars = Math.max(...explicitLines.map(l => l.length), 1);
-            
+
             // Cap width to 90% of canvas to prevent overflow
             const maxAllowedWidth = canvas.width * 0.9;
-            
+
             // Calculate width: auto-fit to content but cap to canvas
             const rawAutoWidth = Math.max(200, maxLineChars * fontSize * 0.6);
             const autoWidth = Math.min(rawAutoWidth, maxAllowedWidth);
-            
+
             // If text needs to wrap, calculate wrapped height
             const charsPerLine = Math.max(1, Math.floor(autoWidth / (fontSize * 0.6)));
             let totalVisualLines = 0;
@@ -438,13 +455,13 @@ Call with no arguments to get full timeline.`,
               totalVisualLines += line.length === 0 ? 1 : Math.ceil(line.length / charsPerLine);
             }
             const autoHeight = totalVisualLines * fontSize * 1.4;
-            
+
             // Use auto-calculated if not specified, otherwise use resolved coords (also capped)
             const textWidth = input.width === undefined ? autoWidth : Math.min(coords.width, maxAllowedWidth);
             const textHeight = input.height === undefined ? autoHeight : coords.height;
             const textLeft = input.x === undefined ? (canvas.width - textWidth) / 2 : coords.left;
             const textTop = input.y === undefined ? (canvas.height - textHeight) / 2 : coords.top;
-            
+
             newOverlay = {
               ...baseOverlay,
               left: textLeft,
@@ -462,16 +479,16 @@ Call with no arguments to get full timeline.`,
                 fontStyle: "normal",
                 textDecoration: "none",
                 opacity: input.styles?.opacity ?? 1,
-                animation: { 
-                  enter: input.styles?.animation?.enter ?? "fade", 
-                  exit: input.styles?.animation?.exit ?? "fade", 
+                animation: {
+                  enter: input.styles?.animation?.enter ?? "fade",
+                  exit: input.styles?.animation?.exit ?? "fade",
                   duration: 15 
                 }
               }
             };
             break;
           }
-            
+
           case 'image':
             newOverlay = {
               ...baseOverlay,
@@ -484,7 +501,7 @@ Call with no arguments to get full timeline.`,
               }
             };
             break;
-            
+
           case 'video':
             newOverlay = {
               ...baseOverlay,
@@ -498,7 +515,7 @@ Call with no arguments to get full timeline.`,
               }
             };
             break;
-            
+
           case 'sound':
             newOverlay = {
               ...baseOverlay,
@@ -511,7 +528,7 @@ Call with no arguments to get full timeline.`,
               }
             };
             break;
-            
+
           case 'shape':
             newOverlay = {
               ...baseOverlay,
@@ -525,7 +542,7 @@ Call with no arguments to get full timeline.`,
               }
             };
             break;
-            
+
           case 'sticker':
             newOverlay = {
               ...baseOverlay,
@@ -538,11 +555,11 @@ Call with no arguments to get full timeline.`,
             };
             break;
         }
-        
+
         await projectService.addOverlay(userId, projectId, newOverlay as any);
-        return JSON.stringify({ 
+        return JSON.stringify({
           status: 'success', 
-          id, 
+          id,
           row,
           position: { left: coords.left, top: coords.top, width: coords.width, height: coords.height },
           message: `${input.type} overlay added with ID ${id} on row ${row}` 
@@ -1497,7 +1514,7 @@ EXAMPLE PROMPTS:
           let fullTranscript = '';
           
           for (const video of videoOverlays) {
-            const transcription = await getTranscription(video.assetId, userId, {
+            const transcription = await getTranscription(video.assetId as string, userId, {
               forceRefresh: input.forceRefresh,
             });
             
@@ -1870,7 +1887,7 @@ IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
         const project = await loadProject();
         
         // Find the caption overlay
-        const captionOverlay = project.overlays.find(
+        const captionOverlay: any = project.overlays.find(
           (o: any) => o.id === input.captionOverlayId && o.type === 'caption'
         );
         
@@ -2251,7 +2268,7 @@ Linked captions are automatically moved with their videos.`,
             { $inc: { 'overlays.$[].row': 1 } }
           );
         }
-        
+
         const newOverlay = {
           id,
           type: 'html-scene', // Using html-scene type for rendering compatibility
@@ -2271,9 +2288,9 @@ Linked captions are automatically moved with their videos.`,
             animation: { enter: 'fadeIn', exit: 'fadeOut', duration: 10 },
           },
         };
-        
+
         await projectService.addOverlay(userId, projectId, newOverlay as any);
-        
+
         console.log('[FANCY-CAPTIONS] Created overlay:', {
           id,
           wordCount: classifiedWords.length,
@@ -2281,7 +2298,7 @@ Linked captions are automatically moved with their videos.`,
           fonts: metadata.fonts,
           colors: metadata.colors,
         });
-        
+
         return JSON.stringify({
           status: 'success',
           id,
@@ -2325,7 +2342,530 @@ LIMITS: Max 15-25 words per call. For longer content, call multiple times.
 
 RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency.`,
       schema: addFancyCaptionsSchema,
-    }
+    },
+  );
+  
+  // ============================================================================
+  // analyze_clip_audio 
+  // ============================================================================
+
+  const analyzeClipAudioSchema = z.object({
+    // Dynamic prompt support - make all fields optional and handle validation in the tool
+    target: z
+      .string()
+      .optional()
+      .describe(
+        'Natural-language description of which audio/video to analyze OR an asset ID (e.g., "the interview", "first 30 seconds", or "493402").',
+      ),
+    startTime: z
+      .string()
+      .optional()
+      .describe(
+        'Start time in hh:mm:ss or mm:ss format (e.g., "00:30" for 30 seconds).',
+      ),
+    endTime: z
+      .string()
+      .optional()
+      .describe(
+        "End time in hh:mm:ss or mm:ss format. Maximum 2 minutes from startTime.",
+      ),
+    windowMinutes: z
+      .number()
+      .optional()
+      .describe(
+        "Analysis window in minutes when using target. Default is 2.",
+      ),
+    // Manual specification (fallback)
+    source: z.enum(["timeline", "asset"]).optional(),
+    assetId: z.string().optional(),
+    startFrame: z.number().optional(),
+    endFrame: z.number().optional(),
+    fps: z.number().optional(),
+  });
+
+  const analyzeClipAudio = tool(
+    async (
+      rawInput: z.infer<typeof analyzeClipAudioSchema> & { prompt?: string },
+    ) => {
+      try {
+        console.log("[AUDIO-TOOL] ========== START ==========");
+        
+        const input = rawInput;
+        const project = await loadProject();
+        const projectFps = input.fps || project?.fps || 30;
+
+        // Combine target and prompt for search
+        const prompt = (input.prompt || input.target || "").trim();
+        console.log("[AUDIO-TOOL] Search prompt:", prompt);
+
+        // 1) Parse time range from input
+        let parsedRange = null;
+        
+        // Check if startTime/endTime are provided
+        if (input.startTime && input.endTime) {
+          const parseTime = (timeStr: string): number => {
+            const parts = timeStr.split(':').map(Number);
+            if (parts.length === 2) {
+              return parts[0] * 60 + parts[1]; // mm:ss
+            } else if (parts.length === 3) {
+              return parts[0] * 3600 + parts[1] * 60 + parts[2]; // hh:mm:ss
+            }
+            return 0;
+          };
+          
+          const startSec = parseTime(input.startTime);
+          const endSec = parseTime(input.endTime);
+          
+          parsedRange = { startSec, endSec };
+          console.log("[AUDIO-TOOL] Parsed time range from input:", parsedRange);
+        } else {
+          // Try to parse from prompt
+          parsedRange = parsePromptTimeRange(prompt, projectFps, 120);
+          console.log("[AUDIO-TOOL] Parsed time range from prompt:", parsedRange);
+        }
+
+        // 2) Pick audio-capable overlays
+        const overlays = (project.overlays || []).filter(
+          (o: any) =>
+            (o.type === "audio" || o.type === "video" || o.type === "sound") &&
+            (o.assetId || o.src),
+        );
+
+        console.log("[AUDIO-TOOL] Total overlays found:", overlays.length);
+        console.log("[AUDIO-TOOL] Overlays:", overlays.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          assetId: o.assetId,
+          type: o.type,
+          from: o.from,
+          duration: o.durationInFrames
+        })));
+        
+        if (overlays.length === 0) {
+          return JSON.stringify({
+            status: "error",
+            message:
+              "No audio or video overlays with assets found. Upload media first.",
+          });
+        }
+
+        // 3) Choose overlay - check if target is an assetId first
+        const chooseOverlay = () => {
+          // First check if input.assetId is provided
+          if (input.assetId) {
+            const match = overlays.find((o: any) => o.assetId === input.assetId);
+            if (match) {
+              console.log("[AUDIO-TOOL] Matched by input.assetId:", input.assetId);
+              return match;
+            }
+          }
+          
+          // Check if target/prompt looks like an asset ID or contains searchable text
+          if (prompt) {
+            const lower = prompt.toLowerCase();
+            
+            // Try exact assetId match first
+            const assetMatch = overlays.find((o: any) => o.assetId === prompt);
+            if (assetMatch) {
+              console.log("[AUDIO-TOOL] Matched by exact assetId:", prompt);
+              return assetMatch;
+            }
+            
+            // Try partial assetId match
+            const partialAssetMatch = overlays.find((o: any) => 
+              o.assetId && o.assetId.toLowerCase().includes(lower)
+            );
+            if (partialAssetMatch) {
+              console.log("[AUDIO-TOOL] Matched by partial assetId:", prompt);
+              return partialAssetMatch;
+            }
+            
+            // Try name/content match
+            const nameMatch = overlays.find(
+              (o: any) =>
+                (o.name && o.name.toLowerCase().includes(lower)) ||
+                (o.content &&
+                  typeof o.content === "string" &&
+                  o.content.toLowerCase().includes(lower)),
+            );
+            if (nameMatch) {
+              console.log("[AUDIO-TOOL] Matched by name/content:", prompt);
+              return nameMatch;
+            }
+          }
+
+          // If time range exists, find overlapping overlay
+          if (parsedRange) {
+            const startF = Math.round(parsedRange.startSec * projectFps);
+            const endF = Math.round(parsedRange.endSec * projectFps);
+            const overlap = overlays.find((o: any) => {
+              const oStart = o.from || 0;
+              const oEnd = oStart + (o.durationInFrames || 0);
+              return !(endF < oStart || startF > oEnd);
+            });
+            if (overlap) {
+              console.log("[AUDIO-TOOL] Matched by time overlap");
+              return overlap;
+            }
+          }
+
+          console.log("[AUDIO-TOOL] Using first overlay as fallback");
+          return overlays[0];
+        };
+
+        const chosen: any = chooseOverlay();
+        console.log("[AUDIO-TOOL] Chosen overlay:", {
+          id: chosen?.id,
+          name: chosen?.name,
+          assetId: chosen?.assetId,
+          type: chosen?.type
+        });
+        
+        if (!chosen?.assetId) {
+          return JSON.stringify({
+            status: "error",
+            message: "Selected overlay does not have an assetId.",
+          });
+        }
+
+        // 4) Determine start/end frames
+        let startFrame: number;
+        let endFrame: number;
+
+        if (parsedRange) {
+          startFrame = Math.round(parsedRange.startSec * projectFps);
+          endFrame = Math.round(parsedRange.endSec * projectFps);
+          console.log("[AUDIO-TOOL] Using parsed range for frames");
+        } else {
+          const windowMinutes = input.windowMinutes ?? 2;
+          const windowFrames = Math.round(windowMinutes * 60 * projectFps);
+          const overlayDur = chosen.durationInFrames || 0;
+
+          if (overlayDur > 0) {
+            startFrame = Math.max(
+              0,
+              chosen.from + Math.floor((overlayDur - windowFrames) / 2),
+            );
+            endFrame = Math.min(
+              chosen.from + overlayDur,
+              startFrame + windowFrames,
+            );
+          } else {
+            startFrame = chosen.from || 0;
+            endFrame = startFrame + windowFrames;
+          }
+          console.log("[AUDIO-TOOL] Using centered window for frames");
+        }
+
+        // Enforce max 2 minutes
+        const maxFrames = 120 * projectFps;
+        if (endFrame - startFrame > maxFrames) {
+          endFrame = startFrame + maxFrames;
+          console.log("[AUDIO-TOOL] Clamped to max 2 minutes");
+        }
+        
+        console.log("[AUDIO-TOOL] Final analysis range:", { 
+          startFrame, 
+          endFrame,
+          durationSec: (endFrame - startFrame) / projectFps
+        });
+
+        // 5) Call audio analysis service
+        const { analyzeClipAudioService } = await import("../services/media");
+
+        console.log("[AUDIO-TOOL] Calling analyzeClipAudioService...");
+        const result = await analyzeClipAudioService({
+          projectId,
+          userId,
+          source: "asset",
+          assetId: chosen.assetId,
+          startFrame,
+          endFrame,
+          fps: projectFps,
+        });
+
+        console.log("[AUDIO-TOOL] Analysis complete:", {
+          silences: result.silenceGapsFrames.length,
+          fillers: result.fillers.length,
+          problematic: result.problematicFrames.length,
+        });
+
+        // 6) Build response
+        const response = {
+          status: "success",
+          type: "audio",
+          analyzedOverlay: {
+            id: chosen.id,
+            assetId: chosen.assetId,
+            name: chosen.name || null,
+            type: chosen.type,
+          },
+          timestamps: {
+            start: formatSecondsToHHMMSS(
+              framesToSeconds(startFrame, projectFps),
+            ),
+            end: formatSecondsToHHMMSS(
+              framesToSeconds(endFrame, projectFps),
+            ),
+          },
+          startFrame,
+          endFrame,
+          summary: result.summary,
+          silenceGapsFrames: result.silenceGapsFrames,
+          fillers: result.fillers,
+          problematicFrames: result.problematicFrames,
+          message: `Detected ${result.problematicFrames.length} removable audio segments`,
+        };
+        
+        console.log("[AUDIO-TOOL] ========== SUCCESS ==========");
+        return JSON.stringify(response);
+      } catch (err: any) {
+        console.error("[AUDIO-TOOL] ========== ERROR ==========");
+        console.error("[AUDIO-TOOL] Error:", err);
+        console.error("[AUDIO-TOOL] Stack:", err.stack);
+        return JSON.stringify({
+          status: "error",
+          message: err.message || String(err),
+        });
+      }
+    },
+    {
+      name: "analyze_clip_audio",
+      description: `Analyze an audio clip (max 2 minutes) for silences, filler words, and problematic segments.
+        Auto-selects the best overlay and time range if not explicitly provided.
+        When the user asks to analyze audio, you MUST call this tool.
+        Never ask clarifying questions.
+        Use the active timeline selection if no asset is specified.`,
+      schema: analyzeClipAudioSchema,
+    },
+  );
+
+  // ============================================================================
+  // analyze_clip_video
+  // ============================================================================
+
+  const analyzeClipVideoSchema = z.object({
+    // Dynamic prompt support
+    target: z
+      .string()
+      .optional()
+      .describe(
+        'Natural-language description of which video to analyze (e.g., "the dancing girl", "intro clip", "first minute"). If provided, assetId/startFrame/endFrame are ignored and auto-selected.',
+      ),
+    startTime: z
+      .string()
+      .optional()
+      .describe(
+        'Start time in hh:mm:ss or mm:ss format (e.g., "00:30" for 30 seconds). If provided with endTime, these override startFrame/endFrame.',
+      ),
+    endTime: z
+      .string()
+      .optional()
+      .describe(
+        "End time in hh:mm:ss or mm:ss format. Maximum 2 minutes from startTime.",
+      ),
+    windowMinutes: z
+      .number()
+      .optional()
+      .default(2)
+      .describe(
+        "Analysis window in minutes when using target. Default is 2. Will be centered on the overlay or start from its beginning if shorter.",
+      ),
+    // Manual specification (fallback)
+    source: z.enum(["timeline", "asset"]).optional(),
+    assetId: z.string().optional(),
+    startFrame: z.number().optional(),
+    endFrame: z.number().optional(),
+    fps: z.number().optional(),
+  });
+
+  const analyzeClipVideo = tool(
+    async (
+      rawInput: z.infer<typeof analyzeClipVideoSchema> & { prompt?: string },
+    ) => {
+      try {
+        const input = rawInput;
+        const project = await loadProject();
+        const projectFps = input.fps || project?.fps || 30;
+        const prompt = (input.prompt || input.target || "").trim();
+
+        // 1) parse prompt for time range (seconds). If not found, we will derive from chosen overlay.
+        const parsedRange = parsePromptTimeRange(prompt, projectFps, 120); // {startSec,endSec} or null
+
+        // 2) pick video overlay candidates (accept assetId OR src OR timeline overlay)
+        const overlays = (project.overlays || []).filter(
+          (o: any) => o.type === "video",
+        );
+
+        if (overlays.length === 0) {
+          return JSON.stringify({
+            status: "error",
+            message: "No video overlays found in project timeline.",
+          });
+        }
+
+        // Choose overlay: if prompt mentions a name, try to match; else choose first overlay that overlaps requested range or first overall
+        const chooseOverlay = () => {
+          if (prompt) {
+            const lower = prompt.toLowerCase();
+            const match = overlays.find(
+              (o: any) =>
+                (o.name && o.name.toLowerCase().includes(lower)) ||
+                (o.assetId && o.assetId.toLowerCase().includes(lower)) ||
+                (o.content &&
+                  typeof o.content === "string" &&
+                  o.content.toLowerCase().includes(lower)) ||
+                (o.src && o.src.toLowerCase().includes(lower)),
+            );
+            if (match) return match;
+          }
+          // overlap-based fallback: if parsedRange provided, find overlay that overlaps
+          if (parsedRange) {
+            const startF = Math.round(parsedRange.startSec * projectFps);
+            const endF = Math.round(parsedRange.endSec * projectFps);
+            const overlap = overlays.find((o: any) => {
+              const oStart = o.from || 0;
+              const oEnd = oStart + (o.durationInFrames || 0);
+              return !(endF < oStart || startF > oEnd);
+            });
+            if (overlap) return overlap;
+          }
+          return overlays[0];
+        };
+
+        const chosen: any = chooseOverlay();
+        if (!chosen)
+          return JSON.stringify({
+            status: "error",
+            message: "Could not determine overlay to analyze.",
+          });
+
+        // 3) determine start/end frames (priority: parsedRange -> overlay centered window -> overlay start)
+        let startFrame: number, endFrame: number;
+        if (parsedRange) {
+          startFrame = Math.round(parsedRange.startSec * projectFps);
+          endFrame = Math.round(parsedRange.endSec * projectFps);
+        } else {
+          // center a 2-minute window (or overlay duration if shorter)
+          const windowFrames = Math.round(120 * projectFps);
+          const overlayDur = chosen.durationInFrames || 0;
+          if (overlayDur > 0) {
+            startFrame = Math.max(
+              0,
+              chosen.from + Math.floor((overlayDur - windowFrames) / 2),
+            );
+            endFrame = Math.min(
+              chosen.from + overlayDur,
+              startFrame + windowFrames,
+            );
+          } else {
+            // fallback to beginning of overlay
+            startFrame = chosen.from || 0;
+            endFrame =
+              startFrame +
+              Math.min(
+                windowFrames,
+                Math.max(1, chosen.durationInFrames || windowFrames),
+              );
+          }
+        }
+
+        // enforce max 2 minutes
+        const maxFrames = 120 * projectFps;
+        if (endFrame - startFrame > maxFrames)
+          endFrame = startFrame + maxFrames;
+
+        // 4) decide sampling source: prefer assetId -> assetUrl; else use overlay.src (external) -> ffmpeg; else timeline -> Remotion
+        let sampleSource: "asset" | "ffmpegUrl" | "timeline" = "timeline";
+        let assetUrl: string | undefined;
+        if (chosen.assetId) {
+          sampleSource = "asset";
+          assetUrl = await assetResolver.resolveAssetUrl(
+            chosen.assetId,
+            userId,
+          );
+        } else if (
+          chosen.src &&
+          typeof chosen.src === "string" &&
+          /^https?:\/\//i.test(chosen.src)
+        ) {
+          sampleSource = "ffmpegUrl";
+          assetUrl = chosen.src;
+        } else {
+          sampleSource = "timeline";
+        }
+
+        // 5) sample the clip
+        const sampleParams: any = {
+          projectId,
+          source: sampleSource === "timeline" ? "timeline" : "asset",
+          assetId: chosen.assetId,
+          assetUrl,
+          startFrame,
+          endFrame,
+          fps: projectFps,
+          userId,
+          targetSampleFps: 1,
+          maxDurationSec: 120,
+        };
+
+        const sampledPath = await sampleVideoClip(sampleParams);
+
+        // 6) send to Gemini with PROPER detailed analysis prompt
+        const geminiResult = await sendVideoToGemini({
+          filePath: sampledPath,
+          prompt: '',
+        });
+
+        // 7) map 1fps frame indices back to timeline frames
+        const vision = {
+          sceneChanges: (geminiResult.sceneChanges || []).map(
+            (idx: number) => startFrame + idx * projectFps,
+          ),
+          deadVisualRanges: (geminiResult.deadVisualRanges || []).map(
+            ([s, e]: any) => [
+              startFrame + s * projectFps,
+              startFrame + e * projectFps,
+            ],
+          ),
+          gestures: geminiResult.gestures || [],
+          onScreenText: geminiResult.onScreenText || [],
+          summary: geminiResult.summary || "No summary available",
+          theme: geminiResult.theme || "other",
+        };
+
+        return JSON.stringify({
+          status: "success",
+          analyzedOverlay: {
+            id: chosen.id,
+            name: chosen.name || null,
+            from: chosen.from,
+            durationInFrames: chosen.durationInFrames,
+          },
+          timestamps: {
+            start: formatSecondsToHHMMSS(
+              framesToSeconds(startFrame, projectFps),
+            ),
+            end: formatSecondsToHHMMSS(framesToSeconds(endFrame, projectFps)),
+          },
+          startFrame,
+          endFrame,
+          vision,
+        });
+      } catch (err: any) {
+        console.error("[analyze_clip_video] error", err);
+        return JSON.stringify({
+          status: "error",
+          message: err.message || String(err),
+        });
+      }
+    },
+    {
+      name: "analyze_clip_video",
+      description: `Analyze a video clip (max 2 minutes) for scene changes, dead zones, gestures, and on-screen text.
+                    Auto-selects the best overlay and time range if not explicitly provided.`,
+      schema: analyzeClipVideoSchema,
+    },
   );
 
   return [
@@ -2348,6 +2888,8 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
     addCaptions,
     addFancyCaptions,     // NEW: Kinetic typography captions
     refreshCaptionsAI,    // NEW: Refresh/realign captions
+    analyzeClipAudio,     // NEW: Analyze clip audio
+    analyzeClipVideo,     // NEW: Analyze clip video
   ];
 
 };

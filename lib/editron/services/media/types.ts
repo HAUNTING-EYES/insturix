@@ -86,6 +86,8 @@ export interface ProblematicSegment {
  * Complete audio content analysis result
  */
 export interface ContentAnalysis {
+  silences: any;
+  fillers: any;
   silenceGaps: SilenceGap[];
   fillerWords: DetectedFiller[];
   problematicSegments: ProblematicSegment[];

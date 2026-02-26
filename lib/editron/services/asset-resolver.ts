@@ -423,6 +423,26 @@ export class AssetResolver {
 
     return { fixed, remaining };
   }
+
+  /**
+   * Resolve an assetId to a playable URL (safe for backend usage)
+   * Used by renderers, analyzers, and AI tools
+   */
+  async resolveAssetUrl(assetId: string, userId: string): Promise<string> {
+    const asset = await this.getAsset(assetId, userId);
+
+    if (!asset) {
+      throw new Error(`Asset not found: ${assetId}`);
+    }
+
+    // Public assets (Pexels, stock, etc.)
+    if (asset.source === 'public' && asset.publicUrl) {
+      return asset.publicUrl;
+    }
+
+    // User-uploaded assets → refresh signed URL if needed
+    return await this.getOrRefreshUrl(asset);
+  }
 }
 
 // Singleton instance
