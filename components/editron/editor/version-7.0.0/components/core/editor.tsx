@@ -176,6 +176,7 @@ export const Editor: React.FC = () => {
         }}
         setOverlays={setOverlays}
         onTimelineClick={handleTimelineClick}
+        playerRef={playerRef}
       />
     </div>
   );

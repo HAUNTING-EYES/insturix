@@ -56,6 +56,8 @@ interface TimelineProps {
   onSplitOverlay: (id: number, splitPosition: number) => void;
   /** Callback to set the overlays state */
   setOverlays: (overlays: Overlay[]) => void;
+  /** Video player reference for seeking */
+  playerRef: React.RefObject<any>;
 }
 
 const Timeline: React.FC<TimelineProps> = ({
@@ -71,6 +73,7 @@ const Timeline: React.FC<TimelineProps> = ({
   onOverlayDuplicate,
   onSplitOverlay,
   setOverlays,
+  playerRef,
 }) => {
   // State for tracking hover position during split operations
   const [lastKnownHoverInfo, setLastKnownHoverInfo] = useState<{
@@ -382,7 +385,13 @@ const Timeline: React.FC<TimelineProps> = ({
     <div className="h-[1.3rem]" style={{ width: `${100 * zoomScale}%`, minWidth: "100%", overflow: "hidden" }}>
             <TimeMarkers
               durationInFrames={durationInFrames}
-              handleTimelineClick={setCurrentFrame}
+              handleTimelineClick={(clickPosition) => {
+                const targetFrame = Math.round(clickPosition * durationInFrames);
+                setCurrentFrame(targetFrame);
+                if (playerRef && playerRef.current) {
+                  playerRef.current.seekTo(targetFrame);
+                }
+              }}
               zoomScale={zoomScale}
             />
           </div>
