@@ -99,7 +99,7 @@ export function useUploaderXUpload() {
 
       toast({
         title: 'Upload successful',
-        description: 'Your video has been uploaded successfully.',
+        description: 'Your video has been saved to Safe Storage.',
       });
 
       return {
@@ -207,7 +207,7 @@ export function useUploaderXUpload() {
 
               toast({
                 title: 'Upload successful',
-                description: 'Your video has been uploaded successfully.',
+                description: 'Your video has been saved to Safe Storage.',
               });
 
               resolve({
@@ -311,10 +311,43 @@ export function useUploaderXUpload() {
     }
   }, []);
 
+  const uploadToFacebook = useCallback(async (
+    videoUuid: string,
+    gcsPath: string,
+    title?: string,
+    description?: string,
+    pageId?: string
+  ) => {
+    try {
+      const res = await fetch("/api/services/uploaderx/facebook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath,
+          videoUuid,
+          title,
+          description,
+          pageId,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.error || "Failed to upload to Facebook");
+      }
+
+      return { success: true, facebookUrl: data.facebookUrl, pageName: data.pageName };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Facebook upload failed';
+      return { success: false, error: errorMessage };
+    }
+  }, []);
+
   return {
     uploadVideo,
     uploadWithProgress,
     uploadToYouTube,
+    uploadToFacebook,
     isUploading,
     uploadProgress,
   };

@@ -21,7 +21,8 @@ import {
   Download,
   Calendar,
   FileText,
-  RefreshCw
+  RefreshCw,
+  Facebook
 } from "lucide-react";
 import {
   Dialog,
@@ -306,6 +307,50 @@ export function VideoManager({
     }
   };
 
+  // ================== 🔵 Upload to Facebook ===================
+  const handleFacebookUpload = async (video: VideoItem) => {
+    try {
+      toast({
+        title: "Uploading to Facebook...",
+        description: `Sending ${video.filename} to your Facebook Page.`,
+      });
+
+      const res = await fetch("/api/services/uploaderx/facebook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gcsPath: video.gcsPath,
+          videoUuid: video.videoUuid,
+        }),
+      });
+
+      const data = await res.json();
+      if (!data.success && res.status === 403) {
+        throw new Error("Please connect your Facebook account first.");
+      }
+
+      if (data.success) {
+        toast({
+          title: "✅ Uploaded to Facebook",
+          description: `Video posted to ${data.pageName || 'your Page'}!`,
+        });
+
+        console.log("🔵 Facebook Link:", data.facebookUrl);
+        setUploadedVideoLink(data.facebookUrl);
+        setShowUploadDialog(true);
+      } else {
+        throw new Error(data.error || "Failed to upload to Facebook");
+      }
+    } catch (err) {
+      console.error("❌ Facebook upload error:", err);
+      toast({
+        title: "Upload failed",
+        description: err instanceof Error ? err.message : "Facebook upload failed",
+        variant: "destructive",
+      });
+    }
+  };
+
   const formatDuration = (seconds: number) => {
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
@@ -463,6 +508,14 @@ export function VideoManager({
                         >
                           <Edit className="h-4 w-4 mr-2" />
                           Edit
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleFacebookUpload(video)}
+                          title="Upload to Facebook"
+                        >
+                          <Facebook className="h-4 w-4 text-blue-500" />
                         </Button>
                         <Button
                           variant="outline"

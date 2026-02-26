@@ -167,9 +167,6 @@ export function UploaderXClientWrapper() {
 
   return (
     <div className="space-y-6">
-      {/* YouTube Connection Status */}
-      <YouTubeConnectionStatus />
-
       <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
         <CardContent className="p-0">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">

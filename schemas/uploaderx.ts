@@ -4,6 +4,17 @@ export interface IUploaderX extends Document {
   name?: string;
   email: string;
   youtubeTokens?: object;
+  facebookTokens?: {
+    userAccessToken: string;
+    userId: string;
+    userName: string;
+    pages: Array<{
+      pageId: string;
+      pageName: string;
+      pageAccessToken: string;
+    }>;
+    connectedAt: Date;
+  };
   userId: string;
   videoUuid: string;
   filename: string;
@@ -22,6 +33,7 @@ const UploaderXSchema = new Schema<IUploaderX>({
   name: { type: String },
   email: { type: String, unique: true, required: true },
   youtubeTokens: { type: Object },
+  facebookTokens: { type: Object },
   userId: { type: String, required: true },
   videoUuid: { type: String, required: true },
   filename: { type: String, required: true },

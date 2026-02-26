@@ -1,12 +1,6 @@
 "use client";
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { CanvasActions } from "../canvas/CanvasActions";
@@ -19,9 +13,7 @@ import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
 import { SelectionTool } from "../canvas/SelectionTool";
-import { SketchOverlay, SketchOverlayHandle } from "../canvas/SketchOverlay";
-import { ImageOverlayManager, ImageOverlayManagerHandle } from "../canvas/ImageOverlayManager";
-import { GenerativeFillInline } from "../canvas/GenerativeFillInline";
+import { GenerativeFillPanel } from "../canvas/GenerativeFillPanel";
 import { useDebounce } from "use-debounce";
 import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
@@ -32,9 +24,7 @@ import {
   getImageUrl,
 } from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
-import { useToast } from "@/hooks/use-toast";
 import { GENERATIVE_FILL_SYSTEM_PROMPT } from "@/lib/config/clickatron-models";
-import { Variation } from "@/types/clickatron";
 
 interface CanvasStageProps {
   videoIdea: string;
@@ -195,31 +185,11 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isGenerativeFillMode, setIsGenerativeFillMode] = useState(false);
-  const [selectionMode, setSelectionMode] = useState<"rectangle" | "lasso">("rectangle");
-  const [selectionBounds, setSelectionBounds] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } | null>(null);
+  const [selectionBounds, setSelectionBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
-  const [inlineBoxPosition, setInlineBoxPosition] = useState<{ x: number; y: number } | null>(null);
   const [isFillGenerating, setIsFillGenerating] = useState(false);
-  const [showInlineBox, setShowInlineBox] = useState(false);
-  const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{
-    width: number;
-    height: number;
-  } | null>(null);
-  const [newVariationCreating, setNewVariationCreating] =
-    useState<boolean>(false);
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [inputMode, setInputMode] = useState<"editCanvas" | "sketchToEdit">("editCanvas");
-  const [sketchTool, setSketchTool] = useState<"pencil" | "eraser" | "text" | null>(null);
-  const [pencilColor, setPencilColor] = useState<"black" | "red" | "blue" | "green" | "yellow">("black");
-  const [eraserSize, setEraserSize] = useState<"small" | "medium" | "large">("medium");
-  const [activeTool, setActiveTool] = useState<"sketch" | "image" | null>(null);
-  const [selectedImageOverlayId, setSelectedImageOverlayId] = useState<string | null>(null);
-  const { toast } = useToast();
+  const [isFillPanelOpen, setIsFillPanelOpen] = useState(false);
+  const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
@@ -331,16 +301,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   useEffect(() => {
     if (!localActiveVariation && variations.length > 0) {
       setLocalActiveVariation(variations[0].id);
-      setActiveVariationId(variations[0].id); // Keep both states in sync
     }
   }, [variations, localActiveVariation]);
 
   // Measure container dimensions for precise alignment
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerDimensions, setContainerDimensions] = useState({
-    width: 0,
-    height: 0,
-  });
+  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -349,7 +315,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       if (!containerRef.current) return;
       setContainerDimensions({
         width: containerRef.current.clientWidth,
-        height: containerRef.current.clientHeight,
+        height: containerRef.current.clientHeight
       });
     };
 
@@ -364,12 +330,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const imageDisplayDimensions = useMemo(() => {
     if (!containerDimensions.width || !containerDimensions.height) return null;
     // Use 0.95 factor to leave a small margin (similar to previous max-w-[90%])
-    return getAspectRatioDimensions(
-      aspectRatio,
-      containerDimensions.width * 0.95,
-      containerDimensions.height * 0.95,
-    );
+    return getAspectRatioDimensions(aspectRatio, containerDimensions.width * 0.95, containerDimensions.height * 0.95);
   }, [aspectRatio, containerDimensions]);
+
 
   // Autosave canvas - simplified approach
   useEffect(() => {
@@ -814,214 +777,78 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   };
 
   // Handle Generative Fill generate action
-  const handleGenerativeFillGenerate = async (
-    prompt: string,
-    modelId: string,
-  ) => {
+  const handleGenerativeFillGenerate = async (prompt: string, modelId: string) => {
     // Use localActiveVariation as fallback if global activeVariationId is missing
     const effectiveVariationId = activeVariationId || localActiveVariation;
 
-    if (
-      !task?._id ||
-      !effectiveVariationId ||
-      !selectionBounds ||
-      !maskDataUrl
-    ) {
+    if (!task?._id || !effectiveVariationId || !selectionBounds || !maskDataUrl) {
       const errorMsg = `Missing data: Task=${!!task?._id}, Var=${!!effectiveVariationId}, Sel=${!!selectionBounds}, MaskLength=${maskDataUrl?.length || 0}`;
       console.error(errorMsg);
-      toast({
-        title: "Error",
-        description: "Something went wrong. Please try refreshing the page or re-selecting the area.",
-        variant: "destructive",
-      });
+      alert("Error: " + errorMsg + ". Please try refreshing the page or re-selecting the area.");
       return;
     }
-
-    // Capture current selection data before closing the UI
-    const currentSelectionBounds = selectionBounds;
-    const currentMaskDataUrl = maskDataUrl;
-
-    // Close the inline box immediately to allow uninterrupted work
-    setShowInlineBox(false);
-    setIsGenerativeFillMode(false);
-    setSelectionBounds(null);
-    setMaskDataUrl(null);
-    setInlineBoxPosition(null);
     setIsFillGenerating(true);
+    try {
+      const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+      const formData = new FormData();
+      const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
+      formData.append('prompt', fullPrompt);
+      formData.append('modelId', modelId);
+      formData.append('variationId', effectiveVariationId);
+      formData.append('selectionBounds', JSON.stringify(selectionBounds));
+      formData.append('fineTuning', JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
+      formData.append('metadata', JSON.stringify({ aspectRatio }));
 
-    // Background processing
-    (async () => {
-      let newVariationId: string | null = null;
+      // Convert data URL to Blob
+      const res = await fetch(maskDataUrl);
+      const maskBlob = await res.blob();
+      formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
 
-      try {
-        const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
-        const formData = new FormData();
-        const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
-        formData.append("prompt", fullPrompt);
-        formData.append("modelId", modelId);
-        console.log('[CanvasStage] Sending generative fill request with model:', modelId, 'prompt:', fullPrompt);
-        formData.append("variationId", effectiveVariationId);
-        formData.append(
-          "selectionBounds",
-          JSON.stringify(currentSelectionBounds),
-        );
-        formData.append(
-          "fineTuning",
-          JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }),
-        );
-        formData.append("metadata", JSON.stringify({ aspectRatio }));
-
-        // Convert data URL to Blob
-        const res = await fetch(currentMaskDataUrl);
-        const maskBlob = await res.blob();
-        formData.append(
-          "mask",
-          new File([maskBlob], "mask.png", { type: "image/png" }),
-        );
-
-        const response = await fetch(
-          `/api/services/clickatron/session/${task._id}/generative-fill`,
-          {
-            method: "POST",
-            headers: { "Idempotency-Key": idempotencyKey },
-            body: formData,
-          },
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          const errorMessage =
-            errorData.error ||
-            errorData.message ||
-            "Failed to queue generative fill";
-          const errorDetails = errorData.details
-            ? JSON.stringify(errorData.details)
-            : "";
-          console.error("Server error details:", errorData);
-          
-          // Show error toast and return immediately
-          toast({
-            title: "Error",
-            description: "Something went wrong. Please try again.",
-            variant: "destructive",
-          });
-          setIsFillGenerating(false);
-          return;
-        }
-
-        const data = await response.json();
-        newVariationId = data.variationId;
-
-        // IMMEDIATELY create optimistic variation to eliminate gap
-        if (newVariationId && canvas) {
-          const now = new Date();
-          const optimisticVariation: Variation = {
-            id: newVariationId,
-            prompt: fullPrompt,
-            status: "generating",
-            imageRef: activeVariation?.imageRef ?? "",
-            thumbnailRef: activeVariation?.thumbnailRef ?? "",
-            aspectRatio,
-            fineTuning: {
-              brightness: 100,
-              contrast: 100,
-              saturation: 100,
-            },
-            createdAt: now,
-            updatedAt: now,
-            parentVariationId: effectiveVariationId,
-            modelId,
-            metadata: { type: "generative-fill" },
-          };
-
-          const optimisticCanvas = produce(canvas, (draft) => {
-            // Check if variation already exists
-            const existingIndex = draft.variations.findIndex(
-              (v) => v.id === newVariationId,
-            );
-            if (existingIndex !== -1) {
-              // Update existing
-              draft.variations[existingIndex] = optimisticVariation;
-            } else {
-              // Add new variation at the top
-              draft.variations.unshift(optimisticVariation);
-            }
-          });
-
-          updateCanvas(optimisticCanvas);
-
-          // Set as active variation IMMEDIATELY
-          setLocalActiveVariation(newVariationId);
-          setActiveVariationId(newVariationId);
-
-          // Stop the fill generating loader immediately since we now show the variation
-          setIsFillGenerating(false);
-        }
-
-        // Start polling for completion in background
-        if (newVariationId) {
-          try {
-            await pollVariationCompletion(
-              task._id!,
-              newVariationId,
-              loadSession,
-              () => useClickatronStore.getState().task,
-              () =>
-                window.dispatchEvent(new CustomEvent("clickatron-usage-updated")),
-              2000,
-              abortControllerRef.current?.signal,
-            );
-
-            // Show success toast after successful generation
-            toast({
-              title: "Success",
-              description: "Generative fill completed successfully",
-            });
-          } catch (err) {
-            if (err.message !== "Polling aborted") {
-              console.error(
-                "Polling error in handleGenerativeFillGenerate:",
-                err,
-              );
-
-              // Show error toast for generation failure
-              toast({
-                title: "Error",
-                description: "Something went wrong. Please try again.",
-                variant: "destructive",
-              });
-            }
-          }
-        }
-      } catch (err) {
-        console.error("Generative fill background task failed:", err);
-
-        // Remove the optimistic variation if it was created
-        if (newVariationId && canvas) {
-          const rollbackCanvas = produce(canvas, (draft) => {
-            draft.variations = draft.variations.filter(
-              (v) => v.id !== newVariationId,
-            );
-          });
-
-          updateCanvas(rollbackCanvas);
-
-          // Restore previous active variation
-          setLocalActiveVariation(effectiveVariationId);
-          setActiveVariationId(effectiveVariationId);
-        }
-
-        // Show error toast
-        toast({
-          title: "Error",
-          description: "Something went wrong. Please try again.",
-          variant: "destructive",
-        });
-      } finally {
-        // Ensure loader is stopped
-        setIsFillGenerating(false);
+      const response = await fetch(`/api/services/clickatron/session/${task._id}/generative-fill`, {
+        method: 'POST',
+        headers: { 'Idempotency-Key': idempotencyKey },
+        body: formData,
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.error || errorData.message || 'Failed to queue generative fill';
+        const errorDetails = errorData.details ? JSON.stringify(errorData.details) : '';
+        console.error('Server error details:', errorData);
+        throw new Error(`${errorMessage} ${errorDetails}`);
       }
-    })();
+      const data = await response.json();
+
+      // Optimistically set new variation active
+      if (data.variationId) {
+        setLocalActiveVariation(data.variationId);
+        setActiveVariationId(data.variationId);
+      }
+
+      // Start polling for completion
+      await pollVariationCompletion(
+        task._id,
+        data.variationId,
+        loadSession,
+        () => useClickatronStore.getState().task,
+        () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
+        2000,
+        abortControllerRef.current?.signal
+      ).catch(err => {
+        if (err.message !== 'Polling aborted') {
+          console.error('Polling error in handleGenerativeFillGenerate:', err);
+        }
+      });
+    } catch (err) {
+      console.error('Generative fill failed:', err);
+      // Show error to user (especially for Limit Exceeded or Validation errors)
+      alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsFillGenerating(false);
+      setIsFillPanelOpen(false);
+      setIsGenerativeFillMode(false);
+      setSelectionBounds(null);
+      setMaskDataUrl(null);
+    }
   };
 
   const handleNewVariation = useCallback(() => {
@@ -1301,7 +1128,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           variations={variations}
           activeVariationId={localActiveVariation}
           onVariationSelect={handleVariationSelect}
-          onAddToCompare={() => {}}
+          onAddToCompare={() => { }}
           onNewVariation={handleNewVariation}
           onDuplicateVariation={handleDuplicateVariation}
           onDeleteVariation={handleDeleteVariation}
@@ -1324,10 +1151,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   setIsEditingTitle(false);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
+                  if (e.key === 'Enter') {
                     saveTitle(editedTitle);
                     setIsEditingTitle(false);
-                  } else if (e.key === "Escape") {
+                  } else if (e.key === 'Escape') {
                     setEditedTitle(task?.title || videoIdea);
                     setIsEditingTitle(false);
                   }
@@ -1352,7 +1179,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               lastSaved={lastSaved}
             />
           </div>
-          {process.env.NODE_ENV === "development" && (
+          {process.env.NODE_ENV === 'development' && (
             <button
               onClick={handleManualSync}
               className="text-xs bg-blue-600 text-white px-2 py-1 rounded mt-1"
@@ -1365,16 +1192,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setMobilePanel("gallery")}
-              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === "gallery" ? "bg-zinc-700 text-white shadow-xl" : "text-zinc-300 hover:text-white"}`}
+              onClick={() => setMobilePanel('gallery')}
+              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
             >
               <Grid className="h-5 w-5" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setMobilePanel("fine-tune")}
-              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === "fine-tune" ? "bg-zinc-700 text-white shadow-xl" : "text-zinc-300 hover:text-white"}`}
+              onClick={() => setMobilePanel('fine-tune')}
+              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
             >
               <Sliders className="h-5 w-5" />
             </Button>
@@ -1398,37 +1225,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   onZoomIn={() => imageRef.current?.zoomIn(0.3)}
                   onZoomOut={() => imageRef.current?.zoomOut(0.3)}
                   onResetZoom={() => imageRef.current?.resetTransform()}
-                  onDownload={(e) => {
-                    e?.stopPropagation?.();
-                    handleCanvasClickOutside();
-                    handleDownload();
-                  }}
-                  onGenerativeFill={(mode, e) => {
-                    e?.stopPropagation?.();
-                    handleCanvasClickOutside();
-
-                    if (mode === "rectangle" || mode === "lasso") {
-                      // User clicked Rectangle or Lasso in toolbar
-                      setSelectionMode(mode);
-                      setIsGenerativeFillMode(true);
-                      setSelectionBounds(null);
-                      setMaskDataUrl(null);
-                      setInlineBoxPosition(null);
-                      setShowInlineBox(false);
-                    } else {
-                      // User clicked Wand2 button - toggle on/off
-                      const newMode = !isGenerativeFillMode;
-                      setIsGenerativeFillMode(newMode);
-                      setSelectionBounds(null);
-                      setMaskDataUrl(null);
-                      setInlineBoxPosition(null);
-                      setShowInlineBox(false);
-                      if (!newMode) {
-                        setSelectionMode("rectangle");
-                      }
-                    }
-                  }}
-                  isGenerativeFillActive={isGenerativeFillMode}
+                  onDownload={handleDownload}
+                // onShare={() => console.log("Share")}
                 />
               </div>
             )}
@@ -1472,8 +1270,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                           Generation Failed
                         </div>
                         <div className="text-red-400/70 text-sm max-w-md mx-auto">
-                          {activeVariation.error ||
-                            "Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues."}
+                          {activeVariation.error || "Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues."}
                         </div>
 
                         {/* Retry button */}
@@ -1495,32 +1292,25 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   </div>
                 </div>
               ) : (
-                <div
-                  className="relative"
-                  style={
-                    imageDisplayDimensions
-                      ? {
-                          width: `${imageDisplayDimensions.width}px`,
-                          height: `${imageDisplayDimensions.height}px`,
-                        }
-                      : undefined
-                  }
-                >
-                  {/* Loading Overlay for Sketch-to-Edit Processing */}
-                  {inputMode === "sketchToEdit" && newVariationCreating && (
-                    <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center rounded-lg">
-                      <div className="flex flex-col items-center gap-3">
-                        <div className="relative">
-                          <div className="h-16 w-16 rounded-full border-4 border-purple-500/20" />
-                          <Loader2 className="absolute top-0 h-16 w-16 animate-spin text-purple-500" />
-                        </div>
-                        <span className="text-sm font-medium text-white">
-                          🚀 Applying your annotations...
-                        </span>
-                        <span className="text-xs text-zinc-400">
-                          Making it happen!
-                        </span>
-                      </div>
+                <div className="relative">
+                  {/* Generative Fill toggle */}
+                  {activeVariation.status === 'completed' && (
+                    <div className="absolute top-4 right-4 z-10">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => {
+                          setIsGenerativeFillMode((prev) => !prev);
+                          setSelectionBounds(null);
+                          setMaskDataUrl(null);
+                        }}
+                        className={`${isGenerativeFillMode
+                          ? 'bg-green-600 hover:bg-green-700'
+                          : 'bg-purple-600 hover:bg-purple-700'
+                          } shadow-lg`}
+                      >
+                        {isGenerativeFillMode ? '✓ Fill Active' : '✨ Generative Fill'}
+                      </Button>
                     </div>
                   )}
 
@@ -1536,98 +1326,39 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                     className="object-contain rounded-lg shadow-2xl"
                     width={imageDisplayDimensions?.width}
                     height={imageDisplayDimensions?.height}
-                    interactive={!isGenerativeFillMode && inputMode !== "sketchToEdit"}
+                    interactive={!isGenerativeFillMode}
                     onImageLoad={setImageNaturalDimensions}
-                    isFillGenerating={isFillGenerating}
                   />
 
-                  {/* Sketch overlay - when Sketch to Edit mode and sketch tool is active */}
-                  {inputMode === "sketchToEdit" &&
-                    activeVariation.status === "completed" &&
-                    imageDisplayDimensions &&
-                    !isGenerativeFillMode &&
-                    !newVariationCreating && // Disable during processing
-                    sketchTool && (
-                      <SketchOverlay
-                        ref={sketchOverlayRef}
-                        width={imageDisplayDimensions.width}
-                        height={imageDisplayDimensions.height}
-                        tool={sketchTool}
-                        pencilColor={pencilColor}
-                        eraserSize={eraserSize}
-                        isActive={activeTool === "sketch"}
-                      />
-                    )}
-
-                  {/* Image overlay manager - handles uploaded overlays - Hidden during generation */}
-                  {imageDisplayDimensions && !newVariationCreating && (
-                    <ImageOverlayManager
-                      ref={imageOverlayManagerRef}
-                      width={imageDisplayDimensions.width}
-                      height={imageDisplayDimensions.height}
-                      onImageAdded={(id) => {
-                        setSelectedImageOverlayId(id);
-                        setActiveTool("image");
-                      }}
-                      onImageSelected={(id) => {
-                        setSelectedImageOverlayId(id);
-                        if (id) {
-                          setActiveTool("image");
-                        } else {
-                          setActiveTool(null);
-                        }
-                      }}
-                    />
-                  )}
-
                   {/* Selection overlay */}
-                  {isGenerativeFillMode &&
-                    activeVariation.status === "completed" &&
-                    imageDisplayDimensions &&
-                    !showInlineBox && (
-                      <div className="absolute inset-0 z-[999]">
+                  {isGenerativeFillMode && activeVariation.status === 'completed' && imageDisplayDimensions && (
+                    <div className="absolute inset-0 pointer-events-none">
+                      <div className="absolute pointer-events-auto" style={{
+                        width: `${imageDisplayDimensions.width}px`,
+                        height: `${imageDisplayDimensions.height}px`,
+                        left: '50%',
+                        top: '50%',
+                        transform: 'translate(-50%, -50%)'
+                      }}>
                         <SelectionTool
                           imageWidth={imageDisplayDimensions.width}
                           imageHeight={imageDisplayDimensions.height}
                           originalWidth={imageNaturalDimensions?.width}
                           originalHeight={imageNaturalDimensions?.height}
                           isActive={true}
-                          selectionMode={selectionMode}
-                          onSelectionModeChange={setSelectionMode}
-                          onSelectionComplete={(sel, maskUrl, position) => {
+                          onSelectionComplete={(sel, maskUrl) => {
                             setSelectionBounds(sel);
                             setMaskDataUrl(maskUrl);
-                            if (position) {
-                              setInlineBoxPosition(position);
-                            }
-                            setShowInlineBox(true);
+                            setIsFillPanelOpen(true);
                           }}
                           onCancel={() => {
                             setIsGenerativeFillMode(false);
                             setSelectionBounds(null);
                             setMaskDataUrl(null);
-                            setInlineBoxPosition(null);
                           }}
                         />
                       </div>
-                    )}
-
-                  {/* Inline Generative Fill Box */}
-                  {showInlineBox && inlineBoxPosition && imageDisplayDimensions && (
-                    <GenerativeFillInline
-                      position={inlineBoxPosition}
-                      onGenerate={handleGenerativeFillGenerate}
-                      onCancel={() => {
-                        setShowInlineBox(false);
-                        setIsGenerativeFillMode(false);
-                        setSelectionBounds(null);
-                        setMaskDataUrl(null);
-                        setInlineBoxPosition(null);
-                      }}
-                      isGenerating={isFillGenerating}
-                      imageWidth={imageDisplayDimensions.width}
-                      imageHeight={imageDisplayDimensions.height}
-                    />
+                    </div>
                   )}
                 </div>
               )}
@@ -1642,7 +1373,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               variations={variations}
               activeVariationId={localActiveVariation}
               onVariationSelect={handleVariationSelect}
-              onAddToCompare={() => {}}
+              onAddToCompare={() => { }}
               onNewVariation={handleNewVariation}
               onDuplicateVariation={handleDuplicateVariation}
               onDeleteVariation={handleDeleteVariation}
@@ -1721,53 +1452,35 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         </AnimatePresence>
 
         {/* Bottom AI Command Console - Hide for generating and failed variations */}
-        {activeVariation?.status !== "generating" &&
-          activeVariation?.status !== "failed" && (
-            <div className="relative z-20 w-full flex-shrink-0">
-              {activeVariation?.status === "blank" ? (
-                <NewVariationConsole
-                  onGenerate={handleAIGenerate}
-                  onSketchToEditSubmit={handleSketchToEditSubmit}
-                  onUploadImage={handleUploadImage}
-                  isGenerating={newVariationCreating}
-                  isUploadingImage={isUploadingImage}
-                  className="border-t border-zinc-800/80 mr-0 mx-auto"
-                  referenceImageCount={referenceImageCount}
-                  onReferenceImageCountChange={setReferenceImageCount}
-                  inputMode={inputMode}
-                  onInputModeChange={setInputMode}
-                  sketchTool={sketchTool}
-                  onSketchToolChange={handleSketchToolChange}
-                  pencilColor={pencilColor}
-                  onPencilColorChange={setPencilColor}
-                  eraserSize={eraserSize}
-                  onEraserSizeChange={setEraserSize}
-                  onAddOverlayImage={handleAddOverlayImage}
-                />
-              ) : (
-                <AICommandConsole
-                  onGenerate={handleAIGenerate}
-                  onSketchToEditSubmit={handleSketchToEditSubmit}
-                  onUploadImage={handleUploadImage}
-                  isGenerating={newVariationCreating}
-                  isUploadingImage={isUploadingImage}
-                  className="border-t border-zinc-800/80 mr-0 mx-auto"
-                  referenceImageCount={referenceImageCount}
-                  onReferenceImageCountChange={setReferenceImageCount}
-                  currentImageUrl={activeVariation?.imageRef || ""}
-                  inputMode={inputMode}
-                  onInputModeChange={setInputMode}
-                  sketchTool={sketchTool}
-                  onSketchToolChange={handleSketchToolChange}
-                  pencilColor={pencilColor}
-                  onPencilColorChange={setPencilColor}
-                  eraserSize={eraserSize}
-                  onEraserSizeChange={setEraserSize}
-                  onAddOverlayImage={handleAddOverlayImage}
-                />
-              )}
-            </div>
-          )}
+        {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
+          <div className="relative z-20 w-full flex-shrink-0">
+            {/* Generative Fill Panel */}
+            <GenerativeFillPanel
+              isOpen={isFillPanelOpen}
+              onClose={() => setIsFillPanelOpen(false)}
+              onGenerate={handleGenerativeFillGenerate}
+              isGenerating={isFillGenerating}
+            />
+            {activeVariation?.status === "blank" ? (
+              <NewVariationConsole
+                onGenerate={handleAIGenerate}
+                isGenerating={false}
+                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                referenceImageCount={referenceImageCount}
+                onReferenceImageCountChange={setReferenceImageCount}
+              />
+            ) : (
+              <AICommandConsole
+                onGenerate={handleAIGenerate}
+                isGenerating={false}
+                className="border-t border-zinc-800/80 mr-0 max-w-4xl mx-auto"
+                referenceImageCount={referenceImageCount}
+                onReferenceImageCountChange={setReferenceImageCount}
+                currentImageUrl={activeVariation?.imageRef || ''}
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Right Sidebar - Full height, next to main canvas */}

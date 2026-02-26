@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useUploaderXUpload } from "@/hooks/useUploaderXUpload";
 import { UploadCloud, Image as ImageIcon, Youtube, Instagram, Facebook, CheckCircle, AlertCircle } from "lucide-react";
 import { YouTubeConnectionStatus } from "./YouTubeConnectionStatus";
+import { FacebookConnectionStatus } from "./FacebookConnectionStatus";
 
 type Platform = { key: string; label: string };
 
@@ -24,7 +25,7 @@ interface UploadFormProps {
 
 export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const { toast } = useToast();
-  const { uploadWithProgress, uploadToYouTube, isUploading, uploadProgress } = useUploaderXUpload();
+  const { uploadWithProgress, uploadToYouTube, uploadToFacebook, isUploading, uploadProgress } = useUploaderXUpload();
 
   const [selectedPlatforms, setSelectedPlatforms] = useState<Record<string, boolean>>({
     youtube: true,
@@ -36,8 +37,8 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [defaultTitle, setDefaultTitle] = useState("");
-  const [defaultDescription, setDefaultDescription] = useState("");
-  const [defaultTags, setDefaultTags] = useState("");
+  const [defaultDescription, setDefaultDescription] = useState("Uploaded via Insturix UploaderX - Your all-in-one content distribution tool.");
+  const [defaultTags, setDefaultTags] = useState("Insturix, UploaderX, ContentCreation");
   const [privacyStatus, setPrivacyStatus] = useState("private");
   const [uploadResult, setUploadResult] = useState<{ success: boolean; videoUuid?: string; error?: string } | null>(null);
 
@@ -69,16 +70,10 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
 
       if (result.success && result.videoUuid && result.gcsPath) {
         toast({
-          title: "GCS Upload successful",
-          description: `Video saved to storage. Processing platform uploads...`
+          title: "Video saved securely",
+          description: `Processing platform uploads...`
         });
 
-        console.log("🚀 Checking Auto-Upload:", {
-          youtubeSelected: selectedPlatforms.youtube,
-          hasToken: !!localStorage.getItem("youtube_token")
-        });
-
-        // 🚀 Auto-upload to YouTube if selected
         // 🚀 Auto-upload to YouTube if selected
         if (selectedPlatforms.youtube) {
           toast({ title: "Uploading to YouTube...", description: "Sending video to your channel." });
@@ -106,11 +101,35 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               title: "✅ YouTube Upload Complete",
               description: "Your video is now live on YouTube."
             });
-            // Optional: Show link or open dialog
           } else {
             toast({
               title: "⚠️ YouTube Upload Failed",
               description: ytResult.error,
+              variant: "destructive"
+            });
+          }
+        }
+
+        // 🔵 Auto-upload to Facebook if selected
+        if (selectedPlatforms.facebook) {
+          toast({ title: "Uploading to Facebook...", description: "Sending video to your Page." });
+
+          const fbResult = await uploadToFacebook(
+            result.videoUuid,
+            result.gcsPath,
+            defaultTitle || videoFile.name,
+            defaultDescription
+          );
+
+          if (fbResult.success) {
+            toast({
+              title: "✅ Facebook Upload Complete",
+              description: `Video posted to ${fbResult.pageName || 'your Page'}.`
+            });
+          } else {
+            toast({
+              title: "⚠️ Facebook Upload Failed",
+              description: fbResult.error,
               variant: "destructive"
             });
           }
@@ -131,8 +150,32 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
-      <Card className="bg-zinc-950/60 border-zinc-800">
+    <div className="grid gap-6 lg:grid-cols-2 relative h-full">
+      {/* 🚀 New Professional Loading Overlay */}
+      {isUploading && (
+        <div className="absolute inset-x-0 -inset-y-4 z-50 rounded-2xl bg-black/70 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+          <div className="relative h-24 w-24">
+            <div className="absolute inset-0 rounded-full border-b-2 border-blue-500 animate-spin" />
+            <div className="absolute inset-2 rounded-full border-t-2 border-emerald-500 animate-spin-slow" />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <UploadCloud className="h-8 w-8 text-white animate-pulse" />
+            </div>
+          </div>
+          <h3 className="mt-6 text-xl font-semibold text-zinc-100 italic">Distributing your content...</h3>
+          <p className="mt-2 text-zinc-400 max-w-xs text-sm">
+            We are uploading your video to our secure storage and preparing platform distributions.
+          </p>
+          <div className="mt-8 w-full max-w-sm space-y-2">
+            <div className="flex justify-between text-xs text-zinc-500 mb-1 px-1">
+              <span>Overall Progress</span>
+              <span>{uploadProgress?.percentage || 0}%</span>
+            </div>
+            <Progress value={uploadProgress?.percentage || 0} className="h-2 bg-zinc-800" />
+          </div>
+        </div>
+      )}
+
+      <Card className="bg-zinc-950/60 border-zinc-800 h-full">
         <CardContent className="p-4 space-y-4">
           <div>
             <Label className="text-zinc-200">Select content type</Label>
@@ -253,7 +296,7 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               </div>
               <div>
                 <Label className="text-zinc-200">Default tags</Label>
-                <Input value={defaultTags} onChange={(e) => setDefaultTags(e.target.value)} placeholder="ai, tech, tutorial" className="mt-2" />
+                <Input value={defaultTags} onChange={(e) => setDefaultTags(e.target.value)} placeholder="Add tags..." className="mt-2" />
               </div>
             </div>
 
@@ -292,10 +335,15 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
               })}
             </div>
 
-            {/* 🔗 Connection Status Card */}
+            {/* 🔗 Connection Status Cards */}
             {selectedPlatforms.youtube && (
               <div className="mt-4">
                 <YouTubeConnectionStatus />
+              </div>
+            )}
+            {selectedPlatforms.facebook && (
+              <div className="mt-4">
+                <FacebookConnectionStatus />
               </div>
             )}
           </div>
@@ -319,10 +367,10 @@ export function UploadForm({ platforms, onUploadSuccess }: UploadFormProps) {
             <div className="p-3 bg-green-900/20 border border-green-500/30 rounded-lg">
               <div className="flex items-center gap-2 text-green-200 text-sm">
                 <CheckCircle className="h-4 w-4" />
-                <span>Video uploaded successfully to GCS</span>
+                <span>Video saved to Safe Storage</span>
               </div>
               <div className="text-xs text-green-400 mt-1">
-                Video ID: {uploadResult.videoUuid}
+                Ref ID: {uploadResult.videoUuid}
               </div>
             </div>
           )}
