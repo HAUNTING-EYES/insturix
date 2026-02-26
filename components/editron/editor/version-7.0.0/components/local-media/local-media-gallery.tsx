@@ -324,8 +324,8 @@ export function LocalMediaGallery({
 
       {/* Media Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl rounded-xl p-8 sm:p-8">
+          <DialogHeader className="mb-4">
             <DialogTitle>{selectedFile?.name}</DialogTitle>
             <DialogDescription>
               {selectedFile?.type} • {formatBytes(selectedFile?.size)}

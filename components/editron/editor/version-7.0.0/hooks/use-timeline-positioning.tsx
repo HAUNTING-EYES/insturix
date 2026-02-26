@@ -103,5 +103,31 @@ export const useTimelinePositioning = () => {
     };
   };
 
-  return { findNextAvailablePosition };
+  /**
+   * Creates a new top layer and shifts all existing layers down
+   * @param existingOverlays - Array of current overlays in the timeline
+   * @param updateOverlays - Function to update all overlays with new row positions
+   * @returns Object containing the starting position (from: 0) and new top row number (0)
+   */
+  const createNewTopLayer = (
+    existingOverlays: Overlay[],
+    updateOverlays: (overlays: Overlay[]) => void
+  ): { from: number; row: number } => {
+    // Shift all existing overlays down by 1 row
+    const shiftedOverlays = existingOverlays.map((overlay) => {
+      const currentRow = Number.isFinite(overlay.row) ? overlay.row : 0;
+      return {
+        ...overlay,
+        row: Math.max(0, currentRow) + 1,
+      };
+    });
+    
+    // Update all overlays with new row positions
+    updateOverlays(shiftedOverlays);
+    
+    // Return position for new caption in the top row (0)
+    return { from: 0, row: 0 };
+  };
+
+  return { findNextAvailablePosition, createNewTopLayer };
 };

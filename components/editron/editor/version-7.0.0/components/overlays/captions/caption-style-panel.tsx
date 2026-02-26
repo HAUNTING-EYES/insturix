@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { ChevronDown, ChevronRight, Type, Sparkles, Layout, Layers, Settings2, Film } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OptimizedColorPicker } from "@/components/ui/optimized-color-picker";
 
 interface CaptionStylePanelProps {
   localOverlay: CaptionOverlay;
@@ -421,11 +422,9 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Text Color</Label>
             <div className="flex items-center gap-2">
-              <input
-                type="color"
+              <OptimizedColorPicker
                 value={styles.color}
-                onChange={(e) => updateStyles({ color: e.target.value })}
-                className="w-8 h-8 rounded border cursor-pointer"
+                onChange={(value) => updateStyles({ color: value })}
               />
               <input
                 type="text"
@@ -510,11 +509,9 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Background Color</Label>
             <div className="flex items-center gap-2">
-              <input
-                type="color"
+              <OptimizedColorPicker
                 value={styles.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#000000') || "#000000"}
-                onChange={(e) => updateStyles({ backgroundColor: e.target.value })}
-                className="w-8 h-8 rounded border cursor-pointer"
+                onChange={(value) => updateStyles({ backgroundColor: value })}
               />
               <input
                 type="text"
@@ -585,11 +582,9 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Highlight Color</Label>
             <div className="flex items-center gap-2">
-              <input
-                type="color"
+              <OptimizedColorPicker
                 value={highlight?.color || "#FFFFFF"}
-                onChange={(e) => updateHighlight({ color: e.target.value })}
-                className="w-8 h-8 rounded border cursor-pointer"
+                onChange={(value) => updateHighlight({ color: value })}
               />
               <input
                 type="text"
@@ -604,11 +599,9 @@ export const CaptionStylePanel: React.FC<CaptionStylePanelProps> = ({
           <div className="space-y-2">
             <Label className="text-xs text-muted-foreground">Highlight Background</Label>
             <div className="flex items-center gap-2">
-              <input
-                type="color"
+              <OptimizedColorPicker
                 value={highlight?.backgroundColor?.replace(/rgba?\([^)]+\)/i, '#3B82F6') || "#3B82F6"}
-                onChange={(e) => updateHighlight({ backgroundColor: e.target.value })}
-                className="w-8 h-8 rounded border cursor-pointer"
+                onChange={(value) => updateHighlight({ backgroundColor: value })}
               />
               <input
                 type="text"

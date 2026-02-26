@@ -69,12 +69,13 @@ export const CaptionsPanel: React.FC = () => {
     changeOverlay,
     currentFrame,
     getAspectRatioDimensions,
+    setOverlays,
   } = useEditorContext();
 
   // Use composition dimensions for overlay positioning (not preview container dimensions)
   const compositionDimensions = getAspectRatioDimensions();
 
-  const { findNextAvailablePosition } = useTimelinePositioning();
+  const { createNewTopLayer } = useTimelinePositioning();
   const { visibleRows } = useTimeline();
   const [localOverlay, setLocalOverlay] = useState<CaptionOverlay | null>(null);
 
@@ -130,10 +131,9 @@ export const CaptionsPanel: React.FC = () => {
     const totalDurationMs = currentStartTime;
     const calculatedDurationInFrames = Math.ceil((totalDurationMs / 1000) * 30);
 
-    const position = findNextAvailablePosition(
+    const position = createNewTopLayer(
       overlays,
-      visibleRows,
-      durationInFrames
+      setOverlays
     );
 
     const newCaptionOverlay: CaptionOverlay = {
@@ -196,10 +196,9 @@ export const CaptionsPanel: React.FC = () => {
           (totalDurationMs / 1000) * 30
         );
 
-        const position = findNextAvailablePosition(
+        const position = createNewTopLayer(
           overlays,
-          visibleRows,
-          durationInFrames
+          setOverlays
         );
 
         const newCaptionOverlay: CaptionOverlay = {

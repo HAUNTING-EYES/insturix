@@ -57,17 +57,45 @@ export const AutoCaptionButton: React.FC = () => {
     { code: 'auto', label: 'Auto-detect' },
   ]);
 
+  const getVideoLabel = (video: ClipOverlay) => {
+    const MAX_LABEL_LEN = 30;
+    const truncateLabel = (label: string) =>
+      label.length > MAX_LABEL_LEN ? `${label.slice(0, MAX_LABEL_LEN - 3)}...` : label;
+
+    const raw = (video.content ?? '').trim();
+    if (!raw) return `Video ${video.id}`;
+    // Avoid rendering huge/base64/data URLs in the UI.
+    if (/^(data:|blob:)/i.test(raw)) {
+      const src = (video.src ?? '').trim();
+      if (src) {
+        try {
+          const url = new URL(src);
+          const filename = url.pathname.split('/').filter(Boolean).pop();
+          if (filename) return truncateLabel(decodeURIComponent(filename));
+        } catch {
+          const cleaned = src.split('?')[0];
+          const filename = cleaned.split('/').filter(Boolean).pop();
+          if (filename) return truncateLabel(filename);
+        }
+      }
+
+      return `Video ${video.id}`;
+    }
+    return truncateLabel(raw);
+  };
+
   const {
     overlays,
     addOverlay,
     getAspectRatioDimensions,
     durationInFrames,
+    setOverlays,
   } = useEditorContext();
 
   // Use composition dimensions for overlay positioning (not preview container dimensions)
   const compositionDimensions = getAspectRatioDimensions();
 
-  const { findNextAvailablePosition } = useTimelinePositioning();
+  const { findNextAvailablePosition, createNewTopLayer } = useTimelinePositioning();
   const { visibleRows } = useTimeline();
 
   // Get all video overlays
@@ -149,18 +177,17 @@ export const AutoCaptionButton: React.FC = () => {
       const captionDurationMs = data.durationMs || data.words[data.words.length - 1].endMs;
       const captionDurationFrames = Math.ceil((captionDurationMs / 1000) * 30);
 
-      // Position caption to sync with source video
-      const position = findNextAvailablePosition(
+      // Create new top layer and shift existing layers down
+      const position = createNewTopLayer(
         overlays,
-        visibleRows,
-        durationInFrames
+        setOverlays
       );
 
       // Create caption overlay synced to video
       const newCaptionOverlay: CaptionOverlay = {
         id: Date.now(),
         type: OverlayType.CAPTION,
-        from: selectedVideo.from, // Sync with video start
+        from: position.from, // Start at beginning of timeline
         durationInFrames: Math.min(captionDurationFrames, selectedVideo.durationInFrames),
         captions,
         // Position based on composition dimensions for proper render compatibility
@@ -220,7 +247,7 @@ export const AutoCaptionButton: React.FC = () => {
           <SelectContent>
             {videoOverlays.map((video) => (
               <SelectItem key={video.id} value={video.id.toString()}>
-                {video.content || `Video ${video.id}`}
+                {getVideoLabel(video)}
               </SelectItem>
             ))}
           </SelectContent>
