@@ -1,13 +1,14 @@
 /**
  * Media Upload Utility
  *
- * This utility provides functions for:
- * - Uploading media files to GCS via API
- * - Generating thumbnails
- * - Getting media duration
+ * Uploads media files to GCS using signed URLs (bypasses API body size limits).
+ * Flow:
+ *   1. Request a signed upload URL from the server
+ *   2. PUT the file directly to GCS
+ *   3. Register the asset metadata on the server
+ *
+ * Also provides helpers for thumbnails, duration, and dimensions.
  */
-
-import { getUserId } from "./user-id";
 
 export interface UploadedMedia {
   assetId: string;
@@ -20,84 +21,164 @@ export interface UploadedMedia {
   dimensions?: { width: number; height: number };
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Determine media category from MIME type */
+function resolveFileType(mimeType: string): 'video' | 'image' | 'audio' {
+  if (mimeType.startsWith('video/')) return 'video';
+  if (mimeType.startsWith('image/')) return 'image';
+  if (mimeType.startsWith('audio/')) return 'audio';
+  throw new Error('Unsupported file type');
+}
+
+/** Safely parse a JSON response, returning null if the body isn't valid JSON */
+async function safeJsonParse(response: Response): Promise<any | null> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+/** Extract a human-readable error from an API response */
+async function extractResponseError(response: Response, fallback: string): Promise<string> {
+  const data = await safeJsonParse(response);
+  return data?.error || `${fallback} (HTTP ${response.status})`;
+}
+
+// ---------------------------------------------------------------------------
+// Core upload flow
+// ---------------------------------------------------------------------------
+
 /**
- * Uploads a file to GCS via API and returns asset metadata
+ * Uploads a file to GCS via signed URL and registers its metadata.
  */
 export const uploadMediaFile = async (
   file: File,
   projectId?: string
 ): Promise<UploadedMedia> => {
-  try {
-    // Generate thumbnail and get duration/dimensions locally
-    const thumbnail = await generateThumbnail(file);
-    const duration = await getMediaDuration(file);
-    const dimensions = await getMediaDimensions(file);
+  const fileType = resolveFileType(file.type);
 
-    // Determine file type
-    let fileType: "video" | "image" | "audio";
-    if (file.type.startsWith("video/")) {
-      fileType = "video";
-    } else if (file.type.startsWith("image/")) {
-      fileType = "image";
-    } else if (file.type.startsWith("audio/")) {
-      fileType = "audio";
-    } else {
-      throw new Error("Unsupported file type");
-    }
+  // Gather local metadata in parallel with the signed URL request
+  const [thumbnail, duration, dimensions, urlData] = await Promise.all([
+    generateThumbnail(file),
+    getMediaDuration(file),
+    getMediaDimensions(file),
+    requestSignedUploadUrl(file.name, file.type),
+  ]);
 
-    // Create form data for upload
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("type", fileType);
-    if (projectId) {
-      formData.append("projectId", projectId);
-    }
-    if (thumbnail) {
-      formData.append("thumbnail", thumbnail);
-    }
-    if (duration !== undefined) {
-      formData.append("duration", duration.toString());
-    }
+  // Upload the raw file directly to GCS
+  const gcsResponse = await fetch(urlData.uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': file.type },
+    body: file,
+  });
 
-    // Upload file to GCS via API
-    const response = await fetch("/api/services/editron/media/upload", {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Failed to upload file");
-    }
-
-    const data = await response.json();
-
-    return {
-      assetId: data.assetId,
-      url: data.url,
-      type: data.type,
-      filename: data.filename,
-      size: data.size,
-      duration,
-      thumbnail: thumbnail || undefined,
-      dimensions,
-    };
-  } catch (error) {
-    console.error("Error uploading media file:", error);
-    throw error;
+  if (!gcsResponse.ok) {
+    throw new Error(`Direct upload to storage failed (HTTP ${gcsResponse.status})`);
   }
+
+  // Register asset metadata on the server
+  const registered = await registerAssetMetadata({
+    assetId: urlData.assetId,
+    gcsPath: urlData.gcsPath,
+    readUrl: urlData.readUrl,
+    readUrlExpiresAt: urlData.readUrlExpiresAt,
+    filename: file.name,
+    contentType: file.type,
+    size: file.size,
+    type: fileType,
+    projectId,
+    thumbnail: thumbnail || undefined,
+    duration,
+  });
+
+  return {
+    assetId: registered.assetId,
+    url: registered.url,
+    type: registered.type,
+    filename: registered.filename,
+    size: registered.size,
+    duration,
+    thumbnail: thumbnail || undefined,
+    dimensions,
+  };
 };
 
+// ---------------------------------------------------------------------------
+// API helpers
+// ---------------------------------------------------------------------------
+
+interface SignedUrlResponse {
+  uploadUrl: string;
+  assetId: string;
+  gcsPath: string;
+  readUrl: string;
+  readUrlExpiresAt: string;
+}
+
+async function requestSignedUploadUrl(
+  filename: string,
+  contentType: string
+): Promise<SignedUrlResponse> {
+  const response = await fetch('/api/services/editron/media/upload/url', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, contentType }),
+  });
+
+  if (!response.ok) {
+    const msg = await extractResponseError(response, 'Failed to get upload URL');
+    throw new Error(msg);
+  }
+
+  const data = await response.json();
+  return data;
+}
+
+async function registerAssetMetadata(meta: {
+  assetId: string;
+  gcsPath: string;
+  readUrl: string;
+  readUrlExpiresAt: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  type: 'video' | 'audio' | 'image';
+  projectId?: string;
+  thumbnail?: string;
+  duration?: number;
+}): Promise<{ assetId: string; url: string; type: 'video' | 'audio' | 'image'; filename: string; size: number }> {
+  const response = await fetch('/api/services/editron/media/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  });
+
+  if (!response.ok) {
+    const msg = await extractResponseError(response, 'Failed to register asset');
+    throw new Error(msg);
+  }
+
+  return response.json();
+}
+
+// ---------------------------------------------------------------------------
+// Thumbnail generation
+// ---------------------------------------------------------------------------
+
 /**
- * Generates a thumbnail for image or video files
+ * Generates a thumbnail for image or video files.
+ * Returns a data-URL string, or empty string for audio / on error.
  */
 export const generateThumbnail = async (file: File): Promise<string> => {
   return new Promise((resolve) => {
     if (file.type.startsWith("image/")) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        resolve((e.target?.result as string) || "");
-      };
+      reader.onload = (e) => resolve((e.target?.result as string) || "");
       reader.onerror = () => {
         console.error("Error reading image file");
         resolve("");
@@ -107,14 +188,12 @@ export const generateThumbnail = async (file: File): Promise<string> => {
       const video = document.createElement("video");
       video.preload = "metadata";
 
-      // Set timeout to handle cases where video loading hangs
       const timeoutId = setTimeout(() => {
         console.warn("Video thumbnail generation timed out");
         resolve("");
-      }, 5000); // 5 second timeout
+      }, 5000);
 
       video.onloadedmetadata = () => {
-        // Set the time to 1 second or the middle of the video
         video.currentTime = Math.min(1, video.duration / 2);
       };
 
@@ -126,8 +205,7 @@ export const generateThumbnail = async (file: File): Promise<string> => {
           canvas.height = 180;
           const ctx = canvas.getContext("2d");
           ctx?.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const thumbnail = canvas.toDataURL("image/jpeg");
-          resolve(thumbnail);
+          resolve(canvas.toDataURL("image/jpeg"));
         } catch (error) {
           console.error("Error generating video thumbnail:", error);
           resolve("");
@@ -145,69 +223,75 @@ export const generateThumbnail = async (file: File): Promise<string> => {
 
       video.src = URL.createObjectURL(file);
     } else {
-      // For audio files, use a default audio icon
       resolve("");
     }
   });
 };
 
+// ---------------------------------------------------------------------------
+// Duration
+// ---------------------------------------------------------------------------
+
 /**
- * Gets the duration of a media file
+ * Gets the duration of an audio or video file.
  */
 export const getMediaDuration = async (
   file: File
 ): Promise<number | undefined> => {
-  if (file.type.startsWith("audio/") || file.type.startsWith("video/")) {
-    return new Promise((resolve) => {
-      const media = file.type.startsWith("audio/")
-        ? document.createElement("audio")
-        : document.createElement("video");
-
-      // Set timeout to handle cases where media loading hangs
-      const timeoutId = setTimeout(() => {
-        console.warn("Media duration detection timed out");
-        URL.revokeObjectURL(media.src);
-        resolve(undefined);
-      }, 5000); // 5 second timeout
-
-      media.preload = "metadata";
-      media.onloadedmetadata = () => {
-        clearTimeout(timeoutId);
-        resolve(media.duration);
-        URL.revokeObjectURL(media.src);
-      };
-      media.onerror = () => {
-        clearTimeout(timeoutId);
-        console.error("Error getting media duration");
-        URL.revokeObjectURL(media.src);
-        resolve(undefined);
-      };
-      media.src = URL.createObjectURL(file);
-    });
+  if (!file.type.startsWith("audio/") && !file.type.startsWith("video/")) {
+    return undefined;
   }
-  return undefined;
+
+  return new Promise((resolve) => {
+    const media = file.type.startsWith("audio/")
+      ? document.createElement("audio")
+      : document.createElement("video");
+
+    const timeoutId = setTimeout(() => {
+      console.warn("Media duration detection timed out");
+      URL.revokeObjectURL(media.src);
+      resolve(undefined);
+    }, 5000);
+
+    media.preload = "metadata";
+    media.onloadedmetadata = () => {
+      clearTimeout(timeoutId);
+      resolve(media.duration);
+      URL.revokeObjectURL(media.src);
+    };
+    media.onerror = () => {
+      clearTimeout(timeoutId);
+      console.error("Error getting media duration");
+      URL.revokeObjectURL(media.src);
+      resolve(undefined);
+    };
+    media.src = URL.createObjectURL(file);
+  });
 };
 
+// ---------------------------------------------------------------------------
+// Dimensions
+// ---------------------------------------------------------------------------
+
 /**
- * Gets the dimensions of a media file (video or image)
+ * Gets the dimensions of a media file (video or image).
  */
 export const getMediaDimensions = async (
   file: File
 ): Promise<{ width: number; height: number } | undefined> => {
   const url = URL.createObjectURL(file);
   try {
-    const dimensions = await getMediaDimensionsFromUrl(
+    return await getMediaDimensionsFromUrl(
       url,
       file.type.startsWith("video/") ? "video" : "image"
     );
-    return dimensions;
   } finally {
     URL.revokeObjectURL(url);
   }
 };
 
 /**
- * Gets the dimensions of a media file from its URL
+ * Gets the dimensions of a media file from its URL.
  */
 export const getMediaDimensionsFromUrl = async (
   url: string,
@@ -226,10 +310,7 @@ export const getMediaDimensionsFromUrl = async (
 
       video.onloadedmetadata = () => {
         clearTimeout(timeoutId);
-        resolve({
-          width: video.videoWidth,
-          height: video.videoHeight,
-        });
+        resolve({ width: video.videoWidth, height: video.videoHeight });
       };
 
       video.onerror = () => {
@@ -245,10 +326,7 @@ export const getMediaDimensionsFromUrl = async (
 
       img.onload = () => {
         clearTimeout(timeoutId);
-        resolve({
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-        });
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
       };
 
       img.onerror = () => {
@@ -265,8 +343,12 @@ export const getMediaDimensionsFromUrl = async (
   });
 };
 
+// ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
+
 /**
- * Deletes a media file from the server
+ * Deletes a media file from the server.
  */
 export const deleteMediaFile = async (
   userId: string,
@@ -275,15 +357,13 @@ export const deleteMediaFile = async (
   try {
     const response = await fetch("/api/media/delete", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ userId, filePath }),
     });
 
     if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || "Failed to delete file");
+      const msg = await extractResponseError(response, "Failed to delete file");
+      throw new Error(msg);
     }
 
     return true;

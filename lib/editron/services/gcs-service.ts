@@ -113,6 +113,46 @@ export async function deleteFromGCS(gcsPath: string): Promise<void> {
 }
 
 /**
+ * Generate a signed URL for direct client-side upload to GCS.
+ * Returns the upload URL, asset metadata, and a read URL for display after upload.
+ */
+export async function generateUploadUrl(
+  userId: string,
+  filename: string,
+  contentType: string
+): Promise<{
+  uploadUrl: string;
+  assetId: string;
+  gcsPath: string;
+  readUrl: string;
+  readUrlExpiresAt: Date;
+}> {
+  const assetId = `a_${nanoid(8)}`;
+  const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
+  const blob = bucket.file(gcsPath);
+
+  // Write-signed URL (15 min window for client to upload)
+  const [uploadUrl] = await blob.getSignedUrl({
+    version: 'v4',
+    action: 'write',
+    expires: Date.now() + 15 * 60 * 1000,
+    contentType,
+  });
+
+  // Read-signed URL (7 days) for immediate display after upload
+  const readUrlExpiresAt = new Date();
+  readUrlExpiresAt.setDate(readUrlExpiresAt.getDate() + 7);
+
+  const [readUrl] = await blob.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: readUrlExpiresAt,
+  });
+
+  return { uploadUrl, assetId, gcsPath, readUrl, readUrlExpiresAt };
+}
+
+/**
  * Check if file exists in GCS
  */
 export async function fileExists(gcsPath: string): Promise<boolean> {

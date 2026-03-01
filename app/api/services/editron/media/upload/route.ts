@@ -1,70 +1,71 @@
 /**
  * POST /api/services/editron/media/upload
- * Upload media file to GCS
+ *
+ * Registers a media asset that has been uploaded directly to GCS.
+ * The client first obtains a signed URL via /upload/url, uploads the file
+ * to GCS directly, then calls this endpoint to persist the asset metadata.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { uploadToGCS } from '@/lib/editron/services/gcs-service';
+import { fileExists } from '@/lib/editron/services/gcs-service';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import { auth } from '@clerk/nextjs/server';
 import type { MediaAsset } from '@/lib/editron/services/asset-resolver';
 
 export const runtime = 'nodejs';
 
-// Disable body parsing - we'll handle multipart/form-data manually
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
-
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
-    
-    // Parse form data
-    const formData = await request.formData();
-    const file = formData.get('file') as File;
-    const projectId = formData.get('projectId') as string | null;
-    const type = formData.get('type') as 'video' | 'audio' | 'image' | null;
-    const thumbnail = formData.get('thumbnail') as string | null;
-    const duration = formData.get('duration') as string | null;
 
-    if (!file) {
+    const body = await request.json();
+    const {
+      assetId,
+      gcsPath,
+      readUrl,
+      readUrlExpiresAt,
+      filename,
+      contentType,
+      size,
+      type,
+      projectId,
+      thumbnail,
+      duration,
+    } = body;
+
+    // Validate required fields
+    if (!assetId || !gcsPath || !readUrl || !filename || !contentType) {
       return NextResponse.json(
-        { success: false, error: 'No file provided' },
+        { success: false, error: 'Missing required fields: assetId, gcsPath, readUrl, filename, contentType' },
         { status: 400 }
       );
     }
 
-    // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-
-    // Upload to GCS
-    const uploadResult = await uploadToGCS(
-      buffer,
-      userId,
-      file.name,
-      file.type
-    );
+    // Verify the file was actually uploaded to GCS
+    const exists = await fileExists(gcsPath);
+    if (!exists) {
+      return NextResponse.json(
+        { success: false, error: 'File not found in storage. Please upload the file first.' },
+        { status: 404 }
+      );
+    }
 
     // Determine file type
     let fileType: 'video' | 'audio' | 'image';
     if (type) {
       fileType = type;
-    } else if (file.type.startsWith('video/')) {
+    } else if (contentType.startsWith('video/')) {
       fileType = 'video';
-    } else if (file.type.startsWith('image/')) {
+    } else if (contentType.startsWith('image/')) {
       fileType = 'image';
-    } else if (file.type.startsWith('audio/')) {
+    } else if (contentType.startsWith('audio/')) {
       fileType = 'audio';
     } else {
       return NextResponse.json(
@@ -73,21 +74,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TODO: Extract duration and dimensions from media files
-    // For now, we'll skip this and let the client handle it
-
     // Save metadata to MongoDB
     const mediaAsset: MediaAsset = {
-      assetId: uploadResult.assetId,
+      assetId,
       userId,
       projectId: projectId || undefined,
       type: fileType,
       source: 'user-upload',
-      filename: file.name,
-      gcsPath: uploadResult.gcsPath,
-      cachedUrl: uploadResult.signedUrl,
-      urlExpiresAt: uploadResult.urlExpiresAt,
-      size: uploadResult.size,
+      filename,
+      gcsPath,
+      cachedUrl: readUrl,
+      urlExpiresAt: new Date(readUrlExpiresAt),
+      size: size || 0,
       thumbnail: thumbnail || undefined,
       duration: duration ? parseFloat(duration) : undefined,
       uploadedAt: new Date(),
@@ -98,16 +96,16 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      assetId: uploadResult.assetId,
-      url: uploadResult.signedUrl,
+      assetId,
+      url: readUrl,
       type: fileType,
-      filename: file.name,
-      size: uploadResult.size,
+      filename,
+      size: size || 0,
     });
   } catch (error: any) {
-    console.error('Error uploading media:', error);
+    console.error('Error registering media asset:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to upload media' },
+      { success: false, error: error.message || 'Failed to register media asset' },
       { status: 500 }
     );
   }
