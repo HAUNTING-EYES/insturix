@@ -89,7 +89,7 @@ export const LayerContent: React.FC<LayerContentProps> = ({
           style={{
             ...commonStyle,
             position: "relative",
-            overflow: "hidden",
+            overflow: "visible",
             display: "flex",
           }}
         >

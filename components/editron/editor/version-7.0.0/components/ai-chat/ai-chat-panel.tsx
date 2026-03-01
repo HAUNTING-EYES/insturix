@@ -102,6 +102,7 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
   generate_html_sticker: "Creating custom sticker",
   add_captions: "Adding captions",
   add_fancy_captions: "Adding fancy captions",
+  refresh_fancy_captions: "Refreshing fancy captions",
   refresh_captions: "Refreshing captions",
   close_gaps: "Closing gaps",
 };
@@ -466,6 +467,7 @@ export function AIChatPanel() {
                   'analyze_clip_video',
                   'add_captions',
                   'add_fancy_captions',
+                  'refresh_fancy_captions',
                   'refresh_captions',
                   'close_gaps',
                   // Music tools

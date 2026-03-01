@@ -201,7 +201,8 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`analyze_clip_video\`: Deep visual analysis with Gemini AI. Detects scene changes, gestures, dead zones, on-screen text.
     - \`add_captions\`: Add regular subtitle-style captions to a full video. Per-clip styling supported.
     - \`add_fancy_captions\`: Add kinetic typography (TikTok-style word art) for HOOKS. Use for first 3-5 seconds only.
-    - \`refresh_captions\`: Realign existing captions after video edits. Use when captions become misaligned.
+    - \`refresh_captions\`: Realign existing regular captions after video edits.
+    - \`refresh_fancy_captions\`: Realign existing fancy captions after video edits.
     - \`close_gaps\`: Close all gaps between video clips by shifting them left. Captions move with their videos.
 
     IMPORTANT TOOL USAGE RULE (COST-AWARE + ZERO-FRICTION):
@@ -286,6 +287,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`add_fancy_captions\`: Kinetic typography (TikTok-style word art) for HOOKS only (first 3-5 seconds).
       - DO NOT split the video first - the tool handles segment targeting internally
       - Use segmentType='hook' (default) for first 4 seconds, or segmentType='custom' with startFrame/endFrame
+    - \`refresh_captions\` / \`refresh_fancy_captions\`: Use after trim/split/move when captions drift.
     
     **CONTENT-AWARE CAPTION STYLING**:
     When user asks for "fancy caption for hook" or "kinetic typography":

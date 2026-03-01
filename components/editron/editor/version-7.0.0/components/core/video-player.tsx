@@ -117,6 +117,7 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
                 width: "100%",
                 height: "100%",
               }}
+              loop
               durationInFrames={PLAYER_CONFIG.durationInFrames}
               fps={PLAYER_CONFIG.fps}
               inputProps={inputProps}

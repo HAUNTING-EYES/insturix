@@ -1993,7 +1993,9 @@ Optionally apply a new style while refreshing.`,
             // If preserving captions, also move linked captions
             if (input.preserveCaptions) {
               const linkedCaptions = project.overlays.filter(
-                (o: any) => o.type === 'caption' && o.sourceVideoId === clip.id
+                (o: any) =>
+                  (o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
+                  o.sourceVideoId === clip.id
               );
               for (const caption of linkedCaptions) {
                 await projectService.updateOverlay(userId, projectId, caption.id, { 
@@ -2094,6 +2096,12 @@ Linked captions are automatically moved with their videos.`,
           segmentStartFrame = overlay.from;
           const hookDurationFrames = 4 * fps; // 4 seconds default
           segmentEndFrame = Math.min(overlay.from + hookDurationFrames, overlay.from + overlay.durationInFrames);
+        }
+
+        segmentStartFrame = Math.max(overlay.from, segmentStartFrame);
+        segmentEndFrame = Math.min(overlay.from + overlay.durationInFrames, segmentEndFrame);
+        if (segmentEndFrame <= segmentStartFrame) {
+          return JSON.stringify({ status: 'error', message: 'Invalid segment range for fancy captions' });
         }
         
         // Calculate video-time range for this segment
@@ -2277,6 +2285,16 @@ Linked captions are automatically moved with their videos.`,
           content: wrappedHtml,
           prompt: `Fancy captions: ${classifiedWords.map(w => w.word).join(' ')}`,
           metadata,
+          sourceVideoId: overlay.id,
+          fancyCaptionConfig: {
+            style: input.style || 'bento',
+            segmentStartOffsetFrames: segmentStartFrame - overlay.from,
+            segmentDurationFrames: segmentDuration,
+            maxWords,
+            primaryColor: input.primaryColor,
+            accentColor: input.accentColor,
+            backgroundColor: input.backgroundColor || 'transparent',
+          },
           row: 0,
           left: 0,
           top: 0,
@@ -2343,6 +2361,174 @@ LIMITS: Max 15-25 words per call. For longer content, call multiple times.
 RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency.`,
       schema: addFancyCaptionsSchema,
     },
+  );
+
+  const refreshFancyCaptionsSchema = z.object({
+    fancyCaptionOverlayId: z.coerce.number().describe("ID of the fancy caption html-scene overlay to refresh"),
+    newStyle: z.enum(['bento', 'scattered', 'minimal']).optional().describe("Optional new fancy caption style"),
+  });
+
+  const refreshFancyCaptionsAI = tool(
+    async (rawInput: z.infer<typeof refreshFancyCaptionsSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        const fancyOverlay = project.overlays.find(
+          (o: any) =>
+            o.id === input.fancyCaptionOverlayId &&
+            o.type === 'html-scene' &&
+            o.metadata?.sourceType === 'fancy-caption'
+        ) as any;
+
+        if (!fancyOverlay) {
+          return JSON.stringify({ status: 'error', message: 'Fancy caption overlay not found' });
+        }
+
+        if (!fancyOverlay.sourceVideoId) {
+          return JSON.stringify({ status: 'error', message: 'Fancy caption is not linked to a video (no sourceVideoId)' });
+        }
+
+        if (!fancyOverlay.fancyCaptionConfig) {
+          return JSON.stringify({ status: 'error', message: 'Fancy caption config missing; unable to refresh' });
+        }
+
+        const videoOverlay = project.overlays.find(
+          (o: any) => o.id === fancyOverlay.sourceVideoId && o.type === 'video'
+        ) as any;
+
+        if (!videoOverlay || !videoOverlay.assetId) {
+          return JSON.stringify({ status: 'error', message: 'Linked video overlay not found (or missing assetId)' });
+        }
+
+        const config = fancyOverlay.fancyCaptionConfig;
+        const canvas = getCanvasDimensions(project);
+        const fps = project.fps || 30;
+
+        const segmentStartFrame = videoOverlay.from + (config.segmentStartOffsetFrames || 0);
+        const maxEndFrame = videoOverlay.from + videoOverlay.durationInFrames;
+        const segmentDurationFrames = Math.max(1, config.segmentDurationFrames || (fancyOverlay.durationInFrames || 1));
+        const segmentEndFrame = Math.min(maxEndFrame, segmentStartFrame + segmentDurationFrames);
+
+        if (segmentEndFrame <= segmentStartFrame) {
+          return JSON.stringify({ status: 'error', message: 'Segment no longer valid after video edits' });
+        }
+
+        const { getTranscription } = await import('../services/media');
+        const transcription = await getTranscription(videoOverlay.assetId, userId);
+        if (!transcription.words || transcription.words.length === 0) {
+          return JSON.stringify({ status: 'error', message: 'No speech detected in linked video' });
+        }
+
+        const videoStartTimeFrames = videoOverlay.videoStartTime || 0;
+        const videoStartMs = (videoStartTimeFrames / fps) * 1000;
+        const segmentStartMs = videoStartMs + ((segmentStartFrame - videoOverlay.from) / fps * 1000);
+        const segmentEndMs = videoStartMs + ((segmentEndFrame - videoOverlay.from) / fps * 1000);
+        const maxWords = Math.min(config.maxWords || 15, 25);
+
+        const wordsInRange = transcription.words
+          .filter((w: any) => w.startMs >= segmentStartMs && w.startMs < segmentEndMs)
+          .slice(0, maxWords)
+          .map((w: any) => ({
+            word: w.word,
+            startMs: Math.round(w.startMs - segmentStartMs),
+            endMs: Math.round(Math.min(w.endMs - segmentStartMs, segmentEndMs - segmentStartMs)),
+          }));
+
+        if (wordsInRange.length === 0) {
+          return JSON.stringify({ status: 'error', message: 'No speech found in linked segment' });
+        }
+
+        const classifiedWords = classifyWordTimings(wordsInRange);
+        const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
+        const style = input.newStyle || config.style || 'bento';
+
+        const prompt = buildFancyCaptionPrompt({
+          words: classifiedWords,
+          canvasWidth: canvas.width,
+          canvasHeight: canvas.height,
+          style,
+          primaryColor: config.primaryColor,
+          accentColor: config.accentColor,
+          backgroundColor: config.backgroundColor || 'transparent',
+        });
+
+        const model = new ChatGoogleGenerativeAI({
+          model: 'gemini-2.5-flash',
+          apiKey: process.env.GEMINI_API_KEY,
+          temperature: 0.8,
+        });
+
+        const result = await model.invoke([
+          new SystemMessage(prompt),
+          new HumanMessage(`Generate the kinetic typography animation for these ${classifiedWords.length} words. Total duration: ${totalDurationMs}ms.`),
+        ]);
+
+        const generatedHtml = result.content as string;
+        let cleanHtml = generatedHtml
+          .replace(/```html/g, '')
+          .replace(/```/g, '')
+          .replace(/<!DOCTYPE[^>]*>/gi, '')
+          .replace(/<\/?html[^>]*>/gi, '')
+          .replace(/<\/?body[^>]*>/gi, '')
+          .replace(/<\/?head[^>]*>/gi, '')
+          .replace(/<meta[^>]*>/gi, '')
+          .replace(/<title[^>]*>.*?<\/title>/gi, '')
+          .trim();
+
+        cleanHtml = sanitizeHtml(cleanHtml);
+        cleanHtml = injectFancyCaptionTiming(cleanHtml, totalDurationMs);
+
+        const wrappedHtml = createSandboxedWrapper({
+          html: cleanHtml,
+          width: canvas.width,
+          height: canvas.height,
+          backgroundColor: config.backgroundColor || 'transparent',
+          autoFit: true,
+        });
+
+        const styleMetadata = extractStyleMetadata(cleanHtml);
+        const metadata: HtmlGenerationMetadata = {
+          ...styleMetadata,
+          generatedAt: new Date(),
+          sourceType: 'fancy-caption',
+          wordCount: classifiedWords.length,
+        };
+
+        await projectService.updateOverlay(userId, projectId, fancyOverlay.id, {
+          from: segmentStartFrame,
+          durationInFrames: segmentEndFrame - segmentStartFrame,
+          content: wrappedHtml as any,
+          prompt: `Fancy captions: ${classifiedWords.map((w) => w.word).join(' ')}` as any,
+          metadata: metadata as any,
+          sourceVideoId: videoOverlay.id as any,
+          fancyCaptionConfig: {
+            ...config,
+            style,
+            segmentDurationFrames: segmentEndFrame - segmentStartFrame,
+          } as any,
+        } as any);
+
+        return JSON.stringify({
+          status: 'success',
+          id: fancyOverlay.id,
+          sourceVideoId: videoOverlay.id,
+          style,
+          wordCount: classifiedWords.length,
+          startFrame: segmentStartFrame,
+          endFrame: segmentEndFrame,
+          message: `Refreshed fancy captions with ${classifiedWords.length} words and re-synced to linked video timing`,
+        });
+      } catch (e: any) {
+        console.error('[FANCY-CAPTIONS][REFRESH] Error:', e);
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'refresh_fancy_captions',
+      description: `Refresh and re-sync fancy captions to their linked source video.
+Use this after trim/split/move operations or when fancy captions drift out of sync.`,
+      schema: refreshFancyCaptionsSchema,
+    }
   );
   
   // ============================================================================
@@ -2887,6 +3073,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
     analyzeVideoContent,
     addCaptions,
     addFancyCaptions,     // NEW: Kinetic typography captions
+    refreshFancyCaptionsAI, // NEW: Refresh/realign fancy captions
     refreshCaptionsAI,    // NEW: Refresh/realign captions
     analyzeClipAudio,     // NEW: Analyze clip audio
     analyzeClipVideo,     // NEW: Analyze clip video

@@ -286,6 +286,16 @@ export interface HtmlGenerationMetadata {
   wordCount?: number;
 }
 
+export interface FancyCaptionConfig {
+  style: 'bento' | 'scattered' | 'minimal';
+  segmentStartOffsetFrames: number;
+  segmentDurationFrames: number;
+  maxWords: number;
+  primaryColor?: string;
+  accentColor?: string;
+  backgroundColor?: string;
+}
+
 // HTML Scene overlay specific (full-screen backgrounds, diagrams)
 export type HtmlSceneOverlay = BaseOverlay & {
   type: OverlayType.HTML_SCENE;
@@ -293,6 +303,10 @@ export type HtmlSceneOverlay = BaseOverlay & {
   prompt?: string; // The prompt used to generate this
   /** Extracted style metadata for LLM consistency */
   metadata?: HtmlGenerationMetadata;
+  /** Optional source video link for sync/refresh workflows */
+  sourceVideoId?: number;
+  /** Fancy caption generation config (only when metadata.sourceType === 'fancy-caption') */
+  fancyCaptionConfig?: FancyCaptionConfig;
   styles: BaseStyles & {
     backgroundColor?: string;
     borderRadius?: string;

@@ -1,5 +1,5 @@
 import React from "react";
-import { useCurrentFrame } from "remotion";
+import { useCurrentFrame, useVideoConfig } from "remotion";
 import { Caption, CaptionOverlay, CaptionWord, HighlightEffect, HighlightAnimation, CaptionDisplayConfig, DEFAULT_DISPLAY_CONFIGS } from "../../../types";
 import { defaultCaptionStyles, defaultDisplayConfig } from "./default-caption-styles";
 
@@ -77,6 +77,13 @@ const getAnimationStyles = (
   }
 };
 
+function normalizeFontSize(fontSize: string | number | undefined): string {
+  if (typeof fontSize === "number") return `${fontSize}px`;
+  if (!fontSize) return "32px";
+  if (/^\d+(\.\d+)?$/.test(fontSize)) return `${fontSize}px`;
+  return fontSize;
+}
+
 /**
  * CaptionLayerContent Component
  * Renders animated captions with word-by-word highlighting and customizable effects
@@ -86,7 +93,8 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   overlay,
 }) => {
   const frame = useCurrentFrame();
-  const frameMs = (frame / 30) * 1000;
+  const { fps } = useVideoConfig();
+  const frameMs = (frame / fps) * 1000;
   const styles = overlay.styles || defaultCaptionStyles;
   const highlight = styles.highlight || styles.highlightStyle || defaultCaptionStyles.highlight;
   const displayConfig = overlay.displayConfig || defaultDisplayConfig;
@@ -222,7 +230,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     >
       <div
         style={{
-          fontSize: styles.fontSize,
+          fontSize: normalizeFontSize(styles.fontSize),
           fontWeight: styles.fontWeight,
           fontFamily: styles.fontFamily?.startsWith('font-') 
             ? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'

@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { useHotkeys } from "react-hotkeys-hook";
 import { EditorHeader } from "./editor-header";
 
 import { useEditorContext } from "../../contexts/editor-context";
@@ -104,6 +105,46 @@ export const Editor: React.FC = () => {
     durationInFrames, // Total duration in frames
     setOverlays, // Function to update overlays
   } = useEditorContext();
+
+  useHotkeys(
+    "space",
+    (e) => {
+      const target = e.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isFormField = tagName === "input" || tagName === "textarea" || tagName === "select";
+      const isEditable = Boolean((target as any)?.isContentEditable);
+
+      if (isFormField || isEditable) return;
+
+      e.preventDefault();
+      togglePlayPause();
+    },
+    {
+      keydown: true,
+      preventDefault: true,
+    }
+  );
+
+  useHotkeys(
+    "backspace, delete",
+    (e) => {
+      const target = e.target as HTMLElement | null;
+      const tagName = target?.tagName?.toLowerCase();
+      const isFormField = tagName === "input" || tagName === "textarea" || tagName === "select";
+      const isEditable = Boolean((target as any)?.isContentEditable);
+
+      if (isFormField || isEditable) return;
+      if (selectedOverlayId === null) return;
+
+      e.preventDefault();
+      deleteOverlay(selectedOverlayId);
+      setSelectedOverlayId(null);
+    },
+    {
+      keydown: true,
+      preventDefault: true,
+    }
+  );
 
   /**
    * Mobile fallback UI

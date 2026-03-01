@@ -16,11 +16,10 @@ import {
 } from '@/components/ui/select';
 import { Wand2, Loader2, AlertCircle, ChevronDown, Languages } from 'lucide-react';
 import { useEditorContext } from '../../../contexts/editor-context';
-import { useTimelinePositioning } from '../../../hooks/use-timeline-positioning';
-import { useTimeline } from '../../../contexts/timeline-context';
 import { ClipOverlay, CaptionOverlay, OverlayType, CaptionWord } from '../../../types';
 import { groupWordsIntoCaptions } from '@/lib/editron/utils/caption-utils';
 import { defaultCaptionStyles, defaultDisplayConfig } from './default-caption-styles';
+import { FPS } from '../../../constants';
 
 type AutoCaptionState = 'idle' | 'transcribing' | 'success' | 'error';
 
@@ -87,16 +86,7 @@ export const AutoCaptionButton: React.FC = () => {
   const {
     overlays,
     addOverlay,
-    getAspectRatioDimensions,
-    durationInFrames,
-    setOverlays,
   } = useEditorContext();
-
-  // Use composition dimensions for overlay positioning (not preview container dimensions)
-  const compositionDimensions = getAspectRatioDimensions();
-
-  const { findNextAvailablePosition, createNewTopLayer } = useTimelinePositioning();
-  const { visibleRows } = useTimeline();
 
   // Get all video overlays
   const videoOverlays = useMemo(() => {
@@ -167,40 +157,58 @@ export const AutoCaptionButton: React.FC = () => {
         return;
       }
 
+      const clipStartMs = ((selectedVideo.videoStartTime || 0) / FPS) * 1000;
+      const clipDurationMs = (selectedVideo.durationInFrames / FPS) * 1000;
+      const clipEndMs = clipStartMs + clipDurationMs;
+
+      const wordsInClip = data.words
+        .filter((word) => word.startMs >= clipStartMs && word.startMs < clipEndMs)
+        .map((word) => ({
+          ...word,
+          startMs: Math.max(0, Math.round(word.startMs - clipStartMs)),
+          endMs: Math.max(
+            0,
+            Math.round(Math.min(word.endMs - clipStartMs, clipDurationMs))
+          ),
+        }))
+        .filter((word) => word.endMs > word.startMs);
+
+      if (wordsInClip.length === 0) {
+        setError('No speech found in the selected video segment');
+        setState('error');
+        return;
+      }
+
       // Group words into captions using utility
-      const captions = groupWordsIntoCaptions(data.words, {
+      const captions = groupWordsIntoCaptions(wordsInClip, {
         wordsPerGroup: defaultDisplayConfig.wordsPerGroup,
         groupByPunctuation: true,
       });
 
-      // Calculate duration from caption data
-      const captionDurationMs = data.durationMs || data.words[data.words.length - 1].endMs;
-      const captionDurationFrames = Math.ceil((captionDurationMs / 1000) * 30);
-
-      // Create new top layer and shift existing layers down
-      const position = createNewTopLayer(
-        overlays,
-        setOverlays
-      );
+      // Keep caption anchored to selected video's geometry and timing.
+      const captionWidth = selectedVideo.width * 0.9;
+      const captionHeight = selectedVideo.height * 0.18;
+      const captionLeft = selectedVideo.left + (selectedVideo.width - captionWidth) / 2;
+      const captionTop = selectedVideo.top + selectedVideo.height * 0.78;
 
       // Create caption overlay synced to video
       const newCaptionOverlay: CaptionOverlay = {
         id: Date.now(),
         type: OverlayType.CAPTION,
-        from: position.from, // Start at beginning of timeline
-        durationInFrames: Math.min(captionDurationFrames, selectedVideo.durationInFrames),
+        from: selectedVideo.from,
+        durationInFrames: selectedVideo.durationInFrames,
         captions,
-        // Position based on composition dimensions for proper render compatibility
-        left: compositionDimensions.width * 0.1,
-        top: compositionDimensions.height * 0.75,
-        width: compositionDimensions.width * 0.8,
-        height: compositionDimensions.height * 0.2,
+        left: captionLeft,
+        top: captionTop,
+        width: captionWidth,
+        height: captionHeight,
         rotation: 0,
         isDragging: false,
-        row: position.row,
+        row: Math.max(0, selectedVideo.row - 1),
         styles: defaultCaptionStyles,
         displayConfig: defaultDisplayConfig,
         position: 'bottom',
+        sourceVideoId: selectedVideo.id,
       };
 
       addOverlay(newCaptionOverlay);

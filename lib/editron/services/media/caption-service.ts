@@ -34,7 +34,7 @@ import type { ClipOverlay } from '@/components/editron/editor/version-7.0.0/type
  */
 const TIKTOK_STYLE: CaptionStyles = {
   fontFamily: 'font-league-spartan',
-  fontSize: '48',
+  fontSize: '48px',
   fontWeight: 800,
   color: '#ffffff',
   textAlign: 'center',
@@ -53,7 +53,7 @@ const TIKTOK_STYLE: CaptionStyles = {
 
 const MINIMAL_STYLE: CaptionStyles = {
   fontFamily: 'font-sans',
-  fontSize: '32',
+  fontSize: '32px',
   fontWeight: 500,
   color: '#ffffff',
   textAlign: 'center',
@@ -72,7 +72,7 @@ const MINIMAL_STYLE: CaptionStyles = {
 
 const BOLD_STYLE: CaptionStyles = {
   fontFamily: 'font-bungee-inline',
-  fontSize: '42',
+  fontSize: '42px',
   fontWeight: 700,
   color: '#ffffff',
   textAlign: 'center',
@@ -89,7 +89,7 @@ const BOLD_STYLE: CaptionStyles = {
 
 const KARAOKE_STYLE: CaptionStyles = {
   fontFamily: 'font-sans',
-  fontSize: '36',
+  fontSize: '36px',
   fontWeight: 600,
   color: 'rgba(255,255,255,0.5)',
   textAlign: 'center',
@@ -105,7 +105,7 @@ const KARAOKE_STYLE: CaptionStyles = {
 
 const SUBTITLE_STYLE: CaptionStyles = {
   fontFamily: 'font-sans',
-  fontSize: '28',
+  fontSize: '28px',
   fontWeight: 400,
   color: '#ffffff',
   textAlign: 'center',
@@ -236,8 +236,8 @@ export async function createCaptions(params: {
     groupByPunctuation: true,
   });
   
-  // Calculate position
-  const { left, top, width, height } = calculatePosition(position, playerDimensions);
+  // Calculate position relative to the selected video's frame
+  const { left, top, width, height } = calculatePosition(position, playerDimensions, videoOverlay);
   
   // Get base styles and merge with overrides
   const baseStyles = STYLE_MAP[style];
@@ -251,6 +251,10 @@ export async function createCaptions(params: {
           : baseStyles.highlight,
       }
     : baseStyles;
+
+  if (/^\d+(\.\d+)?$/.test(String(finalStyles.fontSize))) {
+    finalStyles.fontSize = `${finalStyles.fontSize}px`;
+  }
   
   // Create the caption overlay
   const captionOverlay: CaptionOverlay = {
@@ -281,23 +285,29 @@ export async function createCaptions(params: {
  */
 function calculatePosition(
   position: CaptionPosition,
-  dimensions: { width: number; height: number }
+  dimensions: { width: number; height: number },
+  videoOverlay?: ClipOverlay
 ): { left: number; top: number; width: number; height: number } {
-  const width = dimensions.width * 0.8;
-  const height = dimensions.height * 0.15;
-  const left = (dimensions.width - width) / 2;
+  const anchorLeft = videoOverlay?.left ?? 0;
+  const anchorTop = videoOverlay?.top ?? 0;
+  const anchorWidth = videoOverlay?.width ?? dimensions.width;
+  const anchorHeight = videoOverlay?.height ?? dimensions.height;
+
+  const width = anchorWidth * 0.9;
+  const height = anchorHeight * 0.18;
+  const left = anchorLeft + (anchorWidth - width) / 2;
   
   let top: number;
   switch (position) {
     case 'top':
-      top = dimensions.height * 0.1;
+      top = anchorTop + anchorHeight * 0.08;
       break;
     case 'center':
-      top = (dimensions.height - height) / 2;
+      top = anchorTop + (anchorHeight - height) / 2;
       break;
     case 'bottom':
     default:
-      top = dimensions.height * 0.75;
+      top = anchorTop + anchorHeight * 0.78;
       break;
   }
   
