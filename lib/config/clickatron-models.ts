@@ -49,6 +49,8 @@ export interface ModelConfig {
   types: ModelType[];
   isDefault?: boolean;
   isInpaintingCapable?: boolean;
+  /** Marks this model as suitable for sketch-to-edit (annotation-guided editing) */
+  isSketchToEdit?: boolean;
   parameterMapping: ParameterMapping;
   constraints: ModelConstraints;
 }
@@ -263,11 +265,13 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       maxImages: 0,
     },
   },
-  // Nanobanana Pro (Edit)
+  // Nanobanana Pro (Edit) — also used for sketch-to-edit
   'fal-ai/nano-banana-pro/edit': {
     id: 'fal-ai/nano-banana-pro/edit',
     name: 'Nanobanana Pro Edit',
     types: ['image-to-image'],
+    isSketchToEdit: true,
+    isDefault: true, // default for sketch-to-edit
     parameterMapping: {
       prompt: 'prompt',
       image_urls: 'image_urls',
@@ -279,7 +283,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       promptMaxLength: 1024,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 1,
-      maxImages: 1,
+      maxImages: 10,
     },
   },
   // Seedream 4.5 (Text-to-Image)
@@ -307,6 +311,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     name: 'Seedream 4.5 Edit',
     types: ['image-to-image', 'inpainting'],
     isInpaintingCapable: true,
+    isSketchToEdit: true, // also shown in sketch-to-edit
     parameterMapping: {
       prompt: 'prompt',
       image_size: 'image_size',
@@ -323,6 +328,52 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
        maxImages: 4,
     },
   },
+  // ── Sketch-to-Edit Models ──────────────────────────────────────────────────
+  // These models appear only when sketch-to-edit mode is active.
+
+  // NOTE: 'fal-ai/nano-banana-pro/edit' is defined above (line ~268) with isSketchToEdit: true.
+  // NOTE: 'fal-ai/bytedance/seedream/v4.5/edit' is defined above (line ~308) with isSketchToEdit: true.
+
+  // Flux 2 Pro (Edit) - High quality instruction-based editing
+  'fal-ai/flux-2-pro/edit': {
+    id: 'fal-ai/flux-2-pro/edit',
+    name: 'Flux 2 Pro Edit',
+    types: ['image-to-image'],
+    isSketchToEdit: true,
+    parameterMapping: {
+      prompt: 'prompt',
+      image_urls: 'image_urls',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 1,
+      maxImages: 5,
+    },
+  },
+
+  // Wan 2.6 Image  (array-based, up to 10+)
+  'wan/v2.6/image-to-image': {
+    id: 'wan/v2.6/image-to-image',
+    name: 'Wan 2.6',
+    types: ['image-to-image'],
+    isSketchToEdit: true,
+    parameterMapping: {
+      prompt: 'prompt',
+      image_urls: 'image_urls',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+      minImages: 1,
+      maxImages: 10,
+    },
+  },
+
   // DEPRECATED: Mapped to FLUX Pro Fill for backward compatibility
   'fal-ai/stable-diffusion-inpainting': {
     id: 'fal-ai/stable-diffusion-inpainting', // Keep origin ID to avoid duplicate key errors
@@ -367,15 +418,20 @@ export function filterModelsByReferenceImageCount(
 
 /**
  * Get available models for a specific context
- * @param context - The context ('ideation', 'newVariation', 'edit', or 'generativeFill')
+ * @param context - The context ('ideation' | 'newVariation' | 'edit' | 'generativeFill' | 'sketchToEdit')
  * @param userAttachedImages - The number of images attached by the user
  * @returns The available models
  */
 export function getAvailableModels(
-  context: 'ideation' | 'newVariation' | 'edit' | 'generativeFill',
+  context: 'ideation' | 'newVariation' | 'edit' | 'generativeFill' | 'sketchToEdit',
   userAttachedImages: number = 0
 ): ModelConfig[] {
   const allModels = Object.values(CLICKATRON_MODELS);
+
+  // For sketch-to-edit, return only models flagged for sketch-to-edit
+  if (context === 'sketchToEdit') {
+    return allModels.filter(model => model.isSketchToEdit === true);
+  }
 
   // For generative fill, return specific approved models
   if (context === 'generativeFill') {
@@ -387,9 +443,13 @@ export function getAvailableModels(
     return allModels.filter(model => allowedModels.includes(model.id));
   }
 
-  // For regular variation flows, exclude strictly inpainting models (that require masks)
-  // Allow models that support text-to-image or image-to-image
+  // For regular variation flows, exclude strictly inpainting-only models (that require masks).
+  // isSketchToEdit models (Seedream, Nanobanana Pro Edit) show in BOTH edit canvas and sketch-to-edit.
+  // Flux 2 Pro and Wan are sketch-to-edit only — they are excluded here because they live only in
+  // the 'sketchToEdit' branch above and are never returned for other contexts.
+  const SKETCH_TO_EDIT_ONLY_IDS = ['fal-ai/flux-2-pro/edit', 'wan/v2.6/image-to-image'];
   const nonInpaintingModels = allModels.filter(model => {
+    if (SKETCH_TO_EDIT_ONLY_IDS.includes(model.id)) return false; // sketch-to-edit exclusive
     return model.types.includes('image-to-image') || model.types.includes('text-to-image');
   });
 
@@ -753,6 +813,22 @@ export function generateModelPayload(
         generationParams.image_urls,
         generationParams.mask_url // Pass mask_url for inpainting
       );
+    case 'fal-ai/flux-2-pro/edit':
+      // Flux 2 Pro expects image_urls array
+      return {
+        prompt: job.prompt,
+        image_urls: generationParams.image_urls || [],
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+      };
+    case 'wan/v2.6/image-to-image':
+      // Wan 2.6 expects image_urls array and supports multiple images
+      return {
+        prompt: job.prompt,
+        image_urls: generationParams.image_urls || [],
+        num_images: generationParams.num_images || 1,
+        enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+      };
     case 'fal-ai/flux/dev/inpainting':
     case 'fal-ai/flux-pro/v1/fill':
     case 'fal-ai/flux-kontext/dev/inpainting':

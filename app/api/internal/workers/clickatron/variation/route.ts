@@ -183,6 +183,27 @@ async function handler(req: Request) {
       // Process reference images from job payload if they exist (for image-to-image)
       const referenceImageUrls = await processReferenceImages(body.referenceImageRefs, ClickatronGCSManager);
 
+      // Check if this is a sketch-to-edit job
+      const isSketchToEdit = body.metadata?.inputMode === 'sketchToEdit';
+      console.log('[Worker] Is sketch-to-edit:', isSketchToEdit);
+
+      // For sketch-to-edit, we need both original (img1) and annotated (img2) images
+      let annotatedImageUrl: string | null = null;
+      if (isSketchToEdit && referenceImageUrls.length > 0) {
+        annotatedImageUrl = referenceImageUrls[0]; // First reference is the annotated image
+        console.log('[Worker] Sketch-to-edit mode - annotated image URL:', annotatedImageUrl);
+        console.log('[Worker] Sketch-to-edit mode - original image URL:', parentImageUrl);
+        
+        // Add system prompt for sketch-to-edit if not already in prompt
+        const systemPrompt = "Make changes according to the annotations and instructions in the second image. Apply the edits from img2 to img1 without changing other details, objects, quality, lighting, composition, or unrelated elements. Preserve original quality and data.";
+        if (job.prompt && !job.prompt.includes(systemPrompt)) {
+          job.prompt = `${job.prompt}\n\n${systemPrompt}`;
+        } else if (!job.prompt) {
+          job.prompt = systemPrompt;
+        }
+        console.log('[Worker] Updated prompt for sketch-to-edit:', job.prompt);
+      }
+
       // Process mask URL if it exists (for inpainting/generative fill)
       let maskUrl: string | null = null;
       if (body.maskUrl) {

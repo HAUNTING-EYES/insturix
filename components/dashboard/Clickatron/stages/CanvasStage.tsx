@@ -1,6 +1,12 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { CanvasActions } from "../canvas/CanvasActions";
@@ -8,19 +14,25 @@ import { VariationsGallery } from "../canvas/VariationsGallery";
 import { AICommandConsole } from "../canvas/AICommandConsole";
 import { NewVariationConsole } from "../canvas/NewVariationConsole";
 import { Input } from "@/components/ui/input";
-import { Grid, Sliders, X } from "lucide-react";
+import { Grid, Sliders, X, Loader2 } from "lucide-react";
 import useClickatronStore from "@/stores/useCanvasStore";
 import { ImageDisplay } from "../canvas/ImageDisplay";
 import { SaveStatusIndicator } from "../canvas/SaveStatusIndicator";
 import { SelectionTool } from "../canvas/SelectionTool";
+import { SketchOverlay, SketchOverlayHandle } from "../canvas/SketchOverlay";
+import { ImageOverlayManager, ImageOverlayManagerHandle } from "../canvas/ImageOverlayManager";
 import { GenerativeFillPanel } from "../canvas/GenerativeFillPanel";
 import { useDebounce } from "use-debounce";
 import { produce } from "immer";
 import { CanvasControls } from "../canvas/CanvasControls";
 import { ReactZoomPanPinchRef } from "react-zoom-pan-pinch";
 import { Settings, AlertTriangle } from "lucide-react";
-import { downloadImageWithFineTuning, getImageUrl } from "@/lib/frontend/services/clickatron-download";
+import {
+  downloadImageWithFineTuning,
+  getImageUrl,
+} from "@/lib/frontend/services/clickatron-download";
 import { pollVariationCompletion } from "@/lib/frontend/services/clickatron";
+import { useToast } from "@/hooks/use-toast";
 import { GENERATIVE_FILL_SYSTEM_PROMPT } from "@/lib/config/clickatron-models";
 import { Variation } from "@/types/clickatron";
 
@@ -40,7 +52,7 @@ const fadeIn = {
 const getAspectRatioDimensions = (
   aspectRatio: string,
   maxWidth: number,
-  maxHeight: number
+  maxHeight: number,
 ) => {
   const [widthRatio, heightRatio] = aspectRatio.split(":").map(Number);
   const ratio = widthRatio / heightRatio;
@@ -67,7 +79,7 @@ const BlankCanvas: React.FC<{ aspectRatio: string }> = ({ aspectRatio }) => {
       const { width, height } = getAspectRatioDimensions(
         aspectRatio,
         Math.min(containerWidth * 0.8, 1200),
-        Math.min(containerHeight * 0.8, 800)
+        Math.min(containerHeight * 0.8, 800),
       );
       setDimensions({ width, height });
     };
@@ -115,7 +127,7 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
       const { width, height } = getAspectRatioDimensions(
         aspectRatio,
         Math.min(containerWidth * 0.8, 1200),
-        Math.min(containerHeight * 0.8, 800)
+        Math.min(containerHeight * 0.8, 800),
       );
       setDimensions({ width, height });
     };
@@ -150,39 +162,71 @@ const NoVariationSelected: React.FC<{ aspectRatio: string }> = ({
 
 export function CanvasStage({ videoIdea }: CanvasStageProps) {
   // All hooks must be called at the top level, before any early returns
-  const { task, updateCanvas, syncCanvas, isSaving, saveError, lastSaved, loadSession, updateVariation } =
-    useClickatronStore();
+  const {
+    task,
+    updateCanvas,
+    syncCanvas,
+    isSaving,
+    saveError,
+    lastSaved,
+    loadSession,
+    updateVariation,
+  } = useClickatronStore();
   const [activeVariationId, setActiveVariationId] = useState<string | null>(
-    null
+    null,
   );
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
-  const [mobilePanel, setMobilePanel] = useState<'none' | 'gallery' | 'fine-tune'>('none');
+  const [mobilePanel, setMobilePanel] = useState<
+    "none" | "gallery" | "fine-tune"
+  >("none");
 
   const panelVariants = {
-    hidden: { y: '100%', opacity: 0 },
+    hidden: { y: "100%", opacity: 0 },
     visible: { y: 0, opacity: 1 },
-    exit: { y: '100%', opacity: 0 }
+    exit: { y: "100%", opacity: 0 },
   };
   const imageRef = useRef<ReactZoomPanPinchRef>(null);
   const lastSyncedCanvasRef = useRef<string | null>(null);
   const isInitialMount = useRef(true);
   const renderCount = useRef(0);
-  const [localActiveVariation, setLocalActiveVariation] = useState(activeVariationId);
+  const [localActiveVariation, setLocalActiveVariation] =
+    useState(activeVariationId);
   const [referenceImageCount, setReferenceImageCount] = useState<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [isGenerativeFillMode, setIsGenerativeFillMode] = useState(false);
-  const [selectionBounds, setSelectionBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [selectionBounds, setSelectionBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [maskDataUrl, setMaskDataUrl] = useState<string | null>(null);
   const [isFillGenerating, setIsFillGenerating] = useState(false);
   const [isFillPanelOpen, setIsFillPanelOpen] = useState(false);
-  const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
-  const [newVariationCreating, setNewVariationCreating] = useState<boolean>(false);
+  const [imageNaturalDimensions, setImageNaturalDimensions] = useState<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const [newVariationCreating, setNewVariationCreating] =
+    useState<boolean>(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [inputMode, setInputMode] = useState<"editCanvas" | "sketchToEdit">("editCanvas");
+  const [sketchTool, setSketchTool] = useState<"pencil" | "eraser" | "text" | null>(null);
+  const [pencilColor, setPencilColor] = useState<"black" | "red" | "blue" | "green" | "yellow">("black");
+  const [eraserSize, setEraserSize] = useState<"small" | "medium" | "large">("medium");
+  const [activeTool, setActiveTool] = useState<"sketch" | "image" | null>(null);
+  const [selectedImageOverlayId, setSelectedImageOverlayId] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // Debug: Track re-renders (only warn if excessive)
   renderCount.current += 1;
   if (renderCount.current > 50 && renderCount.current % 10 === 0) {
-    console.warn("CanvasStage re-rendered", renderCount.current, "times - check for infinite loops");
+    console.warn(
+      "CanvasStage re-rendered",
+      renderCount.current,
+      "times - check for infinite loops",
+    );
   }
 
   const canvas = task?.details.canvas;
@@ -196,6 +240,45 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   const [debouncedCanvas] = useDebounce(canvas, 1000);
 
+  // Image overlay manager ref to trigger file input from console
+  const imageOverlayManagerRef = useRef<ImageOverlayManagerHandle>(null);
+  const sketchOverlayRef = useRef<SketchOverlayHandle>(null);
+
+  const handleAddOverlayImage = useCallback(() => {
+    // Switch to image tool mode but keep sketch tool state
+    // This preserves sketches and text annotations when adding overlay images
+    setActiveTool("image");
+    // Note: We do NOT set sketchTool to null here because that would
+    // unmount SketchOverlay and lose all drawings/text annotations
+    // Instead, SketchOverlay will remain mounted but with isActive={false}
+    // Trigger the file input
+    imageOverlayManagerRef.current?.triggerFileInput?.();
+  }, []);
+
+  // Wrapper for sketch tool changes - implements toggle behavior
+  // Clicking same tool twice deselects it
+  const handleSketchToolChange = useCallback((tool: "pencil" | "eraser" | "text") => {
+    setSketchTool((prevTool) => {
+      // If clicking the same active tool, deselect it
+      if (prevTool === tool && activeTool === "sketch") {
+        setActiveTool(null);
+        return null;
+      }
+      // Otherwise, select the tool
+      setActiveTool("sketch");
+      return tool;
+    });
+    setSelectedImageOverlayId(null); // Deselect any image when switching to sketch tool
+  }, [activeTool]);
+
+  // Handle clicking outside canvas - deselect all tools
+  // This is called when user clicks on UI controls outside the canvas area
+  const handleCanvasClickOutside = useCallback(() => {
+    setActiveTool(null);
+    setSketchTool(null);
+    setSelectedImageOverlayId(null);
+  }, []);
+
   // Update canvasRef when canvas changes
   useEffect(() => {
     canvasRef.current = canvas;
@@ -204,11 +287,16 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   // Check for generating variations on component mount and start polling
   useEffect(() => {
     if (task?._id && variations.length > 0) {
-      const generatingVariations = variations.filter(v => v.status === 'generating');
+      const generatingVariations = variations.filter(
+        (v) => v.status === "generating",
+      );
       if (generatingVariations.length > 0) {
-        console.log('Found generating variations on mount, starting polling:', generatingVariations.map(v => v.id));
+        console.log(
+          "Found generating variations on mount, starting polling:",
+          generatingVariations.map((v) => v.id),
+        );
         abortControllerRef.current = new AbortController();
-        generatingVariations.forEach(variation => {
+        generatingVariations.forEach((variation) => {
           pollVariationCompletion(
             task._id!,
             variation.id,
@@ -216,10 +304,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             () => useClickatronStore.getState().task,
             undefined,
             2000,
-            abortControllerRef.current!.signal
-          ).catch(err => {
-            if (err.message !== 'Polling aborted') {
-              console.error('Polling error:', err);
+            abortControllerRef.current!.signal,
+          ).catch((err) => {
+            if (err.message !== "Polling aborted") {
+              console.error("Polling error:", err);
             }
           });
         });
@@ -231,7 +319,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   useEffect(() => {
     return () => {
       if (abortControllerRef.current) {
-        console.log('Aborting polling on unmount');
+        console.log("Aborting polling on unmount");
         abortControllerRef.current.abort();
       }
     };
@@ -247,7 +335,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
   // Measure container dimensions for precise alignment
   const containerRef = useRef<HTMLDivElement>(null);
-  const [containerDimensions, setContainerDimensions] = useState({ width: 0, height: 0 });
+  const [containerDimensions, setContainerDimensions] = useState({
+    width: 0,
+    height: 0,
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -256,7 +347,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       if (!containerRef.current) return;
       setContainerDimensions({
         width: containerRef.current.clientWidth,
-        height: containerRef.current.clientHeight
+        height: containerRef.current.clientHeight,
       });
     };
 
@@ -271,9 +362,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
   const imageDisplayDimensions = useMemo(() => {
     if (!containerDimensions.width || !containerDimensions.height) return null;
     // Use 0.95 factor to leave a small margin (similar to previous max-w-[90%])
-    return getAspectRatioDimensions(aspectRatio, containerDimensions.width * 0.95, containerDimensions.height * 0.95);
+    return getAspectRatioDimensions(
+      aspectRatio,
+      containerDimensions.width * 0.95,
+      containerDimensions.height * 0.95,
+    );
   }, [aspectRatio, containerDimensions]);
-
 
   // Autosave canvas - simplified approach
   useEffect(() => {
@@ -291,12 +385,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
 
     const currentCanvasString = JSON.stringify(debouncedCanvas);
-    const isDifferentFromLastSync = currentCanvasString !== lastSyncedCanvasRef.current;
+    const isDifferentFromLastSync =
+      currentCanvasString !== lastSyncedCanvasRef.current;
 
     if (isDifferentFromLastSync) {
       console.log("🚀 TRIGGERING AUTOSAVE - Canvas has changed!", {
         taskId: task._id,
-        variationsCount: debouncedCanvas.variations?.length
+        variationsCount: debouncedCanvas.variations?.length,
       });
       lastSyncedCanvasRef.current = currentCanvasString;
       syncCanvas(task._id, debouncedCanvas);
@@ -312,31 +407,37 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   }, [activeVariation]);
 
-  const handleVariationSelect = useCallback((variationId: string) => {
-    setLocalActiveVariation(variationId);
-    setActiveVariationId(variationId);
-  }, [setActiveVariationId]);
+  const handleVariationSelect = useCallback(
+    (variationId: string) => {
+      // Deselect all tools and clear overlay images when switching to another variation
+      handleCanvasClickOutside();
+      imageOverlayManagerRef.current?.clearOverlays(); // Clear all overlay images
+      setLocalActiveVariation(variationId);
+      setActiveVariationId(variationId);
+    },
+    [setActiveVariationId, handleCanvasClickOutside],
+  );
 
   const handleAIGenerate = async (
     prompt: string,
     referenceImages?: File[],
-    modelId?: string
+    modelId?: string,
   ) => {
     if (!canvas || !task?._id) return;
-  
+
     // Check if the active variation is blank
     const isBlank = activeVariation?.status === "blank";
     const selectedModelId =
       modelId || activeVariation?.modelId || "fal-ai/flux-kontext/dev";
-  
+
     const idempotencyKey = `gen_${Date.now()}_${Math.random()
       .toString(36)
       .slice(2, 11)}`;
-  
+
     // TEMP variation (client-only)
     const tempVariationId = `temp_gen_${Date.now()}`;
     const now = new Date();
-  
+
     // Create TEMP loading variation immediately
     const tempVariation: Variation = {
       id: tempVariationId,
@@ -352,31 +453,34 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       modelId: selectedModelId,
       metadata: { isTemp: true },
     };
-  
+
     const canvasWithTemp = produce(canvas, (draft) => {
       draft.variations.unshift(tempVariation);
     });
-  
+
     updateCanvas(canvasWithTemp);
     setLocalActiveVariation(tempVariationId);
     setActiveVariationId(tempVariationId);
     setNewVariationCreating(true);
-  
+
     try {
       // Call API
       const formData = new FormData();
       formData.append("prompt", prompt);
       formData.append("modelId", selectedModelId);
       formData.append("parentVariationId", localActiveVariation || "");
-      formData.append("fineTuning", JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
+      formData.append(
+        "fineTuning",
+        JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }),
+      );
       formData.append("metadata", JSON.stringify({ aspectRatio: aspectRatio }));
       formData.append("aspectRatio", aspectRatio);
-  
+
       // If the active variation is blank, indicate that we want to update it
       if (isBlank && localActiveVariation) {
         formData.append("updateExistingBlank", "true");
       }
-  
+
       // Append reference images
       referenceImages?.forEach((file, index) => {
         formData.append(`referenceImages`, file);
@@ -387,37 +491,37 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         {
           method: "POST",
           headers: {
-            "Idempotency-Key": idempotencyKey
+            "Idempotency-Key": idempotencyKey,
           },
           body: formData,
-        }
+        },
       );
-  
+
       if (!response.ok) {
         throw new Error("Failed to generate variation");
       }
-  
+
       const data = await response.json();
-  
+
       // Replace TEMP variation with real backend variation
       if (data.variation) {
         const replacedCanvas = produce(canvasWithTemp, (draft) => {
           const index = draft.variations.findIndex(
-            (v) => v.id === tempVariationId
+            (v) => v.id === tempVariationId,
           );
-  
+
           if (index !== -1) {
             draft.variations[index] = data.variation;
           } else {
             draft.variations.unshift(data.variation);
           }
         });
-  
+
         updateCanvas(replacedCanvas);
         setLocalActiveVariation(data.variation.id);
         setActiveVariationId(data.variation.id);
       }
-  
+
       // Poll for completion
       await pollVariationCompletion(
         task._id,
@@ -427,26 +531,25 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         () => {
           // Trigger a re-render of LimitDisplay components by updating a dummy state
           // This is a simple way to force components to re-fetch their data
-          window.dispatchEvent(new CustomEvent('clickatron-usage-updated'));
+          window.dispatchEvent(new CustomEvent("clickatron-usage-updated"));
         },
         2000,
-        abortControllerRef.current?.signal
-      ).catch(err => {
-        if (err.message !== 'Polling aborted') {
-          console.error('Polling error in handleAIGenerate:', err);
+        abortControllerRef.current?.signal,
+      ).catch((err) => {
+        if (err.message !== "Polling aborted") {
+          console.error("Polling error in handleAIGenerate:", err);
         }
       });
-
     } catch (error) {
       console.error("Error generating variation:", error);
-  
+
       // Rollback TEMP variation on failure
       const rollbackCanvas = produce(canvas, (draft) => {
         draft.variations = draft.variations.filter(
-          (v) => v.id !== tempVariationId
+          (v) => v.id !== tempVariationId,
         );
       });
-  
+
       updateCanvas(rollbackCanvas);
       setLocalActiveVariation(localActiveVariation);
       setActiveVariationId(localActiveVariation);
@@ -455,20 +558,239 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     }
   };
 
+  const handleSketchToEditSubmit = useCallback(async (modelId?: string) => {
+    if (!task?._id || !activeVariation || !activeVariation.imageRef) {
+      toast({
+        title: "Error",
+        description: "No active variation found",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!sketchOverlayRef.current) {
+      toast({
+        title: "Error",
+        description: "Sketch overlay not available",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setNewVariationCreating(true);
+
+      console.log('[SketchToEdit] Starting export with imageRef:', activeVariation.imageRef);
+
+      // Get image overlays
+      const overlays = imageOverlayManagerRef.current?.getOverlays() || [];
+      console.log('[SketchToEdit] Overlays:', overlays.length);
+
+      // Flatten the annotated canvas with base image, strokes, text, and overlays
+      const annotatedImageDataUrl = await sketchOverlayRef.current.exportFlattenedCanvas(
+        activeVariation.imageRef,
+        overlays.map(o => ({ src: o.src, x: o.x, y: o.y, width: o.width, height: o.height }))
+      );
+
+      console.log('[SketchToEdit] Export successful, length:', annotatedImageDataUrl.length);
+
+      // Convert data URL to blob
+      const response = await fetch(annotatedImageDataUrl);
+      const blob = await response.blob();
+      const img2File = new File([blob], `sketch_${Date.now()}.png`, { type: 'image/png' });
+
+      console.log('[SketchToEdit] Calling API with modelId:', modelId || activeVariation.modelId);
+
+      // Call the sketch-to-edit API
+      const formData = new FormData();
+      formData.append('img2', img2File);
+      formData.append('prompt', ''); // Empty prompt, using internal system prompt
+      formData.append('modelId', modelId || activeVariation.modelId || 'fal-ai/flux-kontext/dev');
+      formData.append('parentVariationId', activeVariation.id);
+
+      const apiResponse = await fetch(`/api/services/clickatron/session/${task._id}/sketch-to-edit`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!apiResponse.ok) {
+        const errorData = await apiResponse.json();
+        console.error('[SketchToEdit] API error:', errorData);
+        throw new Error(errorData.error || 'Failed to submit sketch-to-edit');
+      }
+
+      const data = await apiResponse.json();
+      console.log('[SketchToEdit] API response:', data);
+
+      // Poll for completion
+      try {
+        await pollVariationCompletion(
+          task._id,
+          data.variationId,
+          loadSession,
+          () => useClickatronStore.getState().task,
+          () => {
+            window.dispatchEvent(new CustomEvent("clickatron-usage-updated"));
+          },
+          2000,
+          abortControllerRef.current?.signal,
+        );
+
+        // Auto-select the new variation when processing completes
+        console.log('[SketchToEdit] Processing complete, auto-selecting new variation:', data.variationId);
+        setLocalActiveVariation(data.variationId);
+        setActiveVariationId(data.variationId);
+        
+        // Clear all overlay images after successful generation
+        imageOverlayManagerRef.current?.clearOverlays();
+
+        // Show success toast only after successful generation
+        toast({
+          title: "Success",
+          description: "Sketch-to-edit completed successfully",
+        });
+      } catch (pollError) {
+        if (pollError.message !== "Polling aborted") {
+          console.error("Polling error in handleSketchToEditSubmit:", pollError);
+          
+          // Clear all overlay images after failed generation
+          imageOverlayManagerRef.current?.clearOverlays();
+          
+          // Show error toast for generation failure
+          toast({
+            title: "Generation Failed",
+            description: "Due to some issue, image generation failed. Please try again.",
+            variant: "destructive",
+          });
+        }
+      }
+
+    } catch (error) {
+      console.error("Error in handleSketchToEditSubmit:", error);
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to submit sketch-to-edit",
+        variant: "destructive",
+      });
+    } finally {
+      setNewVariationCreating(false);
+    }
+  }, [task?._id, activeVariation, loadSession, toast]);
+
+  const handleUploadImage = useCallback(
+    async (file: File) => {
+      if (!canvas || !task?._id) return;
+
+      const acceptedTypes = [
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+        "image/webp",
+      ];
+      if (!acceptedTypes.includes(file.type)) {
+        toast({
+          title: "Invalid format",
+          description: "Please use PNG, JPG, JPEG, or WEBP",
+          variant: "destructive",
+        });
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        toast({
+          title: "File too large",
+          description: "Maximum size is 5MB",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      const isBlank = activeVariation?.status === "blank";
+
+      setIsUploadingImage(true);
+      try {
+        const formData = new FormData();
+        formData.append("image", file);
+        formData.append("aspectRatio", aspectRatio);
+        if (isBlank && localActiveVariation) {
+          formData.append("updateExistingBlank", "true");
+          formData.append("parentVariationId", localActiveVariation);
+        }
+
+        const response = await fetch(
+          `/api/services/clickatron/session/${task._id}/upload-image`,
+          { method: "POST", body: formData }
+        );
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || "Failed to upload image");
+        }
+
+        const data = await response.json();
+        const uploadedVariation = data.variation as Variation;
+
+        const newCanvas = produce(canvas, (draft) => {
+          if (isBlank && localActiveVariation) {
+            const idx = draft.variations.findIndex(
+              (v) => v.id === localActiveVariation
+            );
+            if (idx !== -1) {
+              draft.variations[idx] = uploadedVariation;
+            } else {
+              draft.variations.unshift(uploadedVariation);
+            }
+          } else {
+            draft.variations.unshift(uploadedVariation);
+          }
+        });
+
+        updateCanvas(newCanvas);
+        setLocalActiveVariation(uploadedVariation.id);
+        setActiveVariationId(uploadedVariation.id);
+        toast({
+          title: "Image uploaded",
+          description: "Your image is ready for editing and variations.",
+        });
+      } catch (error) {
+        console.error("Error uploading image:", error);
+        toast({
+          title: "Upload failed",
+          description:
+            error instanceof Error ? error.message : "Failed to upload image",
+          variant: "destructive",
+        });
+      } finally {
+        setIsUploadingImage(false);
+      }
+    },
+    [
+      canvas,
+      task?._id,
+      activeVariation?.status,
+      localActiveVariation,
+      aspectRatio,
+      updateCanvas,
+      toast,
+    ]
+  );
+
   const saveTitle = async (newTitle: string) => {
     if (!task?._id || !newTitle.trim()) return;
 
     try {
-      const response = await fetch(`/api/services/clickatron/session/${task._id}/rename`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
+      const response = await fetch(
+        `/api/services/clickatron/session/${task._id}/rename`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ title: newTitle.trim() }),
         },
-        body: JSON.stringify({ title: newTitle.trim() }),
-      });
+      );
 
       if (!response.ok) {
-        throw new Error('Failed to rename session');
+        throw new Error("Failed to rename session");
       }
 
       const data = await response.json();
@@ -477,7 +799,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       if (task && task.details) {
         const updatedTask = {
           ...task,
-          title: data.session.title
+          title: data.session.title,
         };
         // We need to update the task in the store
         // Since we don't have a direct method to update just the title,
@@ -485,19 +807,31 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         await loadSession(task._id);
       }
     } catch (error) {
-      console.error('Error saving title:', error);
+      console.error("Error saving title:", error);
     }
   };
 
   // Handle Generative Fill generate action
-  const handleGenerativeFillGenerate = async (prompt: string, modelId: string) => {
+  const handleGenerativeFillGenerate = async (
+    prompt: string,
+    modelId: string,
+  ) => {
     // Use localActiveVariation as fallback if global activeVariationId is missing
     const effectiveVariationId = activeVariationId || localActiveVariation;
 
-    if (!task?._id || !effectiveVariationId || !selectionBounds || !maskDataUrl) {
+    if (
+      !task?._id ||
+      !effectiveVariationId ||
+      !selectionBounds ||
+      !maskDataUrl
+    ) {
       const errorMsg = `Missing data: Task=${!!task?._id}, Var=${!!effectiveVariationId}, Sel=${!!selectionBounds}, MaskLength=${maskDataUrl?.length || 0}`;
       console.error(errorMsg);
-      alert("Error: " + errorMsg + ". Please try refreshing the page or re-selecting the area.");
+      alert(
+        "Error: " +
+          errorMsg +
+          ". Please try refreshing the page or re-selecting the area.",
+      );
       return;
     }
 
@@ -515,34 +849,51 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     // Background processing
     (async () => {
       let newVariationId: string | null = null;
-      
+
       try {
         const idempotencyKey = `fill_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
         const formData = new FormData();
         const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${prompt}`;
-        formData.append('prompt', fullPrompt);
-        formData.append('modelId', modelId);
-        formData.append('variationId', effectiveVariationId);
-        formData.append('selectionBounds', JSON.stringify(currentSelectionBounds));
-        formData.append('fineTuning', JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }));
-        formData.append('metadata', JSON.stringify({ aspectRatio }));
+        formData.append("prompt", fullPrompt);
+        formData.append("modelId", modelId);
+        formData.append("variationId", effectiveVariationId);
+        formData.append(
+          "selectionBounds",
+          JSON.stringify(currentSelectionBounds),
+        );
+        formData.append(
+          "fineTuning",
+          JSON.stringify({ brightness: 100, contrast: 100, saturation: 100 }),
+        );
+        formData.append("metadata", JSON.stringify({ aspectRatio }));
 
         // Convert data URL to Blob
         const res = await fetch(currentMaskDataUrl);
         const maskBlob = await res.blob();
-        formData.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
+        formData.append(
+          "mask",
+          new File([maskBlob], "mask.png", { type: "image/png" }),
+        );
 
-        const response = await fetch(`/api/services/clickatron/session/${task._id}/generative-fill`, {
-          method: 'POST',
-          headers: { 'Idempotency-Key': idempotencyKey },
-          body: formData,
-        });
+        const response = await fetch(
+          `/api/services/clickatron/session/${task._id}/generative-fill`,
+          {
+            method: "POST",
+            headers: { "Idempotency-Key": idempotencyKey },
+            body: formData,
+          },
+        );
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}));
-          const errorMessage = errorData.error || errorData.message || 'Failed to queue generative fill';
-          const errorDetails = errorData.details ? JSON.stringify(errorData.details) : '';
-          console.error('Server error details:', errorData);
+          const errorMessage =
+            errorData.error ||
+            errorData.message ||
+            "Failed to queue generative fill";
+          const errorDetails = errorData.details
+            ? JSON.stringify(errorData.details)
+            : "";
+          console.error("Server error details:", errorData);
           throw new Error(`${errorMessage} ${errorDetails}`);
         }
 
@@ -573,7 +924,9 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
           const optimisticCanvas = produce(canvas, (draft) => {
             // Check if variation already exists
-            const existingIndex = draft.variations.findIndex(v => v.id === newVariationId);
+            const existingIndex = draft.variations.findIndex(
+              (v) => v.id === newVariationId,
+            );
             if (existingIndex !== -1) {
               // Update existing
               draft.variations[existingIndex] = optimisticVariation;
@@ -584,15 +937,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           });
 
           updateCanvas(optimisticCanvas);
-          
+
           // Set as active variation IMMEDIATELY
           setLocalActiveVariation(newVariationId);
           setActiveVariationId(newVariationId);
-          
+
           // Stop the fill generating loader immediately since we now show the variation
           setIsFillGenerating(false);
         }
-        
+
         // Start polling for completion in background
         if (newVariationId) {
           await pollVariationCompletion(
@@ -600,28 +953,32 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             newVariationId,
             loadSession,
             () => useClickatronStore.getState().task,
-            () => window.dispatchEvent(new CustomEvent('clickatron-usage-updated')),
+            () =>
+              window.dispatchEvent(new CustomEvent("clickatron-usage-updated")),
             2000,
-            abortControllerRef.current?.signal
-          ).catch(err => {
-            if (err.message !== 'Polling aborted') {
-              console.error('Polling error in handleGenerativeFillGenerate:', err);
+            abortControllerRef.current?.signal,
+          ).catch((err) => {
+            if (err.message !== "Polling aborted") {
+              console.error(
+                "Polling error in handleGenerativeFillGenerate:",
+                err,
+              );
             }
           });
         }
       } catch (err) {
-        console.error('Generative fill background task failed:', err);
+        console.error("Generative fill background task failed:", err);
 
         // Remove the optimistic variation if it was created
         if (newVariationId && canvas) {
           const rollbackCanvas = produce(canvas, (draft) => {
             draft.variations = draft.variations.filter(
-              (v) => v.id !== newVariationId
+              (v) => v.id !== newVariationId,
             );
           });
-      
+
           updateCanvas(rollbackCanvas);
-          
+
           // Restore previous active variation
           setLocalActiveVariation(effectiveVariationId);
           setActiveVariationId(effectiveVariationId);
@@ -671,7 +1028,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
 
       const newCanvas = produce(canvas, (draft) => {
         const originalIndex = draft.variations.findIndex(
-          (v) => v.id === variationId
+          (v) => v.id === variationId,
         );
         // Insert the duplicate right after the original
         draft.variations.splice(originalIndex + 1, 0, duplicatedVariation);
@@ -680,7 +1037,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       updateCanvas(newCanvas);
       setActiveVariationId(duplicatedVariation.id);
     },
-    [canvas, variations] // Removed updateCanvas from deps
+    [canvas, variations], // Removed updateCanvas from deps
   );
 
   const handleDeleteVariation = useCallback(
@@ -688,18 +1045,21 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       if (!canvas || !task?._id) return;
 
       try {
-        const response = await fetch(`/api/services/clickatron/session/${task._id}/variation/${variationId}`, {
-          method: 'DELETE',
-        });
+        const response = await fetch(
+          `/api/services/clickatron/session/${task._id}/variation/${variationId}`,
+          {
+            method: "DELETE",
+          },
+        );
 
         if (!response.ok) {
-          throw new Error('Failed to delete variation');
+          throw new Error("Failed to delete variation");
         }
 
         // Local update after successful API call
         const newCanvas = produce(canvas, (draft) => {
           const variationIndex = draft.variations.findIndex(
-            (v) => v.id === variationId
+            (v) => v.id === variationId,
           );
           if (variationIndex !== -1) {
             draft.variations.splice(variationIndex, 1);
@@ -719,12 +1079,12 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           }
         }
       } catch (error) {
-        console.error('Error deleting variation:', error);
+        console.error("Error deleting variation:", error);
         // Optionally, still do local delete or show error toast
         // For now, local delete to maintain optimistic UI
         const newCanvas = produce(canvas, (draft) => {
           const variationIndex = draft.variations.findIndex(
-            (v) => v.id === variationId
+            (v) => v.id === variationId,
           );
           if (variationIndex !== -1) {
             draft.variations.splice(variationIndex, 1);
@@ -741,76 +1101,95 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         }
       }
     },
-    [canvas, activeVariationId, task?._id] // Removed updateCanvas from deps
+    [canvas, activeVariationId, task?._id], // Removed updateCanvas from deps
   );
 
-  const handleFinetuningChange = useCallback((
-    variationId: string,
-    key: "brightness" | "contrast" | "saturation",
-    value: number
-  ) => {
-    if (!canvasRef.current) {
-      console.log(' handleFinetuningChange - no canvas ref');
-      return;
-    }
-
-    // Only update if the value actually changed
-    const currentVariation = canvasRef.current.variations.find((v) => v.id === variationId);
-    if (currentVariation?.fineTuning?.[key] === value) {
-      console.log(' handleFinetuningChange - value unchanged, skipping update', { variationId, key, value });
-      return;
-    }
-
-    console.log(' handleFinetuningChange - updating', { variationId, key, value });
-
-    const newCanvas = produce(canvasRef.current, (draft) => {
-      const variation = draft.variations.find((v) => v.id === variationId);
-      if (variation) {
-        if (!variation.fineTuning) {
-          variation.fineTuning = {
-            brightness: 100,
-            contrast: 100,
-            saturation: 100,
-          };
-        }
-        variation.fineTuning[key] = value;
+  const handleFinetuningChange = useCallback(
+    (
+      variationId: string,
+      key: "brightness" | "contrast" | "saturation",
+      value: number,
+    ) => {
+      if (!canvasRef.current) {
+        console.log(" handleFinetuningChange - no canvas ref");
+        return;
       }
-    });
-    updateCanvas(newCanvas);
-  }, [updateCanvas]); // Removed canvas from deps since we're using ref
 
-  const handleCurvesChange = useCallback((
-    variationId: string,
-    curves: any // Using any to avoid import cycle or complex type here, validated in component
-  ) => {
-    if (!canvasRef.current) return;
-
-    const newCanvas = produce(canvasRef.current, (draft) => {
-      const variation = draft.variations.find((v) => v.id === variationId);
-      if (variation) {
-        if (!variation.fineTuning) {
-          variation.fineTuning = {
-            brightness: 100,
-            contrast: 100,
-            saturation: 100,
-          };
-        }
-        variation.fineTuning.curves = curves;
+      // Only update if the value actually changed
+      const currentVariation = canvasRef.current.variations.find(
+        (v) => v.id === variationId,
+      );
+      if (currentVariation?.fineTuning?.[key] === value) {
+        console.log(
+          " handleFinetuningChange - value unchanged, skipping update",
+          { variationId, key, value },
+        );
+        return;
       }
-    });
-    updateCanvas(newCanvas);
-  }, [updateCanvas]);
+
+      console.log(" handleFinetuningChange - updating", {
+        variationId,
+        key,
+        value,
+      });
+
+      const newCanvas = produce(canvasRef.current, (draft) => {
+        const variation = draft.variations.find((v) => v.id === variationId);
+        if (variation) {
+          if (!variation.fineTuning) {
+            variation.fineTuning = {
+              brightness: 100,
+              contrast: 100,
+              saturation: 100,
+            };
+          }
+          variation.fineTuning[key] = value;
+        }
+      });
+      updateCanvas(newCanvas);
+    },
+    [updateCanvas],
+  ); // Removed canvas from deps since we're using ref
+
+  const handleCurvesChange = useCallback(
+    (
+      variationId: string,
+      curves: any, // Using any to avoid import cycle or complex type here, validated in component
+    ) => {
+      if (!canvasRef.current) return;
+
+      const newCanvas = produce(canvasRef.current, (draft) => {
+        const variation = draft.variations.find((v) => v.id === variationId);
+        if (variation) {
+          if (!variation.fineTuning) {
+            variation.fineTuning = {
+              brightness: 100,
+              contrast: 100,
+              saturation: 100,
+            };
+          }
+          variation.fineTuning.curves = curves;
+        }
+      });
+      updateCanvas(newCanvas);
+    },
+    [updateCanvas],
+  );
 
   const handleResetFinetuning = useCallback(() => {
     if (!localActiveVariation || !canvasRef.current) {
-      console.log('handleResetFinetuning - no active variation or canvas ref');
+      console.log("handleResetFinetuning - no active variation or canvas ref");
       return;
     }
 
-    console.log('handleResetFinetuning - resetting to defaults', { localActiveVariation });
+    console.log("handleResetFinetuning - resetting to defaults", {
+      localActiveVariation,
+    });
 
     const newCanvas = produce(canvasRef.current, (draft) => {
-      const variation = draft.variations.find((v) => v.id === localActiveVariation);
+      const variation = draft.variations.find(
+        (v) => v.id === localActiveVariation,
+      );
       if (variation) {
         variation.fineTuning = {
           brightness: 100,
@@ -823,16 +1202,19 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
     updateCanvas(newCanvas);
   }, [localActiveVariation, updateCanvas]);
 
-  const handleAspectRatioChange = useCallback((newAspectRatio: string) => {
-    // Only update aspect ratio for blank variations
-    if (activeVariation && activeVariation.status === "blank") {
-      setAspectRatio(newAspectRatio);
-    }
-  }, [activeVariation, setAspectRatio]);
+  const handleAspectRatioChange = useCallback(
+    (newAspectRatio: string) => {
+      // Only update aspect ratio for blank variations
+      if (activeVariation && activeVariation.status === "blank") {
+        setAspectRatio(newAspectRatio);
+      }
+    },
+    [activeVariation, setAspectRatio],
+  );
 
   const handleManualSync = useCallback(() => {
     if (canvas && task?._id) {
-      console.log('Manual sync triggered');
+      console.log("Manual sync triggered");
       syncCanvas(task._id, canvas);
     }
   }, [canvas, task?._id]);
@@ -848,14 +1230,14 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       const imageUrl = await getImageUrl(activeVariation.imageRef);
 
       // Generate filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const filename = `clickatron-variation-${timestamp}.png`;
 
       // Download with fine-tuning applied
       await downloadImageWithFineTuning(
         imageUrl,
         activeVariation.fineTuning,
-        filename
+        filename,
       );
     } catch (error) {
       console.error("Error downloading image:", error);
@@ -880,12 +1262,15 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
       className="fixed inset-0 bg-zinc-950 flex flex-row gap-0 overflow-hidden h-screen"
     >
       {/* Left Sidebar - Variations Gallery - Hidden on mobile */}
-      <div className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-zinc-900/95 border-r border-zinc-700/80 relative z-10" style={{ marginLeft: "64px" }}>
+      <div
+        className="hidden md:flex flex-col h-full flex-shrink-0 w-80 bg-zinc-900/95 border-r border-zinc-700/80 relative z-10"
+        style={{ marginLeft: "64px" }}
+      >
         <VariationsGallery
           variations={variations}
           activeVariationId={localActiveVariation}
           onVariationSelect={handleVariationSelect}
-          onAddToCompare={() => { }}
+          onAddToCompare={() => {}}
           onNewVariation={handleNewVariation}
           onDuplicateVariation={handleDuplicateVariation}
           onDeleteVariation={handleDeleteVariation}
@@ -908,10 +1293,10 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   setIsEditingTitle(false);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  if (e.key === "Enter") {
                     saveTitle(editedTitle);
                     setIsEditingTitle(false);
-                  } else if (e.key === 'Escape') {
+                  } else if (e.key === "Escape") {
                     setEditedTitle(task?.title || videoIdea);
                     setIsEditingTitle(false);
                   }
@@ -936,7 +1321,7 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               lastSaved={lastSaved}
             />
           </div>
-          {process.env.NODE_ENV === 'development' && (
+          {process.env.NODE_ENV === "development" && (
             <button
               onClick={handleManualSync}
               className="text-xs bg-blue-600 text-white px-2 py-1 rounded mt-1"
@@ -949,21 +1334,20 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setMobilePanel('gallery')}
-              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'gallery' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+              onClick={() => setMobilePanel("gallery")}
+              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === "gallery" ? "bg-zinc-700 text-white shadow-xl" : "text-zinc-300 hover:text-white"}`}
             >
               <Grid className="h-5 w-5" />
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => setMobilePanel('fine-tune')}
-              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === 'fine-tune' ? 'bg-zinc-700 text-white shadow-xl' : 'text-zinc-300 hover:text-white'}`}
+              onClick={() => setMobilePanel("fine-tune")}
+              className={`p-3 h-12 w-12 bg-zinc-800/50 hover:bg-zinc-700/70 shadow-lg rounded-full transition-all ${mobilePanel === "fine-tune" ? "bg-zinc-700 text-white shadow-xl" : "text-zinc-300 hover:text-white"}`}
             >
               <Sliders className="h-5 w-5" />
             </Button>
           </div>
-
         </div>
 
         {/* Canvas Display Area */}
@@ -972,13 +1356,23 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
           <div className="flex-1 flex items-center justify-center overflow-hidden relative h-full">
             {/* Canvas Actions - Top Center - Only show for completed variations */}
             {activeVariation?.status === "completed" && (
-              <div className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20">
+              <div 
+                className="absolute top-6 left-1/2 transform -translate-x-1/2 z-20"
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent triggering canvas click
+                  handleCanvasClickOutside(); // Deselect tools when clicking on canvas actions
+                }}
+              >
                 <CanvasActions
                   onZoomIn={() => imageRef.current?.zoomIn(0.3)}
                   onZoomOut={() => imageRef.current?.zoomOut(0.3)}
                   onResetZoom={() => imageRef.current?.resetTransform()}
-                  onDownload={handleDownload}
-                // onShare={() => console.log("Share")}
+                  onDownload={(e) => {
+                    e?.stopPropagation?.(); // Prevent triggering canvas click
+                    handleCanvasClickOutside(); // Deselect tools
+                    handleDownload();
+                  }}
+                  // onShare={() => console.log("Share")}
                 />
               </div>
             )}
@@ -1022,7 +1416,8 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                           Generation Failed
                         </div>
                         <div className="text-red-400/70 text-sm max-w-md mx-auto">
-                          {activeVariation.error || "Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues."}
+                          {activeVariation.error ||
+                            "Something went wrong while generating this variation. This could be due to content policy restrictions or technical issues."}
                         </div>
 
                         {/* Retry button */}
@@ -1036,35 +1431,61 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                         </div> */}
 
                         <div className="mt-4 text-xs text-red-50/60">
-                          Consider adjusting your prompt or trying different settings
+                          Consider adjusting your prompt or trying different
+                          settings
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div 
+                <div
                   className="relative"
-                  style={imageDisplayDimensions ? {
-                    width: `${imageDisplayDimensions.width}px`,
-                    height: `${imageDisplayDimensions.height}px`,
-                  } : undefined}
+                  style={
+                    imageDisplayDimensions
+                      ? {
+                          width: `${imageDisplayDimensions.width}px`,
+                          height: `${imageDisplayDimensions.height}px`,
+                        }
+                      : undefined
+                  }
                 >
+                  {/* Loading Overlay for Sketch-to-Edit Processing */}
+                  {inputMode === "sketchToEdit" && newVariationCreating && (
+                    <div className="absolute inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center rounded-lg">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="relative">
+                          <div className="h-16 w-16 rounded-full border-4 border-purple-500/20" />
+                          <Loader2 className="absolute top-0 h-16 w-16 animate-spin text-purple-500" />
+                        </div>
+                        <span className="text-sm font-medium text-white">
+                          🚀 Applying your annotations...
+                        </span>
+                        <span className="text-xs text-zinc-400">
+                          Making it happen!
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Generative Fill toggle */}
-                  {activeVariation.status === 'completed' && (
+                  {activeVariation.status === "completed" && (
                     <div className="absolute top-4 right-4 z-[40]">
                       <Button
                         variant="default"
                         size="sm"
-                         onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation(); // Prevent triggering canvas click
                           setIsGenerativeFillMode((prev) => !prev);
                           setSelectionBounds(null);
                           setMaskDataUrl(null);
+                          handleCanvasClickOutside(); // Deselect tools
                         }}
-                        className={`${isGenerativeFillMode
-                          ? 'bg-green-600 hover:bg-green-700'
-                          : 'bg-purple-600 hover:bg-purple-700'
-                          } shadow-lg`}
+                        className={`${
+                          isGenerativeFillMode
+                            ? "bg-green-600 hover:bg-green-700"
+                            : "bg-purple-600 hover:bg-purple-700"
+                        } shadow-lg`}
                       >
                         ✨ Generative Fill
                       </Button>
@@ -1083,69 +1504,110 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                     className="object-contain rounded-lg shadow-2xl"
                     width={imageDisplayDimensions?.width}
                     height={imageDisplayDimensions?.height}
-                    interactive={!isGenerativeFillMode}
+                    interactive={!isGenerativeFillMode && inputMode !== "sketchToEdit"}
                     onImageLoad={setImageNaturalDimensions}
                     isFillGenerating={isFillGenerating}
                   />
 
-                  {/* Selection overlay */}
-                  {isGenerativeFillMode && activeVariation.status === 'completed' && imageDisplayDimensions && (
-                    <div className="absolute inset-0 pointer-events-none z-[50]">
-                      <div 
-                        className={`absolute ${isFillPanelOpen ? 'pointer-events-none opacity-0' : 'pointer-events-auto opacity-100'} transition-opacity duration-200`}
-                        style={{
-                        width: `${imageDisplayDimensions.width}px`,
-                        height: `${imageDisplayDimensions.height}px`,
-                        left: '50%',
-                        top: '50%',
-                        transform: 'translate(-50%, -50%)'
-                      }}>
-                        <SelectionTool
-                          imageWidth={imageDisplayDimensions.width}
-                          imageHeight={imageDisplayDimensions.height}
-                          originalWidth={imageNaturalDimensions?.width}
-                          originalHeight={imageNaturalDimensions?.height}
-                          isActive={!isFillPanelOpen}
-                          onSelectionComplete={(sel, maskUrl) => {
-                            setSelectionBounds(sel);
-                            setMaskDataUrl(maskUrl);
-                            setIsFillPanelOpen(true);
-                          }}
-                          onCancel={() => {
-                            setIsGenerativeFillMode(false);
-                            setSelectionBounds(null);
-                            setMaskDataUrl(null);
-                          }}
-                        />
-                      </div>
-                    </div>
+                  {/* Sketch overlay - when Sketch to Edit mode and sketch tool is active */}
+                  {inputMode === "sketchToEdit" &&
+                    activeVariation.status === "completed" &&
+                    imageDisplayDimensions &&
+                    !isGenerativeFillMode &&
+                    !newVariationCreating && // Disable during processing
+                    sketchTool && (
+                      <SketchOverlay
+                        ref={sketchOverlayRef}
+                        width={imageDisplayDimensions.width}
+                        height={imageDisplayDimensions.height}
+                        tool={sketchTool}
+                        pencilColor={pencilColor}
+                        eraserSize={eraserSize}
+                        isActive={activeTool === "sketch"}
+                      />
+                    )}
+
+                  {/* Image overlay manager - handles uploaded overlays - Hidden during generation */}
+                  {imageDisplayDimensions && !newVariationCreating && (
+                    <ImageOverlayManager
+                      ref={imageOverlayManagerRef}
+                      width={imageDisplayDimensions.width}
+                      height={imageDisplayDimensions.height}
+                      onImageAdded={(id) => {
+                        setSelectedImageOverlayId(id);
+                        setActiveTool("image");
+                      }}
+                      onImageSelected={(id) => {
+                        setSelectedImageOverlayId(id);
+                        if (id) {
+                          setActiveTool("image");
+                        } else {
+                          setActiveTool(null);
+                        }
+                      }}
+                    />
                   )}
+
+                  {/* Selection overlay */}
+                  {isGenerativeFillMode &&
+                    activeVariation.status === "completed" &&
+                    imageDisplayDimensions && (
+                      <div className="absolute inset-0 pointer-events-none z-[50]">
+                        <div
+                          className={`absolute ${isFillPanelOpen ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100"} transition-opacity duration-200`}
+                          style={{
+                            width: `${imageDisplayDimensions.width}px`,
+                            height: `${imageDisplayDimensions.height}px`,
+                            left: "50%",
+                            top: "50%",
+                            transform: "translate(-50%, -50%)",
+                          }}
+                        >
+                          <SelectionTool
+                            imageWidth={imageDisplayDimensions.width}
+                            imageHeight={imageDisplayDimensions.height}
+                            originalWidth={imageNaturalDimensions?.width}
+                            originalHeight={imageNaturalDimensions?.height}
+                            isActive={!isFillPanelOpen}
+                            onSelectionComplete={(sel, maskUrl) => {
+                              setSelectionBounds(sel);
+                              setMaskDataUrl(maskUrl);
+                              setIsFillPanelOpen(true);
+                            }}
+                            onCancel={() => {
+                              setIsGenerativeFillMode(false);
+                              setSelectionBounds(null);
+                              setMaskDataUrl(null);
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
                 </div>
               )}
             </div>
           </div>
-
         </div>
 
         {/* Mobile Panels - Toggled full-width sections below canvas */}
-        {mobilePanel === 'gallery' && (
+        {mobilePanel === "gallery" && (
           <div className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-y-auto pt-4">
             <VariationsGallery
               variations={variations}
               activeVariationId={localActiveVariation}
               onVariationSelect={handleVariationSelect}
-              onAddToCompare={() => { }}
+              onAddToCompare={() => {}}
               onNewVariation={handleNewVariation}
               onDuplicateVariation={handleDuplicateVariation}
               onDeleteVariation={handleDeleteVariation}
               mobile={true}
-              onClose={() => setMobilePanel('none')}
+              onClose={() => setMobilePanel("none")}
               className="w-[90vw]"
             />
           </div>
         )}
         <AnimatePresence mode="wait">
-          {mobilePanel === 'fine-tune' && activeVariation?.fineTuning && (
+          {mobilePanel === "fine-tune" && activeVariation?.fineTuning && (
             <motion.div
               key="controls"
               variants={panelVariants}
@@ -1156,11 +1618,13 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
               className="fixed inset-x-0 top-[6rem] bottom-20 z-30 border-t border-zinc-800/80 bg-zinc-900 md:hidden overflow-hidden flex flex-col max-h-[calc(100vh-10rem)]"
             >
               <div className="flex items-center justify-between p-4 border-b border-zinc-800/80 bg-zinc-900/50">
-                <h3 className="text-sm font-medium text-zinc-200">Fine Tuning</h3>
+                <h3 className="text-sm font-medium text-zinc-200">
+                  Fine Tuning
+                </h3>
                 <Button
                   variant="ghost"
                   size="sm"
-                  onClick={() => setMobilePanel('none')}
+                  onClick={() => setMobilePanel("none")}
                   className="p-1 h-6 w-6 text-zinc-400 hover:text-zinc-200"
                 >
                   <X className="h-3 w-3" />
@@ -1175,16 +1639,29 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
                   aspectRatio={aspectRatio}
                   isBlankVariation={activeVariation.status === "blank"}
                   onBrightnessChange={(val) =>
-                    handleFinetuningChange(localActiveVariation!, "brightness", val)
+                    handleFinetuningChange(
+                      localActiveVariation!,
+                      "brightness",
+                      val,
+                    )
                   }
                   onContrastChange={(val) =>
-                    handleFinetuningChange(localActiveVariation!, "contrast", val)
+                    handleFinetuningChange(
+                      localActiveVariation!,
+                      "contrast",
+                      val,
+                    )
                   }
                   onSaturationChange={(val) =>
-                    handleFinetuningChange(localActiveVariation!, "saturation", val)
+                    handleFinetuningChange(
+                      localActiveVariation!,
+                      "saturation",
+                      val,
+                    )
                   }
                   onCurvesChange={(curves) =>
-                    activeVariation && handleCurvesChange(activeVariation.id, curves)
+                    activeVariation &&
+                    handleCurvesChange(activeVariation.id, curves)
                   }
                   onAspectRatioChange={handleAspectRatioChange}
                   onReset={handleResetFinetuning}
@@ -1198,28 +1675,53 @@ export function CanvasStage({ videoIdea }: CanvasStageProps) {
         </AnimatePresence>
 
         {/* Bottom AI Command Console - Hide for generating and failed variations */}
-        {activeVariation?.status !== "generating" && activeVariation?.status !== "failed" && (
-          <div className="relative z-20 w-full flex-shrink-0">
-            {activeVariation?.status === "blank" ? (
-              <NewVariationConsole
-                onGenerate={handleAIGenerate}
-                isGenerating={newVariationCreating}
-                className="border-t border-zinc-800/80 mr-0 mx-auto"
-                referenceImageCount={referenceImageCount}
-                onReferenceImageCountChange={setReferenceImageCount}
-              />
-            ) : (
-              <AICommandConsole
-                onGenerate={handleAIGenerate}
-                isGenerating={newVariationCreating}
-                className="border-t border-zinc-800/80 mr-0 mx-auto"
-                referenceImageCount={referenceImageCount}
-                onReferenceImageCountChange={setReferenceImageCount}
-                currentImageUrl={activeVariation?.imageRef || ''}
-              />
-            )}
-          </div>
-        )}
+        {activeVariation?.status !== "generating" &&
+          activeVariation?.status !== "failed" && (
+            <div className="relative z-20 w-full flex-shrink-0">
+              {activeVariation?.status === "blank" ? (
+                <NewVariationConsole
+                  onGenerate={handleAIGenerate}
+                  onSketchToEditSubmit={handleSketchToEditSubmit}
+                  onUploadImage={handleUploadImage}
+                  isGenerating={newVariationCreating}
+                  isUploadingImage={isUploadingImage}
+                  className="border-t border-zinc-800/80 mr-0 mx-auto"
+                  referenceImageCount={referenceImageCount}
+                  onReferenceImageCountChange={setReferenceImageCount}
+                  inputMode={inputMode}
+                  onInputModeChange={setInputMode}
+                  sketchTool={sketchTool}
+                  onSketchToolChange={handleSketchToolChange}
+                  pencilColor={pencilColor}
+                  onPencilColorChange={setPencilColor}
+                  eraserSize={eraserSize}
+                  onEraserSizeChange={setEraserSize}
+                  onAddOverlayImage={handleAddOverlayImage}
+                />
+              ) : (
+                <AICommandConsole
+                  onGenerate={handleAIGenerate}
+                  onSketchToEditSubmit={handleSketchToEditSubmit}
+                  onUploadImage={handleUploadImage}
+                  isGenerating={newVariationCreating}
+                  isUploadingImage={isUploadingImage}
+                  className="border-t border-zinc-800/80 mr-0 mx-auto"
+                  referenceImageCount={referenceImageCount}
+                  onReferenceImageCountChange={setReferenceImageCount}
+                  currentImageUrl={activeVariation?.imageRef || ""}
+                  inputMode={inputMode}
+                  onInputModeChange={setInputMode}
+                  sketchTool={sketchTool}
+                  onSketchToolChange={handleSketchToolChange}
+                  pencilColor={pencilColor}
+                  onPencilColorChange={setPencilColor}
+                  eraserSize={eraserSize}
+                  onEraserSizeChange={setEraserSize}
+                  onAddOverlayImage={handleAddOverlayImage}
+                />
+              )}
+            </div>
+          )}
       </div>
 
       {/* Right Sidebar - Full height, next to main canvas */}

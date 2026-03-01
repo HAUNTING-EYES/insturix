@@ -14,7 +14,7 @@ import { ColorCurves, CurvePoint } from "@/types/clickatron";
 const getAspectRatioDimensions = (
   aspectRatio: string,
   maxWidth: number,
-  maxHeight: number
+  maxHeight: number,
 ) => {
   const [widthRatio, heightRatio] = aspectRatio.split(":").map(Number);
   const ratio = widthRatio / heightRatio;
@@ -91,7 +91,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
       onImageLoad,
       isFillGenerating = false,
     },
-    ref
+    ref,
   ) => {
     const [proxyUrl, setProxyUrl] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -101,11 +101,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     // Inject custom styles for flow animations (single hook, placed early)
     useEffect(() => {
-      if (typeof document !== 'undefined') {
-        let styleSheet = document.getElementById('flow-animations');
+      if (typeof document !== "undefined") {
+        let styleSheet = document.getElementById("flow-animations");
         if (!styleSheet) {
-          styleSheet = document.createElement('style');
-          styleSheet.id = 'flow-animations';
+          styleSheet = document.createElement("style");
+          styleSheet.id = "flow-animations";
           const animationStyles = `
             @keyframes gentle-flow {
               0%, 100% {
@@ -151,7 +151,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
           const { width, height } = getAspectRatioDimensions(
             aspectRatio,
             containerWidth * 0.8,
-            containerHeight * 0.8
+            containerHeight * 0.8,
           );
           setDimensions({ width, height });
         };
@@ -168,10 +168,12 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         let proxyUrlPath = imageRef;
         if (imageRef.startsWith("https://storage.googleapis.com/")) {
           // Extract path within bucket for proxy
-          const pathAfterDomain = imageRef.substring("https://storage.googleapis.com/".length);
-          const pathSegments = pathAfterDomain.split('/');
-          const pathWithinBucket = pathSegments.slice(1).join('/');
-          proxyUrlPath = pathWithinBucket.split('?')[0]; // Remove query params
+          const pathAfterDomain = imageRef.substring(
+            "https://storage.googleapis.com/".length,
+          );
+          const pathSegments = pathAfterDomain.split("/");
+          const pathWithinBucket = pathSegments.slice(1).join("/");
+          proxyUrlPath = pathWithinBucket.split("?")[0]; // Remove query params
         }
         const encodedPath = encodeURIComponent(proxyUrlPath);
         setProxyUrl(`/api/proxy/image?path=${encodedPath}`);
@@ -221,34 +223,51 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
     };
 
     // Combine master curve with channel curves
-    const getChannelValues = (channelPoints: CurvePoint[] | undefined, masterPoints: CurvePoint[] | undefined) => {
-      // This is a simplification. True combination requires applying master curve to RGB, 
+    const getChannelValues = (
+      channelPoints: CurvePoint[] | undefined,
+      masterPoints: CurvePoint[] | undefined,
+    ) => {
+      // This is a simplification. True combination requires applying master curve to RGB,
       // but SVG filters apply them in parallel or sequentially.
-      // A common way is to chain filters, but here we can try to combine them mathematically 
+      // A common way is to chain filters, but here we can try to combine them mathematically
       // or just apply channel curves if master is default, etc.
       // Better approach for SVG:
       // Use feComponentTransfer for R, G, B channels.
-      // Master curve affects all channels. We can't easily combine two table lookups in one feComponentTransfer primitive 
+      // Master curve affects all channels. We can't easily combine two table lookups in one feComponentTransfer primitive
       // without complex math or multiple filter primitives.
       // Let's use two feComponentTransfer primitives: one for channels, one for master.
 
       return getCurveTableValues(channelPoints);
     };
 
-    const masterValues = useMemo(() => getCurveTableValues(fineTuning.curves?.master), [fineTuning.curves?.master]);
-    const redValues = useMemo(() => getCurveTableValues(fineTuning.curves?.red), [fineTuning.curves?.red]);
-    const greenValues = useMemo(() => getCurveTableValues(fineTuning.curves?.green), [fineTuning.curves?.green]);
-    const blueValues = useMemo(() => getCurveTableValues(fineTuning.curves?.blue), [fineTuning.curves?.blue]);
+    const masterValues = useMemo(
+      () => getCurveTableValues(fineTuning.curves?.master),
+      [fineTuning.curves?.master],
+    );
+    const redValues = useMemo(
+      () => getCurveTableValues(fineTuning.curves?.red),
+      [fineTuning.curves?.red],
+    );
+    const greenValues = useMemo(
+      () => getCurveTableValues(fineTuning.curves?.green),
+      [fineTuning.curves?.green],
+    );
+    const blueValues = useMemo(
+      () => getCurveTableValues(fineTuning.curves?.blue),
+      [fineTuning.curves?.blue],
+    );
 
-    const filterId = `curves-${variationId || 'default'}`;
+    const filterId = `curves-${variationId || "default"}`;
 
     // Style object for maintaining aspect ratio based on calculated dimensions
-    const aspectRatioStyle: React.CSSProperties = aspectRatio ? {
-      width: `${dimensions.width}px`,
-      height: `${dimensions.height}px`,
-      maxWidth: '100%',
-      aspectRatio: aspectRatio.replace(':', '/')
-    } : {};
+    const aspectRatioStyle: React.CSSProperties = aspectRatio
+      ? {
+          width: `${dimensions.width}px`,
+          height: `${dimensions.height}px`,
+          maxWidth: "100%",
+          aspectRatio: aspectRatio.replace(":", "/"),
+        }
+      : {};
 
     if (isLoading) {
       return (
@@ -301,7 +320,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
             <div className="space-y-2">
               <div className="text-zinc-300 font-medium">
-                {status === "generating" ? "Creating your thumbnail..." : "Loading image..."}
+                {status === "generating"
+                  ? "Creating your thumbnail..."
+                  : "Loading image..."}
               </div>
 
               {status === "generating" && (
@@ -313,8 +334,10 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               {/* Progress bar for generation */}
               {status === "generating" && (
                 <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
-                  <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full animate-pulse"
-                    style={{ width: "60%", animation: 'pulse 2s infinite' }} />
+                  <div
+                    className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full animate-pulse"
+                    style={{ width: "60%", animation: "pulse 2s infinite" }}
+                  />
                 </div>
               )}
             </div>
@@ -384,17 +407,19 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
     const imageStyle: React.CSSProperties = {
       filter: [
-        status === 'generating' && imageRef ? 'blur(16px)' : '',
+        status === "generating" && imageRef ? "blur(16px)" : "",
         `brightness(${fineTuning.brightness}%) contrast(${fineTuning.contrast}%) saturate(${fineTuning.saturation}%)`,
-        `url(#${filterId})`
-      ].filter(Boolean).join(' '),
-      width: '100%',
-      height: '100%',
-      objectFit: status === 'generating' ? 'cover' : 'contain'
+        `url(#${filterId})`,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      width: "100%",
+      height: "100%",
+      objectFit: status === "generating" ? "cover" : "contain",
     };
 
     // For generating without imageRef (new variation), show generating placeholder
-    if (status === 'generating' && !imageRef) {
+    if (status === "generating" && !imageRef) {
       return (
         <div
           className={`relative bg-gradient-to-br from-zinc-800/60 to-zinc-800/40 flex items-center justify-center rounded-lg border border-zinc-600/50 overflow-hidden ${className}`}
@@ -436,8 +461,12 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               </svg>
             </div>
             <div className="text-center space-y-1">
-              <div className="text-zinc-300 font-medium">Creating your thumbnail...</div>
-              <div className="text-zinc-500 text-sm">AI is working its magic</div>
+              <div className="text-zinc-300 font-medium">
+                Creating your thumbnail...
+              </div>
+              <div className="text-zinc-500 text-sm">
+                AI is working its magic
+              </div>
             </div>
           </div>
         </div>
@@ -476,9 +505,16 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             maxScale={5}
             centerOnInit={true}
             limitToBounds={false}
-            panning={{ disabled: status === 'generating' || isFillGenerating }}
-            wheel={{ disabled: status === 'generating' || isFillGenerating, step: 0.1 }}
-            doubleClick={{ disabled: status === 'generating' || isFillGenerating, mode: "zoomIn", step: 0.3 }}
+            panning={{ disabled: status === "generating" || isFillGenerating }}
+            wheel={{
+              disabled: status === "generating" || isFillGenerating,
+              step: 0.1,
+            }}
+            doubleClick={{
+              disabled: status === "generating" || isFillGenerating,
+              mode: "zoomIn",
+              step: 0.3,
+            }}
             onInit={(r) => {
               setTimeout(() => r.resetTransform(), 100);
             }}
@@ -486,14 +522,12 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <TransformComponent
               wrapperClass="relative flex items-center justify-center"
               contentClass="flex items-center justify-center"
-              wrapperStyle={{ width: '100%', height: '100%' }}
+              wrapperStyle={{ width: "100%", height: "100%" }}
             >
               <div className="relative w-full h-full" style={aspectRatioStyle}>
                 {/* Gradient placeholder - shows immediately */}
                 {!imageLoaded && (
-                  <div
-                    className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse"
-                  />
+                  <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse" />
                 )}
                 {/* Blurred image placeholder - shows once image starts loading */}
                 {!imageLoaded && proxyUrl && (
@@ -503,10 +537,10 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                     className={`${className} select-none rounded-lg`}
                     style={{
                       ...imageStyle,
-                      ...aspectRatioStyle, 
-                      objectFit: 'cover',
-                      filter: 'blur(20px) brightness(0.6) saturate(1.2)',
-                      transform: 'scale(1.05)',
+                      ...aspectRatioStyle,
+                      objectFit: "cover",
+                      filter: "blur(20px) brightness(0.6) saturate(1.2)",
+                      transform: "scale(1.05)",
                       opacity: 0.8,
                     }}
                     aria-hidden="true"
@@ -522,18 +556,23 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                   className={`${className} select-none rounded-lg relative z-10`}
                   style={{
                     ...imageStyle,
-                    ...aspectRatioStyle, 
+                    ...aspectRatioStyle,
                     opacity: imageLoaded ? 1 : 0,
-                    filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
-                    transition: "opacity 500ms ease, filter 500ms ease"
+                    filter: imageLoaded
+                      ? imageStyle.filter || ""
+                      : `${imageStyle.filter || ""} blur(12px)`,
+                    transition: "opacity 500ms ease, filter 500ms ease",
                   }}
                   onLoad={(e) => {
                     setImageLoaded(true);
-                    e.currentTarget.style.opacity = '1';
-                    e.currentTarget.style.filter = imageStyle.filter || '';
+                    e.currentTarget.style.opacity = "1";
+                    e.currentTarget.style.filter = imageStyle.filter || "";
                     const img = e.currentTarget;
                     if (onImageLoad && img.naturalWidth && img.naturalHeight) {
-                      onImageLoad({ width: img.naturalWidth, height: img.naturalHeight });
+                      onImageLoad({
+                        width: img.naturalWidth,
+                        height: img.naturalHeight,
+                      });
                     }
                   }}
                   draggable={false}
@@ -542,12 +581,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             </TransformComponent>
           </TransformWrapper>
         ) : (
-          <div className="relative w-full h-full flex items-center justify-center" style={aspectRatioStyle}>
+          <div
+            className="relative w-full h-full flex items-center justify-center"
+            style={aspectRatioStyle}
+          >
             {/* Gradient placeholder - shows immediately */}
             {!imageLoaded && (
-              <div
-                className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse"
-              />
+              <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-zinc-800/80 via-zinc-700/60 to-zinc-800/80 animate-pulse" />
             )}
             {/* Blurred image placeholder - shows once image starts loading */}
             {!imageLoaded && proxyUrl && (
@@ -556,11 +596,11 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
                 alt=""
                 className="absolute inset-0 rounded-lg"
                 style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'cover',
-                  filter: 'blur(20px) brightness(0.6) saturate(1.2)',
-                  transform: 'scale(1.05)',
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "cover",
+                  filter: "blur(20px) brightness(0.6) saturate(1.2)",
+                  transform: "scale(1.05)",
                   opacity: 0.8,
                 }}
                 aria-hidden="true"
@@ -576,19 +616,24 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
               className={`${className} select-none rounded-lg relative z-10`}
               style={{
                 ...imageStyle,
-                width: '100%',
-                height: '100%',
+                width: "100%",
+                height: "100%",
                 opacity: imageLoaded ? 1 : 0,
-                filter: imageLoaded ? (imageStyle.filter || '') : `${imageStyle.filter || ''} blur(12px)`,
+                filter: imageLoaded
+                  ? imageStyle.filter || ""
+                  : `${imageStyle.filter || ""} blur(12px)`,
                 transition: "opacity 500ms ease, filter 500ms ease",
               }}
               onLoad={(e) => {
                 setImageLoaded(true);
-                e.currentTarget.style.opacity = '1';
-                e.currentTarget.style.filter = imageStyle.filter || '';
+                e.currentTarget.style.opacity = "1";
+                e.currentTarget.style.filter = imageStyle.filter || "";
                 const img = e.currentTarget;
                 if (onImageLoad && img.naturalWidth && img.naturalHeight) {
-                  onImageLoad({ width: img.naturalWidth, height: img.naturalHeight });
+                  onImageLoad({
+                    width: img.naturalWidth,
+                    height: img.naturalHeight,
+                  });
                 }
               }}
               draggable={false}
@@ -635,18 +680,22 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
 
               {/* Text */}
               <div className="space-y-1">
-                <p className="text-white text-lg font-semibold">Generative Fill</p>
-                <p className="text-zinc-300 text-sm">AI is filling your selection...</p>
+                <p className="text-white text-lg font-semibold">
+                  Generative Fill
+                </p>
+                <p className="text-zinc-300 text-sm">
+                  AI is filling your selection...
+                </p>
               </div>
 
               {/* Progress bar */}
               <div className="mt-4 w-48 h-2 bg-zinc-700/50 rounded-full overflow-hidden mx-auto">
-                <div 
+                <div
                   className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-purple-500 rounded-full"
-                  style={{ 
+                  style={{
                     width: "70%",
-                    animation: 'pulse 2s ease-in-out infinite',
-                  }} 
+                    animation: "pulse 2s ease-in-out infinite",
+                  }}
                 />
               </div>
             </div>
@@ -654,7 +703,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         )}
 
         {/* Generating overlay - show for variations with status generating */}
-        {status === 'generating' && !isFillGenerating && (
+        {status === "generating" && !isFillGenerating && (
           <div className="absolute inset-0 pointer-events-none">
             {/* Base subtle tint for better visibility */}
             <div className="absolute inset-0 bg-gradient-to-br from-pink-500/5 via-cyan-500/5 to-yellow-500/5"></div>
@@ -663,17 +712,17 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             {/* Layer 1: Pink to turquoise flow */}
             <div
               className="absolute inset-0 opacity-20 bg-[length:200%_200%] bg-[radial-gradient(circle_at_20%_80%,#ffb3ba40_0%,#a7e6ff40_50%,transparent_100%)] animate-[gentle-flow_4s_ease-in-out_infinite]"
-              style={{ animationDelay: '0s', backgroundPosition: '0% 0%' }}
+              style={{ animationDelay: "0s", backgroundPosition: "0% 0%" }}
             ></div>
             {/* Layer 2: Cyan to yellow mesh */}
             <div
               className="absolute inset-0 opacity-25 bg-[length:250%_250%] bg-[radial-gradient(circle_at_80%_20%,#b5f2ff50_0%,#fff3cd50_50%,transparent_100%)] animate-[gentle-flow-reverse_5s_ease-in-out_infinite]"
-              style={{ animationDelay: '1s', backgroundPosition: '100% 100%' }}
+              style={{ animationDelay: "1s", backgroundPosition: "100% 100%" }}
             ></div>
             {/* Layer 3: Lavender to pink blend */}
             <div
               className="absolute inset-0 opacity-15 bg-[length:180%_180%] bg-[radial-gradient(ellipse_at_40%_60%,#e6e6fa30_0%,#ffb3ba30_50%,#a7e6ff30_100%)] animate-[gentle-flow_3s_ease-in-out_infinite]"
-              style={{ animationDelay: '2s', backgroundPosition: '50% 50%' }}
+              style={{ animationDelay: "2s", backgroundPosition: "50% 50%" }}
             ></div>
             {/* Layer 4: Turquoise to cyan wave */}
             <div className="absolute inset-0 opacity-20 bg-[linear-gradient(135deg,#a7e6ff40_0%,#b5f2ff40_30%,#fff3cd40_60%,transparent_100%)] animate-shimmer bg-[length:300%_300%]"></div>
@@ -684,9 +733,13 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
             <div className="absolute inset-0 flex items-center justify-center z-10">
               <div className="text-center bg-black/50 backdrop-blur-md rounded-2xl px-8 py-4 border border-white/30 shadow-2xl relative">
                 <div className="absolute inset-0 bg-gradient-to-r from-pink-400/20 via-cyan-400/20 to-yellow-400/20 rounded-2xl blur animate-pulse"></div>
-                <div className="relative text-white font-semibold text-xl mb-1">Generating...</div>
+                <div className="relative text-white font-semibold text-xl mb-1">
+                  Generating...
+                </div>
                 <div className="relative text-white/90 text-sm">
-                  {imageRef ? "AI weaving magic into your edit" : "Creating your thumbnail..."}
+                  {imageRef
+                    ? "AI weaving magic into your edit"
+                    : "Creating your thumbnail..."}
                 </div>
               </div>
             </div>
@@ -697,7 +750,9 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         {status === "completed" && prompt && !isFillGenerating && (
           <div className="absolute bottom-0 left-0 right-0 p-4 opacity-0 hover:opacity-100 transition-opacity duration-300 pointer-events-none">
             <div className="bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 shadow-xl max-w-2xl mx-auto pointer-events-auto">
-              <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">Prompt</div>
+              <div className="text-xs text-zinc-400 font-medium mb-1 uppercase tracking-wider">
+                Prompt
+              </div>
               <p className="text-sm text-white/90 leading-relaxed line-clamp-3">
                 {prompt}
               </p>
@@ -706,7 +761,7 @@ export const ImageDisplay = forwardRef<ReactZoomPanPinchRef, ImageDisplayProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 ImageDisplay.displayName = "ImageDisplay";

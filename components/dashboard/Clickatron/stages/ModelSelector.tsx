@@ -1,12 +1,22 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { CLICKATRON_MODELS, ModelConfig, getAvailableModels } from '@/lib/config/clickatron-models';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Bot } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import {
+  CLICKATRON_MODELS,
+  ModelConfig,
+  getAvailableModels,
+} from "@/lib/config/clickatron-models";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Bot } from "lucide-react";
 
 interface ModelSelectorProps {
-  context: 'ideation' | 'newVariation' | 'edit';
+  context: "ideation" | "newVariation" | "edit" | "sketchToEdit";
   userAttachedImages?: number;
   selectedModelId?: string;
   onModelChange: (modelId: string) => void;
@@ -18,7 +28,7 @@ export function ModelSelector({
   userAttachedImages = 0,
   selectedModelId,
   onModelChange,
-  className = ""
+  className = "",
 }: ModelSelectorProps) {
   const [models, setModels] = useState<ModelConfig[]>([]);
   const [defaultModelId, setDefaultModelId] = useState<string | null>(null);
@@ -30,13 +40,17 @@ export function ModelSelector({
     setModels(filteredModels);
 
     // Find the default model for this filter
-    const defaultModel = filteredModels.find(model => model.isDefault) || filteredModels[0];
+    const defaultModel =
+      filteredModels.find((model) => model.isDefault) || filteredModels[0];
     if (defaultModel) {
       setDefaultModelId(defaultModel.id);
     }
 
     // Validate current selection and reset if invalid
-    if (selectedModelId && !filteredModels.some(model => model.id === selectedModelId)) {
+    if (
+      selectedModelId &&
+      !filteredModels.some((model) => model.id === selectedModelId)
+    ) {
       if (defaultModel) {
         onModelChange(defaultModel.id);
       } else {

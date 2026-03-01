@@ -32,10 +32,12 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const validatedData = CreateSessionRequestSchema.parse({
-      prompt: formData.get('prompt'),
-      aspectRatio: formData.get('aspectRatio'),
-      modelId: formData.get('modelId'),
+      prompt: formData.get('prompt') || '',
+      aspectRatio: formData.get('aspectRatio') || '16:9',
+      modelId: formData.get('modelId') || 'fal-ai/flux-kontext/dev',
     });
+
+    const isBlankProject = !validatedData.prompt || validatedData.prompt.trim() === '';
 
     const referenceImages = formData.getAll('referenceImage') as File[];
     const referenceImageRefs: string[] = [];
@@ -64,7 +66,7 @@ export async function POST(request: Request) {
       title: `project ${validatedData.aspectRatio} #${Date.now()}`, // Use a generic title
       details: {
         // The videoIdea field is now repurposed to store the initial prompt
-        videoIdea: validatedData.prompt,
+        videoIdea: validatedData.prompt || 'New Project',
         aspectRatio: validatedData.aspectRatio,
         canvas: {
           variations: [],
@@ -79,7 +81,7 @@ export async function POST(request: Request) {
     const newVariation: any = {
       id: newVariationId,
       prompt: validatedData.prompt,
-      status: 'generating',
+      status: isBlankProject ? 'blank' : 'generating',
       aspectRatio: validatedData.aspectRatio,
       modelId: validatedData.modelId,
       createdAt: new Date(),
@@ -110,31 +112,34 @@ export async function POST(request: Request) {
     newTask.details.canvas.variations.push(newVariation);
     await newTask.save();
 
-    // 5. Deduct credits
-    await creditCheck.deduct();
+    // Only deduct credits and create job if it's NOT a blank project
+    if (!isBlankProject) {
+      // 5. Deduct credits
+      await creditCheck.deduct();
 
-    // 6. Create and Enqueue the Generation Job
-    const jobData = {
-      userId,
-      sessionId: newTask._id.toString(),
-      variationId: newVariationId,
-      prompt: validatedData.prompt,
-      modelId: validatedData.modelId,
-      aspectRatio: validatedData.aspectRatio,
-      referenceImageRefs,
-    };
+      // 6. Create and Enqueue the Generation Job
+      const jobData = {
+        userId,
+        sessionId: newTask._id.toString(),
+        variationId: newVariationId,
+        prompt: validatedData.prompt as string,
+        modelId: validatedData.modelId as string,
+        aspectRatio: validatedData.aspectRatio as string,
+        referenceImageRefs,
+      };
 
-    console.log('Creating job with data:', jobData);
-    const jobId = await createJob(jobData);
+      console.log('Creating job with data:', jobData);
+      const jobId = await createJob(jobData);
 
-    try {
-      console.log('Enqueuing job with ID:', jobId);
-      await enqueueClickatronJob({ jobId, ...jobData });
-    } catch (jobError) {
-      console.error('Failed to enqueue job:', jobError);
-      // Refund credits if job enqueue fails
-      await creditCheck.refund('Failed to enqueue generation job');
-      throw jobError;
+      try {
+        console.log('Enqueuing job with ID:', jobId);
+        await enqueueClickatronJob({ jobId, ...jobData });
+      } catch (jobError) {
+        console.error('Failed to enqueue job:', jobError);
+        // Refund credits if job enqueue fails
+        await creditCheck.refund('Failed to enqueue generation job');
+        throw jobError;
+      }
     }
 
     return NextResponse.json({

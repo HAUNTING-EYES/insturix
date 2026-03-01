@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 interface CanvasActionsProps {
     onZoomIn: () => void;
     onZoomOut: () => void;
-    onDownload: () => void;
+    onDownload: (e?: React.MouseEvent) => void;
     // onShare: () => void;
     onResetZoom?: () => void;
 }
@@ -28,6 +28,7 @@ export const CanvasActions: React.FC<CanvasActionsProps> = ({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3 }}
                 className="bg-zinc-900/95 backdrop-blur-xl border border-zinc-700/80 rounded-xl p-2 flex items-center gap-1 shadow-2xl"
+                onClick={(e) => e.stopPropagation()} // Prevent event bubbling
             >
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -83,10 +84,13 @@ export const CanvasActions: React.FC<CanvasActionsProps> = ({
 
                 <Tooltip>
                     <TooltipTrigger asChild>
-                        <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={onDownload}
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onDownload(e);
+                            }}
                             className="h-8 w-8 p-0 hover:bg-zinc-700/50 text-zinc-300 hover:text-white"
                         >
                             <Download className="w-4 h-4" />

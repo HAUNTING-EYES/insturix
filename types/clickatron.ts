@@ -80,11 +80,12 @@ export interface FineTuningControls {
 
 // POST /api/services/clickatron/session
 export const CreateSessionRequestSchema = z.object({
-  prompt: z.string().min(1, "Prompt cannot be empty"),
+  prompt: z.string().optional(),
   aspectRatio: z
     .string()
-    .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'"),
-  modelId: z.string().min(1, "Model ID is required"),
+    .regex(/^\d+(?:\.\d+)?:\d+(?:\.\d+)?$/, "Aspect ratio must be in format 'W:H'")
+    .optional(),
+  modelId: z.string().optional(),
 });
 
 export type CreateSessionRequest = z.infer<typeof CreateSessionRequestSchema>;

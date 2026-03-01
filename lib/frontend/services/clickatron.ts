@@ -72,7 +72,12 @@ export const pollVariationCompletion = async (
           if (refreshUsageLimits) {
             refreshUsageLimits();
           }
-          resolve();
+          // Reject if the variation failed
+          if (variation.status === 'failed') {
+            reject(new Error('Image generation failed'));
+          } else {
+            resolve();
+          }
         }
       } catch (error) {
         console.error('Polling error:', error);
