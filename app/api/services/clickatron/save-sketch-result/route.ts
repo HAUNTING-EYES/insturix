@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { ClickatronGCSManager } from '@/lib/clickatron-gcs';
-import { connectToDatabase } from '@/lib/mongodb';
+import { connectToDatabase } from '@/lib/editron/db/mongodb';
 import { IClickatronTask, Variation } from '@/types/clickatron';
 import { ObjectId } from 'mongodb';
 
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     await db.collection(collectionName).updateOne(
       { _id: new ObjectId(sessionId) },
       { 
-        $push: { "details.canvas.variations": { $each: [newVar], $position: 0 } },
+        $push: { "details.canvas.variations": { $each: [newVar], $position: 0 } } as any,
         $set: { updatedAt: now }
       }
     );
