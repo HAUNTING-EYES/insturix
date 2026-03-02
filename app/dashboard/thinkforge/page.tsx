@@ -37,7 +37,7 @@ const skeletonIdeas = (prompt: string): IdeaCardData[] => {
 export default function ThinkForgeLanding() {
 	// Mode state
 	const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('ideation');
-	
+
 	const [prompt, setPrompt] = useState("");
 	const [ideas, setIdeas] = useState<IdeaCardData[]>([]);
 	const [loading, setLoading] = useState(false);
@@ -48,11 +48,14 @@ export default function ThinkForgeLanding() {
 	const [activeScriptId, setActiveScriptId] = useState<string>('default');
 	const [hasSubmitted, setHasSubmitted] = useState(false);
 	const [libraryOpen, setLibraryOpen] = useState(false);
-	
+	// URL-to-Brief state (multi-URL)
+	const [briefLoading, setBriefLoading] = useState(false);
+	const [briefResults, setBriefResults] = useState<Array<{ title: string; summary: string; keyTopics?: string[]; targetAudience?: string; suggestedAngles?: string[]; platform?: string; contentType?: string }> | null>(null);
+
 	const [selectedIdea, setSelectedIdea] = useState<IdeaCardData | null>(null);
 	// Internal phase for Ideation mode
 	const [ideationPhase, setIdeationPhase] = useState<'PROMPT' | 'IDEAS' | 'SELECTED'>('PROMPT');
-	
+
 	const [sessions, setSessions] = useState<SessionMeta[]>([]);
 
 	// Modular hooks
@@ -94,21 +97,22 @@ export default function ThinkForgeLanding() {
 	const panelRef = useRef<HTMLElement | null>(null);
 	const edgeHoverTimeout = useRef<NodeJS.Timeout | null>(null);
 
-	const generateIdeas = useCallback(async () => {
-		if (!prompt.trim()) return;
+	const generateIdeas = useCallback(async (promptOverride?: string) => {
+		const ideaPrompt = promptOverride || prompt;
+		if (!ideaPrompt.trim()) return;
 		setLoading(true);
 		setHasSubmitted(true);
 		try {
 			const res = await fetch('/api/services/thinkforge/ideas', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ prompt })
+				body: JSON.stringify({ prompt: ideaPrompt })
 			});
 			// Handle insufficient credits (new credits system)
 			if (res.status === 402) {
 				const errData = await res.json().catch(() => ({}));
-				toast({ 
-					title: 'Insufficient Credits', 
+				toast({
+					title: 'Insufficient Credits',
 					description: `You need ${errData.required || 1} credits, but have ${errData.available || 0}.`,
 					variant: 'destructive'
 				});
@@ -117,11 +121,11 @@ export default function ThinkForgeLanding() {
 			if (!res.ok) throw new Error('bad');
 			const data = await res.json();
 			const list: IdeaCardData[] = Array.isArray(data?.ideas) ? data.ideas : (Array.isArray(data) ? data : []);
-			setIdeas(list.length === 4 ? list : skeletonIdeas(prompt));
+			setIdeas(list.length === 4 ? list : skeletonIdeas(ideaPrompt));
 			setIdeationPhase('IDEAS');
 		} catch {
 			// generic failure: show skeletons and allow progression
-			setIdeas(skeletonIdeas(prompt));
+			setIdeas(skeletonIdeas(ideaPrompt));
 			setIdeationPhase('IDEAS');
 		} finally {
 			setLoading(false);
@@ -138,6 +142,103 @@ export default function ThinkForgeLanding() {
 		if (loading) return;
 		generateIdeas();
 	};
+
+	/**
+	 * Handle URL submission — analyze ALL URLs first, rebuild prompt, then generate ideas.
+	 * 
+	 * Flow:
+	 * 1. Extract all URLs from the prompt
+	 * 2. Analyze ALL URLs in parallel (wait for all to complete)
+	 * 3. Rebuild the prompt: replace each URL with its brief inline, keeping user text
+	 * 4. Update the prompt textarea with the enriched version
+	 * 5. Generate ideas using the enriched prompt directly (no stale state)
+	 */
+	const handleUrlSubmit = useCallback(async (urls: string[], originalPrompt: string) => {
+		if (briefLoading || urls.length === 0) return;
+		setBriefLoading(true);
+		setBriefResults(null);
+		try {
+			// Step 1: Analyze ALL URLs in parallel — wait for ALL to complete
+			const results = await Promise.allSettled(
+				urls.map(async (url) => {
+					const res = await fetch('/api/services/thinkforge/url-brief', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ url }),
+					});
+					if (res.status === 402) {
+						const errData = await res.json().catch(() => ({}));
+						throw new Error(`Insufficient credits: need ${errData.required || 1}, have ${errData.available || 0}`);
+					}
+					if (!res.ok) {
+						const errData = await res.json().catch(() => ({ error: 'Failed' }));
+						throw new Error(errData.error || 'Failed to extract brief');
+					}
+					const data = await res.json();
+					return { url, brief: data.brief };
+				})
+			);
+
+			// Step 2: Collect all successful briefs
+			const successfulBriefs: Array<{ url: string; brief: any }> = [];
+			const failedUrls: string[] = [];
+			for (const result of results) {
+				if (result.status === 'fulfilled' && result.value.brief) {
+					successfulBriefs.push(result.value);
+				} else {
+					const reason = result.status === 'rejected' ? result.reason?.message : 'No brief returned';
+					failedUrls.push(reason);
+				}
+			}
+
+			if (successfulBriefs.length === 0) {
+				toast({
+					title: 'Brief extraction failed',
+					description: failedUrls[0] || 'Could not extract content from any URL.',
+					variant: 'destructive'
+				});
+				return;
+			}
+
+			if (failedUrls.length > 0) {
+				toast({
+					title: `${failedUrls.length} URL${failedUrls.length > 1 ? 's' : ''} failed`,
+					description: 'Some URLs could not be analyzed. Proceeding with available briefs.',
+				});
+			}
+
+			// Step 3: Store brief results for UI display
+			setBriefResults(successfulBriefs.map(b => b.brief));
+
+			// Step 4: Rebuild prompt — replace each URL with its brief inline
+			let enrichedPrompt = originalPrompt;
+			for (const { url, brief } of successfulBriefs) {
+				const briefBlock = [
+					`[Brief from ${brief.platform || 'Web'}: "${brief.title}"]`,
+					brief.summary,
+					`Key topics: ${(brief.keyTopics || []).join(', ')}`,
+					`Angles: ${(brief.suggestedAngles || []).join(' | ')}`,
+					`Audience: ${brief.targetAudience || 'General'}`,
+				].join('\n');
+				enrichedPrompt = enrichedPrompt.replace(url, briefBlock);
+			}
+
+			// Step 5: Update the textarea with the enriched prompt
+			setPrompt(enrichedPrompt);
+
+			// Step 6: Generate ideas with the enriched prompt DIRECTLY (bypasses stale state)
+			await generateIdeas(enrichedPrompt);
+		} catch (error) {
+			console.error('[ThinkForge] URL brief extraction failed:', error);
+			toast({
+				title: 'URL extraction failed',
+				description: 'Could not process URLs. Try pasting the content directly.',
+				variant: 'destructive'
+			});
+		} finally {
+			setBriefLoading(false);
+		}
+	}, [briefLoading, generateIdeas]);
 
 	useEffect(() => {
 		const handleMouseMove = (e: MouseEvent) => {
@@ -212,7 +313,7 @@ export default function ThinkForgeLanding() {
 			setSelectedIdea(updated);
 			setIdeas((prev: IdeaCardData[]) => prev.map(i => i.id === updated.id ? updated : i));
 			setSessions((prev) => prev.map((s) => s.id === updated.id ? { ...s, name: updated.sessionName || updated.idea || s.name, tone: updated.tone as any, lastEdited: Date.now() } : s));
-			
+
 			// Persist to localStorage for client-side persistence
 			try {
 				const stored = localStorage.getItem('thinkforge_ideas') || '[]';
@@ -260,7 +361,7 @@ export default function ThinkForgeLanding() {
 						const key = `thinkforge_session_${activeSessionId}`;
 						const cached = JSON.parse(localStorage.getItem(key) || '{}');
 						localStorage.setItem(key, JSON.stringify({ ...cached, projectMeta: projectMetaPayload }));
-						} catch (cacheErr) { console.warn('[ThinkForge] localStorage cache warning:', cacheErr); }
+					} catch (cacheErr) { console.warn('[ThinkForge] localStorage cache warning:', cacheErr); }
 				} catch (err) {
 					console.error('Error saving session meta:', err);
 				}
@@ -290,7 +391,7 @@ export default function ThinkForgeLanding() {
 	const creationTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const isMountedRef = useRef(true); // Track mount state to prevent post-unmount execution
 	const hydratingRef = useRef(false); // STEP 1: Hydration mutex - prevents overlapping hydration calls
-	
+
 	// Track mounted state for cleanup
 	useEffect(() => {
 		isMountedRef.current = true;
@@ -303,13 +404,13 @@ export default function ThinkForgeLanding() {
 			}
 		};
 	}, []);
-	
+
 	// Cache stable primitive values to avoid effect retriggers (STEP 4)
 	const currentSessionId = session.sessionId;
 	const selectedIdeaId = selectedIdea?.id;
 	const selectedIdeaText = selectedIdea?.idea;
 	const selectedIdeaTone = selectedIdea?.tone;
-	
+
 	useEffect(() => {
 		// STEP 2: Strengthened guard - all conditions must pass
 		if (workspaceMode !== 'scripting') return;
@@ -320,7 +421,7 @@ export default function ThinkForgeLanding() {
 			console.log('[ThinkForge] Hydration skipped — already in progress');
 			return;
 		}
-		
+
 		// Debounce creation slightly and cancel if user navigates away
 		if (creationTimerRef.current) clearTimeout(creationTimerRef.current);
 		creationTimerRef.current = setTimeout(async () => {
@@ -337,11 +438,11 @@ export default function ThinkForgeLanding() {
 				console.log('[ThinkForge] Hydration skipped — already in progress');
 				return;
 			}
-			
+
 			// STEP 1: Acquire mutex
 			hydratingRef.current = true;
 			console.log('[ThinkForge] Hydration start');
-			
+
 			try {
 				if (!isMountedRef.current) return;
 				setOpeningSession(true);
@@ -409,20 +510,20 @@ export default function ThinkForgeLanding() {
 	}, [openingSession, pendingSessionId, session.sessionId]);
 
 	// Reset hydrate flag when idea changes
-	useEffect(() => { 
-		hasHydratedRef.current = false; 
+	useEffect(() => {
+		hasHydratedRef.current = false;
 		hydratingRef.current = false; // Also reset mutex on idea change
 	}, [selectedIdeaId]);
 	// Reset hydrate flag when leaving SCRIPTING
-	useEffect(() => { 
-		if (workspaceMode !== 'scripting') { 
-			hasHydratedRef.current = false; 
+	useEffect(() => {
+		if (workspaceMode !== 'scripting') {
+			hasHydratedRef.current = false;
 			hydratingRef.current = false; // Also reset mutex
-			if (creationTimerRef.current) { 
-				clearTimeout(creationTimerRef.current); 
-				creationTimerRef.current = null; 
-			} 
-		} 
+			if (creationTimerRef.current) {
+				clearTimeout(creationTimerRef.current);
+				creationTimerRef.current = null;
+			}
+		}
 	}, [workspaceMode]);
 
 	// Map between hook ScriptModel and UI Script
@@ -525,7 +626,7 @@ export default function ThinkForgeLanding() {
 	return (
 		<div className="relative h-screen w-full overflow-hidden bg-neutral-950 text-white">
 			<BackgroundDecor />
-			
+
 			<LibraryPanel
 				open={libraryOpen}
 				onClose={() => setLibraryOpen(false)}
@@ -611,7 +712,7 @@ export default function ThinkForgeLanding() {
 				)}
 			</AnimatePresence>
 
-			<IdeationMode 
+			<IdeationMode
 				phase={ideationPhase}
 				prompt={prompt}
 				setPrompt={setPrompt}
@@ -628,6 +729,9 @@ export default function ThinkForgeLanding() {
 				onManualSetup={handleJumpToSettings}
 				isVisible={workspaceMode === 'ideation'}
 				sessionCount={sessions.length}
+				onUrlSubmit={handleUrlSubmit}
+				briefLoading={briefLoading}
+				briefResults={briefResults}
 			/>
 
 			<StoryboardingMode
@@ -751,13 +855,13 @@ export default function ThinkForgeLanding() {
 						await session.closeSession();
 						setPendingSessionId(null);
 						scriptHook.resetSessionState();
-						
+
 						// Hydrate the session from content card
 						const data = await session.hydrate({ sessionId });
 						if (data?.sessionId) {
 							setPendingSessionId(data.sessionId);
 							scriptHook.resetSessionState();
-							
+
 							// Reconstruct idea from project meta if available
 							const pm = data.projectMeta || {};
 							if (pm.idea) {
@@ -780,7 +884,7 @@ export default function ThinkForgeLanding() {
 								} as any;
 								setSelectedIdea(ideaObj);
 							}
-							
+
 							// Switch to SCRIPT mode
 							setWorkspaceMode('scripting');
 						}

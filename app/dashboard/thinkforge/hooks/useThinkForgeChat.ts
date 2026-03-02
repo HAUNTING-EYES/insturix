@@ -4,9 +4,6 @@ import { toast } from "@/hooks/use-toast";
 
 const LS_CHAT_PREFIX = "thinkforge_chat_";
 
-const isScriptIntent = (intent: string | null | undefined) =>
-  intent === "draft" || intent === "edit" || intent === "hybrid";
-
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant';
@@ -18,6 +15,7 @@ export interface ChatMessage {
 
 type ChatHookOptions = {
   onRemoteScriptUpdate?: (script: any) => void;
+  onScriptCreated?: (scriptId: string) => void;
 };
 
 function saveLocal(sessionId: string, threadId: string, data: Partial<{ chat: ChatMessage[] }>) {
@@ -68,13 +66,13 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
 
   // Track previous sessionId to detect changes
   const prevSessionIdRef = useRef<string | null>(null);
-  
+
   // Load initial messages
   useEffect(() => {
     // Detect session change
     const sessionChanged = prevSessionIdRef.current !== sessionId;
     prevSessionIdRef.current = sessionId;
-    
+
     if (!sessionId || !threadId) {
       setMessages([]);
       setIsStreaming(false);
@@ -154,12 +152,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: activeSessionId, generationId: activeGenerationId }),
         keepalive: true,
-      }).catch(() => {});
+      }).catch(() => { });
     }
     generationIdRef.current = null;
     setCurrentIntent(null);
     intentRef.current = null;
-    
+
     // CRITICAL: Abort the fetch request to stop backend processing
     if (abortRef.current) {
       abortRef.current.abort();
@@ -248,7 +246,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       // Reset cancellation state for new generation
       isCancelledRef.current = false;
       generationIdRef.current = generationId;
-      
+
       const controller = new AbortController();
       abortRef.current = controller;
 
@@ -446,7 +444,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       if (e?.name === 'AbortError' || isCancelledRef.current) {
         // Stream was cancelled - mark message as stopped
         isCancelledRef.current = true;
-        setMessages(prev => prev.map(m => 
+        setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, streaming: false, content: m.content || '[Stopped]' } : m
         ));
         return;
@@ -498,7 +496,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
       if (!res.ok) return;
       const data = await res.json();
       const gen = data?.generation;
-      
+
       // If no generation or it's been cleared, reset state
       if (!gen) {
         if (generationIdRef.current && !isCancelledRef.current) {

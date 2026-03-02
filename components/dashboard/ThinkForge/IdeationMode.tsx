@@ -2,7 +2,7 @@
 
 import React from "react";
 import clsx from "clsx";
-import { PromptPanel } from "@/components/dashboard/ThinkForge/PromptPanel";
+import { PromptPanel, UrlBriefResult } from "@/components/dashboard/ThinkForge/PromptPanel";
 import { IdeaGrid, IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import SessionMetadataSettings from "@/components/dashboard/ThinkForge/SessionMetadataSettings";
 
@@ -24,6 +24,12 @@ interface IdeationModeProps {
   isVisible: boolean;
   /** Total session count for default naming */
   sessionCount?: number;
+  /** URL-to-Brief: called when URLs are found on submit */
+  onUrlSubmit?: (urls: string[], originalPrompt: string) => void;
+  /** URL-to-Brief: whether brief extraction is in progress */
+  briefLoading?: boolean;
+  /** URL-to-Brief: results after extraction */
+  briefResults?: UrlBriefResult[] | null;
 }
 
 export default function IdeationMode({
@@ -42,7 +48,10 @@ export default function IdeationMode({
   onUpdateIdea,
   onManualSetup,
   isVisible,
-  sessionCount = 0
+  sessionCount = 0,
+  onUrlSubmit,
+  briefLoading,
+  briefResults,
 }: IdeationModeProps) {
   return (
     <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
@@ -61,6 +70,9 @@ export default function IdeationMode({
             onSubmit={onSubmit}
             onRegenerate={onRegenerate}
             onManualSetup={onManualSetup}
+            onUrlSubmit={onUrlSubmit}
+            briefLoading={briefLoading}
+            briefResults={briefResults}
           />
           <IdeaGrid ideas={ideas} loading={loading} hasSubmitted={hasSubmitted} prompt={prompt} onSelect={onSelectIdea} />
         </div>

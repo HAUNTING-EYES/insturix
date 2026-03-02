@@ -10,6 +10,7 @@ import { GenerationProgress } from "./chat/GenerationProgress";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeSession";
 import { toast } from "@/hooks/use-toast";
+import { extractUrls } from "./PromptPanel";
 
 interface ChatPanelProps {
   selectedIdea: Idea;
@@ -117,6 +118,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const [activeThreadId, setActiveThreadId] = useState<string>('default');
   const [threadRegistry, setThreadRegistry] = useState<Array<{ id: string; name: string; lastEdited: number }>>([]);
   const scriptIdRef = React.useRef<string | null>(scriptId || null);
+  const [briefExtracting, setBriefExtracting] = useState(false);
 
   useEffect(() => {
     scriptIdRef.current = scriptId || null;
@@ -147,7 +149,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     if (!sessionId) return;
     try {
       localStorage.setItem(`thinkforge_active_chat_${sessionId}`, activeThreadId);
-    } catch {}
+    } catch { }
   }, [sessionId, activeThreadId]);
 
   const upsertThread = useCallback((id: string, updates: Partial<{ name: string; lastEdited: number }>) => {
@@ -157,7 +159,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       const next = existing
         ? prev.map((t) => t.id === id ? { ...t, ...updates } : t)
         : [{ id, name: updates.name || `Chat ${String(id).slice(-6)}`, lastEdited: updates.lastEdited || Date.now() }, ...prev];
-      try { localStorage.setItem(threadRegistryKey, JSON.stringify(next)); } catch {}
+      try { localStorage.setItem(threadRegistryKey, JSON.stringify(next)); } catch { }
       return next;
     });
   }, [threadRegistryKey]);
@@ -226,16 +228,32 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       return;
     }
 
-
     const originalPrompt = inputValue.trim();
+
+    // Check for URLs in the message
+    const urls = extractUrls(originalPrompt);
+    if (urls.length > 0) {
+      // URL detected — analyze first, then send enriched message
+      handleUrlInChat(urls, originalPrompt);
+      return;
+    }
+
+    // No URLs — normal send flow
+    sendChatMessage(originalPrompt);
+  }, [inputValue, sessionId, chat.isStreaming]);
+
+  /** Send a normal chat message (no URL processing) */
+  const sendChatMessage = useCallback((originalPrompt: string) => {
+    if (!sessionId) return;
+
     if (activeThreadId) {
       upsertThread(activeThreadId, { lastEdited: Date.now(), name: originalPrompt.slice(0, 60) });
     }
     setInputValue("");
-    
+
     // Get selection from editor if available (for surgical editing)
     let selectionData: { blocks?: any[]; blockIds?: string[]; range?: { from: number; to: number } } | null = null;
-    
+
     // Prefer explicit editingSelection from edit button
     if (editingSelection) {
       const derivedBlockIds = Array.isArray(editingSelection.blocks)
@@ -256,9 +274,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         };
       }
     }
-    
-    // Display the original message to user (no enrichment visible)
-    // Backend will handle enrichment internally using project payload
+
     const hasSelection = Boolean(
       (selectionData?.blockIds && selectionData.blockIds.length > 0) ||
       (selectionData?.blocks && selectionData.blocks.length > 0)
@@ -280,12 +296,12 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       script: scriptPayload,
       project: sessionPayload,
       onScriptUpdate: handleScriptUpdate,
-      onTokenStream: onTokenStream, // Stream tokens for progressive rendering
+      onTokenStream: onTokenStream,
       onScriptCreated: onScriptCreated,
       selection: editingSelection?.text,
-      selectionBlocks: selectionData?.blocks, // Include selection blocks for surgical editing
+      selectionBlocks: selectionData?.blocks,
       selectionBlockIds: selectionData?.blockIds,
-      selectionRange: selectionData?.range, // Include selection range
+      selectionRange: selectionData?.range,
       scriptId: currentScriptId,
       intentContext: {
         editorFocused,
@@ -294,10 +310,9 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         lastUserAction,
       },
     });
-    
+
     // Clear editing selection after send
     if (editingSelection && onCancelEditSelection) {
-      // Ensure state update happens
       setTimeout(() => {
         onCancelEditSelection();
         if (typeof window !== 'undefined') {
@@ -305,7 +320,108 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         }
       }, 0);
     }
-  }, [inputValue, sessionId, activeThreadId, chat, scriptPayload, sessionPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection, upsertThread]);
+  }, [sessionId, activeThreadId, chat, scriptPayload, sessionPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection, upsertThread]);
+
+  /** Handle URLs detected in chat input — analyze all, enrich prompt, save to databank */
+  const handleUrlInChat = useCallback(async (urls: string[], originalPrompt: string) => {
+    if (!sessionId) return;
+    setBriefExtracting(true);
+    setInputValue("");
+
+    // Show user message immediately
+    chat.appendMessage({
+      id: `url-user-${Date.now()}`,
+      role: 'user',
+      content: originalPrompt,
+      timestamp: new Date(),
+    });
+
+    try {
+      // Analyze ALL URLs in parallel
+      const results = await Promise.allSettled(
+        urls.map(async (url) => {
+          const res = await fetch('/api/services/thinkforge/url-brief', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          if (!res.ok) throw new Error('Failed to extract brief');
+          const data = await res.json();
+          return { url, brief: data.brief };
+        })
+      );
+
+      const successfulBriefs: Array<{ url: string; brief: any }> = [];
+      for (const result of results) {
+        if (result.status === 'fulfilled' && result.value.brief) {
+          successfulBriefs.push(result.value);
+        }
+      }
+
+      if (successfulBriefs.length > 0) {
+        // Build enriched prompt: replace URLs with briefs inline
+        let enrichedPrompt = originalPrompt;
+        const briefMessages: string[] = [];
+
+        for (const { url, brief } of successfulBriefs) {
+          const briefBlock = [
+            `**${brief.title}** _(${brief.platform || 'Web'})_`,
+            brief.summary,
+            `**Key topics:** ${(brief.keyTopics || []).join(', ')}`,
+            `**Angles:** ${(brief.suggestedAngles || []).join(' | ')}`,
+            `**Audience:** ${brief.targetAudience || 'General'}`,
+          ].join('\n');
+          enrichedPrompt = enrichedPrompt.replace(url, briefBlock);
+          briefMessages.push(`🔗 **Brief from ${url}:**\n${briefBlock}`);
+
+          // Save to databank (fire and forget)
+          fetch('/api/services/thinkforge/databank', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sessionId,
+              type: 'url_brief',
+              title: brief.title,
+              content: brief,
+              sourceUrl: url,
+              tags: brief.keyTopics || [],
+            }),
+          }).catch(err => console.error('[DataBank] Failed to save brief:', err));
+        }
+
+        // Show brief as assistant message
+        const briefSummary = briefMessages.join('\n\n---\n\n');
+        chat.appendMessage({
+          id: `url-brief-${Date.now()}`,
+          role: 'assistant',
+          content: briefSummary + '\n\n_Saved to research databank._',
+          timestamp: new Date(),
+        });
+
+        // Now send the enriched prompt to chat for actual AI processing
+        // Remove the URLs that were already analyzed to avoid double-processing
+        const remainingText = originalPrompt;
+        // Check if there's non-URL text that should be sent to the AI
+        const textWithoutUrls = urls.reduce((text, url) => text.replace(url, '').trim(), remainingText);
+        if (textWithoutUrls.length > 10) {
+          // There's meaningful text besides URLs — send enriched version to AI
+          sendChatMessage(enrichedPrompt);
+        }
+      } else {
+        // All briefs failed — send original message to chat normally
+        toast({
+          title: 'URL analysis failed',
+          description: 'Could not extract content from URLs. Sending message as-is.',
+        });
+        sendChatMessage(originalPrompt);
+      }
+    } catch (error) {
+      console.error('[ChatPanel] URL analysis failed:', error);
+      sendChatMessage(originalPrompt);
+    } finally {
+      setBriefExtracting(false);
+    }
+  }, [sessionId, chat, sendChatMessage]);
 
   // Convert chat messages to the format expected by ChatMessages component
   const formattedMessages = useMemo(() => {
@@ -352,7 +468,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
 
   return (
     <div className="flex flex-col h-full bg-neutral-900/40 backdrop-blur-xl animate-in fade-in-0 duration-300">
-      <ChatHeader 
+      <ChatHeader
         onOpenHistory={handleOpenHistory}
         onOpenSettings={onOpenSettings}
         onNewChat={handleNewChat}
@@ -363,13 +479,13 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
           messages={formattedMessages}
           isStreaming={chat.isStreaming}
         />
-        <GenerationProgress 
-          active={chat.isStreaming} 
+        <GenerationProgress
+          active={chat.isStreaming}
           intent={chat.currentIntent}
           progressOverride={chat.generationProgress}
           messageOverride={chat.generationMessage}
         />
-        
+
         {/* Decorative gradient at bottom of messages */}
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-neutral-900/60 to-transparent pointer-events-none" />
       </div>
@@ -380,7 +496,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         onSend={handleSend}
         onStop={chat.stopStreaming}
         disabled={!sessionId}
-        isStreaming={chat.isStreaming}
+        isStreaming={chat.isStreaming || briefExtracting}
         suggestions={suggestions}
         editingSelection={editingSelection}
         onCancelEditSelection={handleCancelEditSelection}

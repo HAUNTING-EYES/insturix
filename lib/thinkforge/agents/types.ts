@@ -77,9 +77,10 @@ export interface AgentMetadata {
 /**
  * Agent types for logging and context assembly
  */
-export type AgentType = 
+export type AgentType =
   | 'chat'
   | 'ideas'
+  | 'url_brief'
   | 'script_draft'
   | 'script_author'
   | 'script_refinement'

@@ -10,8 +10,8 @@ type PlanningPanelProps = {
   onCreateCardFromIdea?: (idea: any, date: Date) => void;
 };
 
-export default function PlanningPanel({ 
-  isOpen: _isOpen, 
+export default function PlanningPanel({
+  isOpen: _isOpen,
   onClose: _onClose,
   onOpenScript: _onOpenScript,
   onCreateCardFromIdea: _onCreateCardFromIdea

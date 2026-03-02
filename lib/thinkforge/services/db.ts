@@ -192,7 +192,7 @@ export interface UserPreferences {
 export type ArtifactType = 'script' | 'chat' | 'whiteboard' | 'content_card';
 export type ContentBlockType = 'text' | 'markdown' | 'code' | 'scene' | 'json' | 'chat_message';
 export type VersionEdgeType = 'inspired_by' | 'derived_from' | 'remix_of' | 'references';
-export type EventType = 
+export type EventType =
   | 'project_created' | 'project_updated' | 'project_deleted'
   | 'artifact_created' | 'artifact_updated' | 'artifact_deleted'
   | 'version_created' | 'version_merged' | 'version_restored';
@@ -287,7 +287,7 @@ export interface ThinkForgeEvent {
  */
 export function normalizeContent(content: unknown): string {
   let normalized: string;
-  
+
   if (typeof content === 'string') {
     normalized = content;
   } else if (content === null || content === undefined) {
@@ -296,19 +296,19 @@ export function normalizeContent(content: unknown): string {
     // For objects/arrays: stable JSON with sorted keys
     normalized = stableStringify(content);
   }
-  
+
   // Normalize line endings: \r\n and \r → \n
   normalized = normalized.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  
+
   // Trim trailing whitespace per line (but preserve intentional indentation)
   normalized = normalized
     .split('\n')
     .map(line => line.trimEnd())
     .join('\n');
-  
+
   // Trim trailing newlines at end of content
   normalized = normalized.trimEnd();
-  
+
   return normalized;
 }
 
@@ -320,22 +320,22 @@ function stableStringify(obj: unknown): string {
   if (obj === null || obj === undefined) {
     return '';
   }
-  
+
   if (typeof obj !== 'object') {
     return JSON.stringify(obj);
   }
-  
+
   if (Array.isArray(obj)) {
     return '[' + obj.map(item => stableStringify(item)).join(',') + ']';
   }
-  
+
   // Sort keys and recursively stringify
   const sortedKeys = Object.keys(obj as object).sort();
   const pairs = sortedKeys.map(key => {
     const value = (obj as Record<string, unknown>)[key];
     return JSON.stringify(key) + ':' + stableStringify(value);
   });
-  
+
   return '{' + pairs.join(',') + '}';
 }
 
@@ -360,7 +360,7 @@ export async function getOrCreateContentBlock(
   const { ContentBlockModel } = await getModels();
   const normalized = normalizeContent(content);
   const hash = generateContentHash(content);
-  
+
   // Upsert: create if not exists, return existing if it does
   const now = new Date();
   const result = await ContentBlockModel.findOneAndUpdate(
@@ -376,7 +376,7 @@ export async function getOrCreateContentBlock(
     },
     { upsert: true, new: true, lean: true }
   ) as any;
-  
+
   return {
     _id: result._id,
     hash: result.hash,
@@ -397,26 +397,26 @@ export async function validateVersionContentBlocks(versionId: string): Promise<{
   missingBlocks: string[];
 }> {
   const { VersionModel, ContentBlockModel } = await getModels();
-  
+
   const version = await VersionModel.findById(versionId).lean() as any;
   if (!version) {
     console.warn(`[INVARIANT] Version ${versionId} does not exist`);
     return { valid: false, missingBlocks: [] };
   }
-  
+
   const refs = version.contentBlockRefs || [];
   if (refs.length === 0) {
     return { valid: true, missingBlocks: [] };
   }
-  
+
   const existingBlocks = await ContentBlockModel.find({ _id: { $in: refs } }).lean() as any[];
   const existingIds = new Set(existingBlocks.map(b => b._id));
   const missingBlocks = refs.filter((ref: string) => !existingIds.has(ref));
-  
+
   if (missingBlocks.length > 0) {
     console.warn(`[INVARIANT] Version ${versionId} references ${missingBlocks.length} missing content blocks:`, missingBlocks);
   }
-  
+
   return { valid: missingBlocks.length === 0, missingBlocks };
 }
 
@@ -429,26 +429,26 @@ export async function validateVersionParents(versionId: string): Promise<{
   missingParents: string[];
 }> {
   const { VersionModel } = await getModels();
-  
+
   const version = await VersionModel.findById(versionId).lean() as any;
   if (!version) {
     console.warn(`[INVARIANT] Version ${versionId} does not exist`);
     return { valid: false, missingParents: [] };
   }
-  
+
   const parentIds = version.parentIds || [];
   if (parentIds.length === 0) {
     return { valid: true, missingParents: [] };
   }
-  
+
   const existingParents = await VersionModel.find({ _id: { $in: parentIds } }).lean() as any[];
   const existingIds = new Set(existingParents.map(v => v._id));
   const missingParents = parentIds.filter((id: string) => !existingIds.has(id));
-  
+
   if (missingParents.length > 0) {
     console.warn(`[INVARIANT] Version ${versionId} references ${missingParents.length} missing parent versions:`, missingParents);
   }
-  
+
   return { valid: missingParents.length === 0, missingParents };
 }
 
@@ -461,29 +461,29 @@ export async function validateVersionEdge(edgeId: string): Promise<{
   issues: string[];
 }> {
   const { VersionEdgeModel, VersionModel } = await getModels();
-  
+
   const edge = await VersionEdgeModel.findById(edgeId).lean() as any;
   if (!edge) {
     console.warn(`[INVARIANT] Version edge ${edgeId} does not exist`);
     return { valid: false, issues: ['Edge not found'] };
   }
-  
+
   const issues: string[] = [];
-  
+
   const fromVersion = await VersionModel.findById(edge.fromVersionId).lean();
   if (!fromVersion) {
     issues.push(`fromVersionId ${edge.fromVersionId} does not exist`);
   }
-  
+
   const toVersion = await VersionModel.findById(edge.toVersionId).lean();
   if (!toVersion) {
     issues.push(`toVersionId ${edge.toVersionId} does not exist`);
   }
-  
+
   if (issues.length > 0) {
     console.warn(`[INVARIANT] Version edge ${edgeId} has issues:`, issues);
   }
-  
+
   return { valid: issues.length === 0, issues };
 }
 
@@ -496,13 +496,13 @@ export async function validateNewVersion(versionId: string): Promise<boolean> {
     validateVersionContentBlocks(versionId),
     validateVersionParents(versionId)
   ]);
-  
+
   const isValid = blocksResult.valid && parentsResult.valid;
-  
+
   if (!isValid) {
     console.error(`[INVARIANT FAILURE] Version ${versionId} failed validation checks`);
   }
-  
+
   return isValid;
 }
 
@@ -518,7 +518,7 @@ export async function countOrphanedContentBlocks(): Promise<{
   orphanedBytes: number;
 }> {
   const { ContentBlockModel, VersionModel } = await getModels();
-  
+
   // Get all content block refs from all versions
   const versions = await VersionModel.find({}, { contentBlockRefs: 1 }).lean() as any[];
   const referencedHashes = new Set<string>();
@@ -527,25 +527,25 @@ export async function countOrphanedContentBlocks(): Promise<{
       referencedHashes.add(ref);
     }
   }
-  
+
   // Count all blocks and find orphans
   const allBlocks = await ContentBlockModel.find({}, { _id: 1, content: 1 }).lean() as any[];
   const totalBlocks = allBlocks.length;
-  
+
   let orphanedBlocks = 0;
   let orphanedBytes = 0;
-  
+
   for (const block of allBlocks) {
     if (!referencedHashes.has(block._id)) {
       orphanedBlocks++;
       orphanedBytes += (block.content || '').length;
     }
   }
-  
+
   if (orphanedBlocks > 0) {
     console.info(`[ORPHAN COUNT] ${orphanedBlocks}/${totalBlocks} content blocks orphaned (${(orphanedBytes / 1024).toFixed(2)} KB)`);
   }
-  
+
   return { totalBlocks, orphanedBlocks, orphanedBytes };
 }
 
@@ -558,26 +558,26 @@ export async function countOrphanedVersions(): Promise<{
   orphanedVersions: number;
 }> {
   const { VersionModel, ArtifactModel } = await getModels();
-  
+
   // Get all artifact IDs
   const artifacts = await ArtifactModel.find({}, { _id: 1 }).lean() as any[];
   const artifactIds = new Set(artifacts.map(a => a._id));
-  
+
   // Count versions with missing artifacts
   const versions = await VersionModel.find({}, { _id: 1, artifactId: 1 }).lean() as any[];
   const totalVersions = versions.length;
-  
+
   let orphanedVersions = 0;
   for (const v of versions) {
     if (!artifactIds.has(v.artifactId)) {
       orphanedVersions++;
     }
   }
-  
+
   if (orphanedVersions > 0) {
     console.info(`[ORPHAN COUNT] ${orphanedVersions}/${totalVersions} versions orphaned (artifact deleted)`);
   }
-  
+
   return { totalVersions, orphanedVersions };
 }
 
@@ -590,17 +590,17 @@ export async function runOrphanReport(): Promise<{
   versions: { total: number; orphaned: number };
 }> {
   console.info('[ORPHAN REPORT] Starting orphan detection...');
-  
+
   const [blockStats, versionStats] = await Promise.all([
     countOrphanedContentBlocks(),
     countOrphanedVersions()
   ]);
-  
+
   console.info('[ORPHAN REPORT] Complete:', {
     contentBlocks: `${blockStats.orphanedBlocks}/${blockStats.totalBlocks} orphaned`,
     versions: `${versionStats.orphanedVersions}/${versionStats.totalVersions} orphaned`
   });
-  
+
   return {
     contentBlocks: {
       total: blockStats.totalBlocks,
@@ -724,11 +724,11 @@ const ProjectSchema = new Schema({
 const ArtifactSchema = new Schema({
   _id: { type: String, required: true },
   projectId: { type: String, required: true, index: true },
-  type: { 
-    type: String, 
-    required: true, 
+  type: {
+    type: String,
+    required: true,
     enum: ['script', 'chat', 'whiteboard', 'content_card'],
-    index: true 
+    index: true
   },
   title: { type: String, required: true },
   rootVersionId: { type: String },
@@ -757,8 +757,8 @@ const VersionSchema = new Schema({
 const ContentBlockSchema = new Schema({
   _id: { type: String, required: true },  // This IS the hash
   hash: { type: String, required: true, unique: true },
-  type: { 
-    type: String, 
+  type: {
+    type: String,
     required: true,
     enum: ['text', 'markdown', 'code', 'scene', 'json', 'chat_message']
   },
@@ -769,8 +769,8 @@ const ContentBlockSchema = new Schema({
 const VersionEdgeSchema = new Schema({
   fromVersionId: { type: String, required: true, index: true },
   toVersionId: { type: String, required: true, index: true },
-  type: { 
-    type: String, 
+  type: {
+    type: String,
     required: true,
     enum: ['inspired_by', 'derived_from', 'remix_of', 'references']
   },
@@ -781,8 +781,8 @@ const EventSchema = new Schema({
   projectId: { type: String, required: true, index: true },
   artifactId: { type: String, index: true },
   versionId: { type: String },
-  type: { 
-    type: String, 
+  type: {
+    type: String,
     required: true,
     enum: [
       'project_created', 'project_updated', 'project_deleted',
@@ -814,7 +814,7 @@ let EventModel: Model<any>;
 async function getModels() {
   // Connect to ThinkForge-specific database (thinkforge_db)
   await connectToThinkForgeDb();
-  
+
   // V1 Models (Legacy)
   if (!SessionModel) {
     SessionModel = mongoose.models[COLL_SESSIONS] || mongoose.model(COLL_SESSIONS, SessionSchema);
@@ -831,7 +831,7 @@ async function getModels() {
   if (!RateUsageModel) {
     RateUsageModel = mongoose.models[COLL_RATE_USAGE] || mongoose.model(COLL_RATE_USAGE, RateUsageSchema);
   }
-  
+
   // V2 Models
   if (!ProjectModel) {
     ProjectModel = mongoose.models[COLL_PROJECTS] || mongoose.model(COLL_PROJECTS, ProjectSchema);
@@ -851,8 +851,8 @@ async function getModels() {
   if (!EventModel) {
     EventModel = mongoose.models[COLL_EVENTS] || mongoose.model(COLL_EVENTS, EventSchema);
   }
-  
-  return { 
+
+  return {
     // V1
     SessionModel, ScriptModel, ChatModel, UserModel, RateUsageModel,
     // V2
@@ -866,7 +866,7 @@ export async function getSession(sessionId: string, userId: string, orgId?: stri
   try {
     const { SessionModel } = await getModels();
     // STEP 4: Support org-based session access (same pattern as getOrCreateSession)
-    const query = orgId 
+    const query = orgId
       ? { _id: sessionId, $or: [{ userId }, { orgId }] }
       : { _id: sessionId, userId };
     const doc = await SessionModel.findOne(query).lean() as any;
@@ -898,10 +898,10 @@ export async function getOrCreateSession(
   if (!userId) {
     throw new Error('[ThinkForge] getOrCreateSession: userId is required');
   }
-  
+
   try {
     const { SessionModel } = await getModels();
-    
+
     if (sessionId) {
       // STEP 3: Fix org session lookup - allow access if userId matches OR orgId matches
       // This enables team members in the same org to access shared sessions
@@ -916,7 +916,7 @@ export async function getOrCreateSession(
         // Personal user - must match userId
         query.userId = userId;
       }
-      
+
       const existing = await SessionModel.findOne(query).lean() as any;
       if (existing) {
         // Update projectMeta if provided
@@ -947,13 +947,13 @@ export async function getOrCreateSession(
           updatedAt: existing.updatedAt
         };
       }
-      
+
       // STEP 3: Prevent duplicate creation - if sessionId was provided but not found,
       // the session doesn't exist for this user/org. Do NOT create with the same ID.
       // Instead, generate a new ID to prevent MongoDB duplicate key errors.
       console.warn(`[ThinkForge] Session ${sessionId} not found for user ${userId} (orgId: ${orgId}). Creating new session.`);
     }
-    
+
     // Create new session
     const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const now = new Date();
@@ -967,7 +967,7 @@ export async function getOrCreateSession(
       createdAt: now,
       updatedAt: now
     };
-    
+
     await SessionModel.create(doc);
     return doc as Session;
   } catch (error) {
@@ -999,8 +999,8 @@ export async function getActiveGeneration(sessionId: string): Promise<Generation
 }
 
 export async function updateGenerationState(
-  sessionId: string, 
-  generationId: string, 
+  sessionId: string,
+  generationId: string,
   updates: Partial<GenerationState>
 ): Promise<void> {
   const { SessionModel } = await getModels();
@@ -1057,18 +1057,18 @@ export async function updateSession(sessionId: string, updates: Partial<Session>
 export async function getUserSessions(userId: string, orgId?: string | null): Promise<Session[]> {
   try {
     const { SessionModel } = await getModels();
-    
+
     // Build query based on org context
     // In org context: show all org items
     // In personal context (orgId = null or undefined): show only items without orgId
     const query = orgId
       ? { orgId }  // Org context: filter by orgId
       : { userId, $or: [{ orgId: { $exists: false } }, { orgId: null }] };  // Personal: user's items without orgId
-    
+
     const docs = await SessionModel.find(query)
       .sort({ updatedAt: -1 })
       .lean() as any[];
-    
+
     return docs.map(doc => ({
       _id: String(doc._id),
       userId: doc.userId,
@@ -1088,13 +1088,13 @@ export async function getUserSessions(userId: string, orgId?: string | null): Pr
 export async function deleteSession(sessionId: string, userId: string): Promise<boolean> {
   try {
     const { SessionModel, ScriptModel, ChatModel, RateUsageModel } = await getModels();
-    
+
     // Verify ownership first
     const session = await SessionModel.findOne({ _id: sessionId, userId });
     if (!session) {
       throw new Error('Session not found or access denied');
     }
-    
+
     // Delete all associated data in parallel
     await Promise.all([
       // Delete the session
@@ -1106,7 +1106,7 @@ export async function deleteSession(sessionId: string, userId: string): Promise<
       // Delete rate usage records for this session
       RateUsageModel.deleteMany({ sessionId })
     ]);
-    
+
     console.log(`Deleted session ${sessionId} and all associated data`);
     return true;
   } catch (error) {
@@ -1144,9 +1144,9 @@ export async function getScript(sessionId: string, scriptId?: string | null): Pr
         .sort({ updatedAt: -1 })
         .lean() as any;
     }
-    
+
     if (!doc) return null;
-    
+
     const blocks = enforceThinkForgeBlocks(doc.blocks);
 
     return {
@@ -1172,10 +1172,10 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
     const { ScriptModel } = await getModels();
     const now = new Date();
     const effectiveScriptId = scriptId || (script as any)?.scriptId || 'default';
-    
+
     // Check if script exists
     const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
-    
+
     if (existing) {
       // Update existing
       const blocks = script.blocks !== undefined ? enforceThinkForgeBlocks(script.blocks) : enforceThinkForgeBlocks(existing.blocks);
@@ -1188,16 +1188,16 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
         version: nextVersion,
         updatedAt: now
       };
-      
+
       // Include richText (Tiptap JSON) if provided
       if (script.richText !== undefined) {
         updateDoc.richText = script.richText;
       }
-      
+
       await ScriptModel.findByIdAndUpdate(existing._id, { $set: updateDoc });
       const updated = await ScriptModel.findById(existing._id).lean() as any;
       if (!updated) throw new Error('Failed to update script');
-      
+
       return {
         _id: String(updated._id),
         sessionId: updated.sessionId,
@@ -1223,12 +1223,12 @@ export async function saveScript(sessionId: string, script: Partial<Script>, scr
         createdAt: now,
         updatedAt: now
       };
-      
+
       // Include richText (Tiptap JSON) if provided
       if (script.richText !== undefined) {
         doc.richText = script.richText;
       }
-      
+
       const created = await ScriptModel.create(doc);
       return {
         _id: String(created._id),
@@ -1358,7 +1358,7 @@ export async function updateScript(sessionId: string, updates: Partial<Script>, 
     const { ScriptModel } = await getModels();
     const effectiveScriptId = scriptId || (updates as any)?.scriptId || 'default';
     const existing = await ScriptModel.findOne({ sessionId, scriptId: effectiveScriptId }).sort({ updatedAt: -1 });
-    
+
     if (!existing) {
       throw new Error(`Script not found for session ${sessionId}`);
     }
@@ -1369,11 +1369,11 @@ export async function updateScript(sessionId: string, updates: Partial<Script>, 
       version: nextVersion,
       updatedAt: new Date()
     };
-    
+
     await ScriptModel.findByIdAndUpdate(existing._id, { $set: updateDoc });
     const updated = await ScriptModel.findById(existing._id).lean() as any;
     if (!updated) throw new Error('Failed to update script');
-    
+
     return {
       _id: String(updated._id),
       sessionId: updated.sessionId,
@@ -1453,7 +1453,7 @@ export async function getChatHistory(sessionId: string, limit: number = 50, thre
       .sort({ createdAt: 1 })
       .limit(limit)
       .lean() as any[];
-    
+
     return docs.map(doc => ({
       role: doc.role,
       content: doc.content,
@@ -1569,10 +1569,10 @@ export async function checkChatLimit(
     const { RateUsageModel } = await getModels();
     const now = new Date();
     const resetAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
-    
+
     // Find or create usage record
     let usage = await RateUsageModel.findOne({ userId, sessionId, planName: normalizedPlan });
-    
+
     if (!usage) {
       usage = await RateUsageModel.create({
         userId,
@@ -1582,7 +1582,7 @@ export async function checkChatLimit(
         resetAt
       });
     }
-    
+
     // Check if reset needed
     if (usage.resetAt < now) {
       usage.count = 0;
@@ -1617,11 +1617,11 @@ export async function checkChatLimit(
 export async function recordChatUsage(userId: string, sessionId: string, planName: string): Promise<void> {
   try {
     const { RateUsageModel } = await getModels();
-    
+
     const normalizedPlan = (planName || 'free').toLowerCase();
     const now = new Date();
     const resetAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    
+
     await RateUsageModel.findOneAndUpdate(
       { userId, sessionId, planName: normalizedPlan },
       {
@@ -1702,7 +1702,7 @@ export async function getOrCreateProject(
 ): Promise<Project> {
   try {
     const { ProjectModel, SessionModel } = await getModels();
-    
+
     if (projectId) {
       const existing = await ProjectModel.findOne({ _id: projectId, userId }).lean() as any;
       if (existing) {
@@ -1713,16 +1713,16 @@ export async function getOrCreateProject(
           if (options.description) updateDoc.description = options.description;
           if (options.projectMeta) updateDoc.projectMeta = options.projectMeta;
           if (options.settings) updateDoc.settings = options.settings;
-          
+
           await ProjectModel.updateOne({ _id: projectId }, { $set: updateDoc });
-          
+
           // Dual-write to V1 sessions
           await SessionModel.updateOne(
             { _id: projectId },
             { $set: { projectMeta: options.projectMeta || existing.projectMeta, updatedAt: new Date() } }
-          ).catch(() => {}); // Ignore V1 errors
+          ).catch(() => { }); // Ignore V1 errors
         }
-        
+
         return {
           _id: String(existing._id),
           userId: existing.userId,
@@ -1736,7 +1736,7 @@ export async function getOrCreateProject(
         };
       }
     }
-    
+
     // Create new project
     const newProjectId = projectId || generateProjectId();
     const now = new Date();
@@ -1751,9 +1751,9 @@ export async function getOrCreateProject(
       createdAt: now,
       updatedAt: now
     };
-    
+
     await ProjectModel.create(projectDoc);
-    
+
     // Dual-write to V1 sessions for backward compatibility
     try {
       await SessionModel.create({
@@ -1767,10 +1767,10 @@ export async function getOrCreateProject(
       // V1 write is best-effort
       console.warn('V1 session dual-write failed:', e);
     }
-    
+
     // Log event
     await logEvent(newProjectId, 'project_created', { name: projectDoc.name }, userId);
-    
+
     return projectDoc;
   } catch (error) {
     console.error('Error creating project:', error);
@@ -1787,7 +1787,7 @@ export async function getUserProjects(userId: string): Promise<Project[]> {
     const docs = await ProjectModel.find({ userId, archived: { $ne: true } })
       .sort({ updatedAt: -1 })
       .lean() as any[];
-    
+
     return docs.map(doc => ({
       _id: String(doc._id),
       userId: doc.userId,
@@ -1811,31 +1811,31 @@ export async function getUserProjects(userId: string): Promise<Project[]> {
 export async function deleteProject(projectId: string, userId: string): Promise<boolean> {
   try {
     const { ProjectModel, ArtifactModel, VersionModel, SessionModel, ScriptModel, ChatModel, RateUsageModel } = await getModels();
-    
+
     // Verify ownership
     const project = await ProjectModel.findOne({ _id: projectId, userId });
     if (!project) {
       throw new Error('Project not found or access denied');
     }
-    
+
     // Delete V2 data
     const artifacts = await ArtifactModel.find({ projectId }).lean() as any[];
     const artifactIds = artifacts.map(a => a._id);
-    
+
     await Promise.all([
       ProjectModel.deleteOne({ _id: projectId }),
       ArtifactModel.deleteMany({ projectId }),
       VersionModel.deleteMany({ artifactId: { $in: artifactIds } }),
       // V1 cleanup
-      SessionModel.deleteOne({ _id: projectId }).catch(() => {}),
-      ScriptModel.deleteMany({ sessionId: projectId }).catch(() => {}),
-      ChatModel.deleteMany({ sessionId: projectId }).catch(() => {}),
-      RateUsageModel.deleteMany({ sessionId: projectId }).catch(() => {})
+      SessionModel.deleteOne({ _id: projectId }).catch(() => { }),
+      ScriptModel.deleteMany({ sessionId: projectId }).catch(() => { }),
+      ChatModel.deleteMany({ sessionId: projectId }).catch(() => { }),
+      RateUsageModel.deleteMany({ sessionId: projectId }).catch(() => { })
     ]);
-    
+
     // Note: ContentBlocks are NOT deleted (they may be referenced by other versions)
     // Garbage collection for orphaned blocks should be a separate maintenance task
-    
+
     console.log(`Deleted project ${projectId} and all associated data`);
     return true;
   } catch (error) {
@@ -1883,11 +1883,11 @@ export async function getProjectArtifacts(
     const { ArtifactModel } = await getModels();
     const query: any = { projectId };
     if (type) query.type = type;
-    
+
     const docs = await ArtifactModel.find(query)
       .sort({ updatedAt: -1 })
       .lean() as any[];
-    
+
     return docs.map(doc => ({
       _id: String(doc._id),
       projectId: doc.projectId,
@@ -1919,10 +1919,10 @@ export async function createArtifact(
   try {
     const { ArtifactModel, VersionModel } = await getModels();
     const now = new Date();
-    
+
     const artifactId = generateArtifactId();
     const versionId = generateVersionId();
-    
+
     // Create initial content block if content provided
     let contentBlockRefs: string[] = [];
     if (initialContent !== undefined && initialContent !== null && initialContent !== '') {
@@ -1930,7 +1930,7 @@ export async function createArtifact(
       const block = await getOrCreateContentBlock(initialContent, blockType);
       contentBlockRefs = [block.hash];
     }
-    
+
     // Create initial version
     const versionDoc = {
       _id: versionId,
@@ -1941,7 +1941,7 @@ export async function createArtifact(
       createdBy: userId
     };
     await VersionModel.create(versionDoc);
-    
+
     // Create artifact
     const artifactDoc = {
       _id: artifactId,
@@ -1955,10 +1955,10 @@ export async function createArtifact(
       updatedAt: now
     };
     await ArtifactModel.create(artifactDoc);
-    
+
     // Log event
     await logEvent(projectId, 'artifact_created', { artifactId, type, title }, userId);
-    
+
     return {
       artifact: artifactDoc,
       version: versionDoc
@@ -1982,17 +1982,17 @@ export async function updateArtifact(
       ...updates,
       updatedAt: new Date()
     };
-    
+
     const doc = await ArtifactModel.findByIdAndUpdate(
       artifactId,
       { $set: updateDoc },
       { new: true, lean: true }
     ) as any;
-    
+
     if (!doc) {
       throw new Error(`Artifact ${artifactId} not found`);
     }
-    
+
     return {
       _id: String(doc._id),
       projectId: doc.projectId,
@@ -2045,7 +2045,7 @@ export async function getArtifactVersions(artifactId: string): Promise<Version[]
     const docs = await VersionModel.find({ artifactId })
       .sort({ createdAt: -1 })
       .lean() as any[];
-    
+
     return docs.map(doc => ({
       _id: String(doc._id),
       artifactId: doc.artifactId,
@@ -2079,26 +2079,26 @@ export async function createVersion(
   try {
     const { VersionModel, ArtifactModel } = await getModels();
     const now = new Date();
-    
+
     // Get artifact to determine content block type
     const artifact = await ArtifactModel.findById(artifactId).lean() as any;
     if (!artifact) {
       throw new Error(`Artifact ${artifactId} not found`);
     }
-    
-    const blockType = options?.contentBlockType || 
+
+    const blockType = options?.contentBlockType ||
       (artifact.type === 'script' ? 'markdown' : artifact.type === 'chat' ? 'chat_message' : 'json');
-    
+
     // Create content block
     const block = await getOrCreateContentBlock(content, blockType);
-    
+
     // Determine parent
-    const parentIds = options?.parentVersionId 
-      ? [options.parentVersionId] 
-      : artifact.activeVersionId 
+    const parentIds = options?.parentVersionId
+      ? [options.parentVersionId]
+      : artifact.activeVersionId
         ? [artifact.activeVersionId]
         : [];
-    
+
     const versionId = generateVersionId();
     const versionDoc = {
       _id: versionId,
@@ -2108,15 +2108,15 @@ export async function createVersion(
       createdAt: now,
       createdBy: options?.userId
     };
-    
+
     await VersionModel.create(versionDoc);
-    
+
     // Validate invariants (logs warnings if issues found)
     // This catches bugs early without blocking the write
     validateNewVersion(versionId).catch(err => {
       console.warn('[INVARIANT CHECK] Async validation failed:', err);
     });
-    
+
     // Update artifact's active version if requested (default: true)
     if (options?.updateActiveVersion !== false) {
       await ArtifactModel.updateOne(
@@ -2124,14 +2124,14 @@ export async function createVersion(
         { $set: { activeVersionId: versionId, updatedAt: now } }
       );
     }
-    
+
     // Log event
-    await logEvent(artifact.projectId, 'version_created', { 
-      artifactId, 
+    await logEvent(artifact.projectId, 'version_created', {
+      artifactId,
       versionId,
-      parentIds 
+      parentIds
     }, options?.userId);
-    
+
     return versionDoc;
   } catch (error) {
     console.error('Error creating version:', error);
@@ -2149,18 +2149,18 @@ export async function resolveVersionContent(versionId: string): Promise<{
 } | null> {
   try {
     const { VersionModel, ContentBlockModel } = await getModels();
-    
+
     const version = await VersionModel.findById(versionId).lean() as any;
     if (!version) return null;
-    
+
     // Fetch all referenced content blocks
     const blocks = await ContentBlockModel.find({
       _id: { $in: version.contentBlockRefs || [] }
     }).lean() as any[];
-    
+
     // Combine content (for now, simple concatenation - may need smarter logic)
     const content = blocks.map(b => b.content).join('\n');
-    
+
     return {
       version: {
         _id: String(version._id),
@@ -2230,7 +2230,7 @@ export async function getProjectEvents(
       .sort({ createdAt: -1 })
       .limit(limit)
       .lean() as any[];
-    
+
     return docs.map(doc => ({
       _id: String(doc._id),
       projectId: doc.projectId,
@@ -2263,13 +2263,13 @@ export async function getOrCreateScriptArtifact(
 ): Promise<{ artifact: Artifact; version: Version }> {
   try {
     const { ArtifactModel, ScriptModel } = await getModels();
-    
+
     // Check if script artifact already exists for this project
-    const existing = await ArtifactModel.findOne({ 
-      projectId, 
-      type: 'script' 
+    const existing = await ArtifactModel.findOne({
+      projectId,
+      type: 'script'
     }).lean() as any;
-    
+
     if (existing) {
       const version = await getVersion(existing.activeVersionId);
       return {
@@ -2287,10 +2287,10 @@ export async function getOrCreateScriptArtifact(
         version: version!
       };
     }
-    
+
     // Create new script artifact
     const result = await createArtifact(projectId, 'script', title, initialContent, {}, userId);
-    
+
     // Dual-write to V1 scripts
     try {
       const now = new Date();
@@ -2305,7 +2305,7 @@ export async function getOrCreateScriptArtifact(
     } catch (e) {
       console.warn('V1 script dual-write failed:', e);
     }
-    
+
     return result;
   } catch (error) {
     console.error('Error getting/creating script artifact:', error);
@@ -2327,30 +2327,30 @@ export async function saveScriptV2(
     const { ArtifactModel, ScriptModel } = await getModels();
     const now = new Date();
     const validatedBlocks = enforceThinkForgeBlocks(blocks || []);
-    
+
     // Get or create script artifact
     let artifact = await ArtifactModel.findOne({ projectId, type: 'script' }).lean() as any;
-    
+
     if (!artifact) {
       // Create new artifact
       const result = await createArtifact(
-        projectId, 
-        'script', 
-        title || 'Untitled Script', 
-        { content, blocks: validatedBlocks }, 
+        projectId,
+        'script',
+        title || 'Untitled Script',
+        { content, blocks: validatedBlocks },
         {},
         userId
       );
       artifact = result.artifact;
     }
-    
+
     // Create new version with content
     const version = await createVersion(
       artifact._id,
       { content, blocks: validatedBlocks },
       { contentBlockType: 'json', userId }
     );
-    
+
     // Update artifact title if provided
     if (title && title !== artifact.title) {
       await ArtifactModel.updateOne(
@@ -2359,7 +2359,7 @@ export async function saveScriptV2(
       );
       artifact.title = title;
     }
-    
+
     // Dual-write to V1 scripts
     try {
       const existingScript = await ScriptModel.findOne({ sessionId: projectId }).sort({ updatedAt: -1 });
@@ -2381,7 +2381,7 @@ export async function saveScriptV2(
     } catch (e) {
       console.warn('V1 script dual-write failed:', e);
     }
-    
+
     return {
       artifact: {
         _id: String(artifact._id),
@@ -2414,13 +2414,13 @@ export async function getOrCreateChatArtifact(
 ): Promise<Artifact> {
   try {
     const { ArtifactModel } = await getModels();
-    
+
     // Check if chat artifact already exists
-    const existing = await ArtifactModel.findOne({ 
-      projectId, 
-      type: 'chat' 
+    const existing = await ArtifactModel.findOne({
+      projectId,
+      type: 'chat'
     }).lean() as any;
-    
+
     if (existing) {
       return {
         _id: String(existing._id),
@@ -2434,7 +2434,7 @@ export async function getOrCreateChatArtifact(
         updatedAt: existing.updatedAt
       };
     }
-    
+
     // Create new chat artifact
     const result = await createArtifact(projectId, 'chat', 'Chat History', null, {}, userId);
     return result.artifact;
@@ -2456,13 +2456,13 @@ export async function appendChatMessageV2(
 ): Promise<ContentBlock> {
   try {
     const { ChatModel } = await getModels();
-    
+
     // Create content block for the message
     const block = await getOrCreateContentBlock(
       { role, content, timestamp: new Date().toISOString() },
       'chat_message'
     );
-    
+
     // Dual-write to V1 chat
     try {
       await ChatModel.create({
@@ -2474,7 +2474,7 @@ export async function appendChatMessageV2(
     } catch (e) {
       console.warn('V1 chat dual-write failed:', e);
     }
-    
+
     return block;
   } catch (error) {
     console.error('Error appending chat message V2:', error);
@@ -2491,5 +2491,117 @@ export async function getChatHistoryV2(
 ): Promise<ChatMessage[]> {
   // For now, delegate to V1 since chat messages are stored sequentially there
   return getChatHistory(projectId, limit);
+}
+
+// ==================== DataBank ====================
+// Per-session storage for research artifacts (URL briefs, notes, references)
+
+const COLL_DATABANK = 'thinkforge_databank';
+
+export type DataBankEntryType = 'url_brief' | 'note' | 'reference' | 'research';
+
+export interface DataBankEntry {
+  _id: string;
+  sessionId: string;
+  userId: string;
+  type: DataBankEntryType;
+  title: string;
+  content: Record<string, any>; // The actual brief/note/research data
+  sourceUrl?: string;
+  tags?: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const DataBankSchema = new Schema({
+  _id: { type: String, required: true },
+  sessionId: { type: String, required: true, index: true },
+  userId: { type: String, required: true, index: true },
+  type: { type: String, required: true, enum: ['url_brief', 'note', 'reference', 'research'], index: true },
+  title: { type: String, required: true },
+  content: { type: Schema.Types.Mixed, default: {} },
+  sourceUrl: { type: String },
+  tags: [{ type: String }],
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now },
+}, { collection: COLL_DATABANK, timestamps: false });
+
+// Compound indexes for efficient querying
+DataBankSchema.index({ sessionId: 1, userId: 1 });
+DataBankSchema.index({ sessionId: 1, type: 1 });
+
+let DataBankModel: Model<any>;
+
+function getDataBankModel(): Model<any> {
+  if (!DataBankModel) {
+    DataBankModel = mongoose.models[COLL_DATABANK] || mongoose.model(COLL_DATABANK, DataBankSchema);
+  }
+  return DataBankModel;
+}
+
+/** Add a new entry to the DataBank */
+export async function addDataBankEntry(
+  sessionId: string,
+  userId: string,
+  entry: {
+    type: DataBankEntryType;
+    title: string;
+    content: Record<string, any>;
+    sourceUrl?: string;
+    tags?: string[];
+  }
+): Promise<DataBankEntry> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const now = new Date();
+  const doc = await model.create({
+    _id: crypto.randomUUID(),
+    sessionId,
+    userId,
+    type: entry.type,
+    title: entry.title,
+    content: entry.content,
+    sourceUrl: entry.sourceUrl,
+    tags: entry.tags || [],
+    createdAt: now,
+    updatedAt: now,
+  });
+  return doc.toObject() as DataBankEntry;
+}
+
+/** Get all DataBank entries for a session, optionally filtered by type */
+export async function getDataBankEntries(
+  sessionId: string,
+  userId: string,
+  type?: DataBankEntryType
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const query: Record<string, any> = { sessionId, userId };
+  if (type) query.type = type;
+  const docs = await model.find(query).sort({ createdAt: -1 }).lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+/** Get a single DataBank entry by ID */
+export async function getDataBankEntry(
+  entryId: string,
+  userId: string
+): Promise<DataBankEntry | null> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const doc = await model.findOne({ _id: entryId, userId }).lean();
+  return doc as unknown as DataBankEntry | null;
+}
+
+/** Delete a DataBank entry (owner only) */
+export async function deleteDataBankEntry(
+  entryId: string,
+  userId: string
+): Promise<boolean> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const result = await model.deleteOne({ _id: entryId, userId });
+  return result.deletedCount > 0;
 }
 
