@@ -87,7 +87,8 @@ export type AgentType =
   | 'script_outline'
   | 'script_section'
   | 'script_contract'
-  | 'script_coherence';
+  | 'script_coherence'
+  | 'research';
 
 /**
  * Log event for AI invocation tracking

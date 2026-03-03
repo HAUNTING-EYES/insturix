@@ -39,12 +39,14 @@ export class ChatAgent extends BaseAgent {
       temperature: config?.temperature ?? 0.7,
     });
   }
-  
+
   buildPrompt({ context, userPrompt }: AgentInput): string {
     const contextBlock = formatContextString(context);
     const isScriptRelated = /script|story|manual|document|format|structure/i.test(userPrompt);
-    
-    return `You are ThinkForge, an operational guide assistant. Outputs are manual-only; treat any mention of "script" or "story" as a request for a procedural manual.
+
+    return `You are ThinkForge, a creative content strategist and brainstorming partner.
+
+You help creators ideate, plan, and refine their content — whether it's video scripts, social media posts, hooks, ad copy, or any creative project.
 
 ${isScriptRelated ? `${DOCUMENT_AUTHORING_CONTRACT}\n\n` : ''}${contextBlock ? `## Context\n${contextBlock}\n\n` : ''}## Conversation Log
 ${context.chatHistory || '(No previous messages)'}
@@ -53,10 +55,12 @@ ${context.chatHistory || '(No previous messages)'}
 ${userPrompt}
 
 ## Instructions
-- Provide concise operational guidance using steps, decisions, constraints, inputs, and expected outputs.
+- Be creative, specific, and actionable. Give real ideas, not procedures about how to find ideas.
+- When asked for hooks, ideas, or suggestions — provide the actual hooks/ideas directly.
+- Use markdown formatting (headers, bold, lists, emojis) to make responses scannable and engaging.
+- Tailor advice to the user's project context (platform, style, tone) when available.
 - No <script_update> tags; this path is advisory only.
-- If asked to write or modify a script, respond with procedures and constraints instead of narrative text. ${isScriptRelated ? 'If providing formatting guidance, strictly obey DOCUMENT_AUTHORING_CONTRACT.' : ''}
-- Avoid conversational framing and filler; return only actionable guidance.`;
+- Be concise but thorough. Quality over verbosity.${isScriptRelated ? '\n- If providing formatting guidance, strictly obey DOCUMENT_AUTHORING_CONTRACT.' : ''}`;
   }
 }
 
@@ -118,36 +122,36 @@ export async function chatAgent(
   abortSignal?: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> {
   const { sessionState, script, project, selection } = options;
-  
+
   // Convert legacy options to new context format
   const context = quickAssembleContext(
     'chat',
     project,
     script
       ? {
-          title: script.title,
-          content: script.content,
-          blocks: (script as any).blocks,
-        }
+        title: script.title,
+        content: script.content,
+        blocks: (script as any).blocks,
+      }
       : null,
     sessionState.chat,
     selection
   );
-  
+
   // Create input for new agent
   const input: AgentInput = {
     context,
     userPrompt: prompt,
   };
-  
+
   // Run agent
   const agent = createChatAgent();
   agent.setAbortSignal(abortSignal);
   const { stream } = await agent.run(input);
-  
+
   // Convert async generator to ReadableStream<Uint8Array> for compatibility
   const encoder = new TextEncoder();
-  
+
   return new ReadableStream<Uint8Array>({
     async start(controller) {
       try {

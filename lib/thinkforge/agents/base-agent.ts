@@ -17,8 +17,8 @@ import type { z } from 'zod';
 import { createThinkForgeModel, ModelTier, validateTierForTask } from './model-factory';
 import { parseJsonLenient } from '@/lib/thinkforge/json';
 
-// Global manual-only constraints applied to every agent invocation to eliminate narrative bias
-const GLOBAL_OPERATION_CONSTRAINTS = [
+// Global constraints for SCRIPT agents (document authoring — must be structured)
+const SCRIPT_OPERATION_CONSTRAINTS = [
   'Manual-only output; treat "script" as a legacy alias for "operational manual" and never as a storytelling request.',
   'No conversational framing (e.g., "In this section", "Let us").',
   'No inspirational or motivational language.',
@@ -26,6 +26,16 @@ const GLOBAL_OPERATION_CONSTRAINTS = [
   'Prefer lists, tables, and structured blocks over paragraphs.',
   'Remove any sentence that does not introduce a step, decision, constraint, input, output, or failure mode.',
 ].join('\n- ');
+
+// Light constraints for CREATIVE agents (chat, research, ideas)
+const CREATIVE_OPERATION_CONSTRAINTS = [
+  'Be specific and actionable. Avoid vague or generic advice.',
+  'No <script_update> tags in this path.',
+  'Use markdown formatting for readability.',
+].join('\n- ');
+
+// Agent types that should use the strict manual constraints
+const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_refinement', 'script_outline', 'script_section', 'script_contract', 'script_coherence']);
 
 // Forward declaration - actual implementation in logging.ts
 // We inline basic logging here to avoid circular dependency
@@ -37,12 +47,12 @@ function logInvocation(event: any): void {
     console.log('[ThinkForge AI]', `agent=${event.agent} model=${event.model} success=${event.success}${event.durationMs ? ` duration=${event.durationMs}ms` : ''}`);
   }
 }
-import type { 
-  AgentInput, 
-  AgentStreamOutput, 
+import type {
+  AgentInput,
+  AgentStreamOutput,
   AgentStructuredOutput,
   AgentMetadata,
-  AgentType 
+  AgentType
 } from './types';
 
 /**
@@ -75,7 +85,7 @@ export abstract class BaseAgent {
   protected config: Required<AgentConfig>;
   protected modelTier?: ModelTier;
   protected abortSignal?: AbortSignal;
-  
+
   constructor(config: AgentConfig) {
     this.config = {
       modelName: config.modelName ?? 'gemini-2.5-flash',
@@ -86,7 +96,7 @@ export abstract class BaseAgent {
     this.modelTier = config.modelTier;
     this.model = createThinkForgeModel(this.config.modelName);
   }
-  
+
   /**
    * Build the prompt from input - each agent implements this
    * This is where agent-specific reasoning instructions go
@@ -105,13 +115,15 @@ export abstract class BaseAgent {
   }
 
   /**
-   * Apply global manual-only guardrails to any prompt
+   * Apply global guardrails to any prompt — strict for script agents, light for creative agents
    */
   protected applyGlobalConstraints(prompt: string): string {
-    const constraintBlock = `## Global Constraints (mandatory)\n- ${GLOBAL_OPERATION_CONSTRAINTS}`;
+    const isScriptAgent = SCRIPT_AGENT_TYPES.has(this.config.agentType);
+    const constraints = isScriptAgent ? SCRIPT_OPERATION_CONSTRAINTS : CREATIVE_OPERATION_CONSTRAINTS;
+    const constraintBlock = `## Global Constraints (mandatory)\n- ${constraints}`;
     return `${prompt}\n\n${constraintBlock}`;
   }
-  
+
   /**
    * Run the agent with streaming output
    * Returns an async generator that yields text chunks
@@ -129,7 +141,7 @@ export abstract class BaseAgent {
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
     const signal = abortSignal ?? this.abortSignal;
-    
+
     try {
       const result = streamText({
         model: this.model,
@@ -138,10 +150,10 @@ export abstract class BaseAgent {
         maxTokens: gen.maxTokens,
         abortSignal: signal,
       });
-      
+
       // Create async generator from the text stream
       const textStream = result.textStream;
-      
+
       const streamGenerator = async function* (): AsyncGenerator<string, void, unknown> {
         let chunkCount = 0;
         try {
@@ -149,7 +161,7 @@ export abstract class BaseAgent {
             chunkCount++;
             yield chunk;
           }
-          
+
           // Log successful invocation
           logInvocation({
             type: 'ai_invocation',
@@ -172,7 +184,7 @@ export abstract class BaseAgent {
           throw error;
         }
       }.bind(this);
-      
+
       return {
         stream: streamGenerator(),
         metadata: {
@@ -192,7 +204,7 @@ export abstract class BaseAgent {
       throw error;
     }
   }
-  
+
   /**
    * Collect full response as string (non-streaming)
    * Useful for when you need the complete output
@@ -203,12 +215,12 @@ export abstract class BaseAgent {
     abortSignal?: AbortSignal
   ): Promise<{ text: string; metadata?: AgentMetadata }> {
     const { stream, metadata } = await this.run(input, overrides, abortSignal);
-    
+
     let fullText = '';
     for await (const chunk of stream) {
       fullText += chunk;
     }
-    
+
     return { text: fullText, metadata };
   }
 }
@@ -219,12 +231,12 @@ export abstract class BaseAgent {
  */
 export abstract class StructuredAgent<TOutput> extends BaseAgent {
   protected abstract schema: z.ZodType<TOutput>;
-  
+
   /**
    * Build the prompt for structured output
    */
   abstract buildPrompt(input: AgentInput): string;
-  
+
   /**
    * Run the agent with structured output
    */
@@ -237,7 +249,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
     const prompt = this.applyGlobalConstraints(this.buildPrompt(input));
     const gen = this.resolveGenConfig(overrides);
     const signal = abortSignal ?? this.abortSignal;
-    
+
     try {
       const result = await generateObject({
         model: this.model,
@@ -247,7 +259,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         maxTokens: gen.maxTokens,
         abortSignal: signal,
       });
-      
+
       logInvocation({
         type: 'ai_invocation',
         agent: this.config.agentType,
@@ -256,7 +268,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
         durationMs: Date.now() - startTime,
         success: true,
       });
-      
+
       return {
         result: result.object,
         metadata: {
@@ -266,7 +278,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
     } catch (error: any) {
       const message = error instanceof Error ? error.message : String(error);
       const isStructuredFailure = message?.toLowerCase().includes('_zod') || message?.toLowerCase().includes('structured');
-      
+
       if (isStructuredFailure) {
         // Fallback: ask model to return JSON manually and parse it
         const fallback = await generateText({
@@ -276,14 +288,14 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           maxTokens: gen.maxTokens,
           abortSignal: signal,
         });
-        
+
         const jsonText = fallback.text.trim();
         try {
           const parsed = parseJsonLenient(jsonText);
           if (!parsed) {
             throw new Error('Failed to parse fallback JSON');
           }
-          
+
           logInvocation({
             type: 'ai_invocation',
             agent: this.config.agentType,
@@ -293,7 +305,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
             success: true,
             fallback: 'manual_json',
           });
-          
+
           return {
             result: parsed as TOutput,
             metadata: { model: this.config.modelName },
@@ -311,7 +323,7 @@ export abstract class StructuredAgent<TOutput> extends BaseAgent {
           throw parseError;
         }
       }
-      
+
       logInvocation({
         type: 'ai_invocation',
         agent: this.config.agentType,

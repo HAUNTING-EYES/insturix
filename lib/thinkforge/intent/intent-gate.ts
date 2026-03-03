@@ -4,7 +4,7 @@ import { suggestInsertionPoint, type PlacementProposal, type BlockNode } from ".
 import { buildIntentClassifierPrompt } from "../prompts/intentClassifierPrompt";
 import { createModelByTier, ModelTier } from "../agents/model-factory";
 
-export type Intent = "chat" | "draft" | "edit" | "hybrid";
+export type Intent = "chat" | "draft" | "edit" | "hybrid" | "research";
 export type IntentScope = "selection" | "section" | "document";
 
 export interface IntentContextSignals {
@@ -94,6 +94,26 @@ const GENERATE_VERBS_HEURISTIC = [
   "draft",
 ];
 
+const RESEARCH_VERBS_HEURISTIC = [
+  "research",
+  "find",
+  "search",
+  "lookup",
+  "look up",
+  "explore",
+];
+
+const RESEARCH_PATTERNS_HEURISTIC: RegExp[] = [
+  /\b(trends?|trending|trendy|viral)\b/i,
+  /\b(examples?|references?|sources?)\b/i,
+  /\b(suggest|recommend)\b.*?\b(ideas?|hooks?|trends?|topics?)\b/i,
+  /\b(find|search|look\s*up|explore)\b.*?\b(ideas?|hooks?|trends?|examples?|meme|videos?|links?|topics?)\b/i,
+  /\bwhat('s|\s+is|\s+are)\s+(trending|popular|viral|trendy)\b/i,
+  /\b(give me|show me|list)\s+(some|trending|popular|recent)\b/i,
+  /\binspirations?\b/i,
+  /\b(hooks?|ideas?)\s+(that|which|for)\b/i,
+];
+
 const META_PATTERNS_HEURISTIC = [
   /how does/i,
   /what is thinkforge/i,
@@ -127,16 +147,22 @@ export function fastIntentHeuristic(input: {
   const isQuestion = textIncludesAny(text, QUESTION_PATTERNS) || textIncludesAny(text, META_PATTERNS_HEURISTIC);
   const hasEditVerb = textIncludesAny(text, EDIT_VERBS_HEURISTIC);
   const hasGenerateVerb = textIncludesAny(text, GENERATE_VERBS_HEURISTIC);
+  const hasResearchVerb = textIncludesAny(text, RESEARCH_VERBS_HEURISTIC);
+  const hasResearchPattern = textIncludesAny(text, RESEARCH_PATTERNS_HEURISTIC);
   const mentionsWholeDoc = /\b(entire|whole|all|full|complete|from scratch)\b/i.test(text);
-  
+
   const isStructuralAdd = /\badd (a )?(section|step|block|outline|hook|cta|why)\b/i.test(text);
 
   const wantsEdit = hasSelection || hasEditVerb || /\b(revise|tweak|polish|tighten)\b/i.test(text);
   const wantsDraft = hasGenerateVerb || /\bwrite (a|the) script\b/i.test(text);
-  
+
   // If it's a question but also looks like a specific action request (e.g. "how to shorten this"), we prefer the action.
   // But if it's a generic question ("how do you write scripts?"), we prefer chat.
   const isGenericQuestion = isQuestion && !hasSelection && !hasEditVerb && !isStructuralAdd && !mentionsWholeDoc;
+
+  // Research intent: user wants to find trends, examples, references, or ideas from the web
+  // Research takes priority over generic chat when research patterns are detected
+  const wantsResearch = (hasResearchVerb && !hasEditVerb && !hasSelection) || hasResearchPattern;
 
   const hybridSignal = (wantsEdit && isQuestion && !isGenericQuestion) || (wantsEdit && wantsDraft) || (hasScript && isStructuralAdd);
 
@@ -164,6 +190,12 @@ export function fastIntentHeuristic(input: {
   if (workspaceMode === "whiteboard") {
     confidence -= 0.1;
     signals.push("whiteboard_mode");
+  }
+
+  // Research intent — fires before hybrid/edit so research queries are not misrouted as edits
+  if (wantsResearch && !wantsEdit && !wantsDraft) {
+    const researchConfidence = hasResearchPattern ? 0.85 : 0.75;
+    return { intent: "research", confidence: researchConfidence, signals: [...signals, "research_signal"] };
   }
 
   if (hybridSignal) {
@@ -278,7 +310,7 @@ async function classifyIntentFallback(
       parsed = null;
     }
     const normalizedIntent = String(parsed?.intent || "").toLowerCase();
-    const intent: Intent = ("chat,draft,edit,hybrid".split(",") as Intent[]).includes(normalizedIntent as Intent)
+    const intent: Intent = ("chat,draft,edit,hybrid,research".split(",") as Intent[]).includes(normalizedIntent as Intent)
       ? (normalizedIntent as Intent)
       : "chat";
     const confidence = typeof parsed?.confidence === "number" ? Math.max(0, Math.min(1, parsed.confidence)) : 0.6;
