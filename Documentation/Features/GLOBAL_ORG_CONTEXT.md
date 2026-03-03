@@ -8,7 +8,7 @@
 ## Overview
 
 This document outlines the implementation plan for **global organization context** across all Insturix services. When a user switches to an organization context, ALL work done in any service (Editron, Alyzitron, Clickatron, Musitron, ThinkForge, Socialize) will be associated with that organization and shared with team members.
-
+ 
 ### Pattern: Global Context (Slack/Vercel Style)
 
 - User switches org context **once** using the OrgSwitcher in the sidebar
