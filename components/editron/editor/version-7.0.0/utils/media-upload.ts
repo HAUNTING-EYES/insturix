@@ -94,6 +94,7 @@ export const uploadMediaFile = async (
     projectId,
     thumbnail: thumbnail || undefined,
     duration,
+    dimensions,
   });
 
   return {
@@ -151,6 +152,7 @@ async function registerAssetMetadata(meta: {
   projectId?: string;
   thumbnail?: string;
   duration?: number;
+  dimensions?: { width: number; height: number };
 }): Promise<{ assetId: string; url: string; type: 'video' | 'audio' | 'image'; filename: string; size: number }> {
   const response = await fetch('/api/services/editron/media/upload', {
     method: 'POST',

@@ -287,13 +287,21 @@ export interface HtmlGenerationMetadata {
 }
 
 export interface FancyCaptionConfig {
-  style: 'bento' | 'scattered' | 'minimal';
+  style: 'bento' | 'scattered' | 'minimal' | 'static' | 'kinetic';
+  intensity?: 'low' | 'medium' | 'high';
   segmentStartOffsetFrames: number;
   segmentDurationFrames: number;
   maxWords: number;
   primaryColor?: string;
   accentColor?: string;
   backgroundColor?: string;
+  lockTypography?: boolean;
+  typographyProfile?: {
+    fontPair?: string;
+    strokeStyle?: string;
+    shadowStyle?: string;
+    paletteHint?: string;
+  };
 }
 
 // HTML Scene overlay specific (full-screen backgrounds, diagrams)

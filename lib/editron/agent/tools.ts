@@ -2050,12 +2050,20 @@ Linked captions are automatically moved with their videos.`,
       .describe("Custom end frame (only if segmentType='custom')"),
     
     // Style configuration
-    style: z.enum(['bento', 'scattered', 'minimal']).optional().default('bento')
-      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating), 'minimal' (centered stack)"),
+    style: z.enum(['bento', 'scattered', 'minimal', 'static', 'kinetic']).optional().default('bento')
+      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating, aka scatter mode), 'kinetic' (balanced storytelling mode), 'minimal' (centered stack), 'static' (fixed non-scattered fancy layout, aka static manner)"),
+    intensity: z.enum(['low', 'medium', 'high']).optional().default('medium')
+      .describe("Visual intensity level: low (subtle), medium (balanced default), high (more dramatic)"),
     primaryColor: z.string().optional().describe("Primary text color, e.g., '#ffffff'"),
     accentColor: z.string().optional().describe("Accent color for hero words, e.g., '#FFE66D'"),
     backgroundColor: z.string().optional().default('transparent')
       .describe("Background color (default: transparent)"),
+    lockTypography: z.coerce.boolean().optional().default(false)
+      .describe("Lock typography system across generations for consistency"),
+    fontPair: z.string().optional().describe("Typography lock: preferred font pair label, e.g. 'Oswald + Playfair Display'"),
+    strokeStyle: z.string().optional().describe("Typography lock: stroke style hint"),
+    shadowStyle: z.string().optional().describe("Typography lock: shadow style hint"),
+    paletteHint: z.string().optional().describe("Typography lock: palette/system hint"),
     
     // Limits
     maxWords: z.coerce.number().optional().default(15)
@@ -2156,15 +2164,56 @@ Linked captions are automatically moved with their videos.`,
         // Calculate total duration for exit animation
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         
+        // Build typography lock profile (for consistency across clips/regenerations)
+        const linkedFancyCaptions = project.overlays
+          .filter((o: any) =>
+            o.type === 'html-scene' &&
+            o.metadata?.sourceType === 'fancy-caption' &&
+            o.sourceVideoId === input.videoOverlayId
+          )
+          .sort((a: any, b: any) => (b.id || 0) - (a.id || 0));
+        const latestFancyCaption = linkedFancyCaptions[0] as any;
+
+        const derivedFontPairFromMetadata =
+          latestFancyCaption?.metadata?.fonts?.length >= 2
+            ? `${latestFancyCaption.metadata.fonts[0]} + ${latestFancyCaption.metadata.fonts[1]}`
+            : latestFancyCaption?.metadata?.fonts?.[0];
+
+        const typographyProfile =
+          input.lockTypography
+            ? {
+                fontPair:
+                  input.fontPair ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.fontPair ||
+                  derivedFontPairFromMetadata ||
+                  'Oswald + Playfair Display',
+                strokeStyle:
+                  input.strokeStyle ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.strokeStyle ||
+                  'subtle 1-2px stroke on selected hero words',
+                shadowStyle:
+                  input.shadowStyle ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.shadowStyle ||
+                  '2px 2px 0 rgba(0,0,0,0.8)',
+                paletteHint:
+                  input.paletteHint ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.paletteHint ||
+                  `${input.primaryColor || '#FFFFFF'} / ${input.accentColor || '#FFE66D'}`,
+              }
+            : undefined;
+
         // Build prompt
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
           canvasWidth: canvas.width,
           canvasHeight: canvas.height,
           style: input.style || 'bento',
+          intensity: input.intensity || 'medium',
           primaryColor: input.primaryColor,
           accentColor: input.accentColor,
           backgroundColor: input.backgroundColor || 'transparent',
+          lockTypography: input.lockTypography || false,
+          typographyProfile,
         });
         
         // ===== DEBUG: Log the prompt being sent to LLM =====
@@ -2288,12 +2337,15 @@ Linked captions are automatically moved with their videos.`,
           sourceVideoId: overlay.id,
           fancyCaptionConfig: {
             style: input.style || 'bento',
+            intensity: input.intensity || 'medium',
             segmentStartOffsetFrames: segmentStartFrame - overlay.from,
             segmentDurationFrames: segmentDuration,
             maxWords,
             primaryColor: input.primaryColor,
             accentColor: input.accentColor,
             backgroundColor: input.backgroundColor || 'transparent',
+            lockTypography: input.lockTypography || false,
+            typographyProfile,
           },
           row: 0,
           left: 0,
@@ -2323,6 +2375,8 @@ Linked captions are automatically moved with their videos.`,
           wordCount: classifiedWords.length,
           words: classifiedWords.map(w => w.word),
           style: input.style || 'bento',
+          intensity: input.intensity || 'medium',
+          lockTypography: input.lockTypography || false,
           segmentType: input.segmentType || 'hook',
           startFrame: segmentStartFrame,
           endFrame: segmentEndFrame,
@@ -2332,7 +2386,7 @@ Linked captions are automatically moved with their videos.`,
             backgroundColor: metadata.backgroundColor,
           },
           rowsShifted: hasCollisionAtRow0,
-          message: `Added fancy ${input.style || 'bento'}-style captions with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
+          message: `Added fancy ${input.style || 'bento'}-style captions (${input.intensity || 'medium'} intensity) with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
         });
         
       } catch (e: any) {
@@ -2353,8 +2407,20 @@ USAGE GUIDANCE:
 
 STYLES:
 - 'bento' (default): Tight grid layout, mixed fonts, editorial look
-- 'scattered': Floating words at different positions with rotations
+- 'scattered': Floating words at different positions with rotations (scatter mode)
+- 'kinetic': Balanced storytelling mode (the middle between scattered and static)
 - 'minimal': Clean centered stack, simple animations
+- 'static': Fancy but stable block layout (static manner, no scattered placement/rotations)
+
+INTENSITY:
+- 'low': subtle motion and contrast
+- 'medium' (default): balanced storytelling
+- 'high': more dramatic hierarchy and motion
+
+CONSISTENCY + QUALITY:
+- lockTypography: preserve font/effects system across generations
+- semantic CTA emphasis and beat-aware hero emphasis are applied automatically
+- safe layout constraints prevent clipping and overlap
 
 LIMITS: Max 15-25 words per call. For longer content, call multiple times.
 
@@ -2365,7 +2431,13 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
 
   const refreshFancyCaptionsSchema = z.object({
     fancyCaptionOverlayId: z.coerce.number().describe("ID of the fancy caption html-scene overlay to refresh"),
-    newStyle: z.enum(['bento', 'scattered', 'minimal']).optional().describe("Optional new fancy caption style"),
+    newStyle: z.enum(['bento', 'scattered', 'minimal', 'static', 'kinetic']).optional().describe("Optional new fancy caption style"),
+    newIntensity: z.enum(['low', 'medium', 'high']).optional().describe("Optional new intensity"),
+    lockTypography: z.coerce.boolean().optional().describe("Optional typography lock override"),
+    fontPair: z.string().optional().describe("Typography lock: preferred font pair label"),
+    strokeStyle: z.string().optional().describe("Typography lock: stroke style hint"),
+    shadowStyle: z.string().optional().describe("Typography lock: shadow style hint"),
+    paletteHint: z.string().optional().describe("Typography lock: palette/system hint"),
   });
 
   const refreshFancyCaptionsAI = tool(
@@ -2441,15 +2513,28 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
         const classifiedWords = classifyWordTimings(wordsInRange);
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         const style = input.newStyle || config.style || 'bento';
+        const intensity = input.newIntensity || config.intensity || 'medium';
+        const lockTypography = input.lockTypography ?? config.lockTypography ?? false;
+        const typographyProfile = lockTypography
+          ? {
+              fontPair: input.fontPair || config.typographyProfile?.fontPair,
+              strokeStyle: input.strokeStyle || config.typographyProfile?.strokeStyle,
+              shadowStyle: input.shadowStyle || config.typographyProfile?.shadowStyle,
+              paletteHint: input.paletteHint || config.typographyProfile?.paletteHint || `${config.primaryColor || '#FFFFFF'} / ${config.accentColor || '#FFE66D'}`,
+            }
+          : undefined;
 
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
           canvasWidth: canvas.width,
           canvasHeight: canvas.height,
           style,
+          intensity,
           primaryColor: config.primaryColor,
           accentColor: config.accentColor,
           backgroundColor: config.backgroundColor || 'transparent',
+          lockTypography,
+          typographyProfile,
         });
 
         const model = new ChatGoogleGenerativeAI({
@@ -2504,6 +2589,9 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           fancyCaptionConfig: {
             ...config,
             style,
+            intensity,
+            lockTypography,
+            typographyProfile,
             segmentDurationFrames: segmentEndFrame - segmentStartFrame,
           } as any,
         } as any);
@@ -2513,6 +2601,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           id: fancyOverlay.id,
           sourceVideoId: videoOverlay.id,
           style,
+          intensity,
           wordCount: classifiedWords.length,
           startFrame: segmentStartFrame,
           endFrame: segmentEndFrame,
