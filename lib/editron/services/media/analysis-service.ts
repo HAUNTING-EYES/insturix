@@ -345,8 +345,6 @@ export async function analyzeContent(
   );
 
   return {
-    silences: silenceGaps,
-    fillers: fillerWords,
     silenceGaps,
     fillerWords,
     problematicSegments,

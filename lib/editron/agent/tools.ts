@@ -28,17 +28,10 @@ import {
   injectFancyCaptionTiming,
   type WordTiming,
 } from "../utils/html-generator-utils";
-import {
-  formatSecondsToHHMMSS,
-  framesToSeconds,
-  parsePromptTimeRange,
-  parseTimeToSeconds,
-} from "../utils/analysis";
+
 import { assetResolver } from "../services/asset-resolver";
-import {
-  sampleVideoClip,
-  sendVideoToGemini,
-} from "../services/media/analysis-service";
+import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
+import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
@@ -1643,7 +1636,7 @@ Use 'single' mode to get transcript for a specific clip only.`,
         
         // Use media services
         const { analyzeContent, analysisToTimelineFrames } = await import('../services/media');
-        const analysis = await analyzeContent(overlay.assetId, userId, {
+        const analysis: any = await analyzeContent(overlay.assetId, userId, {
           silenceThresholdMs: input.silenceThresholdMs,
         });
         
@@ -1915,7 +1908,7 @@ IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
         const { refreshCaptions } = await import('../services/media');
         const updatedCaption = await refreshCaptions({
           captionOverlay,
-          videoOverlay,
+          videoOverlay: videoOverlay as any,
           userId,
           playerDimensions: canvas,
           fps,
@@ -2656,6 +2649,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     startFrame: z.number().optional(),
     endFrame: z.number().optional(),
     fps: z.number().optional(),
+    analyzeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, analyze all audio/video overlays (each up to 2 min). Use when user wants 'all' or multiple clips.",
+      ),
   });
 
   const analyzeClipAudio = tool(
@@ -2722,6 +2721,41 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             message:
               "No audio or video overlays with assets found. Upload media first.",
           });
+        }
+
+        // analyzeAll: analyze each overlay (each up to 2 min)
+        if (input.analyzeAll && overlays.length > 1) {
+          const { analyzeClipAudioService }: any = await import("../services/media");
+          const results: any[] = [];
+          const maxFrames = 120 * projectFps;
+          for (const o of overlays) {
+            if (!o.assetId) continue;
+            const overlayDur = o.durationInFrames || 0;
+            const windowFrames = Math.min(maxFrames, overlayDur > 0 ? overlayDur : maxFrames);
+            const startFrame = o.from || 0;
+            const endFrame = startFrame + Math.min(windowFrames, overlayDur > 0 ? overlayDur : maxFrames);
+            try {
+              const result = await analyzeClipAudioService({
+                projectId,
+                userId,
+                source: "asset",
+                assetId: o.assetId,
+                startFrame,
+                endFrame,
+                fps: projectFps,
+              });
+              results.push({
+                overlay: { id: o.id, assetId: o.assetId, name: (o as any).name, type: o.type },
+                summary: result.summary,
+                silences: result.silenceGapsFrames.length,
+                fillers: result.fillers.length,
+                problematic: result.problematicFrames.length,
+              });
+            } catch (e: any) {
+              results.push({ overlay: { id: o.id, assetId: o.assetId, name: (o as any).name }, error: e.message });
+            }
+          }
+          return JSON.stringify({ status: "success", type: "audio", analyzeAll: true, results });
         }
 
         // 3) Choose overlay - check if target is an assetId first
@@ -2906,11 +2940,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
     {
       name: "analyze_clip_audio",
-      description: `Analyze an audio clip (max 2 minutes) for silences, filler words, and problematic segments.
-        Auto-selects the best overlay and time range if not explicitly provided.
-        When the user asks to analyze audio, you MUST call this tool.
-        Never ask clarifying questions.
-        Use the active timeline selection if no asset is specified.`,
+      description: `Analyze audio (max 2 min per clip) for silences, fillers, and problematic segments.
+        NEVER ask the user for asset ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        When user asks to analyze audio/music, call this tool immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipAudioSchema,
     },
   );
@@ -2952,6 +2984,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     startFrame: z.number().optional(),
     endFrame: z.number().optional(),
     fps: z.number().optional(),
+    analyzeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, analyze all video overlays (each up to 2 min). Use when user wants 'all' or multiple clips.",
+      ),
   });
 
   const analyzeClipVideo = tool(
@@ -2977,6 +3015,68 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             status: "error",
             message: "No video overlays found in project timeline.",
           });
+        }
+
+        // analyzeAll: analyze each video overlay (each up to 2 min)
+        if (input.analyzeAll && overlays.length > 1) {
+          const results: any[] = [];
+          const maxFrames = 120 * projectFps;
+          const windowFrames = Math.round(120 * projectFps);
+          for (const chosen of overlays) {
+            const chosenAny = chosen as any;
+            const hasAsset = chosenAny.assetId || (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src)));
+            if (!hasAsset) continue;
+            let startFrame: number, endFrame: number;
+            const overlayDur = chosen.durationInFrames || 0;
+            if (overlayDur > 0) {
+              startFrame = Math.max(0, chosen.from + Math.floor(Math.max(0, overlayDur - windowFrames) / 2));
+              endFrame = Math.min(chosen.from + overlayDur, startFrame + windowFrames);
+            } else {
+              startFrame = chosen.from || 0;
+              endFrame = startFrame + windowFrames;
+            }
+            if (endFrame - startFrame > maxFrames) endFrame = startFrame + maxFrames;
+            try {
+              let assetUrl: string | undefined;
+              if (chosenAny.assetId) {
+                assetUrl = await (assetResolver as any).resolveAssetUrl(chosenAny.assetId, userId);
+              } else if (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src))) {
+                assetUrl = chosenAny.src;
+              }
+              const sampleParams: any = {
+                projectId,
+                source: "asset",
+                assetId: chosenAny.assetId,
+                assetUrl,
+                startFrame,
+                endFrame,
+                fps: projectFps,
+                userId,
+                targetSampleFps: 1,
+                maxDurationSec: 120,
+              };
+              const sampledPath = await sampleVideoClip(sampleParams);
+              const geminiResult = await sendVideoToGemini({ filePath: sampledPath, prompt: "" });
+              const vision = {
+                sceneChanges: (geminiResult.sceneChanges || []).map((idx: number) => startFrame + idx * projectFps),
+                summary: geminiResult.summary || "No summary available",
+                theme: geminiResult.theme || "other",
+                gestures: geminiResult.gestures || [],
+                onScreenText: geminiResult.onScreenText || [],
+              };
+              results.push({
+                overlay: { id: chosen.id, name: chosenAny.name, from: chosen.from, durationInFrames: chosen.durationInFrames },
+                timestamps: {
+                  start: formatSecondsToHHMMSS(framesToSeconds(startFrame, projectFps)),
+                  end: formatSecondsToHHMMSS(framesToSeconds(endFrame, projectFps)),
+                },
+                vision,
+              });
+            } catch (e: any) {
+              results.push({ overlay: { id: chosen.id, name: chosenAny.name }, error: e.message });
+            }
+          }
+          return JSON.stringify({ status: "success", analyzeAll: true, results });
         }
 
         // Choose overlay: if prompt mentions a name, try to match; else choose first overlay that overlaps requested range or first overall
@@ -3137,8 +3237,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
     {
       name: "analyze_clip_video",
-      description: `Analyze a video clip (max 2 minutes) for scene changes, dead zones, gestures, and on-screen text.
-                    Auto-selects the best overlay and time range if not explicitly provided.`,
+      description: `Analyze video (max 2 min per clip) for scene changes, dead zones, gestures, on-screen text.
+        NEVER ask the user for video ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        When user asks "read video" / "what's happening", call immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipVideoSchema,
     },
   );
