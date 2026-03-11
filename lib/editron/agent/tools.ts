@@ -35,6 +35,138 @@ import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "..
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
+  interface ToolEnvelope {
+    status: "success" | "error";
+    data: Record<string, any> | null;
+    error: {
+      message: string;
+      code?: string;
+      details?: Record<string, any>;
+    } | null;
+    nextAction: "continue" | "retry" | "ask_clarification" | "stop";
+  }
+
+  function successEnvelope(
+    data: Record<string, any> | null,
+    nextAction: ToolEnvelope["nextAction"] = "continue",
+  ): string {
+    const envelope: ToolEnvelope = {
+      status: "success",
+      data: data ?? {},
+      error: null,
+      nextAction,
+    };
+    return JSON.stringify(envelope);
+  }
+
+  function errorEnvelope(
+    message: string,
+    code = "TOOL_ERROR",
+    details?: Record<string, any>,
+    nextAction: ToolEnvelope["nextAction"] = "retry",
+  ): string {
+    const envelope: ToolEnvelope = {
+      status: "error",
+      data: null,
+      error: {
+        message,
+        code,
+        details,
+      },
+      nextAction,
+    };
+    return JSON.stringify(envelope);
+  }
+
+  function normalizeToolOutput(rawOutput: unknown): string {
+    if (typeof rawOutput === "string") {
+      const trimmed = rawOutput.trim();
+      if (!trimmed) {
+        return successEnvelope({ message: "Tool completed with empty response." }, "continue");
+      }
+
+      // Preserve legacy plain-string errors from existing tools.
+      // Some handlers still return "Error: ..." instead of JSON.
+      if (/^error\s*:/i.test(trimmed)) {
+        const message = trimmed.replace(/^error\s*:\s*/i, "").trim() || "Tool execution failed.";
+        return errorEnvelope(message, "TOOL_STRING_ERROR", { raw: trimmed }, "retry");
+      }
+
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, any>;
+        const hasEnvelopeShape =
+          typeof parsed?.status === "string" &&
+          "data" in parsed &&
+          "error" in parsed &&
+          "nextAction" in parsed;
+
+        if (hasEnvelopeShape) return JSON.stringify(parsed);
+
+        if (parsed.status === "error") {
+          return errorEnvelope(
+            parsed.message || parsed.error || "Tool execution failed.",
+            "TOOL_HANDLER_ERROR",
+            { raw: parsed },
+            parsed.nextAction || "retry",
+          );
+        }
+
+        if (parsed.status === "success") {
+          const { status, error, nextAction, ...rest } = parsed;
+          return successEnvelope(rest, nextAction || "continue");
+        }
+
+        return successEnvelope(parsed, "continue");
+      } catch {
+        return successEnvelope({ text: trimmed }, "continue");
+      }
+    }
+
+    if (rawOutput && typeof rawOutput === "object") {
+      const parsed = rawOutput as Record<string, any>;
+      const hasEnvelopeShape =
+        typeof parsed?.status === "string" &&
+        "data" in parsed &&
+        "error" in parsed &&
+        "nextAction" in parsed;
+      if (hasEnvelopeShape) return JSON.stringify(parsed);
+
+      if (parsed.status === "error") {
+        return errorEnvelope(
+          parsed.message || parsed.error || "Tool execution failed.",
+          "TOOL_HANDLER_ERROR",
+          { raw: parsed },
+        );
+      }
+
+      if (parsed.status === "success") {
+        const { status, error, nextAction, ...rest } = parsed;
+        return successEnvelope(rest, nextAction || "continue");
+      }
+
+      return successEnvelope(parsed, "continue");
+    }
+
+    return successEnvelope({ value: rawOutput as any }, "continue");
+  }
+
+  function wrapToolWithEnvelope<T extends { invoke: (...args: any[]) => Promise<any> }>(toolInstance: T): T {
+    const originalInvoke = toolInstance.invoke.bind(toolInstance);
+    toolInstance.invoke = (async (...args: any[]) => {
+      try {
+        const raw = await originalInvoke(...args);
+        return normalizeToolOutput(raw);
+      } catch (error: any) {
+        return errorEnvelope(
+          error?.message || "Unexpected tool invocation failure.",
+          "TOOL_INVOKE_EXCEPTION",
+          { stack: error?.stack },
+        );
+      }
+    }) as T["invoke"];
+    return toolInstance;
+  }
+
   
   // Helper to load project
   const loadProject = async () => {
@@ -114,6 +246,70 @@ export const createTools = (userId: string, projectId: string) => {
     }
     return result;
   };
+
+  const animationStyleSchema = z
+    .object({
+      enter: z.string().optional(),
+      exit: z.string().optional(),
+      duration: z.coerce.number().optional(),
+    })
+    .strict()
+    .optional();
+
+  const textOverlayStylesSchema = z
+    .object({
+      fontSize: z.union([z.coerce.number(), z.string()]).optional(),
+      fontFamily: z.string().optional(),
+      fontWeight: z.union([z.coerce.number(), z.string()]).optional(),
+      textAlign: z.enum(["left", "center", "right", "justify"]).optional(),
+      color: z.string().optional(),
+      backgroundColor: z.string().optional(),
+      fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
+      textDecoration: z
+        .enum(["none", "underline", "line-through", "overline"])
+        .optional(),
+      textShadow: z.string().optional(),
+      lineHeight: z.union([z.coerce.number(), z.string()]).optional(),
+      letterSpacing: z.union([z.coerce.number(), z.string()]).optional(),
+      opacity: z.coerce.number().optional(),
+      animation: animationStyleSchema,
+    })
+    .strict();
+
+  const mediaOverlayStylesSchema = z
+    .object({
+      objectFit: z.enum(["cover", "contain", "fill"]).optional(),
+      volume: z.coerce.number().optional(),
+      opacity: z.coerce.number().optional(),
+      borderRadius: z.string().optional(),
+      animation: animationStyleSchema,
+    })
+    .strict();
+
+  const shapeOverlayStylesSchema = z
+    .object({
+      fill: z.string().optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.coerce.number().optional(),
+      opacity: z.coerce.number().optional(),
+      borderRadius: z.string().optional(),
+    })
+    .strict();
+
+  const genericOverlayStylesSchema = z
+    .object({
+      opacity: z.coerce.number().optional(),
+      borderRadius: z.string().optional(),
+      animation: animationStyleSchema,
+    })
+    .strict();
+
+  const overlayStylesUpdateSchema = z.union([
+    textOverlayStylesSchema,
+    mediaOverlayStylesSchema,
+    shapeOverlayStylesSchema,
+    genericOverlayStylesSchema,
+  ]);
 
 
   // --- READ TOOLS ---
@@ -594,7 +790,9 @@ TYPE-SPECIFIC FIELDS:
     height: z.union([z.coerce.number(), z.string()]).optional().describe("New height"),
     rotation: z.coerce.number().optional(),
     row: z.coerce.number().optional().describe("Move to specific row"),
-    styles: z.any().optional().describe("Partial styles object to merge"),
+    styles: overlayStylesUpdateSchema
+      .optional()
+      .describe("Typed partial styles to merge (text/media/shape/generic)."),
   });
 
   const updateOverlay = tool(
@@ -678,7 +876,7 @@ TYPE-SPECIFIC FIELDS:
       height: z.union([z.coerce.number(), z.string()]).optional(),
       rotation: z.coerce.number().optional(),
       row: z.coerce.number().optional(),
-      styles: z.any().optional(),
+      styles: overlayStylesUpdateSchema.optional(),
     })).describe("Array of updates to apply")
   });
 
@@ -2157,6 +2355,15 @@ Linked captions are automatically moved with their videos.`,
         // Calculate total duration for exit animation
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         
+        // Use the video overlay's actual box — not the full canvas.
+        // The video may be letterboxed inside the composition.
+        const videoBox = {
+          left: overlay.left ?? 0,
+          top: overlay.top ?? 0,
+          width: overlay.width ?? canvas.width,
+          height: overlay.height ?? canvas.height,
+        };
+
         // Build typography lock profile (for consistency across clips/regenerations)
         const linkedFancyCaptions = project.overlays
           .filter((o: any) =>
@@ -2195,11 +2402,11 @@ Linked captions are automatically moved with their videos.`,
               }
             : undefined;
 
-        // Build prompt
+        // Build prompt using the video's box dimensions
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
-          canvasWidth: canvas.width,
-          canvasHeight: canvas.height,
+          canvasWidth: videoBox.width,
+          canvasHeight: videoBox.height,
           style: input.style || 'bento',
           intensity: input.intensity || 'medium',
           primaryColor: input.primaryColor,
@@ -2279,17 +2486,15 @@ Linked captions are automatically moved with their videos.`,
         cleanHtml = injectFancyCaptionTiming(cleanHtml, totalDurationMs);
         console.log('[FANCY-CAPTIONS] Injected programmatic timing CSS for', classifiedWords.length, 'words');
         
-        // Wrap in sandbox with auto-fit enabled
+        // Wrap in sandbox using the video's box dimensions
         const wrappedHtml = createSandboxedWrapper({
           html: cleanHtml,
-          width: canvas.width,
-          height: canvas.height,
+          width: videoBox.width,
+          height: videoBox.height,
           backgroundColor: input.backgroundColor || 'transparent',
           autoFit: true,
         });
 
-        
-        // Extract metadata for consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
         const metadata: HtmlGenerationMetadata = {
           ...styleMetadata,
@@ -2298,7 +2503,6 @@ Linked captions are automatically moved with their videos.`,
           wordCount: classifiedWords.length,
         };
         
-        // Create overlay
         const id = Date.now() + Math.floor(Math.random() * 10000);
         const segmentDuration = segmentEndFrame - segmentStartFrame;
         
@@ -2310,7 +2514,6 @@ Linked captions are automatically moved with their videos.`,
         );
         
         if (hasCollisionAtRow0) {
-          // Shift all overlays down by 1 row
           const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
           const database = await getDatabase();
           await database.collection(COLLECTIONS.PROJECTS).updateOne(
@@ -2319,9 +2522,10 @@ Linked captions are automatically moved with their videos.`,
           );
         }
 
+        // Position the caption overlay exactly on top of the video overlay's box
         const newOverlay = {
           id,
-          type: 'html-scene', // Using html-scene type for rendering compatibility
+          type: 'html-scene',
           from: segmentStartFrame,
           durationInFrames: segmentDuration,
           content: wrappedHtml,
@@ -2341,10 +2545,10 @@ Linked captions are automatically moved with their videos.`,
             typographyProfile,
           },
           row: 0,
-          left: 0,
-          top: 0,
-          width: canvas.width,
-          height: canvas.height,
+          left: videoBox.left,
+          top: videoBox.top,
+          width: videoBox.width,
+          height: videoBox.height,
           rotation: 0,
           isDragging: false,
           styles: {
@@ -2517,10 +2721,18 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
             }
           : undefined;
 
+        // Use the video overlay's actual box dimensions
+        const videoBox = {
+          left: videoOverlay.left ?? 0,
+          top: videoOverlay.top ?? 0,
+          width: videoOverlay.width ?? canvas.width,
+          height: videoOverlay.height ?? canvas.height,
+        };
+
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
-          canvasWidth: canvas.width,
-          canvasHeight: canvas.height,
+          canvasWidth: videoBox.width,
+          canvasHeight: videoBox.height,
           style,
           intensity,
           primaryColor: config.primaryColor,
@@ -2558,8 +2770,8 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
 
         const wrappedHtml = createSandboxedWrapper({
           html: cleanHtml,
-          width: canvas.width,
-          height: canvas.height,
+          width: videoBox.width,
+          height: videoBox.height,
           backgroundColor: config.backgroundColor || 'transparent',
           autoFit: true,
         });
@@ -2572,6 +2784,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           wordCount: classifiedWords.length,
         };
 
+        // Re-sync caption position to match the video overlay's current box
         await projectService.updateOverlay(userId, projectId, fancyOverlay.id, {
           from: segmentStartFrame,
           durationInFrames: segmentEndFrame - segmentStartFrame,
@@ -2579,6 +2792,10 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           prompt: `Fancy captions: ${classifiedWords.map((w) => w.word).join(' ')}` as any,
           metadata: metadata as any,
           sourceVideoId: videoOverlay.id as any,
+          left: videoBox.left as any,
+          top: videoBox.top as any,
+          width: videoBox.width as any,
+          height: videoBox.height as any,
           fancyCaptionConfig: {
             ...config,
             style,
@@ -3267,6 +3484,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     refreshCaptionsAI,    // NEW: Refresh/realign captions
     analyzeClipAudio,     // NEW: Analyze clip audio
     analyzeClipVideo,     // NEW: Analyze clip video
-  ];
+  ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };

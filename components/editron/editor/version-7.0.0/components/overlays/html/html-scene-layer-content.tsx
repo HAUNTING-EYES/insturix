@@ -106,16 +106,11 @@ export const HtmlSceneLayerContent: React.FC<HtmlSceneLayerContentProps> = ({
             overflow: hidden;
           }
           
-          /* 
-           * For regular HTML scenes: pause animations and sync via --time variable.
-           * For fancy captions: React controls visibility directly via inline styles.
-           */
           *:not(.word[data-start]) {
             animation-play-state: paused !important;
             animation-delay: calc(var(--time, 0s) * -1) !important;
           }
           
-          /* Smooth transitions for React-controlled word visibility */
           .word[data-start] {
             transition: opacity 0.15s ease-out, transform 0.15s ease-out;
           }

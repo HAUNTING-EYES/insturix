@@ -163,6 +163,9 @@ export const createAgent = (userId: string, projectContext?: string) => {
         - After making changes, verify the state to ensure your action was applied correctly.
     4.  **Tool Usage**:
         - Use the provided tools to manipulate the project.
+        - All tool responses are wrapped in a deterministic envelope:
+          { status, data, error, nextAction }.
+          Always read \`status\` first. Use \`data\` only when status is \`success\`.
         - For positioning, remember the canvas dimensions (usually 1920x1080 or 1080x1920). Center is (width/2, height/2).
         - When adding multiple items, ensure they don't overlap unless intended.
         - **Batch Parallel Execution**: When creating MULTIPLE elements (only if user asks), you CAN call \`generate_html_scene\` and \`generate_html_sticker\` in parallel in the SAME turn.
@@ -269,6 +272,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
           - That audio is deeply processed
           - That processing may take time
       - Ask ONCE only.
+      - If user declines, stop and suggest the cheaper alternative.
 
     6) If user intent is CLEAR:
       - Proceed directly.

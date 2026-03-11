@@ -93,7 +93,7 @@ export function createSandboxedWrapper(params: SandboxWrapperParams): string {
     overflow: hidden;
     pointer-events: none;
     isolation: isolate;
-    contain: layout style;
+    contain: layout style paint;
     ${autoFitStyles}
   "><div style="
     width: 100%;
@@ -402,45 +402,59 @@ TYPOGRAPHY LOCK: ENABLED
 TYPOGRAPHY LOCK: DISABLED
 - You may choose best-fit typography while staying on-brand and readable.`;
   
+  // Calculate pixel-based font sizes from canvas width (NOT vw — vw resolves to
+  // the browser viewport, not the composition container, causing massive overflow).
+  const heroMin = Math.round(canvasWidth * 0.10);   // ~108px for 1080
+  const heroMax = Math.round(canvasWidth * 0.14);   // ~151px for 1080
+  const medMin  = Math.round(canvasWidth * 0.06);   // ~65px  for 1080
+  const medMax  = Math.round(canvasWidth * 0.09);   // ~97px  for 1080
+  const fillMin = Math.round(canvasWidth * 0.035);  // ~38px  for 1080
+  const fillMax = Math.round(canvasWidth * 0.055);  // ~59px  for 1080
+
   const styleInstructions = {
     bento: `
 LAYOUT STYLE: "Bento Grid" (Editorial, Tight Packing)
 1. **USE CSS GRID**: Container uses \`display: grid; grid-template-columns: repeat(12, 1fr); gap: 10px;\`
 2. **TIGHT PACKING**: Line-height: 0.85. Words nearly touch.
 3. **HIERARCHY**:
-   - HERO words: \`grid-column: span 10-12\`, font-size 12-16vw (use % of container), bold sans-serif
-   - MEDIUM words: \`grid-column: span 6-8\`, font-size 8-10vw
-   - FILLER words: \`grid-column: span 3-4\`, font-size 4-6vw, can have box/border treatment
+   - HERO words: \`grid-column: span 10-12\`, font-size ${heroMin}px–${heroMax}px, bold sans-serif
+   - MEDIUM words: \`grid-column: span 6-8\`, font-size ${medMin}px–${medMax}px
+   - FILLER words: \`grid-column: span 3-4\`, font-size ${fillMin}px–${fillMax}px, can have box/border treatment
 4. **MIX FONTS**: Use 'Oswald' (bold sans) for impact, 'Playfair Display' (italic serif) for elegance.
-5. **VARY STYLES**: Some words filled, some outlined (\`-webkit-text-stroke\`), some in colored boxes.`,
+5. **VARY STYLES**: Some words filled, some outlined (\`-webkit-text-stroke\`), some in colored boxes.
+6. **NEVER use vw or vh units** — always use px for font-size.`,
     scattered: `
 LAYOUT STYLE: "Scattered" (Floating, Dynamic)
 1. **USE ABSOLUTE POSITIONING**: Each word has unique \`top\` and \`left\` values as percentages.
 2. **AVOID OVERLAP**: Words should not overlap, use different quadrants.
-3. **HIERARCHY**: HERO words larger (12-15vw), FILLER words smaller (4-6vw).
+3. **HIERARCHY**: HERO words larger (${heroMin}px–${heroMax}px), FILLER words smaller (${fillMin}px–${fillMax}px).
 4. **ROTATIONS**: Vary rotation -15deg to +15deg for dynamism.
-5. **SPREAD**: Distribute across canvas - some top-left, some center-right, some bottom.`,
+5. **SPREAD**: Distribute across canvas — some top-left, some center-right, some bottom.
+6. **NEVER use vw or vh units** — always use px for font-size.`,
     minimal: `
 LAYOUT STYLE: "Minimal" (Clean, Centered)
 1. **CENTERED STACK**: All words vertically stacked, centered horizontally.
 2. **LINE BY LINE**: One or two words per line.
 3. **SIMPLE ANIMATION**: Fade and slight scale only.
 4. **UNIFORM FONT**: Single font family, vary weight only.
-5. **SUBTLE**: No wild rotations or scattered positions.`,
+5. **SUBTLE**: No wild rotations or scattered positions.
+6. **NEVER use vw or vh units** — always use px for font-size. HERO: ${heroMin}px–${heroMax}px, MEDIUM: ${medMin}px–${medMax}px, FILLER: ${fillMin}px–${fillMax}px.`,
     static: `
 LAYOUT STYLE: "Static Fancy" (Stable, Clean Composition)
 1. **STATIC PLACEMENT**: Keep all words in fixed positions with no scattered distribution.
 2. **NO ROTATION**: Use \`transform: none\` for word wrappers unless absolutely needed for alignment.
 3. **COMPACT BLOCK**: Arrange words as a centered multi-line block (2-4 words per line depending on length).
-4. **CONSISTENT HIERARCHY**: HERO words can be larger/accented, but remain aligned within the same block.
-5. **READABLE + FANCY**: Use premium typography, subtle strokes/shadows, and clean spacing without floating effects.`,
+4. **CONSISTENT HIERARCHY**: HERO words can be larger/accented, but remain aligned within the same block. HERO: ${heroMin}px–${heroMax}px, MEDIUM: ${medMin}px–${medMax}px, FILLER: ${fillMin}px–${fillMax}px.
+5. **READABLE + FANCY**: Use premium typography, subtle strokes/shadows, and clean spacing without floating effects.
+6. **NEVER use vw or vh units** — always use px for font-size.`,
     kinetic: `
 LAYOUT STYLE: "Kinetic" (Balanced Storytelling Mode)
 1. **BALANCED COMPOSITION**: Keep a structured center composition with selective offset accents.
 2. **LIMITED MOTION FEEL**: Allow subtle position variation and tiny rotations only (-4deg to +4deg max).
-3. **FLOW BY MEANING**: Place HERO words in stronger visual anchors, MEDIUM/FILLER words support narrative flow.
+3. **FLOW BY MEANING**: Place HERO words in stronger visual anchors, MEDIUM/FILLER words support narrative flow. HERO: ${heroMin}px–${heroMax}px, MEDIUM: ${medMin}px–${medMax}px, FILLER: ${fillMin}px–${fillMax}px.
 4. **NO CHAOS**: Avoid full-canvas scatter; keep overall reading path clean and progressive.
-5. **STORY-FIRST FANCY**: Maintain strong typography contrast and emphasis while preserving legibility.`,
+5. **STORY-FIRST FANCY**: Maintain strong typography contrast and emphasis while preserving legibility.
+6. **NEVER use vw or vh units** — always use px for font-size.`,
   };
   
   return `You are an expert Kinetic Typography Designer.
@@ -486,8 +500,9 @@ YOUR JOB - Generate HTML with:
 LAYOUT RULES:
 - Container: \`width: 100%; height: 100%; display: flex; justify-content: center; align-items: center;\`
 - Use CSS Grid or Flexbox for word arrangement
-- Use % or em for sizing (no vw/vh)
+- Use % for positioning, px for font-size — NEVER use vw or vh units (they resolve to browser viewport, not the canvas)
 - Include Google Fonts link (Oswald + Playfair Display)
+- When using absolute positioning, keep left/top between 8% and 92%
 - Keep all content inside safe area: at least 8% padding from each canvas edge
 - Do NOT let words overlap each other
 - If style is not scattered, avoid absolute random positioning
@@ -526,17 +541,10 @@ export function injectFancyCaptionTiming(html: string, totalDurationMs: number):
   
   console.log(`[FANCY-CAPTIONS] Found ${wordCount} words, total duration: ${totalDurationMs}ms`);
   
-  // Simple CSS: smooth transitions for React-controlled visibility changes
   const visibilityCSS = `
 <style id="fancy-caption-visibility">
-  /* React controls visibility via inline styles - this just adds smooth transitions */
   .word[data-start] {
     transition: opacity 0.15s ease-out, transform 0.15s ease-out;
-  }
-  
-  /* Ensure container doesn't clip effects */
-  .caption-container, .bento-grid, [class*="caption"] {
-    overflow: visible;
   }
 </style>
 `;
