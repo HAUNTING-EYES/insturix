@@ -126,40 +126,40 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     id: 'plus',
     name: 'Plus',
     description: 'Perfect for growing creators',
-    credits: 500,
+    credits: 100,
     price: 9.99,
     currency: 'USD',
     features: [
-      '500 Monthly Credits',
+      '100 Monthly Credits',
       'Access to all tools',
       'Priority support',
-      'Rollover up to 1000 credits'
+      'Rollover up to 200 credits'
     ]
   },
   {
     id: 'pro',
     name: 'Pro',
     description: 'For professional content creators',
-    credits: 2000,
+    credits: 400,
     price: 29.99,
     currency: 'USD',
     popular: true,
     features: [
-      '2,000 Monthly Credits',
+      '400 Monthly Credits',
       'Access to all tools',
       'Faster processing',
-      'Rollover up to 5000 credits'
+      'Rollover up to 1000 credits'
     ]
   },
   {
     id: 'premium',
     name: 'Premium',
     description: 'Ultimate creator experience',
-    credits: 5000,
+    credits: 1000,
     price: 79.99,
     currency: 'USD',
     features: [
-      '5,000 Monthly Credits',
+      '1,000 Monthly Credits',
       'Access to all tools',
       'Highest priority',
       'Unlimited rollover'
@@ -169,10 +169,10 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
 
 // Legacy support helpers
 export const PLAN_CREDIT_ALLOCATIONS: Record<string, number> = {
-  free: 50,
-  plus: 500,
-  pro: 2000,
-  premium: 5000
+  free: 10,
+  plus: 100,
+  pro: 400,
+  premium: 1000
 };
 
 /**
@@ -189,7 +189,7 @@ export const CREDIT_PACKAGES: CreditPackage[] = [
   {
     id: 'topup_100',
     name: 'Standard Pack',
-    credits: 100,
+    credits: 20,
     prices: {
       USD: 4.99,
     },
@@ -197,7 +197,7 @@ export const CREDIT_PACKAGES: CreditPackage[] = [
   {
     id: 'topup_500',
     name: 'Value Pack',
-    credits: 500,
+    credits: 100,
     prices: {
       USD: 19.99,
     },
@@ -205,7 +205,7 @@ export const CREDIT_PACKAGES: CreditPackage[] = [
   {
     id: 'topup_1000',
     name: 'Pro Pack',
-    credits: 1000,
+    credits: 200,
     prices: {
       USD: 34.99,
     },
