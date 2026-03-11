@@ -162,6 +162,8 @@ export default async function AnalysisReport({ params }: PageProps) {
           analysisId={analysis._id}
           isOwner={isOwner}
           isPublic={isPublic}
+          userId={analysis.clerkUserId}
+          taskId={resolvedParams.id}
         />
       </div>
     </div>

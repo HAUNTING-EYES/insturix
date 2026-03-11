@@ -18,9 +18,11 @@ import {
   RotateCcw,
 } from "lucide-react";
 import Link from "next/link";
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
+import ChatToggleButton from "@/components/dashboard/Alyzitron/chat/Chattogglebutton";
+import ChatPanel from "@/components/dashboard/Alyzitron/chat/ChatPanel";
 
 // Helper function to copy text to clipboard
 const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -161,6 +163,8 @@ interface AnalysisDetailsProps {
   analysisId?: string;
   isOwner?: boolean;
   isPublic?: boolean;
+  userId?: string;
+  taskId?: string;
 }
 
 interface ShareButtonProps {
@@ -361,6 +365,8 @@ export function AnalysisDetails({
   analysisId,
   isOwner,
   isPublic,
+  userId,
+  taskId
 }: AnalysisDetailsProps) {
   const [currentIsPublic, setCurrentIsPublic] = useState(isPublic || false);
   const [currentTitleIndex, setCurrentTitleIndex] = useState(0);
@@ -368,10 +374,15 @@ export function AnalysisDetails({
   const [showAllTitles, setShowAllTitles] = useState(false);
   const [showAllDescriptions, setShowAllDescriptions] = useState(false);
   const [copiedItems, setCopiedItems] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState(false);
 
   // Video player refs for both YouTube and uploaded videos
   const videoRef = useRef<HTMLVideoElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  const openPanel = useCallback(() => setOpen(true), []);
+  const closePanel = useCallback(() => setOpen(false), []);
+  const togglePanel = useCallback(() => setOpen((v) => !v), []);
 
   // Helper function to handle copy with visual feedback
   const handleCopy = async (text: string, itemId: string) => {
@@ -506,6 +517,10 @@ export function AnalysisDetails({
               onPrivacyChange={setCurrentIsPublic}
             />
           )}
+          {/* Chat toggle button — fixed to top-right or wherever fits your UI */}
+          <div className="fixed top-4 right-4 z-50">
+            <ChatToggleButton open={open} onClick={togglePanel} />
+          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 sm:gap-8">
@@ -1114,6 +1129,16 @@ export function AnalysisDetails({
           </div>
         </CardContent>
       </Card>
+
+      {/* Chat panel — slides in from right, sits above content */}
+      <ChatPanel
+        videoId={taskId as string}
+        videoAnalysis={analysisData}
+        videoTitle={videoTitle}
+        userId={userId}
+        open={open}
+        onClose={closePanel}
+      />
     </div>
   );
 }
