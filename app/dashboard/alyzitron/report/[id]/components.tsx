@@ -1103,7 +1103,12 @@ export function AnalysisDetails({
                     className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg"
                   >
                     <CheckCircle className="h-5 w-5 text-green-400 shrink-0" />
-                    <span className="leading-relaxed">{strength}</span>
+                    <span className="leading-relaxed">
+                      <TimestampText 
+                        text={strength} 
+                        onTimestampClick={handleTimestampClick}
+                      />
+                    </span>
                   </li>
                 ),
               ) || []}
@@ -1121,7 +1126,12 @@ export function AnalysisDetails({
                     className="flex items-center gap-2 text-sm text-zinc-400 bg-black/20 p-3 rounded-lg"
                   >
                     <AlertCircle className="h-5 w-5 text-yellow-400 shrink-0" />
-                    <span className="leading-relaxed">{improvement}</span>
+                    <span className="leading-relaxed">
+                      <TimestampText 
+                        text={improvement} 
+                        onTimestampClick={handleTimestampClick}
+                      />
+                    </span>
                   </li>
                 ),
               ) || []}

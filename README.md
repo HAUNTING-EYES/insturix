@@ -1,5 +1,5 @@
 # INSTURIX: Platform Overview & Strategic Vision
-
+ 
 INSTURIX is a Gen-AI-focused platform building an end-to-end ecosystem for the creator economy and B2B digital marketing teams. Currently operating on a pay-as-you-go credit system (deployed via Vercel), the platform allows users to manage the entire content lifecycle—from ideation to upload—under a single unified subscription. The ecosystem is currently composed of multiple functional web-based micro-services with foundational team collaboration features.
 
 ## 1. What INSTURIX is Right Now

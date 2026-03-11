@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       projectId,
       thumbnail,
       duration,
+      dimensions,
     } = body;
 
     // Validate required fields
@@ -75,6 +76,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Save metadata to MongoDB
+    const parsedDimensions =
+      dimensions &&
+      typeof dimensions.width === 'number' &&
+      typeof dimensions.height === 'number'
+        ? {
+            width: Math.round(dimensions.width),
+            height: Math.round(dimensions.height),
+          }
+        : undefined;
+
     const mediaAsset: MediaAsset = {
       assetId,
       userId,
@@ -88,6 +99,7 @@ export async function POST(request: NextRequest) {
       size: size || 0,
       thumbnail: thumbnail || undefined,
       duration: duration ? parseFloat(duration) : undefined,
+      dimensions: parsedDimensions,
       uploadedAt: new Date(),
     };
 

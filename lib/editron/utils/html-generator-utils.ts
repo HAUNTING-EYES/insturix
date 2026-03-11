@@ -87,8 +87,8 @@ export function createSandboxedWrapper(params: SandboxWrapperParams): string {
   return `<div style="
     position: absolute;
     inset: 0;
-    width: ${width}px;
-    height: ${height}px;
+    width: 100%;
+    height: 100%;
     background: ${backgroundColor};
     overflow: hidden;
     pointer-events: none;
@@ -301,10 +301,18 @@ export interface FancyCaptionPromptParams {
   words: WordTiming[];
   canvasWidth: number;
   canvasHeight: number;
-  style: 'bento' | 'scattered' | 'minimal';
+  style: 'bento' | 'scattered' | 'minimal' | 'static' | 'kinetic';
+  intensity?: 'low' | 'medium' | 'high';
   primaryColor?: string;
   accentColor?: string;
   backgroundColor?: string;
+  lockTypography?: boolean;
+  typographyProfile?: {
+    fontPair?: string;
+    strokeStyle?: string;
+    shadowStyle?: string;
+    paletteHint?: string;
+  };
 }
 
 /**
@@ -316,21 +324,83 @@ export function buildFancyCaptionPrompt(params: FancyCaptionPromptParams): strin
     canvasWidth,
     canvasHeight,
     style,
+    intensity = 'medium',
     primaryColor = '#FFFFFF',
     accentColor = '#FFE66D',
     backgroundColor = 'transparent',
+    lockTypography = false,
+    typographyProfile,
   } = params;
+
+  const normalizedWords = words.map((w) => ({
+    ...w,
+    importance: w.importance || classifyWordImportance(w.word),
+  }));
   
   // Build detailed word timing table with exact timestamps
-  const wordTable = words.map((w, i) => {
-    const importance = w.importance || classifyWordImportance(w.word);
+  const wordTable = normalizedWords.map((w, i) => {
     const delaySeconds = (w.startMs / 1000).toFixed(2);
-    return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${importance.toUpperCase()} |`;
+    return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${w.importance?.toUpperCase()} |`;
   }).join('\n');
   
-  const totalDuration = Math.max(...words.map(w => w.endMs));
-  const exitStartMs = totalDuration - 300; // Exit animation starts 300ms before end
-  const exitDelaySeconds = (exitStartMs / 1000).toFixed(2);
+  const ctaLexicon = new Set([
+    'now', 'stop', 'free', 'today', 'start', 'book', 'buy', 'join', 'save', 'claim',
+    'limited', 'exclusive', 'only', 'new', 'launch', 'must', 'watch', 'click',
+    'subscribe', 'follow', 'deal', 'offer', 'bonus', 'instant', 'often'
+  ]);
+
+  const semanticRows = normalizedWords.map((w, i) => {
+    const cleanWord = w.word.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const semanticRole = ctaLexicon.has(cleanWord) ? 'cta' : (w.importance === 'hero' ? 'hero' : 'support');
+    return `${i + 1}. "${w.word}" => ${semanticRole.toUpperCase()}`;
+  }).join('\n');
+
+  // Beat-aware emphasis heuristic from speech rhythm (dense words + short gaps)
+  const beatWordIndexes: number[] = [];
+  normalizedWords.forEach((w, i) => {
+    const previous = normalizedWords[i - 1];
+    const next = normalizedWords[i + 1];
+    const beforeGap = previous ? Math.max(0, w.startMs - previous.endMs) : 160;
+    const afterGap = next ? Math.max(0, next.startMs - w.endMs) : 160;
+    const duration = Math.max(60, w.endMs - w.startMs);
+    const isEnergyPeak = duration <= 320 && (beforeGap + afterGap) <= 220;
+    if (isEnergyPeak && (w.importance === 'hero' || ctaLexicon.has(w.word.toLowerCase().replace(/[^a-z0-9]/g, '')))) {
+      beatWordIndexes.push(i + 1);
+    }
+  });
+  const beatCueText = beatWordIndexes.length > 0
+    ? beatWordIndexes.map((idx) => `${idx}. "${normalizedWords[idx - 1].word}"`).join('\n')
+    : 'No strong peaks detected - use subtle rhythmic emphasis only.';
+
+  const intensityInstructions = {
+    low: `
+INTENSITY: LOW
+- Motion subtle; keep rotation between -2deg and +2deg.
+- Spacing conservative; avoid large jumps in size.
+- Contrast moderate with cleaner, calmer reading rhythm.`,
+    medium: `
+INTENSITY: MEDIUM
+- Balanced motion; rotation between -6deg and +6deg max.
+- Controlled spread and hierarchy shifts.
+- Strong but readable contrast (default storytelling energy).`,
+    high: `
+INTENSITY: HIGH
+- Energetic motion; rotation between -12deg and +12deg max.
+- Stronger hierarchy contrast and spread, still no overlap.
+- Use bold accents for hero/CTA words while preserving readability.`,
+  };
+
+  const typographyLockInstructions = lockTypography ? `
+TYPOGRAPHY LOCK: ENABLED
+- Preserve typography system exactly across generations.
+- Use locked font pair and effect system:
+  - fontPair: ${typographyProfile?.fontPair || 'Oswald + Playfair Display'}
+  - strokeStyle: ${typographyProfile?.strokeStyle || 'subtle 1-2px stroke on selected hero words'}
+  - shadowStyle: ${typographyProfile?.shadowStyle || '2px 2px 0 rgba(0,0,0,0.8)'}
+  - paletteHint: ${typographyProfile?.paletteHint || `${primaryColor} / ${accentColor}`}
+- Do not swap to unrelated font families.` : `
+TYPOGRAPHY LOCK: DISABLED
+- You may choose best-fit typography while staying on-brand and readable.`;
   
   const styleInstructions = {
     bento: `
@@ -357,6 +427,20 @@ LAYOUT STYLE: "Minimal" (Clean, Centered)
 3. **SIMPLE ANIMATION**: Fade and slight scale only.
 4. **UNIFORM FONT**: Single font family, vary weight only.
 5. **SUBTLE**: No wild rotations or scattered positions.`,
+    static: `
+LAYOUT STYLE: "Static Fancy" (Stable, Clean Composition)
+1. **STATIC PLACEMENT**: Keep all words in fixed positions with no scattered distribution.
+2. **NO ROTATION**: Use \`transform: none\` for word wrappers unless absolutely needed for alignment.
+3. **COMPACT BLOCK**: Arrange words as a centered multi-line block (2-4 words per line depending on length).
+4. **CONSISTENT HIERARCHY**: HERO words can be larger/accented, but remain aligned within the same block.
+5. **READABLE + FANCY**: Use premium typography, subtle strokes/shadows, and clean spacing without floating effects.`,
+    kinetic: `
+LAYOUT STYLE: "Kinetic" (Balanced Storytelling Mode)
+1. **BALANCED COMPOSITION**: Keep a structured center composition with selective offset accents.
+2. **LIMITED MOTION FEEL**: Allow subtle position variation and tiny rotations only (-4deg to +4deg max).
+3. **FLOW BY MEANING**: Place HERO words in stronger visual anchors, MEDIUM/FILLER words support narrative flow.
+4. **NO CHAOS**: Avoid full-canvas scatter; keep overall reading path clean and progressive.
+5. **STORY-FIRST FANCY**: Maintain strong typography contrast and emphasis while preserving legibility.`,
   };
   
   return `You are an expert Kinetic Typography Designer.
@@ -368,12 +452,22 @@ BACKGROUND: ${backgroundColor} (MUST be transparent unless specified otherwise)
 ═══════════════════════════════════════════════════════════════════
 
 WORDS TO DISPLAY (with timing data - use as data attributes):
-${words.map((w, i) => {
-  const importance = w.importance || classifyWordImportance(w.word);
-  return `${i + 1}. "${w.word}" | data-start="${w.startMs}" data-end="${w.endMs}" | ${importance.toUpperCase()}`;
+${normalizedWords.map((w, i) => {
+  return `${i + 1}. "${w.word}" | data-start="${w.startMs}" data-end="${w.endMs}" | ${w.importance?.toUpperCase()}`;
 }).join('\n')}
 
+WORD TIMING TABLE:
+${wordTable}
+
+SEMANTIC WORD ROLES:
+${semanticRows}
+
+BEAT / ENERGY CUES (use for emphasis on HERO/CTA words):
+${beatCueText}
+
 ${styleInstructions[style]}
+${intensityInstructions[intensity]}
+${typographyLockInstructions}
 
 YOUR JOB - Generate HTML with:
 1. **Each word wrapped in a span** with these REQUIRED attributes:
@@ -384,6 +478,7 @@ YOUR JOB - Generate HTML with:
    - HERO words: larger, accent color, bold
    - MEDIUM words: medium size
    - FILLER words: smaller, subtle
+   - CTA words: stronger accent treatment and clearer visual priority, consistent treatment across all CTA words.
 
 3. **NO animation CSS needed** - just set all words to \`opacity: 1\` by default.
    Animations will be injected programmatically.
@@ -393,6 +488,9 @@ LAYOUT RULES:
 - Use CSS Grid or Flexbox for word arrangement
 - Use % or em for sizing (no vw/vh)
 - Include Google Fonts link (Oswald + Playfair Display)
+- Keep all content inside safe area: at least 8% padding from each canvas edge
+- Do NOT let words overlap each other
+- If style is not scattered, avoid absolute random positioning
 
 STYLING:
 - Primary Color: ${primaryColor}

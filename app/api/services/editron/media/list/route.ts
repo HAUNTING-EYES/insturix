@@ -47,6 +47,7 @@ export async function GET(request: NextRequest) {
             lastModified: asset.uploadedAt.getTime(),
             thumbnail: asset.thumbnail,
             duration: asset.duration,
+            dimensions: asset.dimensions,
           };
         } catch (error) {
           console.error(`Error resolving asset ${asset.assetId}:`, error);
@@ -61,6 +62,7 @@ export async function GET(request: NextRequest) {
             lastModified: asset.uploadedAt.getTime(),
             thumbnail: asset.thumbnail,
             duration: asset.duration,
+            dimensions: asset.dimensions,
           };
         }
       })

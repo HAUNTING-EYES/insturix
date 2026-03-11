@@ -28,17 +28,10 @@ import {
   injectFancyCaptionTiming,
   type WordTiming,
 } from "../utils/html-generator-utils";
-import {
-  formatSecondsToHHMMSS,
-  framesToSeconds,
-  parsePromptTimeRange,
-  parseTimeToSeconds,
-} from "../utils/analysis";
+
 import { assetResolver } from "../services/asset-resolver";
-import {
-  sampleVideoClip,
-  sendVideoToGemini,
-} from "../services/media/analysis-service";
+import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
+import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
@@ -1643,7 +1636,7 @@ Use 'single' mode to get transcript for a specific clip only.`,
         
         // Use media services
         const { analyzeContent, analysisToTimelineFrames } = await import('../services/media');
-        const analysis = await analyzeContent(overlay.assetId, userId, {
+        const analysis: any = await analyzeContent(overlay.assetId, userId, {
           silenceThresholdMs: input.silenceThresholdMs,
         });
         
@@ -1915,7 +1908,7 @@ IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
         const { refreshCaptions } = await import('../services/media');
         const updatedCaption = await refreshCaptions({
           captionOverlay,
-          videoOverlay,
+          videoOverlay: videoOverlay as any,
           userId,
           playerDimensions: canvas,
           fps,
@@ -2050,12 +2043,20 @@ Linked captions are automatically moved with their videos.`,
       .describe("Custom end frame (only if segmentType='custom')"),
     
     // Style configuration
-    style: z.enum(['bento', 'scattered', 'minimal']).optional().default('bento')
-      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating), 'minimal' (centered stack)"),
+    style: z.enum(['bento', 'scattered', 'minimal', 'static', 'kinetic']).optional().default('bento')
+      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating, aka scatter mode), 'kinetic' (balanced storytelling mode), 'minimal' (centered stack), 'static' (fixed non-scattered fancy layout, aka static manner)"),
+    intensity: z.enum(['low', 'medium', 'high']).optional().default('medium')
+      .describe("Visual intensity level: low (subtle), medium (balanced default), high (more dramatic)"),
     primaryColor: z.string().optional().describe("Primary text color, e.g., '#ffffff'"),
     accentColor: z.string().optional().describe("Accent color for hero words, e.g., '#FFE66D'"),
     backgroundColor: z.string().optional().default('transparent')
       .describe("Background color (default: transparent)"),
+    lockTypography: z.coerce.boolean().optional().default(false)
+      .describe("Lock typography system across generations for consistency"),
+    fontPair: z.string().optional().describe("Typography lock: preferred font pair label, e.g. 'Oswald + Playfair Display'"),
+    strokeStyle: z.string().optional().describe("Typography lock: stroke style hint"),
+    shadowStyle: z.string().optional().describe("Typography lock: shadow style hint"),
+    paletteHint: z.string().optional().describe("Typography lock: palette/system hint"),
     
     // Limits
     maxWords: z.coerce.number().optional().default(15)
@@ -2156,15 +2157,56 @@ Linked captions are automatically moved with their videos.`,
         // Calculate total duration for exit animation
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         
+        // Build typography lock profile (for consistency across clips/regenerations)
+        const linkedFancyCaptions = project.overlays
+          .filter((o: any) =>
+            o.type === 'html-scene' &&
+            o.metadata?.sourceType === 'fancy-caption' &&
+            o.sourceVideoId === input.videoOverlayId
+          )
+          .sort((a: any, b: any) => (b.id || 0) - (a.id || 0));
+        const latestFancyCaption = linkedFancyCaptions[0] as any;
+
+        const derivedFontPairFromMetadata =
+          latestFancyCaption?.metadata?.fonts?.length >= 2
+            ? `${latestFancyCaption.metadata.fonts[0]} + ${latestFancyCaption.metadata.fonts[1]}`
+            : latestFancyCaption?.metadata?.fonts?.[0];
+
+        const typographyProfile =
+          input.lockTypography
+            ? {
+                fontPair:
+                  input.fontPair ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.fontPair ||
+                  derivedFontPairFromMetadata ||
+                  'Oswald + Playfair Display',
+                strokeStyle:
+                  input.strokeStyle ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.strokeStyle ||
+                  'subtle 1-2px stroke on selected hero words',
+                shadowStyle:
+                  input.shadowStyle ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.shadowStyle ||
+                  '2px 2px 0 rgba(0,0,0,0.8)',
+                paletteHint:
+                  input.paletteHint ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.paletteHint ||
+                  `${input.primaryColor || '#FFFFFF'} / ${input.accentColor || '#FFE66D'}`,
+              }
+            : undefined;
+
         // Build prompt
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
           canvasWidth: canvas.width,
           canvasHeight: canvas.height,
           style: input.style || 'bento',
+          intensity: input.intensity || 'medium',
           primaryColor: input.primaryColor,
           accentColor: input.accentColor,
           backgroundColor: input.backgroundColor || 'transparent',
+          lockTypography: input.lockTypography || false,
+          typographyProfile,
         });
         
         // ===== DEBUG: Log the prompt being sent to LLM =====
@@ -2288,12 +2330,15 @@ Linked captions are automatically moved with their videos.`,
           sourceVideoId: overlay.id,
           fancyCaptionConfig: {
             style: input.style || 'bento',
+            intensity: input.intensity || 'medium',
             segmentStartOffsetFrames: segmentStartFrame - overlay.from,
             segmentDurationFrames: segmentDuration,
             maxWords,
             primaryColor: input.primaryColor,
             accentColor: input.accentColor,
             backgroundColor: input.backgroundColor || 'transparent',
+            lockTypography: input.lockTypography || false,
+            typographyProfile,
           },
           row: 0,
           left: 0,
@@ -2323,6 +2368,8 @@ Linked captions are automatically moved with their videos.`,
           wordCount: classifiedWords.length,
           words: classifiedWords.map(w => w.word),
           style: input.style || 'bento',
+          intensity: input.intensity || 'medium',
+          lockTypography: input.lockTypography || false,
           segmentType: input.segmentType || 'hook',
           startFrame: segmentStartFrame,
           endFrame: segmentEndFrame,
@@ -2332,7 +2379,7 @@ Linked captions are automatically moved with their videos.`,
             backgroundColor: metadata.backgroundColor,
           },
           rowsShifted: hasCollisionAtRow0,
-          message: `Added fancy ${input.style || 'bento'}-style captions with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
+          message: `Added fancy ${input.style || 'bento'}-style captions (${input.intensity || 'medium'} intensity) with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
         });
         
       } catch (e: any) {
@@ -2353,8 +2400,20 @@ USAGE GUIDANCE:
 
 STYLES:
 - 'bento' (default): Tight grid layout, mixed fonts, editorial look
-- 'scattered': Floating words at different positions with rotations
+- 'scattered': Floating words at different positions with rotations (scatter mode)
+- 'kinetic': Balanced storytelling mode (the middle between scattered and static)
 - 'minimal': Clean centered stack, simple animations
+- 'static': Fancy but stable block layout (static manner, no scattered placement/rotations)
+
+INTENSITY:
+- 'low': subtle motion and contrast
+- 'medium' (default): balanced storytelling
+- 'high': more dramatic hierarchy and motion
+
+CONSISTENCY + QUALITY:
+- lockTypography: preserve font/effects system across generations
+- semantic CTA emphasis and beat-aware hero emphasis are applied automatically
+- safe layout constraints prevent clipping and overlap
 
 LIMITS: Max 15-25 words per call. For longer content, call multiple times.
 
@@ -2365,7 +2424,13 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
 
   const refreshFancyCaptionsSchema = z.object({
     fancyCaptionOverlayId: z.coerce.number().describe("ID of the fancy caption html-scene overlay to refresh"),
-    newStyle: z.enum(['bento', 'scattered', 'minimal']).optional().describe("Optional new fancy caption style"),
+    newStyle: z.enum(['bento', 'scattered', 'minimal', 'static', 'kinetic']).optional().describe("Optional new fancy caption style"),
+    newIntensity: z.enum(['low', 'medium', 'high']).optional().describe("Optional new intensity"),
+    lockTypography: z.coerce.boolean().optional().describe("Optional typography lock override"),
+    fontPair: z.string().optional().describe("Typography lock: preferred font pair label"),
+    strokeStyle: z.string().optional().describe("Typography lock: stroke style hint"),
+    shadowStyle: z.string().optional().describe("Typography lock: shadow style hint"),
+    paletteHint: z.string().optional().describe("Typography lock: palette/system hint"),
   });
 
   const refreshFancyCaptionsAI = tool(
@@ -2441,15 +2506,28 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
         const classifiedWords = classifyWordTimings(wordsInRange);
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         const style = input.newStyle || config.style || 'bento';
+        const intensity = input.newIntensity || config.intensity || 'medium';
+        const lockTypography = input.lockTypography ?? config.lockTypography ?? false;
+        const typographyProfile = lockTypography
+          ? {
+              fontPair: input.fontPair || config.typographyProfile?.fontPair,
+              strokeStyle: input.strokeStyle || config.typographyProfile?.strokeStyle,
+              shadowStyle: input.shadowStyle || config.typographyProfile?.shadowStyle,
+              paletteHint: input.paletteHint || config.typographyProfile?.paletteHint || `${config.primaryColor || '#FFFFFF'} / ${config.accentColor || '#FFE66D'}`,
+            }
+          : undefined;
 
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
           canvasWidth: canvas.width,
           canvasHeight: canvas.height,
           style,
+          intensity,
           primaryColor: config.primaryColor,
           accentColor: config.accentColor,
           backgroundColor: config.backgroundColor || 'transparent',
+          lockTypography,
+          typographyProfile,
         });
 
         const model = new ChatGoogleGenerativeAI({
@@ -2504,6 +2582,9 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           fancyCaptionConfig: {
             ...config,
             style,
+            intensity,
+            lockTypography,
+            typographyProfile,
             segmentDurationFrames: segmentEndFrame - segmentStartFrame,
           } as any,
         } as any);
@@ -2513,6 +2594,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           id: fancyOverlay.id,
           sourceVideoId: videoOverlay.id,
           style,
+          intensity,
           wordCount: classifiedWords.length,
           startFrame: segmentStartFrame,
           endFrame: segmentEndFrame,
@@ -2567,6 +2649,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     startFrame: z.number().optional(),
     endFrame: z.number().optional(),
     fps: z.number().optional(),
+    analyzeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, analyze all audio/video overlays (each up to 2 min). Use when user wants 'all' or multiple clips.",
+      ),
   });
 
   const analyzeClipAudio = tool(
@@ -2633,6 +2721,41 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             message:
               "No audio or video overlays with assets found. Upload media first.",
           });
+        }
+
+        // analyzeAll: analyze each overlay (each up to 2 min)
+        if (input.analyzeAll && overlays.length > 1) {
+          const { analyzeClipAudioService }: any = await import("../services/media");
+          const results: any[] = [];
+          const maxFrames = 120 * projectFps;
+          for (const o of overlays) {
+            if (!o.assetId) continue;
+            const overlayDur = o.durationInFrames || 0;
+            const windowFrames = Math.min(maxFrames, overlayDur > 0 ? overlayDur : maxFrames);
+            const startFrame = o.from || 0;
+            const endFrame = startFrame + Math.min(windowFrames, overlayDur > 0 ? overlayDur : maxFrames);
+            try {
+              const result = await analyzeClipAudioService({
+                projectId,
+                userId,
+                source: "asset",
+                assetId: o.assetId,
+                startFrame,
+                endFrame,
+                fps: projectFps,
+              });
+              results.push({
+                overlay: { id: o.id, assetId: o.assetId, name: (o as any).name, type: o.type },
+                summary: result.summary,
+                silences: result.silenceGapsFrames.length,
+                fillers: result.fillers.length,
+                problematic: result.problematicFrames.length,
+              });
+            } catch (e: any) {
+              results.push({ overlay: { id: o.id, assetId: o.assetId, name: (o as any).name }, error: e.message });
+            }
+          }
+          return JSON.stringify({ status: "success", type: "audio", analyzeAll: true, results });
         }
 
         // 3) Choose overlay - check if target is an assetId first
@@ -2817,11 +2940,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
     {
       name: "analyze_clip_audio",
-      description: `Analyze an audio clip (max 2 minutes) for silences, filler words, and problematic segments.
-        Auto-selects the best overlay and time range if not explicitly provided.
-        When the user asks to analyze audio, you MUST call this tool.
-        Never ask clarifying questions.
-        Use the active timeline selection if no asset is specified.`,
+      description: `Analyze audio (max 2 min per clip) for silences, fillers, and problematic segments.
+        NEVER ask the user for asset ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        When user asks to analyze audio/music, call this tool immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipAudioSchema,
     },
   );
@@ -2863,6 +2984,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     startFrame: z.number().optional(),
     endFrame: z.number().optional(),
     fps: z.number().optional(),
+    analyzeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, analyze all video overlays (each up to 2 min). Use when user wants 'all' or multiple clips.",
+      ),
   });
 
   const analyzeClipVideo = tool(
@@ -2888,6 +3015,68 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             status: "error",
             message: "No video overlays found in project timeline.",
           });
+        }
+
+        // analyzeAll: analyze each video overlay (each up to 2 min)
+        if (input.analyzeAll && overlays.length > 1) {
+          const results: any[] = [];
+          const maxFrames = 120 * projectFps;
+          const windowFrames = Math.round(120 * projectFps);
+          for (const chosen of overlays) {
+            const chosenAny = chosen as any;
+            const hasAsset = chosenAny.assetId || (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src)));
+            if (!hasAsset) continue;
+            let startFrame: number, endFrame: number;
+            const overlayDur = chosen.durationInFrames || 0;
+            if (overlayDur > 0) {
+              startFrame = Math.max(0, chosen.from + Math.floor(Math.max(0, overlayDur - windowFrames) / 2));
+              endFrame = Math.min(chosen.from + overlayDur, startFrame + windowFrames);
+            } else {
+              startFrame = chosen.from || 0;
+              endFrame = startFrame + windowFrames;
+            }
+            if (endFrame - startFrame > maxFrames) endFrame = startFrame + maxFrames;
+            try {
+              let assetUrl: string | undefined;
+              if (chosenAny.assetId) {
+                assetUrl = await (assetResolver as any).resolveAssetUrl(chosenAny.assetId, userId);
+              } else if (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src))) {
+                assetUrl = chosenAny.src;
+              }
+              const sampleParams: any = {
+                projectId,
+                source: "asset",
+                assetId: chosenAny.assetId,
+                assetUrl,
+                startFrame,
+                endFrame,
+                fps: projectFps,
+                userId,
+                targetSampleFps: 1,
+                maxDurationSec: 120,
+              };
+              const sampledPath = await sampleVideoClip(sampleParams);
+              const geminiResult = await sendVideoToGemini({ filePath: sampledPath, prompt: "" });
+              const vision = {
+                sceneChanges: (geminiResult.sceneChanges || []).map((idx: number) => startFrame + idx * projectFps),
+                summary: geminiResult.summary || "No summary available",
+                theme: geminiResult.theme || "other",
+                gestures: geminiResult.gestures || [],
+                onScreenText: geminiResult.onScreenText || [],
+              };
+              results.push({
+                overlay: { id: chosen.id, name: chosenAny.name, from: chosen.from, durationInFrames: chosen.durationInFrames },
+                timestamps: {
+                  start: formatSecondsToHHMMSS(framesToSeconds(startFrame, projectFps)),
+                  end: formatSecondsToHHMMSS(framesToSeconds(endFrame, projectFps)),
+                },
+                vision,
+              });
+            } catch (e: any) {
+              results.push({ overlay: { id: chosen.id, name: chosenAny.name }, error: e.message });
+            }
+          }
+          return JSON.stringify({ status: "success", analyzeAll: true, results });
         }
 
         // Choose overlay: if prompt mentions a name, try to match; else choose first overlay that overlaps requested range or first overall
@@ -3048,8 +3237,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
     {
       name: "analyze_clip_video",
-      description: `Analyze a video clip (max 2 minutes) for scene changes, dead zones, gestures, and on-screen text.
-                    Auto-selects the best overlay and time range if not explicitly provided.`,
+      description: `Analyze video (max 2 min per clip) for scene changes, dead zones, gestures, on-screen text.
+        NEVER ask the user for video ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        When user asks "read video" / "what's happening", call immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipVideoSchema,
     },
   );

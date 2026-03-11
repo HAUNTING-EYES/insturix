@@ -242,6 +242,16 @@ export const createAgent = (userId: string, projectContext?: string) => {
         - object or person movement
       - OR when visual understanding is REQUIRED to complete the task
 
+    **QUICK INTENT MAPPING** (user phrasing → tool):
+    - "read vid", "read video", "analysis vid", "analysis video" → \`analyze_clip_video\`
+    - "read aud", "read audio", "read music", "analysis aud", "analysis audio" → \`analyze_clip_audio\`
+    When the user uses these phrases, use the mapped tool directly.
+
+    **CRITICAL - NEVER ASK FOR ID OR TIME**:
+    - NEVER ask the user for video/audio ID, asset ID, or time range (e.g. "which video?", "provide start/end times").
+    - Call \`analyze_clip_video\` or \`analyze_clip_audio\` with {} or minimal params. The tool auto-selects the first overlay and uses full duration up to 2 min.
+    - If user has multiple clips and wants "all" or "everything", pass \`analyzeAll: true\`.
+
     4) Confirmation rules:
       - DO NOT ask for confirmation when:
           - The user explicitly requests video/audio analysis
