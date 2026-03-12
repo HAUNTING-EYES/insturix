@@ -24,7 +24,7 @@ export interface SpeakerSegmentDoc {
 
 export interface TranscriptionDoc {
   _id?: ObjectId;
-  videoId: string;
+  taskId: string;
   audioUrl: string;
   deepgramRequestId: string;
   status: TranscriptionStatus;
@@ -48,7 +48,7 @@ export interface ChatMessageDoc {
 
 export interface ChatSessionDoc {
   _id?: ObjectId;
-  videoId: string;
+  taskId: string;
   userId: string | null;
   messages: ChatMessageDoc[];
   summary: string | null;
@@ -80,13 +80,13 @@ export async function initializeAlyzitronIndexes(): Promise<void> {
   const { transcriptions, chatSessions } = await getAlyzitronCollections();
 
   await transcriptions.createIndexes([
-    { key: { videoId: 1 }, unique: true },
+    { key: { taskId: 1 }, unique: true },
     { key: { status: 1 } },
   ]);
 
   await chatSessions.createIndexes([
-    { key: { videoId: 1, userId: 1 } },
-    { key: { videoId: 1 } },
+    { key: { taskId: 1, userId: 1 } },
+    { key: { taskId: 1 } },
   ]);
 }
 
@@ -94,27 +94,27 @@ export async function initializeAlyzitronIndexes(): Promise<void> {
 // Transcription helpers
 // ---------------------------------------------------------------------------
 export async function findTranscription(
-  videoId: string
+  taskId: string
 ): Promise<TranscriptionDoc | null> {
   return withErrorHandling(async () => {
     const { transcriptions } = await getAlyzitronCollections();
-    return transcriptions.findOne({ videoId });
+    return transcriptions.findOne({ taskId });
   });
 }
 
 export async function upsertTranscriptionProcessing(
-  videoId: string,
+  taskId: string,
   audioUrl: string
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { transcriptions } = await getAlyzitronCollections();
     const now = new Date();
     await transcriptions.updateOne(
-      { videoId },
+      { taskId },
       {
         $set:         { audioUrl, status: "processing", updatedAt: now },
         $unset:       { errorMessage: "" },
-        $setOnInsert: { createdAt: now, videoId },
+        $setOnInsert: { createdAt: now, taskId },
       },
       { upsert: true }
     );
@@ -122,13 +122,13 @@ export async function upsertTranscriptionProcessing(
 }
 
 export async function upsertTranscriptionCompleted(
-  videoId: string,
-  data: Omit<TranscriptionDoc, "_id" | "videoId" | "audioUrl" | "status" | "createdAt" | "updatedAt">
+  taskId: string,
+  data: Omit<TranscriptionDoc, "_id" | "taskId" | "audioUrl" | "status" | "createdAt" | "updatedAt">
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { transcriptions } = await getAlyzitronCollections();
     await transcriptions.updateOne(
-      { videoId },
+      { taskId },
       {
         $set: {
           ...data,
@@ -141,13 +141,13 @@ export async function upsertTranscriptionCompleted(
 }
 
 export async function upsertTranscriptionError(
-  videoId: string,
+  taskId: string,
   errorMessage: string
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { transcriptions } = await getAlyzitronCollections();
     await transcriptions.updateOne(
-      { videoId },
+      { taskId },
       { $set: { status: "error", errorMessage, updatedAt: new Date() } }
     );
   });
@@ -157,12 +157,12 @@ export async function upsertTranscriptionError(
 // Chat session helpers
 // ---------------------------------------------------------------------------
 export async function findChatSession(
-  videoId: string,
+  taskId: string,
   userId: string | null
 ): Promise<ChatSessionDoc | null> {
   return withErrorHandling(async () => {
     const { chatSessions } = await getAlyzitronCollections();
-    return chatSessions.findOne({ videoId, userId });
+    return chatSessions.findOne({ taskId, userId });
   });
 }
 
@@ -176,14 +176,14 @@ export async function findChatSessionById(
 }
 
 export async function createChatSession(
-  videoId: string,
+  taskId: string,
   userId: string | null
 ): Promise<ChatSessionDoc> {
   return withErrorHandling(async () => {
     const { chatSessions } = await getAlyzitronCollections();
     const now = new Date();
     const doc: ChatSessionDoc = {
-      videoId,
+      taskId,
       userId,
       messages: [],
       summary: null,
@@ -223,11 +223,11 @@ export async function saveChatSessionTurn(
 }
 
 export async function deleteChatSession(
-  videoId: string,
+  taskId: string,
   userId: string | null
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { chatSessions } = await getAlyzitronCollections();
-    await chatSessions.deleteOne({ videoId, userId });
+    await chatSessions.deleteOne({ taskId, userId });
   });
 }

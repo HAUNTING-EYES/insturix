@@ -1142,7 +1142,7 @@ export function AnalysisDetails({
 
       {/* Chat panel — slides in from right, sits above content */}
       <ChatPanel
-        videoId={taskId as string}
+        taskId={taskId as string}
         videoAnalysis={analysisData}
         videoTitle={videoTitle}
         userId={userId}

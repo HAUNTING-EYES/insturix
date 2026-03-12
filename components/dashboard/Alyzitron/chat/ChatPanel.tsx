@@ -48,7 +48,7 @@ interface TranscriptionMeta {
 }
 
 interface ChatPanelProps {
-  videoId: string;
+  taskId: string;
   videoAnalysis: VideoAnalysis | null;
   videoTitle?: string;
   userId?: string;
@@ -58,7 +58,7 @@ interface ChatPanelProps {
 }
 
 const SUGGESTED_PROMPTS = [
-  "Summarize this video",
+  "Is this analysis positive or negative?",
   "Who are the speakers?",
   "What are the key moments?",
   "What topics are discussed?",
@@ -66,7 +66,7 @@ const SUGGESTED_PROMPTS = [
 ];
 
 export default function ChatPanel({
-  videoId,
+  taskId,
   videoAnalysis,
   videoTitle,
   userId,
@@ -99,7 +99,7 @@ export default function ChatPanel({
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
-  }, [open, videoId]);
+  }, [open, taskId]);
 
   // ─── Auto-resize textarea ───────────────────────────────────────────────────
   useEffect(() => {
@@ -112,7 +112,7 @@ export default function ChatPanel({
   async function loadHistory() {
     setIsLoadingHistory(true);
     try {
-      const params = new URLSearchParams({ videoId });
+      const params = new URLSearchParams({ taskId });
       if (userId) params.set("userId", userId);
       const res = await fetch(`/api/services/alyzitron/chat-session?${params}`);
       const data = await res.json();
@@ -138,14 +138,14 @@ export default function ChatPanel({
 
   async function loadTranscriptionMeta() {
     try {
-      const res = await fetch(`/api/services/alyzitron/transcribe?videoId=${videoId}`);
+      const res = await fetch(`/api/services/alyzitron/transcribe?taskId=${taskId}`);
       const data = await res.json();
       setTranscriptionMeta(data);
 
       // Poll if still processing
       if (data.status === "processing") {
         pollIntervalRef.current = setInterval(async () => {
-          const r = await fetch(`/api/services/alyzitron/transcribe?videoId=${videoId}`);
+          const r = await fetch(`/api/services/alyzitron/transcribe?taskId=${taskId}`);
           const d = await r.json();
           setTranscriptionMeta(d);
           if (d.status !== "processing") {
@@ -183,7 +183,7 @@ export default function ChatPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            videoId,
+            taskId,
             sessionId,
             message: text,
             videoAnalysis,
@@ -251,7 +251,7 @@ export default function ChatPanel({
         setIsStreaming(false);
       }
     },
-    [input, isStreaming, videoId, sessionId, videoAnalysis, videoTitle, userId]
+    [input, isStreaming, taskId, sessionId, videoAnalysis, videoTitle, userId]
   );
 
   function stopStreaming() {
@@ -260,7 +260,7 @@ export default function ChatPanel({
   }
 
   async function clearChat() {
-    const params = new URLSearchParams({ videoId });
+    const params = new URLSearchParams({ taskId });
     if (userId) params.set("userId", userId);
     await fetch(`/api/services/alyzitron/chat-session?${params}`, {
       method: "DELETE",

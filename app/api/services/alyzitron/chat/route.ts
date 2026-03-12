@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { ObjectId } from "mongodb";
+// import { ObjectId } from "mongodb";
 import { runChatTurnStreaming } from "@/lib/alyzitron/chat/chatEngine";
 import {
   needsSummarization,
@@ -23,11 +23,11 @@ import {
  * to MongoDB on completion.
  *
  * Body: {
- *   videoId:       string  — required
+ *   taskId:       string  — required
  *   message:       string  — required
  *   videoAnalysis: object  — your existing Gemini analysis JSON
  *   videoTitle?:   string
- *   sessionId?:    string  — omit to auto-find or create a session for this videoId
+ *   sessionId?:    string  — omit to auto-find or create a session for this taskId
  *   userId?:       string
  * }
  *
@@ -40,11 +40,11 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { videoId, message, videoAnalysis, videoTitle, sessionId, userId } = body;
+    const { taskId, message, videoAnalysis, videoTitle, sessionId, userId } = body;
 
-    if (!videoId || !message) {
+    if (!taskId || !message) {
       return NextResponse.json(
-        { error: "videoId and message are required" },
+        { error: "taskId and message are required" },
         { status: 400 }
       );
     }
@@ -52,14 +52,14 @@ export async function POST(req: NextRequest) {
     // Load or create session
     let session: ChatSessionDoc | null = sessionId
       ? await findChatSessionById(sessionId)
-      : await findChatSession(videoId, userId ?? null);
+      : await findChatSession(taskId, userId ?? null);
 
     if (!session) {
-      session = await createChatSession(videoId, userId ?? null);
+      session = await createChatSession(taskId, userId ?? null);
     }
 
     // Load transcription server-side — never trust the client with this
-    const transcription = await findTranscription(videoId);
+    const transcription = await findTranscription(taskId);
 
     const encoder = new TextEncoder();
     let fullAssistantResponse = "";

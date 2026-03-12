@@ -15,27 +15,29 @@ import {
  * resolves in a single call (no polling). For very long videos consider
  * offloading to a background job.
  *
- * Body:    { videoId: string, audioUrl: string }
+ * Body:    { taskId: string, audioUrl: string }
  * Returns: { status, detectedLanguage, wordCount, durationMs, cached }
  */
 export async function POST(req: NextRequest) {
-  let videoId: string | undefined;
+  let taskId: string | undefined;
 
   try {
     const body = await req.json();
-    videoId = body.videoId;
+    taskId = body.taskId;
     const { audioUrl } = body;
 
-    if (!videoId || !audioUrl) {
+    if (!taskId || !audioUrl) {
       return NextResponse.json(
-        { error: "videoId and audioUrl are required" },
+        { error: "taskId and audioUrl are required" },
         { status: 400 }
       );
     }
 
-    // Return cached result if already transcribed
-    const existing = await findTranscription(videoId);
-    if (existing?.status === "completed") {
+    // Return cached result only if completed AND has real transcript content.
+    // Guards against docs left in a "completed" state with empty data from a
+    // prior partial failure (e.g. process died before upsertTranscriptionCompleted ran).
+    const existing = await findTranscription(taskId);
+    if (existing?.status === "completed" && existing.formattedTranscript) {
       return NextResponse.json({
         status: "completed",
         detectedLanguage: existing.detectedLanguage,
@@ -45,12 +47,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Mark as processing — upsert so re-triggering a failed job works cleanly
-    await upsertTranscriptionProcessing(videoId, audioUrl);
+    // Mark as processing — upsert so re-triggering a failed/partial job works cleanly
+    await upsertTranscriptionProcessing(taskId, audioUrl);
 
     const result = await transcribeAudio(audioUrl);
 
-    await upsertTranscriptionCompleted(videoId, {
+    await upsertTranscriptionCompleted(taskId, {
       deepgramRequestId: result.id,
       text: result.text,
       detectedLanguage: result.detectedLanguage,
@@ -71,8 +73,8 @@ export async function POST(req: NextRequest) {
   } catch (error: any) {
     console.error("[Alyzitron/transcribe] Error:", error);
 
-    if (videoId) {
-      await upsertTranscriptionError(videoId, error.message).catch(() => {});
+    if (taskId) {
+      await upsertTranscriptionError(taskId, error.message).catch(() => {});
     }
 
     return NextResponse.json(
@@ -83,7 +85,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * GET /api/alyzitron/transcribe?videoId=xxx
+ * GET /api/alyzitron/transcribe?taskId=xxx
  *
  * Returns transcription status and metadata.
  * The full transcript is intentionally excluded — it is loaded server-side
@@ -93,12 +95,12 @@ export async function POST(req: NextRequest) {
  */
 export async function GET(req: NextRequest) {
   try {
-    const videoId = req.nextUrl.searchParams.get("videoId");
-    if (!videoId) {
-      return NextResponse.json({ error: "videoId is required" }, { status: 400 });
+    const taskId = req.nextUrl.searchParams.get("taskId");
+    if (!taskId) {
+      return NextResponse.json({ error: "taskId is required" }, { status: 400 });
     }
 
-    const transcription = await findTranscription(videoId);
+    const transcription = await findTranscription(taskId);
     if (!transcription) {
       return NextResponse.json({ status: "not_found" }, { status: 404 });
     }
