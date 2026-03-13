@@ -215,15 +215,18 @@ ${
    - Ensure the analysis is respectful, neutral, and responsible.
 
 CRITICAL TIMESTAMP INSTRUCTIONS:
-- Include timestamps in [HH:MM:SS] format naturally WITHIN the description text, NOT as a separate field
+- Include timestamps in STRICT [HH:MM:SS] format naturally WITHIN the description text, NOT as a separate field
 - ONLY include timestamps when pointing to a SPECIFIC moment in the video
+- ONLY include timestamps for analysis, compliance_risks, strengths and weaknesses.
+- Timestamps must be lesser or equal to video length. If video length is 30 minutes then timestamp can't be [01:00:00], [00:32:00] etc.
 - If an observation applies generally to the entire video, DO NOT include a timestamp
-- Format: Use square brackets like [00:01:23] embedded naturally in the sentence
+- Format: Use square brackets like [00:01:23] embedded naturally in the sentence. Don't give timestamp like [HH:MM:SS , HH:MM:SS] or [HH:MM:SS - HH:MM:SS]. Timestamp must be in strict [HH:MM:SS] format.
 - Examples:
   ✅ GOOD: "The voiceover at [00:00:15] is clear and engaging"
   ✅ GOOD: "Potential copyright issue visible at [00:01:30] with the background music"
   ✅ GOOD: "The video maintains consistent quality throughout" (no timestamp - general)
   ❌ BAD: Don't add timestamps to every single description
+  ❌ BAD: Don't give timestamps like [HH:MM:SS - HH:MM:SS] to specify range.
 
 ANALYSIS REQUIREMENTS:
 1. Provide a detailed summary of what happens in the video

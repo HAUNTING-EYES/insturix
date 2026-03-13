@@ -17,6 +17,20 @@ interface LinkPreview {
 
 import type { SocializeLink } from "@/schemas/Socialize";
 
+const formatDomainName = (urlString?: string) => {
+  if (!urlString) return "Website";
+  try {
+    const parsedUrl = new URL(urlString);
+    let hostname = parsedUrl.hostname;
+    if (hostname.startsWith('www.')) {
+      hostname = hostname.slice(4);
+    }
+    return hostname.charAt(0).toUpperCase() + hostname.slice(1);
+  } catch {
+    return urlString;
+  }
+};
+
 interface SocializeLinkPreviewCardProps {
   selectedLinkIndex: number | null
   isPreviewLoading: boolean
@@ -55,30 +69,34 @@ export function SocializeLinkPreviewCard({
             </div>
           ) : (
             <div className="rounded-lg overflow-hidden border border-[#0e6b9c]/30">
-              <div className="aspect-video bg-gray-800 relative overflow-hidden">
-                {previewData?.image ? (
+              {!!previewData?.image && (
+                <div className="aspect-video bg-gray-800 relative overflow-hidden">
                   <Image
-                    src={previewData.image || "/placeholder.svg"}
+                    src={previewData.image}
                     alt={previewData.title || "Link preview"}
                     width={500}
                     height={300}
                     className="w-full h-full object-cover"
                   />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center bg-gray-900">
-                    <Share2 className="w-10 h-10 text-gray-700" />
-                  </div>
-                )}
-              </div>
+                </div>
+              )}
               <div className="p-4 bg-black/60">
-                <h3 className="font-medium text-white mb-2 line-clamp-2">
-                  {previewData?.title || "No title available"}
-                </h3>
-                <p className="text-gray-300 text-sm line-clamp-3">
-                  {previewData?.description || "No description available"}
-                </p>
+                {(!previewData?.title && !previewData?.description) ? (
+                  <h3 className="font-medium text-white mb-2 line-clamp-2 break-all">
+                    {formatDomainName(userLinks?.[selectedLinkIndex]?.url)}
+                  </h3>
+                ) : (
+                  <>
+                    <h3 className="font-medium text-white mb-2 line-clamp-2">
+                      {previewData?.title || "No title available"}
+                    </h3>
+                    <p className="text-gray-300 text-sm line-clamp-3">
+                      {previewData?.description || "No description available"}
+                    </p>
+                  </>
+                )}
                 <div className="mt-4 flex items-center justify-between">
-                  <Badge variant="outline" className="text-xs text-gray-400 truncate max-w-[180px]">
+                  <Badge variant="outline" className="text-xs text-gray-400 truncate max-w-[180px] capitalize">
                     {userLinks?.[selectedLinkIndex]?.platform}
                   </Badge>
                   <Button variant="link" size="sm" className="text-[#0e6b9c] hover:text-[#0e6b9c]/80 p-0" asChild>

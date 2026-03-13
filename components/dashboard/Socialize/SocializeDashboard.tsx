@@ -60,11 +60,11 @@ interface ISocialize {
   links: SocializeLink[];
   banner?: BannerConfig;
   uniqueUsername?: string;
-  notifications?: { 
-    message: string; 
+  notifications?: {
+    message: string;
     duration: number;
     // --- ADD THESE TWO FIELDS ---
-    timestamp?: string; 
+    timestamp?: string;
     expiresAt?: string;
     // ----------------------------
   }[];
@@ -353,7 +353,7 @@ export default function SocializeDashboard({
         },
       }
     );
- };
+  };
 
   const handleEditLink = (index: number) => {
     if (!links) return;
@@ -393,7 +393,7 @@ export default function SocializeDashboard({
         },
       }
     );
- };
+  };
 
   const handleSaveBio = async () => {
     updateUserDataMutation.mutate(
@@ -552,20 +552,20 @@ export default function SocializeDashboard({
     });
   };
   // console.log("Notifications:", userData?.updates);
-//      const activeNotification =
-//   userData?.notifications?.find((n) => !isNotificationExpired(n)) ?? null;
-// // Force re-check every minute to auto-hide expired notifications
-// Auto-filter out expired notifications
-const activeNotification =
-  (userData?.notifications ?? []).filter((n) => !isNotificationExpired(n))[0] ??
-  null;
+  //      const activeNotification =
+  //   userData?.notifications?.find((n) => !isNotificationExpired(n)) ?? null;
+  // // Force re-check every minute to auto-hide expired notifications
+  // Auto-filter out expired notifications
+  const activeNotification =
+    (userData?.notifications ?? []).filter((n) => !isNotificationExpired(n))[0] ??
+    null;
 
-// Re-render every minute to re-check expiry
-const [, forceRender] = useState(0);
-useEffect(() => {
-  const interval = setInterval(() => forceRender((v) => v + 1), 10_000);
-  return () => clearInterval(interval);
-}, []);
+  // Re-render every minute to re-check expiry
+  const [, forceRender] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => forceRender((v) => v + 1), 10_000);
+    return () => clearInterval(interval);
+  }, []);
 
 
 
@@ -630,57 +630,57 @@ useEffect(() => {
                 </Button>
               </div>
             )} */}
-         
-{userData?.notifications && userData.notifications.length > 0 ? (
-  <div className="mb-6 space-y-3">
-    {userData.notifications.filter((n) => !isNotificationExpired(n)).map((notification, index) => (
-      <SocializeNotificationCard
-        key={`${index}-${notification.message}`}
-        message={notification.message}
-        duration={notification.duration}
-        timestamp={notification.timestamp}
-        expiresAt={notification.expiresAt}
-        onEdit={() => {
-          setEditingNotificationIndex(index);
-          setMessage(notification.message);
-          setDuration(notification.duration);
-          setShowUpdatePopup(true);
-        }}
-        onDelete={() => deleteNotificationMutation.mutate({ notificationIndex: index })}
-        isDeleting={deleteNotificationMutation.isPending && deleteNotificationMutation.variables?.notificationIndex === index}
-      />
-    ))}
-    <Button
-      variant="outline"
-      className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
-      onClick={() => {
-        setEditingNotificationIndex(null);
-        setMessage("");
-        setDuration(1);
-        setShowUpdatePopup(true);
-      }}
-    >
-      <Bell className="w-4 h-4 mr-2" />
-      Add Another Update
-    </Button>
-  </div>
-) : (
-  <div className="mb-6">
-    <Button
-      variant="outline"
-      className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
-      onClick={() => {
-        setEditingNotificationIndex(null);
-        setMessage("");
-        setDuration(1);
-        setShowUpdatePopup(true);
-      }}
-    >
-      <Bell className="w-4 h-4 mr-2" />
-      Add a New Update
-    </Button>
-  </div>
-)}
+
+            {userData?.notifications && userData.notifications.length > 0 ? (
+              <div className="mb-6 space-y-3">
+                {userData.notifications.filter((n) => !isNotificationExpired(n)).map((notification, index) => (
+                  <SocializeNotificationCard
+                    key={`${index}-${notification.message}`}
+                    message={notification.message}
+                    duration={notification.duration}
+                    timestamp={notification.timestamp}
+                    expiresAt={notification.expiresAt}
+                    onEdit={() => {
+                      setEditingNotificationIndex(index);
+                      setMessage(notification.message);
+                      setDuration(notification.duration);
+                      setShowUpdatePopup(true);
+                    }}
+                    onDelete={() => deleteNotificationMutation.mutate({ notificationIndex: index })}
+                    isDeleting={deleteNotificationMutation.isPending && deleteNotificationMutation.variables?.notificationIndex === index}
+                  />
+                ))}
+                <Button
+                  variant="outline"
+                  className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                  onClick={() => {
+                    setEditingNotificationIndex(null);
+                    setMessage("");
+                    setDuration(1);
+                    setShowUpdatePopup(true);
+                  }}
+                >
+                  <Bell className="w-4 h-4 mr-2" />
+                  Add Another Update
+                </Button>
+              </div>
+            ) : (
+              <div className="mb-6">
+                <Button
+                  variant="outline"
+                  className="w-full border-[#0e6b9c]/30 hover:bg-[#0c4362] hover:text-white"
+                  onClick={() => {
+                    setEditingNotificationIndex(null);
+                    setMessage("");
+                    setDuration(1);
+                    setShowUpdatePopup(true);
+                  }}
+                >
+                  <Bell className="w-4 h-4 mr-2" />
+                  Add a New Update
+                </Button>
+              </div>
+            )}
 
 
             <SocializeLinksCard

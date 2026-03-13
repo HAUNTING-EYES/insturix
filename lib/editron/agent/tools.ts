@@ -28,20 +28,145 @@ import {
   injectFancyCaptionTiming,
   type WordTiming,
 } from "../utils/html-generator-utils";
-import {
-  formatSecondsToHHMMSS,
-  framesToSeconds,
-  parsePromptTimeRange,
-  parseTimeToSeconds,
-} from "../utils/analysis";
+
 import { assetResolver } from "../services/asset-resolver";
-import {
-  sampleVideoClip,
-  sendVideoToGemini,
-} from "../services/media/analysis-service";
+import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
+import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
+  interface ToolEnvelope {
+    status: "success" | "error";
+    data: Record<string, any> | null;
+    error: {
+      message: string;
+      code?: string;
+      details?: Record<string, any>;
+    } | null;
+    nextAction: "continue" | "retry" | "ask_clarification" | "stop";
+  }
+
+  function successEnvelope(
+    data: Record<string, any> | null,
+    nextAction: ToolEnvelope["nextAction"] = "continue",
+  ): string {
+    const envelope: ToolEnvelope = {
+      status: "success",
+      data: data ?? {},
+      error: null,
+      nextAction,
+    };
+    return JSON.stringify(envelope);
+  }
+
+  function errorEnvelope(
+    message: string,
+    code = "TOOL_ERROR",
+    details?: Record<string, any>,
+    nextAction: ToolEnvelope["nextAction"] = "retry",
+  ): string {
+    const envelope: ToolEnvelope = {
+      status: "error",
+      data: null,
+      error: {
+        message,
+        code,
+        details,
+      },
+      nextAction,
+    };
+    return JSON.stringify(envelope);
+  }
+
+  function normalizeToolOutput(rawOutput: unknown): string {
+    if (typeof rawOutput === "string") {
+      const trimmed = rawOutput.trim();
+      if (!trimmed) {
+        return successEnvelope({ message: "Tool completed with empty response." }, "continue");
+      }
+
+      // Preserve legacy plain-string errors from existing tools.
+      // Some handlers still return "Error: ..." instead of JSON.
+      if (/^error\s*:/i.test(trimmed)) {
+        const message = trimmed.replace(/^error\s*:\s*/i, "").trim() || "Tool execution failed.";
+        return errorEnvelope(message, "TOOL_STRING_ERROR", { raw: trimmed }, "retry");
+      }
+
+      try {
+        const parsed = JSON.parse(trimmed) as Record<string, any>;
+        const hasEnvelopeShape =
+          typeof parsed?.status === "string" &&
+          "data" in parsed &&
+          "error" in parsed &&
+          "nextAction" in parsed;
+
+        if (hasEnvelopeShape) return JSON.stringify(parsed);
+
+        if (parsed.status === "error") {
+          return errorEnvelope(
+            parsed.message || parsed.error || "Tool execution failed.",
+            "TOOL_HANDLER_ERROR",
+            { raw: parsed },
+            parsed.nextAction || "retry",
+          );
+        }
+
+        if (parsed.status === "success") {
+          const { status, error, nextAction, ...rest } = parsed;
+          return successEnvelope(rest, nextAction || "continue");
+        }
+
+        return successEnvelope(parsed, "continue");
+      } catch {
+        return successEnvelope({ text: trimmed }, "continue");
+      }
+    }
+
+    if (rawOutput && typeof rawOutput === "object") {
+      const parsed = rawOutput as Record<string, any>;
+      const hasEnvelopeShape =
+        typeof parsed?.status === "string" &&
+        "data" in parsed &&
+        "error" in parsed &&
+        "nextAction" in parsed;
+      if (hasEnvelopeShape) return JSON.stringify(parsed);
+
+      if (parsed.status === "error") {
+        return errorEnvelope(
+          parsed.message || parsed.error || "Tool execution failed.",
+          "TOOL_HANDLER_ERROR",
+          { raw: parsed },
+        );
+      }
+
+      if (parsed.status === "success") {
+        const { status, error, nextAction, ...rest } = parsed;
+        return successEnvelope(rest, nextAction || "continue");
+      }
+
+      return successEnvelope(parsed, "continue");
+    }
+
+    return successEnvelope({ value: rawOutput as any }, "continue");
+  }
+
+  function wrapToolWithEnvelope<T extends { invoke: (...args: any[]) => Promise<any> }>(toolInstance: T): T {
+    const originalInvoke = toolInstance.invoke.bind(toolInstance);
+    toolInstance.invoke = (async (...args: any[]) => {
+      try {
+        const raw = await originalInvoke(...args);
+        return normalizeToolOutput(raw);
+      } catch (error: any) {
+        return errorEnvelope(
+          error?.message || "Unexpected tool invocation failure.",
+          "TOOL_INVOKE_EXCEPTION",
+          { stack: error?.stack },
+        );
+      }
+    }) as T["invoke"];
+    return toolInstance;
+  }
+
   
   // Helper to load project
   const loadProject = async () => {
@@ -121,6 +246,70 @@ export const createTools = (userId: string, projectId: string) => {
     }
     return result;
   };
+
+  const animationStyleSchema = z
+    .object({
+      enter: z.string().optional(),
+      exit: z.string().optional(),
+      duration: z.coerce.number().optional(),
+    })
+    .strict()
+    .optional();
+
+  const textOverlayStylesSchema = z
+    .object({
+      fontSize: z.union([z.coerce.number(), z.string()]).optional(),
+      fontFamily: z.string().optional(),
+      fontWeight: z.union([z.coerce.number(), z.string()]).optional(),
+      textAlign: z.enum(["left", "center", "right", "justify"]).optional(),
+      color: z.string().optional(),
+      backgroundColor: z.string().optional(),
+      fontStyle: z.enum(["normal", "italic", "oblique"]).optional(),
+      textDecoration: z
+        .enum(["none", "underline", "line-through", "overline"])
+        .optional(),
+      textShadow: z.string().optional(),
+      lineHeight: z.union([z.coerce.number(), z.string()]).optional(),
+      letterSpacing: z.union([z.coerce.number(), z.string()]).optional(),
+      opacity: z.coerce.number().optional(),
+      animation: animationStyleSchema,
+    })
+    .strict();
+
+  const mediaOverlayStylesSchema = z
+    .object({
+      objectFit: z.enum(["cover", "contain", "fill"]).optional(),
+      volume: z.coerce.number().optional(),
+      opacity: z.coerce.number().optional(),
+      borderRadius: z.string().optional(),
+      animation: animationStyleSchema,
+    })
+    .strict();
+
+  const shapeOverlayStylesSchema = z
+    .object({
+      fill: z.string().optional(),
+      stroke: z.string().optional(),
+      strokeWidth: z.coerce.number().optional(),
+      opacity: z.coerce.number().optional(),
+      borderRadius: z.string().optional(),
+    })
+    .strict();
+
+  const genericOverlayStylesSchema = z
+    .object({
+      opacity: z.coerce.number().optional(),
+      borderRadius: z.string().optional(),
+      animation: animationStyleSchema,
+    })
+    .strict();
+
+  const overlayStylesUpdateSchema = z.union([
+    textOverlayStylesSchema,
+    mediaOverlayStylesSchema,
+    shapeOverlayStylesSchema,
+    genericOverlayStylesSchema,
+  ]);
 
 
   // --- READ TOOLS ---
@@ -601,7 +790,9 @@ TYPE-SPECIFIC FIELDS:
     height: z.union([z.coerce.number(), z.string()]).optional().describe("New height"),
     rotation: z.coerce.number().optional(),
     row: z.coerce.number().optional().describe("Move to specific row"),
-    styles: z.any().optional().describe("Partial styles object to merge"),
+    styles: overlayStylesUpdateSchema
+      .optional()
+      .describe("Typed partial styles to merge (text/media/shape/generic)."),
   });
 
   const updateOverlay = tool(
@@ -685,7 +876,7 @@ TYPE-SPECIFIC FIELDS:
       height: z.union([z.coerce.number(), z.string()]).optional(),
       rotation: z.coerce.number().optional(),
       row: z.coerce.number().optional(),
-      styles: z.any().optional(),
+      styles: overlayStylesUpdateSchema.optional(),
     })).describe("Array of updates to apply")
   });
 
@@ -1643,7 +1834,7 @@ Use 'single' mode to get transcript for a specific clip only.`,
         
         // Use media services
         const { analyzeContent, analysisToTimelineFrames } = await import('../services/media');
-        const analysis = await analyzeContent(overlay.assetId, userId, {
+        const analysis: any = await analyzeContent(overlay.assetId, userId, {
           silenceThresholdMs: input.silenceThresholdMs,
         });
         
@@ -1915,7 +2106,7 @@ IMPORTANT: If caption exists, pass overwrite: true or it will error.`,
         const { refreshCaptions } = await import('../services/media');
         const updatedCaption = await refreshCaptions({
           captionOverlay,
-          videoOverlay,
+          videoOverlay: videoOverlay as any,
           userId,
           playerDimensions: canvas,
           fps,
@@ -2050,12 +2241,20 @@ Linked captions are automatically moved with their videos.`,
       .describe("Custom end frame (only if segmentType='custom')"),
     
     // Style configuration
-    style: z.enum(['bento', 'scattered', 'minimal']).optional().default('bento')
-      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating), 'minimal' (centered stack)"),
+    style: z.enum(['bento', 'scattered', 'minimal', 'static', 'kinetic']).optional().default('bento')
+      .describe("Layout style: 'bento' (tight grid, default), 'scattered' (floating, aka scatter mode), 'kinetic' (balanced storytelling mode), 'minimal' (centered stack), 'static' (fixed non-scattered fancy layout, aka static manner)"),
+    intensity: z.enum(['low', 'medium', 'high']).optional().default('medium')
+      .describe("Visual intensity level: low (subtle), medium (balanced default), high (more dramatic)"),
     primaryColor: z.string().optional().describe("Primary text color, e.g., '#ffffff'"),
     accentColor: z.string().optional().describe("Accent color for hero words, e.g., '#FFE66D'"),
     backgroundColor: z.string().optional().default('transparent')
       .describe("Background color (default: transparent)"),
+    lockTypography: z.coerce.boolean().optional().default(false)
+      .describe("Lock typography system across generations for consistency"),
+    fontPair: z.string().optional().describe("Typography lock: preferred font pair label, e.g. 'Oswald + Playfair Display'"),
+    strokeStyle: z.string().optional().describe("Typography lock: stroke style hint"),
+    shadowStyle: z.string().optional().describe("Typography lock: shadow style hint"),
+    paletteHint: z.string().optional().describe("Typography lock: palette/system hint"),
     
     // Limits
     maxWords: z.coerce.number().optional().default(15)
@@ -2156,15 +2355,65 @@ Linked captions are automatically moved with their videos.`,
         // Calculate total duration for exit animation
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         
-        // Build prompt
+        // Use the video overlay's actual box — not the full canvas.
+        // The video may be letterboxed inside the composition.
+        const videoBox = {
+          left: overlay.left ?? 0,
+          top: overlay.top ?? 0,
+          width: overlay.width ?? canvas.width,
+          height: overlay.height ?? canvas.height,
+        };
+
+        // Build typography lock profile (for consistency across clips/regenerations)
+        const linkedFancyCaptions = project.overlays
+          .filter((o: any) =>
+            o.type === 'html-scene' &&
+            o.metadata?.sourceType === 'fancy-caption' &&
+            o.sourceVideoId === input.videoOverlayId
+          )
+          .sort((a: any, b: any) => (b.id || 0) - (a.id || 0));
+        const latestFancyCaption = linkedFancyCaptions[0] as any;
+
+        const derivedFontPairFromMetadata =
+          latestFancyCaption?.metadata?.fonts?.length >= 2
+            ? `${latestFancyCaption.metadata.fonts[0]} + ${latestFancyCaption.metadata.fonts[1]}`
+            : latestFancyCaption?.metadata?.fonts?.[0];
+
+        const typographyProfile =
+          input.lockTypography
+            ? {
+                fontPair:
+                  input.fontPair ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.fontPair ||
+                  derivedFontPairFromMetadata ||
+                  'Oswald + Playfair Display',
+                strokeStyle:
+                  input.strokeStyle ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.strokeStyle ||
+                  'subtle 1-2px stroke on selected hero words',
+                shadowStyle:
+                  input.shadowStyle ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.shadowStyle ||
+                  '2px 2px 0 rgba(0,0,0,0.8)',
+                paletteHint:
+                  input.paletteHint ||
+                  latestFancyCaption?.fancyCaptionConfig?.typographyProfile?.paletteHint ||
+                  `${input.primaryColor || '#FFFFFF'} / ${input.accentColor || '#FFE66D'}`,
+              }
+            : undefined;
+
+        // Build prompt using the video's box dimensions
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
-          canvasWidth: canvas.width,
-          canvasHeight: canvas.height,
+          canvasWidth: videoBox.width,
+          canvasHeight: videoBox.height,
           style: input.style || 'bento',
+          intensity: input.intensity || 'medium',
           primaryColor: input.primaryColor,
           accentColor: input.accentColor,
           backgroundColor: input.backgroundColor || 'transparent',
+          lockTypography: input.lockTypography || false,
+          typographyProfile,
         });
         
         // ===== DEBUG: Log the prompt being sent to LLM =====
@@ -2237,17 +2486,15 @@ Linked captions are automatically moved with their videos.`,
         cleanHtml = injectFancyCaptionTiming(cleanHtml, totalDurationMs);
         console.log('[FANCY-CAPTIONS] Injected programmatic timing CSS for', classifiedWords.length, 'words');
         
-        // Wrap in sandbox with auto-fit enabled
+        // Wrap in sandbox using the video's box dimensions
         const wrappedHtml = createSandboxedWrapper({
           html: cleanHtml,
-          width: canvas.width,
-          height: canvas.height,
+          width: videoBox.width,
+          height: videoBox.height,
           backgroundColor: input.backgroundColor || 'transparent',
           autoFit: true,
         });
 
-        
-        // Extract metadata for consistency
         const styleMetadata = extractStyleMetadata(cleanHtml);
         const metadata: HtmlGenerationMetadata = {
           ...styleMetadata,
@@ -2256,7 +2503,6 @@ Linked captions are automatically moved with their videos.`,
           wordCount: classifiedWords.length,
         };
         
-        // Create overlay
         const id = Date.now() + Math.floor(Math.random() * 10000);
         const segmentDuration = segmentEndFrame - segmentStartFrame;
         
@@ -2268,7 +2514,6 @@ Linked captions are automatically moved with their videos.`,
         );
         
         if (hasCollisionAtRow0) {
-          // Shift all overlays down by 1 row
           const { getDatabase, COLLECTIONS } = await import('../db/mongodb');
           const database = await getDatabase();
           await database.collection(COLLECTIONS.PROJECTS).updateOne(
@@ -2277,9 +2522,10 @@ Linked captions are automatically moved with their videos.`,
           );
         }
 
+        // Position the caption overlay exactly on top of the video overlay's box
         const newOverlay = {
           id,
-          type: 'html-scene', // Using html-scene type for rendering compatibility
+          type: 'html-scene',
           from: segmentStartFrame,
           durationInFrames: segmentDuration,
           content: wrappedHtml,
@@ -2288,18 +2534,21 @@ Linked captions are automatically moved with their videos.`,
           sourceVideoId: overlay.id,
           fancyCaptionConfig: {
             style: input.style || 'bento',
+            intensity: input.intensity || 'medium',
             segmentStartOffsetFrames: segmentStartFrame - overlay.from,
             segmentDurationFrames: segmentDuration,
             maxWords,
             primaryColor: input.primaryColor,
             accentColor: input.accentColor,
             backgroundColor: input.backgroundColor || 'transparent',
+            lockTypography: input.lockTypography || false,
+            typographyProfile,
           },
           row: 0,
-          left: 0,
-          top: 0,
-          width: canvas.width,
-          height: canvas.height,
+          left: videoBox.left,
+          top: videoBox.top,
+          width: videoBox.width,
+          height: videoBox.height,
           rotation: 0,
           isDragging: false,
           styles: {
@@ -2323,6 +2572,8 @@ Linked captions are automatically moved with their videos.`,
           wordCount: classifiedWords.length,
           words: classifiedWords.map(w => w.word),
           style: input.style || 'bento',
+          intensity: input.intensity || 'medium',
+          lockTypography: input.lockTypography || false,
           segmentType: input.segmentType || 'hook',
           startFrame: segmentStartFrame,
           endFrame: segmentEndFrame,
@@ -2332,7 +2583,7 @@ Linked captions are automatically moved with their videos.`,
             backgroundColor: metadata.backgroundColor,
           },
           rowsShifted: hasCollisionAtRow0,
-          message: `Added fancy ${input.style || 'bento'}-style captions with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
+          message: `Added fancy ${input.style || 'bento'}-style captions (${input.intensity || 'medium'} intensity) with ${classifiedWords.length} words. Fonts: ${metadata.fonts.join(', ') || 'system'}. Colors: ${metadata.colors.slice(0, 3).join(', ')}.`,
         });
         
       } catch (e: any) {
@@ -2353,8 +2604,20 @@ USAGE GUIDANCE:
 
 STYLES:
 - 'bento' (default): Tight grid layout, mixed fonts, editorial look
-- 'scattered': Floating words at different positions with rotations
+- 'scattered': Floating words at different positions with rotations (scatter mode)
+- 'kinetic': Balanced storytelling mode (the middle between scattered and static)
 - 'minimal': Clean centered stack, simple animations
+- 'static': Fancy but stable block layout (static manner, no scattered placement/rotations)
+
+INTENSITY:
+- 'low': subtle motion and contrast
+- 'medium' (default): balanced storytelling
+- 'high': more dramatic hierarchy and motion
+
+CONSISTENCY + QUALITY:
+- lockTypography: preserve font/effects system across generations
+- semantic CTA emphasis and beat-aware hero emphasis are applied automatically
+- safe layout constraints prevent clipping and overlap
 
 LIMITS: Max 15-25 words per call. For longer content, call multiple times.
 
@@ -2365,7 +2628,13 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
 
   const refreshFancyCaptionsSchema = z.object({
     fancyCaptionOverlayId: z.coerce.number().describe("ID of the fancy caption html-scene overlay to refresh"),
-    newStyle: z.enum(['bento', 'scattered', 'minimal']).optional().describe("Optional new fancy caption style"),
+    newStyle: z.enum(['bento', 'scattered', 'minimal', 'static', 'kinetic']).optional().describe("Optional new fancy caption style"),
+    newIntensity: z.enum(['low', 'medium', 'high']).optional().describe("Optional new intensity"),
+    lockTypography: z.coerce.boolean().optional().describe("Optional typography lock override"),
+    fontPair: z.string().optional().describe("Typography lock: preferred font pair label"),
+    strokeStyle: z.string().optional().describe("Typography lock: stroke style hint"),
+    shadowStyle: z.string().optional().describe("Typography lock: shadow style hint"),
+    paletteHint: z.string().optional().describe("Typography lock: palette/system hint"),
   });
 
   const refreshFancyCaptionsAI = tool(
@@ -2441,15 +2710,36 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
         const classifiedWords = classifyWordTimings(wordsInRange);
         const totalDurationMs = Math.round(segmentEndMs - segmentStartMs);
         const style = input.newStyle || config.style || 'bento';
+        const intensity = input.newIntensity || config.intensity || 'medium';
+        const lockTypography = input.lockTypography ?? config.lockTypography ?? false;
+        const typographyProfile = lockTypography
+          ? {
+              fontPair: input.fontPair || config.typographyProfile?.fontPair,
+              strokeStyle: input.strokeStyle || config.typographyProfile?.strokeStyle,
+              shadowStyle: input.shadowStyle || config.typographyProfile?.shadowStyle,
+              paletteHint: input.paletteHint || config.typographyProfile?.paletteHint || `${config.primaryColor || '#FFFFFF'} / ${config.accentColor || '#FFE66D'}`,
+            }
+          : undefined;
+
+        // Use the video overlay's actual box dimensions
+        const videoBox = {
+          left: videoOverlay.left ?? 0,
+          top: videoOverlay.top ?? 0,
+          width: videoOverlay.width ?? canvas.width,
+          height: videoOverlay.height ?? canvas.height,
+        };
 
         const prompt = buildFancyCaptionPrompt({
           words: classifiedWords,
-          canvasWidth: canvas.width,
-          canvasHeight: canvas.height,
+          canvasWidth: videoBox.width,
+          canvasHeight: videoBox.height,
           style,
+          intensity,
           primaryColor: config.primaryColor,
           accentColor: config.accentColor,
           backgroundColor: config.backgroundColor || 'transparent',
+          lockTypography,
+          typographyProfile,
         });
 
         const model = new ChatGoogleGenerativeAI({
@@ -2480,8 +2770,8 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
 
         const wrappedHtml = createSandboxedWrapper({
           html: cleanHtml,
-          width: canvas.width,
-          height: canvas.height,
+          width: videoBox.width,
+          height: videoBox.height,
           backgroundColor: config.backgroundColor || 'transparent',
           autoFit: true,
         });
@@ -2494,6 +2784,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           wordCount: classifiedWords.length,
         };
 
+        // Re-sync caption position to match the video overlay's current box
         await projectService.updateOverlay(userId, projectId, fancyOverlay.id, {
           from: segmentStartFrame,
           durationInFrames: segmentEndFrame - segmentStartFrame,
@@ -2501,9 +2792,16 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           prompt: `Fancy captions: ${classifiedWords.map((w) => w.word).join(' ')}` as any,
           metadata: metadata as any,
           sourceVideoId: videoOverlay.id as any,
+          left: videoBox.left as any,
+          top: videoBox.top as any,
+          width: videoBox.width as any,
+          height: videoBox.height as any,
           fancyCaptionConfig: {
             ...config,
             style,
+            intensity,
+            lockTypography,
+            typographyProfile,
             segmentDurationFrames: segmentEndFrame - segmentStartFrame,
           } as any,
         } as any);
@@ -2513,6 +2811,7 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           id: fancyOverlay.id,
           sourceVideoId: videoOverlay.id,
           style,
+          intensity,
           wordCount: classifiedWords.length,
           startFrame: segmentStartFrame,
           endFrame: segmentEndFrame,
@@ -2567,6 +2866,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     startFrame: z.number().optional(),
     endFrame: z.number().optional(),
     fps: z.number().optional(),
+    analyzeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, analyze all audio/video overlays (each up to 2 min). Use when user wants 'all' or multiple clips.",
+      ),
   });
 
   const analyzeClipAudio = tool(
@@ -2633,6 +2938,41 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             message:
               "No audio or video overlays with assets found. Upload media first.",
           });
+        }
+
+        // analyzeAll: analyze each overlay (each up to 2 min)
+        if (input.analyzeAll && overlays.length > 1) {
+          const { analyzeClipAudioService }: any = await import("../services/media");
+          const results: any[] = [];
+          const maxFrames = 120 * projectFps;
+          for (const o of overlays) {
+            if (!o.assetId) continue;
+            const overlayDur = o.durationInFrames || 0;
+            const windowFrames = Math.min(maxFrames, overlayDur > 0 ? overlayDur : maxFrames);
+            const startFrame = o.from || 0;
+            const endFrame = startFrame + Math.min(windowFrames, overlayDur > 0 ? overlayDur : maxFrames);
+            try {
+              const result = await analyzeClipAudioService({
+                projectId,
+                userId,
+                source: "asset",
+                assetId: o.assetId,
+                startFrame,
+                endFrame,
+                fps: projectFps,
+              });
+              results.push({
+                overlay: { id: o.id, assetId: o.assetId, name: (o as any).name, type: o.type },
+                summary: result.summary,
+                silences: result.silenceGapsFrames.length,
+                fillers: result.fillers.length,
+                problematic: result.problematicFrames.length,
+              });
+            } catch (e: any) {
+              results.push({ overlay: { id: o.id, assetId: o.assetId, name: (o as any).name }, error: e.message });
+            }
+          }
+          return JSON.stringify({ status: "success", type: "audio", analyzeAll: true, results });
         }
 
         // 3) Choose overlay - check if target is an assetId first
@@ -2817,11 +3157,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
     {
       name: "analyze_clip_audio",
-      description: `Analyze an audio clip (max 2 minutes) for silences, filler words, and problematic segments.
-        Auto-selects the best overlay and time range if not explicitly provided.
-        When the user asks to analyze audio, you MUST call this tool.
-        Never ask clarifying questions.
-        Use the active timeline selection if no asset is specified.`,
+      description: `Analyze audio (max 2 min per clip) for silences, fillers, and problematic segments.
+        NEVER ask the user for asset ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        When user asks to analyze audio/music, call this tool immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipAudioSchema,
     },
   );
@@ -2863,6 +3201,12 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     startFrame: z.number().optional(),
     endFrame: z.number().optional(),
     fps: z.number().optional(),
+    analyzeAll: z
+      .boolean()
+      .optional()
+      .describe(
+        "If true, analyze all video overlays (each up to 2 min). Use when user wants 'all' or multiple clips.",
+      ),
   });
 
   const analyzeClipVideo = tool(
@@ -2888,6 +3232,68 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             status: "error",
             message: "No video overlays found in project timeline.",
           });
+        }
+
+        // analyzeAll: analyze each video overlay (each up to 2 min)
+        if (input.analyzeAll && overlays.length > 1) {
+          const results: any[] = [];
+          const maxFrames = 120 * projectFps;
+          const windowFrames = Math.round(120 * projectFps);
+          for (const chosen of overlays) {
+            const chosenAny = chosen as any;
+            const hasAsset = chosenAny.assetId || (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src)));
+            if (!hasAsset) continue;
+            let startFrame: number, endFrame: number;
+            const overlayDur = chosen.durationInFrames || 0;
+            if (overlayDur > 0) {
+              startFrame = Math.max(0, chosen.from + Math.floor(Math.max(0, overlayDur - windowFrames) / 2));
+              endFrame = Math.min(chosen.from + overlayDur, startFrame + windowFrames);
+            } else {
+              startFrame = chosen.from || 0;
+              endFrame = startFrame + windowFrames;
+            }
+            if (endFrame - startFrame > maxFrames) endFrame = startFrame + maxFrames;
+            try {
+              let assetUrl: string | undefined;
+              if (chosenAny.assetId) {
+                assetUrl = await (assetResolver as any).resolveAssetUrl(chosenAny.assetId, userId);
+              } else if (chosenAny.src && /^https?:\/\//i.test(String(chosenAny.src))) {
+                assetUrl = chosenAny.src;
+              }
+              const sampleParams: any = {
+                projectId,
+                source: "asset",
+                assetId: chosenAny.assetId,
+                assetUrl,
+                startFrame,
+                endFrame,
+                fps: projectFps,
+                userId,
+                targetSampleFps: 1,
+                maxDurationSec: 120,
+              };
+              const sampledPath = await sampleVideoClip(sampleParams);
+              const geminiResult = await sendVideoToGemini({ filePath: sampledPath, prompt: "" });
+              const vision = {
+                sceneChanges: (geminiResult.sceneChanges || []).map((idx: number) => startFrame + idx * projectFps),
+                summary: geminiResult.summary || "No summary available",
+                theme: geminiResult.theme || "other",
+                gestures: geminiResult.gestures || [],
+                onScreenText: geminiResult.onScreenText || [],
+              };
+              results.push({
+                overlay: { id: chosen.id, name: chosenAny.name, from: chosen.from, durationInFrames: chosen.durationInFrames },
+                timestamps: {
+                  start: formatSecondsToHHMMSS(framesToSeconds(startFrame, projectFps)),
+                  end: formatSecondsToHHMMSS(framesToSeconds(endFrame, projectFps)),
+                },
+                vision,
+              });
+            } catch (e: any) {
+              results.push({ overlay: { id: chosen.id, name: chosenAny.name }, error: e.message });
+            }
+          }
+          return JSON.stringify({ status: "success", analyzeAll: true, results });
         }
 
         // Choose overlay: if prompt mentions a name, try to match; else choose first overlay that overlaps requested range or first overall
@@ -3048,8 +3454,9 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
     {
       name: "analyze_clip_video",
-      description: `Analyze a video clip (max 2 minutes) for scene changes, dead zones, gestures, and on-screen text.
-                    Auto-selects the best overlay and time range if not explicitly provided.`,
+      description: `Analyze video (max 2 min per clip) for scene changes, dead zones, gestures, on-screen text.
+        NEVER ask the user for video ID or time range. Call with {} or minimal params - tool auto-selects first overlay and uses full duration up to 2 min.
+        When user asks "read video" / "what's happening", call immediately. For multiple overlays, pass analyzeAll: true to analyze each (each up to 2 min).`,
       schema: analyzeClipVideoSchema,
     },
   );
@@ -3077,6 +3484,6 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     refreshCaptionsAI,    // NEW: Refresh/realign captions
     analyzeClipAudio,     // NEW: Analyze clip audio
     analyzeClipVideo,     // NEW: Analyze clip video
-  ];
+  ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };

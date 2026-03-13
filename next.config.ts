@@ -127,6 +127,12 @@ const nextConfig: NextConfig = {
       },
       {
         protocol: "https",
+        hostname: "scontent.cdninstagram.com",
+        port: "",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
         hostname: "github.githubassets.com",
         port: "",
         pathname: "/**",

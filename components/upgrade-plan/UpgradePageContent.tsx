@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { CheckCircle, Coins, Globe, ArrowRight, Check } from "lucide-react";
+import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -131,10 +132,11 @@ export function UpgradePageContent({
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[300px] bg-zinc-500/5 blur-[120px] -z-10 pointer-events-none" />
       </motion.div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-16 max-w-6xl mx-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-16 mx-auto">
           {viewMode === 'plans' ? (
-            // PLANS VIEW — Staggered and monochrome
-            SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan, i: number) => (
+            <>
+              {/* PLANS VIEW — Staggered and monochrome */}
+              {SUBSCRIPTION_PLANS.map((plan: SubscriptionPlan, i: number) => (
              <motion.div
               key={plan.id}
               initial={{ opacity: 0, y: 30 }}
@@ -226,7 +228,56 @@ export function UpgradePageContent({
                     </SignInButton>
                  )}
               </motion.div>
-            ))
+            ))}
+
+            {/* Enterprise Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 3 * 0.1, ease }}
+              whileHover={{ y: -8, transition: { duration: 0.3, ease: "easeOut" } }}
+              className="relative p-8 rounded-2xl flex flex-col transition-shadow border min-h-[500px] bg-zinc-900/30 border-dashed border-zinc-700 hover:border-zinc-500 hover:shadow-xl hover:shadow-white/[0.02]"
+            >
+              <div className="mb-6">
+                <h3 className="text-xl font-bold text-white mb-2 font-space-grotesk">Enterprise</h3>
+                <div className="flex items-baseline gap-1 mt-4">
+                  <span className="text-4xl font-bold text-white tracking-tight">Custom</span>
+                </div>
+                <p className="text-sm text-zinc-500 mt-4 font-inter leading-relaxed">For large scale agencies and enterprises needing custom solutions.</p>
+              </div>
+
+              <ul className="space-y-4 mb-8 flex-1">
+                <li className="flex items-center gap-3 text-sm text-zinc-300">
+                  <div className="w-5 h-5 rounded-full bg-zinc-800 flex items-center justify-center shrink-0">
+                    <Check className="w-3 h-3 text-emerald-500" />
+                  </div>
+                  <span className="font-semibold text-white">Custom Credits</span>
+                </li>
+                {[
+                  'Dedicated account manager',
+                  'SLA & Priority Support',
+                  'White-glove setup',
+                  'Custom billing & APIs'
+                ].map((feature, fi) => (
+                  <li key={fi} className="flex items-center gap-3 text-sm text-zinc-400">
+                    <Check className="w-4 h-4 text-zinc-700 shrink-0" />
+                    <span className="font-medium">{feature}</span>
+                  </li>
+                ))}
+              </ul>
+
+              <Link href="mailto:support@insturix.com" className="w-full">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  className="w-full py-4 text-sm font-bold rounded-xl bg-transparent text-white border border-zinc-700 hover:bg-white/5 flex items-center justify-center gap-2"
+                >
+                  Contact Us
+                  <ArrowRight className="w-4 h-4" />
+                </motion.button>
+              </Link>
+            </motion.div>
+          </>
           ) : (
             // CREDITS VIEW — Staggered and technical
             CREDIT_PACKAGES.map((pkg, i) => (

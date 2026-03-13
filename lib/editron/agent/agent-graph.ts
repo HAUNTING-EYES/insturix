@@ -163,6 +163,9 @@ export const createAgent = (userId: string, projectContext?: string) => {
         - After making changes, verify the state to ensure your action was applied correctly.
     4.  **Tool Usage**:
         - Use the provided tools to manipulate the project.
+        - All tool responses are wrapped in a deterministic envelope:
+          { status, data, error, nextAction }.
+          Always read \`status\` first. Use \`data\` only when status is \`success\`.
         - For positioning, remember the canvas dimensions (usually 1920x1080 or 1080x1920). Center is (width/2, height/2).
         - When adding multiple items, ensure they don't overlap unless intended.
         - **Batch Parallel Execution**: When creating MULTIPLE elements (only if user asks), you CAN call \`generate_html_scene\` and \`generate_html_sticker\` in parallel in the SAME turn.
@@ -242,6 +245,16 @@ export const createAgent = (userId: string, projectContext?: string) => {
         - object or person movement
       - OR when visual understanding is REQUIRED to complete the task
 
+    **QUICK INTENT MAPPING** (user phrasing → tool):
+    - "read vid", "read video", "analysis vid", "analysis video" → \`analyze_clip_video\`
+    - "read aud", "read audio", "read music", "analysis aud", "analysis audio" → \`analyze_clip_audio\`
+    When the user uses these phrases, use the mapped tool directly.
+
+    **CRITICAL - NEVER ASK FOR ID OR TIME**:
+    - NEVER ask the user for video/audio ID, asset ID, or time range (e.g. "which video?", "provide start/end times").
+    - Call \`analyze_clip_video\` or \`analyze_clip_audio\` with {} or minimal params. The tool auto-selects the first overlay and uses full duration up to 2 min.
+    - If user has multiple clips and wants "all" or "everything", pass \`analyzeAll: true\`.
+
     4) Confirmation rules:
       - DO NOT ask for confirmation when:
           - The user explicitly requests video/audio analysis
@@ -259,6 +272,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
           - That audio is deeply processed
           - That processing may take time
       - Ask ONCE only.
+      - If user declines, stop and suggest the cheaper alternative.
 
     6) If user intent is CLEAR:
       - Proceed directly.
