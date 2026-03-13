@@ -11,6 +11,8 @@ export interface ChatMessage {
   timestamp: Date;
   streaming?: boolean;
   selectionText?: string | null;
+  card?: import('@/lib/thinkforge/state/types').SidecarCard | null;
+  thinking?: string;
 }
 
 type ChatHookOptions = {
@@ -187,6 +189,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
         workspaceMode?: "script" | "whiteboard" | "unknown";
         lastUserAction?: string;
       };
+      blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
     }
   ) => {
     console.log('[useThinkForgeChat.sendMessage] called', { sessionId, prompt: prompt.trim(), isStreaming });
@@ -260,13 +263,14 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           script: options?.script,
           project: options?.project,
           selection: options?.selection,
-          selectionBlocks: options?.selectionBlocks, // Include selection blocks for surgical editing
+          selectionBlocks: options?.selectionBlocks,
           selectionBlockIds: options?.selectionBlockIds,
-          selectionRange: options?.selectionRange, // Include selection range for precise replacement
+          selectionRange: options?.selectionRange,
           scriptId: options?.scriptId,
           generationId,
           threadId,
           intentContext: options?.intentContext,
+          blueprintArtifacts: options?.blueprintArtifacts,
         }),
         signal: controller.signal,
       });
@@ -341,6 +345,12 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
           }
           if (optionsRef.current?.onRemoteScriptUpdate) {
             optionsRef.current.onRemoteScriptUpdate({ ...data.script, metadata: data.metadata || {} });
+          }
+        } else if (data?.type === 'thinking') {
+          if (data.content) {
+            setMessages(prev => prev.map(m =>
+              m.id === assistantId ? { ...m, thinking: data.content } : m
+            ));
           }
         } else if (data?.type === 'script_created') {
           if (options?.onScriptCreated && typeof data?.scriptId === 'string') {
@@ -615,6 +625,21 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     });
   }, [sessionId, threadId]);
 
+  const updateMessageCard = useCallback((messageId: string, cardId: string, updates: Partial<import('@/lib/thinkforge/state/types').SidecarCard>) => {
+    setMessages(prev => {
+      const next = prev.map(m => {
+        if (m.id === messageId && m.card && m.card.id === cardId) {
+          return { ...m, card: { ...m.card, ...updates, data: { ...m.card.data, ...updates.data } } };
+        }
+        return m;
+      });
+      if (sessionId && threadId) {
+        saveLocal(sessionId, threadId, { chat: next } as any);
+      }
+      return next;
+    });
+  }, [sessionId, threadId]);
+
   return {
     messages,
     isStreaming,
@@ -626,6 +651,7 @@ export function useThinkForgeChat(sessionId: string | null, threadId: string | n
     refreshMessages,
     clearMessages,
     appendMessage,
+    updateMessageCard,
   } as const;
 }
 

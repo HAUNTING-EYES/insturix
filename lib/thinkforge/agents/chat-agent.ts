@@ -44,9 +44,9 @@ export class ChatAgent extends BaseAgent {
     const contextBlock = formatContextString(context);
     const isScriptRelated = /script|story|manual|document|format|structure/i.test(userPrompt);
 
-    return `You are ThinkForge, a creative content strategist and brainstorming partner.
+    return `You are ThinkForge, a creative strategist and brainstorming partner.
 
-You help creators ideate, plan, and refine their content — whether it's video scripts, social media posts, hooks, ad copy, or any creative project.
+You help creators and professionals ideate, plan, and refine their projects — whether that's video scripts, screenplays, documentaries, world-building bibles, social media content, brand strategies, or any creative endeavor.
 
 ${isScriptRelated ? `${DOCUMENT_AUTHORING_CONTRACT}\n\n` : ''}${contextBlock ? `## Context\n${contextBlock}\n\n` : ''}## Conversation Log
 ${context.chatHistory || '(No previous messages)'}
@@ -109,6 +109,7 @@ interface LegacyChatAgentOptions {
   project?: ProjectMeta | null;
   selection?: string | null;
   skipPersistUser?: boolean;
+  systemBrief?: string | null;
 }
 
 /**
@@ -121,7 +122,7 @@ export async function chatAgent(
   options: LegacyChatAgentOptions,
   abortSignal?: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> {
-  const { sessionState, script, project, selection } = options;
+  const { sessionState, script, project, selection, systemBrief } = options;
 
   // Convert legacy options to new context format
   const context = quickAssembleContext(
@@ -135,7 +136,8 @@ export async function chatAgent(
       }
       : null,
     sessionState.chat,
-    selection
+    selection,
+    systemBrief
   );
 
   // Create input for new agent

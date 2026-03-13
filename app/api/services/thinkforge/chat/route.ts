@@ -32,6 +32,7 @@ export async function POST(req: Request) {
   let generationId: string | undefined;
   let threadId: string | undefined;
   let intentContext: any | undefined;
+  let blueprintArtifacts: Array<{ type: string; label: string; description?: string; priority?: string }> | undefined;
   
   try {
     const body = await req.json();
@@ -47,6 +48,7 @@ export async function POST(req: Request) {
     if (body?.generationId) generationId = String(body.generationId);
     if (body?.threadId) threadId = String(body.threadId);
     if (body?.intentContext) intentContext = body.intentContext;
+    if (Array.isArray(body?.blueprintArtifacts)) blueprintArtifacts = body.blueprintArtifacts;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -89,6 +91,7 @@ export async function POST(req: Request) {
       generationId,
       threadId,
       intentContext,
+      blueprintArtifacts,
     }));
 
     return new Response(stream, {

@@ -192,13 +192,16 @@ export async function generateScriptDraft(
   sessionState: SessionState,
   existingScript?: { blocks?: ThinkForgeBlock[]; content?: string; title?: string } | null,
   abortSignal?: AbortSignal,
-  callbacks?: ScriptDraftCallbacks
+  callbacks?: ScriptDraftCallbacks,
+  systemBrief?: string | null,
 ): Promise<ScriptDraftResult> {
   const context = quickAssembleContext(
     'script_draft',
     sessionState.metadata,
     existingScript ? { title: existingScript.title, content: existingScript.content } : null,
-    sessionState.chat
+    sessionState.chat,
+    null,
+    systemBrief
   );
 
   const agent = createScriptDraftAgent();

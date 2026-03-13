@@ -3,6 +3,9 @@ import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import type { SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
+import { SidecarCardRenderer } from "./SidecarCardRenderer";
+import { ThinkingBlock } from "./ThinkingBlock";
 
 export interface ChatMessage {
   id: string;
@@ -11,13 +14,17 @@ export interface ChatMessage {
   timestamp: Date;
   streaming?: boolean;
   selectionText?: string | null;
+  card?: SidecarCard | null;
+  thinking?: string;
 }
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  onCardAction?: (action: SidecarCardAction) => void;
+  onCardDismiss?: (cardId: string) => void;
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+export function MessageBubble({ message, onCardAction, onCardDismiss }: MessageBubbleProps) {
   const isUser = message.role === "user";
 
   return (
@@ -41,7 +48,19 @@ export function MessageBubble({ message }: MessageBubbleProps) {
         </div>
       ) : (
         // Assistant message - no bubble, clean text, left aligned
-        <div className="max-w-[90%] text-sm text-zinc-200">
+        <div className="max-w-[90%] text-sm text-zinc-200 space-y-2">
+          {/* Thinking block (pre-generation reasoning) */}
+          {message.thinking && <ThinkingBlock thinking={message.thinking} />}
+          {/* Sidecar Card (structured agent output) */}
+          {message.card && (
+            <SidecarCardRenderer
+              card={message.card}
+              onAction={onCardAction}
+              onDismiss={onCardDismiss}
+            />
+          )}
+          {/* Text content (conversational output) */}
+          {message.content && (
           <div className="leading-relaxed">
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
@@ -92,6 +111,7 @@ export function MessageBubble({ message }: MessageBubbleProps) {
               {message.content}
             </ReactMarkdown>
           </div>
+          )}
           {message.streaming && (
             <span className="inline-block align-baseline ml-0.5 w-1.5 h-4 bg-red-400 animate-pulse rounded-sm" />
           )}

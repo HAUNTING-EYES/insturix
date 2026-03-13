@@ -54,9 +54,9 @@ function createSearchGroundedModel(): LanguageModel {
 // System Prompt
 // ─────────────────────────────────────────────────────────────────────
 
-const RESEARCH_SYSTEM_PROMPT = `You are ThinkForge's Research Agent — an expert content strategist with live access to Google Search.
+const RESEARCH_SYSTEM_PROMPT = `You are ThinkForge's Research Agent — an expert researcher and strategist with live access to Google Search.
 
-Your job is to research the user's query using real-time web data and return a structured, actionable report.
+Your job is to research the user's query using real-time web data and return a structured, actionable report tailored to the project's domain.
 
 ## Output Structure
 
@@ -88,8 +88,8 @@ Real-world examples. For each:
 - DO NOT fabricate, guess, or hallucinate any URLs. If you provide a link, it must be the exact URL from your search results.
 - Include these real links directly in your response so the user can easily click them.
 - Be specific and actionable, not generic.
-- Focus on the content creation angle (this is a creative tool for video scripts, social media content, etc.).
-- If the query is about a specific platform (YouTube, Instagram, TikTok), tailor advice to that platform.
+- Tailor the research to the user's project domain — whether that's content creation, filmmaking, game design, corporate strategy, education, or any other field.
+- If the query is about a specific platform or industry, tailor advice accordingly.
 - Use current data — the user wants to know what's happening NOW.
 - Keep it concise but thorough. Quality over quantity.`;
 
@@ -175,6 +175,7 @@ function formatSourcesSection(sources: GroundingSource[]): string {
 export interface ResearchAgentOptions {
     sessionState: SessionState;
     project?: ProjectMeta | null;
+    systemBrief?: string | null;
 }
 
 /**
@@ -187,7 +188,7 @@ export async function runResearchAgent(
     options: ResearchAgentOptions,
     abortSignal?: AbortSignal
 ): Promise<{ text: string; sources: GroundingSource[] }> {
-    const { sessionState, project } = options;
+    const { sessionState, project, systemBrief } = options;
 
     // Build context-aware prompt
     const projectContext = project
@@ -201,7 +202,9 @@ export async function runResearchAgent(
             .join('\n')}`
         : '';
 
-    const fullPrompt = `${RESEARCH_SYSTEM_PROMPT}${projectContext}${chatHistory}\n\n## User Research Query\n${prompt}`;
+    const briefBlock = systemBrief ? `\n\n## User Knowledge & Preferences\n${systemBrief}` : '';
+
+    const fullPrompt = `${RESEARCH_SYSTEM_PROMPT}${briefBlock}${projectContext}${chatHistory}\n\n## User Research Query\n${prompt}`;
 
     const model = createSearchGroundedModel();
 

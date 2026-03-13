@@ -47,6 +47,14 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       description: 'Per image generated',
       modelMultipliers: {},
     },
+    {
+      service: 'thinkforge',
+      action: 'document_creation',
+      billingType: 'per_request',
+      baseCost: 5,
+      description: 'Per document created via blueprint',
+      modelMultipliers: {},
+    },
   ],
   
   alyzitron: [

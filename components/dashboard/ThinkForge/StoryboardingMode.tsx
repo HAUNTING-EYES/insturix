@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { FileText, MessageSquare, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
+import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
@@ -15,6 +16,7 @@ interface StoryboardingModeProps {
   selectedIdea: IdeaCardData | null;
   sessionId: string | null;
   scriptId?: string | null;
+  tabsRefreshTrigger?: number;
   script: Script | null;
   isSaving: boolean;
   onApplyEdit: (updated: Script) => void;
@@ -27,6 +29,7 @@ interface StoryboardingModeProps {
   onSwitchSession?: (sessionId: string) => Promise<void>;
   onScriptCreated?: (scriptId: string) => void;
   onSwitchScript?: (scriptId: string) => void;
+  onTabClose?: (scriptId: string) => void;
 }
 
 const MIN_WIDTH = 300;
@@ -39,6 +42,7 @@ export default function StoryboardingMode({
   selectedIdea,
   sessionId,
   scriptId,
+  tabsRefreshTrigger,
   script,
   isSaving,
   onApplyEdit,
@@ -50,12 +54,14 @@ export default function StoryboardingMode({
   onUpdateIdea,
   onSwitchSession,
   onScriptCreated,
-  onSwitchScript
+  onSwitchScript,
+  onTabClose
 }: StoryboardingModeProps) {
   const [chatWidth, setChatWidth] = useState(DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showKnowledge, setShowKnowledge] = useState(false);
   
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
@@ -195,6 +201,7 @@ export default function StoryboardingMode({
                 onRunEdit={onRunEdit}
                 sessionId={sessionId}
                 onOpenSettings={handleOpenSettings}
+                onOpenKnowledge={() => setShowKnowledge(true)}
                 onSwitchSession={onSwitchSession}
                 onScriptCreated={onScriptCreated}
                 onTokenStream={handleTokenStream}
@@ -234,6 +241,7 @@ export default function StoryboardingMode({
                 script={script}
                 sessionId={sessionId}
                 scriptId={scriptId}
+                tabsRefreshTrigger={tabsRefreshTrigger}
                 isSaving={isSaving}
                 onTokenStream={(callback) => {
                   tokenStreamCallbackRef.current = callback;
@@ -246,6 +254,7 @@ export default function StoryboardingMode({
                 onImportScript={onImportScript}
                 onScriptCreated={onScriptCreated}
                 onSwitchScript={onSwitchScript}
+                onTabClose={onTabClose}
                 onEditSelection={handleEditSelection}
                 onModeChange={(mode) => setScriptPanelMode(mode === 'scripting' ? 'script' : 'whiteboard')}
                 generatingScript={
@@ -256,6 +265,13 @@ export default function StoryboardingMode({
             </div>
           </div>
           
+          {/* Knowledge Panel */}
+          <KnowledgePanel
+            open={showKnowledge}
+            onClose={() => setShowKnowledge(false)}
+            sessionId={sessionId}
+          />
+
           {/* Settings Panel Overlay */}
           <AnimatePresence>
             {showSettings && (

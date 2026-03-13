@@ -36,27 +36,27 @@ export class ScriptContractAgent extends StructuredAgent<NarrativeContract> {
   }
 
   buildPrompt({ context, userPrompt }: AgentInput): string {
-    return `You generate a creative production contract for a creative team. This contract guides how content should be written—as clear, actionable creative direction.
+    return `You generate a creative production contract for a project team. This contract guides how the document should be written—as clear, actionable direction tailored to the project's domain and needs.
 
 Project: ${context.projectSummary || '(No project context)'}
 User request: ${userPrompt}
 
 ## Output: JSON only
-Fill each field with values that guide creative, execution-focused writing:
+Fill each field with values that guide execution-focused writing appropriate to the project type:
 
 - generation_mode: manual | playbook | narrative (set to manual unless user demands otherwise; narrative is legacy and should be avoided)
-- narrator_voice: one-word creative persona (e.g., "strategist", "director", "producer")
-- medium: voiceover | slide_narration | visual_manual (visual manual for production guides)
-- tone: one word describing the creative voice (e.g., "confident", "grounded", "inspiring", "practical")
-- forbidden: list of 2–3 elements to avoid (e.g., ["slides", "camera_directions", "meta_instructions", "schema_artifacts"])
+- narrator_voice: one-word creative persona appropriate to the project (e.g., "strategist", "director", "producer", "researcher", "historian", "analyst")
+- medium: voiceover | slide_narration | visual_manual (choose based on the document type — visual_manual for production guides, voiceover for scripts, slide_narration for presentations)
+- tone: one word describing the creative voice (e.g., "confident", "grounded", "inspiring", "practical", "analytical", "authoritative")
+- forbidden: list of 2–3 elements to avoid (e.g., ["meta_instructions", "schema_artifacts", "filler_prose"])
 - allowed_metaphors: 2–3 short metaphors only (e.g., ["blueprint", "craft"])
-- style_notes: 2–3 short constraints emphasizing clean creative output (e.g., ["no schema artifacts", "execution-focused", "creator-first-voice", "no internal structure visible"])
+- style_notes: 2–3 short constraints emphasizing clean professional output (e.g., ["no schema artifacts", "execution-focused", "creator-first-voice", "no internal structure visible"])
 - metaphor_reuse_limit: 1
 - mode_a_usage: "opening/bridge only"
-- mode_b_usage: "default creative direction voice focused on immediate execution"
+- mode_b_usage: "default professional voice focused on immediate execution"
 - mode_switch_rules: "open in Mode A for brief framing, then Mode B for execution guidance"
 
-For generation_mode=manual: Write as a creative strategist giving production guidance. Use execution-style language, concrete direction, and remove all internal structure artifacts. Write content that enables immediate storyboarding, directing, filming, and editing.
+For generation_mode=manual: Write as a professional giving clear guidance. Use execution-style language, concrete direction, and remove all internal structure artifacts. Write content that enables immediate action by the intended audience—whether that's a film crew, a writer, a producer, or any other professional.
 
 Return JSON only.`;
   }

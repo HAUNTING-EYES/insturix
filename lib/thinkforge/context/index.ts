@@ -33,3 +33,12 @@ export {
   type TruncationOptions,
   type PrioritizedContent 
 } from './truncation';
+
+export {
+  fetchContextSources,
+  formatSystemBrief,
+  type RetrievedContext,
+  type SemanticFact,
+  type InteractionPattern,
+  type FetchContextOptions,
+} from './fetchContextSources';

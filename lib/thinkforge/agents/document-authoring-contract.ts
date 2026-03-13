@@ -1,13 +1,13 @@
 /**
  * Document Authoring Contract
  * 
- * Single authoritative contract for all script-related document formatting.
+ * Single authoritative contract for all document formatting.
  * All agents must strictly obey this contract. If conflict exists, the contract overrides all other instructions.
  * 
- * Goal: Make all script outputs consistently look like:
+ * Goal: Make all document outputs consistently look like:
  * - A professional Notion document
- * - A director's treatment
- * - A creative strategy brief
+ * - A polished strategy brief or production treatment
+ * - A clean, scannable professional deliverable
  * 
  * And never like:
  * - An essay
@@ -28,10 +28,10 @@ You are authoring a finished document, not brainstorming. Every block must add n
    - No duplicated headings
    - No empty headings
 
-2. **Director's Notes**:
-   - Director's Notes must always be blockquotes (kind: "why")
-   - Use for critical insights, director's notes, creative rules
-   - Example: "🎬 Director's Note\nLet silence breathe. Do not cut every pause."
+2. **Callout Notes**:
+   - Important callouts, insights, and professional notes must always be blockquotes (kind: "why")
+   - Use for critical insights, key takeaways, warnings, or expert guidance
+   - Example: "💡 Key Insight\nThis approach reduces costs by 40% but requires upfront planning."
 
 ### Style Preferences (NON-BLOCKING)
 
@@ -53,7 +53,7 @@ You are authoring a finished document, not brainstorming. Every block must add n
 Before finalizing output, validate:
 - Only one H1 exists
 - No heading is duplicated
-- Blockquotes used for all Director's Notes
+- Blockquotes used for all callout notes
 - Document is scannable in under 10 seconds
 
 If validation fails, rewrite the output before responding.`;

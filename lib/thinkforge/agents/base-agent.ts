@@ -19,12 +19,12 @@ import { parseJsonLenient } from '@/lib/thinkforge/json';
 
 // Global constraints for SCRIPT agents (document authoring — must be structured)
 const SCRIPT_OPERATION_CONSTRAINTS = [
-  'Manual-only output; treat "script" as a legacy alias for "operational manual" and never as a storytelling request.',
+  'Manual-only output; produce a professional, execution-ready document.',
   'No conversational framing (e.g., "In this section", "Let us").',
   'No inspirational or motivational language.',
   'No summaries unless they add new constraints, steps, or decisions.',
   'Prefer lists, tables, and structured blocks over paragraphs.',
-  'Remove any sentence that does not introduce a step, decision, constraint, input, output, or failure mode.',
+  'Remove any sentence that does not introduce actionable value.',
 ].join('\n- ');
 
 // Light constraints for CREATIVE agents (chat, research, ideas)
@@ -35,7 +35,7 @@ const CREATIVE_OPERATION_CONSTRAINTS = [
 ].join('\n- ');
 
 // Agent types that should use the strict manual constraints
-const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_refinement', 'script_outline', 'script_section', 'script_contract', 'script_coherence']);
+const SCRIPT_AGENT_TYPES = new Set(['script_draft', 'script_author', 'script_refinement', 'script_outline', 'script_section', 'script_contract', 'script_coherence', 'architect', 'null_agent']);
 
 // Forward declaration - actual implementation in logging.ts
 // We inline basic logging here to avoid circular dependency

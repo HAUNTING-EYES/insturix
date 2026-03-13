@@ -167,6 +167,7 @@ export interface Script {
   blocks?: ThinkForgeBlock[];
   richText?: Record<string, any>; // Tiptap JSON AST
   version?: number;
+  documentType?: string;
   parentScriptId?: string;
   forkReason?: string;
   createdFromIntent?: string;
@@ -182,9 +183,19 @@ export interface ChatMessageDoc {
   createdAt: Date;
 }
 
+export interface BrandDNA {
+  voiceLock?: string;
+  nicheMap?: string;
+  killList?: string[];
+  hookArchetypes?: string[];
+  structuralHabits?: string[];
+  recurringAssets?: string[];
+}
+
 export interface UserPreferences {
   _id: string;
   preferences: Record<string, any>;
+  brandDNA?: BrandDNA;
   updatedAt: Date;
 }
 
@@ -195,7 +206,9 @@ export type VersionEdgeType = 'inspired_by' | 'derived_from' | 'remix_of' | 'ref
 export type EventType =
   | 'project_created' | 'project_updated' | 'project_deleted'
   | 'artifact_created' | 'artifact_updated' | 'artifact_deleted'
-  | 'version_created' | 'version_merged' | 'version_restored';
+  | 'version_created' | 'version_merged' | 'version_restored'
+  | 'content_deleted' | 'hook_rejected' | 'style_corrected'
+  | 'regeneration_requested' | 'feedback_given';
 
 export interface Project {
   _id: string;
@@ -207,6 +220,7 @@ export interface Project {
     modelPreference?: string;
     memoryLevel?: string;
   };
+  brandDNA?: BrandDNA;
   // Legacy compatibility - maps to old projectMeta
   projectMeta?: ProjectMeta;
   createdAt: Date;
@@ -672,6 +686,7 @@ const ScriptSchema = new Schema({
   blocks: { type: Schema.Types.Mixed },
   richText: { type: Schema.Types.Mixed }, // Tiptap JSON AST
   version: { type: Number, default: 1 },
+  documentType: { type: String, default: 'screenplay' },
   parentScriptId: { type: String },
   forkReason: { type: String },
   createdFromIntent: { type: String },
@@ -690,6 +705,14 @@ const ChatMessageSchema = new Schema({
 const UserSchema = new Schema({
   _id: { type: String, required: true },
   preferences: { type: Schema.Types.Mixed, default: {} },
+  brandDNA: {
+    voiceLock: { type: String, default: '' },
+    nicheMap: { type: String, default: '' },
+    killList: [{ type: String }],
+    hookArchetypes: [{ type: String }],
+    structuralHabits: [{ type: String }],
+    recurringAssets: [{ type: String }],
+  },
   updatedAt: { type: Date, default: Date.now }
 }, { collection: COLL_USERS, timestamps: false });
 
@@ -714,6 +737,14 @@ const ProjectSchema = new Schema({
   settings: {
     modelPreference: { type: String },
     memoryLevel: { type: String }
+  },
+  brandDNA: {
+    voiceLock: { type: String, default: '' },
+    nicheMap: { type: String, default: '' },
+    killList: [{ type: String }],
+    hookArchetypes: [{ type: String }],
+    structuralHabits: [{ type: String }],
+    recurringAssets: [{ type: String }],
   },
   // Legacy compatibility
   projectMeta: { type: Schema.Types.Mixed, default: {} },
@@ -779,6 +810,7 @@ const VersionEdgeSchema = new Schema({
 
 const EventSchema = new Schema({
   projectId: { type: String, required: true, index: true },
+  sessionId: { type: String, index: true },
   artifactId: { type: String, index: true },
   versionId: { type: String },
   type: {
@@ -787,11 +819,13 @@ const EventSchema = new Schema({
     enum: [
       'project_created', 'project_updated', 'project_deleted',
       'artifact_created', 'artifact_updated', 'artifact_deleted',
-      'version_created', 'version_merged', 'version_restored'
+      'version_created', 'version_merged', 'version_restored',
+      'content_deleted', 'hook_rejected', 'style_corrected',
+      'regeneration_requested', 'feedback_given'
     ]
   },
   payload: { type: Schema.Types.Mixed, default: {} },
-  userId: { type: String },
+  userId: { type: String, index: true },
   createdAt: { type: Date, default: Date.now }
 }, { collection: COLL_EVENTS, timestamps: false });
 
@@ -1392,12 +1426,12 @@ export async function updateScript(sessionId: string, updates: Partial<Script>, 
   }
 }
 
-export async function listScripts(sessionId: string): Promise<Array<{ scriptId: string; title: string; updatedAt: Date; createdAt: Date }>> {
+export async function listScripts(sessionId: string): Promise<Array<{ scriptId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }>> {
   try {
     const { ScriptModel } = await getModels();
     const docs = await ScriptModel.find({ sessionId }).sort({ updatedAt: -1 }).lean() as any[];
     const seen = new Set<string>();
-    const items: Array<{ scriptId: string; title: string; updatedAt: Date; createdAt: Date }> = [];
+    const items: Array<{ scriptId: string; title: string; documentType: string; version: number; updatedAt: Date; createdAt: Date }> = [];
     for (const doc of docs) {
       const sid = doc.scriptId || 'default';
       if (seen.has(sid)) continue;
@@ -1405,6 +1439,8 @@ export async function listScripts(sessionId: string): Promise<Array<{ scriptId: 
       items.push({
         scriptId: sid,
         title: doc.title || 'Untitled Script',
+        documentType: doc.documentType || 'screenplay',
+        version: doc.version || 1,
         updatedAt: doc.updatedAt || doc.createdAt,
         createdAt: doc.createdAt,
       });
@@ -1413,6 +1449,17 @@ export async function listScripts(sessionId: string): Promise<Array<{ scriptId: 
   } catch (error) {
     console.error('Error listing scripts:', error);
     return [];
+  }
+}
+
+export async function deleteScript(sessionId: string, scriptId: string): Promise<boolean> {
+  try {
+    const { ScriptModel } = await getModels();
+    const result = await ScriptModel.deleteMany({ sessionId, scriptId });
+    return (result.deletedCount ?? 0) > 0;
+  } catch (error) {
+    console.error('Error deleting script:', error);
+    throw error;
   }
 }
 
@@ -2494,45 +2541,79 @@ export async function getChatHistoryV2(
 }
 
 // ==================== DataBank ====================
-// Per-session storage for research artifacts (URL briefs, notes, references)
+// Tiered memory storage: research artifacts, atomic facts, and semantic knowledge
 
 const COLL_DATABANK = 'thinkforge_databank';
 
-export type DataBankEntryType = 'url_brief' | 'note' | 'reference' | 'research';
+export type DataBankEntryType =
+  | 'url_brief'
+  | 'note'
+  | 'reference'
+  | 'research'
+  | 'atomic_fact'
+  | 'brand_insight'
+  | 'rejection_pattern';
+
+export type EmbeddingStatus = 'pending' | 'processing' | 'success' | 'failed';
+export type DataBankScope = 'project' | 'global';
 
 export interface DataBankEntry {
   _id: string;
-  sessionId: string;
+  sessionId?: string;
+  projectId?: string;
   userId: string;
   type: DataBankEntryType;
+  scope: DataBankScope;
   title: string;
-  content: Record<string, any>; // The actual brief/note/research data
+  content: Record<string, any>;
   sourceUrl?: string;
+  sourceEntryId?: string;
   tags?: string[];
+  embeddingStatus?: EmbeddingStatus;
+  vectorId?: string;
+  embedding?: number[];
   createdAt: Date;
   updatedAt: Date;
 }
 
 const DataBankSchema = new Schema({
   _id: { type: String, required: true },
-  sessionId: { type: String, required: true, index: true },
+  sessionId: { type: String, index: true },
+  projectId: { type: String, index: true },
   userId: { type: String, required: true, index: true },
-  type: { type: String, required: true, enum: ['url_brief', 'note', 'reference', 'research'], index: true },
+  type: {
+    type: String,
+    required: true,
+    enum: ['url_brief', 'note', 'reference', 'research', 'atomic_fact', 'brand_insight', 'rejection_pattern'],
+    index: true,
+  },
   title: { type: String, required: true },
   content: { type: Schema.Types.Mixed, default: {} },
   sourceUrl: { type: String },
+  sourceEntryId: { type: String, index: true },
   tags: [{ type: String }],
+  embeddingStatus: {
+    type: String,
+    enum: ['pending', 'processing', 'success', 'failed'],
+    default: 'pending',
+  },
+  vectorId: { type: String },
+  embedding: { type: [Number], default: undefined },
+  scope: { type: String, enum: ['project', 'global'], default: 'project', index: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 }, { collection: COLL_DATABANK, timestamps: false });
 
-// Compound indexes for efficient querying
+DataBankSchema.index({ userId: 1, type: 1 });
+DataBankSchema.index({ userId: 1, embeddingStatus: 1 });
+DataBankSchema.index({ userId: 1, scope: 1 });
 DataBankSchema.index({ sessionId: 1, userId: 1 });
-DataBankSchema.index({ sessionId: 1, type: 1 });
+DataBankSchema.index({ projectId: 1, type: 1 });
+DataBankSchema.index({ tags: 1 });
 
 let DataBankModel: Model<any>;
 
-function getDataBankModel(): Model<any> {
+export function getDataBankModel(): Model<any> {
   if (!DataBankModel) {
     DataBankModel = mongoose.models[COLL_DATABANK] || mongoose.model(COLL_DATABANK, DataBankSchema);
   }
@@ -2548,7 +2629,10 @@ export async function addDataBankEntry(
     title: string;
     content: Record<string, any>;
     sourceUrl?: string;
+    sourceEntryId?: string;
     tags?: string[];
+    projectId?: string;
+    scope?: DataBankScope;
   }
 ): Promise<DataBankEntry> {
   await connectToThinkForgeDb();
@@ -2556,13 +2640,17 @@ export async function addDataBankEntry(
   const now = new Date();
   const doc = await model.create({
     _id: crypto.randomUUID(),
-    sessionId,
+    sessionId: sessionId || undefined,
+    projectId: entry.projectId || undefined,
     userId,
     type: entry.type,
+    scope: entry.scope || 'project',
     title: entry.title,
     content: entry.content,
     sourceUrl: entry.sourceUrl,
+    sourceEntryId: entry.sourceEntryId,
     tags: entry.tags || [],
+    embeddingStatus: 'pending',
     createdAt: now,
     updatedAt: now,
   });
@@ -2583,6 +2671,62 @@ export async function getDataBankEntries(
   return docs as unknown as DataBankEntry[];
 }
 
+/**
+ * Get DataBank entries across all sessions for a user (workspace-level retrieval).
+ * Used by the Multi-Hop context pipeline to pull relevant facts regardless of session.
+ */
+export async function getDataBankEntriesByUser(
+  userId: string,
+  options?: {
+    type?: DataBankEntryType;
+    tags?: string[];
+    embeddingStatus?: EmbeddingStatus;
+    scope?: DataBankScope;
+    limit?: number;
+  }
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const query: Record<string, any> = { userId };
+  if (options?.type) query.type = options.type;
+  if (options?.tags?.length) query.tags = { $in: options.tags };
+  if (options?.embeddingStatus) query.embeddingStatus = options.embeddingStatus;
+  if (options?.scope === 'global') {
+    query.scope = 'global';
+  } else if (options?.scope === 'project') {
+    query.$or = [{ scope: 'project' }, { scope: { $exists: false } }, { scope: null }];
+  }
+  const docs = await model
+    .find(query)
+    .sort({ createdAt: -1 })
+    .limit(options?.limit ?? 100)
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+/** Get project-scoped DataBank entries for a specific session.
+ *  Treats entries with missing/null scope as 'project' (pre-migration entries). */
+export async function getProjectScopedEntries(
+  userId: string,
+  sessionId: string,
+  options?: { type?: DataBankEntryType; limit?: number }
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const query: Record<string, any> = {
+    userId,
+    sessionId,
+    $or: [{ scope: 'project' }, { scope: { $exists: false } }, { scope: null }],
+  };
+  if (options?.type) query.type = options.type;
+  const docs = await model
+    .find(query)
+    .sort({ createdAt: -1 })
+    .limit(options?.limit ?? 100)
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
 /** Get a single DataBank entry by ID */
 export async function getDataBankEntry(
   entryId: string,
@@ -2594,6 +2738,84 @@ export async function getDataBankEntry(
   return doc as unknown as DataBankEntry | null;
 }
 
+/** Fetch multiple DataBank entries by their IDs */
+export async function getDataBankEntriesByIds(
+  entryIds: string[],
+  userId: string
+): Promise<DataBankEntry[]> {
+  if (entryIds.length === 0) return [];
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const docs = await model.find({ _id: { $in: entryIds }, userId }).lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+/** Update the embedding status + vectorId after background processing */
+export async function updateDataBankEmbeddingStatus(
+  entryId: string,
+  status: EmbeddingStatus,
+  vectorId?: string
+): Promise<void> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const update: Record<string, any> = { embeddingStatus: status, updatedAt: new Date() };
+  if (vectorId) update.vectorId = vectorId;
+  await model.updateOne({ _id: entryId }, { $set: update });
+}
+
+/** Store a computed embedding vector on a DataBank entry */
+export async function updateDataBankEmbedding(
+  entryId: string,
+  embedding: number[],
+): Promise<void> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  await model.updateOne(
+    { _id: entryId },
+    { $set: { embedding, embeddingStatus: 'success', updatedAt: new Date() } },
+  );
+}
+
+/**
+ * Retrieve entries for a user that have embeddings, for in-process
+ * similarity search. Optionally filtered by scope.
+ */
+export async function getDataBankEntriesWithEmbeddings(
+  userId: string,
+  limit: number = 200,
+  scope?: DataBankScope,
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const query: Record<string, any> = { userId, embeddingStatus: 'success', embedding: { $exists: true } };
+  if (scope === 'global') {
+    query.scope = 'global';
+  } else if (scope === 'project') {
+    query.$or = [{ scope: 'project' }, { scope: { $exists: false } }, { scope: null }];
+  }
+  const docs = await model
+    .find(query)
+    .select('_id title tags embedding content sourceUrl type scope')
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
+/** Get entries that need embedding (for background processing queue) */
+export async function getDataBankEntriesPendingEmbedding(
+  limit: number = 50
+): Promise<DataBankEntry[]> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const docs = await model
+    .find({ embeddingStatus: 'pending' })
+    .sort({ createdAt: 1 })
+    .limit(limit)
+    .lean();
+  return docs as unknown as DataBankEntry[];
+}
+
 /** Delete a DataBank entry (owner only) */
 export async function deleteDataBankEntry(
   entryId: string,
@@ -2603,5 +2825,220 @@ export async function deleteDataBankEntry(
   const model = getDataBankModel();
   const result = await model.deleteOne({ _id: entryId, userId });
   return result.deletedCount > 0;
+}
+
+// ==================== BrandDNA Operations ====================
+
+/** Get a user's BrandDNA (from UserModel) */
+export async function getUserBrandDNA(userId: string): Promise<BrandDNA | null> {
+  try {
+    const { UserModel } = await getModels();
+    const doc = await UserModel.findById(userId).lean() as any;
+    return doc?.brandDNA || null;
+  } catch (error) {
+    console.error('Error getting user BrandDNA:', error);
+    return null;
+  }
+}
+
+/** Update a user's BrandDNA (merges with existing) */
+export async function updateUserBrandDNA(
+  userId: string,
+  updates: Partial<BrandDNA>
+): Promise<BrandDNA> {
+  try {
+    const { UserModel } = await getModels();
+    const setFields: Record<string, any> = { updatedAt: new Date() };
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        setFields[`brandDNA.${key}`] = value;
+      }
+    }
+    const doc = await UserModel.findByIdAndUpdate(
+      userId,
+      { $set: setFields },
+      { new: true, upsert: true, lean: true }
+    ) as any;
+    return doc?.brandDNA || {};
+  } catch (error) {
+    console.error('Error updating user BrandDNA:', error);
+    throw error;
+  }
+}
+
+/** Get a project's BrandDNA (overrides for a specific project) */
+export async function getProjectBrandDNA(
+  projectId: string,
+  userId: string
+): Promise<BrandDNA | null> {
+  try {
+    const { ProjectModel } = await getModels();
+    const doc = await ProjectModel.findOne({ _id: projectId, userId }).lean() as any;
+    return doc?.brandDNA || null;
+  } catch (error) {
+    console.error('Error getting project BrandDNA:', error);
+    return null;
+  }
+}
+
+/** Update a project's BrandDNA */
+export async function updateProjectBrandDNA(
+  projectId: string,
+  userId: string,
+  updates: Partial<BrandDNA>
+): Promise<BrandDNA> {
+  try {
+    const { ProjectModel } = await getModels();
+    const setFields: Record<string, any> = { updatedAt: new Date() };
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) {
+        setFields[`brandDNA.${key}`] = value;
+      }
+    }
+    const doc = await ProjectModel.findOneAndUpdate(
+      { _id: projectId, userId },
+      { $set: setFields },
+      { new: true, lean: true }
+    ) as any;
+    return doc?.brandDNA || {};
+  } catch (error) {
+    console.error('Error updating project BrandDNA:', error);
+    throw error;
+  }
+}
+
+/**
+ * Resolve effective BrandDNA for a context: merges user-level defaults with project-level overrides.
+ * Project-level fields take precedence; arrays are concatenated and deduplicated.
+ */
+export async function resolveEffectiveBrandDNA(
+  userId: string,
+  projectId?: string
+): Promise<BrandDNA> {
+  const userDNA = await getUserBrandDNA(userId) || {};
+  if (!projectId) return userDNA;
+
+  const projectDNA = await getProjectBrandDNA(projectId, userId) || {};
+
+  const mergeArrays = (a?: string[], b?: string[]): string[] | undefined => {
+    const combined = [...(a || []), ...(b || [])];
+    return combined.length > 0 ? [...new Set(combined)] : undefined;
+  };
+
+  return {
+    voiceLock: projectDNA.voiceLock || userDNA.voiceLock,
+    nicheMap: projectDNA.nicheMap || userDNA.nicheMap,
+    killList: mergeArrays(userDNA.killList, projectDNA.killList),
+    hookArchetypes: mergeArrays(userDNA.hookArchetypes, projectDNA.hookArchetypes),
+    structuralHabits: mergeArrays(userDNA.structuralHabits, projectDNA.structuralHabits),
+    recurringAssets: mergeArrays(userDNA.recurringAssets, projectDNA.recurringAssets),
+  };
+}
+
+// ==================== Interaction Event Logging ====================
+
+/**
+ * Log an interaction event (shadow log) for the user's process memory.
+ * Non-blocking, fire-and-forget.
+ */
+export async function logInteractionEvent(
+  userId: string,
+  projectId: string,
+  type: EventType,
+  payload: Record<string, any>,
+  options?: {
+    sessionId?: string;
+    artifactId?: string;
+    versionId?: string;
+  }
+): Promise<void> {
+  try {
+    const { EventModel } = await getModels();
+    await EventModel.create({
+      projectId,
+      sessionId: options?.sessionId,
+      artifactId: options?.artifactId,
+      versionId: options?.versionId,
+      type,
+      payload,
+      userId,
+      createdAt: new Date(),
+    });
+  } catch (error) {
+    console.warn('Failed to log interaction event:', error);
+  }
+}
+
+/** Promote a DataBank entry from project to global scope */
+export async function promoteEntryToGlobal(entryId: string): Promise<void> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  await model.updateOne({ _id: entryId }, { $set: { scope: 'global', updatedAt: new Date() } });
+}
+
+/** Delete all interaction events for a session (used by Post-Mortem agent) */
+export async function deleteEventsBySession(
+  sessionId: string,
+  userId: string,
+  types?: EventType[],
+): Promise<number> {
+  const { EventModel } = await getModels();
+  const query: Record<string, any> = { sessionId, userId };
+  if (types?.length) query.type = { $in: types };
+  const result = await EventModel.deleteMany(query);
+  return result.deletedCount ?? 0;
+}
+
+/** Delete project-scoped DataBank entries for a session (used by Post-Mortem agent) */
+export async function deleteProjectScopedEntries(
+  sessionId: string,
+  userId: string,
+): Promise<number> {
+  await connectToThinkForgeDb();
+  const model = getDataBankModel();
+  const result = await model.deleteMany({ sessionId, userId, scope: 'project' });
+  return result.deletedCount ?? 0;
+}
+
+/**
+ * Get recent interaction events for a user across all projects.
+ * Used by the context pipeline to build Procedural Memory.
+ */
+export async function getRecentInteractionEvents(
+  userId: string,
+  options?: {
+    projectId?: string;
+    types?: EventType[];
+    limit?: number;
+    since?: Date;
+  }
+): Promise<ThinkForgeEvent[]> {
+  try {
+    const { EventModel } = await getModels();
+    const query: Record<string, any> = { userId };
+    if (options?.projectId) query.projectId = options.projectId;
+    if (options?.types?.length) query.type = { $in: options.types };
+    if (options?.since) query.createdAt = { $gte: options.since };
+
+    const docs = await EventModel
+      .find(query)
+      .sort({ createdAt: -1 })
+      .limit(options?.limit ?? 50)
+      .lean() as any[];
+
+    return docs.map((doc: any) => ({
+      _id: String(doc._id),
+      projectId: doc.projectId,
+      artifactId: doc.artifactId,
+      versionId: doc.versionId,
+      type: doc.type,
+      payload: doc.payload || {},
+      userId: doc.userId,
+      createdAt: doc.createdAt,
+    }));
+  } catch (error) {
+    console.error('Error getting interaction events:', error);
+    return [];
+  }
 }
 

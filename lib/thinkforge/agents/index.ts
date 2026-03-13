@@ -90,6 +90,12 @@ export {
   refineScriptDraft,
 } from './script-refinement-agent';
 
+// Thinking Agent
+export {
+  runThinkingAgent,
+  type ThinkingInput,
+} from './thinking-agent';
+
 // Logging
 export {
   logAIInvocation,
