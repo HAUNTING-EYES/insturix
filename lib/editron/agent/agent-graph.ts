@@ -537,14 +537,14 @@ export const createAgent = (userId: string, projectContext?: string) => {
       // Convert conversation messages
       for (const msg of messages) {
         const msgAny = msg as any;
-        const msgType = msg.constructor?.name;
+        const msgType = typeof msgAny._getType === 'function' ? msgAny._getType() : msg.constructor?.name;
         
-        if (msgType === 'HumanMessage') {
+        if (msgType === 'human' || msgType === 'HumanMessage') {
           geminiContents.push({
             role: 'user',
             parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }]
           });
-        } else if (msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
+        } else if (msgType === 'ai' || msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
           const parts: any[] = [];
           
           // Add text content if present and not array
@@ -567,7 +567,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
           if (parts.length > 0) {
             geminiContents.push({ role: 'model', parts });
           }
-        } else if (msgType === 'ToolMessage') {
+        } else if (msgType === 'tool' || msgType === 'ToolMessage') {
           // Tool responses go as user messages with functionResponse
           geminiContents.push({
             role: 'user',
@@ -582,6 +582,16 @@ export const createAgent = (userId: string, projectContext?: string) => {
       }
       
       debugLog('Calling Gemini directly with', geminiContents.length, 'messages');
+      
+      // The Gemini API requires contents to not be empty.
+      // If messages somehow failed to parse or were empty, provide a fallback.
+      if (geminiContents.length === 0) {
+        debugWarn('geminiContents is empty, adding fallback user message');
+        geminiContents.push({
+          role: 'user',
+          parts: [{ text: 'Hello' }]
+        });
+      }
       
       // Helper to parse stringified JSON in args (Gemini sometimes returns arrays as strings)
       const parseArgs = (args: any): any => {

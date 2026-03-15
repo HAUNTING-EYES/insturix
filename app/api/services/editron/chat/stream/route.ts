@@ -196,12 +196,13 @@ export async function POST(req: NextRequest) {
         // Process all messages to extract tool calls and content
         for (const msg of messages) {
           const msgAny = msg as any;
+          const msgType = typeof msgAny._getType === 'function' ? msgAny._getType() : msg.constructor?.name;
           
           // Skip the human message we added
-          if (msg.constructor?.name === 'HumanMessage') continue;
+          if (msgType === 'human' || msgType === 'HumanMessage') continue;
           
           // Process AI messages
-          if (msg.constructor?.name === 'AIMessage' || msg.constructor?.name === 'AIMessageChunk') {
+          if (msgType === 'ai' || msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
             // Extract content
             if (typeof msgAny.content === 'string' && msgAny.content.trim()) {
               finalResponse = msgAny.content; // Take the last AI message content
@@ -220,7 +221,7 @@ export async function POST(req: NextRequest) {
           }
           
           // Process Tool messages (results) - tool_end events are now emitted from sequentialToolNode
-          if (msg.constructor?.name === 'ToolMessage') {
+          if (msgType === 'tool' || msgType === 'ToolMessage') {
             toolResults.push({
               toolCallId: msgAny.tool_call_id,
               toolName: msgAny.name,
