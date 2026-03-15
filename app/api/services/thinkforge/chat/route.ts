@@ -4,6 +4,7 @@ import { processChat } from '@/lib/thinkforge/services/chat-service';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
+import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -62,6 +63,9 @@ export async function POST(req: Request) {
     console.error('[ThinkForge Chat] Missing sessionId in request');
     return NextResponse.json({ error: 'Missing sessionId - session must be created first' }, { status: 400 });
   }
+
+  // Ensure user exists and is migrated
+  await CreditsMigrationService.ensureMigrated(userId);
 
   // Check credits before processing
   // TODO: Add model detection from intentContext or processChat response

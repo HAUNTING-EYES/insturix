@@ -9,6 +9,8 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import { User } from "@/schemas/user";
 import { CreditsService } from "./creditsService";
 import { PLAN_CREDIT_ALLOCATIONS } from "@/lib/config/creditCosts";
+import { UserInitializationService } from "./userInitializationService";
+import { currentUser } from "@clerk/nextjs/server";
 
 const migrationCache = new Set<string>(); // In-memory cache to avoid repeated checks
 
@@ -29,10 +31,29 @@ export class CreditsMigrationService {
 
     try {
       await connectToDatabase();
-      const user = await User.findOne({ clerkUserId });
+      let user = await User.findOne({ clerkUserId });
 
       if (!user) {
-        return { migrated: false };
+        // If user doesn't exist in MongoDB yet, try to initialize them
+        console.log(`[CreditsMigration] User ${clerkUserId} not found in DB, attempting auto-initialization`);
+        try {
+          const clerkUser = await currentUser();
+          if (clerkUser) {
+            const initResult = await UserInitializationService.ensureUserExists(
+              clerkUserId,
+              clerkUser.emailAddresses[0]?.emailAddress || "",
+              clerkUser.username || clerkUser.firstName || clerkUser.lastName || "default-username",
+              clerkUser.imageUrl
+            );
+            user = initResult.user;
+          }
+        } catch (initError) {
+          console.error(`[CreditsMigration] Failed to auto-initialize user ${clerkUserId}:`, initError);
+        }
+
+        if (!user) {
+          return { migrated: false };
+        }
       }
 
       // Check if user already has credits balance initialized

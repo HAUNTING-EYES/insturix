@@ -261,8 +261,9 @@ export default function ThinkForgeLanding() {
 		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase (Scripting Mode)
 	};
 
-	const handleProceedToScript = async () => {
-		const name = (selectedIdea?.sessionName || '').trim();
+	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
+		const targetIdea = updatedIdea || selectedIdea;
+		const name = (targetIdea?.sessionName || '').trim();
 		if (!name || name.length > 100) {
 			toast({
 				title: 'Session name required',

@@ -48,8 +48,23 @@ export class CreditsService {
     
     const user = await User.findOne({ clerkUserId }).select('creditsBalance');
     if (!user) {
-      throw new Error(`User not found: ${clerkUserId}`);
+      console.error(`[CreditsService] User not found during getBalance: ${clerkUserId}`);
+      // Fallback: try one more time without select to see if it's a weird Mongoose state
+      const userAlt = await User.findOne({ clerkUserId });
+      if (!userAlt) {
+        throw new Error(`User not found: ${clerkUserId}`);
+      }
+      return this.getBalanceFromUser(userAlt);
     }
+
+    return this.getBalanceFromUser(user);
+  }
+
+  /**
+   * Helper to extract balance from user document
+   */
+  private static async getBalanceFromUser(user: any): Promise<CreditsBalanceInfo> {
+    const clerkUserId = user.clerkUserId;
 
     // Initialize credits balance if not present (for existing users)
     if (!user.creditsBalance) {

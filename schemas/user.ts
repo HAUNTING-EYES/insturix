@@ -54,7 +54,7 @@ export interface IUiMessage {
 // Credits system interfaces
 export interface ICreditTransaction {
   id: string;
-  type: 'subscription_grant' | 'topup' | 'usage' | 'refund' | 'expiry' | 'adjustment';
+  type: 'subscription_grant' | 'topup' | 'usage' | 'refund' | 'expiry' | 'adjustment' | 'bonus';
   amount: number; // Positive for additions, negative for usage
   service?: string; // Which service consumed credits
   action?: string; // What action was performed
