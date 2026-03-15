@@ -527,21 +527,12 @@ export const createAgent = (userId: string, projectContext?: string) => {
           maxOutputTokens: 8192,
         },
         tools: [{ functionDeclarations }],
+        systemInstruction: SYSTEM_MESSAGE,
       });
       
       // Convert LangChain messages to Gemini format
       const geminiContents: any[] = [];
       
-      // Add system message as first user message (Gemini style)
-      geminiContents.push({
-        role: 'user',
-        parts: [{ text: SYSTEM_MESSAGE }]
-      });
-      // Model acknowledgment
-      geminiContents.push({
-        role: 'model',
-        parts: [{ text: 'Understood. I am Editron AI, ready to assist with video editing.' }]
-      });
       
       // Convert conversation messages
       for (const msg of messages) {
