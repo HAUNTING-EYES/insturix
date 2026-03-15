@@ -65,7 +65,7 @@ const THINKFORGE_DB_NAME = 'thinkforge_db';
  * Cached connection specifically for ThinkForge database.
  * Separate from the main app database connection.
  */
-let thinkforgeDbCached: { conn: typeof mongoose | null; promise: Promise<typeof mongoose> | null } = {
+let thinkforgeDbCached: { conn: mongoose.Connection | null; promise: Promise<mongoose.Connection> | null } = {
   conn: null,
   promise: null
 };
@@ -74,9 +74,9 @@ let thinkforgeDbCached: { conn: typeof mongoose | null; promise: Promise<typeof 
  * Connect to the ThinkForge database specifically.
  * Uses 'thinkforge_db' as the database name.
  */
-async function connectToThinkForgeDb(): Promise<typeof mongoose> {
+async function connectToThinkForgeDb(): Promise<mongoose.Connection> {
   // If already connected and ready, return immediately
-  if (thinkforgeDbCached.conn && mongoose.connection.readyState === 1) {
+  if (thinkforgeDbCached.conn && thinkforgeDbCached.conn.readyState === 1) {
     return thinkforgeDbCached.conn;
   }
 
@@ -105,10 +105,11 @@ async function connectToThinkForgeDb(): Promise<typeof mongoose> {
     connectTimeoutMS: 10000, // 10s timeout for initial connection
   };
 
-  console.log('[ThinkForge] Connecting to database...');
-  thinkforgeDbCached.promise = mongoose.connect(mongoUri, opts).then((m) => {
+  console.log('[ThinkForge] Connecting to database using createConnection...');
+  thinkforgeDbCached.promise = mongoose.createConnection(mongoUri, opts).asPromise();
+  
+  thinkforgeDbCached.promise.then(() => {
     console.log(`[ThinkForge] Connected to database: ${THINKFORGE_DB_NAME}`);
-    return m;
   }).catch((err) => {
     console.error('[ThinkForge] Failed to connect to database:', err?.message || err);
     thinkforgeDbCached.promise = null;
@@ -847,43 +848,43 @@ let EventModel: Model<any>;
 
 async function getModels() {
   // Connect to ThinkForge-specific database (thinkforge_db)
-  await connectToThinkForgeDb();
+  const tfConn = await connectToThinkForgeDb();
 
   // V1 Models (Legacy)
   if (!SessionModel) {
-    SessionModel = mongoose.models[COLL_SESSIONS] || mongoose.model(COLL_SESSIONS, SessionSchema);
+    SessionModel = tfConn.models[COLL_SESSIONS] || tfConn.model(COLL_SESSIONS, SessionSchema);
   }
   if (!ScriptModel) {
-    ScriptModel = mongoose.models[COLL_SCRIPTS] || mongoose.model(COLL_SCRIPTS, ScriptSchema);
+    ScriptModel = tfConn.models[COLL_SCRIPTS] || tfConn.model(COLL_SCRIPTS, ScriptSchema);
   }
   if (!ChatModel) {
-    ChatModel = mongoose.models[COLL_CHAT] || mongoose.model(COLL_CHAT, ChatMessageSchema);
+    ChatModel = tfConn.models[COLL_CHAT] || tfConn.model(COLL_CHAT, ChatMessageSchema);
   }
   if (!UserModel) {
-    UserModel = mongoose.models[COLL_USERS] || mongoose.model(COLL_USERS, UserSchema);
+    UserModel = tfConn.models[COLL_USERS] || tfConn.model(COLL_USERS, UserSchema);
   }
   if (!RateUsageModel) {
-    RateUsageModel = mongoose.models[COLL_RATE_USAGE] || mongoose.model(COLL_RATE_USAGE, RateUsageSchema);
+    RateUsageModel = tfConn.models[COLL_RATE_USAGE] || tfConn.model(COLL_RATE_USAGE, RateUsageSchema);
   }
 
   // V2 Models
   if (!ProjectModel) {
-    ProjectModel = mongoose.models[COLL_PROJECTS] || mongoose.model(COLL_PROJECTS, ProjectSchema);
+    ProjectModel = tfConn.models[COLL_PROJECTS] || tfConn.model(COLL_PROJECTS, ProjectSchema);
   }
   if (!ArtifactModel) {
-    ArtifactModel = mongoose.models[COLL_ARTIFACTS] || mongoose.model(COLL_ARTIFACTS, ArtifactSchema);
+    ArtifactModel = tfConn.models[COLL_ARTIFACTS] || tfConn.model(COLL_ARTIFACTS, ArtifactSchema);
   }
   if (!VersionModel) {
-    VersionModel = mongoose.models[COLL_VERSIONS] || mongoose.model(COLL_VERSIONS, VersionSchema);
+    VersionModel = tfConn.models[COLL_VERSIONS] || tfConn.model(COLL_VERSIONS, VersionSchema);
   }
   if (!ContentBlockModel) {
-    ContentBlockModel = mongoose.models[COLL_CONTENT_BLOCKS] || mongoose.model(COLL_CONTENT_BLOCKS, ContentBlockSchema);
+    ContentBlockModel = tfConn.models[COLL_CONTENT_BLOCKS] || tfConn.model(COLL_CONTENT_BLOCKS, ContentBlockSchema);
   }
   if (!VersionEdgeModel) {
-    VersionEdgeModel = mongoose.models['thinkforge_version_edges'] || mongoose.model('thinkforge_version_edges', VersionEdgeSchema);
+    VersionEdgeModel = tfConn.models['thinkforge_version_edges'] || tfConn.model('thinkforge_version_edges', VersionEdgeSchema);
   }
   if (!EventModel) {
-    EventModel = mongoose.models[COLL_EVENTS] || mongoose.model(COLL_EVENTS, EventSchema);
+    EventModel = tfConn.models[COLL_EVENTS] || tfConn.model(COLL_EVENTS, EventSchema);
   }
 
   return {
