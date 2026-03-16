@@ -132,9 +132,7 @@ export function buildConversationWindow(
 
   // Add recent verbatim messages
   for (const msg of recentMessages) {
-    if (msg.role !== "system") {
-      result.push({ role: msg.role, content: msg.content });
-    }
+    result.push({ role: msg.role, content: msg.content });
   }
 
   return result;

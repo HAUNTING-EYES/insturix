@@ -35,7 +35,7 @@ export function buildSystemPrompt(options: SystemPromptOptions): string {
   const title = videoTitle || videoAnalysis?.title || "this video";
 
   // --- Language Warning Block ---
-  const languageWarning = buildLanguageWarning(transcription?.detectedLanguage);
+  const languageWarning = buildLanguageWarning(transcription?.detectedLanguage || "");
 
   // --- Video Analysis Block ---
   const analysisBlock = buildAnalysisBlock(videoAnalysis, title);

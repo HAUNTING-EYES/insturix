@@ -49,6 +49,7 @@ interface TranscriptionMeta {
 
 interface ChatPanelProps {
   taskId: string;
+  videoUrl: string; // YouTube URL or GCS gs:// URL
   videoAnalysis: VideoAnalysis | null;
   videoTitle?: string;
   userId?: string;
@@ -59,14 +60,14 @@ interface ChatPanelProps {
 
 const SUGGESTED_PROMPTS = [
   "Is this analysis positive or negative?",
-  "Who are the speakers?",
   "What are the key moments?",
-  "What topics are discussed?",
+  "What are the points to be improved?",
   "What is the overall sentiment?",
 ];
 
 export default function ChatPanel({
   taskId,
+  videoUrl,
   videoAnalysis,
   videoTitle,
   userId,
@@ -86,22 +87,21 @@ export default function ChatPanel({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ─── Auto-scroll ────────────────────────────────────────────────────────────
+  // Auto-scroll
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
 
-  // ─── Load history + transcription status on open ────────────────────────────
+  // Init session on open — creates session + auto-triggers transcription
   useEffect(() => {
     if (!open) return;
-    loadHistory();
-    loadTranscriptionMeta();
+    initSession();
     return () => {
       if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
     };
   }, [open, taskId]);
 
-  // ─── Auto-resize textarea ───────────────────────────────────────────────────
+  // Auto-resize textarea
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -109,13 +109,22 @@ export default function ChatPanel({
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }, [input]);
 
-  async function loadHistory() {
+  /**
+   * Single call to POST /chat-session:
+   *  - Creates or finds the session
+   *  - Auto-triggers transcription in the background if not already done
+   *  - Returns session history + transcription status in one round-trip
+   */
+  async function initSession() {
     setIsLoadingHistory(true);
     try {
-      const params = new URLSearchParams({ taskId });
-      if (userId) params.set("userId", userId);
-      const res = await fetch(`/api/services/alyzitron/chat-session?${params}`);
+      const res = await fetch("/api/services/alyzitron/chat-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId, videoUrl, userId }),
+      });
       const data = await res.json();
+
       if (data.messages?.length) {
         setMessages(
           data.messages
@@ -126,36 +135,38 @@ export default function ChatPanel({
               timestamp: new Date(m.timestamp),
             }))
         );
-        setSessionId(data.sessionId);
-        setHasSummarized(data.hasSummary);
+      }
+      if (data.sessionId) setSessionId(data.sessionId);
+      if (data.hasSummary)  setHasSummarized(true);
+
+      // Set initial transcription status from session response
+      setTranscriptionMeta({ status: data.transcriptionStatus });
+
+      // If transcription is still processing, poll until done
+      if (data.transcriptionStatus !== "completed") {
+        pollTranscriptionStatus();
       }
     } catch (err) {
-      console.error("[ChatPanel] Failed to load history:", err);
+      console.error("[ChatPanel] Failed to init session:", err);
     } finally {
       setIsLoadingHistory(false);
     }
   }
 
-  async function loadTranscriptionMeta() {
-    try {
-      const res = await fetch(`/api/services/alyzitron/transcribe?taskId=${taskId}`);
-      const data = await res.json();
-      setTranscriptionMeta(data);
-
-      // Poll if still processing
-      if (data.status === "processing") {
-        pollIntervalRef.current = setInterval(async () => {
-          const r = await fetch(`/api/services/alyzitron/transcribe?taskId=${taskId}`);
-          const d = await r.json();
-          setTranscriptionMeta(d);
-          if (d.status !== "processing") {
-            clearInterval(pollIntervalRef.current!);
-          }
-        }, 4000);
+  function pollTranscriptionStatus() {
+    if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/services/alyzitron/transcribe?taskId=${taskId}`);
+        const d = await r.json();
+        setTranscriptionMeta(d);
+        if (d.status !== "processing") {
+          clearInterval(pollIntervalRef.current!);
+        }
+      } catch {
+        clearInterval(pollIntervalRef.current!);
       }
-    } catch {
-      setTranscriptionMeta({ status: "not_found" });
-    }
+    }, 4000);
   }
 
   const sendMessage = useCallback(
@@ -282,7 +293,7 @@ export default function ChatPanel({
 
   return (
     <Tooltip.Provider delayDuration={400}>
-      {/* ── Panel ── */}
+      {/* Panel */}
       <div
         data-state={open ? "open" : "closed"}
         className="
@@ -296,7 +307,7 @@ export default function ChatPanel({
         "
         style={{ fontFamily: "'DM Sans', 'Geist', sans-serif" }}
       >
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex-none flex flex-col border-b border-zinc-800/80">
           {/* Top bar */}
           <div className="flex items-center justify-between px-4 py-3">
@@ -370,7 +381,7 @@ export default function ChatPanel({
           <TranscriptionBar meta={transcriptionMeta} />
         </div>
 
-        {/* ── Messages ── */}
+        {/* Messages */}
         <ScrollArea.Root className="flex-1 min-h-0">
           <ScrollArea.Viewport className="h-full w-full">
             <div className="flex flex-col px-4 py-4 gap-1 min-h-full">
@@ -415,7 +426,7 @@ export default function ChatPanel({
           </ScrollArea.Scrollbar>
         </ScrollArea.Root>
 
-        {/* ── Suggested Prompts ── */}
+        {/* Suggested Prompts */}
         {isEmpty && !isLoadingHistory && (
           <SuggestedPrompts
             prompts={SUGGESTED_PROMPTS}
@@ -423,7 +434,7 @@ export default function ChatPanel({
           />
         )}
 
-        {/* ── Input ── */}
+        {/* Input */}
         <div className="flex-none border-t border-zinc-800/80 p-3">
           <div
             className="
@@ -495,7 +506,7 @@ export default function ChatPanel({
         </div>
       </div>
 
-      {/* ── Backdrop (mobile) ── */}
+      {/* Backdrop (mobile) */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm md:hidden"
@@ -506,7 +517,7 @@ export default function ChatPanel({
   );
 }
 
-// ─── Transcription meta bar ────────────────────────────────────────────────
+// Transcription meta bar
 function TranscriptionBar({ meta }: { meta: TranscriptionMeta | null }) {
   if (!meta || meta.status === "not_found") return null;
 

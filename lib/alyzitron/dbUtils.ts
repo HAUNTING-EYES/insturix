@@ -25,7 +25,7 @@ export interface SpeakerSegmentDoc {
 export interface TranscriptionDoc {
   _id?: ObjectId;
   taskId: string;
-  audioUrl: string;
+  videoUrl: string;
   deepgramRequestId: string;
   status: TranscriptionStatus;
   text: string;
@@ -104,7 +104,7 @@ export async function findTranscription(
 
 export async function upsertTranscriptionProcessing(
   taskId: string,
-  audioUrl: string
+  videoUrl: string
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { transcriptions } = await getAlyzitronCollections();
@@ -112,7 +112,7 @@ export async function upsertTranscriptionProcessing(
     await transcriptions.updateOne(
       { taskId },
       {
-        $set:         { audioUrl, status: "processing", updatedAt: now },
+        $set:         { videoUrl, status: "processing", updatedAt: now },
         $unset:       { errorMessage: "" },
         $setOnInsert: { createdAt: now, taskId },
       },
@@ -123,7 +123,7 @@ export async function upsertTranscriptionProcessing(
 
 export async function upsertTranscriptionCompleted(
   taskId: string,
-  data: Omit<TranscriptionDoc, "_id" | "taskId" | "audioUrl" | "status" | "createdAt" | "updatedAt">
+  data: Omit<TranscriptionDoc, "_id" | "taskId" | "videoUrl" | "status" | "createdAt" | "updatedAt">
 ): Promise<void> {
   return withErrorHandling(async () => {
     const { transcriptions } = await getAlyzitronCollections();

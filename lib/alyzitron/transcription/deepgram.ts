@@ -1,4 +1,6 @@
 import { createClient, DeepgramClient } from "@deepgram/sdk";
+import ytdl from "@distube/ytdl-core";
+// import ytdlp from "yt-dlp-exec";
 
 // ---------------------------------------------------------------------------
 // Deepgram supports these languages for transcription + speaker diarization.
@@ -31,8 +33,7 @@ export const SUPPORTED_LANGUAGES = [
 export const SUPPORTED_LANGUAGE_NAMES = SUPPORTED_LANGUAGES.map((l) => l.name);
 
 // ---------------------------------------------------------------------------
-// Shared types — identical interface to the previous AssemblyAI module so
-// nothing else in the codebase needs to change.
+// Shared types
 // ---------------------------------------------------------------------------
 export interface SpeakerSegment {
   speaker: string; // "0", "1", "2" … (Deepgram uses numeric speaker IDs)
@@ -78,33 +79,121 @@ function getClient(): DeepgramClient {
 //   • smart_format      — punctuation, paragraphs, numerals
 //   • utterances: true  — required to get per-speaker utterance segments
 //
-// Deepgram's prerecorded API is synchronous — one call, no polling needed.
 // ---------------------------------------------------------------------------
-export async function transcribeAudio(audioUrl: string): Promise<TranscriptionResult> {
+// isYouTubeUrl
+// Matches youtube.com/watch, youtu.be, youtube.com/shorts, etc.
+// ---------------------------------------------------------------------------
+function isYouTubeUrl(url: string): boolean {
+  return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)\//i.test(url);
+}
+
+// ---------------------------------------------------------------------------
+// downloadYouTubeAudio
+//
+// Uses youtube-dl-exec (bundles yt-dlp binary — no Python needed) to download
+// audio-only as a raw buffer piped directly to stdout.
+//
+// --format bestaudio      picks best audio-only stream
+// --output -              pipes raw bytes to stdout instead of writing a file
+// --no-playlist           never accidentally download a full playlist
+// ---------------------------------------------------------------------------
+async function downloadYouTubeAudio(youtubeUrl: string) {
+  try {
+    if (!ytdl.validateURL(youtubeUrl)) {
+      throw new Error("Invalid YouTube URL");
+    }
+
+    const stream = ytdl(youtubeUrl, {
+      quality: "highestaudio",
+      filter: "audioonly"
+    });
+
+    return stream;
+
+  } catch (err: any) {
+    throw new Error(`YouTube audio download failed: ${err?.stderr || err?.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared Deepgram options
+// ---------------------------------------------------------------------------
+const DEEPGRAM_OPTIONS = {
+  model: "nova-2" as const,
+  diarize: true,
+  detect_language: true,
+  smart_format: true,
+  utterances: true,   // Required for per-speaker segments
+  punctuate: true,
+  paragraphs: false,  // Keep flat for LLM consumption
+  filler_words: false,  // Strip "um", "uh" etc.
+};
+
+// ---------------------------------------------------------------------------
+// transcribeAudio
+//
+// Entry point for all transcription. Detects YouTube URLs and downloads audio
+// first before sending to Deepgram as a file buffer. All other URLs (GCS
+// signed URLs, direct media URLs) are sent directly via transcribeUrl.
+// ---------------------------------------------------------------------------
+export async function transcribeAudio(publicUrl: string) {
+  if (isYouTubeUrl(publicUrl)) {
+    return transcribeYouTube(publicUrl);
+  }
+  else{
+    return transcribeUrl(publicUrl);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// transcribeUrl — for direct media URLs (signed GCS, CDN, etc.)
+// ---------------------------------------------------------------------------
+async function transcribeUrl(publicUrl: string): Promise<TranscriptionResult> {
+  const deepgram = getClient();
+ 
+  const { result, error } = await deepgram.listen.prerecorded.transcribeUrl(
+    { url: publicUrl },
+    DEEPGRAM_OPTIONS
+  );
+ 
+  if (error) {
+    throw new Error(`Deepgram transcription failed: ${JSON.stringify(error)}`);
+  }
+  if (!result) {
+    throw new Error("Deepgram returned an empty result");
+  }
+ 
+  return parseDeepgramResult(result);
+}
+
+// ---------------------------------------------------------------------------
+// transcribeYouTube — downloads audio buffer then sends as a file to Deepgram
+// ---------------------------------------------------------------------------
+async function transcribeYouTube(youtubeUrl: string): Promise<TranscriptionResult> {
   const deepgram = getClient();
 
-  const { result, error } = await deepgram.listen.prerecorded.transcribeUrl(
-    { url: audioUrl },
-    {
-      model: "nova-2",
-      diarize: true,
-      detect_language: true,
-      smart_format: true,
-      utterances: true,    // Gives us per-speaker segments
-      punctuate: true,
-      paragraphs: false,   // Keep flat for LLM consumption
-      filler_words: false, // Strip "um", "uh" etc.
-    }
+  const audioStream = await downloadYouTubeAudio(youtubeUrl);
+
+  const { result, error } = await deepgram.listen.prerecorded.transcribeFile(
+    audioStream,
+    DEEPGRAM_OPTIONS
   );
 
   if (error) {
-    throw new Error(`Deepgram transcription failed: ${error.message}`);
+    throw new Error(`Deepgram transcription failed: ${JSON.stringify(error)}`);
   }
 
   if (!result) {
     throw new Error("Deepgram returned an empty result");
   }
 
+  return parseDeepgramResult(result);
+}
+
+// ---------------------------------------------------------------------------
+// parseDeepgramResult — shared result parser for both transcription paths
+// ---------------------------------------------------------------------------
+function parseDeepgramResult(result: any): TranscriptionResult {
   const channel = result.results?.channels?.[0];
   const alternative = channel?.alternatives?.[0];
 
@@ -112,37 +201,25 @@ export async function transcribeAudio(audioUrl: string): Promise<TranscriptionRe
     throw new Error("Deepgram returned no transcript alternatives");
   }
 
-  // Plain full transcript
   const text = alternative.transcript ?? "";
 
-  // Per-speaker utterance segments (requires utterances: true)
   const speakerSegments: SpeakerSegment[] =
-    result.results?.utterances?.map((u) => ({
+    result.results?.utterances?.map((u: any) => ({
       speaker: String(u.speaker ?? "0"),
       text: u.transcript,
-      start: Math.round(u.start * 1000), // Deepgram gives seconds → convert to ms
+      start: Math.round(u.start * 1000),
       end: Math.round(u.end * 1000),
     })) ?? [];
 
-  // Deepgram returns language code like "en", "es-419", etc. Normalise to base code.
   const rawLang = result.results?.channels?.[0]?.detected_language ?? null;
   const detectedLanguage = rawLang ? rawLang.split("-")[0] : null;
-
-  // Confidence: average across all words, or top-level alternative confidence
   const confidence = alternative.confidence ?? null;
-
-  // Duration
   const durationMs = result.metadata?.duration
     ? Math.round(result.metadata.duration * 1000)
     : null;
-
-  // Word count from word-level data (most accurate)
-  const wordCount = alternative.words?.length ?? text.split(/\s+/).filter(Boolean).length;
-
-  // Unique job ID — Deepgram uses request_id in metadata
+  const wordCount = alternative.words?.length
+    ?? text.split(/\s+/).filter(Boolean).length;
   const id = result.metadata?.request_id ?? crypto.randomUUID();
-
-  const formattedTranscript = buildFormattedTranscript(speakerSegments, text);
 
   return {
     id,
@@ -151,7 +228,7 @@ export async function transcribeAudio(audioUrl: string): Promise<TranscriptionRe
     detectedLanguage,
     confidence,
     speakerSegments,
-    formattedTranscript,
+    formattedTranscript: buildFormattedTranscript(speakerSegments, text),
     durationMs,
     wordCount,
   };
