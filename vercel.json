@@ -17,10 +17,6 @@
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/send-ticket-reminders",
-      "schedule": "*/15 * * * *"
-    },
-    {
       "path": "/api/cron/process-render-queue",
       "schedule": "* * * * *"
     }
