@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { useUser } from '@clerk/nextjs';
 
 // Credits balance type (simplified for frontend)
@@ -83,18 +83,12 @@ export function UserInitializationProvider({ children, initialData }: UserInitia
     await refreshCredits();
   }, [refreshCredits]);
 
-  // Track whether we've done the initial credit refresh to avoid double-firing.
-  const hasInitiallyRefreshed = useRef(false);
-
-  // When server provided initialData, Clerk's `user` object may not be loaded yet
-  // on the first render. We watch for `user` to become available and then do a
-  // single background credit refresh — the useRef guard prevents it running twice.
+  // Effect to refresh data from server in the background after initial render
   useEffect(() => {
-    if (initialData && user && !hasInitiallyRefreshed.current) {
-      hasInitiallyRefreshed.current = true;
-      refreshCredits();
+    if (initialData) {
+      refreshFeatureUsage();
     }
-  }, [user]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialData]); // Runs once when initialData is first received
 
   // Effect for client-side initialization (fallback if server render fails)
   useEffect(() => {

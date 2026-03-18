@@ -19,35 +19,18 @@ if (!cached) {
 
 async function connectToDatabase() {
   if (cached.conn) {
-    // Verify the existing connection is still alive
-    if (mongoose.connection.readyState === 1) {
-      return cached.conn;
-    }
-    // Connection dropped — reset cache so we reconnect
-    cached.conn = null;
-    cached.promise = null;
+    return cached.conn;
   }
 
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
       dbName: process.env.MONGODB_DB_NAME,
-      serverSelectionTimeoutMS: 5000, // Fail fast if no server found (default 30s)
-      connectTimeoutMS: 5000,         // TCP connection timeout (default 30s)
-      socketTimeoutMS: 10000,         // Socket inactivity timeout (default 0 / infinite)
     };
 
-    cached.promise = mongoose
-      .connect(MONGODB_URI, opts)
-      .then((mongoose) => {
-        return mongoose;
-      })
-      .catch((err) => {
-        // Reset the cached promise so the next request retries
-        // instead of awaiting a permanently rejected promise
-        cached.promise = null;
-        throw err;
-      });
+    cached.promise = mongoose.connect(MONGODB_URI, opts).then((mongoose) => {
+      return mongoose;
+    });
   }
   cached.conn = await cached.promise;
   return cached.conn;
