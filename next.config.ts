@@ -5,8 +5,11 @@ const nextConfig: NextConfig = {
   // Keep enabled in development for debugging
   reactStrictMode: process.env.NODE_ENV === "development",
   typescript: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has type errors.
+    // ⚠️  TECHNICAL DEBT — DO NOT leave this permanently.
+    // Allows builds to pass even with type errors. This is dangerous in production.
+    // TODO: Set this to false once existing type errors are cleaned up.
+    //       Track progress in: https://github.com/your-org/your-repo/issues
+    //       Target: Remove this flag by end of Q2 2026.
     ignoreBuildErrors: true,
   },
   // Performance optimizations
