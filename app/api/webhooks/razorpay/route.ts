@@ -8,10 +8,16 @@ import { UserType } from "@/types/userTypes";
 import { updateUserPlan, downgradeUserToFreePlan, extendUserPlan, cancelUserPlan } from "@/lib/services/planService";
 import { CreditsService } from "@/lib/services/creditsService";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-});
+let _razorpay: Razorpay | null = null;
+function getRazorpay() {
+  if (!_razorpay) {
+    _razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+    });
+  }
+  return _razorpay;
+}
 
 interface RazorpayWebhookPayload {
   entity: string;
@@ -202,7 +208,7 @@ export async function POST(request: NextRequest) {
         const dbPlanId = planDetails._id.toString();
 
         try {
-          const plan = await razorpay.plans.fetch(subscription.plan_id);
+          const plan = await getRazorpay().plans.fetch(subscription.plan_id);
           if (!plan) {
             console.error(`Could not fetch plan details from Razorpay for ${subscription.plan_id}`);
             break;
@@ -227,7 +233,7 @@ export async function POST(request: NextRequest) {
 
         // Grant subscription credits
         try {
-          const plan = await razorpay.plans.fetch(subscription.plan_id);
+          const plan = await getRazorpay().plans.fetch(subscription.plan_id);
           const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
           await CreditsService.grantSubscriptionCredits(user.clerkUserId, userType, planPeriod);
           console.log(`Granted subscription credits to user ${user.clerkUserId} for ${userType} plan`);
@@ -286,7 +292,7 @@ export async function POST(request: NextRequest) {
           const dbPlanId = planDetails._id.toString();
           
           try {
-            const plan = await razorpay.plans.fetch(subscription.plan_id);
+            const plan = await getRazorpay().plans.fetch(subscription.plan_id);
             if (!plan) {
               console.error(`Could not fetch plan details from Razorpay for ${subscription.plan_id}`);
               break;
@@ -318,7 +324,7 @@ export async function POST(request: NextRequest) {
           
           // Grant new subscription credits on renewal
           try {
-            const plan = await razorpay.plans.fetch(subscription.plan_id);
+            const plan = await getRazorpay().plans.fetch(subscription.plan_id);
             const planPeriod = (plan as any).period === 'yearly' ? 'yearly' : 'monthly';
             await CreditsService.grantSubscriptionCredits(user.clerkUserId, user.currentPlan.name, planPeriod);
             console.log(`Granted renewal credits to user ${user.clerkUserId}`);

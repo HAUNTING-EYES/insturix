@@ -9,14 +9,16 @@ import { auth } from "@clerk/nextjs/server";
 import Razorpay from "razorpay";
 import { CREDIT_PACKAGES, SUBSCRIPTION_PLANS } from "@/lib/config/creditCosts";
 
-if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
-  console.error("Razorpay credentials not configured for credits topup");
+let _razorpay: Razorpay | null = null;
+function getRazorpay() {
+  if (!_razorpay) {
+    _razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+    });
+  }
+  return _razorpay;
 }
-
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-});
 
 export async function GET() {
   // Return available credit packages
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create Razorpay order for one-time payment
-    const order = await razorpay.orders.create({
+    const order = await getRazorpay().orders.create({
       amount: Math.round(selectedItem.price * 100), // Convert to smallest currency unit
       currency: currency,
       receipt: `cr_${userId.slice(-12)}_${Date.now().toString(36)}`,

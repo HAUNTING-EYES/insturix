@@ -333,6 +333,18 @@ export function ExportToEditronDialog({
               <Button variant="ghost" onClick={handleClose} className="text-zinc-400">
                 Close
               </Button>
+              {storyboardId && (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    window.location.href = `/dashboard/storyboard/${storyboardId}`;
+                  }}
+                  className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                >
+                  <ImageIcon className="h-4 w-4 mr-2" />
+                  Edit Storyboard
+                </Button>
+              )}
               <Button
                 onClick={() => {
                   window.location.href = `/dashboard/editron/project/${projectId}`;

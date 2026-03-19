@@ -5,15 +5,22 @@ import Plan from '../../schemas/plans.ts';
 
 dotenv.config();
 
-if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
-  throw new Error("Razorpay credentials are not configured.");
+// Lazy singleton – only created when a function actually needs it.
+// This prevents the build from crashing when env vars are missing (e.g. in CI).
+let _razorpay: Razorpay | null = null;
+
+function getRazorpay(): Razorpay {
+  if (!_razorpay) {
+    if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
+      throw new Error("Razorpay credentials are not configured.");
+    }
+    _razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID,
+      key_secret: process.env.RAZORPAY_SECRET_KEY_ID,
+    });
+  }
+  return _razorpay;
 }
-
-
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_SECRET_KEY_ID,
-});
 
 
 export async function createPlan(planDetails: {
@@ -26,7 +33,7 @@ export async function createPlan(planDetails: {
     const { name, amount, currency, period, type } = planDetails;
     // console.log('[DEBUG] createPlan called with:', { name, amount, currency, period, type });
     try {
-        const razorpayPlan = await razorpay.plans.create({
+        const razorpayPlan = await getRazorpay().plans.create({
             period: period,
             interval: 1,
             item: {
@@ -102,7 +109,7 @@ export async function createSubscription(
         }
 
         // Razorpay checkout logic
-        const subscription = await razorpay.subscriptions.create(subscriptionData);
+        const subscription = await getRazorpay().subscriptions.create(subscriptionData);
         return {
             provider: 'razorpay',
             key: process.env.RAZORPAY_KEY_ID,
@@ -120,7 +127,7 @@ export async function createRefund(refundDetails: {
     notes?: Record<string, string>;
     currency: string;
 }): Promise<{ success: true } & Record<string, unknown>> {
-    const refund = await razorpay.payments.refund(refundDetails.paymentId, {
+    const refund = await getRazorpay().payments.refund(refundDetails.paymentId, {
         amount: refundDetails.amount,
         notes: refundDetails.notes,
     });
@@ -130,5 +137,5 @@ export async function createRefund(refundDetails: {
 
 export async function getRefundStatus(paymentId: string): Promise<Record<string, unknown>> {
     // Assuming this is for Razorpay, as Lemon Squeezy refund status might be handled differently.
-    return await razorpay.payments.fetch(paymentId) as unknown as Record<string, unknown>;
+    return await getRazorpay().payments.fetch(paymentId) as unknown as Record<string, unknown>;
 }

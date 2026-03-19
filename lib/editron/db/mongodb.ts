@@ -6,16 +6,14 @@
 
 import { MongoClient, Db } from 'mongodb';
 
-if (!process.env.MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable');
+// Read env vars lazily to avoid crashing next build when they're not set (e.g. CI).
+function getMongoConfig() {
+  const uri = process.env.MONGODB_URI;
+  const dbName = process.env.EDITRON_MONGODB_DB_NAME || process.env.MONGODB_DB_NAME;
+  if (!uri) throw new Error('Please define the MONGODB_URI environment variable');
+  if (!dbName) throw new Error('Please define the MONGODB_DB_NAME environment variable');
+  return { uri, dbName };
 }
-
-if (!process.env.MONGODB_DB_NAME) {
-  throw new Error('Please define the MONGODB_DB_NAME environment variable');
-}
-
-const uri = process.env.MONGODB_URI;
-const dbName = process.env.EDITRON_MONGODB_DB_NAME || process.env.MONGODB_DB_NAME;
 
 let cachedClient: MongoClient | null = null;
 let cachedDb: Db | null = null;
@@ -27,8 +25,9 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
   }
 
   // Create new connection
+  const { uri, dbName } = getMongoConfig();
   const client = new MongoClient(uri);
-  
+
   await client.connect();
   const db = client.db(dbName);
 
