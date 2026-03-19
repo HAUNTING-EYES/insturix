@@ -166,19 +166,25 @@ export function ExportToEditronDialog({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               aspectRatio,
-              // Generate for all scenes that have images
             }),
           });
 
-          if (videoRes.ok) {
-            const videoData = await videoRes.json();
+          const videoData = await videoRes.json();
+
+          if (videoRes.ok && videoData.success) {
             const succeeded = videoData.summary?.succeeded || 0;
             setVideoProgress({ done: succeeded, total: sbImages.length });
             setVideosGenerated(succeeded > 0);
+            console.log('[ExportToEditron] Video generation complete:', videoData.summary);
+          } else {
+            // Surface the error so user knows what went wrong
+            const errMsg = videoData.error || `Video generation failed (${videoRes.status})`;
+            console.error('[ExportToEditron] Video generation error:', errMsg, videoData);
+            setError(`Videos: ${errMsg}. Continuing with storyboard images.`);
           }
-        } catch (videoErr) {
-          console.error('Video generation failed:', videoErr);
-          // Don't fail the whole export — continue with storyboard images
+        } catch (videoErr: any) {
+          console.error('[ExportToEditron] Video generation exception:', videoErr);
+          setError(`Videos: ${videoErr.message}. Continuing with storyboard images.`);
         }
       }
 
@@ -465,6 +471,9 @@ export function ExportToEditronDialog({
                 {step === 'generating-videos' && 'Animating storyboard images into video clips — this takes a few minutes...'}
                 {step === 'finalizing' && 'Assembling your video project...'}
               </p>
+              {error && (
+                <p className="text-xs text-amber-400 text-center mt-1">{error}</p>
+              )}
             </motion.div>
           )}
 
