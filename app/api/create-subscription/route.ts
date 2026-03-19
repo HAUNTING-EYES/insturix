@@ -5,10 +5,16 @@ import connectToDatabase from "@/schemas/ConnectToDatabase";
 import Plan from "@/schemas/plans";
 import { UserType } from "@/types/userTypes";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-});
+let _razorpay: Razorpay | null = null;
+function getRazorpay() {
+  if (!_razorpay) {
+    _razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+    });
+  }
+  return _razorpay;
+}
 
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
@@ -53,7 +59,7 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const subscription = await razorpay.subscriptions.create({
+    const subscription = await getRazorpay().subscriptions.create({
       plan_id: razorpayPlanId,
       customer_notify: 1,
       quantity: 1,

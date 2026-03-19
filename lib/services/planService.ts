@@ -14,10 +14,16 @@ type SubscriptionRecord = {
   startDate?: Date;
 };
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-});
+let _razorpay: Razorpay | null = null;
+function getRazorpay() {
+  if (!_razorpay) {
+    _razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+    });
+  }
+  return _razorpay;
+}
 
 // Get plan price for specific currency
 export async function getPlanPrice(planType: UserType, currency: string = "USD", billingCycle: 'monthly' | 'yearly' = 'monthly'): Promise<number> {
@@ -104,11 +110,11 @@ export async function cancelUserPlan(clerkUserId: string) {
 
   try {
     // Fetch the subscription from Razorpay to check its current status
-    const razorpaySubscription = await razorpay.subscriptions.fetch(activeSubscription.subscriptionId);
+    const razorpaySubscription = await getRazorpay().subscriptions.fetch(activeSubscription.subscriptionId);
 
     if (razorpaySubscription.status !== 'cancelled') {
       // Cancel subscription on Razorpay only if it's not already cancelled
-      await razorpay.subscriptions.cancel(activeSubscription.subscriptionId);
+      await getRazorpay().subscriptions.cancel(activeSubscription.subscriptionId);
       activeSubscription.status = "cancelled";
 
       if (isWithinTrialPeriod && !user.trialUsed) {
@@ -117,9 +123,9 @@ export async function cancelUserPlan(clerkUserId: string) {
         
         // Find the payment associated with the subscription to refund it
         if (activeSubscription.latestInvoice) {
-          const invoice = await razorpay.invoices.fetch(activeSubscription.latestInvoice);
+          const invoice = await getRazorpay().invoices.fetch(activeSubscription.latestInvoice);
           if (invoice && invoice.payment_id) {
-              const refund = await razorpay.payments.refund(invoice.payment_id, {
+              const refund = await getRazorpay().payments.refund(invoice.payment_id, {
               amount: refundAmount * 100, // Amount in paise
               speed: "normal",
               });
