@@ -1,5 +1,5 @@
 import { strict as assert } from 'assert';
-import { parseAnalysesResponse } from '@/lib/alyzitron/parseResponse';
+import { parseAnalysesResponse } from '@/app/dashboard/alyzitron/hooks/useAlyzitronPolling';
 
 describe('parseAnalysesResponse', () => {
   it('returns empty array for falsy input', () => {

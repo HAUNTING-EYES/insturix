@@ -47,7 +47,6 @@ export interface TranscriptionResult {
  */
 export const SUPPORTED_LANGUAGES = [
   { code: 'auto', label: 'Auto-detect' },
-  { code: 'multi', label: 'Multilingual (Hinglish, etc.)' },
   { code: 'en', label: 'English' },
   { code: 'es', label: 'Spanish' },
   { code: 'fr', label: 'French' },
@@ -90,24 +89,20 @@ export async function transcribeMedia(
   } = options;
 
   // Build transcription options
-  const isMultilingual = language === 'multi';
-  const isAuto = !language || language === 'auto';
-
   const transcriptionOptions: PrerecordedSchema = {
     model,
     punctuate,
     smart_format: smartFormat,
     // Enable word-level timestamps - critical for our use case
     utterances: false,
-    // For multilingual/code-switching (e.g. Hinglish), use language: 'multi'
-    // For auto-detect (single language), use detect_language: true
-    // For explicit language, set language directly
-    ...(isMultilingual
-      ? { language: 'multi' as any }
-      : isAuto
-        ? { detect_language: true }
-        : { language }),
+    // Detect language if not specified
+    detect_language: !language || language === 'auto',
   };
+
+  // Only set language if explicitly provided (not auto)
+  if (language && language !== 'auto') {
+    transcriptionOptions.language = language;
+  }
 
   try {
     // Transcribe the audio from URL
