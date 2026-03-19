@@ -499,8 +499,8 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
               <Label className="text-xs text-sidebar-accent-foreground">
                 Aspect Ratio
               </Label>
-              <div className="grid grid-cols-4 gap-1 pt-1">
-                {["16:9", "9:16", "1:1", "4:5"].map((ratio) => (
+              <div className="grid grid-cols-3 gap-1 pt-1">
+                {["16:9", "9:16", "4:5"].map((ratio) => (
                   <Button
                     key={ratio}
                     onClick={() => handleAspectRatioChange(ratio)}

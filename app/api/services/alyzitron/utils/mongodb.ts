@@ -1,13 +1,15 @@
 import { MongoClient, Db } from 'mongodb';
 
-// Read env vars lazily to avoid crashing next build when they're not set (e.g. CI).
-function getMongoConfig() {
-  const uri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB_NAME;
-  if (!uri) throw new Error('Please define the MONGODB_URI environment variable');
-  if (!dbName) throw new Error('Please define the MONGODB_DB_NAME environment variable');
-  return { uri, dbName };
+if (!process.env.MONGODB_URI) {
+  throw new Error('Please define the MONGODB_URI environment variable');
 }
+
+if (!process.env.MONGODB_DB_NAME) {
+  throw new Error('Please define the MONGODB_DB_NAME environment variable');
+}
+
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
 
 // Collection names following service naming convention
 const COLLECTIONS = {
@@ -28,9 +30,8 @@ export async function connectToDatabase() {
   }
 
   // Connect to cluster
-  const { uri, dbName } = getMongoConfig();
-  const client = await MongoClient.connect(uri);
-  const db = client.db(dbName);
+  const client = await MongoClient.connect(MONGODB_URI);
+  const db = client.db(MONGODB_DB_NAME);
 
   // Cache the values
   cachedClient = client;

@@ -4,31 +4,32 @@
  * Handles file uploads and signed URL generation
  */
 
-import { Storage, type Bucket } from '@google-cloud/storage';
+import { Storage } from '@google-cloud/storage';
 import { nanoid } from 'nanoid';
 
-// Lazy singleton – only created when a function actually needs it.
-// This prevents the build from crashing when env vars are missing (e.g. in CI).
-let _bucket: Bucket | null = null;
-
-function getBucket(): Bucket {
-  if (!_bucket) {
-    if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
-      throw new Error('Please define the GOOGLE_CLOUD_CREDENTIALS environment variable');
-    }
-    if (!process.env.GCS_BUCKET_NAME) {
-      throw new Error('Please define the GCS_BUCKET_NAME environment variable');
-    }
-    const serviceAccountJson = Buffer.from(
-      process.env.GOOGLE_CLOUD_CREDENTIALS,
-      'base64'
-    ).toString('utf-8');
-    const serviceAccount = JSON.parse(serviceAccountJson);
-    const storage = new Storage({ credentials: serviceAccount });
-    _bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
-  }
-  return _bucket;
+if (!process.env.GOOGLE_CLOUD_CREDENTIALS) {
+  throw new Error('Please define the GOOGLE_CLOUD_CREDENTIALS environment variable');
 }
+
+if (!process.env.GCS_BUCKET_NAME) {
+  throw new Error('Please define the GCS_BUCKET_NAME environment variable');
+}
+
+// Decode service account from base64
+const serviceAccountJson = Buffer.from(
+  process.env.GOOGLE_CLOUD_CREDENTIALS,
+  'base64'
+).toString('utf-8');
+
+const serviceAccount = JSON.parse(serviceAccountJson);
+
+// Initialize GCS client
+const storage = new Storage({
+  credentials: serviceAccount,
+});
+
+const bucketName = process.env.GCS_BUCKET_NAME;
+const bucket = storage.bucket(bucketName);
 
 export interface UploadResult {
   assetId: string;
@@ -55,7 +56,7 @@ export async function uploadToGCS(
   const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
   
   // Upload to GCS
-  const blob = getBucket().file(gcsPath);
+  const blob = bucket.file(gcsPath);
   await blob.save(file, {
     metadata: {
       contentType,
@@ -86,7 +87,7 @@ export async function uploadToGCS(
  * Generate fresh signed URL for existing GCS file
  */
 export async function refreshSignedUrl(gcsPath: string): Promise<{ url: string; expiresAt: Date }> {
-  const blob = getBucket().file(gcsPath);
+  const blob = bucket.file(gcsPath);
   
   const expirationDate = new Date();
   expirationDate.setDate(expirationDate.getDate() + 7);
@@ -107,7 +108,7 @@ export async function refreshSignedUrl(gcsPath: string): Promise<{ url: string; 
  * Delete file from GCS
  */
 export async function deleteFromGCS(gcsPath: string): Promise<void> {
-  const blob = getBucket().file(gcsPath);
+  const blob = bucket.file(gcsPath);
   await blob.delete();
 }
 
@@ -128,7 +129,7 @@ export async function generateUploadUrl(
 }> {
   const assetId = `a_${nanoid(8)}`;
   const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
-  const blob = getBucket().file(gcsPath);
+  const blob = bucket.file(gcsPath);
 
   // Write-signed URL (15 min window for client to upload)
   const [uploadUrl] = await blob.getSignedUrl({
@@ -155,7 +156,7 @@ export async function generateUploadUrl(
  * Check if file exists in GCS
  */
 export async function fileExists(gcsPath: string): Promise<boolean> {
-  const blob = getBucket().file(gcsPath);
+  const blob = bucket.file(gcsPath);
   const [exists] = await blob.exists();
   return exists;
 }

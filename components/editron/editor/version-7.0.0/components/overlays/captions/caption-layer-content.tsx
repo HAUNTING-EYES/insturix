@@ -93,18 +93,11 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   overlay,
 }) => {
   const frame = useCurrentFrame();
-  const { fps, width: compWidth } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const frameMs = (frame / fps) * 1000;
   const styles = overlay.styles || defaultCaptionStyles;
   const highlight = styles.highlight || styles.highlightStyle || defaultCaptionStyles.highlight;
   const displayConfig = overlay.displayConfig || defaultDisplayConfig;
-
-  // Scale font size proportionally when overlay is resized.
-  // Reference width = 80% of composition width (default caption width).
-  // This makes text visually resize when the user drags resize handles.
-  const referenceWidth = compWidth * 0.8;
-  const overlayWidth = overlay.width || referenceWidth;
-  const fontScale = Math.max(0.4, Math.min(2.0, overlayWidth / referenceWidth));
 
   // Find current caption based on frame timestamp
   const currentCaption = overlay.captions.find(
@@ -119,44 +112,24 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
   const getWordsToDisplay = (caption: Caption): { word: CaptionWord; state: "active" | "visible" | "faded" }[] => {
     const { mode, showPreviousWords, fadeOutPreviousWords } = displayConfig;
     const words = caption.words || [];
-
+    
     // Find the currently active word index
     const activeWordIndex = words.findIndex(
       (word) => frameMs >= word.startMs && frameMs <= word.endMs
     );
 
     if (mode === "word-by-word") {
-      if (activeWordIndex !== -1) {
-        return [{ word: words[activeWordIndex], state: "active" }];
-      }
-      // Gap between words: show the nearest word (just-finished or about-to-start)
-      // to prevent flickering/disappearing during transitions
-      const lastFinished = words.findIndex((w, i) =>
-        frameMs > w.endMs && (i === words.length - 1 || frameMs < words[i + 1].startMs)
-      );
-      if (lastFinished !== -1) {
-        return [{ word: words[lastFinished], state: "faded" }];
-      }
-      // Before any word starts, show the first word as faded
-      if (words.length > 0 && frameMs < words[0].startMs) {
-        return [{ word: words[0], state: "faded" }];
-      }
-      return [];
+      // Only show the current word
+      if (activeWordIndex === -1) return [];
+      return [{ word: words[activeWordIndex], state: "active" }];
     }
 
     if (mode === "phrase") {
-      // When in a gap, find the nearest active word index for windowing
-      const effectiveIndex = activeWordIndex !== -1
-        ? activeWordIndex
-        : words.findIndex((w, i) =>
-            frameMs > w.endMs && (i === words.length - 1 || frameMs < words[i + 1].startMs)
-          );
-      if (effectiveIndex === -1) return [];
-
+      // Show words around the active word based on wordsPerGroup
       const halfWindow = Math.floor(displayConfig.wordsPerGroup / 2);
-      const start = Math.max(0, effectiveIndex - halfWindow);
+      const start = Math.max(0, activeWordIndex - halfWindow);
       const end = Math.min(words.length, start + displayConfig.wordsPerGroup);
-
+      
       return words.slice(start, end).map((word, i) => ({
         word,
         state: (start + i) === activeWordIndex ? "active" : "visible",
@@ -257,7 +230,7 @@ export const CaptionLayerContent: React.FC<CaptionLayerContentProps> = ({
     >
       <div
         style={{
-          fontSize: `calc(${normalizeFontSize(styles.fontSize)} * ${fontScale})`,
+          fontSize: normalizeFontSize(styles.fontSize),
           fontWeight: styles.fontWeight,
           fontFamily: styles.fontFamily?.startsWith('font-') 
             ? 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
