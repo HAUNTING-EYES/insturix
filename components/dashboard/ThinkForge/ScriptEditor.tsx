@@ -19,7 +19,6 @@ import {
   History,
   MoreVertical,
   FileDown,
-  Video,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -54,7 +53,7 @@ import LiveDocumentRenderer from "./LiveDocumentRenderer";
 import { thinkForgeBlocksToTiptapJSON } from "@/lib/thinkforge/mappers/thinkforge-to-tiptap";
 import { tiptapJSONToThinkForgeBlocks } from "@/lib/thinkforge/mappers/tiptap-to-thinkforge";
 import { validateThinkForgeBlocks } from "@/lib/thinkforge/schemas/thinkforge-block";
-import { validateTiptapJSON, isTiptapJSON, extractPlainText, extractMarkdownText } from "@/lib/thinkforge/schemas/tiptap-validation";
+import { validateTiptapJSON, isTiptapJSON, extractPlainText } from "@/lib/thinkforge/schemas/tiptap-validation";
 import { buildScriptHtmlDocument, buildScriptText, downloadBlob, printHtmlDocument } from "@/lib/thinkforge/export/export-utils";
 import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
@@ -66,9 +65,6 @@ import { FormatToolbar } from "./FormatToolbar";
 
 // Import ScriptHistoryPanel
 import { ScriptHistoryPanel } from "./ScriptHistoryPanel";
-
-// Import ExportToEditronDialog
-import { ExportToEditronDialog } from "./ExportToEditronDialog";
 
 // Import streaming Tiptap hook
 import { useStreamingTiptap } from "@/lib/thinkforge/hooks/useStreamingTiptap";
@@ -156,7 +152,6 @@ export default function ScriptEditor({
   const [justSaved, setJustSaved] = useState(false);
   const prevIsSavingRef = useRef<boolean>(false);
   const [showBranchEditor, setShowBranchEditor] = useState(false);
-  const [showExportToEditron, setShowExportToEditron] = useState(false);
   const loadedTitleRef = useRef<string | null>(null);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
@@ -1568,15 +1563,6 @@ export default function ScriptEditor({
               >
                 Export TXT
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-zinc-700" />
-              <DropdownMenuItem
-                onClick={() => setShowExportToEditron(true)}
-                className="text-green-400 hover:bg-zinc-800 cursor-pointer"
-                disabled={generatingScript && !script}
-              >
-                <Video className="h-4 w-4 mr-2" />
-                Export to Editron
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -1731,24 +1717,6 @@ export default function ScriptEditor({
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Export to Editron Dialog */}
-      <ExportToEditronDialog
-        open={showExportToEditron}
-        onOpenChange={setShowExportToEditron}
-        blocks={
-          editor
-            ? tiptapJSONToThinkForgeBlocks(editor.getJSON() as TiptapJSON)
-            : []
-        }
-        plainText={
-          editor
-            ? extractMarkdownText(editor.getJSON() as TiptapJSON)
-            : undefined
-        }
-        sessionId={sessionId}
-        scriptId={scriptId || undefined}
-      />
 
       {/* Tiptap Editor Styles */}
       <style jsx global>{`

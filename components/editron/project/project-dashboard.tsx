@@ -8,8 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatDistanceToNow } from 'date-fns';
-import { Plus, Video, Clock, Trash2, FileVideo, FileText, Loader2 } from 'lucide-react';
-import { Textarea } from '@/components/ui/textarea';
+import { Plus, Video, Clock, Trash2, FileVideo } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,9 +40,6 @@ export default function ProjectDashboard() {
   const [creating, setCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
   const [deleteProjectId, setDeleteProjectId] = useState<string | null>(null);
-  const [showScriptImport, setShowScriptImport] = useState(false);
-  const [scriptText, setScriptText] = useState('');
-  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -152,45 +148,6 @@ export default function ProjectDashboard() {
     router.push(`/dashboard/editron/project/${projectId}`);
   };
 
-  const importFromScript = async () => {
-    if (!scriptText.trim()) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Please paste a script' });
-      return;
-    }
-    try {
-      setImporting(true);
-
-      // Step 1: Convert plain text to scenes
-      const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ plainText: scriptText }),
-      });
-      if (!exportRes.ok) throw new Error('Failed to parse script');
-      const exportData = await exportRes.json();
-
-      // Step 2: Import scenes into Editron
-      const importRes = await fetch('/api/services/editron/projects/import-from-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenes: exportData.scenes,
-          title: exportData.title,
-          aspectRatio: '16:9',
-        }),
-      });
-      if (!importRes.ok) throw new Error('Failed to create project');
-      const importData = await importRes.json();
-
-      toast({ title: 'Success', description: `Created project with ${exportData.sceneCount} scenes` });
-      router.push(`/dashboard/editron/project/${importData.projectId}`);
-    } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Error', description: getUserFriendlyErrorMessage(error) });
-    } finally {
-      setImporting(false);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-zinc-50 to-zinc-100 dark:from-zinc-950 dark:to-zinc-900">
       <div className="container mx-auto px-4 py-12">
@@ -235,67 +192,9 @@ export default function ProjectDashboard() {
               >
                 {creating ? 'Creating...' : 'Create Project'}
               </Button>
-              <Button
-                variant="outline"
-                onClick={() => setShowScriptImport(!showScriptImport)}
-                className="whitespace-nowrap border-green-500/30 text-green-600 dark:text-green-400 hover:bg-green-500/10"
-              >
-                <FileText className="h-4 w-4 mr-2" />
-                From Script
-              </Button>
             </div>
           </CardContent>
         </Card>
-
-        {/* Import from Script (collapsible) */}
-        {showScriptImport && (
-          <Card className="mb-8 border border-green-500/20 bg-green-500/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <FileText className="w-5 h-5 text-green-500" />
-                Import from Script
-              </CardTitle>
-              <CardDescription>
-                Paste a script or outline — each section becomes a scene on your timeline
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Textarea
-                placeholder={'# Scene 1: Opening Hook\nStart with an attention-grabbing question...\n\n# Scene 2: Main Content\nExplain the core idea...'}
-                value={scriptText}
-                onChange={(e) => setScriptText(e.target.value)}
-                rows={6}
-                className="resize-none"
-                disabled={importing}
-              />
-              <div className="flex gap-2 justify-end">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => { setShowScriptImport(false); setScriptText(''); }}
-                  disabled={importing}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={importFromScript}
-                  disabled={importing || !scriptText.trim()}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  {importing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                      Importing...
-                    </>
-                  ) : (
-                    'Create Project from Script'
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
 
         {/* Projects Grid */}
         <div>

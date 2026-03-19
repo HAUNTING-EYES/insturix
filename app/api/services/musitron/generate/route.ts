@@ -6,23 +6,24 @@ import { Client } from "@upstash/qstash";
 import { checkCredits } from "@/lib/services/creditsMiddleware";
 import { z } from "zod";
 
-// Lazy QStash client to avoid crashing next build when env vars are missing.
-let _qstash: Client | null = null;
-function getQStash(): Client {
-  if (!_qstash) {
-    if (!process.env.QSTASH_TOKEN) {
-      throw new Error("QSTASH_TOKEN environment variable is not set");
-    }
-    const qstashBaseUrl =
-      process.env.NODE_ENV === "development"
-        ? "http://127.0.0.1:8080"
-        : undefined;
-    _qstash = new Client({
-      token: process.env.QSTASH_TOKEN,
-      baseUrl: qstashBaseUrl,
-    });
+// Initialize QStash client
+let qstash: Client;
+try {
+  if (!process.env.QSTASH_TOKEN) {
+    throw new Error("QSTASH_TOKEN environment variable is not set");
   }
-  return _qstash;
+
+  const qstashBaseUrl =
+    process.env.NODE_ENV === "development"
+      ? "http://127.0.0.1:8080"
+      : undefined;
+
+  qstash = new Client({
+    token: process.env.QSTASH_TOKEN!,
+    baseUrl: qstashBaseUrl,
+  });
+} catch (error) {
+  throw error;
 }
 
 const MUSITRON_MODELS = [
@@ -137,7 +138,7 @@ export async function POST(req: Request) {
       userId,
     });
 
-    const qstashResult = await getQStash().publishJSON({
+    const qstashResult = await qstash.publishJSON({
       url: processorUrl,
       body: {
         taskId: taskId.toString(),

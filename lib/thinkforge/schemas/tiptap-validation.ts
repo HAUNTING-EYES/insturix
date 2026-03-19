@@ -210,74 +210,8 @@ export function extractPlainText(doc: TiptapJSON): string {
 }
 
 /**
- * Extract content from TipTap JSON preserving markdown formatting.
- * Bold text becomes **bold**, italic becomes *italic*, headings become # headings.
- * This is critical for the ThinkForge → Editron pipeline where the timestamped
- * script format uses bold labels like **Visuals:** and **00:00-00:02:** timestamps.
- */
-export function extractMarkdownText(doc: TiptapJSON): string {
-  const lines: string[] = [];
-
-  function textNodeToMarkdown(node: TiptapTextNode): string {
-    let text = node.text;
-    if (node.marks) {
-      for (const mark of node.marks) {
-        if (mark.type === 'bold') text = `**${text}**`;
-        else if (mark.type === 'italic') text = `*${text}*`;
-        else if (mark.type === 'strike') text = `~~${text}~~`;
-        else if (mark.type === 'code') text = `\`${text}\``;
-      }
-    }
-    return text;
-  }
-
-  function inlineContent(nodes: (TiptapBlockContent | TiptapTextNode)[] | undefined): string {
-    if (!nodes) return '';
-    return nodes
-      .map((n) => {
-        if (n.type === 'text') return textNodeToMarkdown(n as TiptapTextNode);
-        if ('content' in n && Array.isArray(n.content)) return inlineContent(n.content as any);
-        if (n.type === 'hardBreak') return '\n';
-        return '';
-      })
-      .join('');
-  }
-
-  function processNodes(nodes: TiptapBlockContent[] | undefined): void {
-    if (!nodes) return;
-    for (const node of nodes) {
-      if (node.type === 'heading') {
-        const level = ((node as any).attrs?.level as number) || 1;
-        const prefix = '#'.repeat(level);
-        lines.push(`${prefix} ${inlineContent(node.content as any)}`);
-      } else if (node.type === 'paragraph') {
-        lines.push(inlineContent(node.content as any));
-      } else if (node.type === 'bulletList' || node.type === 'orderedList') {
-        const items = (node.content as TiptapBlockContent[]) || [];
-        items.forEach((item, i) => {
-          const prefix = node.type === 'orderedList' ? `${i + 1}.` : '-';
-          const itemContent = (item.content as TiptapBlockContent[]) || [];
-          const text = itemContent.map((p) => inlineContent(p.content as any)).join('\n');
-          lines.push(`${prefix} ${text}`);
-        });
-      } else if (node.type === 'blockquote') {
-        const inner = (node.content as TiptapBlockContent[]) || [];
-        inner.forEach((p) => {
-          lines.push(`> ${inlineContent(p.content as any)}`);
-        });
-      } else if ('content' in node && Array.isArray(node.content)) {
-        processNodes(node.content as TiptapBlockContent[]);
-      }
-    }
-  }
-
-  processNodes(doc.content);
-  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
-}
-
-/**
  * Count words in Tiptap JSON content.
- *
+ * 
  * @param doc - The Tiptap document
  * @returns Word count
  */

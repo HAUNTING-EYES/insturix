@@ -1,9 +1,12 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlyzitronAnalysis } from '@/app/api/services/alyzitron/types';
-import { parseAnalysesResponse } from '@/lib/alyzitron/parseResponse';
 
-// Re-export so existing imports from this file continue to work
-export { parseAnalysesResponse };
+export function parseAnalysesResponse(json: any): AlyzitronAnalysis[] {
+    if (!json) return [];
+    if (Array.isArray(json)) return json as AlyzitronAnalysis[];
+    if (json && Array.isArray(json.data)) return json.data as AlyzitronAnalysis[];
+    return [];
+}
 
 export function useAlyzitronPolling(enabled: boolean = true) {
     const queryClient = useQueryClient();

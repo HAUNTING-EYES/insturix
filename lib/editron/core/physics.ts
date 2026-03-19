@@ -84,26 +84,12 @@ export function hasCollisionOnRow(
 }
 
 /**
- * Overlay types that belong in the background (higher row numbers = lower z-index).
- * In our z-index model: row 0 = z-index 100 (front), higher rows = further back.
- * So background content should go to HIGHER row numbers.
- */
-const BACKGROUND_TYPES: readonly string[] = [
-  OverlayType.VIDEO,
-  OverlayType.SOUND,
-] as const;
-
-/**
  * Find the best available row for a new overlay.
- *
- * Z-index model: row 0 = z-index 100 (TOP), higher rows = further back.
- *
- * Logic (like DaVinci Resolve / Premiere):
- * - Video/Audio → Background: Pack at HIGH row numbers (behind everything)
- * - Text/Stickers/Images/Captions/HTML → Foreground: Pack at LOW row numbers (on top)
- *
- * This ensures stickers, text, and captions always appear ABOVE videos.
- *
+ * 
+ * Logic:
+ * - Video/Audio: Pack from bottom (Row 0) upwards
+ * - Text/Stickers/Images: Stack on top of highest used row
+ * 
  * @param type - The type of overlay being added
  * @param timeRange - The time range the overlay will occupy
  * @param existingOverlays - Current overlays in the project
@@ -126,36 +112,16 @@ export function findBestRow(
     ? Math.max(...existingOverlays.map(o => o.row))
     : -1; // -1 means no overlays yet
 
-  const isBackground = BACKGROUND_TYPES.includes(type);
-
-  if (isBackground) {
-    // BACKGROUND (video/audio): Pack from high rows downward.
-    // Start at a guaranteed "back" row and search for a free slot.
-    // Minimum background row = max(2, maxUsedRow) to leave room for foreground.
-    const startRow = Math.max(2, maxUsedRow + 1);
-    for (let row = startRow; row >= 0; row--) {
-      if (!hasCollisionOnRow(row, timeRange, existingOverlays)) {
-        // Ensure we don't go below row 2 if there's foreground content on 0/1
-        const hasLowRowForeground = existingOverlays.some(
-          o => o.row <= 1 && !BACKGROUND_TYPES.includes(o.type)
-        );
-        if (row <= 1 && hasLowRowForeground) continue;
-        return row;
-      }
+  // Simple logic: find the first row (starting from 0) without a time collision
+  // LLM can override with forceRow if it wants specific z-ordering
+  for (let row = 0; row <= maxUsedRow + 1; row++) {
+    if (!hasCollisionOnRow(row, timeRange, existingOverlays)) {
+      return row;
     }
-    // Fallback: next row after max (deepest background)
-    return maxUsedRow + 1;
-  } else {
-    // FOREGROUND (text/sticker/image/caption/html): Pack from row 0 upward.
-    // Row 0 = highest z-index = most visible.
-    for (let row = 0; row <= maxUsedRow + 1; row++) {
-      if (!hasCollisionOnRow(row, timeRange, existingOverlays)) {
-        return row;
-      }
-    }
-    // Fallback: next row after max
-    return maxUsedRow + 1;
   }
+  
+  // Fallback: next row after max
+  return maxUsedRow + 1;
 }
 
 /**

@@ -5,17 +5,11 @@ import { renderMediaOnLambda } from '@remotion/lambda/client';
 // Maximum concurrent renders (based on AWS Lambda account limits)
 export const MAX_CONCURRENT_RENDERS = 3; // Conservative limit for 10 concurrent Lambdas
 
-// Lazy singleton to avoid crashing next build when env vars are missing.
-let _redis: Redis | null = null;
-function getRedis(): Redis {
-  if (!_redis) {
-    _redis = new Redis({
-      url: process.env.UPSTASH_REDIS_REST_URL!,
-      token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-    });
-  }
-  return _redis;
-}
+// Initialize Upstash Redis client
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
 const QUEUE_KEY = 'editron:render:queue';
 
@@ -50,8 +44,8 @@ export async function enqueueRender(job: Omit<QueuedJob, 'queuedAt'>): Promise<{
     queuedAt: Date.now(),
   };
   
-  await getRedis().rpush(QUEUE_KEY, JSON.stringify(queuedJob));
-  const position = await getRedis().llen(QUEUE_KEY);
+  await redis.rpush(QUEUE_KEY, JSON.stringify(queuedJob));
+  const position = await redis.llen(QUEUE_KEY);
   
   return { status: 'queued', position };
 }
@@ -70,7 +64,7 @@ export async function processQueue(): Promise<{
   }
   
   // Pop the first job from queue
-  const jobJson = await getRedis().lpop<string>(QUEUE_KEY);
+  const jobJson = await redis.lpop<string>(QUEUE_KEY);
   if (!jobJson) {
     return { processed: false };
   }
@@ -85,7 +79,7 @@ export async function processQueue(): Promise<{
  * Get current queue length
  */
 export async function getQueueLength(): Promise<number> {
-  return getRedis().llen(QUEUE_KEY);
+  return redis.llen(QUEUE_KEY);
 }
 
 /**

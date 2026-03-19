@@ -98,22 +98,16 @@ export const ImageLayerContent: React.FC<ImageLayerContentProps> = ({
   };
 
   /**
-   * Create a container style that includes padding and background color.
-   * Container clips with borderRadius + overflow:hidden to fix curved boundary rendering.
+   * Create a container style that includes padding and background color
    */
-  const hasBorderRadius = overlay.styles.borderRadius && overlay.styles.borderRadius !== "0px";
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
     padding: overlay.styles.padding || "0px",
     backgroundColor: overlay.styles.paddingBackgroundColor || "transparent",
-    display: "flex",
+    display: "flex", // Use flexbox for centering
     alignItems: "center",
     justifyContent: "center",
-    ...(hasBorderRadius ? {
-      borderRadius: overlay.styles.borderRadius,
-      overflow: "hidden",
-    } : {}),
   };
 
   // Determine the image source URL
