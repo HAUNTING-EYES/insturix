@@ -42,7 +42,6 @@ export const useAutosave = (
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedStateRef = useRef<string>("");
   const [hasCheckedForAutosave, setHasCheckedForAutosave] = useState(false);
-  const hasLoadedRef = useRef(false);
 
   const userId = getUserId();
 
@@ -81,10 +80,6 @@ export const useAutosave = (
     if (!projectId || !userId) return;
 
     const saveIfChanged = async () => {
-      // Don't autosave until the initial load has completed,
-      // otherwise we overwrite imported data with empty overlays.
-      if (!hasLoadedRef.current) return;
-
       const body = JSON.stringify(state);
       if (!body) return;
 
@@ -174,24 +169,17 @@ export const useAutosave = (
             durationInFrames: data.project.durationInFrames,
           };
           
-          hasLoadedRef.current = true;
-          // Snapshot current state so the first autosave doesn't
-          // overwrite with the same data we just loaded.
-          lastSavedStateRef.current = JSON.stringify(loadedState);
           if (onLoad) {
             onLoad(loadedState);
           }
           return loadedState;
         }
       } else if (response.status === 404) {
-        hasLoadedRef.current = true;
         // Project not found - throw error to be handled by caller
         throw new Error('PROJECT_NOT_FOUND');
       }
-      hasLoadedRef.current = true;
       return null;
     } catch (error) {
-      hasLoadedRef.current = true;
       // Re-throw PROJECT_NOT_FOUND errors
       if (error instanceof Error && error.message === 'PROJECT_NOT_FOUND') {
         throw error;
