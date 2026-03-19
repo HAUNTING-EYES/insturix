@@ -48,6 +48,17 @@ const ART_STYLE_PROMPTS: Record<string, string> = {
   brutalist: 'brutalist design, raw concrete, stark geometry, industrial minimalism, monochromatic',
   'glitch-art': 'glitch art, data corruption aesthetic, pixel sorting, digital artifacts, VHS distortion',
   impressionist: 'impressionist painting, visible brushstrokes, light and movement, Monet-inspired, plein air',
+  // Cinematic genres
+  'action-blockbuster': 'action movie still, explosive cinematic lighting, wide-angle lens, dynamic motion blur, Michael Bay style',
+  'sci-fi': 'science fiction concept art, futuristic technology, advanced civilization, volumetric lighting, Ridley Scott inspired',
+  thriller: 'thriller movie still, tense atmosphere, cold desaturated color grade, suspenseful composition, David Fincher style',
+  western: 'western film still, golden hour desert light, rugged frontier landscape, dusty anamorphic lens, Sergio Leone inspired',
+  'war-film': 'war film cinematography, gritty realism, smoke and debris, desaturated color, Saving Private Ryan style',
+  superhero: 'superhero cinematic still, dynamic pose, vivid saturated colors, dramatic backlighting, Marvel concept art style',
+  'rom-com': 'romantic film still, warm soft golden lighting, bokeh background, intimate framing, vibrant cheerful palette',
+  'indie-film': 'indie film still, natural available light, intimate framing, muted earth tones, A24 aesthetic, subtle composition',
+  'motion-graphics': 'flat design motion graphics, vector illustration, bold geometric shapes, clean modern typography',
+  architectural: 'architectural visualization, precise technical rendering, clean lines, dramatic perspective, studio lighting',
 };
 
 /**

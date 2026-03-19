@@ -188,11 +188,13 @@ export async function POST(
       currentFrame += durationFrames;
     }
 
-    // Create Editron project
-    const project = await projectService.createProject(userId, {
-      name: storyboard.title || 'Storyboard Video',
+    // Create Editron project then save overlays + settings
+    const projectName = storyboard.title || 'Storyboard Video';
+    const project = await projectService.createProject(userId, projectName);
+
+    await projectService.saveProject(userId, project.projectId, {
       overlays,
-      aspectRatio,
+      aspectRatio: aspectRatio as any,
       playerDimensions: { width, height },
       fps,
       durationInFrames: currentFrame,
@@ -201,7 +203,7 @@ export async function POST(
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
-      name: project.name,
+      name: projectName,
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
     });

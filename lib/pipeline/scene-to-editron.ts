@@ -4,8 +4,9 @@
  * Converts SceneDescriptor arrays into Editron overlay arrays,
  * creating a timeline-ready project structure.
  *
- * Supports optional storyboard images — when provided, scenes get
- * image overlays instead of plain gradient backgrounds.
+ * IMPORTANT: All overlays MUST conform to Editron's BaseOverlay type which
+ * requires: id, from, durationInFrames, row, left, top, width, height,
+ * isDragging, rotation, type.  Text overlays need string-typed style values.
  */
 
 import type { SceneDescriptor } from './schemas/storyboard';
@@ -19,6 +20,8 @@ interface EditronConvertOptions {
 export interface StoryboardImage {
   sceneIndex: number;
   imageUrl: string;
+  /** Optional GCS asset ID — required so images survive save/load round-trips */
+  assetId?: string;
 }
 
 // Background gradient presets based on mood
@@ -60,32 +63,37 @@ export function scenesToOverlays(
   let currentFrame = 0;
 
   // Build a lookup map for storyboard images by scene index
-  const imageMap = new Map<number, string>();
+  const imageMap = new Map<number, StoryboardImage>();
   if (storyboardImages) {
     for (const img of storyboardImages) {
-      imageMap.set(img.sceneIndex, img.imageUrl);
+      imageMap.set(img.sceneIndex, img);
     }
   }
 
   for (const scene of scenes) {
     const durationFrames = Math.round(scene.durationSeconds * fps);
-    const imageUrl = imageMap.get(scene.sceneIndex);
+    const sbImage = imageMap.get(scene.sceneIndex);
 
-    if (imageUrl) {
+    if (sbImage) {
       // 1a. Storyboard image as background
       overlays.push({
         id: nextId(),
         type: 'image',
         from: currentFrame,
         durationInFrames: durationFrames,
-        row: 2,
+        row: 3,
+        left: 0,
+        top: 0,
         width,
         height,
-        x: 0,
-        y: 0,
-        src: imageUrl,
-        name: `BG: ${scene.title}`,
-        styles: { opacity: 1, objectFit: 'cover' },
+        isDragging: false,
+        rotation: 0,
+        src: sbImage.imageUrl,
+        assetId: sbImage.assetId,
+        styles: {
+          opacity: 1,
+          objectFit: 'cover',
+        },
       });
     } else {
       // 1b. Placeholder background (HTML scene overlay with gradient)
@@ -97,14 +105,17 @@ export function scenesToOverlays(
         type: 'html-scene',
         from: currentFrame,
         durationInFrames: durationFrames,
-        row: 2,
+        row: 3,
+        left: 0,
+        top: 0,
         width,
         height,
-        x: 0,
-        y: 0,
-        htmlContent: bgHtml,
-        name: `BG: ${scene.title}`,
-        styles: { opacity: 1 },
+        isDragging: false,
+        rotation: 0,
+        content: bgHtml,
+        styles: {
+          opacity: 1,
+        },
       });
     }
 
@@ -115,20 +126,27 @@ export function scenesToOverlays(
       type: 'text',
       from: currentFrame,
       durationInFrames: titleDuration,
-      row: 0,
-      content: scene.title,
-      x: width / 2,
-      y: Math.round(height * 0.12),
+      row: 1,
+      left: Math.round(width * 0.1),
+      top: Math.round(height * 0.1),
       width: Math.round(width * 0.8),
-      height: 80,
+      height: Math.round(height * 0.08),
+      isDragging: false,
+      rotation: 0,
+      content: scene.title,
       styles: {
-        fontSize: 56,
-        fontFamily: 'font-league-spartan',
-        color: '#FFFFFF',
+        fontSize: '48',
+        fontFamily: 'font-sans',
+        fontWeight: '700',
+        color: '#ffffff',
+        backgroundColor: 'transparent',
+        fontStyle: 'normal',
+        textDecoration: 'none',
         textAlign: 'center',
-        animation: 'fade',
+        textShadow: '0 2px 8px rgba(0,0,0,0.7)',
+        opacity: 1,
+        animation: { enter: 'fade', exit: 'fade', duration: 15 },
       },
-      name: `Title: ${scene.title}`,
     });
 
     // 3. Narration text (lower-third, full scene duration)
@@ -141,57 +159,52 @@ export function scenesToOverlays(
         chunks.push(words.slice(i, i + WORDS_PER_CHUNK).join(' '));
       }
 
+      const makeNarrationOverlay = (text: string, fromFrame: number, dur: number, label: string) => ({
+        id: nextId(),
+        type: 'text',
+        from: fromFrame,
+        durationInFrames: dur,
+        row: 0,
+        left: Math.round(width * 0.05),
+        top: Math.round(height * 0.82),
+        width: Math.round(width * 0.9),
+        height: Math.round(height * 0.14),
+        isDragging: false,
+        rotation: 0,
+        content: text,
+        styles: {
+          fontSize: '28',
+          fontFamily: 'font-sans',
+          fontWeight: '400',
+          color: '#ffffff',
+          backgroundColor: 'rgba(0,0,0,0.6)',
+          fontStyle: 'normal',
+          textDecoration: 'none',
+          textAlign: 'center',
+          opacity: 1,
+          borderRadius: '8px',
+          padding: '12px',
+          animation: { enter: 'fade', exit: 'fade', duration: 10 },
+        },
+      });
+
       if (chunks.length <= 1) {
-        // Single caption for short narration
         const displayText =
           scene.narration.length > 140 ? scene.narration.substring(0, 137) + '...' : scene.narration;
-
-        overlays.push({
-          id: nextId(),
-          type: 'text',
-          from: currentFrame,
-          durationInFrames: durationFrames,
-          row: 1,
-          content: displayText,
-          x: width / 2,
-          y: Math.round(height * 0.82),
-          width: Math.round(width * 0.85),
-          height: 60,
-          styles: {
-            fontSize: 28,
-            fontFamily: 'font-sans',
-            color: '#FFFFFFDD',
-            textAlign: 'center',
-            animation: 'fade',
-          },
-          name: `Narration: Scene ${scene.sceneIndex + 1}`,
-        });
+        overlays.push(
+          makeNarrationOverlay(displayText, currentFrame, durationFrames, `Narration: Scene ${scene.sceneIndex + 1}`),
+        );
       } else {
-        // Multiple timed caption chunks across the scene duration
         const framesPerChunk = Math.max(1, Math.floor(durationFrames / chunks.length));
         chunks.forEach((chunk, ci) => {
-          overlays.push({
-            id: nextId(),
-            type: 'text',
-            from: currentFrame + ci * framesPerChunk,
-            durationInFrames: ci === chunks.length - 1
-              ? durationFrames - ci * framesPerChunk
-              : framesPerChunk,
-            row: 1,
-            content: chunk,
-            x: width / 2,
-            y: Math.round(height * 0.82),
-            width: Math.round(width * 0.85),
-            height: 60,
-            styles: {
-              fontSize: 28,
-              fontFamily: 'font-sans',
-              color: '#FFFFFFDD',
-              textAlign: 'center',
-              animation: 'fade',
-            },
-            name: `Caption ${ci + 1}: Scene ${scene.sceneIndex + 1}`,
-          });
+          overlays.push(
+            makeNarrationOverlay(
+              chunk,
+              currentFrame + ci * framesPerChunk,
+              ci === chunks.length - 1 ? durationFrames - ci * framesPerChunk : framesPerChunk,
+              `Caption ${ci + 1}: Scene ${scene.sceneIndex + 1}`,
+            ),
+          );
         });
       }
     }

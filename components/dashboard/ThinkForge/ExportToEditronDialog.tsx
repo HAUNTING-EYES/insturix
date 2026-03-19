@@ -99,7 +99,7 @@ export function ExportToEditronDialog({
 
       // Step 2: Optionally generate storyboard images BEFORE creating the project
       // so we can place them directly on the timeline
-      let sbImages: Array<{ sceneIndex: number; imageUrl: string }> = [];
+      let sbImages: Array<{ sceneIndex: number; imageUrl: string; assetId?: string }> = [];
       let sbId = '';
 
       if (generateStoryboard && exportData.scenes.length > 0) {
@@ -130,7 +130,7 @@ export function ExportToEditronDialog({
           // Collect successfully generated images for timeline placement
           sbImages = sbScenes
             .filter((s: any) => s.imageUrl)
-            .map((s: any) => ({ sceneIndex: s.sceneIndex, imageUrl: s.imageUrl }));
+            .map((s: any) => ({ sceneIndex: s.sceneIndex, imageUrl: s.imageUrl, assetId: s.imageAssetId }));
         }
         // Don't fail the whole export if storyboard fails
       }
@@ -280,12 +280,23 @@ export function ExportToEditronDialog({
                       <SelectItem value="grunge">Grunge / Urban Decay</SelectItem>
                       <SelectItem value="glitch-art">Glitch Art / Digital</SelectItem>
                       <SelectItem value="art-deco">Art Deco / 1920s Glamour</SelectItem>
+                      {/* Cinematic Genres */}
+                      <SelectItem value="action-blockbuster">Action / Blockbuster</SelectItem>
+                      <SelectItem value="sci-fi">Sci-Fi / Futuristic</SelectItem>
+                      <SelectItem value="thriller">Thriller / Suspense</SelectItem>
+                      <SelectItem value="western">Western / Frontier</SelectItem>
+                      <SelectItem value="war-film">War Film / Military</SelectItem>
+                      <SelectItem value="superhero">Superhero / Marvel Style</SelectItem>
+                      <SelectItem value="rom-com">Romantic / Light</SelectItem>
+                      <SelectItem value="indie-film">Indie Film / A24</SelectItem>
                       {/* Technical */}
                       <SelectItem value="3d-render">3D Render</SelectItem>
                       <SelectItem value="isometric">Isometric / Flat 3D</SelectItem>
                       <SelectItem value="minimalist">Minimalist / Flat</SelectItem>
                       <SelectItem value="brutalist">Brutalist / Raw</SelectItem>
                       <SelectItem value="collage">Collage / Mixed Media</SelectItem>
+                      <SelectItem value="motion-graphics">Motion Graphics / Flat Design</SelectItem>
+                      <SelectItem value="architectural">Architectural / Technical</SelectItem>
                     </SelectContent>
                   </Select>
                 </motion.div>
