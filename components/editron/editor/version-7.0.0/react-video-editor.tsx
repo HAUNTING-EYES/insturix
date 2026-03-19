@@ -114,10 +114,14 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   const { undo, redo, canUndo, canRedo } = useHistory(overlays, setOverlays);
 
   // Create the editor state object to be saved
+  // IMPORTANT: must include the same keys as loadState returns (fps, durationInFrames)
+  // otherwise JSON.stringify snapshot comparison always fails → unnecessary autosaves
   const editorState = {
     overlays,
     aspectRatio,
     playerDimensions: getAspectRatioDimensions(),
+    fps: FPS,
+    durationInFrames,
   };
 
   // Implment load state

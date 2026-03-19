@@ -74,12 +74,21 @@ export const useAutosave = (
     }
   }, [projectId, onAutosaveDetected, hasCheckedForAutosave]);
 
+  // Track whether initial load has completed — prevents autosave from
+  // overwriting imported data with empty default overlays.
+  const hasLoadedRef = useRef(false);
+
   // Set up autosave timer
   useEffect(() => {
     // Don't start autosave if projectId is not valid
     if (!projectId || !userId) return;
 
     const saveIfChanged = async () => {
+      // CRITICAL: never autosave before the initial load completes.
+      // The state at this point is the component's empty default (overlays: [])
+      // which would overwrite whatever was stored in MongoDB.
+      if (!hasLoadedRef.current) return;
+
       const body = JSON.stringify(state);
       if (!body) return;
 
@@ -157,7 +166,7 @@ export const useAutosave = (
 
     try {
       const response = await fetch(`/api/services/editron/projects/${projectId}`);
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.project) {
@@ -168,22 +177,34 @@ export const useAutosave = (
             fps: data.project.fps,
             durationInFrames: data.project.durationInFrames,
           };
-          
+
+          // Seed the last-saved snapshot so the very next autosave tick
+          // does NOT see a diff and immediately overwrite.
+          lastSavedStateRef.current = JSON.stringify(loadedState);
+
+          // Mark initial load as done — autosave is now safe to run.
+          hasLoadedRef.current = true;
+
           if (onLoad) {
             onLoad(loadedState);
           }
           return loadedState;
         }
       } else if (response.status === 404) {
-        // Project not found - throw error to be handled by caller
+        // Project not found — still mark as loaded so autosave can proceed
+        hasLoadedRef.current = true;
         throw new Error('PROJECT_NOT_FOUND');
       }
+      // No data but request succeeded — allow autosave
+      hasLoadedRef.current = true;
       return null;
     } catch (error) {
       // Re-throw PROJECT_NOT_FOUND errors
       if (error instanceof Error && error.message === 'PROJECT_NOT_FOUND') {
         throw error;
       }
+      // Allow autosave even if load fails so we don't block forever
+      hasLoadedRef.current = true;
       console.error("Load failed:", error);
       return null;
     }
