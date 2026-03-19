@@ -99,30 +99,6 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
     },
   ],
   
-  pipeline: [
-    {
-      service: 'pipeline',
-      action: 'script_import',
-      billingType: 'per_request',
-      baseCost: 1,
-      description: 'Import a script into Editron as a project',
-    },
-    {
-      service: 'pipeline',
-      action: 'storyboard_image_generation',
-      billingType: 'per_request',
-      baseCost: 2,
-      description: 'Per storyboard scene image generated',
-    },
-    {
-      service: 'pipeline',
-      action: 'storyboard_image_regeneration',
-      billingType: 'per_request',
-      baseCost: 2,
-      description: 'Regenerate a single storyboard scene image',
-    },
-  ],
-
   clickatron: [
     {
       service: 'clickatron',

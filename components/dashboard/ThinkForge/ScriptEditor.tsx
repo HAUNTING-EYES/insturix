@@ -19,7 +19,6 @@ import {
   History,
   MoreVertical,
   FileDown,
-  Video,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -66,9 +65,6 @@ import { FormatToolbar } from "./FormatToolbar";
 
 // Import ScriptHistoryPanel
 import { ScriptHistoryPanel } from "./ScriptHistoryPanel";
-
-// Import ExportToEditronDialog
-import { ExportToEditronDialog } from "./ExportToEditronDialog";
 
 // Import streaming Tiptap hook
 import { useStreamingTiptap } from "@/lib/thinkforge/hooks/useStreamingTiptap";
@@ -156,7 +152,6 @@ export default function ScriptEditor({
   const [justSaved, setJustSaved] = useState(false);
   const prevIsSavingRef = useRef<boolean>(false);
   const [showBranchEditor, setShowBranchEditor] = useState(false);
-  const [showExportToEditron, setShowExportToEditron] = useState(false);
   const loadedTitleRef = useRef<string | null>(null);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
@@ -1568,15 +1563,6 @@ export default function ScriptEditor({
               >
                 Export TXT
               </DropdownMenuItem>
-              <DropdownMenuSeparator className="bg-zinc-700" />
-              <DropdownMenuItem
-                onClick={() => setShowExportToEditron(true)}
-                className="text-green-400 hover:bg-zinc-800 cursor-pointer"
-                disabled={generatingScript && !script}
-              >
-                <Video className="h-4 w-4 mr-2" />
-                Export to Editron
-              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -1731,19 +1717,6 @@ export default function ScriptEditor({
           )}
         </DialogContent>
       </Dialog>
-
-      {/* Export to Editron Dialog */}
-      <ExportToEditronDialog
-        open={showExportToEditron}
-        onOpenChange={setShowExportToEditron}
-        blocks={
-          editor
-            ? tiptapJSONToThinkForgeBlocks(editor.getJSON() as TiptapJSON)
-            : []
-        }
-        sessionId={sessionId}
-        scriptId={scriptId || undefined}
-      />
 
       {/* Tiptap Editor Styles */}
       <style jsx global>{`
