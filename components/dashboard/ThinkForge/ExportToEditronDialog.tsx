@@ -27,6 +27,8 @@ interface ExportToEditronDialogProps {
   onOpenChange: (open: boolean) => void;
   /** ThinkForge blocks from the current script */
   blocks: any[];
+  /** Optional plain text of the script (for timestamped format detection) */
+  plainText?: string;
   /** Optional session/script IDs for tracking */
   sessionId?: string;
   scriptId?: string;
@@ -38,6 +40,7 @@ export function ExportToEditronDialog({
   open,
   onOpenChange,
   blocks,
+  plainText,
   sessionId,
   scriptId,
 }: ExportToEditronDialogProps) {
@@ -81,7 +84,7 @@ export function ExportToEditronDialog({
       const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocks, sessionId, scriptId }),
+        body: JSON.stringify({ blocks, plainText, sessionId, scriptId }),
       });
 
       if (!exportRes.ok) {
@@ -239,29 +242,49 @@ export function ExportToEditronDialog({
                     <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700 max-h-64">
+                    <SelectContent className="bg-zinc-800 border-zinc-700 max-h-72 overflow-y-auto">
                       {/* Realistic */}
                       <SelectItem value="cinematic">Cinematic / Film</SelectItem>
                       <SelectItem value="photorealistic">Photorealistic</SelectItem>
                       <SelectItem value="documentary">Documentary / Raw</SelectItem>
                       <SelectItem value="noir">Noir / Black &amp; White</SelectItem>
+                      <SelectItem value="neon-noir">Neon Noir / Blade Runner</SelectItem>
+                      <SelectItem value="vintage">Vintage / Retro Film</SelectItem>
                       {/* Animated / Illustrated */}
                       <SelectItem value="anime">Anime / Manga</SelectItem>
                       <SelectItem value="cartoon">Cartoon / Toon</SelectItem>
                       <SelectItem value="comic-book">Comic Book / Graphic Novel</SelectItem>
                       <SelectItem value="pixel-art">Pixel Art / Retro</SelectItem>
+                      <SelectItem value="claymation">Claymation / Stop Motion</SelectItem>
+                      <SelectItem value="storybook">Storybook / Fairy Tale</SelectItem>
                       {/* Stylized */}
                       <SelectItem value="watercolor">Watercolor / Painterly</SelectItem>
                       <SelectItem value="oil-painting">Oil Painting / Classical</SelectItem>
+                      <SelectItem value="impressionist">Impressionist / Monet</SelectItem>
                       <SelectItem value="sketch">Pencil Sketch / Line Art</SelectItem>
                       <SelectItem value="pop-art">Pop Art / Bold Colors</SelectItem>
+                      <SelectItem value="ukiyo">Ukiyo-e / Japanese Woodblock</SelectItem>
+                      <SelectItem value="surrealism">Surrealism / Dreamlike</SelectItem>
+                      <SelectItem value="expressionism">Expressionism / Angular</SelectItem>
+                      {/* Genre-specific */}
                       <SelectItem value="cyberpunk">Cyberpunk / Neon</SelectItem>
                       <SelectItem value="fantasy">Fantasy / Concept Art</SelectItem>
                       <SelectItem value="horror">Horror / Dark</SelectItem>
+                      <SelectItem value="steampunk">Steampunk / Victorian</SelectItem>
+                      <SelectItem value="gothic">Gothic / Dark Cathedral</SelectItem>
+                      <SelectItem value="concept-art">Concept Art / Matte Painting</SelectItem>
+                      {/* Modern / Aesthetic */}
+                      <SelectItem value="vaporwave">Vaporwave / Synthwave</SelectItem>
+                      <SelectItem value="lo-fi">Lo-Fi / Cozy Nostalgic</SelectItem>
+                      <SelectItem value="pastel">Pastel / Soft Dreamy</SelectItem>
+                      <SelectItem value="grunge">Grunge / Urban Decay</SelectItem>
+                      <SelectItem value="glitch-art">Glitch Art / Digital</SelectItem>
+                      <SelectItem value="art-deco">Art Deco / 1920s Glamour</SelectItem>
                       {/* Technical */}
                       <SelectItem value="3d-render">3D Render</SelectItem>
                       <SelectItem value="isometric">Isometric / Flat 3D</SelectItem>
                       <SelectItem value="minimalist">Minimalist / Flat</SelectItem>
+                      <SelectItem value="brutalist">Brutalist / Raw</SelectItem>
                       <SelectItem value="collage">Collage / Mixed Media</SelectItem>
                     </SelectContent>
                   </Select>

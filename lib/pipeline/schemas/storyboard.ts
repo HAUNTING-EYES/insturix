@@ -42,6 +42,11 @@ export interface StoryboardScene {
   descriptor: SceneDescriptor;
   imageAssetId?: string;
   imageUrl?: string;
+  /** AI-generated video clip from the storyboard image */
+  videoAssetId?: string;
+  videoUrl?: string;
+  videoProvider?: string;
+  videoDurationMs?: number;
   status: 'pending' | 'generating' | 'generated' | 'approved' | 'rejected';
   voiceover?: SceneVoiceover;
   generationHistory: Array<{

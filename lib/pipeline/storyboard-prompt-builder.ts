@@ -29,6 +29,25 @@ const ART_STYLE_PROMPTS: Record<string, string> = {
   isometric: 'isometric view, clean 3D illustration, flat shading, architectural precision',
   minimalist: 'minimalist design, flat illustration, clean lines, limited color palette, modern',
   collage: 'mixed media collage, layered textures, cut-paper aesthetic, eclectic composition',
+  // Extended styles
+  vaporwave: 'vaporwave aesthetic, retrowave, pastel neon colors, glitch art, 80s nostalgia, synthwave',
+  steampunk: 'steampunk style, Victorian-era machinery, brass gears, copper pipes, industrial Gothic',
+  gothic: 'dark Gothic art, cathedral architecture, ornate details, deep shadows, stained glass',
+  'art-deco': 'Art Deco style, geometric patterns, gold and black, 1920s glamour, Gatsby-era elegance',
+  surrealism: 'surrealist painting, dreamlike imagery, Salvador Dalí inspired, impossible geometry, melting forms',
+  expressionism: 'German expressionism, distorted perspectives, bold angular shapes, intense emotion',
+  'lo-fi': 'lo-fi aesthetic, warm grain, soft focus, cozy atmosphere, muted earth tones, nostalgic',
+  grunge: 'grunge texture, gritty urban decay, distressed surfaces, raw underground aesthetic',
+  pastel: 'soft pastel colors, dreamy atmosphere, gentle gradients, ethereal and delicate',
+  'neon-noir': 'neon noir, rain-soaked streets, vibrant neon signs, dark urban atmosphere, Blade Runner inspired',
+  vintage: 'vintage retro, faded film photography, warm color cast, 70s nostalgic tones, analog grain',
+  ukiyo: 'ukiyo-e Japanese woodblock print, flat perspective, flowing lines, traditional Japanese art',
+  'concept-art': 'concept art, entertainment design, matte painting, professional illustration, art station trending',
+  claymation: 'claymation style, stop-motion clay figures, handmade texture, playful 3D, Wallace and Gromit aesthetic',
+  storybook: 'children\'s storybook illustration, whimsical, warm and inviting, detailed hand-drawn, fairy tale',
+  brutalist: 'brutalist design, raw concrete, stark geometry, industrial minimalism, monochromatic',
+  'glitch-art': 'glitch art, data corruption aesthetic, pixel sorting, digital artifacts, VHS distortion',
+  impressionist: 'impressionist painting, visible brushstrokes, light and movement, Monet-inspired, plein air',
 };
 
 /**
@@ -50,12 +69,21 @@ export function buildStoryboardPrompt(
 
   // Core visual description — this is the most important part for accuracy
   if (scene.visualDescription) {
-    // Clean up any remaining markdown artifacts
+    // Clean up markdown artifacts, sub-timestamps, hashtags, and noise
     const cleanVisual = scene.visualDescription
-      .replace(/\*{1,2}/g, '')
-      .replace(/\[.*?\]\(.*?\)/g, '')
+      .replace(/\*{1,2}/g, '')                          // markdown bold/italic
+      .replace(/\[.*?\]\(.*?\)/g, '')                    // markdown links
+      .replace(/\d{2}:\d{2}(?::\d{2})?[-–—]\d{2}:\d{2}(?::\d{2})?\s*:?\s*/g, '')  // sub-timestamps
+      .replace(/#\w+/g, '')                              // hashtags
+      .replace(/\(.*?trending.*?\)/gi, '')               // social media references
+      .replace(/\s{2,}/g, ' ')                           // collapse whitespace
       .trim();
-    parts.push(cleanVisual);
+    // Summarize if too long — image models work best with focused prompts
+    if (cleanVisual.length > 500) {
+      parts.push(cleanVisual.substring(0, 500));
+    } else {
+      parts.push(cleanVisual);
+    }
   } else if (scene.narration) {
     parts.push(`Visual scene depicting: ${scene.narration.substring(0, 200)}`);
   }

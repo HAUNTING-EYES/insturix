@@ -54,8 +54,30 @@ export async function POST(
     for (const scene of storyboard.scenes) {
       const durationFrames = Math.round(scene.descriptor.durationSeconds * fps);
 
-      // Scene background image (if approved/generated and has image)
-      if (scene.imageUrl) {
+      // Scene background: prefer video clip over static image
+      if (scene.videoUrl) {
+        // AI-generated video clip
+        overlays.push({
+          id: overlayId++,
+          type: 'video',
+          from: currentFrame,
+          durationInFrames: durationFrames,
+          row: 3, // Background row
+          left: 0,
+          top: 0,
+          width,
+          height,
+          isDragging: false,
+          rotation: 0,
+          src: scene.videoUrl,
+          assetId: scene.videoAssetId,
+          styles: {
+            objectFit: 'cover',
+            opacity: 1,
+          },
+        });
+      } else if (scene.imageUrl) {
+        // Static storyboard image as fallback
         overlays.push({
           id: overlayId++,
           type: 'image',

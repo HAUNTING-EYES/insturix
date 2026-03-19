@@ -118,6 +118,10 @@ export function convertThinkForgeBlocksToScenes(
 const TIMESTAMP_SCENE_RE =
   /^(\d{1,2}:\d{2}(?::\d{2})?)\s*[-–—]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\|\s*(.+)/;
 
+export function hasTimestampedScenes(content: string): boolean {
+  return isTimestampedScript(content);
+}
+
 function isTimestampedScript(content: string): boolean {
   const lines = content.split('\n');
   let matches = 0;
