@@ -38,6 +38,7 @@ import { useAutosave } from "./hooks/use-autosave";
 import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
 import { AssetLoadingProvider } from "./contexts/asset-loading-context";
+import { AIActivityOverlay } from "./components/ai-activity-overlay";
 
 export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   // Autosave state
@@ -113,11 +114,22 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   // Replace history management code with hook
   const { undo, redo, canUndo, canRedo } = useHistory(overlays, setOverlays);
 
+  // AI activity tracking for real-time overlay
+  const [aiActions, setAIActions] = useState<Array<{
+    id: string;
+    toolName: string;
+    friendlyName: string;
+    status: 'running' | 'done';
+    startedAt: number;
+  }>>([]);
+
   // Create the editor state object to be saved
   const editorState = {
     overlays,
     aspectRatio,
     playerDimensions: getAspectRatioDimensions(),
+    fps: FPS,
+    durationInFrames,
   };
 
   // Implment load state
@@ -268,6 +280,10 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     // AI Processing State
     isAIProcessing,
     setIsAIProcessing,
+
+    // AI Activity Tracking (for real-time overlay)
+    aiActions,
+    setAIActions,
   };
 
   return (
@@ -281,13 +297,8 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
                   <AppSidebar />
                   <SidebarInset className="relative">
                     <Editor />
-                    {/* AI Processing Overlay */}
-                    <div className={`absolute inset-0 z-50 flex flex-col items-center justify-center bg-background/50 backdrop-blur-sm transition-opacity duration-300 ${isAIProcessing ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-                      <div className="flex flex-col items-center gap-4 rounded-lg bg-card p-8 shadow-lg border border-border">
-                        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
-                        <p className="text-lg font-medium text-foreground">Editron is editing...</p>
-                      </div>
-                    </div>
+                    {/* AI Activity Overlay — shows real-time tool execution */}
+                    <AIActivityOverlay />
                   </SidebarInset>
 
                   {/* Autosave Status Indicator */}
