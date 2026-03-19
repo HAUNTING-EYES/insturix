@@ -86,9 +86,10 @@ export async function generateStoryboardImage(
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const assetId = `storyboard_${nanoid(12)}`;
-  const gcsPath = `storyboards/${userId}/${assetId}.png`;
+  const filename = `${assetId}.png`;
 
-  const uploadResult = await uploadToGCS(buffer, gcsPath, 'image/png');
+  // uploadToGCS signature: (file, userId, filename, contentType)
+  const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
 
   return {
     imageUrl: uploadResult.signedUrl,
