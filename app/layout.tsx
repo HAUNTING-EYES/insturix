@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Space_Grotesk, Caveat } from "next/font/google";
 import "./globals.css";
-import ClerkClientProvider from "@/providers/ClerkClientProvider";
+import { ClerkProvider } from "@clerk/nextjs";
 import ThemeProvider from "@/providers/ThemeProvider";
 import { Toaster } from "@/components/ui/toaster";
 import ReactQueryProvider from "@/providers/ReactQuery";
@@ -120,7 +120,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkClientProvider>
+    <ClerkProvider>
   <html lang="en" className={`antialiased ${inter.variable} ${spaceGrotesk.variable} ${caveat.variable}`} suppressHydrationWarning>
         <head>
           <meta
@@ -172,6 +172,6 @@ export default function RootLayout({
           </ReactQueryProvider>
         </body>
       </html>
-    </ClerkClientProvider>
+    </ClerkProvider>
   );
 }

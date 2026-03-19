@@ -16,7 +16,6 @@ export function useStoryboard(storyboardId: string) {
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [isVoiceoverGenerating, setIsVoiceoverGenerating] = useState(false);
   const [isFinalizing, setIsFinalizing] = useState(false);
-  const [isVideoGenerating, setIsVideoGenerating] = useState(false);
 
   const BASE = `/api/services/pipeline/storyboard/${storyboardId}`;
 
@@ -173,34 +172,6 @@ export function useStoryboard(storyboardId: string) {
     [BASE, fetchStoryboard]
   );
 
-  // Generate AI video clips for approved scenes
-  const generateVideos = useCallback(
-    async (provider?: 'fal-ai' | 'kie-ai') => {
-      setIsVideoGenerating(true);
-      try {
-        const res = await fetch(`${BASE}/generate-videos`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ provider }),
-        });
-        const data = await res.json();
-        if (data.success) {
-          await fetchStoryboard();
-          return data.summary;
-        } else {
-          setError(data.error);
-          return null;
-        }
-      } catch (e: any) {
-        setError(e.message);
-        return null;
-      } finally {
-        setIsVideoGenerating(false);
-      }
-    },
-    [BASE, fetchStoryboard]
-  );
-
   // Finalize storyboard into Editron project
   const finalizeToEditron = useCallback(async () => {
     setIsFinalizing(true);
@@ -236,12 +207,10 @@ export function useStoryboard(storyboardId: string) {
     regenerateScene,
     generateNextScene,
     generateVoiceover,
-    generateVideos,
     finalizeToEditron,
     isGenerating,
     isRegenerating,
     isVoiceoverGenerating,
-    isVideoGenerating,
     isFinalizing,
     refetch: fetchStoryboard,
   };

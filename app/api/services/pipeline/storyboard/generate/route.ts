@@ -93,7 +93,6 @@ export async function POST(request: NextRequest) {
         sceneIndex: s.sceneIndex,
         title: s.descriptor.title,
         imageUrl: s.imageUrl,
-        imageAssetId: s.imageAssetId,
         status: s.status,
       })),
       creditsDeducted: totalCost,

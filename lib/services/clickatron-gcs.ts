@@ -2,24 +2,15 @@ import { Storage } from "@google-cloud/storage";
 import fetch from "node-fetch";
 
 const GCS_BUCKET = process.env.GCS_BUCKET || "your-bucket";
-
-// Lazy singleton to avoid crashing next build when GCS credentials are missing.
-let _storage: Storage | null = null;
-function getStorage(): Storage {
-  if (!_storage) {
-    _storage = new Storage();
-  }
-  return _storage;
-}
+const storage = new Storage();
 
 export class ClickatronGCSManager {
   static async uploadBuffer(buffer: Buffer, fileName: string, contentType: string): Promise<string> {
-    const s = getStorage();
-    const bucket = s.bucket(GCS_BUCKET);
+    const bucket = storage.bucket(GCS_BUCKET);
     const file = bucket.file(fileName);
     await file.save(buffer, { contentType });
     // Always make public
-    await file.acl.add({ entity: 'allUsers', role: s.acl.READER_ROLE });
+    await file.acl.add({ entity: 'allUsers', role: storage.acl.READER_ROLE });
     return `https://storage.googleapis.com/${GCS_BUCKET}/${fileName}`;
   }
 
@@ -37,7 +28,7 @@ export class ClickatronGCSManager {
     if (!match) throw new Error("Invalid GCS URL");
     const bucketName = match[1];
     const fileName = match[2];
-    const file = getStorage().bucket(bucketName).file(fileName);
+    const file = storage.bucket(bucketName).file(fileName);
     const [signedUrl] = await file.getSignedUrl({ action: "read", expires: Date.now() + 60 * 60 * 1000 });
     return signedUrl;
   }
