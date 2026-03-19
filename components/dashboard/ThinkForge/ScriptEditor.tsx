@@ -54,7 +54,7 @@ import LiveDocumentRenderer from "./LiveDocumentRenderer";
 import { thinkForgeBlocksToTiptapJSON } from "@/lib/thinkforge/mappers/thinkforge-to-tiptap";
 import { tiptapJSONToThinkForgeBlocks } from "@/lib/thinkforge/mappers/tiptap-to-thinkforge";
 import { validateThinkForgeBlocks } from "@/lib/thinkforge/schemas/thinkforge-block";
-import { validateTiptapJSON, isTiptapJSON, extractPlainText, extractMarkdownText } from "@/lib/thinkforge/schemas/tiptap-validation";
+import { validateTiptapJSON, isTiptapJSON, extractPlainText } from "@/lib/thinkforge/schemas/tiptap-validation";
 import { buildScriptHtmlDocument, buildScriptText, downloadBlob, printHtmlDocument } from "@/lib/thinkforge/export/export-utils";
 import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
@@ -1740,11 +1740,6 @@ export default function ScriptEditor({
           editor
             ? tiptapJSONToThinkForgeBlocks(editor.getJSON() as TiptapJSON)
             : []
-        }
-        plainText={
-          editor
-            ? extractMarkdownText(editor.getJSON() as TiptapJSON)
-            : undefined
         }
         sessionId={sessionId}
         scriptId={scriptId || undefined}

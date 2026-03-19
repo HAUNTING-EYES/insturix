@@ -99,8 +99,8 @@ jobs:
         env:
           # Provide dummy env vars so the build doesn't fail on missing secrets
           # These are NOT real values — build-time checks only
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 'pk_test_dGVzdC5jbGVyay5hY2NvdW50cy5kZXYk' }}
-          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY || 'sk_test_dGVzdC5jbGVyay5hY2NvdW50cy5kZXYk' }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY || 'pk_test_placeholder' }}
+          CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY || 'sk_test_placeholder' }}
           MONGODB_URI: ${{ secrets.MONGODB_URI || 'mongodb://localhost:27017/test' }}
           MONGODB_DB_NAME: ${{ secrets.MONGODB_DB_NAME || 'insturix_test' }}
           DEEPGRAM_API_KEY: ${{ secrets.DEEPGRAM_API_KEY || 'placeholder' }}

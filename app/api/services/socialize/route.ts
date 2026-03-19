@@ -7,20 +7,15 @@ import { Ratelimit } from "@upstash/ratelimit";
 import { getExpiresAtFromDuration } from "@/lib/utils/notification"; // Only import getExpiresAtFromDuration
 import { Redis } from "@upstash/redis";
 
-// Lazy singleton to avoid crashing next build when env vars are missing.
-let _ratelimit: Ratelimit | null = null;
-function getRatelimit(): Ratelimit {
-  if (!_ratelimit) {
-    _ratelimit = new Ratelimit({
-      redis: Redis.fromEnv(),
-      limiter: Ratelimit.slidingWindow(100, "10 m"),
-      analytics: true,
-      prefix: "@upstash/ratelimit/socialize",
-      ephemeralCache: new Map(),
-    });
-  }
-  return _ratelimit;
-}
+// Create a rate limiter for socialize profile access
+// Limit to 100 requests per 10 minutes per IP address
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(100, "10 m"),
+  analytics: true,
+  prefix: "@upstash/ratelimit/socialize",
+  ephemeralCache: new Map(),
+});
 
 // Interface matching the Socialize schema
 import type { SocializeLink, BannerConfig } from "@/schemas/Socialize";
@@ -485,7 +480,7 @@ export async function GET(request: NextRequest) {
       "anonymous";
 
     const { success, limit, remaining, reset } =
-      await getRatelimit().limit(identifier);
+      await ratelimit.limit(identifier);
 
     if (!success) {
       return Response.json(

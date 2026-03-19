@@ -13,8 +13,6 @@ export interface SceneDescriptor {
   durationSeconds: number;
   mood: string;
   cameraDirection?: string;
-  /** Audio/sound design notes from the script (e.g. "sirens, crowd noise") */
-  audioDescription?: string;
 }
 
 export interface StyleGuide {
@@ -42,11 +40,6 @@ export interface StoryboardScene {
   descriptor: SceneDescriptor;
   imageAssetId?: string;
   imageUrl?: string;
-  /** AI-generated video clip from the storyboard image */
-  videoAssetId?: string;
-  videoUrl?: string;
-  videoProvider?: string;
-  videoDurationMs?: number;
   status: 'pending' | 'generating' | 'generated' | 'approved' | 'rejected';
   voiceover?: SceneVoiceover;
   generationHistory: Array<{
