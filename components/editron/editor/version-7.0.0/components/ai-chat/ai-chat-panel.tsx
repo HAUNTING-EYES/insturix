@@ -108,8 +108,8 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
 };
 
 export function AIChatPanel() {
-  const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject, 
-    setIsAIProcessing
+  const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject,
+    setIsAIProcessing, setAIActions,
   } = useEditorContext();
   const { toast } = useToast();
   const userId = getUserId();
@@ -306,6 +306,7 @@ export function AIChatPanel() {
 
     setIsProcessing(true);
     setIsAIProcessing(true); // Lock editor
+    setAIActions([]); // Clear previous actions for fresh overlay
     setInputMessage("");
     
     // Force save current state before sending to AI to ensure it sees the latest data
@@ -409,6 +410,16 @@ export function AIChatPanel() {
                 addLog('tool_start', `Tool started: ${data.tool}`, { args: data.args });
                 // Use server-provided ID for reliable matching
                 const toolCall = { name: data.tool, id: data.id || `tool_${Date.now()}`, args: data.args };
+
+                // Push to AI activity overlay
+                const friendlyNames: Record<string, string> = TOOL_FRIENDLY_NAMES;
+                setAIActions(prev => [...prev, {
+                  id: toolCall.id,
+                  toolName: data.tool,
+                  friendlyName: friendlyNames[data.tool] || data.tool,
+                  status: 'running' as const,
+                  startedAt: Date.now(),
+                }]);
                 currentToolCalls.push(toolCall);
                 
                 // Add tool call as a segment (interrupts text flow)
@@ -422,8 +433,16 @@ export function AIChatPanel() {
                 ));
               } else if (data.type === 'tool_end') {
                 addLog('tool_end', `Tool finished: ${data.tool}`, data);
+
+                // Mark action as done in overlay
+                setAIActions(prev => prev.map(a =>
+                  (data.id && a.id === data.id) || (!data.id && a.toolName === data.tool && a.status === 'running')
+                    ? { ...a, status: 'done' as const }
+                    : a
+                ));
+
                 // Match by ID (reliable) or fallback to name without output
-                const toolCallIndex = data.id 
+                const toolCallIndex = data.id
                   ? currentToolCalls.findIndex(tc => tc.id === data.id)
                   : currentToolCalls.findIndex(tc => tc.name === data.tool && !tc.output);
                 if (toolCallIndex !== -1) {

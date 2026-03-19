@@ -79,6 +79,22 @@ interface EditorContextProps {
   // AI Processing State
   isAIProcessing: boolean;
   setIsAIProcessing: (isProcessing: boolean) => void;
+
+  // AI Activity Tracking (for real-time overlay)
+  aiActions: Array<{
+    id: string;
+    toolName: string;
+    friendlyName: string;
+    status: 'running' | 'done';
+    startedAt: number;
+  }>;
+  setAIActions: React.Dispatch<React.SetStateAction<Array<{
+    id: string;
+    toolName: string;
+    friendlyName: string;
+    status: 'running' | 'done';
+    startedAt: number;
+  }>>>;
 }
 
 // Create the context with undefined as default value

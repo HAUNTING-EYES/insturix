@@ -59,7 +59,7 @@ export const ENABLE_PUSH_ON_DRAG = false; // Set to false to disable pushing ite
 export const RENDER_TYPE: "ssr" | "lambda" = "lambda";
 
 // Autosave configuration
-export const AUTO_SAVE_INTERVAL = 1000; // Autosave every 1 second
+export const AUTO_SAVE_INTERVAL = 15000; // Autosave every 15 seconds (network-friendly)
 
 // Start with empty canvas - users can add their own content
 export const DEFAULT_OVERLAYS: Overlay[] = [];
