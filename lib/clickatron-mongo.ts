@@ -1,15 +1,12 @@
 import mongoose from 'mongoose';
 import { ClickatronTask } from '../schemas/Clickatron';
 
-const MONGODB_URI = process.env.MONGODB_URI;
-const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
-
-if (!MONGODB_URI) {
-  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
-}
-
-if (!MONGODB_DB_NAME) {
-  throw new Error('Please define the MONGODB_DB_NAME environment variable inside .env.local');
+function getMongoConfig() {
+  const uri = process.env.MONGODB_URI;
+  const dbName = process.env.MONGODB_DB_NAME;
+  if (!uri) throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
+  if (!dbName) throw new Error('Please define the MONGODB_DB_NAME environment variable inside .env.local');
+  return { uri, dbName };
 }
 
 let cached = (global as any).mongoose;
@@ -24,12 +21,13 @@ async function dbConnect() {
   }
 
   if (!cached.promise) {
+    const { uri, dbName } = getMongoConfig();
     const opts = {
       bufferCommands: false,
-      dbName: MONGODB_DB_NAME
+      dbName,
     };
 
-    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((mongoose) => {
+    cached.promise = mongoose.connect(uri, opts).then((mongoose) => {
       return mongoose;
     });
   }
