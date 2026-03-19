@@ -1,19 +1,19 @@
-import { strict as assert } from 'assert';
+import { describe, it, expect } from 'vitest';
 import { parseAnalysesResponse } from '@/app/dashboard/alyzitron/hooks/useAlyzitronPolling';
 
 describe('parseAnalysesResponse', () => {
   it('returns empty array for falsy input', () => {
-    assert.deepEqual(parseAnalysesResponse(null), []);
-    assert.deepEqual(parseAnalysesResponse(undefined), []);
+    expect(parseAnalysesResponse(null)).toEqual([]);
+    expect(parseAnalysesResponse(undefined)).toEqual([]);
   });
 
   it('returns same array if input is array', () => {
     const arr = [{ _id: '1', status: 'listed' }];
-    assert.deepEqual(parseAnalysesResponse(arr), arr);
+    expect(parseAnalysesResponse(arr)).toEqual(arr);
   });
 
   it('extracts data from paginated object', () => {
     const paginated = { data: [{ _id: '2', status: 'processing' }], pagination: { totalItems: 1 } };
-    assert.deepEqual(parseAnalysesResponse(paginated), paginated.data);
+    expect(parseAnalysesResponse(paginated)).toEqual(paginated.data);
   });
 });
