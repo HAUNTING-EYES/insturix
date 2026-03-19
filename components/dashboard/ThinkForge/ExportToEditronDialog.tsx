@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Loader2, ArrowRight, Palette, ImageIcon, Check } from 'lucide-react';
+import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles } from 'lucide-react';
 import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,7 +34,13 @@ interface ExportToEditronDialogProps {
   scriptId?: string;
 }
 
-type ExportStep = 'configure' | 'exporting' | 'storyboard' | 'done';
+type ExportStep =
+  | 'configure'
+  | 'exporting'        // parsing scenes
+  | 'storyboard'       // generating AI images
+  | 'generating-videos' // generating AI video clips
+  | 'finalizing'       // creating Editron project
+  | 'done';
 
 export function ExportToEditronDialog({
   open,
@@ -47,7 +53,8 @@ export function ExportToEditronDialog({
   const [step, setStep] = useState<ExportStep>('configure');
   const [title, setTitle] = useState('');
   const [aspectRatio, setAspectRatio] = useState('16:9');
-  const [generateStoryboard, setGenerateStoryboard] = useState(false);
+  const [generateStoryboard, setGenerateStoryboard] = useState(true); // ON by default
+  const [generateVideos, setGenerateVideos] = useState(true); // ON by default
   const [artStyle, setArtStyle] = useState('cinematic');
   const [error, setError] = useState('');
 
@@ -56,18 +63,23 @@ export function ExportToEditronDialog({
   const [projectId, setProjectId] = useState('');
   const [storyboardId, setStoryboardId] = useState('');
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
+  const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
+  const [videosGenerated, setVideosGenerated] = useState(false);
 
   const reset = () => {
     setStep('configure');
     setTitle('');
     setAspectRatio('16:9');
-    setGenerateStoryboard(false);
+    setGenerateStoryboard(true);
+    setGenerateVideos(true);
     setArtStyle('cinematic');
     setError('');
     setScenes([]);
     setProjectId('');
     setStoryboardId('');
     setStoryboardScenes([]);
+    setVideoProgress({ done: 0, total: 0 });
+    setVideosGenerated(false);
   };
 
   const handleClose = () => {
@@ -75,12 +87,21 @@ export function ExportToEditronDialog({
     onOpenChange(false);
   };
 
+  // Calculate total credit cost
+  const estimateCredits = () => {
+    const sceneCount = blocks.length > 0 ? Math.max(1, Math.ceil(blocks.length / 3)) : 4; // rough estimate
+    let total = 1; // base import cost
+    if (generateStoryboard) total += sceneCount * 2; // 2 credits/scene for images
+    if (generateStoryboard && generateVideos) total += sceneCount * 3; // 3 credits/scene for videos
+    return total;
+  };
+
   const handleExport = async () => {
     setStep('exporting');
     setError('');
 
     try {
-      // Step 1: Convert blocks to scenes
+      // ─── Step 1: Parse script into scenes ─────────────────────
       const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -97,8 +118,7 @@ export function ExportToEditronDialog({
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
-      // Step 2: Optionally generate storyboard images BEFORE creating the project
-      // so we can place them directly on the timeline
+      // ─── Step 2: Generate storyboard images (optional) ────────
       let sbImages: Array<{ sceneIndex: number; imageUrl: string; assetId?: string }> = [];
       let sbId = '';
 
@@ -127,40 +147,102 @@ export function ExportToEditronDialog({
           const sbScenes = sbData.scenes || [];
           setStoryboardScenes(sbScenes);
 
-          // Collect successfully generated images for timeline placement
           sbImages = sbScenes
             .filter((s: any) => s.imageUrl)
             .map((s: any) => ({ sceneIndex: s.sceneIndex, imageUrl: s.imageUrl, assetId: s.imageAssetId }));
         }
-        // Don't fail the whole export if storyboard fails
+        // Don't fail if storyboard generation fails
       }
 
-      // Step 3: Import into Editron with storyboard images on the timeline
-      setStep('exporting');
-      const importRes = await fetch('/api/services/editron/projects/import-from-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenes: exportData.scenes,
-          title: projectTitle,
-          aspectRatio,
-          sourceScriptId: scriptId,
-          storyboardImages: sbImages.length > 0 ? sbImages : undefined,
-        }),
-      });
+      // ─── Step 3: Generate AI video clips (optional) ───────────
+      // Only if storyboard was generated and videos toggle is ON
+      if (generateVideos && sbId && sbImages.length > 0) {
+        setStep('generating-videos');
+        setVideoProgress({ done: 0, total: sbImages.length });
 
-      if (!importRes.ok) {
-        const data = await importRes.json();
-        throw new Error(data.error || 'Failed to create Editron project');
+        try {
+          const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              aspectRatio,
+              // Generate for all scenes that have images
+            }),
+          });
+
+          if (videoRes.ok) {
+            const videoData = await videoRes.json();
+            const succeeded = videoData.summary?.succeeded || 0;
+            setVideoProgress({ done: succeeded, total: sbImages.length });
+            setVideosGenerated(succeeded > 0);
+          }
+        } catch (videoErr) {
+          console.error('Video generation failed:', videoErr);
+          // Don't fail the whole export — continue with storyboard images
+        }
       }
 
-      const importData = await importRes.json();
-      setProjectId(importData.projectId);
+      // ─── Step 4: Create Editron project ───────────────────────
+      setStep('finalizing');
+
+      if (sbId) {
+        // Use finalize endpoint — it reads storyboard from DB
+        // and prefers videoUrl > imageUrl for backgrounds
+        const finalizeRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/finalize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            aspectRatio,
+            includeVoiceover: true,
+            includeCaptions: true,
+          }),
+        });
+
+        if (!finalizeRes.ok) {
+          const data = await finalizeRes.json();
+          throw new Error(data.error || 'Failed to finalize storyboard');
+        }
+
+        const finalizeData = await finalizeRes.json();
+        setProjectId(finalizeData.projectId);
+      } else {
+        // No storyboard — use import-from-script (images/gradients only)
+        const importRes = await fetch('/api/services/editron/projects/import-from-script', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            scenes: exportData.scenes,
+            title: projectTitle,
+            aspectRatio,
+            sourceScriptId: scriptId,
+            storyboardImages: sbImages.length > 0 ? sbImages : undefined,
+          }),
+        });
+
+        if (!importRes.ok) {
+          const data = await importRes.json();
+          throw new Error(data.error || 'Failed to create Editron project');
+        }
+
+        const importData = await importRes.json();
+        setProjectId(importData.projectId);
+      }
 
       setStep('done');
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
       setStep('configure');
+    }
+  };
+
+  const stepDescription = () => {
+    switch (step) {
+      case 'configure': return 'Convert your script into a video project';
+      case 'exporting': return 'Parsing scenes from your script...';
+      case 'storyboard': return 'Generating AI storyboard images...';
+      case 'generating-videos': return 'Generating AI video clips...';
+      case 'finalizing': return 'Building your Editron project...';
+      case 'done': return 'Your project is ready!';
     }
   };
 
@@ -173,15 +255,12 @@ export function ExportToEditronDialog({
             Export to Editron
           </DialogTitle>
           <DialogDescription className="text-zinc-400">
-            {step === 'configure' && 'Convert your script into a video project'}
-            {step === 'exporting' && 'Creating your Editron project...'}
-            {step === 'storyboard' && 'Generating storyboard images...'}
-            {step === 'done' && 'Your project is ready!'}
+            {stepDescription()}
           </DialogDescription>
         </DialogHeader>
 
         <AnimatePresence mode="wait">
-          {/* Configure Step */}
+          {/* ─── Configure Step ─────────────────────────────────── */}
           {step === 'configure' && (
             <motion.div
               key="configure"
@@ -215,13 +294,18 @@ export function ExportToEditronDialog({
                 </Select>
               </div>
 
+              {/* Storyboard Toggle */}
               <div
                 className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
                   generateStoryboard
                     ? 'bg-green-500/10 border-green-500/30'
                     : 'bg-zinc-800 border-zinc-700 hover:border-zinc-600'
                 }`}
-                onClick={() => setGenerateStoryboard(!generateStoryboard)}
+                onClick={() => {
+                  const next = !generateStoryboard;
+                  setGenerateStoryboard(next);
+                  if (!next) setGenerateVideos(false); // can't gen videos without storyboard
+                }}
               >
                 <ImageIcon className={`h-5 w-5 ${generateStoryboard ? 'text-green-500' : 'text-zinc-400'}`} />
                 <div className="flex-1">
@@ -231,6 +315,7 @@ export function ExportToEditronDialog({
                 {generateStoryboard && <Check className="h-4 w-4 text-green-500" />}
               </div>
 
+              {/* Art Style (when storyboard enabled) */}
               {generateStoryboard && (
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
@@ -302,32 +387,88 @@ export function ExportToEditronDialog({
                 </motion.div>
               )}
 
+              {/* Video Generation Toggle (when storyboard enabled) */}
+              {generateStoryboard && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                >
+                  <div
+                    className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      generateVideos
+                        ? 'bg-purple-500/10 border-purple-500/30'
+                        : 'bg-zinc-800 border-zinc-700 hover:border-zinc-600'
+                    }`}
+                    onClick={() => setGenerateVideos(!generateVideos)}
+                  >
+                    <Film className={`h-5 w-5 ${generateVideos ? 'text-purple-400' : 'text-zinc-400'}`} />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-zinc-200">Generate AI Videos</p>
+                      <p className="text-xs text-zinc-500">
+                        Animate storyboard images into video clips (3 credits/scene)
+                      </p>
+                    </div>
+                    {generateVideos && <Check className="h-4 w-4 text-purple-400" />}
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Credit cost estimate */}
+              <div className="flex items-center justify-between px-1">
+                <span className="text-xs text-zinc-500">Estimated cost</span>
+                <span className="text-xs font-medium text-amber-400">
+                  ~{estimateCredits()} credits
+                </span>
+              </div>
+
               {error && <p className="text-sm text-red-400">{error}</p>}
             </motion.div>
           )}
 
-          {/* Exporting / Storyboard Step — animated timeline preview */}
-          {(step === 'exporting' || step === 'storyboard') && (
+          {/* ─── Processing Steps ──────────────────────────────── */}
+          {(step === 'exporting' || step === 'storyboard' || step === 'generating-videos' || step === 'finalizing') && (
             <motion.div
               key="loading"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="py-2 space-y-3"
+              className="py-2 space-y-4"
             >
               <EditronImportAnimation
                 sceneCount={scenes.length || 4}
-                step={step}
+                step={step === 'generating-videos' ? 'storyboard' : step === 'finalizing' ? 'exporting' : step}
               />
+
+              {/* Step progress indicator */}
+              <div className="space-y-2">
+                <StepIndicator label="Parse scenes" active={step === 'exporting'} done={step !== 'exporting'} />
+                {generateStoryboard && (
+                  <StepIndicator label="Generate storyboard images" active={step === 'storyboard'} done={['generating-videos', 'finalizing', 'done'].includes(step)} />
+                )}
+                {generateStoryboard && generateVideos && (
+                  <StepIndicator
+                    label={
+                      step === 'generating-videos' && videoProgress.total > 0
+                        ? `Generating video clips (${videoProgress.done}/${videoProgress.total})`
+                        : 'Generate AI video clips'
+                    }
+                    active={step === 'generating-videos'}
+                    done={['finalizing', 'done'].includes(step)}
+                  />
+                )}
+                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={step === 'done'} />
+              </div>
+
               <p className="text-xs text-zinc-500 text-center">
-                {step === 'exporting'
-                  ? 'Parsing scenes and building timeline...'
-                  : `Generating images for ${scenes.length} scenes — this may take a moment...`}
+                {step === 'exporting' && 'Parsing scenes and building timeline...'}
+                {step === 'storyboard' && `Generating images for ${scenes.length} scenes...`}
+                {step === 'generating-videos' && 'Animating storyboard images into video clips — this takes a few minutes...'}
+                {step === 'finalizing' && 'Assembling your video project...'}
               </p>
             </motion.div>
           )}
 
-          {/* Done Step */}
+          {/* ─── Done Step ─────────────────────────────────────── */}
           {step === 'done' && (
             <motion.div
               key="done"
@@ -341,7 +482,8 @@ export function ExportToEditronDialog({
                   <p className="text-sm font-medium text-zinc-200">Project Created</p>
                   <p className="text-xs text-zinc-400">
                     {scenes.length} scenes • {aspectRatio}
-                    {storyboardId && ` • Storyboard generated`}
+                    {storyboardId && ` • Storyboard`}
+                    {videosGenerated && ` • AI Videos`}
                   </p>
                 </div>
               </div>
@@ -393,8 +535,12 @@ export function ExportToEditronDialog({
                 disabled={blocks.length === 0}
                 className="bg-green-600 hover:bg-green-700 text-white"
               >
-                <ArrowRight className="h-4 w-4 mr-2" />
-                Export to Editron
+                <Sparkles className="h-4 w-4 mr-2" />
+                {generateStoryboard && generateVideos
+                  ? 'Generate Full AI Video'
+                  : generateStoryboard
+                  ? 'Export with Storyboard'
+                  : 'Export to Editron'}
               </Button>
             </>
           )}
@@ -429,5 +575,23 @@ export function ExportToEditronDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Step Progress Indicator ───────────────────────────────────
+function StepIndicator({ label, active, done }: { label: string; active: boolean; done: boolean }) {
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      {done ? (
+        <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+      ) : active ? (
+        <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin shrink-0" />
+      ) : (
+        <div className="h-3.5 w-3.5 rounded-full border border-zinc-600 shrink-0" />
+      )}
+      <span className={done ? 'text-zinc-500 line-through' : active ? 'text-zinc-200 font-medium' : 'text-zinc-500'}>
+        {label}
+      </span>
+    </div>
   );
 }
