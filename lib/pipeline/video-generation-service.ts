@@ -112,21 +112,28 @@ async function generateVideoWithKie(
     throw new Error('KIE_AI_API_KEY environment variable is not set');
   }
 
-  const baseUrl = process.env.KIE_AI_BASE_URL || 'https://api.kie.ai/v1';
-  const duration = Math.min(request.durationSeconds || 5, 10);
+  const baseUrl = 'https://api.kie.ai';
 
-  // Submit generation request
-  const submitRes = await fetch(`${baseUrl}/video/generate`, {
+  // Kie AI supports 5s or 10s durations. 10s cannot use 1080p.
+  const duration = request.durationSeconds && request.durationSeconds >= 8 ? 10 : 5;
+  // Use 720p for 10s videos, 1080p for 5s
+  const quality = duration === 10 ? '720p' : '1080p';
+
+  // Submit generation request via Runway endpoint
+  // Docs: https://docs.kie.ai/runway-api/generate-ai-video
+  const submitRes = await fetch(`${baseUrl}/api/v1/runway/generate`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      image_url: request.imageUrl,
       prompt: request.motionPrompt,
+      imageUrl: request.imageUrl,
       duration,
-      aspect_ratio: request.aspectRatio || '16:9',
+      quality,
+      aspectRatio: request.aspectRatio || '16:9',
+      waterMark: '',
     }),
   });
 
@@ -136,31 +143,39 @@ async function generateVideoWithKie(
   }
 
   const submitData = await submitRes.json();
-  const taskId = submitData.task_id || submitData.id;
+  if (submitData.code !== 200) {
+    throw new Error(`Kie AI error: ${submitData.msg || 'Unknown error'}`);
+  }
 
+  const taskId = submitData.data?.taskId;
   if (!taskId) {
     throw new Error('No task ID returned from Kie AI');
   }
 
-  // Poll for completion (max ~3 minutes)
-  const maxAttempts = 36;
+  // Poll for completion using record-detail endpoint
+  // Docs: https://docs.kie.ai/runway-api/get-ai-video-details
+  // States: wait → queueing → generating → success | fail
+  const maxAttempts = 60; // up to 5 minutes
   const pollInterval = 5000;
 
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, pollInterval));
 
-    const statusRes = await fetch(`${baseUrl}/video/status/${taskId}`, {
-      headers: { 'Authorization': `Bearer ${apiKey}` },
-    });
+    const statusRes = await fetch(
+      `${baseUrl}/api/v1/runway/record-detail?taskId=${taskId}`,
+      { headers: { 'Authorization': `Bearer ${apiKey}` } },
+    );
 
     if (!statusRes.ok) continue;
 
     const statusData = await statusRes.json();
-    if (statusData.status === 'completed' || statusData.status === 'success') {
-      const videoUrl = statusData.video_url || statusData.output?.video_url;
-      if (!videoUrl) throw new Error('Kie AI completed but no video URL returned');
+    const state = statusData.data?.state;
 
-      // Download and upload to GCS
+    if (state === 'success') {
+      const videoUrl = statusData.data?.videoInfo?.videoUrl;
+      if (!videoUrl) throw new Error('Kie AI completed but no video URL in response');
+
+      // Download and upload to GCS (Kie AI URLs expire after 14 days)
       const response = await fetch(videoUrl);
       if (!response.ok) throw new Error('Failed to download Kie AI video');
       const buffer = Buffer.from(await response.arrayBuffer());
@@ -177,12 +192,14 @@ async function generateVideoWithKie(
       };
     }
 
-    if (statusData.status === 'failed' || statusData.status === 'error') {
-      throw new Error(`Kie AI generation failed: ${statusData.error || 'Unknown error'}`);
+    if (state === 'fail') {
+      throw new Error(`Kie AI generation failed: ${statusData.data?.failMsg || 'Unknown error'}`);
     }
+
+    // wait, queueing, generating — keep polling
   }
 
-  throw new Error('Kie AI generation timed out');
+  throw new Error('Kie AI generation timed out after 5 minutes');
 }
 
 // ─── Public API ─────────────────────────────────────────────────
