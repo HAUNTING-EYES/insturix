@@ -34,13 +34,19 @@ function getGcsUrl(gcsPath: string): string {
   return `gs://${bucketName}/${gcsPath}`;
 }
 
-// Initialize QStash client
-const qstashBaseUrl = process.env.QSTASH_URL ||
-  (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
-const qstash = new Client({
-  token: process.env.QSTASH_TOKEN!,
-  baseUrl: qstashBaseUrl,
-});
+// Lazy QStash client to avoid crashing next build when env vars are missing.
+let _qstash: Client | null = null;
+function getQStash(): Client {
+  if (!_qstash) {
+    const qstashBaseUrl = process.env.QSTASH_URL ||
+      (process.env.APP_ENV === 'development' ? 'http://127.0.0.1:8080' : undefined);
+    _qstash = new Client({
+      token: process.env.QSTASH_TOKEN!,
+      baseUrl: qstashBaseUrl,
+    });
+  }
+  return _qstash;
+}
 
 function normalizeContext(context: any): ContextValues {
   if (typeof context === "object" && context !== null) {
@@ -314,7 +320,7 @@ export async function POST(request: Request) {
       const processorUrl = `${baseUrl}/api/services/alyzitron/processor`;
 
       // Publish to QStash
-      await qstash.publishJSON({
+      await getQStash().publishJSON({
         url: processorUrl,
         body: {
           taskId: taskId.toString(),

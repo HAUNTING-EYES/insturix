@@ -11,6 +11,7 @@ import {
   convertThinkForgeBlocksToScenes,
   convertPlainTextToScenes,
   convertCIRToScenes,
+  hasTimestampedScenes,
 } from '@/lib/pipeline/script-to-scenes';
 
 export const runtime = 'nodejs';
@@ -30,8 +31,27 @@ export async function POST(request: NextRequest) {
     let rawContent = '';
 
     if (blocks && Array.isArray(blocks) && blocks.length > 0) {
-      // Direct block input (client already has the data)
-      scenes = convertThinkForgeBlocksToScenes(blocks);
+      // Reconstruct plain text from blocks (use provided plainText if available,
+      // as it preserves markdown formatting that block reconstruction loses)
+      const reconstructedText = (plainText && typeof plainText === 'string')
+        ? plainText
+        : blocks
+            .map((b: any) =>
+              (b.content || []).map((n: any) => n.text || '').join(''),
+            )
+            .join('\n');
+      rawContent = reconstructedText;
+
+      // If the script uses timestamped format (00:00 - 00:15 | Scene Title),
+      // prefer the timestamped parser — it understands Visuals/Audio/Voiceover
+      // sections, extracts correct durations from timestamps, and separates
+      // visual/audio/narration content properly.
+      if (hasTimestampedScenes(reconstructedText)) {
+        scenes = convertPlainTextToScenes(reconstructedText);
+      } else {
+        scenes = convertThinkForgeBlocksToScenes(blocks);
+      }
+
       const firstHeader = blocks.find((b: any) => b.kind === 'header');
       if (firstHeader) {
         const text = firstHeader.content
@@ -40,11 +60,6 @@ export async function POST(request: NextRequest) {
           .trim();
         if (text) title = text;
       }
-      rawContent = blocks
-        .map((b: any) =>
-          (b.content || []).map((n: any) => n.text || '').join(''),
-        )
-        .join('\n');
     } else if (cir && cir.sections) {
       // CIR document input
       scenes = convertCIRToScenes(cir);

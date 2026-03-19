@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { projectService } from '@/lib/editron/services/project-service';
-import { scenesToOverlays, scenesToTotalFrames } from '@/lib/pipeline/scene-to-editron';
+import { scenesToOverlays, scenesToTotalFrames, type StoryboardImage } from '@/lib/pipeline/scene-to-editron';
 import { CreditsService } from '@/lib/services/creditsService';
 import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
@@ -27,11 +27,13 @@ export async function POST(request: NextRequest) {
       title,
       aspectRatio,
       sourceScriptId,
+      storyboardImages,
     }: {
       scenes: SceneDescriptor[];
       title?: string;
       aspectRatio?: string;
       sourceScriptId?: string;
+      storyboardImages?: StoryboardImage[];
     } = body;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -70,8 +72,8 @@ export async function POST(request: NextRequest) {
     const projectName = title || 'Imported Script';
     const project = await projectService.createProject(userId, projectName);
 
-    // Convert scenes to overlays
-    const overlays = scenesToOverlays(scenes, { fps, width, height });
+    // Convert scenes to overlays (with storyboard images if available)
+    const overlays = scenesToOverlays(scenes, { fps, width, height }, storyboardImages);
     const totalFrames = scenesToTotalFrames(scenes, fps);
 
     // Save overlays to the project

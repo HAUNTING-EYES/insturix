@@ -10,6 +10,7 @@ import {
   Play,
   Mic,
   Film,
+  Video,
   Loader2,
   ChevronRight,
   Sparkles,
@@ -56,10 +57,12 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
     regenerateScene,
     generateNextScene,
     generateVoiceover,
+    generateVideos,
     finalizeToEditron,
     isGenerating,
     isRegenerating,
     isVoiceoverGenerating,
+    isVideoGenerating,
     isFinalizing,
   } = useStoryboard(storyboardId);
 
@@ -176,6 +179,23 @@ export function StoryboardWorkspace({ storyboardId }: StoryboardWorkspaceProps) 
               <Mic className="h-4 w-4" />
             )}
             {hasVoiceover ? "Regenerate Voice" : "Add Voiceover"}
+          </Button>
+
+          {/* Generate AI Videos */}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => generateVideos()}
+            disabled={isVideoGenerating || !allApproved}
+            className="gap-2"
+            title={!allApproved ? "Approve all scenes first" : "Generate AI video clips for each scene (3 credits/scene)"}
+          >
+            {isVideoGenerating ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Video className="h-4 w-4" />
+            )}
+            {isVideoGenerating ? "Generating..." : "Generate Videos"}
           </Button>
 
           {/* Finalize */}
