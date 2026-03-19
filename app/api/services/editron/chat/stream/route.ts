@@ -55,16 +55,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    let body: any;
-    try {
-      body = await req.json();
-    } catch (e) {
-      return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
-    }
-    const { message, projectId, sessionId } = body;
+    const { message, projectId, sessionId } = await req.json();
 
     if (!message || !projectId) {
-      return NextResponse.json({ error: 'Missing required fields: message, projectId' }, { status: 400 });
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
     // Get or create session

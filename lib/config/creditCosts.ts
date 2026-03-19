@@ -121,27 +121,6 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       baseCost: 2,
       description: 'Regenerate a single storyboard scene image',
     },
-    {
-      service: 'pipeline',
-      action: 'storyboard_context_regeneration',
-      billingType: 'per_request',
-      baseCost: 3,
-      description: 'Regenerate scene with context-aware image-to-image model',
-    },
-    {
-      service: 'pipeline',
-      action: 'voiceover_generation',
-      billingType: 'per_request',
-      baseCost: 1,
-      description: 'Generate AI voiceover for a scene narration',
-    },
-    {
-      service: 'pipeline',
-      action: 'storyboard_finalize',
-      billingType: 'per_request',
-      baseCost: 1,
-      description: 'Finalize storyboard into an Editron project',
-    },
   ],
 
   clickatron: [
