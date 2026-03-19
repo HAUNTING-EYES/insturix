@@ -69,14 +69,21 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   };
 
   // Create a container style that includes padding and background color
+  // Container must also clip with borderRadius + overflow:hidden so curved
+  // corners actually mask the video content (fixes the broken boundary bug)
+  const hasBorderRadius = overlay.styles.borderRadius && overlay.styles.borderRadius !== "0px";
   const containerStyle: React.CSSProperties = {
     width: "100%",
     height: "100%",
     padding: overlay.styles.padding || "0px",
     backgroundColor: overlay.styles.paddingBackgroundColor || "transparent",
-    display: "flex", // Use flexbox for centering
+    display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    ...(hasBorderRadius ? {
+      borderRadius: overlay.styles.borderRadius,
+      overflow: "hidden",
+    } : {}),
   };
 
   // Determine the video source URL

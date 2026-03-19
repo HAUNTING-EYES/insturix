@@ -735,8 +735,8 @@ Call with no arguments to get full timeline.`,
           case 'sticker':
             newOverlay = {
               ...baseOverlay,
-              content: 'emoji',
-              category: 'Default',
+              content: 'emoji-fire', // Must match a real sticker template ID
+              category: 'Emojis',
               styles: {
                 opacity: input.styles?.opacity ?? 1,
                 animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 }
@@ -761,10 +761,10 @@ Call with no arguments to get full timeline.`,
     {
       name: 'add_overlay',
       description: `Add an overlay to the video timeline. Supports text, image, video, sound, shape, sticker.
-      
+
 SMART PLACEMENT: If 'row' is not specified, the Physics Engine auto-places:
-- Videos/Audio pack from bottom (row 0, 1...)
-- Text/Images/Stickers stack on top of existing content
+- Videos/Audio → background (high row numbers, behind everything)
+- Text/Stickers/Images/Captions → foreground (low row numbers, on top)
 
 POSITIONING: Use percentages ('50%', 'center') or pixels. Default is centered.
 
@@ -772,7 +772,8 @@ TYPE-SPECIFIC FIELDS:
 - text: requires 'text' field
 - image/video/sound: requires 'assetId' field
 - video: optional 'videoStartTime' (seconds)
-- sound: optional 'startFromSound' (seconds)`,
+- sound: optional 'startFromSound' (seconds)
+- sticker: uses built-in templates. Use generate_html_sticker instead for custom animated stickers.`,
       schema: addOverlaySchema
     }
   );
