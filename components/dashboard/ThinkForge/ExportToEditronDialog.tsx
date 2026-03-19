@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Video, Loader2, ArrowRight, Palette, ImageIcon, Check } from 'lucide-react';
+import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -90,29 +91,14 @@ export function ExportToEditronDialog({
 
       const exportData = await exportRes.json();
       setScenes(exportData.scenes);
-      setTitle(title || exportData.title || 'Untitled Script');
+      const projectTitle = title || exportData.title || 'Untitled Script';
+      setTitle(projectTitle);
 
-      // Step 2: Import into Editron
-      const importRes = await fetch('/api/services/editron/projects/import-from-script', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          scenes: exportData.scenes,
-          title: title || exportData.title,
-          aspectRatio,
-          sourceScriptId: scriptId,
-        }),
-      });
+      // Step 2: Optionally generate storyboard images BEFORE creating the project
+      // so we can place them directly on the timeline
+      let sbImages: Array<{ sceneIndex: number; imageUrl: string }> = [];
+      let sbId = '';
 
-      if (!importRes.ok) {
-        const data = await importRes.json();
-        throw new Error(data.error || 'Failed to create Editron project');
-      }
-
-      const importData = await importRes.json();
-      setProjectId(importData.projectId);
-
-      // Step 3: Optionally generate storyboard
       if (generateStoryboard && exportData.scenes.length > 0) {
         setStep('storyboard');
 
@@ -121,8 +107,7 @@ export function ExportToEditronDialog({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             scenes: exportData.scenes,
-            title: title || exportData.title,
-            projectId: importData.projectId,
+            title: projectTitle,
             sourceScriptId: scriptId,
             aspectRatio,
             styleGuide: {
@@ -134,11 +119,40 @@ export function ExportToEditronDialog({
 
         if (sbRes.ok) {
           const sbData = await sbRes.json();
-          setStoryboardId(sbData.storyboardId);
-          setStoryboardScenes(sbData.scenes || []);
+          sbId = sbData.storyboardId || '';
+          setStoryboardId(sbId);
+          const sbScenes = sbData.scenes || [];
+          setStoryboardScenes(sbScenes);
+
+          // Collect successfully generated images for timeline placement
+          sbImages = sbScenes
+            .filter((s: any) => s.imageUrl)
+            .map((s: any) => ({ sceneIndex: s.sceneIndex, imageUrl: s.imageUrl }));
         }
         // Don't fail the whole export if storyboard fails
       }
+
+      // Step 3: Import into Editron with storyboard images on the timeline
+      setStep('exporting');
+      const importRes = await fetch('/api/services/editron/projects/import-from-script', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scenes: exportData.scenes,
+          title: projectTitle,
+          aspectRatio,
+          sourceScriptId: scriptId,
+          storyboardImages: sbImages.length > 0 ? sbImages : undefined,
+        }),
+      });
+
+      if (!importRes.ok) {
+        const data = await importRes.json();
+        throw new Error(data.error || 'Failed to create Editron project');
+      }
+
+      const importData = await importRes.json();
+      setProjectId(importData.projectId);
 
       setStep('done');
     } catch (err: any) {
@@ -225,13 +239,30 @@ export function ExportToEditronDialog({
                     <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
                       <SelectValue />
                     </SelectTrigger>
-                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                    <SelectContent className="bg-zinc-800 border-zinc-700 max-h-64">
+                      {/* Realistic */}
                       <SelectItem value="cinematic">Cinematic / Film</SelectItem>
-                      <SelectItem value="anime">Anime / Illustration</SelectItem>
                       <SelectItem value="photorealistic">Photorealistic</SelectItem>
+                      <SelectItem value="documentary">Documentary / Raw</SelectItem>
+                      <SelectItem value="noir">Noir / Black &amp; White</SelectItem>
+                      {/* Animated / Illustrated */}
+                      <SelectItem value="anime">Anime / Manga</SelectItem>
+                      <SelectItem value="cartoon">Cartoon / Toon</SelectItem>
+                      <SelectItem value="comic-book">Comic Book / Graphic Novel</SelectItem>
+                      <SelectItem value="pixel-art">Pixel Art / Retro</SelectItem>
+                      {/* Stylized */}
                       <SelectItem value="watercolor">Watercolor / Painterly</SelectItem>
-                      <SelectItem value="minimalist">Minimalist / Flat</SelectItem>
+                      <SelectItem value="oil-painting">Oil Painting / Classical</SelectItem>
+                      <SelectItem value="sketch">Pencil Sketch / Line Art</SelectItem>
+                      <SelectItem value="pop-art">Pop Art / Bold Colors</SelectItem>
+                      <SelectItem value="cyberpunk">Cyberpunk / Neon</SelectItem>
+                      <SelectItem value="fantasy">Fantasy / Concept Art</SelectItem>
+                      <SelectItem value="horror">Horror / Dark</SelectItem>
+                      {/* Technical */}
                       <SelectItem value="3d-render">3D Render</SelectItem>
+                      <SelectItem value="isometric">Isometric / Flat 3D</SelectItem>
+                      <SelectItem value="minimalist">Minimalist / Flat</SelectItem>
+                      <SelectItem value="collage">Collage / Mixed Media</SelectItem>
                     </SelectContent>
                   </Select>
                 </motion.div>
@@ -241,18 +272,23 @@ export function ExportToEditronDialog({
             </motion.div>
           )}
 
-          {/* Exporting Step */}
+          {/* Exporting / Storyboard Step — animated timeline preview */}
           {(step === 'exporting' || step === 'storyboard') && (
             <motion.div
               key="loading"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="flex flex-col items-center justify-center py-8 gap-4"
+              className="py-2 space-y-3"
             >
-              <Loader2 className="h-8 w-8 animate-spin text-green-500" />
-              <p className="text-sm text-zinc-400">
-                {step === 'exporting' ? 'Converting script to scenes...' : 'Generating storyboard images...'}
+              <EditronImportAnimation
+                sceneCount={scenes.length || 4}
+                step={step}
+              />
+              <p className="text-xs text-zinc-500 text-center">
+                {step === 'exporting'
+                  ? 'Parsing scenes and building timeline...'
+                  : `Generating images for ${scenes.length} scenes — this may take a moment...`}
               </p>
             </motion.div>
           )}

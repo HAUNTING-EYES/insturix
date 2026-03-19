@@ -34,11 +34,11 @@ function estimateDuration(text: string): number {
 /** Infer a mood keyword from text. */
 function inferMood(text: string): string {
   const lower = text.toLowerCase();
-  if (/excit|energi|hype|wow|amazing/i.test(lower)) return 'energetic';
-  if (/calm|peace|relax|gentle/i.test(lower)) return 'calm';
-  if (/serious|import|critical|warn/i.test(lower)) return 'serious';
-  if (/fun|funny|humour|humor|laugh|joke/i.test(lower)) return 'playful';
-  if (/sad|disappoint|unfortunat/i.test(lower)) return 'somber';
+  if (/excit|energi|hype|wow|amazing|intense|urgent|chaotic|rapid|escalat|relentless/i.test(lower)) return 'energetic';
+  if (/calm|peace|relax|gentle|serene|soft|tranquil/i.test(lower)) return 'calm';
+  if (/serious|import|critical|warn|grave|ominous|tension|dread|threat|sinister|grim|resolut/i.test(lower)) return 'serious';
+  if (/fun|funny|humour|humor|laugh|joke|playful|whimsi/i.test(lower)) return 'playful';
+  if (/sad|disappoint|unfortunat|mourn|grief|somber|melan|desolat|isolat|desperat/i.test(lower)) return 'somber';
   return 'neutral';
 }
 
@@ -108,30 +108,208 @@ export function convertThinkForgeBlocksToScenes(
   return scenes;
 }
 
+// ─── Timestamped Script Detection ───────────────────────────────
+
+/**
+ * Detect whether content uses a timestamped scene format like:
+ *   00:00 - 00:15 | Scene Title
+ *   HH:MM:SS - HH:MM:SS | Scene Title
+ */
+const TIMESTAMP_SCENE_RE =
+  /^(\d{1,2}:\d{2}(?::\d{2})?)\s*[-–—]\s*(\d{1,2}:\d{2}(?::\d{2})?)\s*\|\s*(.+)/;
+
+function isTimestampedScript(content: string): boolean {
+  const lines = content.split('\n');
+  let matches = 0;
+  for (const line of lines) {
+    if (TIMESTAMP_SCENE_RE.test(line.trim())) matches++;
+    if (matches >= 2) return true;
+  }
+  return false;
+}
+
+/** Parse "MM:SS" or "HH:MM:SS" into total seconds. */
+function parseTimestamp(ts: string): number {
+  const parts = ts.split(':').map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return 0;
+}
+
+/**
+ * Extract labelled sections from a scene body.
+ * Recognises patterns like:
+ *   **Visuals:**   / **Visual:**
+ *   **Audio:**
+ *   **Voiceover:** / **Voiceover (…):**  / **VO:**
+ *   **Narration:** / **Narrator:**
+ * Returns { visuals, audio, voiceover, other }
+ */
+function extractLabelledSections(body: string): {
+  visuals: string;
+  audio: string;
+  voiceover: string;
+  other: string;
+} {
+  // Match **Label:** or **Label (extra):** at start of line
+  const labelRe = /^\*{0,2}(Visuals?|Audio|Voiceover|VO|Narrat(?:ion|or)|Sound)\s*(?:\([^)]*\))?\s*:?\*{0,2}\s*:?\s*/im;
+  const lines = body.split('\n');
+  let currentLabel = 'other';
+  const buckets: Record<string, string[]> = { visuals: [], audio: [], voiceover: [], other: [] };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+
+    // Check if this line starts a labelled section
+    const labelMatch = line.match(labelRe);
+    if (labelMatch) {
+      const key = labelMatch[1].toLowerCase();
+      if (key.startsWith('visual')) currentLabel = 'visuals';
+      else if (key === 'audio' || key === 'sound') currentLabel = 'audio';
+      else if (key.startsWith('vo') || key.startsWith('narrat')) currentLabel = 'voiceover';
+      // Strip the label prefix and keep the rest
+      const rest = line.replace(labelRe, '').trim();
+      if (rest) buckets[currentLabel].push(rest);
+    } else {
+      // Strip markdown bold, timestamp prefixes like "**00:00-00:02:**"
+      const cleaned = line
+        .replace(/^\*{2}\d{2}:\d{2}(?::\d{2})?[-–—]\d{2}:\d{2}(?::\d{2})?\s*:?\*{2}\s*:?\s*/, '')
+        .replace(/^\*{2,}|^\*{2,}$/g, '')
+        .trim();
+      if (cleaned) buckets[currentLabel].push(cleaned);
+    }
+  }
+
+  return {
+    visuals: buckets.visuals.join(' ').trim(),
+    audio: buckets.audio.join(' ').trim(),
+    voiceover: buckets.voiceover.join(' ').trim(),
+    other: buckets.other.join(' ').trim(),
+  };
+}
+
+/**
+ * Parse a timestamped script format (as produced by ThinkForge):
+ *
+ *   # Title
+ *   Overview …
+ *   ## Scene Breakdown
+ *   00:00 - 00:15 | Public Outcry
+ *   **Visuals:** …
+ *   **Audio:** …
+ *   **Voiceover:** …
+ *   00:15 - 00:35 | On The Run
+ *   …
+ */
+function convertTimestampedScriptToScenes(content: string): SceneDescriptor[] {
+  const lines = content.split('\n');
+  const rawScenes: Array<{
+    title: string;
+    startSec: number;
+    endSec: number;
+    bodyLines: string[];
+  }> = [];
+
+  let current: (typeof rawScenes)[number] | null = null;
+
+  for (const raw of lines) {
+    const line = raw.trim();
+    const tsMatch = line.match(TIMESTAMP_SCENE_RE);
+    if (tsMatch) {
+      // Flush previous scene
+      if (current) rawScenes.push(current);
+      current = {
+        title: tsMatch[3].trim(),
+        startSec: parseTimestamp(tsMatch[1]),
+        endSec: parseTimestamp(tsMatch[2]),
+        bodyLines: [],
+      };
+    } else if (current) {
+      current.bodyLines.push(line);
+    }
+    // Lines before the first timestamp (overview/title) are ignored for scenes
+  }
+  if (current) rawScenes.push(current);
+
+  return rawScenes.map((raw, i) => {
+    const bodyText = raw.bodyLines.join('\n');
+    const sections = extractLabelledSections(bodyText);
+    const durationSeconds = Math.max(3, raw.endSec - raw.startSec);
+
+    // Narration = voiceover text. If none found, fall back to other content.
+    const narration = sections.voiceover || sections.other || '';
+    // Visual description = visuals section (for storyboard image gen)
+    const visualDescription = sections.visuals || narration.substring(0, 300);
+    // Mood from audio description + visual description
+    const moodSource = sections.audio + ' ' + sections.visuals;
+
+    return {
+      sceneIndex: i,
+      title: raw.title,
+      narration,
+      visualDescription,
+      durationSeconds,
+      mood: inferMood(moodSource) !== 'neutral' ? inferMood(moodSource) : inferMood(narration),
+      cameraDirection: extractCameraDirections(sections.visuals),
+      audioDescription: sections.audio || undefined,
+    };
+  });
+}
+
+/** Extract camera direction keywords from visual description text. */
+function extractCameraDirections(text: string): string | undefined {
+  if (!text) return undefined;
+  const camKeywords =
+    /(?:extreme\s+)?close[- ]?up|wide\s+shot|medium\s+shot|pan(?:ning)?|zoom|tracking\s+shot|dolly|crane|aerial|POV|overhead|establishing\s+shot|montage|rapid[- ]?cut|quick\s+cut/gi;
+  const matches = text.match(camKeywords);
+  return matches ? [...new Set(matches)].join(', ') : undefined;
+}
+
 // ─── Plain Text → Scenes ─────────────────────────────────────────
 
 export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
   if (!content || !content.trim()) return [];
 
-  // Split by markdown headers or double newlines
+  // If the script uses timestamps (ThinkForge format), use the smart parser
+  if (isTimestampedScript(content)) {
+    return convertTimestampedScriptToScenes(content);
+  }
+
+  // Fallback: split by markdown headers or double newlines
   const sections = content
     .split(/(?=^#{1,3}\s)|(?:\n\s*\n)/m)
     .map((s) => s.trim())
     .filter(Boolean);
 
-  return sections.map((section, i) => {
+  // Filter out meta-sections that aren't actual scenes
+  const metaKeywords = /^(overview|core directives|scene breakdown|forbidden elements|notes|credits)/i;
+  const sceneSections = sections.filter((s) => {
+    const firstLine = s.split('\n')[0]?.replace(/^#+\s*/, '').trim() || '';
+    return !metaKeywords.test(firstLine);
+  });
+
+  const finalSections = sceneSections.length > 0 ? sceneSections : sections;
+
+  return finalSections.map((section, i) => {
     // Extract title from first line if it's a header
     const headerMatch = section.match(/^#{1,3}\s+(.+)/m);
     const title = headerMatch ? headerMatch[1].trim() : `Scene ${i + 1}`;
     const body = headerMatch ? section.replace(/^#{1,3}\s+.+\n?/, '').trim() : section;
 
+    // Try to extract labelled sections even in non-timestamped scripts
+    const labelled = extractLabelledSections(body);
+    const narration = labelled.voiceover || body;
+    const visualDescription = labelled.visuals || narration.substring(0, 250);
+
     return {
       sceneIndex: i,
       title,
-      narration: body,
-      visualDescription: body.substring(0, 250),
-      durationSeconds: estimateDuration(body),
+      narration,
+      visualDescription,
+      durationSeconds: estimateDuration(narration),
       mood: inferMood(body),
+      cameraDirection: extractCameraDirections(labelled.visuals),
     };
   });
 }

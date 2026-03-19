@@ -13,6 +13,8 @@ export interface SceneDescriptor {
   durationSeconds: number;
   mood: string;
   cameraDirection?: string;
+  /** Audio/sound design notes from the script (e.g. "sirens, crowd noise") */
+  audioDescription?: string;
 }
 
 export interface StyleGuide {
