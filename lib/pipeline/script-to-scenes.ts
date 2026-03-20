@@ -46,7 +46,7 @@ function inferMood(text: string): string {
 
 /** Headers / titles that describe script structure, not actual scenes. */
 const META_HEADER_KEYWORDS =
-  /\b(overview|introduction|intro|core directives?|scene breakdown|forbidden elements?|notes|credits|preview|outro|closing remarks?|table of contents|agenda|disclaimer|references?|appendix|summary|conclusion|musical direction|music direction|project overview|general notes|style guide|tone guide|pacing guide|target audience|format|guidelines|requirements|specifications?)\b/i;
+  /\b(overview|introduction|intro|core directives?|scene breakdown|forbidden elements?|notes|credits|preview|outro|closing remarks?|table of contents|agenda|disclaimer|references?|appendix|summary|conclusion|musical direction|music direction|project overview|general notes|style guide|tone guide|pacing guide|target audience|format|guidelines|requirements|specifications?|creative direction|aesthetic|production notes|technical notes|color palette|visual style|sound design|branding|brand guidelines|deliverables|key message|distribution|platforms?)\b/i;
 
 /**
  * Check whether a header/title is a meta / structural section rather
@@ -65,7 +65,7 @@ function isMetaHeader(title: string): boolean {
  */
 function isMetaContent(text: string): boolean {
   const lower = text.toLowerCase().substring(0, 300);
-  return /\b(this document|this script|the goal is to create|outlines the|the following|no dialogue or exposition is permitted|music carries the full)\b/i.test(lower);
+  return /\b(this document|this script|the goal is to create|outlines the|the following|no dialogue or exposition is permitted|music carries the full|this angle showcases|this section|project title|target audience|key message|format:|platform:|purpose:|product:|style:|aesthetic:|tone:|distribution strategy)\b/i.test(lower);
 }
 
 // ─── ThinkForge Blocks → Scenes ──────────────────────────────────

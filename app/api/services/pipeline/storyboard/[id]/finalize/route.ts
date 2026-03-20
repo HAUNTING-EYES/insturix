@@ -115,9 +115,17 @@ export async function POST(
 
       // Narration text overlay (lower-third)
       if (scene.descriptor.narration) {
-        const narrationText = scene.descriptor.narration.length > 120
-          ? scene.descriptor.narration.substring(0, 117) + '...'
-          : scene.descriptor.narration;
+        // Strip markdown formatting (**bold**, *italic*, ## headers, bullet points)
+        const cleanNarration = scene.descriptor.narration
+          .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
+          .replace(/\*(.+?)\*/g, '$1')        // *italic* → italic
+          .replace(/^#+\s*/gm, '')            // ## headers → text
+          .replace(/^[-*]\s+/gm, '')          // bullet points
+          .replace(/`(.+?)`/g, '$1')          // inline code
+          .trim();
+        const narrationText = cleanNarration.length > 120
+          ? cleanNarration.substring(0, 117) + '...'
+          : cleanNarration;
 
         overlays.push({
           id: overlayId++,
@@ -170,7 +178,11 @@ export async function POST(
       }
 
       // Scene title (first 3 seconds)
-      if (scene.descriptor.title) {
+      const cleanTitle = (scene.descriptor.title || '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .replace(/^#+\s*/gm, '')
+        .trim();
+      if (cleanTitle) {
         overlays.push({
           id: overlayId++,
           type: 'text',
@@ -183,7 +195,7 @@ export async function POST(
           height: height * 0.12,
           isDragging: false,
           rotation: 0,
-          content: scene.descriptor.title,
+          content: cleanTitle,
           styles: {
             fontSize: '48',
             fontFamily: 'font-sans',
