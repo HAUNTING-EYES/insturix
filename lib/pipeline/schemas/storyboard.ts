@@ -31,6 +31,7 @@ export interface SceneVoiceover {
   audioUrl: string;
   audioAssetId: string;
   audioDurationMs: number;
+  gcsPath?: string;
   /** Word-level timing for caption sync (populated after STT on TTS output) */
   words?: Array<{
     word: string;

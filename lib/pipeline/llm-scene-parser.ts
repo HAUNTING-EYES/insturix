@@ -58,15 +58,28 @@ export async function parseScriptWithLLM(
   const { object } = await generateObject({
     model,
     schema: ParseResultSchema,
-    prompt: `You are a video production AI. Extract ONLY the actual visual scenes from this script.
+    prompt: `You are a premium video production director. Extract ONLY the actual visual scenes from this script and produce cinematic output.
 
 CRITICAL RULES:
 - IGNORE all meta sections: project overview, creative direction, style guide, target audience, format notes, platform info, production notes, branding guidelines, any section that describes the document itself rather than a scene.
 - ONLY extract scenes that would appear as footage in the final video.
 - Scene titles should be SHORT and CINEMATIC (e.g. "City Night Chase", "Holographic Display"), never generic like "Scene 1" or "Introduction".
-- Narration must be ONLY the spoken voiceover words — not visual descriptions or stage directions.
-- Visual descriptions should be highly detailed for AI image generation — include: subject, setting, lighting, colors, composition, camera angle, atmosphere.
-- Video motion prompts should describe movement for 5-second AI video clips — include camera motion, subject movement, particle effects. Be specific: "slow push-in on watch face, holographic particles rising, neon reflections shifting".
+- Narration must be ONLY the spoken voiceover words — not visual descriptions or stage directions. Write natural, conversational voiceover that sounds premium.
+
+IMAGE PROMPT RULES (visualDescription):
+- Write as a detailed image generation prompt, NOT a script direction.
+- Include: specific subject/product, setting details, lighting type (golden hour, neon, studio), colors, composition (rule of thirds, centered, close-up), camera angle (low angle, bird's eye, eye level), atmosphere.
+- Be PHOTOREALISTIC and SPECIFIC. Instead of "a watch on a table", write "luxury silver chronograph watch with blue dial resting on polished marble surface, warm studio key light from upper left, shallow depth of field, dark moody background with soft bokeh".
+- Avoid abstract concepts — describe what the camera literally SEES.
+
+VIDEO MOTION RULES (videoMotionPrompt):
+- Describe SUBTLE, CINEMATIC motion for 5-second AI video clips. AI video models work best with SLOW, DELIBERATE movement.
+- GOOD: "Slow dolly push-in toward watch face, light reflections gently shifting across dial, shallow depth of field with soft background blur"
+- GOOD: "Gentle camera orbit around product, volumetric light rays streaming through window, dust particles floating"
+- BAD: "Fast zoom, explosion, rapid cuts" — AI video models can't handle fast/complex motion.
+- Always include: camera motion (push-in, pull-back, orbit, pan, static), subject movement (subtle), lighting shifts, atmospheric effects.
+- Keep motion minimal and elegant — think Apple product videos, luxury brand commercials.
+
 - Duration should reflect voiceover length at ~150 words per minute. If no voiceover, use 5-8 seconds.
 - The total video should be approximately ${options.targetDuration || 30} seconds.
 ${options.artStyle ? `- Art style: ${options.artStyle}. Incorporate this into visual descriptions.` : ''}

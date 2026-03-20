@@ -79,6 +79,7 @@ export async function POST(
             audioUrl: result.audioUrl,
             audioAssetId: result.audioAssetId,
             audioDurationMs: result.durationMs,
+            gcsPath: result.gcsPath,
           },
         });
 

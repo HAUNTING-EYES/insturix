@@ -32,6 +32,7 @@ interface TTSResult {
   durationMs: number;
   audioUrl: string;
   audioAssetId: string;
+  gcsPath: string;
 }
 
 /**
@@ -91,6 +92,7 @@ export async function generateVoiceover(
     durationMs,
     audioUrl: uploadResult.signedUrl,
     audioAssetId: assetId,
+    gcsPath: uploadResult.gcsPath,
   };
 }
 

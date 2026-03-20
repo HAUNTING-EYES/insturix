@@ -66,46 +66,49 @@ export async function POST(
         : Math.min(scene.descriptor.durationSeconds, 15); // Cap at 15s when no video
       const durationFrames = Math.round(sceneDurationSec * fps);
 
-      // Scene background: prefer video clip over static image
-      if (scene.videoUrl) {
-        // AI-generated video clip
-        overlays.push({
-          id: overlayId++,
-          type: 'video',
-          from: currentFrame,
-          durationInFrames: durationFrames,
-          row: 3, // Background row
-          left: 0,
-          top: 0,
-          width,
-          height,
-          isDragging: false,
-          rotation: 0,
-          content: scene.videoUrl, // Fallback if src resolution fails
-          src: scene.videoUrl,
-          assetId: scene.videoAssetId,
-          styles: {
-            objectFit: 'cover',
-            opacity: 1,
-          },
-        });
-      } else if (scene.imageUrl) {
-        // Static storyboard image as fallback
+      // Scene background: ALWAYS add image as base layer (prevents blank gaps
+      // between video clips while the next video loads/buffers).
+      // Then layer the video on top if available.
+      if (scene.imageUrl) {
         overlays.push({
           id: overlayId++,
           type: 'image',
           from: currentFrame,
           durationInFrames: durationFrames,
-          row: 3, // Background row
+          row: 3, // Background row (behind video)
           left: 0,
           top: 0,
           width,
           height,
           isDragging: false,
           rotation: 0,
-          content: scene.imageUrl, // Fallback if src resolution fails
+          content: scene.imageUrl,
           src: scene.imageUrl,
-          assetId: scene.imageAssetId, // Needed so stripUrlsForLLM can be resolved back
+          assetId: scene.imageAssetId,
+          styles: {
+            objectFit: 'cover',
+            opacity: 1,
+          },
+        });
+      }
+
+      if (scene.videoUrl) {
+        // AI-generated video clip on top of the image
+        overlays.push({
+          id: overlayId++,
+          type: 'video',
+          from: currentFrame,
+          durationInFrames: durationFrames,
+          row: 2, // Video layer (in front of image on row 3)
+          left: 0,
+          top: 0,
+          width,
+          height,
+          isDragging: false,
+          rotation: 0,
+          content: scene.videoUrl,
+          src: scene.videoUrl,
+          assetId: scene.videoAssetId,
           styles: {
             objectFit: 'cover',
             opacity: 1,
@@ -173,6 +176,7 @@ export async function POST(
           rotation: 0,
           content: scene.voiceover.audioUrl,
           src: scene.voiceover.audioUrl,
+          assetId: scene.voiceover.audioAssetId, // Needed for URL resolution after save
           styles: { volume: 1 },
         });
       }
@@ -254,6 +258,27 @@ export async function POST(
               source: 'user-upload',
               gcsPath: (scene as any).imageGcsPath || null,
               cachedUrl: scene.imageUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              size: 0,
+              uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+      }
+      // Register voiceover audio asset
+      if (scene.voiceover?.audioUrl && scene.voiceover?.audioAssetId) {
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId: scene.voiceover.audioAssetId },
+          {
+            $setOnInsert: {
+              assetId: scene.voiceover.audioAssetId,
+              userId,
+              type: 'audio',
+              filename: `${scene.voiceover.audioAssetId}.mp3`,
+              source: 'user-upload',
+              gcsPath: (scene.voiceover as any).gcsPath || null,
+              cachedUrl: scene.voiceover.audioUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: 0,
               uploadedAt: new Date(),

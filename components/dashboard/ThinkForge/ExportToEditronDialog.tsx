@@ -39,6 +39,7 @@ type ExportStep =
   | 'exporting'        // parsing scenes
   | 'storyboard'       // generating AI images
   | 'generating-videos' // generating AI video clips
+  | 'generating-voiceover' // generating AI voiceover
   | 'finalizing'       // creating Editron project
   | 'done';
 
@@ -114,6 +115,7 @@ export function ExportToEditronDialog({
     let total = 1; // base import cost
     if (generateStoryboard) total += sceneCount * 2; // 2 credits/scene for images
     if (generateStoryboard && generateVideos) total += sceneCount * 3; // 3 credits/scene for videos
+    total += sceneCount * 1; // 1 credit/scene for voiceover
     return total;
   };
 
@@ -230,6 +232,27 @@ export function ExportToEditronDialog({
         }
       }
 
+      // ─── Step 3.5: Generate AI voiceover ──────────────────────
+      if (sbId) {
+        setStep('generating-voiceover');
+        try {
+          const voRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/voiceover`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ voice: 'aura-asteria-en' }),
+          });
+          if (voRes.ok) {
+            const voData = await voRes.json();
+            console.log(`[ExportToEditron] Voiceover: ${voData.scenesProcessed}/${voData.totalScenes} scenes`);
+          } else {
+            console.warn('[ExportToEditron] Voiceover generation failed, continuing without');
+          }
+        } catch (voErr: any) {
+          console.warn('[ExportToEditron] Voiceover error:', voErr.message);
+          // Non-blocking — continue without voiceover
+        }
+      }
+
       // ─── Step 4: Create Editron project ───────────────────────
       setStep('finalizing');
 
@@ -289,6 +312,7 @@ export function ExportToEditronDialog({
       case 'exporting': return 'Parsing scenes from your script...';
       case 'storyboard': return 'Generating AI storyboard images...';
       case 'generating-videos': return 'Generating AI video clips...';
+      case 'generating-voiceover': return 'Generating AI voiceover...';
       case 'finalizing': return 'Building your Editron project...';
       case 'done': return 'Your project is ready!';
     }
@@ -474,7 +498,7 @@ export function ExportToEditronDialog({
           )}
 
           {/* ─── Processing Steps ──────────────────────────────── */}
-          {(step === 'exporting' || step === 'storyboard' || step === 'generating-videos' || step === 'finalizing') && (
+          {(step === 'exporting' || step === 'storyboard' || step === 'generating-videos' || step === 'generating-voiceover' || step === 'finalizing') && (
             <motion.div
               key="loading"
               initial={{ opacity: 0 }}
@@ -484,7 +508,7 @@ export function ExportToEditronDialog({
             >
               <EditronImportAnimation
                 sceneCount={scenes.length || 4}
-                step={step === 'generating-videos' ? 'storyboard' : step === 'finalizing' ? 'exporting' : step}
+                step={step === 'generating-videos' || step === 'generating-voiceover' ? 'storyboard' : step === 'finalizing' ? 'exporting' : step}
               />
 
               {/* Step progress indicator */}
@@ -501,9 +525,10 @@ export function ExportToEditronDialog({
                         : 'Generate AI video clips'
                     }
                     active={step === 'generating-videos'}
-                    done={['finalizing', 'done'].includes(step)}
+                    done={['generating-voiceover', 'finalizing', 'done'].includes(step)}
                   />
                 )}
+                <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'done'].includes(step)} />
                 <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={step === 'done'} />
               </div>
 
@@ -511,7 +536,8 @@ export function ExportToEditronDialog({
                 {step === 'exporting' && 'Parsing scenes and building timeline...'}
                 {step === 'storyboard' && `Generating images for ${scenes.length} scenes...`}
                 {step === 'generating-videos' && 'Animating storyboard images into video clips — this takes a few minutes...'}
-                {step === 'finalizing' && 'Assembling your video project...'}
+                {step === 'generating-voiceover' && 'Generating AI voiceover narration...'}
+                {step === 'finalizing' && 'Assembling your video project with music & voiceover...'}
               </p>
               {error && (
                 <p className="text-xs text-amber-400 text-center mt-1">{error}</p>
