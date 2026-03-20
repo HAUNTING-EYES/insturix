@@ -57,17 +57,16 @@ export async function uploadToGCS(
   // Create GCS path: editron/{userId}/media/{timestamp}_{filename}
   const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
   
-  // Upload to GCS and make publicly readable so external AI APIs
-  // (Kie AI, fal.ai, etc.) can access the file via a clean URL.
+  // Upload to GCS
   const blob = bucket.file(gcsPath);
   await blob.save(file, {
     metadata: {
       contentType,
     },
-    public: true,
   });
 
-  // Public URL — clean, no query params, works with any external API
+  // Public URL — clean, no query params, works with external AI APIs
+  // Requires bucket-level public read (IAM policy with allUsers as Storage Object Viewer)
   const publicUrl = `https://storage.googleapis.com/${bucketName}/${gcsPath}`;
 
   // Generate signed URL (7 days expiration) as fallback / for private access
