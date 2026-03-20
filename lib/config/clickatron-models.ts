@@ -269,21 +269,44 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
   'fal-ai/nano-banana-pro/edit': {
     id: 'fal-ai/nano-banana-pro/edit',
     name: 'Nanobanana Pro Edit',
-    types: ['image-to-image'],
+    types: ['image-to-image', 'inpainting'],
     isSketchToEdit: true,
     isDefault: true, // default for sketch-to-edit
+    isInpaintingCapable: true,
     parameterMapping: {
       prompt: 'prompt',
       image_urls: 'image_urls',
       num_images: 'num_images',
       enable_safety_checker: 'enable_safety_checker',
-      seed: 'seed'
+      seed: 'seed',
+      mask_url: 'mask_url'
     },
     constraints: {
       promptMaxLength: 1024,
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
       minImages: 1,
       maxImages: 10,
+    },
+  },
+  // Gemini 3 Pro Image Preview (Generative Fill)
+  'fal-ai/gemini-3-pro-image-preview': {
+    id: 'fal-ai/gemini-3-pro-image-preview',
+    name: 'Gemini 3 Pro Image Preview',
+    types: ['inpainting'],
+    isInpaintingCapable: true,
+    parameterMapping: {
+      prompt: 'prompt',
+      image_urls: 'image_urls',
+      mask_url: 'mask_url',
+      num_images: 'num_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format'
+    },
+    constraints: {
+      promptMaxLength: 1024,
+      minImages: 1,
+      maxImages: 1,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
     },
   },
   // Seedream 4.5 (Text-to-Image)
@@ -329,11 +352,7 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
     },
   },
   // ── Sketch-to-Edit Models ──────────────────────────────────────────────────
-  // These models appear only when sketch-to-edit mode is active.
-
-  // NOTE: 'fal-ai/nano-banana-pro/edit' is defined above (line ~268) with isSketchToEdit: true.
-  // NOTE: 'fal-ai/bytedance/seedream/v4.5/edit' is defined above (line ~308) with isSketchToEdit: true.
-
+ 
   // Flux 2 Pro (Edit) - High quality instruction-based editing
   'fal-ai/flux-2-pro/edit': {
     id: 'fal-ai/flux-2-pro/edit',
@@ -397,6 +416,32 @@ export const CLICKATRON_MODELS: Record<string, ModelConfig> = {
       allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
     },
   },
+
+  // NEW: Seedream 5.0 Lite (Inpainting/Generative Fill)
+  'fal-ai/bytedance/seedream/v5/lite/edit': {
+    id: 'fal-ai/bytedance/seedream/v5/lite/edit',
+    name: 'Seedream 5.0 Lite',
+    types: ['inpainting'],
+    isInpaintingCapable: true,
+    parameterMapping: {
+      prompt: 'prompt',
+      image_urls: 'image_urls',
+      mask_url: 'mask_url',
+      num_images: 'num_images',
+      max_images: 'max_images',
+      enable_safety_checker: 'enable_safety_checker',
+      output_format: 'output_format'
+    },
+    constraints: {
+      promptMaxLength: 512,
+      minImages: 1,
+      maxImages: 1,
+      allowedAspectRatios: ['1:1', '16:9', '9:16', '4:3', '3:4', '4:5', '21:9', '3:2'],
+    },
+  },
+
+
+
 };
 
 /**
@@ -436,9 +481,9 @@ export function getAvailableModels(
   // For generative fill, return specific approved models
   if (context === 'generativeFill') {
     const allowedModels = [
-      'fal-ai/flux/dev/inpainting',
-      'fal-ai/flux-pro/v1/fill',
-      'fal-ai/flux-kontext/dev/inpainting'
+      'fal-ai/bytedance/seedream/v5/lite/edit',
+      'fal-ai/nano-banana-pro/edit',
+      'fal-ai/gemini-3-pro-image-preview'
     ];
     return allModels.filter(model => allowedModels.includes(model.id));
   }
@@ -574,7 +619,16 @@ export function generateSeedreamV4TextToImagePayload(
 /**
  * System prompt prepended to user prompts for generative fill
  */
-export const GENERATIVE_FILL_SYSTEM_PROMPT = `Fill the masked area naturally to match the surrounding image. Keep content within the selection.`;
+export const GENERATIVE_FILL_SYSTEM_PROMPT = `INPAINTING TASK - CRITICAL INSTRUCTIONS:
+1. ONLY modify the white masked area shown in the mask image
+2. Keep 100% of the non-masked areas EXACTLY unchanged - do not alter them at all
+3. Blend the generated content seamlessly with the surrounding pixels
+4. Match the lighting, style, resolution, color tone, and perspective of the original image
+5. Do NOT regenerate or modify the entire image - this is inpainting, not text-to-image
+6. Preserve all objects, people, and details outside the masked region
+7. The mask indicates WHERE to edit, the user prompt indicates WHAT to add/fill
+
+You are an inpainting model. Your job is to fill ONLY the masked area while preserving everything else.`;
 
 
 
@@ -740,6 +794,86 @@ export function generateFluxProUltraInpaintingPayload(
 }
 
 /**
+ * Generate payload for Seedream 5.0 Lite (Generative Fill)
+ */
+export function generateSeedream5LitePayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string
+): Record<string, any> {
+  // Prepend system prompt for inpainting
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_urls: [imageUrl],  // Seedream expects array
+    mask_url: maskUrl,
+    num_images: numImages,
+    max_images: 1,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat
+  };
+}
+
+/**
+ * Generate payload for Gemini 3 Pro Image Preview (Generative Fill)
+ */
+export function generateGemini3ProImagePreviewPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string
+): Record<string, any> {
+  // Prepend system prompt for inpainting
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  return {
+    prompt: fullPrompt,
+    image_urls: [imageUrl],
+    mask_url: maskUrl,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat
+  };
+}
+
+/**
+ * Generate payload for Nano Bananas Pro Edit (Generative Fill / Inpainting)
+ */
+export function generateNanoBananaProEditPayload(
+  job: any,
+  imageUrl: string,
+  maskUrl: string,
+  numImages: number,
+  enableSafetyChecker: boolean,
+  outputFormat: string,
+  seed?: number
+): Record<string, any> {
+  // Prepend system prompt for inpainting
+  const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+
+  const payload: Record<string, any> = {
+    prompt: fullPrompt,
+    image_urls: [imageUrl],
+    mask_url: maskUrl,
+    num_images: numImages,
+    enable_safety_checker: enableSafetyChecker,
+    output_format: outputFormat
+  };
+
+  if (seed !== undefined) {
+    payload.seed = seed;
+  }
+
+  return payload;
+}
+
+/**
 * Generate model-specific payload based on model ID
  */
 export function generateModelPayload(
@@ -834,6 +968,9 @@ export function generateModelPayload(
     case 'fal-ai/flux-kontext/dev/inpainting':
     case 'fal-ai/flux-pro/v1.1-ultra-inpainting':
     case 'fal-ai/stable-diffusion-inpainting': // Legacy support
+    case 'fal-ai/bytedance/seedream/v5/lite/edit':
+    case 'fal-ai/nano-banana-pro/edit':
+    case 'fal-ai/gemini-3-pro-image-preview':
       // Robust parameter normalization for inpainting
       let imageUrl = generationParams.image_url;
       if (!imageUrl && generationParams.image_urls && generationParams.image_urls.length > 0) {
@@ -879,6 +1016,34 @@ export function generateModelPayload(
           generationParams.output_format || "jpeg",
           generationParams.guidance_scale || 3.5,
           generationParams.num_inference_steps || 28
+        );
+      } else if (modelId === 'fal-ai/bytedance/seedream/v5/lite/edit') {
+        return generateSeedream5LitePayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg"
+        );
+      } else if (modelId === 'fal-ai/nano-banana-pro/edit') {
+        return generateNanoBananaProEditPayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg",
+          generationParams.seed
+        );
+      } else if (modelId === 'fal-ai/gemini-3-pro-image-preview') {
+        return generateGemini3ProImagePreviewPayload(
+          job,
+          imageUrl,
+          generationParams.mask_url,
+          generationParams.num_images || 1,
+          generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
+          generationParams.output_format || "jpeg"
         );
       } else {
         return generateFluxProUltraInpaintingPayload(

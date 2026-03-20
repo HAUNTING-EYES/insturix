@@ -31,8 +31,8 @@ export const GenerativeFillPanel: React.FC<GenerativeFillPanelProps> = ({
   // Set default model when models are loaded
   React.useEffect(() => {
     if (availableModels.length > 0 && !selectedModelId) {
-      // Default to Flux Pro Fill (High Priority & Reliable)
-      const defaultModel = availableModels.find(m => m.id === "fal-ai/flux-pro/v1/fill") ||
+      // Default to Seedream 5.0 Lite (first in the list - most reliable)
+      const defaultModel = availableModels.find(m => m.id === "fal-ai/bytedance/seedream/v5/lite/edit") ||
         availableModels[0];
       setSelectedModelId(defaultModel.id);
     }

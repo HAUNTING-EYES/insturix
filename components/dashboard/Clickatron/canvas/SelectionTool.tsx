@@ -18,8 +18,10 @@ interface SelectionToolProps {
   originalWidth?: number;
   originalHeight?: number;
   isActive: boolean;
-  onSelectionComplete: (selection: SelectionBounds, maskDataUrl: string) => void;
+  onSelectionComplete: (selection: SelectionBounds, maskDataUrl: string, position?: { x: number; y: number }) => void;
   onCancel: () => void;
+  selectionMode?: "rectangle" | "lasso";
+  onSelectionModeChange?: (mode: "rectangle" | "lasso") => void;
 }
 
 const MIN_RECT_SIZE = 10;
@@ -35,8 +37,12 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
   isActive,
   onSelectionComplete,
   onCancel,
+  selectionMode: externalSelectionMode,
+  onSelectionModeChange,
 }) => {
-  const [mode, setMode] = useState<SelectionMode>("rectangle");
+  const [mode, setMode] = useState<SelectionMode>(
+    externalSelectionMode || "rectangle"
+  );
   const [isDrawing, setIsDrawing] = useState(false);
   const [selection, setSelection] = useState<SelectionBounds | null>(null);
   const [lassoPoints, setLassoPoints] = useState<{ x: number; y: number }[]>([]);
@@ -45,6 +51,14 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
   );
   const canvasRef = useRef<HTMLDivElement>(null);
   const lastPointTimeRef = useRef<number>(0);
+
+  // Sync internal mode with external prop when it changes
+  useEffect(() => {
+    if (externalSelectionMode && externalSelectionMode !== mode) {
+      setMode(externalSelectionMode);
+      handleClear();
+    }
+  }, [externalSelectionMode]);
 
   const getCoords = useCallback(
     (clientX: number, clientY: number) => {
@@ -303,7 +317,11 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
     const sel = getEffectiveSelection();
     if (!sel) return;
     const maskDataUrl = generateMask();
-    onSelectionComplete(sel, maskDataUrl);
+    // Pass the selection position for inline UI placement (centered below the selection)
+    onSelectionComplete(sel, maskDataUrl, {
+      x: sel.x + sel.width / 2,
+      y: sel.y + sel.height,
+    });
   };
 
   const handleClear = () => {
@@ -352,8 +370,7 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
   return (
     <div
       ref={canvasRef}
-      className="absolute inset-0 z-[60] touch-none"
-      style={{ width: imageWidth, height: imageHeight }}
+      className="absolute inset-0 bg-black/30 touch-none"
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={(e) => handleMouseUpOrLeave(e)}
@@ -362,41 +379,44 @@ export const SelectionTool: React.FC<SelectionToolProps> = ({
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
     >
-      <div className="absolute inset-0 bg-black/30 pointer-events-none" />
 
-      {/* Tool selector */}
-      <div className="absolute top-4 left-20 flex gap-1 p-1 bg-black/60 rounded-lg z-[70]">
-        <button
-          onClick={() => {
-            handleClear();
-            setMode("rectangle");
-          }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
-            mode === "rectangle"
-              ? "bg-blue-600 text-white"
-              : "text-zinc-300 hover:bg-zinc-700/80"
-          }`}
-          title="Rectangle Select"
-        >
-          <Square className="w-4 h-4" />
-          Rectangle
-        </button>
-        <button
-          onClick={() => {
-            handleClear();
-            setMode("lasso");
-          }}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
-            mode === "lasso"
-              ? "bg-blue-600 text-white"
-              : "text-zinc-300 hover:bg-zinc-700/80"
-          }`}
-          title="Lasso Select"
-        >
-          <Pencil className="w-4 h-4" />
-          Lasso
-        </button>
-      </div>
+      {/* Tool selector - Hidden when external mode control is provided */}
+      {!externalSelectionMode && (
+        <div className="absolute top-4 left-20 flex gap-1 p-1 bg-black/60 rounded-lg z-[70]">
+          <button
+            onClick={() => {
+              handleClear();
+              setMode("rectangle");
+              onSelectionModeChange?.("rectangle");
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+              mode === "rectangle"
+                ? "bg-blue-600 text-white"
+                : "text-zinc-300 hover:bg-zinc-700/80"
+            }`}
+            title="Rectangle Select"
+          >
+            <Square className="w-4 h-4" />
+            Rectangle
+          </button>
+          <button
+            onClick={() => {
+              handleClear();
+              setMode("lasso");
+              onSelectionModeChange?.("lasso");
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+              mode === "lasso"
+                ? "bg-blue-600 text-white"
+                : "text-zinc-300 hover:bg-zinc-700/80"
+            }`}
+            title="Lasso Select"
+          >
+            <Pencil className="w-4 h-4" />
+            Lasso
+          </button>
+        </div>
+      )}
 
       <button
         onClick={onCancel}
