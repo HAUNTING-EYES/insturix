@@ -330,43 +330,68 @@ export async function generateVideosForScenes(
 
 /**
  * Build a motion prompt from scene descriptor for video generation.
- * Converts static visual descriptions into motion/action prompts.
+ *
+ * The video model already SEES the storyboard image as the starting frame.
+ * This prompt only needs to describe WHAT CHANGES — motion, camera movement,
+ * atmospheric shifts. It should NOT repeat the visual description.
+ *
+ * Quality tokens are dynamic from the LLM, not hardcoded.
  */
 export function buildMotionPrompt(scene: {
   visualDescription: string;
   narration?: string;
   cameraDirection?: string;
   mood?: string;
+  videoMotionPrompt?: string;
+  videoQualityTokens?: string;
 }): string {
   const parts: string[] = [];
 
-  if (scene.cameraDirection) {
-    parts.push(`Camera movement: ${scene.cameraDirection}`);
+  // Prefer LLM-generated motion prompt (already optimized for video AI)
+  if (scene.videoMotionPrompt) {
+    parts.push(scene.videoMotionPrompt);
+  } else {
+    // Fallback: build a basic motion prompt from available data
+    if (scene.cameraDirection) {
+      parts.push(scene.cameraDirection);
+    } else {
+      // Default subtle camera movement based on mood
+      const moodToCamera: Record<string, string> = {
+        energetic: 'Slow tracking shot with subtle dynamic energy',
+        calm: 'Gentle, barely perceptible push-in',
+        serious: 'Steady measured dolly forward',
+        playful: 'Light floating camera drift',
+        mysterious: 'Slow creeping push-in with atmospheric haze',
+        dramatic: 'Deliberate slow dolly with building intensity',
+        inspirational: 'Graceful rising camera movement',
+        neutral: 'Subtle slow push-in',
+      };
+      parts.push(moodToCamera[scene.mood || 'neutral'] || 'Subtle slow push-in');
+    }
+
+    // Add one atmospheric detail instead of dumping the visual description
+    if (scene.mood) {
+      const moodAtmosphere: Record<string, string> = {
+        energetic: 'light particles catching motion, subtle energy in the air',
+        calm: 'soft ambient light shifting gently, peaceful stillness',
+        serious: 'shadows deepening subtly, weighted atmosphere',
+        playful: 'warm light dancing softly, gentle movement in details',
+        mysterious: 'fog wisps drifting slowly, light filtering through haze',
+        dramatic: 'volumetric light rays shifting, atmospheric tension building',
+        inspirational: 'golden light gradually intensifying, uplifting atmosphere',
+        neutral: 'natural ambient light, gentle environmental movement',
+      };
+      const atmo = moodAtmosphere[scene.mood];
+      if (atmo) parts.push(atmo);
+    }
   }
 
-  if (scene.visualDescription) {
-    // Extract action words and motion cues
-    const visual = scene.visualDescription
-      .replace(/\*{1,2}/g, '')
-      .replace(/\d{2}:\d{2}(?::\d{2})?[-–—]\d{2}:\d{2}(?::\d{2})?\s*:?\s*/g, '')
-      .trim();
-    parts.push(visual.substring(0, 300));
+  // Append LLM-generated video quality tokens (dynamic per art style)
+  if (scene.videoQualityTokens) {
+    parts.push(scene.videoQualityTokens);
   }
 
-  if (scene.mood) {
-    const moodToMotion: Record<string, string> = {
-      energetic: 'Dynamic, fast-paced motion with intensity',
-      calm: 'Slow, gentle movement with soft transitions',
-      serious: 'Steady, deliberate movement with weight',
-      playful: 'Bouncy, lively motion with energy',
-      somber: 'Slow, heavy movement with stillness',
-      neutral: 'Natural, smooth motion',
-    };
-    const motionHint = moodToMotion[scene.mood];
-    if (motionHint) parts.push(motionHint);
-  }
-
-  return parts.join('. ').substring(0, 500);
+  return parts.join(', ').substring(0, 500);
 }
 
 /** Detect which provider is available based on env vars. */

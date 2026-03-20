@@ -96,14 +96,15 @@ export async function POST(
 
     for (const scene of targetScenes) {
       try {
-        // Prefer LLM-generated videoMotionPrompt; fall back to building from visual description
-        const motionPrompt = scene.descriptor.videoMotionPrompt
-          || buildMotionPrompt({
-            visualDescription: scene.descriptor.visualDescription,
-            narration: scene.descriptor.narration,
-            cameraDirection: scene.descriptor.cameraDirection,
-            mood: scene.descriptor.mood,
-          });
+        // Build motion prompt — passes all LLM-generated fields through
+        const motionPrompt = buildMotionPrompt({
+          visualDescription: scene.descriptor.visualDescription,
+          narration: scene.descriptor.narration,
+          cameraDirection: scene.descriptor.cameraDirection,
+          mood: scene.descriptor.mood,
+          videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+          videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+        });
 
         const result = await generateVideoClip(
           {

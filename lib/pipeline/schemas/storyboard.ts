@@ -17,6 +17,10 @@ export interface SceneDescriptor {
   audioDescription?: string;
   /** Dedicated motion/animation prompt for AI video generation (from LLM parser) */
   videoMotionPrompt?: string;
+  /** Dynamic quality tokens for image generation, specific to the art style (from LLM) */
+  imageQualityTokens?: string;
+  /** Dynamic quality tokens for video generation, specific to the art style (from LLM) */
+  videoQualityTokens?: string;
 }
 
 export interface StyleGuide {

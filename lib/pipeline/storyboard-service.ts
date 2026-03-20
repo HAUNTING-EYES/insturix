@@ -195,59 +195,76 @@ export async function generateFullStoryboard(
 
   await saveStoryboard(storyboard);
 
-  // Generate images with concurrency limit of 3
-  const CONCURRENCY = 3;
+  // Generate images with concurrency limit of 2 (avoid fal.ai rate limits)
+  const CONCURRENCY = 2;
   let completed = 0;
   let errors = 0;
 
+  const MAX_RETRIES = 2;
+
   const generateForScene = async (sbScene: StoryboardScene) => {
-    try {
-      sbScene.status = 'generating';
-      await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
-        status: 'generating',
-      });
+    let lastError: any;
 
-      // Look up reference images for this scene from the referenceImageMap
-      const sceneRefs = options.referenceImageMap?.[sbScene.sceneIndex];
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: retry ${attempt}/${MAX_RETRIES}`);
+          // Brief delay before retry to avoid rate limits
+          await new Promise((r) => setTimeout(r, 2000 * attempt));
+        }
 
-      const result = await generateStoryboardImage(
-        sbScene.descriptor,
-        options.userId,
-        {
-          styleGuide: options.styleGuide,
-          modelId: options.modelId,
-          aspectRatio: options.aspectRatio,
-          sceneIndex: sbScene.sceneIndex,
-          totalScenes,
-          referenceImages: sceneRefs,
-        },
-      );
+        sbScene.status = 'generating';
+        await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
+          status: 'generating',
+        });
 
-      sbScene.imageAssetId = result.assetId;
-      sbScene.imageUrl = result.imageUrl;
-      (sbScene as any).imageGcsPath = result.gcsPath;
-      sbScene.status = 'generated';
-      sbScene.generationHistory.push({
-        assetId: result.assetId,
-        imageUrl: result.imageUrl,
-        timestamp: new Date(),
-        modelUsed: result.modelUsed,
-      });
+        // Look up reference images for this scene from the referenceImageMap
+        const sceneRefs = options.referenceImageMap?.[sbScene.sceneIndex];
 
-      await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
-        imageAssetId: result.assetId,
-        imageUrl: result.imageUrl,
-        imageGcsPath: result.gcsPath,
-        status: 'generated',
-        generationHistory: sbScene.generationHistory,
-      });
+        const result = await generateStoryboardImage(
+          sbScene.descriptor,
+          options.userId,
+          {
+            styleGuide: options.styleGuide,
+            modelId: options.modelId,
+            aspectRatio: options.aspectRatio,
+            sceneIndex: sbScene.sceneIndex,
+            totalScenes,
+            referenceImages: sceneRefs,
+          },
+        );
 
-      completed++;
-    } catch (err) {
-      console.error(`[Storyboard] Scene ${sbScene.sceneIndex} failed:`, err);
-      sbScene.status = 'pending'; // can retry later
-      errors++;
+        sbScene.imageAssetId = result.assetId;
+        sbScene.imageUrl = result.imageUrl;
+        (sbScene as any).imageGcsPath = result.gcsPath;
+        sbScene.status = 'generated';
+        sbScene.generationHistory.push({
+          assetId: result.assetId,
+          imageUrl: result.imageUrl,
+          timestamp: new Date(),
+          modelUsed: result.modelUsed,
+        });
+
+        await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
+          imageAssetId: result.assetId,
+          imageUrl: result.imageUrl,
+          imageGcsPath: result.gcsPath,
+          status: 'generated',
+          generationHistory: sbScene.generationHistory,
+        });
+
+        completed++;
+        return; // Success — exit retry loop
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Storyboard] Scene ${sbScene.sceneIndex} attempt ${attempt + 1} failed:`, err.message || err);
+      }
     }
+
+    // All retries exhausted
+    console.error(`[Storyboard] Scene ${sbScene.sceneIndex} FAILED after ${MAX_RETRIES + 1} attempts:`, lastError?.message);
+    sbScene.status = 'pending';
+    errors++;
   };
 
   // Run with concurrency limit

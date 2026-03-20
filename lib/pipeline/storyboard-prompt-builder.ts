@@ -3,67 +3,70 @@
  *
  * Builds image-generation prompts from scene descriptors + style guide.
  * Designed for visual consistency across all storyboard frames.
+ *
+ * Image prompts describe STILL frames only — no camera movement.
+ * Quality tokens are dynamic per art style, not hardcoded.
  */
 
 import type { SceneDescriptor } from './schemas/storyboard';
 import type { StyleGuide } from './schemas/storyboard';
 
-/** Map art-style identifiers to descriptive prompt tokens. */
+/** Map art-style identifiers to descriptive prompt tokens for image generation. */
 const ART_STYLE_PROMPTS: Record<string, string> = {
-  cinematic: 'cinematic film still, dramatic lighting, shallow depth of field, 35mm film look',
-  photorealistic: 'photorealistic, ultra-detailed, DSLR photo, natural lighting',
-  documentary: 'documentary photography, raw authentic look, natural light, grainy film texture',
-  noir: 'film noir style, high contrast black and white, dramatic shadows, moody atmosphere',
-  anime: 'anime illustration, manga art style, vibrant colors, detailed linework',
-  cartoon: 'cartoon illustration, bold outlines, bright saturated colors, stylized characters',
-  'comic-book': 'comic book art, graphic novel style, ink outlines, halftone dots, dynamic angles',
-  'pixel-art': 'pixel art, retro 16-bit game aesthetic, clean pixel edges, limited palette',
-  watercolor: 'watercolor painting, soft washes, organic textures, flowing pigments',
-  'oil-painting': 'oil painting, rich impasto textures, classical composition, museum quality',
-  sketch: 'pencil sketch, detailed linework, cross-hatching, hand-drawn illustration',
-  'pop-art': 'pop art style, bold primary colors, Ben-Day dots, Roy Lichtenstein inspired',
-  cyberpunk: 'cyberpunk aesthetic, neon glow, rain-slicked streets, holographic displays, dystopian',
-  fantasy: 'fantasy concept art, epic composition, magical atmosphere, detailed world-building',
-  horror: 'dark horror atmosphere, unsettling composition, eerie lighting, ominous shadows',
-  '3d-render': '3D rendered, Octane render, volumetric lighting, subsurface scattering',
-  isometric: 'isometric view, clean 3D illustration, flat shading, architectural precision',
-  minimalist: 'minimalist design, flat illustration, clean lines, limited color palette, modern',
-  collage: 'mixed media collage, layered textures, cut-paper aesthetic, eclectic composition',
-  // Extended styles
-  vaporwave: 'vaporwave aesthetic, retrowave, pastel neon colors, glitch art, 80s nostalgia, synthwave',
-  steampunk: 'steampunk style, Victorian-era machinery, brass gears, copper pipes, industrial Gothic',
-  gothic: 'dark Gothic art, cathedral architecture, ornate details, deep shadows, stained glass',
-  'art-deco': 'Art Deco style, geometric patterns, gold and black, 1920s glamour, Gatsby-era elegance',
-  surrealism: 'surrealist painting, dreamlike imagery, Salvador Dalí inspired, impossible geometry, melting forms',
-  expressionism: 'German expressionism, distorted perspectives, bold angular shapes, intense emotion',
-  'lo-fi': 'lo-fi aesthetic, warm grain, soft focus, cozy atmosphere, muted earth tones, nostalgic',
-  grunge: 'grunge texture, gritty urban decay, distressed surfaces, raw underground aesthetic',
-  pastel: 'soft pastel colors, dreamy atmosphere, gentle gradients, ethereal and delicate',
-  'neon-noir': 'neon noir, rain-soaked streets, vibrant neon signs, dark urban atmosphere, Blade Runner inspired',
-  vintage: 'vintage retro, faded film photography, warm color cast, 70s nostalgic tones, analog grain',
-  ukiyo: 'ukiyo-e Japanese woodblock print, flat perspective, flowing lines, traditional Japanese art',
-  'concept-art': 'concept art, entertainment design, matte painting, professional illustration, art station trending',
-  claymation: 'claymation style, stop-motion clay figures, handmade texture, playful 3D, Wallace and Gromit aesthetic',
-  storybook: 'children\'s storybook illustration, whimsical, warm and inviting, detailed hand-drawn, fairy tale',
-  brutalist: 'brutalist design, raw concrete, stark geometry, industrial minimalism, monochromatic',
-  'glitch-art': 'glitch art, data corruption aesthetic, pixel sorting, digital artifacts, VHS distortion',
-  impressionist: 'impressionist painting, visible brushstrokes, light and movement, Monet-inspired, plein air',
-  // Cinematic genres
-  'action-blockbuster': 'action movie still, explosive cinematic lighting, wide-angle lens, dynamic motion blur, Michael Bay style',
-  'sci-fi': 'science fiction concept art, futuristic technology, advanced civilization, volumetric lighting, Ridley Scott inspired',
-  thriller: 'thriller movie still, tense atmosphere, cold desaturated color grade, suspenseful composition, David Fincher style',
-  western: 'western film still, golden hour desert light, rugged frontier landscape, dusty anamorphic lens, Sergio Leone inspired',
-  'war-film': 'war film cinematography, gritty realism, smoke and debris, desaturated color, Saving Private Ryan style',
-  superhero: 'superhero cinematic still, dynamic pose, vivid saturated colors, dramatic backlighting, Marvel concept art style',
-  'rom-com': 'romantic film still, warm soft golden lighting, bokeh background, intimate framing, vibrant cheerful palette',
-  'indie-film': 'indie film still, natural available light, intimate framing, muted earth tones, A24 aesthetic, subtle composition',
-  'motion-graphics': 'flat design motion graphics, vector illustration, bold geometric shapes, clean modern typography',
-  architectural: 'architectural visualization, precise technical rendering, clean lines, dramatic perspective, studio lighting',
+  cinematic: 'cinematic film still, 35mm Kodak film stock, anamorphic lens, shallow depth of field, professional color grade',
+  photorealistic: 'photorealistic, ultra-detailed DSLR photograph, natural lighting, sharp focus, RAW photo',
+  documentary: 'documentary photography, raw authentic candid shot, natural available light, subtle film grain',
+  noir: 'film noir still, high contrast black and white, deep dramatic shadows, venetian blind light patterns',
+  anime: 'anime key visual, studio quality cel animation, clean precise linework, vibrant saturated colors, detailed background art',
+  cartoon: 'cartoon illustration, bold clean outlines, bright saturated flat colors, stylized proportions, expressive',
+  'comic-book': 'comic book panel art, graphic novel, bold ink outlines, halftone dot shading, dynamic composition',
+  'pixel-art': 'pixel art, retro 16-bit game aesthetic, clean pixel edges, limited color palette, dithering patterns',
+  watercolor: 'watercolor painting, wet-on-wet technique, organic pigment bleeding, visible paper texture, luminous translucent washes',
+  'oil-painting': 'oil painting, rich impasto brushwork, classical composition, museum gallery quality, visible canvas texture',
+  sketch: 'detailed pencil sketch, expressive linework, cross-hatching shading, hand-drawn illustration on paper',
+  'pop-art': 'pop art, bold primary colors, Ben-Day dots pattern, Roy Lichtenstein inspired, flat graphic style',
+  cyberpunk: 'cyberpunk scene, neon-drenched atmosphere, holographic displays, rain-slicked reflective surfaces, dystopian tech',
+  fantasy: 'fantasy concept art, epic composition, magical atmospheric lighting, rich detailed world-building',
+  horror: 'horror still, desaturated cold tones, heavy vignette, unsettling negative space, ominous shadows',
+  '3d-render': '3D rendered, Octane render quality, volumetric lighting, subsurface scattering, ray-traced reflections',
+  isometric: 'isometric view, clean 3D illustration, flat geometric shading, precise architectural lines',
+  minimalist: 'minimalist design, flat vector illustration, clean geometric lines, limited restrained palette',
+  collage: 'mixed media collage, layered cut-paper textures, eclectic composition, tactile handmade quality',
+  vaporwave: 'vaporwave aesthetic, pastel neon gradients, retro CRT glow, 80s nostalgia, chrome reflections',
+  steampunk: 'steampunk illustration, ornate Victorian brass machinery, copper patina, intricate gear mechanisms',
+  gothic: 'dark Gothic art, cathedral architecture, ornate stone details, deep shadows, stained glass light',
+  'art-deco': 'Art Deco illustration, bold geometric patterns, gold and black palette, 1920s glamour, symmetrical design',
+  surrealism: 'surrealist painting, dreamlike impossible imagery, melting forms, Dalí-inspired, vivid strange beauty',
+  expressionism: 'expressionist painting, distorted angular forms, bold emotional brushstrokes, intense saturated colors',
+  'lo-fi': 'lo-fi aesthetic, warm analog grain, soft diffused focus, muted earth tones, cozy nostalgic warmth',
+  grunge: 'grunge texture, gritty urban decay, distressed weathered surfaces, raw underground aesthetic',
+  pastel: 'soft pastel palette, dreamy ethereal atmosphere, gentle gradients, delicate luminous quality',
+  'neon-noir': 'neon noir scene, rain-soaked streets, vivid neon sign reflections, dark urban atmosphere, moody contrast',
+  vintage: 'vintage photograph, faded warm color cast, 70s analog film tones, light leaks, nostalgic grain',
+  ukiyo: 'ukiyo-e Japanese woodblock print style, flat perspective, flowing organic lines, traditional color palette',
+  'concept-art': 'concept art, professional entertainment design, detailed matte painting, polished illustration',
+  claymation: 'claymation still, handmade clay figures, visible fingerprint textures, playful 3D stop-motion look',
+  storybook: 'children\'s storybook illustration, whimsical warmth, inviting hand-drawn detail, fairy tale charm',
+  brutalist: 'brutalist design, raw exposed concrete, stark geometric forms, industrial minimalism, high contrast',
+  'glitch-art': 'glitch art, data corruption aesthetic, pixel sorting artifacts, chromatic aberration, digital distortion',
+  impressionist: 'impressionist painting, visible expressive brushstrokes, captured light and atmosphere, Monet-inspired',
+  'action-blockbuster': 'action movie still, explosive cinematic lighting, wide-angle distortion, dynamic frozen moment',
+  'sci-fi': 'science fiction concept art, futuristic advanced technology, volumetric atmospheric lighting, epic scale',
+  thriller: 'thriller movie still, cold desaturated color grade, tense claustrophobic framing, David Fincher aesthetic',
+  western: 'western film still, golden hour desert light, rugged dusty landscape, anamorphic lens warmth',
+  'war-film': 'war film still, gritty realism, smoke and debris atmosphere, desaturated muted palette',
+  superhero: 'superhero concept art, dynamic heroic composition, vivid saturated colors, dramatic rim lighting, Marvel style',
+  'rom-com': 'romantic film still, warm golden soft lighting, beautiful bokeh, intimate warm framing',
+  'indie-film': 'indie film still, natural available light, intimate quiet framing, muted earth tones, A24 aesthetic',
+  'motion-graphics': 'flat design illustration, clean vector shapes, bold geometric composition, modern typography',
+  architectural: 'architectural visualization, precise technical rendering, clean lines, dramatic vanishing point perspective',
 };
 
 /**
  * Build an image generation prompt for a storyboard scene.
- * Injects style guide tokens for cross-scene consistency.
+ * Produces a STILL IMAGE prompt — no camera movement, no motion.
+ * Quality tokens come from the LLM (scene.imageQualityTokens) when available,
+ * falling back to style-mapped defaults.
  */
 export function buildStoryboardPrompt(
   scene: SceneDescriptor,
@@ -73,23 +76,24 @@ export function buildStoryboardPrompt(
 ): string {
   const parts: string[] = [];
 
-  // Scene title for context
-  if (scene.title) {
-    parts.push(`Scene: "${scene.title}"`);
-  }
-
-  // Core visual description — this is the most important part for accuracy
+  // Core visual description — this is the most important part
   if (scene.visualDescription) {
-    // Clean up markdown artifacts, sub-timestamps, hashtags, and noise
-    const cleanVisual = scene.visualDescription
-      .replace(/\*{1,2}/g, '')                          // markdown bold/italic
-      .replace(/\[.*?\]\(.*?\)/g, '')                    // markdown links
-      .replace(/\d{2}:\d{2}(?::\d{2})?[-–—]\d{2}:\d{2}(?::\d{2})?\s*:?\s*/g, '')  // sub-timestamps
-      .replace(/#\w+/g, '')                              // hashtags
-      .replace(/\(.*?trending.*?\)/gi, '')               // social media references
-      .replace(/\s{2,}/g, ' ')                           // collapse whitespace
+    // Clean up markdown artifacts and noise
+    let cleanVisual = scene.visualDescription
+      .replace(/\*{1,2}/g, '')
+      .replace(/\[.*?\]\(.*?\)/g, '')
+      .replace(/\d{2}:\d{2}(?::\d{2})?[-–—]\d{2}:\d{2}(?::\d{2})?\s*:?\s*/g, '')
+      .replace(/#\w+/g, '')
+      .replace(/\(.*?trending.*?\)/gi, '')
+      .replace(/\s{2,}/g, ' ')
       .trim();
-    // Summarize if too long — image models work best with focused prompts
+
+    // Strip any camera movement language that leaked through
+    cleanVisual = cleanVisual
+      .replace(/\b(camera\s+)?(slowly?\s+)?(dolly|pan|tilt|zoom|track|orbit|push[- ]in|pull[- ]back|crane|steadicam|follow|rack focus|whip)\w*\b/gi, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+
     if (cleanVisual.length > 500) {
       parts.push(cleanVisual.substring(0, 500));
     } else {
@@ -99,19 +103,8 @@ export function buildStoryboardPrompt(
     parts.push(`Visual scene depicting: ${scene.narration.substring(0, 200)}`);
   }
 
-  // Camera direction
-  if (scene.cameraDirection) {
-    parts.push(`Camera: ${scene.cameraDirection}`);
-  }
-
-  // Mood
-  if (scene.mood && scene.mood !== 'neutral') {
-    parts.push(`Mood: ${scene.mood}`);
-  }
-
   // Style guide injection for consistency
   if (styleGuide) {
-    // Use detailed art style prompt instead of just the label
     const artStyleKey = styleGuide.artStyle?.toLowerCase().replace(/\s+/g, '-');
     const artStylePrompt = artStyleKey && ART_STYLE_PROMPTS[artStyleKey];
     if (artStylePrompt) {
@@ -124,7 +117,6 @@ export function buildStoryboardPrompt(
       parts.push(`Color palette: ${styleGuide.colorPalette.join(', ')}`);
     }
     if (styleGuide.characterDescriptions) {
-      // Inject character descriptions relevant to this scene
       const sceneText = ((scene.narration || '') + ' ' + (scene.visualDescription || '')).toLowerCase();
       for (const [name, desc] of Object.entries(styleGuide.characterDescriptions)) {
         if (sceneText.includes(name.toLowerCase())) {
@@ -137,26 +129,27 @@ export function buildStoryboardPrompt(
     }
   }
 
-  // Consistency hint
+  // LLM-generated quality tokens (dynamic per art style) — preferred over hardcoded
+  const sceneAny = scene as any;
+  if (sceneAny.imageQualityTokens) {
+    parts.push(sceneAny.imageQualityTokens);
+  }
+
+  // Consistency hint for multi-scene storyboards
   if (totalScenes && totalScenes > 1) {
     parts.push(
-      `This is scene ${(sceneIndex ?? 0) + 1} of ${totalScenes}. Maintain consistent visual style, lighting, and character appearance across all scenes.`,
+      `Scene ${(sceneIndex ?? 0) + 1} of ${totalScenes}, maintain identical subject appearance and consistent visual style`,
     );
   }
 
-  // Quality markers
-  parts.push('High quality, professional composition, masterful lighting');
-
-  const prompt = parts.join('. ').replace(/\.\./g, '.');
-
-  return prompt;
+  return parts.join('. ').replace(/\.\./g, '.').replace(/\s{2,}/g, ' ');
 }
 
 /**
  * Build a negative prompt from style guide (things to avoid).
  */
 export function buildNegativePrompt(styleGuide?: StyleGuide): string {
-  const base = 'blurry, low quality, distorted, deformed, watermark, text overlay, logo, bad anatomy, extra limbs';
+  const base = 'blurry, low quality, distorted, deformed, watermark, text overlay, logo, bad anatomy, extra limbs, camera movement description';
   if (styleGuide?.negativePrompt) {
     return `${base}, ${styleGuide.negativePrompt}`;
   }

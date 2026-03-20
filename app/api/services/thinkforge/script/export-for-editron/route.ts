@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
           artStyle,
         });
 
-        // Map LLM output to SceneDescriptor format
+        // Map LLM output to SceneDescriptor format (pass through all LLM-generated fields)
         scenes = llmResult.scenes.map((s, i) => ({
           sceneIndex: i,
           title: s.title,
@@ -92,6 +92,8 @@ export async function POST(request: NextRequest) {
           audioDescription: s.audioDescription,
           durationSeconds: s.durationSeconds,
           mood: s.mood,
+          imageQualityTokens: s.imageQualityTokens,
+          videoQualityTokens: s.videoQualityTokens,
         }));
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
 
