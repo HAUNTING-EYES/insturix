@@ -57,7 +57,6 @@ const SUPPORTS_NEGATIVE_PROMPT = new Set([
 ]);
 
 // Models that use { width, height } object for image_size
-// vs models that use a string like "landscape_16_9"
 const USES_IMAGE_SIZE_OBJECT = new Set([
   'fal-ai/flux/schnell',
   'fal-ai/flux/dev',
@@ -65,6 +64,9 @@ const USES_IMAGE_SIZE_OBJECT = new Set([
   'fal-ai/flux/dev/ip-adapter',
   'fal-ai/recraft-v3',
 ]);
+
+// Per-call timeout (ms) to prevent a single slow call from blocking everything
+const FAL_CALL_TIMEOUT_MS = 60_000; // 60 seconds
 
 /**
  * Build model-specific input parameters.
@@ -103,6 +105,34 @@ function buildModelInput(
   return input;
 }
 
+/**
+ * Wrap a fal.ai subscribe call with a timeout.
+ * Returns the result or throws if the call takes too long.
+ */
+async function falSubscribeWithTimeout(
+  modelId: string,
+  options: any,
+  timeoutMs: number = FAL_CALL_TIMEOUT_MS,
+): Promise<any> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const result = await Promise.race([
+      fal.subscribe(modelId, options),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`fal.ai call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
+          timeoutMs,
+        ),
+      ),
+    ]);
+    return result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 interface ReferenceImageInput {
   subjectId: string;
   imageUrl: string;
@@ -121,6 +151,12 @@ interface GenerateImageOptions {
 
 /**
  * Generate a single storyboard image for a scene.
+ *
+ * Strategy when reference images are provided:
+ * 1. Try IP-adapter (flux/dev) with the reference image — best consistency
+ * 2. If IP-adapter fails → fall back to user's chosen model (or default) with
+ *    an enriched prompt describing the subject. Consistency is lower but the
+ *    scene still gets an image.
  */
 export async function generateStoryboardImage(
   scene: SceneDescriptor,
@@ -149,46 +185,68 @@ export async function generateStoryboardImage(
     height = 1350;
   }
 
-  // Use IP-adapter model when reference images are available for visual consistency
   const hasReferences = options.referenceImages && options.referenceImages.length > 0;
-  const modelId = hasReferences
-    ? 'fal-ai/flux/dev/ip-adapter'
-    : (options.modelId || DEFAULT_MODEL);
+  const fallbackModelId = options.modelId || DEFAULT_MODEL;
 
-  console.log(`[Storyboard] Scene ${options.sceneIndex}: model=${modelId}, ${width}x${height}, refs=${hasReferences ? options.referenceImages!.length : 0}`);
-
-  let result;
+  // ─── Attempt 1: IP-adapter if we have reference images ──────────
   if (hasReferences) {
     const primaryRef = options.referenceImages![0];
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Using IP-adapter with ref ${primaryRef.subjectId}`);
-    result = await fal.subscribe(modelId, {
-      input: {
-        prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
-        ip_adapter_image_url: primaryRef.imageUrl,
-        ip_adapter_scale: primaryRef.weight ?? 0.6,
-        image_size: { width, height },
-        num_images: 1,
-        enable_safety_checker: false,
-      },
-      logs: false,
-    });
-  } else {
-    const input = buildModelInput(modelId, prompt, negativePrompt, width, height);
-    result = await fal.subscribe(modelId, {
-      input,
-      logs: false,
-    });
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ref ${primaryRef.subjectId} (${primaryRef.imageUrl.substring(0, 60)}...)`);
+
+    try {
+      const ipAdapterModelId = 'fal-ai/flux/dev/ip-adapter';
+      const result = await falSubscribeWithTimeout(ipAdapterModelId, {
+        input: {
+          prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
+          ip_adapter_image_url: primaryRef.imageUrl,
+          ip_adapter_scale: primaryRef.weight ?? 0.6,
+          image_size: { width, height },
+          num_images: 1,
+          enable_safety_checker: false,
+        },
+        logs: false,
+      });
+
+      const data = result.data as any;
+      const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
+      if (imageUrl) {
+        console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter SUCCESS`);
+        return await downloadAndUpload(imageUrl, userId, ipAdapterModelId);
+      }
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter returned no image, falling back`);
+    } catch (ipErr: any) {
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter FAILED (${ipErr.message}), falling back to ${fallbackModelId}`);
+    }
   }
 
+  // ─── Attempt 2: Standard model (user's choice or default) ───────
+  const modelId = fallbackModelId;
+  console.log(`[Storyboard] Scene ${options.sceneIndex}: model=${modelId}, ${width}x${height}`);
+
+  const input = buildModelInput(modelId, prompt, negativePrompt, width, height);
+  const result = await falSubscribeWithTimeout(modelId, {
+    input,
+    logs: false,
+  });
+
   const data = result.data as any;
-  // Different models return images in different structures
   const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
   if (!imageUrl) {
     console.error(`[Storyboard] Scene ${options.sceneIndex}: No image in response. Keys:`, Object.keys(data || {}));
     throw new Error(`No image generated from fal.ai (model: ${modelId})`);
   }
 
-  // Download and upload to GCS
+  return await downloadAndUpload(imageUrl, userId, modelId);
+}
+
+/**
+ * Download a generated image from fal.ai and upload to GCS.
+ */
+async function downloadAndUpload(
+  imageUrl: string,
+  userId: string,
+  modelUsed: string,
+): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string }> {
   const response = await fetch(imageUrl);
   if (!response.ok) throw new Error('Failed to download generated image');
   const buffer = Buffer.from(await response.arrayBuffer());
@@ -202,13 +260,15 @@ export async function generateStoryboardImage(
     imageUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
     assetId,
-    modelUsed: modelId,
+    modelUsed,
   };
 }
 
 /**
  * Generate a full storyboard for all scenes.
- * Runs up to 2 concurrent image generations with retry.
+ *
+ * Concurrency: 3 for fast models, 2 when IP-adapter scenes are present.
+ * Retry: 1 retry per scene (total 2 attempts) to stay within timeout.
  */
 export async function generateFullStoryboard(
   scenes: SceneDescriptor[],
@@ -250,22 +310,26 @@ export async function generateFullStoryboard(
 
   await saveStoryboard(storyboard);
 
-  // Generate images with concurrency limit of 2 (avoid fal.ai rate limits)
-  const CONCURRENCY = 2;
+  // Determine concurrency: higher when we're NOT using IP-adapter
+  const hasAnyRefs = options.referenceImageMap && Object.keys(options.referenceImageMap).length > 0;
+  const CONCURRENCY = hasAnyRefs ? 2 : 3;
   let completed = 0;
   let errors = 0;
 
-  const MAX_RETRIES = 2;
+  // Only 1 retry (total 2 attempts) — IP-adapter is slow, more retries risk timeout
+  const MAX_RETRIES = 1;
+
+  console.log(`[Storyboard] Starting: ${totalScenes} scenes, concurrency=${CONCURRENCY}, hasRefs=${!!hasAnyRefs}, model=${options.modelId || DEFAULT_MODEL}`);
 
   const generateForScene = async (sbScene: StoryboardScene) => {
     let lastError: any;
+    const startTime = Date.now();
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
         if (attempt > 0) {
           console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: retry ${attempt}/${MAX_RETRIES}`);
-          // Brief delay before retry to avoid rate limits
-          await new Promise((r) => setTimeout(r, 2000 * attempt));
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
         }
 
         sbScene.status = 'generating';
@@ -309,15 +373,18 @@ export async function generateFullStoryboard(
         });
 
         completed++;
+        const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: SUCCESS in ${elapsed}s (model: ${result.modelUsed})`);
         return; // Success — exit retry loop
       } catch (err: any) {
         lastError = err;
-        console.error(`[Storyboard] Scene ${sbScene.sceneIndex} attempt ${attempt + 1} failed:`, err.message || err);
+        console.error(`[Storyboard] Scene ${sbScene.sceneIndex} attempt ${attempt + 1} failed (${((Date.now() - startTime) / 1000).toFixed(1)}s):`, err.message || err);
       }
     }
 
     // All retries exhausted
-    console.error(`[Storyboard] Scene ${sbScene.sceneIndex} FAILED after ${MAX_RETRIES + 1} attempts:`, lastError?.message);
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`[Storyboard] Scene ${sbScene.sceneIndex} FAILED after ${MAX_RETRIES + 1} attempts (${elapsed}s):`, lastError?.message);
     sbScene.status = 'pending';
     errors++;
   };

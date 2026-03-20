@@ -12,7 +12,7 @@ import { generateFullStoryboard, IMAGE_MODELS, type ImageModelKey } from '@/lib/
 import type { SceneDescriptor, StyleGuide } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
-export const maxDuration = 120; // storyboard gen can take a while
+export const maxDuration = 300; // 5 min — IP-adapter scenes are slow (~30s each)
 
 export async function POST(request: NextRequest) {
   try {
@@ -123,8 +123,11 @@ export async function POST(request: NextRequest) {
       referenceImageMap,
     });
 
+    const succeeded = storyboard.scenes.filter(s => s.imageUrl).length;
+    const failed = storyboard.scenes.filter(s => !s.imageUrl).length;
+
     return NextResponse.json({
-      success: true,
+      success: succeeded > 0,
       storyboardId: storyboard.storyboardId,
       status: storyboard.status,
       scenes: storyboard.scenes.map((s) => ({
@@ -134,6 +137,7 @@ export async function POST(request: NextRequest) {
         imageAssetId: s.imageAssetId,
         status: s.status,
       })),
+      summary: { total: storyboard.scenes.length, succeeded, failed },
       creditsDeducted: totalCost,
     });
   } catch (error: any) {
