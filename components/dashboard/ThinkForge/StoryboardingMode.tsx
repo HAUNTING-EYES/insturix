@@ -2,11 +2,10 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import clsx from "clsx";
-import { FileText, MessageSquare, X, Video } from "lucide-react";
+import { FileText, MessageSquare, X } from "lucide-react";
 import { ChatPanel } from "@/components/dashboard/ThinkForge/ChatPanel";
 import { ScriptPanel } from "@/components/dashboard/ThinkForge/ScriptPanel";
 import { KnowledgePanel } from "@/components/dashboard/ThinkForge/KnowledgePanel";
-import { ExportToEditronDialog } from "@/components/dashboard/ThinkForge/ExportToEditronDialog";
 import { IdeaCardData } from "@/components/dashboard/ThinkForge/IdeaGrid";
 import { Script } from "@/app/dashboard/thinkforge/types";
 import SessionMetadataSettings from "./SessionMetadataSettings";
@@ -63,7 +62,6 @@ export default function StoryboardingMode({
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
-  const [showExportDialog, setShowExportDialog] = useState(false);
   
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
@@ -151,18 +149,6 @@ export default function StoryboardingMode({
       {selectedIdea ? (
         <div className="relative w-full h-full overflow-hidden flex flex-col" ref={containerRef}>
           
-          {/* Export to Editron button */}
-          <div className="flex items-center justify-end px-4 py-2 border-b border-neutral-800/50 bg-neutral-900/30">
-            <button
-              onClick={() => setShowExportDialog(true)}
-              disabled={!script}
-              className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-lg bg-red-600/20 text-red-300 border border-red-500/30 hover:bg-red-600/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Video size={16} />
-              Export to Editron
-            </button>
-          </div>
-
           {/* Mobile Tab Switcher */}
           <div className="lg:hidden flex border-b border-neutral-800 bg-neutral-900/50">
             <button
@@ -284,16 +270,6 @@ export default function StoryboardingMode({
             open={showKnowledge}
             onClose={() => setShowKnowledge(false)}
             sessionId={sessionId}
-          />
-
-          {/* Export to Editron Dialog */}
-          <ExportToEditronDialog
-            open={showExportDialog}
-            onOpenChange={setShowExportDialog}
-            blocks={script?.blocks || []}
-            plainText={script?.content || ''}
-            sessionId={sessionId || undefined}
-            scriptId={scriptId || undefined}
           />
 
           {/* Settings Panel Overlay */}
