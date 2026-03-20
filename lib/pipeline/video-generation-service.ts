@@ -157,10 +157,10 @@ function buildFalVideoInput(
       break;
 
     case 'runway-gen3':
-      // Runway Gen-3: image_url, duration as number (5 or 10)
+      // Runway Gen-3 Turbo: image_url, duration as number (5 or 10), aspect_ratio
       base.image_url = imageUrl;
       base.duration = Math.min(duration, 10);
-      base.ratio = aspectRatio;
+      base.aspect_ratio = aspectRatio;
       break;
 
     case 'luma-ray2':
@@ -374,8 +374,8 @@ export async function generateVideoClip(
   request: VideoGenerationRequest,
   userId: string,
 ): Promise<VideoGenerationResult> {
-  const provider = request.provider || detectBestProvider();
   const modelKey = request.falVideoModel || 'kling-1.6';
+  const provider = request.provider || detectBestProvider(request.falVideoModel);
 
   console.log(`[VideoGen] generateVideoClip: provider=${provider}, model=${modelKey}, imageUrl=${request.imageUrl?.substring(0, 60)}...`);
 
@@ -526,16 +526,28 @@ export function buildMotionPrompt(scene: {
   return parts.join(', ').substring(0, 500);
 }
 
-/** Detect which provider is available based on env vars. */
-function detectBestProvider(): VideoProvider {
+/**
+ * Detect which provider to use based on the chosen model and available keys.
+ *
+ * IMPORTANT: fal.ai models (kling, minimax, runway-gen3, luma-ray2) MUST
+ * route through fal-ai even if KIE_AI_API_KEY is set. Kie AI only wraps
+ * Runway's native API — it can't proxy arbitrary fal.ai models.
+ */
+function detectBestProvider(falVideoModel?: FalVideoModel): VideoProvider {
   const kieKey = process.env.KIE_AI_API_KEY;
   const falKey = process.env.FAL_AI_API_KEY;
 
-  // Validate keys are non-empty and reasonable length
+  // If a specific fal.ai model is selected, ALWAYS use fal-ai provider
+  if (falVideoModel) {
+    if (falKey && falKey.trim().length > 10) return 'fal-ai';
+    console.warn(`[video-gen] fal.ai model "${falVideoModel}" selected but FAL_AI_API_KEY is missing/invalid. Trying anyway.`);
+    return 'fal-ai';
+  }
+
+  // No specific model — pick best available provider
   if (kieKey && kieKey.trim().length > 10) return 'kie-ai';
   if (falKey && falKey.trim().length > 10) return 'fal-ai';
 
-  // If neither key looks valid, still try fal-ai (will fail with clear error)
   console.warn('[video-gen] No valid API key found for video generation. KIE_AI_API_KEY:', kieKey ? 'set but short/invalid' : 'missing', 'FAL_AI_API_KEY:', falKey ? 'set but short/invalid' : 'missing');
   return 'fal-ai';
 }

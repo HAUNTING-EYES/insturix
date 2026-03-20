@@ -3475,11 +3475,19 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     async (input: z.infer<typeof regenerateSceneSchema>) => {
       try {
         const project = await loadProject();
-        const storyboardId = (project as any).storyboardId || (project as any).sourceStoryboardId;
+
+        // Storyboard stores projectId on itself (not the other way around).
+        // Look up the storyboard that was linked to this Editron project.
+        const { getStoryboardByProjectId } = await import('@/lib/pipeline/storyboard-db');
+        const storyboard = await getStoryboardByProjectId(projectId, userId);
+        const storyboardId = storyboard?.storyboardId
+          || (project as any).storyboardId
+          || (project as any).sourceStoryboardId;
+
         if (!storyboardId) {
           return JSON.stringify({
             status: "error",
-            message: "This project doesn't have a linked storyboard. Scene regeneration requires a storyboard-based project.",
+            message: "This project doesn't have a linked storyboard. Scene regeneration requires a storyboard-based project (created via ThinkForge → Export to Editron).",
           });
         }
 

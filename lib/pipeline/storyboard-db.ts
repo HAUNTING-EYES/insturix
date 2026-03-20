@@ -120,6 +120,22 @@ export async function updateStoryboardVoiceover(
 }
 
 /**
+ * Find a storyboard linked to a specific Editron project.
+ * Storyboards store projectId when exported to Editron.
+ */
+export async function getStoryboardByProjectId(
+  projectId: string,
+  userId: string,
+): Promise<Storyboard | null> {
+  const db = await getDatabase();
+  const doc = await db.collection(COLLECTION).findOne({
+    projectId,
+    userId,
+  });
+  return doc as unknown as Storyboard | null;
+}
+
+/**
  * Delete a storyboard.
  */
 export async function deleteStoryboard(

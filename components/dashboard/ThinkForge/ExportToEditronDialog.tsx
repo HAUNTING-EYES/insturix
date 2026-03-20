@@ -98,6 +98,11 @@ export function ExportToEditronDialog({
   const [editingDescription, setEditingDescription] = useState('');
   const [overallMusicPrompt, setOverallMusicPrompt] = useState('');
 
+  // Storyboard scene edit state
+  const [regeneratingSceneIdx, setRegeneratingSceneIdx] = useState<number | null>(null);
+  const [sceneFeedbackIdx, setSceneFeedbackIdx] = useState<number | null>(null);
+  const [sceneFeedbackText, setSceneFeedbackText] = useState('');
+
   // Request notification permission on mount
   React.useEffect(() => {
     if (open && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
@@ -604,6 +609,46 @@ export function ExportToEditronDialog({
     setEditingSubjectId(null);
     // Regenerate with the new description (send it as feedback override)
     await handleRegenerateSubject(subjectId, editingDescription.trim());
+  };
+
+  // ─── Storyboard Scene Regeneration ─────────────────────────────
+  const handleRegenerateStoryboardScene = async (sceneIndex: number, feedback?: string) => {
+    if (!storyboardId) return;
+    setRegeneratingSceneIdx(sceneIndex);
+    setError('');
+    try {
+      const res = await fetch(
+        `/api/services/pipeline/storyboard/${storyboardId}/scene/${sceneIndex}/regenerate-with-context`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            feedback: feedback || undefined,
+            userId: undefined, // auth handled server-side
+          }),
+        },
+      );
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Failed (${res.status})`);
+      }
+      const data = await res.json();
+      // API returns { success, scene } — scene has imageUrl and imageAssetId
+      const updatedScene = data.scene || data;
+      setStoryboardScenes((prev: any[]) =>
+        prev.map((s: any) =>
+          s.sceneIndex === sceneIndex
+            ? { ...s, imageUrl: updatedScene.imageUrl || s.imageUrl, imageAssetId: updatedScene.imageAssetId || s.imageAssetId }
+            : s,
+        ),
+      );
+      setSceneFeedbackIdx(null);
+      setSceneFeedbackText('');
+    } catch (err: any) {
+      setError(`Scene ${sceneIndex + 1} regeneration failed: ${err.message}`);
+    } finally {
+      setRegeneratingSceneIdx(null);
+    }
   };
 
   const stepDescription = () => {
@@ -1174,7 +1219,7 @@ export function ExportToEditronDialog({
                 These images will be used as starting frames for AI video generation. Review them before proceeding.
               </p>
 
-              <div className="grid grid-cols-3 gap-2 max-h-[300px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-3 gap-2 max-h-[360px] overflow-y-auto pr-1">
                 {storyboardScenes.map((scene: any) => (
                   <div
                     key={scene.sceneIndex}
@@ -1184,16 +1229,49 @@ export function ExportToEditronDialog({
                         : 'border-red-500/30 bg-red-500/5'
                     }`}
                   >
-                    <div className="aspect-video bg-zinc-800 relative">
+                    <div className="aspect-video bg-zinc-800 relative group">
                       {scene.imageUrl ? (
-                        <img
-                          src={scene.imageUrl}
-                          alt={scene.title}
-                          className="w-full h-full object-cover"
-                        />
+                        <>
+                          <img
+                            src={scene.imageUrl}
+                            alt={scene.title}
+                            className="w-full h-full object-cover"
+                          />
+                          {/* Hover overlay with regenerate actions */}
+                          <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
+                              disabled={regeneratingSceneIdx !== null}
+                              className="p-1.5 rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-200 transition-colors disabled:opacity-50"
+                              title="Regenerate this scene"
+                            >
+                              <RefreshCw className={`h-3.5 w-3.5 ${regeneratingSceneIdx === scene.sceneIndex ? 'animate-spin' : ''}`} />
+                            </button>
+                            <button
+                              onClick={() => setSceneFeedbackIdx(sceneFeedbackIdx === scene.sceneIndex ? null : scene.sceneIndex)}
+                              disabled={regeneratingSceneIdx !== null}
+                              className="p-1.5 rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-200 transition-colors disabled:opacity-50"
+                              title="Regenerate with feedback"
+                            >
+                              <MessageSquare className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </>
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1 text-zinc-600">
                           <X className="h-4 w-4" />
+                          <button
+                            onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
+                            disabled={regeneratingSceneIdx !== null}
+                            className="text-[9px] text-blue-400 hover:text-blue-300 underline"
+                          >
+                            {regeneratingSceneIdx === scene.sceneIndex ? 'Regenerating...' : 'Retry'}
+                          </button>
+                        </div>
+                      )}
+                      {regeneratingSceneIdx === scene.sceneIndex && (
+                        <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                          <Loader2 className="h-5 w-5 text-green-400 animate-spin" />
                         </div>
                       )}
                     </div>
@@ -1203,6 +1281,28 @@ export function ExportToEditronDialog({
                         {scene.imageUrl ? 'Ready' : 'Failed'}
                       </p>
                     </div>
+                    {/* Feedback input for scene regeneration */}
+                    {sceneFeedbackIdx === scene.sceneIndex && (
+                      <div className="p-1.5 pt-0 space-y-1">
+                        <textarea
+                          className="w-full text-[10px] p-1.5 rounded bg-zinc-800 border border-zinc-600 text-zinc-200 placeholder-zinc-500 resize-none"
+                          rows={2}
+                          placeholder="e.g. Make it darker, add more contrast..."
+                          value={sceneFeedbackText}
+                          onChange={(e) => setSceneFeedbackText(e.target.value)}
+                        />
+                        <button
+                          onClick={() => {
+                            handleRegenerateStoryboardScene(scene.sceneIndex, sceneFeedbackText.trim());
+                          }}
+                          disabled={regeneratingSceneIdx !== null || !sceneFeedbackText.trim()}
+                          className="w-full text-[10px] py-1 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
+                        >
+                          <RefreshCw className="h-2.5 w-2.5" />
+                          Regenerate with feedback
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
