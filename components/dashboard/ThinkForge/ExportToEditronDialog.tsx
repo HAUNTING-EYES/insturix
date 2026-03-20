@@ -160,41 +160,51 @@ export function ExportToEditronDialog({
         setStep('generating-videos');
         setVideoProgress({ done: 0, total: sbImages.length });
 
-        try {
-          const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              aspectRatio,
-            }),
-          });
+        // Generate videos ONE SCENE AT A TIME to avoid serverless timeouts.
+        // Each Kie AI generation takes 1-3 minutes; sending all at once
+        // causes a 504 timeout on Vercel.
+        let succeeded = 0;
+        let failed = 0;
+        const errors: string[] = [];
 
-          const videoData = await videoRes.json().catch(() => ({}));
+        for (let i = 0; i < sbImages.length; i++) {
+          try {
+            const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                aspectRatio,
+                sceneIndices: [i],
+              }),
+            });
 
-          if (videoRes.ok) {
-            const succeeded = videoData.summary?.succeeded || 0;
-            const failed = videoData.summary?.failed || 0;
-            setVideoProgress({ done: succeeded, total: sbImages.length });
-            setVideosGenerated(succeeded > 0);
-            console.log('[ExportToEditron] Video generation complete:', videoData.summary);
+            const videoData = await videoRes.json().catch(() => ({}));
 
-            if (succeeded === 0 && failed > 0) {
-              // All scenes failed — surface the per-scene errors
-              const errDetail = videoData.error || 'All video clips failed to generate';
-              setError(`Videos: ${errDetail}. Continuing with storyboard images.`);
-            } else if (failed > 0) {
-              // Partial failure
-              setError(`Videos: ${failed}/${failed + succeeded} clips failed. Continuing with available clips.`);
+            if (videoRes.ok && (videoData.summary?.succeeded || 0) > 0) {
+              succeeded++;
+              console.log(`[ExportToEditron] Scene ${i} video generated`);
+            } else {
+              failed++;
+              const errMsg = videoData.error || `Scene ${i} failed (${videoRes.status})`;
+              errors.push(errMsg);
+              console.error(`[ExportToEditron] Scene ${i} video failed:`, errMsg);
             }
-          } else {
-            // HTTP-level failure (500, 401, etc.)
-            const errMsg = videoData.error || `Video generation failed (${videoRes.status})`;
-            console.error('[ExportToEditron] Video generation error:', errMsg, videoData);
-            setError(`Videos: ${errMsg}. Continuing with storyboard images.`);
+          } catch (videoErr: any) {
+            failed++;
+            errors.push(`Scene ${i}: ${videoErr.message}`);
+            console.error(`[ExportToEditron] Scene ${i} video exception:`, videoErr);
           }
-        } catch (videoErr: any) {
-          console.error('[ExportToEditron] Video generation exception:', videoErr);
-          setError(`Videos: ${videoErr.message}. Continuing with storyboard images.`);
+
+          setVideoProgress({ done: succeeded + failed, total: sbImages.length });
+        }
+
+        setVideosGenerated(succeeded > 0);
+        console.log(`[ExportToEditron] Video generation complete: ${succeeded} succeeded, ${failed} failed`);
+
+        if (succeeded === 0 && failed > 0) {
+          setError(`Videos: ${errors.join('; ')}. Continuing with storyboard images.`);
+        } else if (failed > 0) {
+          setError(`Videos: ${failed}/${sbImages.length} clips failed. Continuing with available clips.`);
         }
       }
 
