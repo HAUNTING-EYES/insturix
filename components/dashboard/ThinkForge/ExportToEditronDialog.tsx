@@ -497,6 +497,13 @@ export function ExportToEditronDialog({
                 </div>
               </div>
 
+              {/* Warnings from video generation or other steps */}
+              {error && (
+                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                  <p className="text-xs text-amber-400">{error}</p>
+                </div>
+              )}
+
               {/* Storyboard preview */}
               {storyboardScenes.length > 0 && (
                 <div>
