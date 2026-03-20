@@ -12,6 +12,8 @@ import {
   Redo2,
   Loader2,
   SquareSquare,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import { useEditorContext } from "../../contexts/editor-context";
 import { useTimeline } from "../../contexts/timeline-context";
@@ -169,6 +171,28 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
 
   // Add state for dropdown
   const [dropdownOpen, setDropdownOpen] = React.useState(false);
+  const [isFullscreen, setIsFullscreen] = React.useState(false);
+
+  // Fullscreen toggle for the video preview
+  const handleFullscreen = useCallback(() => {
+    const container = document.getElementById('remotion-player-container');
+    if (!container) return;
+
+    if (!document.fullscreenElement) {
+      container.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
+  // Listen for fullscreen exit (e.g. pressing Escape)
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   const handleReset = () => {
     clearAllKeyframes();
@@ -432,6 +456,36 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
             >
               <span className="text-sidebar-foreground">
                 Reset Zoom
+              </span>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+
+        {/* Fullscreen Toggle */}
+        <TooltipProvider delayDuration={50}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                onClick={handleFullscreen}
+                variant="ghost"
+                size="icon"
+                className="hidden sm:block h-7 w-7 text-foreground dark:text-foreground hover:text-foreground dark:hover:text-foreground hover:bg-muted/50 dark:hover:bg-muted/50 transition-colors rounded-md"
+              >
+                {isFullscreen ? (
+                  <Minimize className="h-3.5 w-3.5 m-auto" />
+                ) : (
+                  <Maximize className="h-3.5 w-3.5 m-auto" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent
+              side="top"
+              sideOffset={5}
+              className="bg-sidebar text-sidebar-foreground text-xs px-2 py-1 rounded-md z-[9999] border border-sidebar-border"
+              align="end"
+            >
+              <span className="text-sidebar-foreground">
+                {isFullscreen ? 'Exit Fullscreen' : 'Fullscreen Preview'}
               </span>
             </TooltipContent>
           </Tooltip>

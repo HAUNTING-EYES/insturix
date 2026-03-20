@@ -67,6 +67,19 @@ export function ExportToEditronDialog({
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
 
+  // Request notification permission on mount
+  React.useEffect(() => {
+    if (open && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  }, [open]);
+
+  const sendNotification = (title: string, body: string) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
+      new Notification(title, { body, icon: '/favicon.ico' });
+    }
+  };
+
   const reset = () => {
     setStep('configure');
     setTitle('');
@@ -224,6 +237,7 @@ export function ExportToEditronDialog({
 
         setVideosGenerated(succeeded > 0);
         console.log(`[ExportToEditron] Video generation complete: ${succeeded} succeeded, ${failed} failed`);
+        sendNotification('Video Clips Generated', `${succeeded} of ${sbImages.length} video clips ready. Generating voiceover next...`);
 
         if (succeeded === 0 && failed > 0) {
           setError(`Videos: ${errors.join('; ')}. Continuing with storyboard images.`);
@@ -300,9 +314,11 @@ export function ExportToEditronDialog({
       }
 
       setStep('done');
+      sendNotification('Video Project Ready!', 'Your AI video has been generated and is ready to edit in Editron.');
     } catch (err: any) {
       setError(err.message || 'Something went wrong');
       setStep('configure');
+      sendNotification('Export Failed', err.message || 'Something went wrong during export.');
     }
   };
 
