@@ -2,19 +2,26 @@
  * POST /api/services/thinkforge/script/export-for-editron
  *
  * Export a ThinkForge script as SceneDescriptors for Editron.
- * Reads the script from ThinkForge DB and converts blocks → scenes.
+ * Uses Gemini Flash LLM for intelligent scene extraction (primary),
+ * falls back to regex parsing if LLM is unavailable.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import {
+  parseScriptWithLLM,
+  isLLMParserAvailable,
+} from '@/lib/pipeline/llm-scene-parser';
 import {
   convertThinkForgeBlocksToScenes,
   convertPlainTextToScenes,
   convertCIRToScenes,
   hasTimestampedScenes,
 } from '@/lib/pipeline/script-to-scenes';
+import type { SceneDescriptor } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
+export const maxDuration = 30; // LLM parsing can take a few seconds
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,33 +31,22 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { sessionId, scriptId, blocks, plainText, cir } = body;
+    const { sessionId, scriptId, blocks, plainText, cir, aspectRatio, artStyle } = body;
 
-    let scenes;
+    let scenes: SceneDescriptor[] | undefined;
     let title = 'Untitled Script';
     let rawContent = '';
+    let overallMusicPrompt = '';
 
+    // ─── Reconstruct script text from input ────────────────────
     if (blocks && Array.isArray(blocks) && blocks.length > 0) {
-      // Reconstruct plain text from blocks (use provided plainText if available,
-      // as it preserves markdown formatting that block reconstruction loses)
-      const reconstructedText = (plainText && typeof plainText === 'string')
+      rawContent = (plainText && typeof plainText === 'string')
         ? plainText
         : blocks
             .map((b: any) =>
               (b.content || []).map((n: any) => n.text || '').join(''),
             )
             .join('\n');
-      rawContent = reconstructedText;
-
-      // If the script uses timestamped format (00:00 - 00:15 | Scene Title),
-      // prefer the timestamped parser — it understands Visuals/Audio/Voiceover
-      // sections, extracts correct durations from timestamps, and separates
-      // visual/audio/narration content properly.
-      if (hasTimestampedScenes(reconstructedText)) {
-        scenes = convertPlainTextToScenes(reconstructedText);
-      } else {
-        scenes = convertThinkForgeBlocksToScenes(blocks);
-      }
 
       const firstHeader = blocks.find((b: any) => b.kind === 'header');
       if (firstHeader) {
@@ -61,16 +57,12 @@ export async function POST(request: NextRequest) {
         if (text) title = text;
       }
     } else if (cir && cir.sections) {
-      // CIR document input
-      scenes = convertCIRToScenes(cir);
-      title = cir.title || 'Untitled Script';
       rawContent = JSON.stringify(cir);
+      title = cir.title || 'Untitled Script';
     } else if (plainText && typeof plainText === 'string') {
-      // Plain text input
-      scenes = convertPlainTextToScenes(plainText);
+      rawContent = plainText;
       const firstLine = plainText.split('\n')[0]?.replace(/^#+\s*/, '').trim();
       if (firstLine) title = firstLine.substring(0, 100);
-      rawContent = plainText;
     } else {
       return NextResponse.json(
         {
@@ -79,6 +71,52 @@ export async function POST(request: NextRequest) {
         },
         { status: 400 },
       );
+    }
+
+    // ─── Try LLM parser first (Gemini Flash) ───────────────────
+    if (isLLMParserAvailable() && rawContent.length > 0) {
+      try {
+        console.log('[export-for-editron] Using LLM parser (Gemini Flash)');
+        const llmResult = await parseScriptWithLLM(rawContent, {
+          aspectRatio,
+          artStyle,
+        });
+
+        // Map LLM output to SceneDescriptor format
+        scenes = llmResult.scenes.map((s, i) => ({
+          sceneIndex: i,
+          title: s.title,
+          narration: s.narration,
+          visualDescription: s.visualDescription,
+          videoMotionPrompt: s.videoMotionPrompt,
+          audioDescription: s.audioDescription,
+          durationSeconds: s.durationSeconds,
+          mood: s.mood,
+        }));
+        overallMusicPrompt = llmResult.overallMusicPrompt || '';
+
+        console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
+      } catch (llmError: any) {
+        console.warn('[export-for-editron] LLM parsing failed, falling back to regex:', llmError.message);
+        // Fall through to regex parsing below
+      }
+    }
+
+    // ─── Fallback: regex-based parsing ─────────────────────────
+    if (!scenes || scenes.length === 0) {
+      console.log('[export-for-editron] Using regex parser (fallback)');
+
+      if (blocks && Array.isArray(blocks) && blocks.length > 0) {
+        if (hasTimestampedScenes(rawContent)) {
+          scenes = convertPlainTextToScenes(rawContent);
+        } else {
+          scenes = convertThinkForgeBlocksToScenes(blocks);
+        }
+      } else if (cir && cir.sections) {
+        scenes = convertCIRToScenes(cir);
+      } else {
+        scenes = convertPlainTextToScenes(rawContent);
+      }
     }
 
     if (!scenes || scenes.length === 0) {
@@ -94,7 +132,8 @@ export async function POST(request: NextRequest) {
       scenes,
       sceneCount: scenes.length,
       totalDurationSeconds: scenes.reduce((sum, s) => sum + s.durationSeconds, 0),
-      rawContent: rawContent.substring(0, 5000), // cap for response size
+      overallMusicPrompt,
+      rawContent: rawContent.substring(0, 5000),
     });
   } catch (error: any) {
     console.error('[export-for-editron] Error:', error);

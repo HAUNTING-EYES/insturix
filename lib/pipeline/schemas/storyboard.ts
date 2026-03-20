@@ -15,6 +15,8 @@ export interface SceneDescriptor {
   cameraDirection?: string;
   /** Audio/sound design notes from the script (e.g. "sirens, crowd noise") */
   audioDescription?: string;
+  /** Dedicated motion/animation prompt for AI video generation (from LLM parser) */
+  videoMotionPrompt?: string;
 }
 
 export interface StyleGuide {
@@ -42,9 +44,11 @@ export interface StoryboardScene {
   descriptor: SceneDescriptor;
   imageAssetId?: string;
   imageUrl?: string;
+  imageGcsPath?: string;
   /** AI-generated video clip from the storyboard image */
   videoAssetId?: string;
   videoUrl?: string;
+  videoGcsPath?: string;
   videoProvider?: string;
   videoDurationMs?: number;
   status: 'pending' | 'generating' | 'generated' | 'approved' | 'rejected';
@@ -72,6 +76,8 @@ export interface Storyboard {
   title?: string;
   styleGuide?: StyleGuide;
   scenes: StoryboardScene[];
+  /** Overall music prompt for BGM generation (from LLM scene parser) */
+  overallMusicPrompt?: string;
   /** Generation mode: parallel (all at once) or sequential (one-by-one with approval) */
   mode?: 'parallel' | 'sequential';
   /** Voiceover configuration */

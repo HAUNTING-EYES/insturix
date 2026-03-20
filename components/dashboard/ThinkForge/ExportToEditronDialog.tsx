@@ -126,7 +126,7 @@ export function ExportToEditronDialog({
       const exportRes = await fetch('/api/services/thinkforge/script/export-for-editron', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ blocks, plainText, sessionId, scriptId }),
+        body: JSON.stringify({ blocks, plainText, sessionId, scriptId, aspectRatio, artStyle }),
       });
 
       if (!exportRes.ok) {
@@ -154,6 +154,7 @@ export function ExportToEditronDialog({
             title: projectTitle,
             sourceScriptId: scriptId,
             aspectRatio,
+            overallMusicPrompt: exportData.overallMusicPrompt || '',
             styleGuide: {
               artStyle,
               colorPalette: [],

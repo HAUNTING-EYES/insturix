@@ -5,15 +5,18 @@
  * for video scenes. Reuses the existing fal.ai client and API key.
  */
 
-import * as fal from '@fal-ai/client';
+import { fal } from '@fal-ai/client';
 import { uploadToGCS } from '@/lib/editron/services/gcs-service';
 import { nanoid } from 'nanoid';
 
 // Configure fal.ai client
+let _falConfigured = false;
 function ensureFalConfig() {
+  if (_falConfigured) return;
   const key = process.env.FAL_AI_API_KEY;
   if (!key) throw new Error('FAL_AI_API_KEY is not set');
   fal.config({ credentials: key });
+  _falConfigured = true;
 }
 
 interface BGMResult {
@@ -48,10 +51,18 @@ export async function generateBackgroundMusic(
     },
   });
 
-  const audioUrl = (result as any).data?.audio?.url
-    || (result as any).data?.audio?.[0]?.url;
+  // fal.ai subscribe returns { data, requestId }
+  // Stable Audio response shape varies — try all known paths
+  const data = (result as any).data || result;
+  console.log('[BGM] fal.ai response keys:', Object.keys(data || {}), 'Full:', JSON.stringify(data).substring(0, 300));
+
+  const audioUrl = data?.audio_file?.url    // fal-ai/stable-audio format
+    || data?.audio?.url                      // alternative format
+    || data?.audio?.[0]?.url                 // array format
+    || data?.output?.url                     // generic output
+    || data?.url;                            // direct URL
   if (!audioUrl) {
-    throw new Error('Stable Audio returned no audio URL. Response: ' + JSON.stringify(result).substring(0, 200));
+    throw new Error('Stable Audio returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 300));
   }
 
   // Download and upload to GCS

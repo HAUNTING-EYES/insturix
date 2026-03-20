@@ -40,7 +40,7 @@ export async function generateStoryboardImage(
   scene: SceneDescriptor,
   userId: string,
   options: GenerateImageOptions = {},
-): Promise<{ imageUrl: string; assetId: string; modelUsed: string }> {
+): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string }> {
   const modelId = options.modelId || DEFAULT_MODEL;
   const prompt = buildStoryboardPrompt(
     scene,
@@ -113,6 +113,7 @@ export async function generateFullStoryboard(
     sourceScriptId?: string;
     title?: string;
     aspectRatio?: string;
+    overallMusicPrompt?: string;
   },
 ): Promise<Storyboard> {
   const storyboardId = `sb_${nanoid(12)}`;
@@ -126,6 +127,7 @@ export async function generateFullStoryboard(
     sourceScriptId: options.sourceScriptId,
     title: options.title,
     styleGuide: options.styleGuide,
+    overallMusicPrompt: options.overallMusicPrompt,
     scenes: scenes.map((s) => ({
       sceneIndex: s.sceneIndex,
       descriptor: s,

@@ -268,12 +268,15 @@ export async function POST(
     if (isBGMAvailable() && currentFrame > 0) {
       try {
         const totalDurationSec = Math.round(currentFrame / fps);
-        const musicPrompt = buildMusicPrompt(
-          storyboard.scenes.map(s => ({
-            mood: s.descriptor.mood,
-            audioDescription: s.descriptor.audioDescription,
-          })),
-        );
+        // Prefer LLM-generated music prompt; fall back to building from scene moods
+        const musicPrompt = storyboard.overallMusicPrompt
+          || buildMusicPrompt(
+            storyboard.scenes.map(s => ({
+              mood: s.descriptor.mood,
+              audioDescription: s.descriptor.audioDescription,
+            })),
+          );
+        console.log('[Finalize] BGM prompt:', musicPrompt, 'Duration:', totalDurationSec, 's');
         const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
 
         // Add BGM as a sound overlay spanning the entire timeline (row 5)
@@ -314,8 +317,9 @@ export async function POST(
           },
           { upsert: true },
         );
+        console.log('[Finalize] BGM generated successfully:', bgm.audioAssetId, bgm.audioUrl?.substring(0, 80));
       } catch (bgmErr: any) {
-        console.warn('[Finalize] BGM generation failed, continuing without music:', bgmErr.message);
+        console.error('[Finalize] BGM generation failed, continuing without music:', bgmErr.message, bgmErr.stack?.substring(0, 300));
       }
     }
 

@@ -30,6 +30,7 @@ export async function POST(request: NextRequest) {
       modelId,
       title,
       aspectRatio,
+      overallMusicPrompt,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -38,6 +39,7 @@ export async function POST(request: NextRequest) {
       modelId?: string;
       title?: string;
       aspectRatio?: string;
+      overallMusicPrompt?: string;
     } = body;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -60,8 +62,6 @@ export async function POST(request: NextRequest) {
       userId,
       'pipeline',
       'storyboard_image_generation',
-      totalCost,
-      { sceneCount: scenes.length },
     );
 
     if (!deductResult.success) {
@@ -83,6 +83,7 @@ export async function POST(request: NextRequest) {
       modelId,
       title,
       aspectRatio,
+      overallMusicPrompt,
     });
 
     return NextResponse.json({

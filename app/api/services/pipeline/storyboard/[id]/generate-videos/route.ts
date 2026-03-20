@@ -75,8 +75,6 @@ export async function POST(
       userId,
       'pipeline',
       'video_generation',
-      creditCost,
-      { storyboardId, sceneCount: targetScenes.length },
     );
     if (!deductResult.success) {
       return NextResponse.json(
@@ -95,12 +93,14 @@ export async function POST(
 
     for (const scene of targetScenes) {
       try {
-        const motionPrompt = buildMotionPrompt({
-          visualDescription: scene.descriptor.visualDescription,
-          narration: scene.descriptor.narration,
-          cameraDirection: scene.descriptor.cameraDirection,
-          mood: scene.descriptor.mood,
-        });
+        // Prefer LLM-generated videoMotionPrompt; fall back to building from visual description
+        const motionPrompt = scene.descriptor.videoMotionPrompt
+          || buildMotionPrompt({
+            visualDescription: scene.descriptor.visualDescription,
+            narration: scene.descriptor.narration,
+            cameraDirection: scene.descriptor.cameraDirection,
+            mood: scene.descriptor.mood,
+          });
 
         const result = await generateVideoClip(
           {
