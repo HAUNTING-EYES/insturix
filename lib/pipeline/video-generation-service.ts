@@ -21,10 +21,35 @@ function ensureFalConfig() {
   }
 }
 
+// ─── Timeout wrapper (same pattern as storyboard-service) ────────
+const FAL_VIDEO_TIMEOUT_MS = 180_000; // 3 minutes — video models are slow
+
+async function falSubscribeWithTimeout(
+  modelId: string,
+  options: any,
+  timeoutMs: number = FAL_VIDEO_TIMEOUT_MS,
+): Promise<any> {
+  const timeout = setTimeout(() => {}, timeoutMs);
+  try {
+    const result = await Promise.race([
+      fal.subscribe(modelId, options),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`fal.ai video call timed out after ${timeoutMs / 1000}s (model: ${modelId})`)),
+          timeoutMs,
+        ),
+      ),
+    ]);
+    return result;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /**
  * Convert a GCS signed URL (or any URL with query params) into a clean
  * publicly-accessible CDN URL by re-uploading to fal.ai storage.
- * This is needed because Kie AI rejects URLs with query parameters.
+ * This is needed because some models reject URLs with query parameters.
  */
 async function getCleanImageUrl(imageUrl: string): Promise<string> {
   // If URL has no query params, it's already clean
@@ -32,15 +57,22 @@ async function getCleanImageUrl(imageUrl: string): Promise<string> {
 
   ensureFalConfig();
 
-  // Download from GCS signed URL
-  const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error(`Failed to download image for re-upload: ${res.status}`);
-  const blob = await res.blob();
-  const file = new File([blob], `storyboard_${nanoid(8)}.png`, { type: 'image/png' });
+  try {
+    // Download from GCS signed URL
+    const res = await fetch(imageUrl);
+    if (!res.ok) throw new Error(`Failed to download image for re-upload: ${res.status}`);
+    const blob = await res.blob();
+    const file = new File([blob], `storyboard_${nanoid(8)}.png`, { type: 'image/png' });
 
-  // Upload to fal.ai CDN — returns a clean URL
-  const cdnUrl = await fal.storage.upload(file);
-  return cdnUrl;
+    // Upload to fal.ai CDN — returns a clean URL
+    const cdnUrl = await fal.storage.upload(file);
+    console.log(`[VideoGen] Re-uploaded to CDN: ${cdnUrl.substring(0, 80)}...`);
+    return cdnUrl;
+  } catch (err: any) {
+    console.error(`[VideoGen] getCleanImageUrl failed: ${err.message}. Trying original URL as fallback.`);
+    // Strip query params as last resort — some models handle bare URLs
+    return imageUrl.split('?')[0];
+  }
 }
 
 // ─── Models ─────────────────────────────────────────────────────
@@ -94,6 +126,77 @@ export interface VideoGenerationResult {
 
 // ─── fal.ai Video Generation ────────────────────────────────────
 
+/**
+ * Build model-specific input for fal.ai video models.
+ * Different models expect different field names and value types.
+ */
+function buildFalVideoInput(
+  modelKey: FalVideoModel,
+  imageUrl: string,
+  prompt: string,
+  duration: number,
+  aspectRatio: string,
+): Record<string, any> {
+  const base: Record<string, any> = {
+    prompt,
+  };
+
+  switch (modelKey) {
+    case 'kling-1.6':
+    case 'kling-1.5':
+      // Kling models: image_url, duration as string "5" or "10"
+      base.image_url = imageUrl;
+      base.duration = String(Math.min(duration, 10));
+      base.aspect_ratio = aspectRatio;
+      break;
+
+    case 'minimax':
+      // MiniMax: image_url, prompt_optimizer (bool)
+      base.image_url = imageUrl;
+      base.prompt_optimizer = true;
+      break;
+
+    case 'runway-gen3':
+      // Runway Gen-3: image_url, duration as number (5 or 10)
+      base.image_url = imageUrl;
+      base.duration = Math.min(duration, 10);
+      base.ratio = aspectRatio;
+      break;
+
+    case 'luma-ray2':
+      // Luma Ray2: image_url, aspect_ratio, loop (bool)
+      base.image_url = imageUrl;
+      base.aspect_ratio = aspectRatio;
+      base.loop = false;
+      break;
+
+    default:
+      // Generic fallback
+      base.image_url = imageUrl;
+      base.duration = String(duration);
+      base.aspect_ratio = aspectRatio;
+      break;
+  }
+
+  return base;
+}
+
+/**
+ * Extract the video URL from fal.ai response — different models nest it differently.
+ */
+function extractVideoUrl(data: any): string | null {
+  return (
+    data?.video?.url ||
+    data?.video_url ||
+    data?.output?.url ||
+    data?.output?.video?.url ||
+    data?.result?.url ||
+    // Some models return array of videos
+    data?.videos?.[0]?.url ||
+    null
+  );
+}
+
 async function generateVideoWithFal(
   request: VideoGenerationRequest,
   userId: string,
@@ -103,37 +206,48 @@ async function generateVideoWithFal(
   ensureFalConfig();
 
   const modelId = FAL_VIDEO_MODELS[modelKey];
-  const duration = Math.min(request.durationSeconds || 5, 10); // most models cap at 5-10s
+  const duration = Math.min(request.durationSeconds || 5, 10);
 
   // fal.ai video models need a clean image URL — GCS signed URLs with query
-  // params can cause issues. Re-upload to fal.ai CDN to get a clean URL.
+  // params cause failures. Re-upload to fal.ai CDN to get a clean URL.
+  const startTime = Date.now();
   const imageUrl = await getCleanImageUrl(request.imageUrl);
-  console.log(`[VideoGen] Scene: model=${modelKey}, duration=${duration}s, imageUrl=${imageUrl.substring(0, 80)}...`);
+  const cleanMs = Date.now() - startTime;
+  console.log(`[VideoGen] Scene: model=${modelKey}, duration=${duration}s, cleanUrl=${cleanMs}ms, imageUrl=${imageUrl.substring(0, 80)}...`);
 
-  const result = await fal.subscribe(modelId, {
-    input: {
-      image_url: imageUrl,
-      prompt: request.motionPrompt,
-      duration: String(duration),
-      aspect_ratio: request.aspectRatio || '16:9',
-    },
+  const input = buildFalVideoInput(
+    modelKey,
+    imageUrl,
+    request.motionPrompt,
+    duration,
+    request.aspectRatio || '16:9',
+  );
+
+  const genStart = Date.now();
+  const result = await falSubscribeWithTimeout(modelId, {
+    input,
     logs: false,
   });
+  const genMs = Date.now() - genStart;
+  console.log(`[VideoGen] fal.subscribe completed in ${genMs}ms for model=${modelKey}`);
 
   const data = result.data as any;
-  const videoUrl = data?.video?.url || data?.video_url;
+  const videoUrl = extractVideoUrl(data);
   if (!videoUrl) {
-    throw new Error(`No video generated from fal.ai (${modelKey})`);
+    console.error(`[VideoGen] No video URL in response. Model: ${modelKey}. Response keys:`, Object.keys(data || {}), 'Full data:', JSON.stringify(data).substring(0, 500));
+    throw new Error(`No video generated from fal.ai (${modelKey}). Response keys: ${Object.keys(data || {}).join(', ')}`);
   }
 
   // Download and upload to GCS
   const response = await fetch(videoUrl);
-  if (!response.ok) throw new Error('Failed to download generated video');
+  if (!response.ok) throw new Error(`Failed to download generated video: ${response.status}`);
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const assetId = `video_${nanoid(12)}`;
   const filename = `${assetId}.mp4`;
   const uploadResult = await uploadToGCS(buffer, userId, filename, 'video/mp4');
+
+  console.log(`[VideoGen] Scene complete: model=${modelKey}, totalMs=${Date.now() - startTime}, assetId=${assetId}`);
 
   return {
     videoUrl: uploadResult.signedUrl,

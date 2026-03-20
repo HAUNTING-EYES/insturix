@@ -348,55 +348,43 @@ export function ExportToEditronDialog({
 
     try {
       // ─── Step 5: Generate AI video clips (optional) ────────
+      // Send ALL scenes in ONE API call — the server handles concurrency internally.
+      // Previously sent one-at-a-time which caused sequential timeouts.
       if (generateVideos && sbId && sbImages.length > 0) {
         setStep('generating-videos');
         setVideoProgress({ done: 0, total: sbImages.length });
 
-        let succeeded = 0;
-        let failed = 0;
-        const errors: string[] = [];
+        try {
+          const allSceneIndices = sbImages.map((s: any) => s.sceneIndex);
+          console.log(`[ExportToEditron] Generating videos for scenes: ${allSceneIndices.join(', ')}`);
 
-        for (let i = 0; i < sbImages.length; i++) {
-          const sceneIdx = sbImages[i].sceneIndex;
-          try {
-            const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                aspectRatio,
-                sceneIndices: [sceneIdx],
-                videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined,
-              }),
-            });
+          const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              aspectRatio,
+              sceneIndices: allSceneIndices,
+              videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined,
+            }),
+          });
 
-            const videoData = await videoRes.json().catch(() => ({}));
-
-            if (videoRes.ok && (videoData.summary?.succeeded || 0) > 0) {
-              succeeded++;
-              console.log(`[ExportToEditron] Scene ${sceneIdx} video generated`);
-            } else {
-              failed++;
-              const errMsg = videoData.error || `Scene ${sceneIdx} failed (${videoRes.status})`;
-              errors.push(errMsg);
-              console.error(`[ExportToEditron] Scene ${sceneIdx} video failed:`, errMsg);
-            }
-          } catch (videoErr: any) {
-            failed++;
-            errors.push(`Scene ${sceneIdx}: ${videoErr.message}`);
-            console.error(`[ExportToEditron] Scene ${sceneIdx} video exception:`, videoErr);
-          }
+          const videoData = await videoRes.json().catch(() => ({}));
+          const succeeded = videoData.summary?.succeeded || 0;
+          const failed = videoData.summary?.failed || 0;
 
           setVideoProgress({ done: succeeded + failed, total: sbImages.length });
-        }
+          setVideosGenerated(succeeded > 0);
+          console.log(`[ExportToEditron] Video generation complete: ${succeeded} succeeded, ${failed} failed`);
+          sendNotification('Video Clips Generated', `${succeeded} of ${sbImages.length} video clips ready. Generating voiceover next...`);
 
-        setVideosGenerated(succeeded > 0);
-        console.log(`[ExportToEditron] Video generation complete: ${succeeded} succeeded, ${failed} failed`);
-        sendNotification('Video Clips Generated', `${succeeded} of ${sbImages.length} video clips ready. Generating voiceover next...`);
-
-        if (succeeded === 0 && failed > 0) {
-          setError(`Videos: ${errors.join('; ')}. Continuing with storyboard images.`);
-        } else if (failed > 0) {
-          setError(`Videos: ${failed}/${sbImages.length} clips failed. Continuing with available clips.`);
+          if (succeeded === 0 && failed > 0) {
+            setError(`Videos: ${videoData.error || 'All clips failed'}. Continuing with storyboard images.`);
+          } else if (failed > 0) {
+            setError(`Videos: ${failed}/${sbImages.length} clips failed. Continuing with available clips.`);
+          }
+        } catch (videoErr: any) {
+          console.error(`[ExportToEditron] Video generation exception:`, videoErr);
+          setError(`Videos: ${videoErr.message}. Continuing with storyboard images.`);
         }
       }
 

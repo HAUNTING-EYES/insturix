@@ -110,21 +110,15 @@ export async function POST(
     const artStyle = storyboard.styleGuide?.artStyle;
     const useLLMRefinement = isLLMParserAvailable();
 
-    // Generate videos for each scene
-    const results: Array<{
-      sceneIndex: number;
-      videoUrl?: string;
-      assetId?: string;
-      error?: string;
-    }> = [];
+    // ─── Build motion prompts for all scenes (can be concurrent) ────
+    console.log(`[generate-videos] Building prompts for ${targetScenes.length} scenes (LLM=${useLLMRefinement})`);
+    const promptStart = Date.now();
 
-    for (const scene of targetScenes) {
-      try {
-        // ─── Build the video prompt ──────────────────────────────
+    const scenesWithPrompts = await Promise.all(
+      targetScenes.map(async (scene) => {
         let motionPrompt: string;
 
         if (useLLMRefinement) {
-          // VideoPromptMaster: LLM-refined prompt with full context
           try {
             const promptContext: VideoPromptContext = {
               visualDescription: scene.descriptor.visualDescription,
@@ -138,10 +132,9 @@ export async function POST(
               videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
             };
             motionPrompt = await refineVideoPrompt(promptContext);
-            console.log(`[generate-videos] Scene ${scene.sceneIndex}: VideoPromptMaster refined prompt (${motionPrompt.length} chars)`);
+            console.log(`[generate-videos] Scene ${scene.sceneIndex}: VideoPromptMaster refined (${motionPrompt.length} chars)`);
           } catch (llmErr: any) {
-            console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM refinement failed, using fallback:`, llmErr.message);
-            // Fallback to basic buildMotionPrompt
+            console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM failed, using fallback:`, llmErr.message);
             motionPrompt = buildMotionPrompt({
               visualDescription: scene.descriptor.visualDescription,
               narration: scene.descriptor.narration,
@@ -152,7 +145,6 @@ export async function POST(
             });
           }
         } else {
-          // No LLM available — use basic prompt builder
           motionPrompt = buildMotionPrompt({
             visualDescription: scene.descriptor.visualDescription,
             narration: scene.descriptor.narration,
@@ -163,6 +155,24 @@ export async function POST(
           });
         }
 
+        return { scene, motionPrompt };
+      }),
+    );
+    console.log(`[generate-videos] All prompts built in ${Date.now() - promptStart}ms`);
+
+    // ─── Generate videos concurrently (2 at a time) ─────────────────
+    const CONCURRENCY = 2;
+    const queue = [...scenesWithPrompts];
+    const running: Promise<void>[] = [];
+    const results: Array<{
+      sceneIndex: number;
+      videoUrl?: string;
+      assetId?: string;
+      error?: string;
+    }> = [];
+
+    const processScene = async ({ scene, motionPrompt }: typeof scenesWithPrompts[number]) => {
+      try {
         const result = await generateVideoClip(
           {
             imageUrl: scene.imageUrl!,
@@ -175,7 +185,6 @@ export async function POST(
           userId,
         );
 
-        // Update storyboard scene with video info
         await updateStoryboardScene(storyboardId, scene.sceneIndex, {
           videoAssetId: result.assetId,
           videoUrl: result.videoUrl,
@@ -190,11 +199,24 @@ export async function POST(
           assetId: result.assetId,
         });
       } catch (err: any) {
-        console.error(`[generate-videos] Scene ${scene.sceneIndex} failed:`, err);
+        console.error(`[generate-videos] Scene ${scene.sceneIndex} failed:`, err.message);
         results.push({
           sceneIndex: scene.sceneIndex,
           error: err.message || 'Video generation failed',
         });
+      }
+    };
+
+    while (queue.length > 0 || running.length > 0) {
+      while (running.length < CONCURRENCY && queue.length > 0) {
+        const item = queue.shift()!;
+        const p = processScene(item).then(() => {
+          running.splice(running.indexOf(p), 1);
+        });
+        running.push(p);
+      }
+      if (running.length > 0) {
+        await Promise.race(running);
       }
     }
 
