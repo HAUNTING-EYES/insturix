@@ -3,6 +3,7 @@ import { auth } from '@clerk/nextjs/server';
 import { getStoryboard } from '@/lib/pipeline/storyboard-db';
 import { projectService } from '@/lib/editron/services/project-service';
 import { CreditsService } from '@/lib/services/creditsService';
+import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 
 export const maxDuration = 30;
@@ -188,6 +189,54 @@ export async function POST(
       }
 
       currentFrame += durationFrames;
+    }
+
+    // Register all media assets in the mediaAssets collection so the
+    // asset resolver can map assetId → URL after saveProject strips URLs.
+    const db = await getDatabase();
+    for (const scene of storyboard.scenes) {
+      if (scene.videoUrl && scene.videoAssetId) {
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId: scene.videoAssetId },
+          {
+            $setOnInsert: {
+              assetId: scene.videoAssetId,
+              userId,
+              type: 'video',
+              filename: `${scene.videoAssetId}.mp4`,
+              source: 'user-upload',
+              gcsPath: null,
+              publicUrl: scene.videoUrl,
+              cachedUrl: scene.videoUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              size: 0,
+              uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+      }
+      if (scene.imageUrl && scene.imageAssetId) {
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId: scene.imageAssetId },
+          {
+            $setOnInsert: {
+              assetId: scene.imageAssetId,
+              userId,
+              type: 'image',
+              filename: `${scene.imageAssetId}.png`,
+              source: 'user-upload',
+              gcsPath: null,
+              publicUrl: scene.imageUrl,
+              cachedUrl: scene.imageUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              size: 0,
+              uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+      }
     }
 
     // Create Editron project then save overlays + settings
