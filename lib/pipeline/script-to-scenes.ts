@@ -45,12 +45,27 @@ function inferMood(text: string): string {
 // ─── Meta-section detection ──────────────────────────────────────
 
 /** Headers / titles that describe script structure, not actual scenes. */
-const META_HEADER_RE =
-  /^(overview|introduction|intro|core directives|scene breakdown|forbidden elements|notes|credits|preview|outro|closing remarks|table of contents|agenda|disclaimer|references|appendix|summary|conclusion)\s*$/i;
+const META_HEADER_KEYWORDS =
+  /\b(overview|introduction|intro|core directives?|scene breakdown|forbidden elements?|notes|credits|preview|outro|closing remarks?|table of contents|agenda|disclaimer|references?|appendix|summary|conclusion|musical direction|music direction|project overview|general notes|style guide|tone guide|pacing guide|target audience|format|guidelines|requirements|specifications?)\b/i;
 
-/** Check whether a header title is a meta / structural section. */
+/**
+ * Check whether a header/title is a meta / structural section rather
+ * than an actual scene. Uses keyword matching (not exact match) so
+ * titles like "Project Overview" or "Music & Audio Direction" are caught.
+ */
 function isMetaHeader(title: string): boolean {
-  return META_HEADER_RE.test(title.trim());
+  const cleaned = title.trim().replace(/^#+\s*/, '');
+  if (!cleaned) return false;
+  return META_HEADER_KEYWORDS.test(cleaned);
+}
+
+/**
+ * Check if a section body looks like meta/structural content rather than
+ * scene narration — e.g. "This document outlines the musical direction..."
+ */
+function isMetaContent(text: string): boolean {
+  const lower = text.toLowerCase().substring(0, 300);
+  return /\b(this document|this script|the goal is to create|outlines the|the following|no dialogue or exposition is permitted|music carries the full)\b/i.test(lower);
 }
 
 // ─── ThinkForge Blocks → Scenes ──────────────────────────────────
@@ -71,6 +86,8 @@ export function convertThinkForgeBlocksToScenes(
     const narration = currentScene.narration || '';
     // Skip scenes that have no real narration / visual content
     if (!narration.trim() && !(currentScene.visualDescription || '').trim()) return;
+    // Skip scenes whose content reads like a meta description / preamble
+    if (isMetaContent(narration)) return;
     scenes.push({
       sceneIndex: idx,
       title: currentScene.title || `Scene ${idx + 1}`,
@@ -316,7 +333,14 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
   // Filter out meta-sections that aren't actual scenes
   const sceneSections = sections.filter((s) => {
     const firstLine = s.split('\n')[0]?.replace(/^#+\s*/, '').trim() || '';
-    return !isMetaHeader(firstLine);
+    // Skip if the header itself is meta
+    if (isMetaHeader(firstLine)) return false;
+    // Skip sections that are just a title with no body (e.g. "# Spider-Man: No Way Home")
+    const body = s.replace(/^#{1,3}\s+.+\n?/, '').trim();
+    if (!body) return false;
+    // Skip sections whose body reads like a document preamble / overview
+    if (isMetaContent(body)) return false;
+    return true;
   });
 
   const finalSections = sceneSections.length > 0 ? sceneSections : sections;
