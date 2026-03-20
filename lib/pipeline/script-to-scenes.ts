@@ -42,6 +42,17 @@ function inferMood(text: string): string {
   return 'neutral';
 }
 
+// ─── Meta-section detection ──────────────────────────────────────
+
+/** Headers / titles that describe script structure, not actual scenes. */
+const META_HEADER_RE =
+  /^(overview|introduction|intro|core directives|scene breakdown|forbidden elements|notes|credits|preview|outro|closing remarks|table of contents|agenda|disclaimer|references|appendix|summary|conclusion)\s*$/i;
+
+/** Check whether a header title is a meta / structural section. */
+function isMetaHeader(title: string): boolean {
+  return META_HEADER_RE.test(title.trim());
+}
+
 // ─── ThinkForge Blocks → Scenes ──────────────────────────────────
 
 export function convertThinkForgeBlocksToScenes(
@@ -51,11 +62,15 @@ export function convertThinkForgeBlocksToScenes(
 
   const scenes: SceneDescriptor[] = [];
   let currentScene: Partial<SceneDescriptor> | null = null;
+  /** True when we're inside a meta header — content is skipped. */
+  let inMetaSection = false;
   let idx = 0;
 
   const flushScene = () => {
     if (!currentScene) return;
     const narration = currentScene.narration || '';
+    // Skip scenes that have no real narration / visual content
+    if (!narration.trim() && !(currentScene.visualDescription || '').trim()) return;
     scenes.push({
       sceneIndex: idx,
       title: currentScene.title || `Scene ${idx + 1}`,
@@ -73,9 +88,21 @@ export function convertThinkForgeBlocksToScenes(
     if (!text) continue;
 
     if (block.kind === 'header') {
-      // Headers mark scene boundaries
+      if (isMetaHeader(text)) {
+        // This is a structural header (Overview, Scene Breakdown, etc.)
+        // — flush any real scene we were building and skip until next header.
+        flushScene();
+        currentScene = null;
+        inMetaSection = true;
+        continue;
+      }
+      // Real scene header
       flushScene();
       currentScene = { title: text, narration: '', visualDescription: '', mood: '' };
+      inMetaSection = false;
+    } else if (inMetaSection) {
+      // Inside a meta section — skip content
+      continue;
     } else if (currentScene) {
       if (block.kind === 'action') {
         // Action blocks describe visuals / camera directions
@@ -94,9 +121,9 @@ export function convertThinkForgeBlocksToScenes(
         currentScene.narration = ((currentScene.narration || '') + ' ' + text).trim();
       }
     } else {
-      // No header yet — create implicit first scene
+      // No header yet — create implicit first scene only if it has real content
       currentScene = {
-        title: 'Opening',
+        title: `Scene 1`,
         narration: text,
         visualDescription: '',
         mood: '',
@@ -287,10 +314,9 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
     .filter(Boolean);
 
   // Filter out meta-sections that aren't actual scenes
-  const metaKeywords = /^(overview|core directives|scene breakdown|forbidden elements|notes|credits)/i;
   const sceneSections = sections.filter((s) => {
     const firstLine = s.split('\n')[0]?.replace(/^#+\s*/, '').trim() || '';
-    return !metaKeywords.test(firstLine);
+    return !isMetaHeader(firstLine);
   });
 
   const finalSections = sceneSections.length > 0 ? sceneSections : sections;
