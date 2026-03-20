@@ -154,18 +154,18 @@ export async function POST(
         });
       }
 
-      // Scene title (first 2 seconds)
+      // Scene title (first 3 seconds)
       if (scene.descriptor.title) {
         overlays.push({
           id: overlayId++,
           type: 'text',
           from: currentFrame,
-          durationInFrames: Math.min(fps * 2, durationFrames),
+          durationInFrames: Math.min(fps * 3, durationFrames),
           row: 1, // Above narration
           left: width * 0.1,
-          top: height * 0.12,
+          top: height * 0.08,
           width: width * 0.8,
-          height: height * 0.08,
+          height: height * 0.12,
           isDragging: false,
           rotation: 0,
           content: scene.descriptor.title,
@@ -175,10 +175,12 @@ export async function POST(
             fontWeight: '700',
             textAlign: 'center',
             color: '#ffffff',
-            backgroundColor: 'transparent',
+            backgroundColor: 'rgba(0,0,0,0.5)',
             fontStyle: 'normal',
             textDecoration: 'none',
             opacity: 1,
+            borderRadius: '12px',
+            padding: '16px',
             textShadow: '0 2px 8px rgba(0,0,0,0.7)',
             animation: { enter: 'fade', exit: 'fade', duration: 15 },
           },

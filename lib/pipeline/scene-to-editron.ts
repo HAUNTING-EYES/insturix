@@ -119,8 +119,8 @@ export function scenesToOverlays(
       });
     }
 
-    // 2. Scene title (top center, first 2 seconds of scene)
-    const titleDuration = Math.min(Math.round(2 * fps), durationFrames);
+    // 2. Scene title (top center, first 3 seconds of scene)
+    const titleDuration = Math.min(Math.round(3 * fps), durationFrames);
     overlays.push({
       id: nextId(),
       type: 'text',
@@ -128,9 +128,9 @@ export function scenesToOverlays(
       durationInFrames: titleDuration,
       row: 1,
       left: Math.round(width * 0.1),
-      top: Math.round(height * 0.1),
+      top: Math.round(height * 0.08),
       width: Math.round(width * 0.8),
-      height: Math.round(height * 0.08),
+      height: Math.round(height * 0.12),
       isDragging: false,
       rotation: 0,
       content: scene.title,
@@ -139,12 +139,14 @@ export function scenesToOverlays(
         fontFamily: 'font-sans',
         fontWeight: '700',
         color: '#ffffff',
-        backgroundColor: 'transparent',
+        backgroundColor: 'rgba(0,0,0,0.5)',
         fontStyle: 'normal',
         textDecoration: 'none',
         textAlign: 'center',
         textShadow: '0 2px 8px rgba(0,0,0,0.7)',
         opacity: 1,
+        borderRadius: '12px',
+        padding: '16px',
         animation: { enter: 'fade', exit: 'fade', duration: 15 },
       },
     });
