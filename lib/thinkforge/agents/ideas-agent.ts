@@ -25,7 +25,7 @@ import { createThinkForgeModel } from './model-factory';
 
 const IdeaSchema = z.object({
   id: z.string(),
-  idea: z.string().max(80),
+  idea: z.string().max(200),
   purpose: z.string(),
   style: z.string(),
   format: z.string(),
@@ -51,16 +51,16 @@ type IdeasOutput = z.infer<typeof IdeasResponseSchema>;
  */
 export class IdeasAgent extends StructuredAgent<IdeasOutput> {
   protected schema = IdeasResponseSchema;
-  
+
   constructor(config?: Partial<Omit<AgentConfig, 'agentType'>>) {
     super({
       ...config,
       agentType: 'ideas',
-      temperature: config?.temperature ?? 0.9,
-      maxTokens: config?.maxTokens ?? 2000,
+      temperature: config?.temperature ?? 1.0,
+      maxTokens: config?.maxTokens ?? 2500,
     });
   }
-  
+
   buildPrompt({ context, userPrompt }: AgentInput): string {
     const projectHint = context.projectSummary
       ? `\nProject context: ${context.projectSummary}`
@@ -69,38 +69,41 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
       ? `\nResearch & brand context: ${context.systemBrief}`
       : '';
 
-    return `You are a senior creative strategist. A user has described their project to you. Your job is to generate exactly 4 content ideas that are DIRECTLY rooted in what the user asked for.
+    return `You are a viral content strategist who lives and breathes the internet. You're the person creators DM when they need an idea that will blow up. You don't think like an agency — you think like a creator.
 
 ## User's request
 "${userPrompt}"
 ${projectHint}${databankHint}
 
+## Your job
+Generate exactly 4 content ideas that make the user say "holy shit, I never thought of that." These ideas should feel like insider knowledge — the kind of angle a top creator in this niche would use but hasn't done yet.
+
 ## Rules
-1. Every idea MUST be a concrete, actionable interpretation of the user's request — not a generic pivot away from it.
-2. Read the user's words carefully. If they said "documentary about X," all 4 ideas must be documentary-related — not social media posts or carousels.
-3. Each idea should take a DIFFERENT angle on the same core request: a different narrative structure, audience focus, visual approach, or emotional lens.
-4. The "purpose" must explain what this specific angle achieves that the others don't.
-5. Formats and platforms must match the project's actual medium. A feature film project gets screenplay treatments, not TikTok reels.
-6. Titles should be specific and evocative, not generic ("Untold Stories of X" is better than "Content about X").
+1. **Be specific and surprising.** "Fitness tips" is garbage. "The workout that got banned from TikTok (and why it actually works)" is gold. Every idea must have a hook that makes someone stop scrolling.
+2. **Think in trends.** Reference real content formats that are currently working: duets, POV videos, "day in the life" vlogs, hot takes, myth-busting, storytime, "things nobody tells you about X", unpopular opinions, etc.
+3. **Each idea = different angle.** One might be controversial, one educational, one emotional, one humorous. Don't give 4 variations of the same bland concept.
+4. **Match the medium.** If the project is a YouTube video, don't suggest a tweet thread. If it's a podcast, don't suggest a 15-second reel.
+5. **The purpose must sell the idea.** Explain WHY this specific angle would resonate with the target audience right now — not generic marketing speak.
+6. **Titles must be scroll-stoppers.** Write them like actual video titles or content hooks that a creator would use.
 
 ## Output schema per idea
 - id: "idea_1" through "idea_4"
-- idea: Specific, compelling title (max 80 chars) that captures the angle
-- purpose: What this angle achieves for the project (1-2 sentences)
-- style: Visual/editorial style (e.g., "cinéma vérité", "data-driven explainer", "montage-driven narrative")
-- format: Actual deliverable format matching the project scope (e.g., "feature screenplay", "10-min documentary short", "pitch deck", "long-form essay")
-- platform: Where this lives (e.g., "Netflix", "YouTube", "Film Festival", "Internal", "Blog", "Multi-platform")
+- idea: A scroll-stopping title/hook (max 80 chars). Write it like a real content title, not a corporate brief.
+- purpose: Why this angle works RIGHT NOW for this audience (1-2 punchy sentences)
+- style: The specific visual/editorial approach (e.g., "raw iPhone footage with jump cuts", "cinematic B-roll with voiceover", "screen recording walkthrough")
+- format: The actual deliverable (e.g., "90-second vertical video", "10-minute deep dive", "carousel post")
+- platform: Where this performs best (e.g., "TikTok", "YouTube", "Instagram Reels", "LinkedIn")
 - tone: One of: white (factual), red (emotional), black (critical), yellow (optimistic), green (creative), blue (analytical)
 
-Generate 4 ideas now.`;
+Generate 4 ideas now. Make them genuinely exciting.`;
   }
-  
+
   async generateIdeas(prompt: string, projectContext?: string): Promise<IdeaCardData[]> {
     const input: AgentInput = {
       context: { projectSummary: projectContext || '' },
       userPrompt: prompt,
     };
-    
+
     const { result } = await this.runStructured(input);
     return result.ideas;
   }
@@ -155,7 +158,7 @@ function generateFallbackIdeas(prompt: string): IdeaCardData[] {
   ];
   const platforms = ['TikTok', 'YouTube Shorts', 'Instagram Reels', 'LinkedIn'];
   const tones: Array<'white' | 'red' | 'black' | 'yellow' | 'green' | 'blue'> = ['white', 'red', 'black', 'yellow'];
-  
+
   return Array.from({ length: 4 }).map((_, i) => ({
     id: `${Date.now()}-${i}`,
     idea: `${base} – ${intents[i]} angle`,

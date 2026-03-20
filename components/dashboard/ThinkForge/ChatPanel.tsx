@@ -35,35 +35,45 @@ interface ChatPanelProps {
   workspaceMode?: 'script' | 'whiteboard';
 }
 
-// Seed suggestions
-const SUGGESTIONS_POOL = [
-  "Add hook",
-  "Stronger CTA",
-  "Expand section",
-  "Shorter version",
-  "More data",
-  "Story angle",
-  "Add humor",
-  "Sharpen tone",
-  "Cut fluff",
-  "Improve flow",
-  "Alt headline",
-  "Platform tweak",
-  "What next?",
-  "Is pacing ok?",
-  "Better opening?",
-  "Tone check",
-  "Fact check",
-  "Tighten copy",
-  "Condense to 60s",
-  "Punchier verbs",
-  "Clarify benefit",
-  "Remove jargon",
+// Context-aware suggestion pools
+const EMPTY_SCRIPT_SUGGESTIONS = [
+  "Write a quick 60-second draft for this idea",
+  "Create a hook + outline to get me started",
+  "Give me 3 scroll-stopping hooks",
+  "Draft a content brief I can work from",
 ];
 
-function getRandomSuggestions(count: number = 12): string[] {
-  const shuffled = [...SUGGESTIONS_POOL].sort(() => Math.random() - 0.5);
-  return [...new Set(shuffled)].slice(0, count);
+const HAS_SCRIPT_SUGGESTIONS = [
+  "Make this punchier — cut the fluff",
+  "Rewrite the opening hook to be more attention-grabbing",
+  "Add a call-to-action at the end",
+  "Change the tone to feel more conversational",
+  "Shorten this to under 60 seconds",
+  "Expand on the main point with more detail",
+];
+
+// Deliverable-style suggestions the AI shows proactively
+const DELIVERABLE_SUGGESTIONS = [
+  "📋 Generate a shot list for this script",
+  "🎬 Create B-roll ideas to pair with this",
+  "📝 Write social media captions for this content",
+  "🔄 Create an alternative version of this script",
+];
+
+function getContextualSuggestions(hasScript: boolean, messageCount: number = 0, count: number = 3): string[] {
+  // After some messages with a script, mix in deliverable suggestions
+  if (hasScript && messageCount >= 3) {
+    const scriptPool = [...HAS_SCRIPT_SUGGESTIONS];
+    const deliverablePool = [...DELIVERABLE_SUGGESTIONS];
+    const combined = [
+      ...scriptPool.sort(() => Math.random() - 0.5).slice(0, 2),
+      ...deliverablePool.sort(() => Math.random() - 0.5).slice(0, 1),
+    ];
+    return combined.slice(0, count);
+  }
+  const pool = hasScript ? HAS_SCRIPT_SUGGESTIONS : EMPTY_SCRIPT_SUGGESTIONS;
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
 }
 
 const STYLE_CORRECTION_RE = /\b(too formal|too casual|punchier|more concise|shorter|longer|simpler|friendlier|serious|tone|less wordy|rewrite|rephrase|sound more|sound less)\b/i;
@@ -204,12 +214,46 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     onScriptCreated,
   });
 
-  // Initialize suggestions
+  // Initialize context-aware suggestions
   useEffect(() => {
-    if (chat.messages.length === 0 && selectedIdea) {
-      setSuggestions(getRandomSuggestions());
-    }
-  }, [chat.messages.length, selectedIdea]);
+    const hasContent = !!script?.content;
+    setSuggestions(getContextualSuggestions(hasContent, chat.messages.length));
+  }, [!!script?.content, chat.messages.length, selectedIdea]);
+
+  // Auto-starter script: when entering editor with no script, auto-generate a draft
+  const autoStartFired = React.useRef(false);
+  useEffect(() => {
+    if (autoStartFired.current) return;
+    if (!sessionId) return;
+    if (script?.content) return; // Already has content
+    if (chat.messages.length > 0) return; // Chat already has messages (returning user)
+    if (chat.isStreaming) return;
+    if (!selectedIdea?.idea) return;
+
+    autoStartFired.current = true;
+
+    // Small delay so the UI settles first
+    const timer = setTimeout(() => {
+      const autoPrompt = `Write a short starter draft for this idea: "${selectedIdea.idea}". Keep it concise — just enough to give me something to work with. Include a hook, a brief body, and a closing.`;
+      const currentScriptId = scriptIdRef.current || undefined;
+      chat.sendMessage(autoPrompt, {
+        script: scriptPayload,
+        project: sessionPayload,
+        onScriptUpdate: handleScriptUpdate,
+        onTokenStream: onTokenStream,
+        onScriptCreated: onScriptCreated,
+        scriptId: currentScriptId,
+        intentContext: {
+          editorFocused: false,
+          hasSelection: false,
+          workspaceMode,
+          lastUserAction: 'auto_start',
+        },
+      });
+    }, 800);
+
+    return () => clearTimeout(timer);
+  }, [sessionId, selectedIdea?.idea]);
 
   // Build project payload from selected idea
   const sessionPayload = useMemo(
@@ -289,7 +333,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: originalPrompt.slice(0, 500), sessionId, source: 'chat' }),
-      }).catch(() => {});
+      }).catch(() => { });
     }
 
     if (activeThreadId) {

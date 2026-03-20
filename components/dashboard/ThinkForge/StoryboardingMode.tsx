@@ -34,7 +34,6 @@ interface StoryboardingModeProps {
 
 const MIN_WIDTH = 300;
 const MAX_WIDTH = 800;
-const DEFAULT_WIDTH = 420;
 const LS_CHAT_WIDTH = "thinkforge_chat_width";
 
 export default function StoryboardingMode({
@@ -57,12 +56,12 @@ export default function StoryboardingMode({
   onSwitchScript,
   onTabClose
 }: StoryboardingModeProps) {
-  const [chatWidth, setChatWidth] = useState(DEFAULT_WIDTH);
+  const [chatWidth, setChatWidth] = useState(0); // 0 = use percentage
   const [isResizing, setIsResizing] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showKnowledge, setShowKnowledge] = useState(false);
-  
+
   // Selection editing state
   const [editingSelection, setEditingSelection] = useState<{ text: string, range: { from: number, to: number }, blocks: any[] } | null>(null);
   const [generationState, setGenerationState] = useState<{ intent: string | null; isStreaming: boolean }>({
@@ -77,13 +76,13 @@ export default function StoryboardingMode({
     setActiveMobileTab('chat');
     // Ensure chat panel is open on desktop (if we were to add a collapsible panel)
   };
-  
+
   // Mobile tab state
   const [activeMobileTab, setActiveMobileTab] = useState<'chat' | 'script'>('script');
-  
+
   // Token streaming callback - connects ChatPanel to ScriptEditor
   const tokenStreamCallbackRef = useRef<((tokens: string) => void) | null>(null);
-  
+
   const handleTokenStream = useRef((tokens: string) => {
     if (tokenStreamCallbackRef.current) {
       tokenStreamCallbackRef.current(tokens);
@@ -92,7 +91,7 @@ export default function StoryboardingMode({
 
   // Selection getter callback - connects ChatPanel to ScriptEditor
   const selectionGetterRef = useRef<(() => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) | null>(null);
-  
+
   const handleGetSelection = useRef(() => {
     if (selectionGetterRef.current) {
       return selectionGetterRef.current();
@@ -111,10 +110,10 @@ export default function StoryboardingMode({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing || !containerRef.current) return;
-      
+
       const containerRect = containerRef.current.getBoundingClientRect();
       const newWidth = e.clientX - containerRect.left;
-      
+
       setChatWidth(Math.min(Math.max(newWidth, MIN_WIDTH), MAX_WIDTH));
     };
 
@@ -148,7 +147,7 @@ export default function StoryboardingMode({
     <div className={clsx("w-full h-full transition-opacity duration-300", isVisible ? "opacity-100 block" : "opacity-0 hidden absolute inset-0 pointer-events-none")}>
       {selectedIdea ? (
         <div className="relative w-full h-full overflow-hidden flex flex-col" ref={containerRef}>
-          
+
           {/* Mobile Tab Switcher */}
           <div className="lg:hidden flex border-b border-neutral-800 bg-neutral-900/50">
             <button
@@ -173,18 +172,19 @@ export default function StoryboardingMode({
 
           <div className="flex-1 flex overflow-hidden relative">
             {/* Chat Panel - Responsive visibility */}
-            <div 
+            <div
               className={clsx(
                 "shrink-0 flex flex-col border-r border-neutral-800 relative bg-neutral-900/50 transition-all duration-300",
                 // Mobile: full width if active
-                "w-full absolute inset-0 z-10 lg:static lg:z-auto lg:w-auto",
+                "w-full absolute inset-0 z-10 lg:static lg:z-auto",
+                // Desktop: 40% width
+                "lg:w-[40%] lg:min-w-[300px] lg:max-w-[600px]",
                 // Visibility
                 activeMobileTab === 'chat' ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
               )}
-              style={{ width: typeof window !== 'undefined' && window.innerWidth >= 1024 ? chatWidth : '100%' }}
             >
-              <ChatPanel 
-                key={(sessionId || 'no-session')} 
+              <ChatPanel
+                key={(sessionId || 'no-session')}
                 selectedIdea={{
                   id: Number(selectedIdea.id),
                   idea: selectedIdea.idea,
@@ -211,16 +211,10 @@ export default function StoryboardingMode({
                 onGenerationStateChange={setGenerationState}
                 workspaceMode={scriptPanelMode}
               />
-              
-              {/* Resize Handle - Desktop only */}
-              <div 
-                className="hidden lg:flex absolute right-0 top-0 bottom-0 w-1 cursor-col-resize hover:bg-red-500/50 transition-colors z-10 items-center justify-center group"
-                onMouseDown={() => setIsResizing(true)}
-              >
-                 <div className="h-8 w-1 group-hover:bg-red-500 rounded-full transition-colors" />
-              </div>
+
+              {/* Resize handle removed — using 40/60 split now */}
             </div>
-            
+
             {/* Script Panel - Responsive visibility */}
             <div className={clsx(
               "flex-1 min-w-0 overflow-hidden flex flex-col bg-neutral-950",
@@ -264,7 +258,7 @@ export default function StoryboardingMode({
               />
             </div>
           </div>
-          
+
           {/* Knowledge Panel */}
           <KnowledgePanel
             open={showKnowledge}
@@ -298,7 +292,7 @@ export default function StoryboardingMode({
                   >
                     <X className="w-5 h-5" />
                   </button>
-                  
+
                   <div className="bg-neutral-950 rounded-3xl border border-white/10 p-6 shadow-2xl">
                     <SessionMetadataSettings
                       idea={{
@@ -336,7 +330,7 @@ export default function StoryboardingMode({
           <FileText size={48} className="mb-4 opacity-50" />
           <p className="text-lg font-medium">No script selected</p>
           <p className="text-sm mt-2">Start by creating an idea in Ideation mode or opening a session from the Library.</p>
-          <button 
+          <button
             onClick={onGoToIdeation}
             className="mt-6 px-4 py-2 bg-red-600/20 text-red-200 border border-red-500/30 rounded-lg hover:bg-red-600/30 transition-colors"
           >
