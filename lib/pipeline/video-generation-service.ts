@@ -105,9 +105,14 @@ async function generateVideoWithFal(
   const modelId = FAL_VIDEO_MODELS[modelKey];
   const duration = Math.min(request.durationSeconds || 5, 10); // most models cap at 5-10s
 
+  // fal.ai video models need a clean image URL — GCS signed URLs with query
+  // params can cause issues. Re-upload to fal.ai CDN to get a clean URL.
+  const imageUrl = await getCleanImageUrl(request.imageUrl);
+  console.log(`[VideoGen] Scene: model=${modelKey}, duration=${duration}s, imageUrl=${imageUrl.substring(0, 80)}...`);
+
   const result = await fal.subscribe(modelId, {
     input: {
-      image_url: request.imageUrl,
+      image_url: imageUrl,
       prompt: request.motionPrompt,
       duration: String(duration),
       aspect_ratio: request.aspectRatio || '16:9',

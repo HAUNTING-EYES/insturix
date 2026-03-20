@@ -356,13 +356,14 @@ export function ExportToEditronDialog({
         const errors: string[] = [];
 
         for (let i = 0; i < sbImages.length; i++) {
+          const sceneIdx = sbImages[i].sceneIndex;
           try {
             const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 aspectRatio,
-                sceneIndices: [i],
+                sceneIndices: [sceneIdx],
                 videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined,
               }),
             });
@@ -371,17 +372,17 @@ export function ExportToEditronDialog({
 
             if (videoRes.ok && (videoData.summary?.succeeded || 0) > 0) {
               succeeded++;
-              console.log(`[ExportToEditron] Scene ${i} video generated`);
+              console.log(`[ExportToEditron] Scene ${sceneIdx} video generated`);
             } else {
               failed++;
-              const errMsg = videoData.error || `Scene ${i} failed (${videoRes.status})`;
+              const errMsg = videoData.error || `Scene ${sceneIdx} failed (${videoRes.status})`;
               errors.push(errMsg);
-              console.error(`[ExportToEditron] Scene ${i} video failed:`, errMsg);
+              console.error(`[ExportToEditron] Scene ${sceneIdx} video failed:`, errMsg);
             }
           } catch (videoErr: any) {
             failed++;
-            errors.push(`Scene ${i}: ${videoErr.message}`);
-            console.error(`[ExportToEditron] Scene ${i} video exception:`, videoErr);
+            errors.push(`Scene ${sceneIdx}: ${videoErr.message}`);
+            console.error(`[ExportToEditron] Scene ${sceneIdx} video exception:`, videoErr);
           }
 
           setVideoProgress({ done: succeeded + failed, total: sbImages.length });
