@@ -149,17 +149,27 @@ export async function extractSubjectsFromScenes(
   const { object } = await generateObject({
     model,
     schema: SubjectExtractionSchema,
-    prompt: `You are a video pre-production AI. Analyze these scenes and identify the KEY VISUAL SUBJECTS that need to look consistent across the video.
+    prompt: `You are a video pre-production AI. Analyze these scenes and identify ONLY the HERO SUBJECTS — the core subjects the video is ABOUT that must look visually identical across scenes.
 
-RULES:
-- Only extract subjects that appear in 2 or more scenes (consistency matters for recurring subjects).
-- Focus on TANGIBLE visual subjects: characters, products, vehicles, specific locations, key objects.
-- Do NOT extract abstract concepts, emotions, or generic items like "table" or "sky".
+STRICT RULES:
+- ONLY extract the 1-3 most important recurring subjects. Quality over quantity.
+- The subject must be a PHYSICAL, TANGIBLE thing that can be rendered as a single isolated image: a specific person/character, a specific product, a specific vehicle, a specific key object.
+- The subject MUST appear in 2+ scenes and be CENTRAL to the video's narrative.
+- Do NOT extract:
+  • Locations, rooms, buildings, or environments (these are SETTINGS, not subjects)
+  • Background elements, furniture, props, or set dressing
+  • Text, logos, brand names, or UI elements
+  • Abstract concepts, moods, or atmospheres
+  • Generic items (a table, the sky, a phone) that aren't the HERO of the video
+  • Anything that is part of the setting rather than the subject
+- For a PRODUCT AD: extract ONLY the product itself (the watch, the shoe, the car)
+- For a STORY: extract ONLY the main character(s)
 - For each subject, write a visualDescription as an AI IMAGE GENERATION PROMPT for a REFERENCE SHEET:
-  - Describe the subject in isolation against a clean neutral/white background
+  - Describe the subject COMPLETELY IN ISOLATION against a clean neutral/white background
   - Include: exact colors, materials, textures, proportions, distinguishing details
-  - Studio lighting, sharp focus, multiple angles if it's a product
+  - Studio lighting, sharp focus
   - Example: "Luxury silver chronograph watch with midnight blue dial, polished steel bracelet, sapphire crystal, date window at 3 o'clock, clean white background, studio product photography, sharp focus"
+  - NEVER include scene context, backgrounds, or other objects — ONLY the subject itself
 ${options.artStyle ? `- Art style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
 
 SCENES:

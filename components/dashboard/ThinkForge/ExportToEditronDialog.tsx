@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send } from 'lucide-react';
+import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil } from 'lucide-react';
 import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -90,6 +90,8 @@ export function ExportToEditronDialog({
   const [regeneratingSubjectId, setRegeneratingSubjectId] = useState<string | null>(null);
   const [feedbackSubjectId, setFeedbackSubjectId] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
+  const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
+  const [editingDescription, setEditingDescription] = useState('');
   const [overallMusicPrompt, setOverallMusicPrompt] = useState('');
 
   // Request notification permission on mount
@@ -127,6 +129,8 @@ export function ExportToEditronDialog({
     setRegeneratingSubjectId(null);
     setFeedbackSubjectId(null);
     setFeedbackText('');
+    setEditingSubjectId(null);
+    setEditingDescription('');
     setOverallMusicPrompt('');
   };
 
@@ -514,7 +518,45 @@ export function ExportToEditronDialog({
     } else {
       setFeedbackSubjectId(subjectId);
       setFeedbackText('');
+      setEditingSubjectId(null); // close edit if open
     }
+  };
+
+  // Delete a subject entirely (remove from list)
+  const handleDeleteSubject = (subjectId: string) => {
+    setSubjects((prev) => prev.filter((s) => s.subjectId !== subjectId));
+    setApprovedSubjectIds((prev) => {
+      const next = new Set(prev);
+      next.delete(subjectId);
+      return next;
+    });
+    if (feedbackSubjectId === subjectId) { setFeedbackSubjectId(null); setFeedbackText(''); }
+    if (editingSubjectId === subjectId) { setEditingSubjectId(null); setEditingDescription(''); }
+  };
+
+  // Start editing a subject's visual description
+  const handleStartEditDescription = (subjectId: string) => {
+    const subject = subjects.find((s) => s.subjectId === subjectId);
+    if (!subject) return;
+    setEditingSubjectId(subjectId);
+    setEditingDescription(subject.visualDescription || '');
+    setFeedbackSubjectId(null); // close feedback if open
+  };
+
+  // Save edited description and regenerate
+  const handleSaveDescriptionAndRegenerate = async (subjectId: string) => {
+    if (!editingDescription.trim()) return;
+    // Update the subject's description locally
+    setSubjects((prev) =>
+      prev.map((s) =>
+        s.subjectId === subjectId
+          ? { ...s, visualDescription: editingDescription.trim() }
+          : s,
+      ),
+    );
+    setEditingSubjectId(null);
+    // Regenerate with the new description (send it as feedback override)
+    await handleRegenerateSubject(subjectId, editingDescription.trim());
   };
 
   const stepDescription = () => {
@@ -893,29 +935,52 @@ export function ExportToEditronDialog({
                           {isApproved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
                         </button>
 
-                        {/* Quick regenerate (no feedback) */}
-                        <button
-                          onClick={() => handleRegenerateSubject(subject.subjectId)}
-                          disabled={isRegenerating}
-                          className="absolute top-1.5 left-1.5 p-1 rounded-full bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200 transition-colors"
-                          title="Regenerate (random)"
-                        >
-                          <RefreshCw className={`h-3 w-3 ${isRegenerating ? 'animate-spin' : ''}`} />
-                        </button>
+                        {/* Top-left: Regenerate + Delete */}
+                        <div className="absolute top-1.5 left-1.5 flex gap-1">
+                          <button
+                            onClick={() => handleRegenerateSubject(subject.subjectId)}
+                            disabled={isRegenerating}
+                            className="p-1 rounded-full bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200 transition-colors"
+                            title="Regenerate (random)"
+                          >
+                            <RefreshCw className={`h-3 w-3 ${isRegenerating ? 'animate-spin' : ''}`} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteSubject(subject.subjectId)}
+                            className="p-1 rounded-full bg-zinc-700/80 text-red-400 hover:bg-red-600 hover:text-white transition-colors"
+                            title="Remove this subject"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
 
-                        {/* Feedback/prompt regenerate button */}
-                        <button
-                          onClick={() => toggleFeedbackPrompt(subject.subjectId)}
-                          disabled={isRegenerating}
-                          className={`absolute bottom-1.5 right-1.5 p-1 rounded-full transition-colors ${
-                            showFeedback
-                              ? 'bg-purple-500 text-white'
-                              : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200'
-                          }`}
-                          title="Regenerate with feedback"
-                        >
-                          <MessageSquare className="h-3 w-3" />
-                        </button>
+                        {/* Bottom-right: Edit description + Feedback */}
+                        <div className="absolute bottom-1.5 right-1.5 flex gap-1">
+                          <button
+                            onClick={() => handleStartEditDescription(subject.subjectId)}
+                            disabled={isRegenerating}
+                            className={`p-1 rounded-full transition-colors ${
+                              editingSubjectId === subject.subjectId
+                                ? 'bg-blue-500 text-white'
+                                : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200'
+                            }`}
+                            title="Edit description & regenerate"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => toggleFeedbackPrompt(subject.subjectId)}
+                            disabled={isRegenerating}
+                            className={`p-1 rounded-full transition-colors ${
+                              showFeedback
+                                ? 'bg-purple-500 text-white'
+                                : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200'
+                            }`}
+                            title="Quick feedback"
+                          >
+                            <MessageSquare className="h-3 w-3" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Info */}
@@ -924,16 +989,52 @@ export function ExportToEditronDialog({
                         <p className="text-[10px] text-zinc-500">
                           {subject.category} · Scenes {subject.scenesAppearingIn?.join(', ')}
                         </p>
+                        {/* Show visual description preview (truncated) */}
+                        {subject.visualDescription && editingSubjectId !== subject.subjectId && (
+                          <p className="text-[9px] text-zinc-600 mt-0.5 line-clamp-2">{subject.visualDescription}</p>
+                        )}
                       </div>
 
-                      {/* Feedback prompt input */}
-                      {showFeedback && (
+                      {/* Edit description UI */}
+                      {editingSubjectId === subject.subjectId && (
+                        <div className="px-2 pb-2 space-y-1">
+                          <p className="text-[10px] text-blue-400 font-medium">Edit description & regenerate:</p>
+                          <textarea
+                            value={editingDescription}
+                            onChange={(e) => setEditingDescription(e.target.value)}
+                            className="w-full bg-zinc-800 border border-zinc-600 text-zinc-200 text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-blue-500"
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="flex gap-1 justify-end">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => { setEditingSubjectId(null); setEditingDescription(''); }}
+                              className="text-zinc-400 h-6 px-2 text-[10px]"
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => handleSaveDescriptionAndRegenerate(subject.subjectId)}
+                              disabled={!editingDescription.trim() || isRegenerating}
+                              className="bg-blue-600 hover:bg-blue-700 text-white h-6 px-2 text-[10px]"
+                            >
+                              {isRegenerating ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save & Regenerate'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Quick feedback prompt input */}
+                      {showFeedback && editingSubjectId !== subject.subjectId && (
                         <div className="px-2 pb-2">
                           <div className="flex gap-1">
                             <Input
                               value={feedbackText}
                               onChange={(e) => setFeedbackText(e.target.value)}
-                              placeholder="e.g. make hair darker, add glasses..."
+                              placeholder="e.g. make it darker, remove text..."
                               className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7 flex-1"
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' && feedbackText.trim()) {
