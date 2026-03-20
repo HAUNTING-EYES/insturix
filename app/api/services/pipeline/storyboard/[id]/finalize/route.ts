@@ -70,6 +70,7 @@ export async function POST(
           height,
           isDragging: false,
           rotation: 0,
+          content: scene.videoUrl, // Fallback if src resolution fails
           src: scene.videoUrl,
           assetId: scene.videoAssetId,
           styles: {
@@ -91,7 +92,9 @@ export async function POST(
           height,
           isDragging: false,
           rotation: 0,
+          content: scene.imageUrl, // Fallback if src resolution fails
           src: scene.imageUrl,
+          assetId: scene.imageAssetId, // Needed so stripUrlsForLLM can be resolved back
           styles: {
             objectFit: 'cover',
             opacity: 1,
@@ -196,6 +199,7 @@ export async function POST(
     const db = await getDatabase();
     for (const scene of storyboard.scenes) {
       if (scene.videoUrl && scene.videoAssetId) {
+        const videoScene = scene as any;
         await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
           { assetId: scene.videoAssetId },
           {
@@ -205,8 +209,7 @@ export async function POST(
               type: 'video',
               filename: `${scene.videoAssetId}.mp4`,
               source: 'user-upload',
-              gcsPath: null,
-              publicUrl: scene.videoUrl,
+              gcsPath: videoScene.videoGcsPath || null,
               cachedUrl: scene.videoUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: 0,
@@ -226,8 +229,7 @@ export async function POST(
               type: 'image',
               filename: `${scene.imageAssetId}.png`,
               source: 'user-upload',
-              gcsPath: null,
-              publicUrl: scene.imageUrl,
+              gcsPath: (scene as any).imageGcsPath || null,
               cachedUrl: scene.imageUrl,
               urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
               size: 0,

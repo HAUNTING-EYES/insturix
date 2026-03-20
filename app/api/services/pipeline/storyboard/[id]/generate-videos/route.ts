@@ -117,6 +117,7 @@ export async function POST(
         await updateStoryboardScene(storyboardId, scene.sceneIndex, {
           videoAssetId: result.assetId,
           videoUrl: result.videoUrl,
+          videoGcsPath: result.gcsPath,
           videoProvider: result.provider,
           videoDurationMs: result.durationMs,
         });

@@ -62,6 +62,7 @@ export interface VideoGenerationRequest {
 
 export interface VideoGenerationResult {
   videoUrl: string;
+  gcsPath: string;
   assetId: string;
   provider: VideoProvider;
   durationMs: number;
@@ -117,6 +118,7 @@ async function generateVideoWithFal(
 
   return {
     videoUrl: uploadResult.signedUrl,
+    gcsPath: uploadResult.gcsPath,
     assetId,
     provider: 'fal-ai',
     durationMs: duration * 1000,
@@ -212,6 +214,7 @@ async function generateVideoWithKie(
 
       return {
         videoUrl: uploadResult.signedUrl,
+        gcsPath: uploadResult.gcsPath,
         assetId,
         provider: 'kie-ai',
         durationMs: duration * 1000,

@@ -93,6 +93,7 @@ export async function generateStoryboardImage(
 
   return {
     imageUrl: uploadResult.signedUrl,
+    gcsPath: uploadResult.gcsPath,
     assetId,
     modelUsed: modelId,
   };
@@ -164,6 +165,7 @@ export async function generateFullStoryboard(
 
       sbScene.imageAssetId = result.assetId;
       sbScene.imageUrl = result.imageUrl;
+      (sbScene as any).imageGcsPath = result.gcsPath;
       sbScene.status = 'generated';
       sbScene.generationHistory.push({
         assetId: result.assetId,
@@ -175,6 +177,7 @@ export async function generateFullStoryboard(
       await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
         imageAssetId: result.assetId,
         imageUrl: result.imageUrl,
+        imageGcsPath: result.gcsPath,
         status: 'generated',
         generationHistory: sbScene.generationHistory,
       });
