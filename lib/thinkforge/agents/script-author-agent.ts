@@ -9,6 +9,7 @@ import { parseAgentJson } from '../protocol/parse-agent-json';
 export interface ScriptAuthorInput extends AgentInput {
   outline?: ScriptOutline;
   contract?: NarrativeContract;
+  documentType?: string;
 }
 
 export interface ScriptAuthorIntentInput extends AgentInput {
@@ -16,6 +17,111 @@ export interface ScriptAuthorIntentInput extends AgentInput {
   instruction: string;
   currentScript?: ThinkForgeBlock[];
   recentBlocks?: ThinkForgeBlock[];
+  documentType?: string;
+}
+
+interface DocumentRoleProfile {
+  role: string;
+  executionTest: string;
+  outputFeeling: string;
+  sectionGuidance: string;
+  defaultVoice: string;
+  defaultMedium: string;
+}
+
+function inferRoleFromContext(projectSummary: string, userPrompt: string, explicitDocType?: string): DocumentRoleProfile {
+  const docType = (explicitDocType || '').toLowerCase();
+  const combined = `${projectSummary} ${userPrompt}`.toLowerCase();
+
+  if (docType === 'character_bible' || /character|backstor|bible|arc|motivation|relationship/i.test(combined)) {
+    return {
+      role: 'a Senior Narrative Designer and Character Architect',
+      executionTest: 'A writer should be able to say: "I know exactly who this character is and how they behave."',
+      outputFeeling: 'a professional character bible, narrative profile, or story design document',
+      sectionGuidance: '- Use sections like: Background, Motivation, Personality, Relationships, Arc, Key Quotes, Visual Description.',
+      defaultVoice: 'narrator',
+      defaultMedium: 'written_document',
+    };
+  }
+  if (docType === 'world_bible' || /world|universe|physics|lore|history|rules|magic system/i.test(combined)) {
+    return {
+      role: 'a Senior Worldbuilder and Lore Architect',
+      executionTest: 'A creator should be able to say: "I know exactly how this world works and its rules."',
+      outputFeeling: 'an encyclopedic worldbuilding bible or lore document',
+      sectionGuidance: '- Use sections like: Overview, Rules/Physics, History, Geography, Factions, Key Locations, Edge Cases.',
+      defaultVoice: 'historian',
+      defaultMedium: 'written_document',
+    };
+  }
+  if (docType === 'vfx_brief' || /vfx|visual effect|cgi|composite|green ?screen/i.test(combined)) {
+    return {
+      role: 'a Senior VFX Supervisor and Technical Director',
+      executionTest: 'A VFX artist should be able to say: "I know exactly what needs to be built and composited."',
+      outputFeeling: 'a professional VFX brief, technical specification, or effects breakdown',
+      sectionGuidance: '- Use sections like: Scene, Effect Description, Technical Requirements, Reference, Complexity, Dependencies.',
+      defaultVoice: 'technical_lead',
+      defaultMedium: 'technical_brief',
+    };
+  }
+  if (docType === 'budget' || /budget|cost|financ|resource|crew|location|schedul/i.test(combined)) {
+    return {
+      role: 'a Senior Line Producer and Production Planner',
+      executionTest: 'A producer should be able to say: "I know exactly what this costs and what resources I need."',
+      outputFeeling: 'a professional production budget, resource plan, or cost breakdown',
+      sectionGuidance: '- Use sections like: Summary, Line Items, Cost Breakdown, Resources, Timeline, Contingency.\n- Use tables where appropriate for costs and quantities.',
+      defaultVoice: 'producer',
+      defaultMedium: 'production_plan',
+    };
+  }
+  if (docType === 'interview_questions' || /interview|question|subject|testimony/i.test(combined)) {
+    return {
+      role: 'a Senior Documentary Producer and Interview Director',
+      executionTest: 'An interviewer should be able to say: "I know exactly what to ask and in what order."',
+      outputFeeling: 'a professional interview guide, question deck, or documentary prep doc',
+      sectionGuidance: '- Use sections like: Subject Profile, Opening Questions, Deep-Dive Questions, Emotional Beats, Closing, Follow-Ups.',
+      defaultVoice: 'interviewer',
+      defaultMedium: 'interview_guide',
+    };
+  }
+  if (docType === 'score_direction' || /score|music|sound|audio|soundtrack|composer/i.test(combined)) {
+    return {
+      role: 'a Senior Music Supervisor and Score Director',
+      executionTest: 'A composer should be able to say: "I know exactly what emotion and texture each cue needs."',
+      outputFeeling: 'a professional score direction document or music brief',
+      sectionGuidance: '- Use sections like: Scene/Moment, Emotional Target, Genre/Style, Instrumentation, Tempo, Reference Tracks, Transition Notes.',
+      defaultVoice: 'music_director',
+      defaultMedium: 'score_direction',
+    };
+  }
+  if (docType === 'research_brief' || /research|analysis|seo|repurpos|competitor/i.test(combined)) {
+    return {
+      role: 'a Senior Content Strategist and Research Analyst',
+      executionTest: 'A content creator should be able to say: "I know exactly what angles to pursue and why."',
+      outputFeeling: 'a professional research brief, content strategy deck, or competitive analysis',
+      sectionGuidance: '- Use sections like: Executive Summary, Key Findings, Opportunities, Competitive Landscape, Recommendations, Data Sources.',
+      defaultVoice: 'strategist',
+      defaultMedium: 'research_brief',
+    };
+  }
+  if (docType === 'shot_list' || /shot ?list|storyboard|pre-?viz|visual plan/i.test(combined)) {
+    return {
+      role: 'a Senior Storyboard Artist and Cinematographer',
+      executionTest: 'A filmmaker should be able to say: "I know exactly what shots to capture and how to frame them."',
+      outputFeeling: 'a professional shot list, storyboard document, or visual plan',
+      sectionGuidance: '- Use sections like: Shot Number, Description, Camera, Framing, Motion, Duration, Audio, Transition.\n- Use labels like: "Purpose:", "Shot:", "Camera:", "Framing:", "Motion:", "Lighting:", "Audio:", "Timing:", "Feeling:".',
+      defaultVoice: 'director',
+      defaultMedium: 'visual_plan',
+    };
+  }
+
+  return {
+    role: 'a Senior Creative Director and Production Strategist',
+    executionTest: 'A creator should be able to say: "I know exactly what to make and how to execute it."',
+    outputFeeling: 'a professional creative brief, production document, or strategy deck',
+    sectionGuidance: '- Use natural section formats appropriate to the project type.\n- Frequently use labels like: "Purpose:", "Direction:", "Why this works:", "Note:".',
+    defaultVoice: 'director',
+    defaultMedium: 'voiceover',
+  };
 }
 
 export class ScriptAuthorAgent extends BaseAgent {
@@ -68,18 +174,24 @@ export class ScriptAuthorAgent extends BaseAgent {
         ? `Recent blocks (with blockIds):\n${serializedRecent}`
         : '';
 
-    return `You are a Senior Creative Director and Storyboard Artist.
-  You create documents that tell another professional exactly what to make.
-  Your job is not to write essays. Your job is to translate ideas into clear, executable creative direction.
-  Every output must be usable by a human creator without interpretation.
-  A filmmaker should be able to say: “I know exactly what shots to capture.”
-  An editor should be able to say: “I know exactly how to cut this.”
-  A motion designer should be able to say: “I know exactly how to animate this.”
-  If the document feels like prose instead of instruction, it is incorrect.
-  If a professional cannot directly execute the work from this document, the output is wrong.
+    const outline = (input as any).outline as ScriptOutline | undefined;
+    const contract = (input as any).contract as NarrativeContract | undefined;
+    const outlineSummary = outline
+      ? outline.sections.map((s) => `- ${s.title}: ${s.goal}`).join('\n')
+      : 'None';
 
-  Your output must feel like a storyboard document, creative brief, prompt pack, or treatment deck.
-  It must never feel like an article, blog, documentary script, or prose essay.
+    const roleProfile = inferRoleFromContext(context.projectSummary || '', instruction, input.documentType);
+
+    return `You are ${roleProfile.role}.
+  You create documents that tell another professional exactly what to do or make.
+  Your job is not to write essays. Your job is to translate ideas into clear, executable direction.
+  Every output must be usable by a professional without interpretation.
+  ${roleProfile.executionTest}
+  If the document feels like prose instead of actionable content, it is incorrect.
+  If a professional cannot directly execute from this document, the output is wrong.
+
+  Your output must feel like ${roleProfile.outputFeeling}.
+  It must never feel like an article, blog post, or verbose AI ramble.
 
 Project: ${context.projectSummary || '(No project context)'}
 User request: ${instruction}
@@ -95,9 +207,9 @@ OUTPUT FORMAT REQUIREMENTS:
 - Do not include backticks.
 - The response must be a single JSON object.
 
-${contract ? `Narrative voice: ${contract.narrator_voice || 'director'}
+${contract ? `Narrative voice: ${contract.narrator_voice || roleProfile.defaultVoice}
 Tone: ${contract.tone || 'confident'}
-Medium: ${contract.medium || 'voiceover'}
+Medium: ${contract.medium || roleProfile.defaultMedium}
 
 Style notes:
 ${(contract.style_notes || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
@@ -115,24 +227,16 @@ ${outlineSummary}
 - Documents must be modular and scannable. Prefer short sections over long narrative blocks.
 - Headings are structural anchors, not literary chapter titles.
 - Content must be written for reuse, clarity, and execution.
-- Use this as the H1 title when possible: ${outline?.title || 'Use a concise cinematic title'}
-- Sections should naturally use formats like: Purpose, Shot description, Camera, Framing, Motion, Lighting, Audio, Timing, Feeling, Transition, Notes for editor, Notes for animator.
-- Frequently use labels such as: "Prompt / Direction:", "Purpose:", "Shot:", "Camera:", "Framing:", "Motion:", "Lighting:", "Audio:", "Timing:", "Feeling:", "Transition:", "Editor note:", "Animator note:", "Why this works:".
+- Use this as the H1 title when possible: ${outline?.title || 'Use a clear, professional title'}
+${roleProfile.sectionGuidance}
 - Do not write long continuous prose blocks.
 - Do not write long narrative essays.
 - Do not write philosophical commentary.
-- Do not write like a blog or documentary pitch.
 - Do not prioritize emotional language over clarity.
 - Do not write to impress, write to enable execution.
 - Do not mention internal systems, schemas, or validation rules.
 
-Example of desired style:
-FRAME 1 — HERO STILL
-Purpose: Establish luxury
-Prompt: A centered product floating in a flat-color environment…
-Feeling: Calm, premium, deliberate
-
-Final rule: Every output must feel like a professional creative deliverable someone could immediately use, not a piece of writing to admire.
+Final rule: Every output must feel like a professional deliverable someone could immediately use, not a piece of writing to admire.
 `;
   }
 
@@ -150,25 +254,29 @@ Final rule: Every output must feel like a professional creative deliverable some
           .join('\n')
       : 'None';
 
-    return `You are a Senior Creative Director and Storyboard Artist.
-  You create documents that tell another professional exactly what to make.
-  Your job is not to write essays. Your job is to translate ideas into clear, executable creative direction.
-  Every output must be usable by a human creator without interpretation.
-  A filmmaker should be able to say: “I know exactly what shots to capture.”
-  An editor should be able to say: “I know exactly how to cut this.”
-  A motion designer should be able to say: “I know exactly how to animate this.”
-  If the document feels like prose instead of instruction, it is incorrect.
-  If a professional cannot directly execute the work from this document, the output is wrong.
+    const roleProfile = inferRoleFromContext(
+      context.projectSummary || '',
+      userPrompt,
+      (input as ScriptAuthorInput).documentType
+    );
 
-  Your output must feel like a storyboard document, creative brief, prompt pack, or treatment deck.
-  It must never feel like an article, blog, documentary script, or prose essay.
+    return `You are ${roleProfile.role}.
+  You create documents that tell another professional exactly what to do or make.
+  Your job is not to write essays. Your job is to translate ideas into clear, executable direction.
+  Every output must be usable by a professional without interpretation.
+  ${roleProfile.executionTest}
+  If the document feels like prose instead of actionable content, it is incorrect.
+  If a professional cannot directly execute from this document, the output is wrong.
+
+  Your output must feel like ${roleProfile.outputFeeling}.
+  It must never feel like an article, blog post, or verbose AI ramble.
 
 Project: ${context.projectSummary || '(No project context)'}
 User request: ${userPrompt}
 
-${contract ? `Narrative voice: ${contract.narrator_voice || 'director'}
+${contract ? `Narrative voice: ${contract.narrator_voice || roleProfile.defaultVoice}
 Tone: ${contract.tone || 'confident'}
-Medium: ${contract.medium || 'voiceover'}
+Medium: ${contract.medium || roleProfile.defaultMedium}
 
 Style notes:
 ${(contract.style_notes || []).map((n) => `- ${n}`).join('\n') || '- (none)'}
@@ -185,24 +293,16 @@ ${outlineSummary}
 - Documents must be modular and scannable. Prefer short sections over long narrative blocks.
 - Headings are structural anchors, not literary chapter titles.
 - Content must be written for reuse, clarity, and execution.
-- Use this as the H1 title when possible: ${outline?.title || 'Use a concise cinematic title'}
-- Sections should naturally use formats like: Purpose, Shot description, Camera, Framing, Motion, Lighting, Audio, Timing, Feeling, Transition, Notes for editor, Notes for animator.
-- Frequently use labels such as: "Prompt / Direction:", "Purpose:", "Shot:", "Camera:", "Framing:", "Motion:", "Lighting:", "Audio:", "Timing:", "Feeling:", "Transition:", "Editor note:", "Animator note:", "Why this works:".
+- Use this as the H1 title when possible: ${outline?.title || 'Use a clear, professional title'}
+${roleProfile.sectionGuidance}
 - Do not write long continuous prose blocks.
 - Do not write long narrative essays.
 - Do not write philosophical commentary.
-- Do not write like a blog or documentary pitch.
 - Do not prioritize emotional language over clarity.
 - Do not write to impress, write to enable execution.
 - Do not mention internal systems, schemas, or validation rules.
 
-Example of desired style:
-FRAME 1 — HERO STILL
-Purpose: Establish luxury
-Prompt: A centered product floating in a flat-color environment…
-Feeling: Calm, premium, deliberate
-
-Final rule: Every output must feel like a professional creative deliverable someone could immediately use, not a piece of writing to admire.
+Final rule: Every output must feel like a professional deliverable someone could immediately use, not a piece of writing to admire.
 `;
   }
 

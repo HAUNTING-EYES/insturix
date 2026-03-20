@@ -5,26 +5,24 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 // Import Tiptap editor styles
 import '@/styles/thinkforge-editor.css';
 import { motion } from 'framer-motion';
-import { 
-  ArrowLeft, 
+import { cn } from '@/lib/utils';
+import {
+  ArrowLeft,
   Download,
   Copy,
   Check,
   Loader2,
   Sparkles,
-  Eye,
-  Edit,
   FileText,
   GitBranch,
   Plus,
   History,
   MoreVertical,
-  FileDown
+  FileDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
-import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,8 +46,8 @@ import { Editor } from '@tiptap/core';
 // Import Tiptap extensions bundle
 import { getThinkForgeExtensions, DEFAULT_EMPTY_DOCUMENT } from '@/lib/thinkforge/extensions';
 
-// Import ScriptRenderer for preview mode
-import ScriptRenderer from "./ScriptRenderer";
+// Import LiveDocumentRenderer for real-time streaming render
+import LiveDocumentRenderer from "./LiveDocumentRenderer";
 
 // Import Tiptap mappers and validation
 import { thinkForgeBlocksToTiptapJSON } from "@/lib/thinkforge/mappers/thinkforge-to-tiptap";
@@ -60,6 +58,7 @@ import { buildScriptHtmlDocument, buildScriptText, downloadBlob, printHtmlDocume
 import type { TiptapJSON } from "@/lib/thinkforge/schemas/tiptap-schema";
 import { useStreamingBlocks } from "@/lib/thinkforge/hooks/useStreamingBlocks";
 import { useVersionManager } from "@/app/dashboard/thinkforge/hooks/useVersionManager";
+import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
 
 // Import FormatToolbar
 import { FormatToolbar } from "./FormatToolbar";
@@ -69,6 +68,9 @@ import { ScriptHistoryPanel } from "./ScriptHistoryPanel";
 
 // Import streaming Tiptap hook
 import { useStreamingTiptap } from "@/lib/thinkforge/hooks/useStreamingTiptap";
+
+// Import Markdown parser
+import { marked } from 'marked';
 
 // Import selection editing utilities
 import { serializeSelectionToThinkForgeBlocks, applyAIEditToSelection, isSelectionEditable } from "@/lib/thinkforge/utils/selection-editing";
@@ -91,7 +93,7 @@ function toTiptapJSON(blocks: any): TiptapJSON {
       // Invalid Tiptap JSON, try to convert
     }
   }
-  
+
   // Convert from ThinkForgeBlocks
   const validated = validateThinkForgeBlocks(blocks || []);
   if (!validated.length) {
@@ -132,7 +134,7 @@ export default function ScriptEditor({
   onTokenStream, // Optional callback to receive streaming tokens
   onGetSelection, // Optional callback setter for getting current selection
   onEditSelection,
-}: ScriptEditorProps & { 
+}: ScriptEditorProps & {
   onTokenStream?: (callback: (tokens: string) => void) => void;
   onGetSelection?: (callback: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null) => void;
   onEditSelection?: (text: string, range: { from: number; to: number }, blocks: any[]) => void;
@@ -144,12 +146,13 @@ export default function ScriptEditor({
   const [isSelecting, setIsSelecting] = useState(false);
   const isSelectingRef = useRef(false);
   const [copied, setCopied] = useState(false);
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [liveContent, setLiveContent] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [justSaved, setJustSaved] = useState(false);
   const prevIsSavingRef = useRef<boolean>(false);
   const [showBranchEditor, setShowBranchEditor] = useState(false);
+  const loadedTitleRef = useRef<string | null>(null);
   const selectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isUpdatingFromPropsRef = useRef(false);
   const lastLoadedContentRef = useRef<string>(''); // Track last loaded content to avoid unnecessary reloads
@@ -161,32 +164,48 @@ export default function ScriptEditor({
   const autosavePausedRef = useRef(false);
   const scriptVersionRef = useRef<number>(0);
   const isSwitchingScriptRef = useRef(false);
-  
+
   // CRITICAL: Pending blocks queue for deterministic hydration
   // Stores blocks that arrived before editor was ready
   const pendingBlocksRef = useRef<any[] | null>(null);
-  
+
   // CRITICAL: Track user typing state to prevent remote updates from overwriting user input
   const isUserTypingRef = useRef(false);
   const lastUserInputTimeRef = useRef<number>(0);
   const USER_TYPING_TIMEOUT = 2000; // Consider user stopped typing after 2s of inactivity
-  
+
   // CRITICAL: Guards for Branch Editor restore and local edits
   const isRestoringVersionRef = useRef(false); // Only true when restoring a version
   const hasLocalEditsRef = useRef(false); // True if user has made local edits
   const isHydratedOnceRef = useRef(false); // True after initial hydration
-  
+
   // Cursor preservation state
   const cursorPositionRef = useRef<CursorPosition | null>(null);
-  
+
   // Refs for callbacks to avoid initialization order issues
   const handleContentChangeRef = useRef<(() => void) | null>(null);
   const handleSelectionChangeRef = useRef<(() => void) | null>(null);
-  
+
+  // Shadow logger: track character count to detect significant deletions
+  const prevCharCountRef = useRef<number>(0);
+  const DELETION_THRESHOLD = 30;
+
+  // Observer pipeline: debounce typing lulls for background fact extraction
+  const observerTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const lastObservedTextRef = useRef<string>('');
+  const OBSERVER_LULL_MS = 5000; // Increased to 5s for cost optimization
+  const OBSERVER_MIN_CHARS = 100; // Only analyze larger blocks of text
+
   // Script identifier for multi-script tabs
   const scriptResourceId = useMemo(() => {
     return scriptId || 'default';
   }, [scriptId]);
+
+  // Effective title: prefer loaded API title > prop title > fallback
+  const getEffectiveTitle = useCallback(() => {
+    return loadedTitleRef.current || script?.title || 'Untitled Script';
+  }, [script?.title]);
+
   const versionManager = useVersionManager(sessionId || null, scriptResourceId);
   const {
     createVersion,
@@ -196,7 +215,7 @@ export default function ScriptEditor({
     error: versionManagerError,
   } = versionManager;
   const lastVersionHashRef = useRef<string | null>(null);
-  
+
   // Streaming state
   const [streamingUrl, setStreamingUrl] = useState<string | null>(null);
   const streamingBlocks = useStreamingBlocks(streamingUrl, {
@@ -209,18 +228,7 @@ export default function ScriptEditor({
     },
   });
 
-  // Preview blocks for ScriptRenderer
-  const previewBlocks = useMemo(() => {
-    if (script?.blocks) {
-      // Check if it's already Tiptap JSON
-      if (script.blocks && typeof script.blocks === 'object' && (script.blocks as any).type === 'doc') {
-        return script.blocks;
-      }
-      // Convert to Tiptap JSON for preview
-      return toTiptapJSON(script.blocks);
-    }
-    return DEFAULT_EMPTY_DOCUMENT;
-  }, [script]);
+
 
   const editorExtensions = useMemo(() => getThinkForgeExtensions({
     placeholder: 'Start writing your script...',
@@ -238,20 +246,48 @@ export default function ScriptEditor({
     },
     onUpdate: ({ editor }) => {
       queueMicrotask(() => {
-        // Skip if this is an update from props/API
         if (isUpdatingFromPropsRef.current || isProgrammaticUpdateRef.current) {
+          prevCharCountRef.current = editor.state.doc.textContent.length;
           return;
         }
-        // CRITICAL: Mark user as actively typing
         isUserTypingRef.current = true;
         lastUserInputTimeRef.current = Date.now();
-        // Clear typing flag after timeout
         setTimeout(() => {
           isUserTypingRef.current = false;
         }, USER_TYPING_TIMEOUT);
-        // Mark as having unsaved changes
+
+        // Shadow Logger: detect significant content deletion
+        const currentLen = editor.state.doc.textContent.length;
+        const delta = prevCharCountRef.current - currentLen;
+        if (delta >= DELETION_THRESHOLD && sessionId) {
+          logShadowEvent({
+            projectId: sessionId,
+            sessionId,
+            type: 'content_deleted',
+            payload: { charsDeleted: delta },
+          });
+        }
+        prevCharCountRef.current = currentLen;
+
+        // Observer pipeline: schedule background extraction on typing lull
+        // SECOND BRAIN DISABLED
+        if (false && sessionId && currentLen >= OBSERVER_MIN_CHARS) {
+          if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
+          observerTimerRef.current = setTimeout(() => {
+            const fullText = editor.state.doc.textContent;
+            const tail = fullText.slice(-500);
+            if (tail !== lastObservedTextRef.current && tail.length >= 20) {
+              lastObservedTextRef.current = tail;
+              fetch('/api/services/thinkforge/events/observe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text: tail, sessionId, source: 'editor' }),
+              }).catch(() => { });
+            }
+          }, OBSERVER_LULL_MS);
+        }
+
         setHasUnsavedChanges(true);
-        // handleContentChange will be defined later, use a ref to avoid initialization order issues
         if (handleContentChangeRef.current) {
           handleContentChangeRef.current();
         }
@@ -270,35 +306,36 @@ export default function ScriptEditor({
   // Handle token streaming from chat
   useEffect(() => {
     if (onTokenStream) {
-      // Register callback to receive tokens
       onTokenStream((tokens: string) => {
         if (generatingScript) {
-          isProgrammaticUpdateRef.current = true;
-          streamingTiptap.appendTokens(tokens);
-          requestAnimationFrame(() => {
-            isProgrammaticUpdateRef.current = false;
-          });
+          // Accumulate raw markdown ONLY for the LiveDocumentRenderer overlay.
+          // We intentionally do NOT feed raw tokens to Tiptap here because
+          // useStreamingTiptap.parseTextToBlocks strips inline formatting
+          // (bold, italic, tables) and inserts them as raw plain text.
+          // Tiptap will sync cleanly from the API response once generation
+          // is complete via the existing polling / ai-update hydration path.
+          setLiveContent((prev) => prev + tokens);
         }
       });
     }
-  }, [onTokenStream, generatingScript, streamingTiptap]);
+  }, [onTokenStream, generatingScript]);
 
   // CRITICAL: Hydrate pending blocks when editor becomes ready
   // This ensures blocks that arrived before editor initialization are not lost
   useEffect(() => {
     if (!editor) return;
-    
+
     // Check if there are pending blocks waiting for hydration
     if (pendingBlocksRef.current && pendingBlocksRef.current.length > 0) {
       console.log('[Script] Editor ready — hydrating', pendingBlocksRef.current.length, 'pending blocks');
       try {
         const tiptapContent = toTiptapJSON(pendingBlocksRef.current);
         const contentHash = JSON.stringify(tiptapContent);
-        
+
         // Only apply if not already loaded
         if (contentHash !== lastLoadedContentRef.current) {
           isUpdatingFromPropsRef.current = true;
-          editor.commands.setContent(tiptapContent);
+          editor.commands.setContent(tiptapContent as any);
           isUpdatingFromPropsRef.current = false;
           lastLoadedContentRef.current = contentHash;
           console.log('[Script] Pending hydration success');
@@ -319,7 +356,7 @@ export default function ScriptEditor({
     if (onGetSelection && editor) {
       onGetSelection(() => {
         if (!editor) return null;
-        
+
         const selection = serializeSelectionToThinkForgeBlocks(editor);
         return {
           blocks: selection.blocks,
@@ -341,6 +378,7 @@ export default function ScriptEditor({
   useEffect(() => {
     if (generatingScript) {
       streamingTiptap.reset();
+      setLiveContent('');
     }
   }, [generatingScript, streamingTiptap]);
 
@@ -355,14 +393,39 @@ export default function ScriptEditor({
       }
       // Reset streaming state to prevent further token processing
       streamingTiptap.reset();
+      // Keep live renderer visible with final content (user clicks to dismiss)
     }
   }, [generatingScript, streamingTiptap]);
+
+  // Sync live renderer content: after generation ends, update liveContent with
+  // the final script.content if available.
+  useEffect(() => {
+    if (!generatingScript && script?.content) {
+      setLiveContent(script.content);
+    }
+  }, [generatingScript, script?.content]);
+
+  // Sync loadedTitleRef from prop when a real title arrives
+  useEffect(() => {
+    if (script?.title && script.title !== 'Untitled Script') {
+      loadedTitleRef.current = script.title;
+    }
+  }, [script?.title]);
+
+  // Lock / unlock editor based on AI generation state.
+  // This prevents user input from colliding with streaming tokens.
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!generatingScript);
+  }, [editor, generatingScript]);
+
+
 
   // Safe content update function
   // CRITICAL: Only call setContent when restoring a version or initial load
   // Autosave and polling must NEVER call setContent
   const safeSetContent = useCallback(
-    (content: TiptapJSON, reason: string) => {
+    (content: TiptapJSON | string, reason: string) => {
       if (!editor) return;
 
       // CRITICAL: Only allow setContent for:
@@ -375,7 +438,7 @@ export default function ScriptEditor({
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';
       const isNewScript = reason === 'new-script-button' || reason === 'clear-editor-new-script' || reason === 'clear-editor-new-session';
-      
+
       // Block setContent if:
       // - Not initial load, not restore, not new script, and has local edits
       // - Not initial load, not restore, not new script, and user is typing
@@ -392,9 +455,9 @@ export default function ScriptEditor({
 
       try {
         isUpdatingFromPropsRef.current = true;
-        editor.commands.setContent(content);
+        editor.commands.setContent(content as any);
         isUpdatingFromPropsRef.current = false;
-        
+
         // Mark as hydrated after initial load
         if (isInitialLoad) {
           isHydratedOnceRef.current = true;
@@ -402,10 +465,10 @@ export default function ScriptEditor({
       } catch (error) {
         console.error(`ScriptEditor: setContent failed (${reason})`, error);
         isUpdatingFromPropsRef.current = false;
-        
+
         // Fallback to empty document
         try {
-          editor.commands.setContent(DEFAULT_EMPTY_DOCUMENT);
+          editor.commands.setContent(DEFAULT_EMPTY_DOCUMENT as any);
         } catch (fallbackError) {
           console.error(`ScriptEditor: Fallback setContent failed`, fallbackError);
         }
@@ -418,41 +481,41 @@ export default function ScriptEditor({
   // CRITICAL: Must never overwrite user edits - user input is source of truth
   // CRITICAL: Never call setContent if user has local edits (except restore/initial load)
   const applyContentToEditor = useCallback(
-    (content: TiptapJSON, reason: string) => {
+    (content: TiptapJSON | string, reason: string) => {
       if (!editor) return false;
-      
+
       const isInitialLoad = reason === 'initial-load-api' || reason === 'initial-load-prop';
       const isVersionRestore = reason === 'version-restore' || isRestoringVersionRef.current;
       const isAIUpdate = reason === 'ai-update';  // AI-generated content should be allowed
-      
+
       // CRITICAL: Never apply remote updates if user is actively typing (except initial load/restore/AI)
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
-      
+
       if (userRecentlyTyped && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
         console.log(`[Script] Blocking ${reason} — user is actively typing`);
         return false;
       }
-      
+
       // CRITICAL: Never overwrite if user has unsaved changes (unless initial load/restore/AI)
       // AI updates are allowed because they're the result of user's explicit request
       if (hasUnsavedChanges && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
         console.log(`[Script] Blocking ${reason} — user has unsaved changes`);
         return false;
       }
-      
+
       // CRITICAL: Never overwrite if user has local edits (unless initial load/restore/AI)
       if (hasLocalEditsRef.current && !isInitialLoad && !isVersionRestore && !isAIUpdate) {
         console.log(`[Script] Blocking ${reason} — user has local edits`);
         return false;
       }
-      
+
       const contentHash = JSON.stringify(content);
       if (contentHash === lastLoadedContentRef.current) {
         console.log(`[Script] Skipping ${reason} — content hash unchanged`);
         return false;
       }
-      
+
       safeSetContent(content, reason);
       // Only clear unsaved changes flag if this is an initial load
       // User edits should preserve the flag
@@ -476,21 +539,21 @@ export default function ScriptEditor({
     if (!sessionId || !editor) return;
     if (versionManagerLoading || versionManagerError) return;
     if (isRestoringVersionRef.current) return;
-    
+
     try {
       const tiptapJSON = editor.getJSON() as TiptapJSON;
       const hash = JSON.stringify(tiptapJSON);
-      
+
       if (lastVersionHashRef.current === hash) {
         return;
       }
-      
+
       const blocks = tiptapJSONToThinkForgeBlocks(tiptapJSON);
       const validated = validateThinkForgeBlocks(blocks);
       const created = createVersion(validated as any, description, {
         isAutoSave: options?.isAutoSave,
       });
-      
+
       if (created) {
         lastVersionHashRef.current = hash;
       }
@@ -531,7 +594,7 @@ export default function ScriptEditor({
       const blocks = tiptapJSONToThinkForgeBlocks(tiptapContent);
       const validated = validateThinkForgeBlocks(blocks);
       onEditScript({
-        title: script?.title || 'Untitled Script',
+        title: getEffectiveTitle(),
         version: (script as any)?.version ?? scriptVersionRef.current,
         blocks: validated,
         richText: tiptapContent,
@@ -547,27 +610,27 @@ export default function ScriptEditor({
     } catch (error) {
       console.error('ScriptEditor: Failed to sync hydrated script', error);
     }
-  }, [onEditScript, script]);
+  }, [onEditScript, script, getEffectiveTitle]);
 
   // Load blocks from API or script.blocks prop - only on initial mount or scriptId change
   // CRITICAL: Must never overwrite user edits during load
   const initialLoadDoneRef = useRef(false);
-  
+
   useEffect(() => {
     const loadBlocks = async () => {
       if (!editor) return;
       const forceHydration = isSwitchingScriptRef.current;
-      
+
       // CRITICAL: Skip if user is actively editing or has unsaved changes
       // User input is always the source of truth
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
-      
+
       if (!forceHydration && (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped)) {
         console.log('ScriptEditor: Skipping load, user is actively editing');
         return;
       }
-      
+
       try {
         // Try to fetch from API if session is available
         if (sessionId) {
@@ -580,11 +643,16 @@ export default function ScriptEditor({
             if (typeof data?.version === 'number') {
               scriptVersionRef.current = data.version;
             }
-            
+            if (data?.title) {
+              loadedTitleRef.current = data.title;
+            }
+
             // Check if response has richText (Tiptap JSON) or blocks (ThinkForge format)
-            let tiptapContent: TiptapJSON | null = null;
+            let tiptapContent: TiptapJSON | string | null = null;
             if (data.richText && isTiptapJSON(data.richText)) {
               tiptapContent = data.richText;
+            } else if (data.content) {
+              tiptapContent = await marked.parse(data.content);
             } else if (data.blocks) {
               tiptapContent = toTiptapJSON(data.blocks);
             } else if (forceHydration) {
@@ -593,20 +661,20 @@ export default function ScriptEditor({
               console.warn('ScriptEditor: API returned no valid content');
               return;
             }
-            
+
             // CRITICAL: Final check before applying - user might have typed during fetch
             const finalCheck = Date.now() - lastUserInputTimeRef.current;
             if (!forceHydration && (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT || hasUnsavedChanges)) {
               console.log('ScriptEditor: Skipping load, user typed during fetch');
               return;
             }
-            
-            const hasContent = !!(tiptapContent?.content && tiptapContent.content.length > 0);
+
+            const hasContent = !!(typeof tiptapContent === 'string' ? tiptapContent.length > 0 : tiptapContent?.content && tiptapContent.content.length > 0);
             if (tiptapContent && (hasContent || forceHydration)) {
               const applied = applyContentToEditor(tiptapContent, 'initial-load-api');
               if (applied) {
                 initialLoadDoneRef.current = true;
-                notifyHydratedScript(tiptapContent);
+                notifyHydratedScript(tiptapContent as any);
                 console.log('ScriptEditor: Loaded content from API');
               }
               return;
@@ -620,15 +688,20 @@ export default function ScriptEditor({
         if (script?.blocks) {
           const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
           const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
-          
+
           if (forceHydration || (!hasUnsavedChanges && !userRecentlyTyped)) {
-            const tiptapContent = toTiptapJSON(script.blocks);
-            const hasContent = !!(tiptapContent.content && tiptapContent.content.length > 0);
+            let tiptapContent: TiptapJSON | string;
+            if (script.content) {
+              tiptapContent = await marked.parse(script.content);
+            } else {
+              tiptapContent = toTiptapJSON(script.blocks);
+            }
+            const hasContent = !!(typeof tiptapContent === 'string' ? tiptapContent.length > 0 : tiptapContent?.content && tiptapContent.content.length > 0);
             if (hasContent || forceHydration) {
               const applied = applyContentToEditor(tiptapContent, 'initial-load-prop');
               if (applied) {
                 initialLoadDoneRef.current = true;
-                notifyHydratedScript(tiptapContent);
+                notifyHydratedScript(tiptapContent as any);
                 console.log('ScriptEditor: Loaded content from prop');
               }
             } else {
@@ -651,13 +724,13 @@ export default function ScriptEditor({
         }
       }
     };
-    
+
     // Only load on initial mount or when scriptId changes
     if (editor && !initialLoadDoneRef.current) {
       loadBlocks();
     }
   }, [sessionId, scriptResourceId, editor, hasUnsavedChanges, notifyHydratedScript]);
-  
+
   // Reset state when script tab changes
   // CRITICAL: Reset all tracking refs to prevent stale state from affecting new session
   useEffect(() => {
@@ -665,17 +738,18 @@ export default function ScriptEditor({
     initialLoadDoneRef.current = false;
     lastLoadedContentRef.current = '';
     prevScriptBlocksRef.current = '';
+    loadedTitleRef.current = null;
     setHasUnsavedChanges(false);
     // CRITICAL: Reset user typing state when switching sessions
     isUserTypingRef.current = false;
     lastUserInputTimeRef.current = 0;
-    hasLocalEditsRef.current = false; // Clear local edits on session change
-    isRestoringVersionRef.current = false; // Clear restore flag on session change
+    hasLocalEditsRef.current = false;
+    isRestoringVersionRef.current = false;
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
       autosaveTimerRef.current = null;
     }
-    
+
     // Clear the editor content for new sessions
     if (editor && !sessionId) {
       try {
@@ -689,11 +763,11 @@ export default function ScriptEditor({
   // Handle script reset (when script becomes empty/null - e.g., New Script button)
   useEffect(() => {
     if (!editor) return;
-    
+
     // Check if script was reset to empty (blocks is null or empty array)
     const isScriptEmpty = !script?.blocks || (Array.isArray(script.blocks) && script.blocks.length === 0);
     const hasContent = editor.getJSON().content && editor.getJSON().content.length > 0;
-    
+
     const metadataSource = (script?.metadata as any)?.source;
     // If script is empty but editor has content, clear the editor
     // Skip clearing if the update originated from editor autosave to avoid lossy wipes
@@ -714,31 +788,31 @@ export default function ScriptEditor({
       }
     }
   }, [script?.blocks, editor, safeSetContent]);
-  
+
   // Handle script.blocks updates from AI generation (via chat)
   const prevScriptBlocksRef = useRef<string>('');
   const prevMetadataRef = useRef<string>('');
-  
+
   useEffect(() => {
     if (!editor || (!script?.blocks && !script?.content)) {
       return;
     }
-    
+
     // Skip full content updates during streaming (streaming handles incremental updates)
     if (generatingScript && streamingTiptap.isStreaming()) {
       return;
     }
-    
+
     // Check if this is a surgical selection edit
     const isSurgicalEdit = script?.metadata?.selectionEdit?.applySurgically === true;
-    
+
     if (isSurgicalEdit && script?.metadata?.selectionEdit) {
       const { editedBlocks, originalRange } = script.metadata.selectionEdit;
-      
+
       try {
         // Mark that we're updating from props to prevent autosave loop
         isUpdatingFromPropsRef.current = true;
-        
+
         // Defer surgical edit to avoid React lifecycle conflicts
         requestAnimationFrame(() => {
           // Apply edit surgically to the selection range
@@ -747,7 +821,7 @@ export default function ScriptEditor({
             editedBlocks || [],
             originalRange || { from: 0, to: 0 }
           );
-          
+
           if (success) {
             console.log('ScriptEditor: Applied surgical edit to selection');
             // Reset flag and trigger autosave after a brief delay
@@ -767,7 +841,7 @@ export default function ScriptEditor({
       }
       return;
     }
-    
+
     const metadataSource = (script?.metadata as any)?.source;
     if (metadataSource === 'editor') {
       console.log('[Script] Skipping hydration — source is editor (already synced)');
@@ -775,58 +849,66 @@ export default function ScriptEditor({
     }
     // Check if this is a script update from AI
     // CRITICAL: Include ALL workflow types that AI generation can produce
-    const isAIGenerated = script?.metadata?.workflow === 'create' || 
-                          script?.metadata?.workflow === 'edit' ||
-                          script?.metadata?.workflow === 'draft' ||
-                          script?.metadata?.workflow === 'refine' ||  // <-- ADDED: surgical refinements
-                          script?.metadata?.workflow === 'hybrid';    // <-- ADDED: hybrid edits
-    
+    const isAIGenerated = script?.metadata?.workflow === 'create' ||
+      script?.metadata?.workflow === 'edit' ||
+      script?.metadata?.workflow === 'draft' ||
+      script?.metadata?.workflow === 'refine' ||  // <-- ADDED: surgical refinements
+      script?.metadata?.workflow === 'hybrid';    // <-- ADDED: hybrid edits
+
     if (!isAIGenerated) {
       console.log('[Script] Skipping hydration — not AI workflow:', script?.metadata?.workflow);
       return;
     }
-    
-    console.log('[Script] Blocks received from AI:', { 
+
+    console.log('[Script] Blocks received from AI:', {
       blockCount: Array.isArray(script.blocks) ? script.blocks.length : 0,
-      workflow: script?.metadata?.workflow 
+      workflow: script?.metadata?.workflow
     });
-    
+
     const scriptBlocksHash = JSON.stringify(script.blocks);
     const metadataHash = JSON.stringify(script.metadata);
-    
+
     // Skip if already processed
     if (scriptBlocksHash === prevScriptBlocksRef.current && metadataHash === prevMetadataRef.current) {
       console.log('[Script] Skipping hydration — already processed (same hash)');
       return;
     }
-    
+
     prevScriptBlocksRef.current = scriptBlocksHash;
     prevMetadataRef.current = metadataHash;
-    
+
     try {
       // Clear any pending autosave timer
       if (autosaveTimerRef.current) {
         clearTimeout(autosaveTimerRef.current);
         autosaveTimerRef.current = null;
       }
-      
+
       // Defer content update to avoid React lifecycle conflicts
       requestAnimationFrame(() => {
         if (!editor) {
           console.log('[Script] Editor not ready — queued hydration');
           // Store pending blocks for retry
-          pendingBlocksRef.current = script.blocks;
+          pendingBlocksRef.current = Array.isArray(script.blocks) ? script.blocks : null;
           return;
         }
         console.log('[Script] Hydrating editor with', Array.isArray(script.blocks) ? script.blocks.length : 0, 'blocks');
-        const tiptapContent = toTiptapJSON(script.blocks);
-        const applied = applyContentToEditor(tiptapContent, 'ai-update');
-        if (applied) {
-          console.log('[Script] Hydration success — editor updated');
-          createVersionSnapshot('AI edit');
+        let tiptapPromise: Promise<TiptapJSON | string>;
+        if (script.content) {
+          tiptapPromise = Promise.resolve(marked.parse(script.content));
         } else {
-          console.log('[Script] Hydration blocked by applyContentToEditor guards');
+          tiptapPromise = Promise.resolve(toTiptapJSON(script.blocks));
         }
+
+        tiptapPromise.then((tiptapContent) => {
+          const applied = applyContentToEditor(tiptapContent, 'ai-update');
+          if (applied) {
+            console.log('[Script] Hydration success — editor updated');
+            createVersionSnapshot('AI edit');
+          } else {
+            console.log('[Script] Hydration blocked by applyContentToEditor guards');
+          }
+        }).catch(err => console.error('[Script] Hydration error:', err));
       });
     } catch (error) {
       console.error('[Script] Hydration failed:', error);
@@ -838,16 +920,16 @@ export default function ScriptEditor({
   // CRITICAL: Polling must NEVER call setContent if user has local edits
   useEffect(() => {
     if (!sessionId || !editor || !generatingScript) return;
-    
+
     // CRITICAL: Skip polling if user has unsaved changes, is actively typing, or recently typed
     const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
     const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
     if (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped || hasLocalEditsRef.current) {
       return;
     }
-    
+
     const pollInterval = 2000;
-    
+
     const interval = setInterval(async () => {
       // CRITICAL: Multiple guards to prevent overwriting user edits
       // 1. Check unsaved changes flag
@@ -857,11 +939,11 @@ export default function ScriptEditor({
       // 5. Check if restoring version (never poll during restore)
       const timeSinceLastInput = Date.now() - lastUserInputTimeRef.current;
       const userRecentlyTyped = isUserTypingRef.current || timeSinceLastInput < USER_TYPING_TIMEOUT;
-      
+
       if (hasUnsavedChanges || autosaveTimerRef.current || userRecentlyTyped || hasLocalEditsRef.current || isRestoringVersionRef.current) {
         return;
       }
-      
+
       try {
         const response = await fetch(`/api/services/thinkforge/script/blocks?sessionId=${sessionId}&scriptId=${encodeURIComponent(scriptResourceId)}`, {
           cache: 'no-store',
@@ -869,38 +951,40 @@ export default function ScriptEditor({
         });
         if (response.ok) {
           const data = await response.json();
-          let tiptapContent: TiptapJSON;
-          
+          let tiptapContent: TiptapJSON | string;
+
           // CRITICAL: Prefer richText (TipTap JSON) - this is runtime truth
           // Only convert ThinkForgeBlocks → TipTap if richText not available
           if (data.richText && isTiptapJSON(data.richText)) {
             tiptapContent = data.richText;
+          } else if (data.content) {
+            tiptapContent = await marked.parse(data.content);
           } else if (data.blocks) {
             // Only convert at boundary (when fetching from backend)
             tiptapContent = toTiptapJSON(data.blocks);
           } else {
             return;
           }
-          
+
           // CRITICAL: Compare with last loaded content to avoid overwriting user edits
           const contentHash = JSON.stringify(tiptapContent);
           if (contentHash === lastLoadedContentRef.current) {
             // No change, skip update
             return;
           }
-          
+
           // CRITICAL: Final check - never overwrite if user has local edits
           if (hasLocalEditsRef.current || isRestoringVersionRef.current) {
             console.log('ScriptEditor: Skipping polling update, user has local edits or is restoring');
             return;
           }
-          
+
           // CRITICAL: Double-check user isn't typing before applying remote update
           const finalCheck = Date.now() - lastUserInputTimeRef.current;
           if (isUserTypingRef.current || finalCheck < USER_TYPING_TIMEOUT) {
             return;
           }
-          
+
           const applied = applyContentToEditor(tiptapContent, 'polling-update');
           if (applied) {
             console.log('ScriptEditor: Updated from polling');
@@ -912,7 +996,7 @@ export default function ScriptEditor({
         console.error('ScriptEditor: Polling error:', error);
       }
     }, pollInterval);
-    
+
     return () => clearInterval(interval);
   }, [sessionId, scriptResourceId, editor, generatingScript, hasUnsavedChanges]);
 
@@ -935,9 +1019,10 @@ export default function ScriptEditor({
   // CRITICAL: TipTap JSON is the runtime truth
   // Only convert to ThinkForgeBlocks at boundaries (saving, exporting)
   const convertEditorToScript = useCallback(async (): Promise<Script> => {
+    const effectiveTitle = getEffectiveTitle();
     if (!editor) {
       return {
-        title: script?.title || 'Untitled Script',
+        title: effectiveTitle,
         version: (script as any)?.version ?? scriptVersionRef.current,
         blocks: [],
         content: '',
@@ -950,24 +1035,19 @@ export default function ScriptEditor({
         metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
       } as any;
     }
-    
+
     storeCursorPosition();
-    
-    // CRITICAL: Get Tiptap JSON directly from editor (runtime truth)
-    // This is the canonical format - never convert ThinkForgeBlocks → TipTap during normal editing
+
     const tiptapJSON = editor.getJSON() as TiptapJSON;
-    
-    // CRITICAL: Convert to ThinkForgeBlocks ONLY at boundary (when saving/exporting)
-    // This conversion happens here because we need to send blocks to backend
-    // But richText (TipTap JSON) is also sent and should be preferred
+
     const thinkforgeBlocks = tiptapJSONToThinkForgeBlocks(tiptapJSON);
     const validated = validateThinkForgeBlocks(thinkforgeBlocks);
 
     return {
-      title: script?.title || 'Untitled Script',
+      title: effectiveTitle,
       version: (script as any)?.version ?? scriptVersionRef.current,
-      blocks: validated, // ThinkForgeBlocks for backward compatibility
-      richText: tiptapJSON, // TipTap JSON - this is the runtime truth
+      blocks: validated,
+      richText: tiptapJSON,
       content: '',
       body: '',
       sections: script?.sections || [],
@@ -977,12 +1057,12 @@ export default function ScriptEditor({
       tone: script?.tone,
       metadata: { ...(script?.metadata || {}), canonicalFormat: 'tiptap', source: 'editor' as any }
     } as any;
-  }, [editor, script, storeCursorPosition]);
+  }, [editor, script, storeCursorPosition, getEffectiveTitle]);
 
   // Sync last version hash when the version manager updates its current version
   useEffect(() => {
     if (!editor || !currentVersionId) return;
-    
+
     try {
       const blocks = getVersionBlocks(currentVersionId);
       if (blocks) {
@@ -1010,12 +1090,12 @@ export default function ScriptEditor({
     lastUserInputTimeRef.current = Date.now();
     hasLocalEditsRef.current = true; // Mark that user has local edits
     setHasUnsavedChanges(true);
-    
+
     // Clear typing flag after timeout (user stopped typing)
     if (autosaveTimerRef.current) {
       clearTimeout(autosaveTimerRef.current);
     }
-    
+
     autosaveTimerRef.current = setTimeout(async () => {
       try {
         if (!editor) return;
@@ -1040,14 +1120,14 @@ export default function ScriptEditor({
         // Converts to ThinkForgeBlocks ONLY for backend storage
         // NEVER calls setContent - user edits are the source of truth
         const updatedScript = await convertEditorToScript();
-        
+
         // CRITICAL: Update ref with CURRENT editor state to prevent polling overwrite
         // This ensures user edits are preserved even if remote data arrives
         if (editor) {
           const tiptapJSON = editor.getJSON();
           lastLoadedContentRef.current = JSON.stringify(tiptapJSON);
         }
-        
+
         // Send to backend (converting TipTap JSON → ThinkForgeBlocks only for storage)
         if (sessionId && updatedScript.blocks) {
           try {
@@ -1067,7 +1147,7 @@ export default function ScriptEditor({
                 }
               }),
             });
-            
+
             if (response.ok) {
               const data = await response.json();
               if (data?.script && typeof data.script.version === 'number') {
@@ -1087,7 +1167,7 @@ export default function ScriptEditor({
                 if (typeof data?.currentVersion === 'number') {
                   scriptVersionRef.current = data.currentVersion;
                 }
-              } catch {}
+              } catch { }
               // Keep unsaved changes; back off to avoid tight retry loop
               lastAutosaveAtRef.current = Date.now();
             } else {
@@ -1097,7 +1177,7 @@ export default function ScriptEditor({
             console.error('Error saving to backend:', error);
           }
         }
-        
+
         // Notify parent (but don't trigger setContent - parent should not rehydrate)
         onEditScript(updatedScript);
         autosaveTimerRef.current = null;
@@ -1155,11 +1235,11 @@ export default function ScriptEditor({
     if (selectionTimerRef.current) {
       clearTimeout(selectionTimerRef.current);
     }
-    
+
     selectionTimerRef.current = setTimeout(() => {
       try {
         if (!editor) return;
-        
+
         if (!isSelectionEditable(editor)) {
           setSelectedText('');
           setSelectionRange(null);
@@ -1183,33 +1263,33 @@ export default function ScriptEditor({
           setSelectionPos(null);
           return;
         }
-        
+
         if (txt && typeof window !== 'undefined') {
           const sel = window.getSelection?.();
           if (sel && sel.rangeCount > 0) {
             const range = sel.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             const container = containerRef.current;
-            
+
             if (container) {
               const crect = container.getBoundingClientRect();
               const scrollTop = container.scrollTop || 0;
               const scrollLeft = container.scrollLeft || 0;
-              
+
               const offset = 8;
               const approxBtnH = 32;
               const spaceBelow = crect.bottom - rect.bottom;
               const preferBelow = spaceBelow > (approxBtnH + offset + 8);
-              
+
               const top = preferBelow
                 ? (rect.bottom - crect.top) + scrollTop + offset
                 : (rect.top - crect.top) + scrollTop - (approxBtnH + offset);
-              
+
               let left = (rect.left + (rect.width / 2) - crect.left) + scrollLeft;
               const pad = 12;
               const maxLeft = (crect.width || container.clientWidth) - pad;
               left = Math.min(Math.max(left, pad), maxLeft);
-              
+
               setSelectionPos({ top: Math.max(4, top), left });
             } else {
               setSelectionPos(null);
@@ -1220,7 +1300,7 @@ export default function ScriptEditor({
         } else {
           setSelectionPos(null);
         }
-      } catch {}
+      } catch { }
     }, 50);
   }, [editor]);
   // Track pointer/keyboard selection to avoid floating button stealing focus
@@ -1284,6 +1364,7 @@ export default function ScriptEditor({
     return () => {
       if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
       if (selectionTimerRef.current) clearTimeout(selectionTimerRef.current);
+      if (observerTimerRef.current) clearTimeout(observerTimerRef.current);
     };
   }, []);
 
@@ -1362,7 +1443,7 @@ export default function ScriptEditor({
           {generatingScript && !script && (
             <span className="text-sm text-zinc-400">Generating...</span>
           )}
-          
+
           {/* New Script Button */}
           <TooltipProvider>
             <Tooltip>
@@ -1413,27 +1494,15 @@ export default function ScriptEditor({
             </Tooltip>
           </TooltipProvider>
 
-          {/* Format Toolbar - Now inline with other tools */}
-          {!isPreviewMode && (!generatingScript || script) && (
+          {/* Format Toolbar - always shown when not generating */}
+          {!generatingScript && (
             <div className="border-l border-zinc-700 pl-3 ml-1">
-              <FormatToolbar 
-                editor={editor} 
-                disabled={generatingScript && !script}
+              <FormatToolbar
+                editor={editor}
+                disabled={false}
               />
             </div>
           )}
-        </div>
-        
-        {/* Center section: Edit Mode Toggle */}
-        <div className="flex items-center gap-2 bg-zinc-900/50 rounded-lg px-3 py-1.5 border border-zinc-800">
-          <Eye className={`h-4 w-4 ${isPreviewMode ? 'text-red-400' : 'text-zinc-500'}`} />
-          <Switch
-            checked={!isPreviewMode}
-            onCheckedChange={(checked) => setIsPreviewMode(!checked)}
-            disabled={generatingScript && !script}
-            className="data-[state=checked]:bg-red-600"
-          />
-          <Edit className={`h-4 w-4 ${!isPreviewMode ? 'text-red-400' : 'text-zinc-500'}`} />
         </div>
 
         {/* Right section: Actions + Save Status */}
@@ -1547,8 +1616,8 @@ export default function ScriptEditor({
         </div>
       </div>
 
-      {/* Loading State */}
-      {generatingScript && !script && (
+      {/* Loading State - shown only before any content arrives */}
+      {generatingScript && !script && !liveContent && (
         <div className="flex items-center justify-center py-20">
           <div className="text-center space-y-4">
             <Loader2 className="h-8 w-8 animate-spin mx-auto text-red-500" />
@@ -1561,34 +1630,37 @@ export default function ScriptEditor({
       )}
 
       {/* Editor or Preview */}
-      {!generatingScript || script ? (
+      {(!generatingScript || script || liveContent) ? (
         <Card className="bg-black/40 border-zinc-800 backdrop-blur-xl">
           <CardContent className="p-0">
-            <div 
-              ref={containerRef} 
+            <div
+              ref={containerRef}
               className="relative min-h-[600px] max-h-[70vh] overflow-y-auto rounded-lg scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent"
             >
-              {isPreviewMode ? (
-                <div className="p-6">
-                  <ScriptRenderer 
-                    title={script?.title} 
-                    blocks={previewBlocks}
+              {/* Live Document Renderer - Overlay when streaming */}
+              {!!generatingScript && !!liveContent && (
+                <div className="absolute inset-x-0 top-0 bottom-0 z-20 bg-(--background) overflow-y-auto">
+                  <LiveDocumentRenderer
+                    content={liveContent}
+                    title={script?.title}
+                    isStreaming={true}
                   />
                 </div>
-              ) : (
-                <div className="tiptap-editor-dark">
-                  <EditorContent editor={editor} />
-                </div>
               )}
-              
+
+              {/* Tiptap editor */}
+              <div className={cn("tiptap-editor-dark", (!!generatingScript && !!liveContent) && "invisible")}>
+                <EditorContent editor={editor} />
+              </div>
+
               {/* Selection floating button */}
               {selectedText && selectedText.trim().length > 0 && selectionPos && !isSelecting && (
                 <div
                   className="absolute z-50 transition-all duration-200 animate-in fade-in zoom-in-95"
-                  style={{ 
-                    top: selectionPos.top, 
-                    left: selectionPos.left, 
-                    transform: 'translateX(-50%)' 
+                  style={{
+                    top: selectionPos.top,
+                    left: selectionPos.left,
+                    transform: 'translateX(-50%)'
                   }}
                 >
                   <button
@@ -1605,17 +1677,17 @@ export default function ScriptEditor({
                         } else if (typeof window !== 'undefined') {
                           // Fallback for backward compatibility
                           window.dispatchEvent(
-                            new CustomEvent('tf-selection-to-chat', { 
-                              detail: { text: selectedText } 
+                            new CustomEvent('tf-selection-to-chat', {
+                              detail: { text: selectedText }
                             } as any)
                           );
                         }
-                      } catch {}
+                      } catch { }
                     }}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-zinc-900 text-zinc-200 shadow-lg border border-zinc-700/50 hover:bg-zinc-800 hover:text-white hover:border-zinc-600 transition-all group backdrop-blur-md"
                     aria-label="Edit selection in Chat"
                   >
-                    <Sparkles className="h-3.5 w-3.5 text-indigo-400 group-hover:text-indigo-300 transition-colors" /> 
+                    <Sparkles className="h-3.5 w-3.5 text-indigo-400 group-hover:text-indigo-300 transition-colors" />
                     <span>Edit in Chat</span>
                   </button>
                 </div>
@@ -1629,18 +1701,20 @@ export default function ScriptEditor({
       {/* Script Tabs Panel Dialog */}
       <Dialog open={showBranchEditor} onOpenChange={setShowBranchEditor}>
         <DialogContent className="bg-zinc-900 border-zinc-800 text-zinc-100 max-w-4xl h-[600px] p-0">
-          <ScriptHistoryPanel
-            sessionId={sessionId || null}
-            activeScriptId={scriptResourceId}
-            onSwitchScript={(id) => {
-              if (onSwitchScript) {
-                onSwitchScript(id);
-              }
-              setShowBranchEditor(false);
-            }}
-            onNewScript={onNewScript}
-            onClose={() => setShowBranchEditor(false)}
-          />
+          {showBranchEditor && (
+            <ScriptHistoryPanel
+              sessionId={sessionId || null}
+              activeScriptId={scriptResourceId}
+              onSwitchScript={(id) => {
+                if (onSwitchScript) {
+                  onSwitchScript(id);
+                }
+                setShowBranchEditor(false);
+              }}
+              onNewScript={onNewScript}
+              onClose={() => setShowBranchEditor(false)}
+            />
+          )}
         </DialogContent>
       </Dialog>
 

@@ -11,7 +11,7 @@ import { getToneColorClass } from "@/lib/thinkforge/tone";
 
 interface SessionMetadataSettingsProps {
   idea: Idea;
-  onProceedToChat: () => void;
+  onProceedToChat: (updatedIdea?: Idea) => void;
   onGoBack: () => void;
   onUpdateIdea: (updatedIdea: Idea) => void;
   /** When true, hides the navigation buttons (used when opened from chat settings) */
@@ -255,7 +255,7 @@ export default function SessionMetadataSettings({ idea, onProceedToChat, onGoBac
                   setNameError('Failed to save Session Name');
                   return;
                 }
-                onProceedToChat();
+                onProceedToChat(payload);
               }}
               className="group relative overflow-hidden rounded-xl bg-gradient-to-br from-rose-700 via-red-500 to-rose-700 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-red-900/40 transition-all hover:from-red-500 hover:via-rose-500 hover:to-red-600 hover:shadow-xl hover:shadow-red-900/50"
             >

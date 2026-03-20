@@ -17,7 +17,7 @@ interface IdeationModeProps {
   onSubmit: (e: React.FormEvent) => void;
   onRegenerate: () => void;
   onSelectIdea: (idea: IdeaCardData) => void;
-  onProceedToChat: () => void;
+  onProceedToChat: (updatedIdea?: IdeaCardData) => void;
   onGoBackToIdeas: () => void;
   onUpdateIdea: (updated: IdeaCardData) => void;
   onManualSetup: () => void;
@@ -91,7 +91,7 @@ export default function IdeationMode({
               tone: selectedIdea.tone as any,
               sessionName: selectedIdea.sessionName
             }}
-            onProceedToChat={onProceedToChat}
+            onProceedToChat={(upd) => onProceedToChat(upd ? { ...upd, id: String(upd.id) } : undefined)}
             onGoBack={onGoBackToIdeas}
             onUpdateIdea={(upd) => onUpdateIdea({ ...upd, id: String(upd.id) })}
             sessionCount={sessionCount}

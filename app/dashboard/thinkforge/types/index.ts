@@ -1,5 +1,8 @@
 import type { BlockTree } from "@/lib/thinkforge/schemas/canonical";
 import type { CIRDocument, CIRSection } from "@/lib/thinkforge/schemas/cir";
+import type { DocumentType, SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
+
+export type { DocumentType, SidecarCard, SidecarCardAction };
 
 export type WorkflowPhase = 'PROMPT' | 'IDEAS' | 'SELECTED' | 'CHAT' | 'SCRIPT';
 
@@ -28,6 +31,8 @@ export interface Idea {
 export interface Script {
   title?: string;
   version?: number;
+  scriptId?: string;
+  documentType?: DocumentType;
   originalPrompt?: string;
   duration?: string;
   targetAudience?: string;
@@ -60,6 +65,11 @@ export interface Script {
     quality_metrics?: {
       score?: number;
       feedback?: string;
+    };
+    selectionEdit?: {
+      applySurgically?: boolean;
+      editedBlocks?: any[];
+      originalRange?: { from: number; to: number };
     };
   };
 }

@@ -163,6 +163,9 @@ export const createAgent = (userId: string, projectContext?: string) => {
         - After making changes, verify the state to ensure your action was applied correctly.
     4.  **Tool Usage**:
         - Use the provided tools to manipulate the project.
+        - All tool responses are wrapped in a deterministic envelope:
+          { status, data, error, nextAction }.
+          Always read \`status\` first. Use \`data\` only when status is \`success\`.
         - For positioning, remember the canvas dimensions (usually 1920x1080 or 1080x1920). Center is (width/2, height/2).
         - When adding multiple items, ensure they don't overlap unless intended.
         - **Batch Parallel Execution**: When creating MULTIPLE elements (only if user asks), you CAN call \`generate_html_scene\` and \`generate_html_sticker\` in parallel in the SAME turn.
@@ -269,6 +272,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
           - That audio is deeply processed
           - That processing may take time
       - Ask ONCE only.
+      - If user declines, stop and suggest the cheaper alternative.
 
     6) If user intent is CLEAR:
       - Proceed directly.
@@ -523,33 +527,24 @@ export const createAgent = (userId: string, projectContext?: string) => {
           maxOutputTokens: 8192,
         },
         tools: [{ functionDeclarations }],
+        systemInstruction: SYSTEM_MESSAGE,
       });
       
       // Convert LangChain messages to Gemini format
       const geminiContents: any[] = [];
       
-      // Add system message as first user message (Gemini style)
-      geminiContents.push({
-        role: 'user',
-        parts: [{ text: SYSTEM_MESSAGE }]
-      });
-      // Model acknowledgment
-      geminiContents.push({
-        role: 'model',
-        parts: [{ text: 'Understood. I am Editron AI, ready to assist with video editing.' }]
-      });
       
       // Convert conversation messages
       for (const msg of messages) {
         const msgAny = msg as any;
-        const msgType = msg.constructor?.name;
+        const msgType = typeof msgAny._getType === 'function' ? msgAny._getType() : msg.constructor?.name;
         
-        if (msgType === 'HumanMessage') {
+        if (msgType === 'human' || msgType === 'HumanMessage') {
           geminiContents.push({
             role: 'user',
             parts: [{ text: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content) }]
           });
-        } else if (msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
+        } else if (msgType === 'ai' || msgType === 'AIMessage' || msgType === 'AIMessageChunk') {
           const parts: any[] = [];
           
           // Add text content if present and not array
@@ -572,7 +567,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
           if (parts.length > 0) {
             geminiContents.push({ role: 'model', parts });
           }
-        } else if (msgType === 'ToolMessage') {
+        } else if (msgType === 'tool' || msgType === 'ToolMessage') {
           // Tool responses go as user messages with functionResponse
           geminiContents.push({
             role: 'user',
@@ -587,6 +582,16 @@ export const createAgent = (userId: string, projectContext?: string) => {
       }
       
       debugLog('Calling Gemini directly with', geminiContents.length, 'messages');
+      
+      // The Gemini API requires contents to not be empty.
+      // If messages somehow failed to parse or were empty, provide a fallback.
+      if (geminiContents.length === 0) {
+        debugWarn('geminiContents is empty, adding fallback user message');
+        geminiContents.push({
+          role: 'user',
+          parts: [{ text: 'Hello' }]
+        });
+      }
       
       // Helper to parse stringified JSON in args (Gemini sometimes returns arrays as strings)
       const parseArgs = (args: any): any => {

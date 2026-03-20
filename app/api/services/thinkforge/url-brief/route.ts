@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { createUrlBriefAgent, extractUrlContent } from '@/lib/thinkforge/agents/url-brief-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -34,6 +35,9 @@ export async function POST(req: Request) {
     } catch {
         return NextResponse.json({ error: 'Invalid URL format' }, { status: 400 });
     }
+
+    // Ensure user exists and is migrated
+    await CreditsMigrationService.ensureMigrated(userId);
 
     // Check and prepare credit deduction
     const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message');

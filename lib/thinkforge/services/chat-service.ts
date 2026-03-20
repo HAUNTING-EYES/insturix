@@ -6,8 +6,9 @@
 import { chatAgent } from '../agents/chat-agent';
 import { runResearchAgent } from '../agents/research-agent';
 import { generateScriptDraft } from '../agents/script-draft-agent';
+import { runThinkingAgent } from '../agents/thinking-agent';
 import { createScriptRefinementAgent } from '../agents/script-refinement-agent';
-import { quickAssembleContext } from '../context';
+import { quickAssembleContext, fetchContextSources, formatSystemBrief } from '../context';
 import { classifyIntent, intentRequiresSelection, type Intent, type IntentContextSignals } from '../intent/intent-gate';
 import * as db from './db';
 import { applyCommand } from './command-service';
@@ -133,6 +134,7 @@ export interface ChatRequest {
   generationId?: string | null;
   threadId?: string | null;
   intentContext?: IntentContextSignals;
+  blueprintArtifacts?: Array<{ type: string; label: string; description?: string; priority?: string }>;
 }
 
 function formatBlocksForPrompt(blocks: { blockId: string; text: string; type?: string }[]): string {
@@ -172,6 +174,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     generationId: providedGenerationId,
     threadId: providedThreadId,
     intentContext: providedIntentContext,
+    blueprintArtifacts: providedBlueprintArtifacts,
   } = request;
   const threadId = providedThreadId || 'default';
 
@@ -202,11 +205,25 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
     throw new Error('Script blocks are not valid ThinkForge blocks. Please migrate the script.');
   }
 
-  // Load chat history
-  const chatHistory = session ? await db.getChatHistory(sessionId || session._id, 50, threadId) : [];
-
-  // Load user preferences
-  const preferences = await db.getUserPreferences(userId);
+  // Load chat history, user preferences, and multi-hop context in parallel
+  const scriptContent = providedScript?.content || '';
+  const [chatHistory, preferences, retrievedCtx] = await Promise.all([
+    session ? db.getChatHistory(sessionId || session._id, 50, threadId) : Promise.resolve([]),
+    db.getUserPreferences(userId),
+    fetchContextSources({
+      userId,
+      projectId: sessionId || undefined,
+      sessionId: sessionId || undefined,
+      currentPrompt: prompt,
+      currentScript: scriptContent,
+      maxFacts: 5,
+      interactionWindowDays: 30,
+    }).catch((err) => {
+      console.warn('[ThinkForge] Multi-hop retrieval failed, proceeding without:', err);
+      return null;
+    }),
+  ]);
+  const systemBrief = retrievedCtx ? formatSystemBrief(retrievedCtx) : null;
 
   // Build session state
   const sessionState: SessionState = {
@@ -257,7 +274,12 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
   const emitEvent = async (eventType: string, payload: Record<string, any>): Promise<boolean> => {
     const sid = sessionId || session?._id || 'temp';
     const record = appendEvent(sid, eventType, payload, threadId);
-    const data = { ...payload, type: eventType, eventId: record.id };
+    const data = {
+      ...payload,
+      type: eventType,
+      eventId: record.id,
+      documentId: effectiveScriptId || undefined,
+    };
     return safeWrite(`id: ${record.id}\nevent: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`);
   };
 
@@ -293,6 +315,121 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
       if (session) {
         await db.appendChatMessage(sessionId || session._id, 'user', prompt, threadId);
         await db.recordChatUsage(userId, sessionId || session._id, chatLimit.planName);
+      }
+
+      // Blueprint initialization — skip intent classification, run full draft pipeline per artifact
+      if (Array.isArray(providedBlueprintArtifacts) && providedBlueprintArtifacts.length > 0) {
+        const artifacts = providedBlueprintArtifacts;
+        const total = artifacts.length;
+        const projectDesc = session?.projectMeta?.idea || session?.projectMeta?.title || prompt;
+
+        if (!(await emitEvent('token', { content: `Initializing blueprint — ${total} document${total > 1 ? 's' : ''} to create...\n` }))) return;
+
+        const createdDocs: Array<{ scriptId: string; title: string; documentType: string }> = [];
+
+        for (let i = 0; i < total; i++) {
+          const artifact = artifacts[i];
+          const docType = artifact.type || 'custom';
+          const title = artifact.label || 'Untitled Document';
+          const newScriptId = crypto.randomUUID();
+          const artifactPrompt = `Create a professional "${title}" (${docType.replace(/_/g, ' ')}) document for this project: ${projectDesc}. ${artifact.description || ''}`;
+
+          if (!(await emitEvent('token', { content: `\n**[${i + 1}/${total}]** Creating "${title}"...\n` }))) return;
+
+          // Thinking Agent for this artifact
+          try {
+            const thinking = await runThinkingAgent({
+              userPrompt: artifactPrompt,
+              projectSummary: projectDesc,
+              documentType: docType,
+              documentTitle: title,
+            });
+            if (thinking) {
+              await emitEvent('thinking', { content: thinking });
+            }
+          } catch (thinkErr) {
+            console.warn(`[chat-service] Blueprint thinking failed for "${title}" (continuing):`, thinkErr);
+          }
+
+          // Run full draft pipeline
+          const genId = `gen_bp_${Date.now()}_${i}`;
+          if (!(await emitEvent('progress', { progress: (i / total) * 0.9, message: `Writing "${title}"...` }))) return;
+
+          try {
+            const draft = await generateScriptDraft(
+              artifactPrompt,
+              sessionState,
+              null,
+              undefined,
+              {
+                onProgress: async ({ progress, message, completed, total: t }) => {
+                  const overallProgress = (i / total) + (progress / total) * 0.9;
+                  await emitEvent('progress', { progress: overallProgress, message: `[${title}] ${message}`, completed, total: t });
+                },
+                onPartial: async ({ title: dTitle, blocks, richText, content, completed, total: t }) => {
+                  await emitEvent('script_update', {
+                    script: { title: dTitle, blocks, richText, content },
+                    metadata: { workflow: 'blueprint', streaming: true, completed, total: t },
+                  });
+                },
+              },
+              systemBrief
+            );
+
+            // Save document
+            const saveResult = await applyCommand({
+              type: 'ReplaceDocument',
+              sessionId: sessionId || session!._id,
+              baseVersion: 0,
+              source: 'ai',
+              payload: {
+                scriptId: newScriptId,
+                title: draft.title || title,
+                content: draft.content,
+                blocks: draft.blocks,
+                richText: draft.richText as any,
+                documentType: docType,
+              },
+            }, userId);
+
+            if (!saveResult.ok) {
+              if (!(await emitEvent('token', { content: `Failed to save "${title}": ${saveResult.error}\n` }))) return;
+              continue;
+            }
+
+            createdDocs.push({ scriptId: newScriptId, title: draft.title || title, documentType: docType });
+            await emitEvent('script_created', { scriptId: newScriptId, title: draft.title || title, documentType: docType });
+            if (!(await emitEvent('token', { content: `Created "${draft.title || title}"\n` }))) return;
+
+            // Deduct credits per document
+            try {
+              const { CreditsService } = await import('@/lib/services/creditsService');
+              await CreditsService.deductCredits(userId, 'thinkforge', 'document_creation');
+            } catch (creditErr) {
+              console.warn('[chat-service] Credit deduction failed for blueprint doc:', creditErr);
+            }
+          } catch (draftErr: any) {
+            console.error(`[chat-service] Blueprint draft failed for "${title}":`, draftErr);
+            if (!(await emitEvent('token', { content: `Error creating "${title}": ${draftErr.message || 'Unknown error'}\n` }))) return;
+          }
+        }
+
+        // Summary
+        const summaryMsg = createdDocs.length === total
+          ? `\nBlueprint complete — all ${total} documents created and ready to edit.`
+          : `\nBlueprint partially complete — ${createdDocs.length}/${total} documents created.`;
+        if (!(await emitEvent('token', { content: summaryMsg }))) return;
+
+        if (session) {
+          await db.appendChatMessage(sessionId || session._id, 'assistant', `Blueprint initialized: ${createdDocs.map(d => d.title).join(', ')}`, threadId);
+        }
+
+        await emitEvent('progress', { progress: 1, message: 'Blueprint complete' });
+        await emitEvent('done', { sessionId: session?._id });
+        if (!isStreamClosed) {
+          try { await writer.close(); } catch { /* stream already closed */ }
+        }
+        return;
       }
 
       // 1. Check for confirmation of a previous proposal
@@ -479,7 +616,7 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           }
 
           effectiveScriptId = newScriptId;
-          await emitEvent('script_created', { scriptId: newScriptId, title: initialTitle });
+          await emitEvent('script_created', { scriptId: newScriptId, title: initialTitle, documentType: 'screenplay' });
         }
       }
 
@@ -503,7 +640,8 @@ export async function processChat(request: ChatRequest): Promise<ReadableStream<
           sessionState.metadata,
           { title: script!.title || '', content: promptBlocks, blocks: blocksToEdit },
           [],
-          null
+          null,
+          systemBrief
         );
 
         const isAddition = /\b(add|insert|append|new section|new step)\b/i.test(effectivePrompt);
@@ -630,6 +768,19 @@ CRITICAL: You are editing a SELECTION from a larger document.
         const workingMsg = 'Creating your script...';
         if (!(await emitEvent('token', { content: workingMsg }))) return;
 
+        // Run Thinking Agent before draft (non-blocking on failure)
+        try {
+          const thinking = await runThinkingAgent({
+            userPrompt: effectivePrompt,
+            projectSummary: sessionState?.projectMeta?.idea || sessionState?.projectMeta?.title || '',
+          });
+          if (thinking) {
+            await emitEvent('thinking', { content: thinking });
+          }
+        } catch (thinkErr) {
+          console.warn('[chat-service] Thinking agent failed (continuing):', thinkErr);
+        }
+
         activeGenerationId = providedGenerationId || `gen_${Date.now()}`;
         if (session) {
           await db.setActiveGeneration(sessionId || session._id, {
@@ -655,6 +806,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           } : null,
           undefined,
           {
+
             onProgress: async ({ progress, message, completed, total }) => {
               if (session) {
                 await db.updateGenerationState(sessionId || session._id, activeGenerationId!, {
@@ -685,7 +837,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
               };
               await emitEvent('script_update', partialUpdate);
             }
-          }
+          },
+          systemBrief
         );
 
         // Save new script with richText (Tiptap JSON AST)
@@ -760,6 +913,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
           const researchResult = await runResearchAgent(prompt, {
             sessionState,
             project,
+            systemBrief,
           });
 
           // Emit the full research response as a single token event
@@ -785,6 +939,7 @@ CRITICAL: You are editing a SELECTION from a larger document.
                   verifiedSources: researchResult.sources,
                 },
                 tags: ['auto-research'],
+                scope: 'project',
               }
             );
           } catch (dbErr) {
@@ -806,7 +961,8 @@ CRITICAL: You are editing a SELECTION from a larger document.
           sessionState,
           script: null,
           project,
-          selection: selection || null
+          selection: selection || null,
+          systemBrief,
         });
 
         // Convert plain text stream to SSE format

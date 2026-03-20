@@ -1,14 +1,15 @@
 "use client";
 import React from "react";
-import { History, Settings, Plus } from "lucide-react";
+import { History, Settings, Plus, Brain } from "lucide-react";
 
 interface ChatHeaderProps {
   onOpenHistory?: () => void;
   onOpenSettings?: () => void;
   onNewChat?: () => void;
+  onOpenKnowledge?: () => void;
 }
 
-export function ChatHeader({ onOpenHistory, onOpenSettings, onNewChat }: ChatHeaderProps) {
+export function ChatHeader({ onOpenHistory, onOpenSettings, onNewChat, onOpenKnowledge }: ChatHeaderProps) {
   return (
     <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5 bg-neutral-900/50 backdrop-blur-sm shrink-0">
       <div className="flex items-center gap-1">
@@ -33,6 +34,15 @@ export function ChatHeader({ onOpenHistory, onOpenSettings, onNewChat }: ChatHea
       </div>
       
       <div className="flex items-center gap-1">
+        {onOpenKnowledge && (
+          <button
+            onClick={onOpenKnowledge}
+            className="flex items-center justify-center w-8 h-8 rounded-lg text-zinc-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+            title="Knowledge Bank"
+          >
+            <Brain className="h-4 w-4" />
+          </button>
+        )}
         {onOpenSettings && (
           <button
             onClick={onOpenSettings}

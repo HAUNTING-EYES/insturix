@@ -44,7 +44,7 @@ export default function PricingPreview() {
         </motion.div>
 
         {/* Pricing Cards — staggered with scale on highlighted */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mx-auto">
           {SUBSCRIPTION_PLANS.map((plan, i) => (
             <motion.div
               key={plan.id}
@@ -115,6 +115,57 @@ export default function PricingPreview() {
               </Link>
             </motion.div>
           ))}
+
+          {/* Enterprise Card */}
+          <motion.div
+            initial={{ opacity: 0, y: 40, scale: 0.95 }}
+            whileInView={{ opacity: 1, y: 0, scale: 1 }}
+            viewport={{ once: true, margin: "-40px" }}
+            transition={{ duration: 0.5, delay: 3 * 0.12, ease }}
+            whileHover={{
+              y: -8,
+              transition: { duration: 0.3, ease: "easeOut" },
+            }}
+            className="relative p-8 rounded-2xl flex flex-col transition-shadow bg-zinc-900/30 border border-dashed border-zinc-700 hover:border-zinc-500 hover:shadow-xl hover:shadow-white/[0.02]"
+          >
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-white mb-2">Enterprise</h3>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-bold text-white">Custom</span>
+              </div>
+              <p className="text-sm text-zinc-500 mt-3">For large scale agencies and enterprises</p>
+            </div>
+
+            <ul className="space-y-3 mb-8 flex-1">
+              <li className="flex items-center gap-3 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                Custom credit limits
+              </li>
+              <li className="flex items-center gap-3 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                Dedicated account manager
+              </li>
+              <li className="flex items-center gap-3 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                SLA & White-glove setup
+              </li>
+              <li className="flex items-center gap-3 text-sm text-zinc-300">
+                <Check className="w-4 h-4 text-emerald-500 shrink-0" />
+                Custom billing & APIs
+              </li>
+            </ul>
+
+            <Link href="mailto:support@insturix.com">
+              <motion.button
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                className="w-full py-3 rounded-lg font-semibold text-sm transition-colors flex items-center justify-center gap-2 bg-transparent text-white border border-zinc-700 hover:bg-white/5"
+              >
+                Contact Support
+                <ArrowRight className="w-4 h-4" />
+              </motion.button>
+            </Link>
+          </motion.div>
         </div>
 
         {/* Note about Credits */}

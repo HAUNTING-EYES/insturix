@@ -93,7 +93,7 @@ export class ScriptRefinementAgent extends StructuredAgent<ScriptRefinedOutput> 
     // Check if this is a selection-based edit (no blockIds in prompt)
     const isSelectionEdit = !userPrompt.includes('blockId') && !userPrompt.includes('blockIds');
     
-    const basePrompt = 'You are a creative strategist revising production guidance. Write clear, actionable creative direction—not system planning notes.\n\n';
+    const basePrompt = 'You are a professional revising a document. Write clear, actionable direction appropriate to the document type—not system planning notes.\n\n';
     
     const selectionEditPrompt = `Document to polish:
 ${context.currentScript || '(none)'}
@@ -104,14 +104,14 @@ ${userPrompt}
 ${DOCUMENT_AUTHORING_CONTRACT}
 
 ## Your Writing Style
-- Write as a creative director giving clear, confident guidance
-- Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
+- Write as a senior professional giving clear, confident guidance appropriate to the document type
+- Use execution-style language: concrete direction, specific examples, actionable steps
 - Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
 - Preserve voice and cadence; do not simplify language or shorten mechanically
 
 ## Revision Rules (Full-Document Polish)
 - Focus on cohesion, rhythm, transitions, and tonal consistency across the document
-- Make the smallest set of changes that delivers a director's polish
+- Make the smallest set of changes that delivers a professional polish
 - Improve structure only when it clarifies flow (lists, headers, separators)
 - Preserve formatting: maintain inline emphasis (bold, italic), code, links when present
 
@@ -132,18 +132,18 @@ ${userPrompt}
 ${DOCUMENT_AUTHORING_CONTRACT}
 
 ## Your Writing Style
-- Write as a creative director giving clear, confident guidance
-- Use execution-style language: "Ask questions that...", "Structure each video like this...", "The emotional tone should feel..."
+- Write as a senior professional giving clear, confident guidance appropriate to the document type
+- Use execution-style language: concrete direction, specific examples, actionable steps
 - Remove all internal schema artifacts: no "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
 - Preserve voice and cadence; do not simplify language or shorten mechanically
 
 ## Revision Rules (Full-Document Polish)
 - Focus on cohesion, rhythm, transitions, and tonal consistency across the document
-- Make the smallest set of changes that delivers a director's polish
+- Make the smallest set of changes that delivers a professional polish
 - Improve structure only when it clarifies flow (lists, headers, separators)
 - Preserve formatting: maintain inline emphasis/code when present.
 - Examples: if unchanged, omit from patches.
-- If adding, emit blockId: "NEW_BLOCK" with kind and clean creative direction (no schema artifacts).
+- If adding, emit blockId: "NEW_BLOCK" with kind and clean professional direction (no schema artifacts).
 
 ## Output Format (JSON only, no markdown)
 {

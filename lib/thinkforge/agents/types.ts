@@ -22,6 +22,8 @@ export interface AssembledContext {
   recentChanges?: string;
   /** User selection if applicable */
   selection?: string;
+  /** System Brief from Multi-Hop Retrieval (BrandDNA, facts, interaction patterns) */
+  systemBrief?: string;
 }
 
 /**
@@ -88,7 +90,15 @@ export type AgentType =
   | 'script_section'
   | 'script_contract'
   | 'script_coherence'
-  | 'research';
+  | 'research'
+  | 'scope_detector'
+  | 'discovery'
+  | 'ingestor'
+  | 'architect'
+  | 'stylist'
+  | 'null_agent'
+  | 'supervisor'
+  | 'thinking';
 
 /**
  * Log event for AI invocation tracking

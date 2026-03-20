@@ -23,6 +23,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import type { AnalysisData, MetricData } from "../../../../../lib/types";
 import ChatToggleButton from "@/components/dashboard/Alyzitron/chat/Chattogglebutton";
 import ChatPanel from "@/components/dashboard/Alyzitron/chat/ChatPanel";
+import { ExportPDFButton } from "@/components/dashboard/Alyzitron/ExportPDFButton";
 
 // Helper function to copy text to clipboard
 const copyToClipboard = async (text: string): Promise<boolean> => {
@@ -510,12 +511,20 @@ export function AnalysisDetails({
             Back to Dashboard
           </Link>
           {analysisId && (
-            <ShareButton
-              analysisId={analysisId}
-              isPublic={currentIsPublic}
-              isOwner={isOwner || false}
-              onPrivacyChange={setCurrentIsPublic}
-            />
+            <div className="flex items-center gap-2">
+              <ExportPDFButton
+                // targetId="analysis-export-content"
+                analysisData={analysisData}
+                videoTitle={videoTitle || "Analysis Video"}
+                filename={`analysis-${analysisId || "report"}`}
+              />
+              <ShareButton
+                analysisId={analysisId}
+                isPublic={currentIsPublic}
+                isOwner={isOwner || false}
+                onPrivacyChange={setCurrentIsPublic}
+              />
+            </div>
           )}
           {/* Chat toggle button — fixed to top-right or wherever fits your UI */}
           <div className="fixed top-4 right-4 z-50">

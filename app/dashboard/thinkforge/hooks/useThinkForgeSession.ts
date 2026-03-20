@@ -16,6 +16,7 @@ export type ScriptModel = {
     workflow?: string;
     thoughts?: string;
     duration_ms?: number;
+    canonicalFormat?: 'CIR' | 'canonical';
     agent_steps?: Array<{
       agent?: string;
       step?: string;
@@ -24,6 +25,11 @@ export type ScriptModel = {
     quality_metrics?: {
       score?: number;
       feedback?: string;
+    };
+    selectionEdit?: {
+      applySurgically?: boolean;
+      editedBlocks?: any[];
+      originalRange?: { from: number; to: number };
     };
   } | null;
 };

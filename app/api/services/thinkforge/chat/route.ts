@@ -4,6 +4,7 @@ import { processChat } from '@/lib/thinkforge/services/chat-service';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
 import { retryOnceOnOverload } from '@/lib/thinkforge/services/retry-on-overload';
 import { toThinkForgeErrorResponse } from '@/lib/thinkforge/errors/thinkforge-error';
+import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -32,6 +33,7 @@ export async function POST(req: Request) {
   let generationId: string | undefined;
   let threadId: string | undefined;
   let intentContext: any | undefined;
+  let blueprintArtifacts: Array<{ type: string; label: string; description?: string; priority?: string }> | undefined;
   
   try {
     const body = await req.json();
@@ -47,6 +49,7 @@ export async function POST(req: Request) {
     if (body?.generationId) generationId = String(body.generationId);
     if (body?.threadId) threadId = String(body.threadId);
     if (body?.intentContext) intentContext = body.intentContext;
+    if (Array.isArray(body?.blueprintArtifacts)) blueprintArtifacts = body.blueprintArtifacts;
   } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
@@ -60,6 +63,9 @@ export async function POST(req: Request) {
     console.error('[ThinkForge Chat] Missing sessionId in request');
     return NextResponse.json({ error: 'Missing sessionId - session must be created first' }, { status: 400 });
   }
+
+  // Ensure user exists and is migrated
+  await CreditsMigrationService.ensureMigrated(userId);
 
   // Check credits before processing
   // TODO: Add model detection from intentContext or processChat response
@@ -89,6 +95,7 @@ export async function POST(req: Request) {
       generationId,
       threadId,
       intentContext,
+      blueprintArtifacts,
     }));
 
     return new Response(stream, {

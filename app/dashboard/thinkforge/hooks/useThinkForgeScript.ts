@@ -47,7 +47,7 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
     setIsSaving(false);
   }, []);
 
-  // Load script from local storage when sessionId changes
+  // Load script from local storage (then server) when sessionId/scriptId changes
   useEffect(() => {
     sessionIdRef.current = sessionId;
     scriptIdRef.current = scriptId;
@@ -58,25 +58,57 @@ export function useThinkForgeScript(sessionId: string | null, scriptId: string |
       return;
     }
 
-    // Clear stale script immediately when switching sessions
+    // Clear stale script immediately when switching
     setScript(null);
     lastSavedSnapshotRef.current = "";
     resetPendingSaves();
 
     const effectiveScriptId = scriptId || 'default';
-    // Try to load script from local storage
+    let foundLocal = false;
+
+    // Try to load script from local storage first
     try {
       const key = `${LS_SESSION_PREFIX}${sessionId}_${effectiveScriptId}`;
       const raw = localStorage.getItem(key);
       if (raw) {
         const cached = JSON.parse(raw);
-        if (cached?.script) {
+        if (cached?.script && cached.script.title && cached.script.title !== 'Untitled Script') {
           setScript(cached.script);
           lastSavedSnapshotRef.current = JSON.stringify(cached.script);
+          foundLocal = true;
         }
       }
     } catch {
       // Ignore errors
+    }
+
+    // If no valid local cache, fetch from server to get the real title & content
+    if (!foundLocal) {
+      let cancelled = false;
+      (async () => {
+        try {
+          const url = `/api/services/thinkforge/script/blocks?sessionId=${encodeURIComponent(sessionId)}&scriptId=${encodeURIComponent(effectiveScriptId)}`;
+          const res = await fetch(url, { cache: 'no-store' });
+          if (!res.ok || cancelled) return;
+          const data = await res.json();
+          if (cancelled) return;
+          if (sessionIdRef.current !== sessionId || scriptIdRef.current !== scriptId) return;
+
+          const serverScript: ScriptModel = {
+            title: data.title || null,
+            outline: null,
+            content: data.content || null,
+            blocks: data.blocks || null,
+            version: data.version,
+          };
+          setScript(serverScript);
+          lastSavedSnapshotRef.current = JSON.stringify(serverScript);
+          saveLocal(sessionId, effectiveScriptId, { script: serverScript });
+        } catch {
+          // Silent - ScriptEditor will also try to load from API
+        }
+      })();
+      return () => { cancelled = true; };
     }
   }, [sessionId, scriptId, resetPendingSaves]);
 

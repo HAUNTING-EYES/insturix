@@ -502,6 +502,12 @@ export function AIChatPanel() {
                    // Refresh the credits badge in the navbar
                    invalidateCredits();
                  }
+
+                 // Update session ID if it changed (e.g. backend created auto-session)
+                 if (data.sessionId && data.sessionId !== currentSessionId) {
+                   setCurrentSessionId(data.sessionId);
+                   loadSessions();
+                 }
                  // Final reload check removed as it's handled per-tool now
               } else if (data.type === 'error') {
                 addLog('error', 'Stream error', data);

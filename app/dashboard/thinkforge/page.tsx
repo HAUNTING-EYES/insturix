@@ -61,6 +61,7 @@ export default function ThinkForgeLanding() {
 	// Modular hooks
 	const session = useThinkForgeSession();
 	const activeSessionId = pendingSessionId || session.sessionId;
+	const [tabsRefreshCounter, setTabsRefreshCounter] = useState(0);
 	const scriptHook = useThinkForgeScript(activeSessionId, activeScriptId);
 
 	useEffect(() => {
@@ -260,8 +261,9 @@ export default function ThinkForgeLanding() {
 		// Do NOT create backend session here; session creation will occur on entering SCRIPT phase (Scripting Mode)
 	};
 
-	const handleProceedToScript = async () => {
-		const name = (selectedIdea?.sessionName || '').trim();
+	const handleProceedToScript = async (updatedIdea?: IdeaCardData) => {
+		const targetIdea = updatedIdea || selectedIdea;
+		const name = (targetIdea?.sessionName || '').trim();
 		if (!name || name.length > 100) {
 			toast({
 				title: 'Session name required',
@@ -739,6 +741,7 @@ export default function ThinkForgeLanding() {
 				selectedIdea={selectedIdea}
 				sessionId={pendingSessionId || session.sessionId}
 				scriptId={activeScriptId}
+				tabsRefreshTrigger={tabsRefreshCounter}
 				script={scriptFromHook}
 				isSaving={scriptHook.isSaving}
 				onApplyEdit={handleApplyEdit}
@@ -756,16 +759,11 @@ export default function ThinkForgeLanding() {
 					setIdeationPhase('PROMPT');
 					setWorkspaceMode('ideation');
 				}}
-				onScriptCreated={(scriptId) => {
-					setActiveScriptId(scriptId);
-					scriptHook.resetSessionState();
-					scriptHook.setScriptWithoutSave({
-						title: 'New Script',
-						content: '',
-						blocks: null,
-						metadata: null,
-					});
-				}}
+			onScriptCreated={(scriptId) => {
+				setActiveScriptId(scriptId);
+				setTabsRefreshCounter(c => c + 1);
+				scriptHook.resetSessionState();
+			}}
 				onSwitchScript={async (scriptId) => {
 					if (!activeSessionId) return;
 					try {
@@ -778,8 +776,14 @@ export default function ThinkForgeLanding() {
 					} catch (err) {
 						console.error('[ThinkForge] Failed to switch script:', err);
 					} finally {
-						// Immediately clear overlay - no setTimeout for correctness
 						setOpeningSession(false);
+					}
+				}}
+				onTabClose={(scriptId) => {
+					if (!activeSessionId) return;
+					if (activeScriptId === scriptId) {
+						setActiveScriptId('default');
+						scriptHook.resetSessionState();
 					}
 				}}
 				onImportScript={async (data) => {

@@ -16,19 +16,21 @@ import type { LanguageModel } from 'ai';
 
 /**
  * Model Tier Classification
- * - Structural: schema/routing/metadata generation (lite model)
- * - Reasoning: prose/synthesis/advanced reasoning (flash/preview models)
+ * - Structural: schema/routing/metadata/extraction (Gemini 3.1 Flash-Lite — cheapest, fastest)
+ *   $0.25/1M input, 2.5X faster TTFAT than 2.5 Flash. Ideal for Observer, Post-Mortem, fact extraction.
+ *   https://blog.google/innovation-and-ai/models-and-research/gemini-models/gemini-3-1-flash-lite/
+ * - Reasoning: prose/synthesis/advanced reasoning (gemini-2.0-flash)
  */
 export enum ModelTier {
-  Structural = 'structural',  // gemini-2.0-flash
-  Reasoning = 'reasoning',    // gemini-2.0-flash or gemini-2.0-pro
+  Structural = 'structural',
+  Reasoning = 'reasoning',
 }
 
 /**
  * Model spec map by tier
  */
 const TIER_MODEL_MAP: Record<ModelTier, string> = {
-  [ModelTier.Structural]: 'gemini-2.0-flash',
+  [ModelTier.Structural]: 'gemini-3.1-flash-lite-preview',
   [ModelTier.Reasoning]: 'gemini-2.0-flash',
 };
 

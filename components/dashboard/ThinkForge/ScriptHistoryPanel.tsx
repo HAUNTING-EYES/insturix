@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 interface ScriptTab {
   scriptId: string;
   title: string;
+  documentType?: string;
   updatedAt: string | number | Date;
   createdAt: string | number | Date;
 }
@@ -18,6 +19,7 @@ interface ScriptHistoryPanelProps {
   onSwitchScript: (scriptId: string) => void;
   onNewScript?: () => void;
   onClose: () => void;
+  refreshTrigger?: number;
 }
 
 export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
@@ -26,6 +28,7 @@ export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
   onSwitchScript,
   onNewScript,
   onClose,
+  refreshTrigger,
 }) => {
   const [scripts, setScripts] = useState<ScriptTab[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,7 +54,7 @@ export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
     }
     void load();
     return () => { cancelled = true; };
-  }, [sessionId]);
+  }, [sessionId, refreshTrigger]);
 
   const ordered = useMemo(() => {
     return [...scripts].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -75,9 +78,9 @@ export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
             <History className="h-4 w-4 text-red-400" />
           </div>
           <div>
-            <h2 className="text-sm font-medium text-zinc-200">Script Tabs</h2>
+            <h2 className="text-sm font-medium text-zinc-200">Script History</h2>
             <p className="text-[10px] text-zinc-500 font-medium">
-              {ordered.length} tab{ordered.length === 1 ? '' : 's'}
+              {ordered.length} script{ordered.length === 1 ? '' : 's'}
             </p>
           </div>
         </div>
@@ -124,9 +127,16 @@ export const ScriptHistoryPanel: React.FC<ScriptHistoryPanelProps> = ({
                           <p className="text-sm font-medium text-white/90 truncate">
                             {item.title || `Script ${String(item.scriptId).slice(-6)}`}
                           </p>
-                          <p className="text-[10px] text-white/40 mt-1">
-                            {isActive ? 'Active now' : formatDate(item.updatedAt)}
-                          </p>
+                          <div className="flex items-center gap-2 mt-1">
+                            {item.documentType && item.documentType !== 'screenplay' && (
+                              <span className="text-[9px] font-medium text-zinc-500 bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+                                {item.documentType.replace(/_/g, ' ')}
+                              </span>
+                            )}
+                            <p className="text-[10px] text-white/40">
+                              {isActive ? 'Active now' : formatDate(item.updatedAt)}
+                            </p>
+                          </div>
                         </div>
                       </div>
                       <ChevronRight className={`h-4 w-4 shrink-0 transition-colors ${isActive ? 'text-red-400' : 'text-white/20 group-hover:text-white/40'}`} />

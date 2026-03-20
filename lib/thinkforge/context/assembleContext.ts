@@ -5,6 +5,7 @@
  * Agents CONSUME this, they never build context themselves.
  * 
  * Context assembly order MUST never change:
+ * 0. System Brief (BrandDNA, facts, interaction patterns) -- highest priority
  * 1. System role
  * 2. Project context
  * 3. Artifact context (script)
@@ -53,6 +54,8 @@ export interface ContextDataSources {
   selection?: string | null;
   /** Recent changes description */
   recentChanges?: string | null;
+  /** Pre-formatted System Brief from Multi-Hop Retrieval */
+  systemBrief?: string | null;
 }
 
 /**
@@ -119,6 +122,14 @@ export function assembleContext(
   
   // Step 2: Build prioritized blocks for truncation
   const blocks: PrioritizedContent[] = [];
+
+  if (sources.systemBrief) {
+    blocks.push({
+      id: 'systemBrief',
+      content: sources.systemBrief,
+      priority: 11, // Highest priority - BrandDNA + facts always stay
+    });
+  }
   
   if (projectResult.content) {
     blocks.push({
@@ -169,6 +180,7 @@ export function assembleContext(
     chatHistory: findBlock('chat'),
     recentChanges: findBlock('changes'),
     selection: sources.selection ?? undefined,
+    systemBrief: findBlock('systemBrief'),
   };
 }
 
@@ -181,10 +193,11 @@ export function quickAssembleContext(
   project?: ProjectContextData | null,
   script?: ScriptContextData | null,
   chat?: ChatContextMessage[],
-  selection?: string | null
+  selection?: string | null,
+  systemBrief?: string | null
 ): AssembledContext {
   return assembleContext(
-    { project, script, chat, selection },
+    { project, script, chat, selection, systemBrief },
     { agentType }
   );
 }
@@ -195,6 +208,10 @@ export function quickAssembleContext(
  */
 export function formatContextString(context: AssembledContext): string {
   const parts: string[] = [];
+
+  if (context.systemBrief) {
+    parts.push(context.systemBrief);
+  }
   
   if (context.projectSummary) {
     parts.push(`## Project Context\n${context.projectSummary}`);
@@ -224,6 +241,7 @@ export function formatContextString(context: AssembledContext): string {
  */
 export function hasContent(context: AssembledContext): boolean {
   return !!(
+    context.systemBrief ||
     context.projectSummary ||
     context.currentScript ||
     context.chatHistory ||
@@ -237,6 +255,7 @@ export function hasContent(context: AssembledContext): boolean {
  */
 export function getContextSize(context: AssembledContext): number {
   return (
+    (context.systemBrief?.length ?? 0) +
     (context.projectSummary?.length ?? 0) +
     (context.currentScript?.length ?? 0) +
     (context.chatHistory?.length ?? 0) +

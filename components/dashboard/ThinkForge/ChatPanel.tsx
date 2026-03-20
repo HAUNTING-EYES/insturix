@@ -7,10 +7,14 @@ import { ChatMessages } from "./chat/ChatMessages";
 import { ChatInput } from "./chat/ChatInput";
 import { ChatHistoryPanel } from "./chat/ChatHistoryPanel";
 import { GenerationProgress } from "./chat/GenerationProgress";
+import { SidecarActions, type SidecarActionType } from "./chat/SidecarActions";
 import { sanitizeServerScript } from "@/lib/thinkforge/json";
 import type { ScriptModel } from "@/app/dashboard/thinkforge/hooks/useThinkForgeSession";
+import type { SidecarCard, SidecarCardAction } from "@/lib/thinkforge/state/types";
 import { toast } from "@/hooks/use-toast";
 import { extractUrls } from "./PromptPanel";
+import { logShadowEvent } from "@/lib/thinkforge/services/shadow-logger";
+import { BlueprintCustomizer } from "./chat/BlueprintCustomizer";
 
 interface ChatPanelProps {
   selectedIdea: Idea;
@@ -21,9 +25,10 @@ interface ChatPanelProps {
   sessionId?: string | null;
   initialMessages?: any[];
   onOpenSettings?: () => void;
+  onOpenKnowledge?: () => void;
   onSwitchSession?: (sessionId: string) => Promise<void>;
   onScriptCreated?: (scriptId: string) => void;
-  onGetSelection?: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null; // Get current selection from editor
+  onGetSelection?: () => { blocks: any[]; blockIds: string[]; range: { from: number; to: number } | null } | null;
   editingSelection?: { text: string; range: { from: number; to: number }; blocks: any[] } | null;
   onCancelEditSelection?: () => void;
   onGenerationStateChange?: (state: { intent: string | null; isStreaming: boolean }) => void;
@@ -60,6 +65,8 @@ function getRandomSuggestions(count: number = 12): string[] {
   const shuffled = [...SUGGESTIONS_POOL].sort(() => Math.random() - 0.5);
   return [...new Set(shuffled)].slice(0, count);
 }
+
+const STYLE_CORRECTION_RE = /\b(too formal|too casual|punchier|more concise|shorter|longer|simpler|friendlier|serious|tone|less wordy|rewrite|rephrase|sound more|sound less)\b/i;
 
 // Convert Script to ScriptModel format
 function scriptToModel(s: Script | null): ScriptModel | null {
@@ -103,6 +110,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   scriptId,
   initialMessages,
   onOpenSettings,
+  onOpenKnowledge,
   onSwitchSession,
   onScriptCreated,
   onTokenStream,
@@ -119,6 +127,13 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const [threadRegistry, setThreadRegistry] = useState<Array<{ id: string; name: string; lastEdited: number }>>([]);
   const scriptIdRef = React.useRef<string | null>(scriptId || null);
   const [briefExtracting, setBriefExtracting] = useState(false);
+  const justStoppedStreamRef = React.useRef(false);
+  const [sidecarLoading, setSidecarLoading] = useState<SidecarActionType | null>(null);
+  const [customizingBlueprint, setCustomizingBlueprint] = useState<{
+    messageId: string;
+    cardId: string;
+    artifacts: Array<{ type: string; label: string; description?: string; priority?: string }>;
+  } | null>(null);
 
   useEffect(() => {
     scriptIdRef.current = scriptId || null;
@@ -246,6 +261,37 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
   const sendChatMessage = useCallback((originalPrompt: string) => {
     if (!sessionId) return;
 
+    // Shadow Logger: detect regeneration (user stopped AI then sent a new message)
+    if (justStoppedStreamRef.current) {
+      justStoppedStreamRef.current = false;
+      logShadowEvent({
+        projectId: sessionId,
+        sessionId,
+        type: 'regeneration_requested',
+        payload: { followUpPrompt: originalPrompt.slice(0, 200) },
+      });
+    }
+
+    // Shadow Logger: detect style corrections
+    if (STYLE_CORRECTION_RE.test(originalPrompt)) {
+      logShadowEvent({
+        projectId: sessionId,
+        sessionId,
+        type: 'style_corrected',
+        payload: { feedback: originalPrompt.slice(0, 300) },
+      });
+    }
+
+    // Observer pipeline: extract facts from chat messages in the background
+    // SECOND BRAIN DISABLED
+    if (false && originalPrompt.length >= 50) { // Increased from 10 to 50 to avoid extracting from short "hi/thanks" messages
+      fetch('/api/services/thinkforge/events/observe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: originalPrompt.slice(0, 500), sessionId, source: 'chat' }),
+      }).catch(() => {});
+    }
+
     if (activeThreadId) {
       upsertThread(activeThreadId, { lastEdited: Date.now(), name: originalPrompt.slice(0, 60) });
     }
@@ -322,13 +368,16 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     }
   }, [sessionId, activeThreadId, chat, scriptPayload, sessionPayload, handleScriptUpdate, onTokenStream, onGetSelection, editingSelection, onCancelEditSelection, upsertThread]);
 
-  /** Handle URLs detected in chat input — analyze all, enrich prompt, save to databank */
+  /**
+   * Handle URLs detected in chat input.
+   * Awaits Refinery Agent processing so the AI has access to the extracted
+   * facts before generating a response.
+   */
   const handleUrlInChat = useCallback(async (urls: string[], originalPrompt: string) => {
     if (!sessionId) return;
     setBriefExtracting(true);
     setInputValue("");
 
-    // Show user message immediately
     chat.appendMessage({
       id: `url-user-${Date.now()}`,
       role: 'user',
@@ -336,90 +385,54 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       timestamp: new Date(),
     });
 
+    chat.appendMessage({
+      id: `url-processing-${Date.now()}`,
+      role: 'assistant',
+      content: `Analyzing ${urls.length} link${urls.length > 1 ? 's' : ''} and saving to your research databank...`,
+      timestamp: new Date(),
+    });
+
     try {
-      // Analyze ALL URLs in parallel
-      const results = await Promise.allSettled(
-        urls.map(async (url) => {
-          const res = await fetch('/api/services/thinkforge/url-brief', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url }),
-          });
-          if (!res.ok) throw new Error('Failed to extract brief');
-          const data = await res.json();
-          return { url, brief: data.brief };
-        })
-      );
+      const res = await fetch('/api/services/thinkforge/refinery', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, urls }),
+      });
 
-      const successfulBriefs: Array<{ url: string; brief: any }> = [];
-      for (const result of results) {
-        if (result.status === 'fulfilled' && result.value.brief) {
-          successfulBriefs.push(result.value);
-        }
-      }
+      if (!res.ok) throw new Error('Refinery request failed');
+      const data = await res.json();
+      const result = data.result;
+      const successCount = result?.processed ?? 0;
+      const failCount = result?.failed ?? 0;
+      const titles = (result?.entries || []).map((e: any) => e.title).filter(Boolean);
 
-      if (successfulBriefs.length > 0) {
-        // Build enriched prompt: replace URLs with briefs inline
-        let enrichedPrompt = originalPrompt;
-        const briefMessages: string[] = [];
+      let msg = `Research saved: ${successCount} source${successCount !== 1 ? 's' : ''} analyzed`;
+      if (titles.length > 0) msg += ` (${titles.join(', ')})`;
+      if (failCount > 0) msg += `. ${failCount} URL${failCount !== 1 ? 's' : ''} could not be processed.`;
 
-        for (const { url, brief } of successfulBriefs) {
-          const briefBlock = [
-            `**${brief.title}** _(${brief.platform || 'Web'})_`,
-            brief.summary,
-            `**Key topics:** ${(brief.keyTopics || []).join(', ')}`,
-            `**Angles:** ${(brief.suggestedAngles || []).join(' | ')}`,
-            `**Audience:** ${brief.targetAudience || 'General'}`,
-          ].join('\n');
-          enrichedPrompt = enrichedPrompt.replace(url, briefBlock);
-          briefMessages.push(`🔗 **Brief from ${url}:**\n${briefBlock}`);
-
-          // Save to databank (fire and forget)
-          fetch('/api/services/thinkforge/databank', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              sessionId,
-              type: 'url_brief',
-              title: brief.title,
-              content: brief,
-              sourceUrl: url,
-              tags: brief.keyTopics || [],
-            }),
-          }).catch(err => console.error('[DataBank] Failed to save brief:', err));
-        }
-
-        // Show brief as assistant message
-        const briefSummary = briefMessages.join('\n\n---\n\n');
-        chat.appendMessage({
-          id: `url-brief-${Date.now()}`,
-          role: 'assistant',
-          content: briefSummary + '\n\n_Saved to research databank._',
-          timestamp: new Date(),
-        });
-
-        // Now send the enriched prompt to chat for actual AI processing
-        // Remove the URLs that were already analyzed to avoid double-processing
-        const remainingText = originalPrompt;
-        // Check if there's non-URL text that should be sent to the AI
-        const textWithoutUrls = urls.reduce((text, url) => text.replace(url, '').trim(), remainingText);
-        if (textWithoutUrls.length > 10) {
-          // There's meaningful text besides URLs — send enriched version to AI
-          sendChatMessage(enrichedPrompt);
-        }
-      } else {
-        // All briefs failed — send original message to chat normally
-        toast({
-          title: 'URL analysis failed',
-          description: 'Could not extract content from URLs. Sending message as-is.',
-        });
-        sendChatMessage(originalPrompt);
-      }
-    } catch (error) {
-      console.error('[ChatPanel] URL analysis failed:', error);
-      sendChatMessage(originalPrompt);
+      chat.appendMessage({
+        id: `url-done-${Date.now()}`,
+        role: 'assistant',
+        content: msg,
+        timestamp: new Date(),
+      });
+    } catch (err) {
+      console.error('[Refinery] Processing failed:', err);
+      chat.appendMessage({
+        id: `url-fail-${Date.now()}`,
+        role: 'assistant',
+        content: 'Could not analyze the links. Sending your message as-is.',
+        timestamp: new Date(),
+      });
     } finally {
       setBriefExtracting(false);
+    }
+
+    // Now send the prompt — the Databank has been populated, so
+    // fetchContextSources will pick up the newly ingested facts.
+    const textWithoutUrls = urls.reduce((text, url) => text.replace(url, '').trim(), originalPrompt);
+    if (textWithoutUrls.length > 5) {
+      sendChatMessage(originalPrompt);
     }
   }, [sessionId, chat, sendChatMessage]);
 
@@ -432,6 +445,7 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
       timestamp: msg.timestamp,
       streaming: msg.streaming,
       selectionText: msg.selectionText || null,
+      card: (msg as any).card || null,
     }));
   }, [chat.messages]);
 
@@ -466,18 +480,179 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
     setHistoryOpen(true);
   }, [sessionId, chat, upsertThread]);
 
+  // ---------------------------------------------------------------------------
+  // Sidecar Action Handler
+  // ---------------------------------------------------------------------------
+  const handleSidecarAction = useCallback(async (action: SidecarActionType) => {
+    if (!sessionId || sidecarLoading) return;
+    setSidecarLoading(action);
+
+    try {
+      let content = '';
+      let specialistRequest = '';
+
+      if (action === 'storyboard') {
+        const selection = onGetSelection?.();
+        if (!selection || selection.blocks.length === 0) {
+          toast({ title: 'No selection', description: 'Select text in the editor to storyboard.' });
+          return;
+        }
+        content = selection.blocks.map((b: any) => {
+          if (b?.content && Array.isArray(b.content)) {
+            return b.content.map((n: any) => n?.text || '').join('');
+          }
+          return b?.text || '';
+        }).join('\n');
+      } else if (action === 'refine_voice') {
+        content = script?.content || '';
+        if (!content.trim()) {
+          toast({ title: 'No draft', description: 'Write something in the editor first.' });
+          return;
+        }
+      } else if (action === 'deconstruct') {
+        content = inputValue.trim() || script?.content || '';
+        if (!content) {
+          toast({ title: 'No content', description: 'Enter text or drop a link to deconstruct.' });
+          return;
+        }
+        setInputValue('');
+      } else if (action === 'summon_specialist') {
+        specialistRequest = inputValue.trim();
+        if (!specialistRequest) {
+          toast({ title: 'Describe the specialist', description: 'Type what kind of expert you need (e.g., "VFX cost estimator").' });
+          return;
+        }
+        setInputValue('');
+      } else if (action === 'discover_blueprint') {
+        content = selectedIdea?.idea || inputValue.trim() || '';
+        if (!content) {
+          toast({ title: 'No project description', description: 'Enter a project description first.' });
+          return;
+        }
+      }
+
+      const res = await fetch('/api/services/thinkforge/sidecar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action,
+          sessionId,
+          content,
+          scriptId: scriptIdRef.current || undefined,
+          specialistRequest,
+          threadId: activeThreadId,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Request failed' }));
+        throw new Error(err.error || 'Sidecar action failed');
+      }
+
+      const data = await res.json();
+
+      if (data.card) {
+        chat.appendMessage({
+          id: `sidecar-${Date.now()}`,
+          role: 'assistant',
+          content: '',
+          timestamp: new Date(),
+          card: data.card as SidecarCard,
+        });
+      }
+    } catch (err: any) {
+      console.error('[Sidecar] Action failed:', err);
+      chat.appendMessage({
+        id: `sidecar-error-${Date.now()}`,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        card: {
+          id: `err-${Date.now()}`,
+          type: 'error',
+          title: 'Action Failed',
+          body: err?.message || 'Something went wrong. Please try again.',
+          actions: [{ id: 'retry', label: 'Retry', variant: 'primary' }],
+          dismissible: true,
+          timestamp: Date.now(),
+        } as SidecarCard,
+      });
+    } finally {
+      setSidecarLoading(null);
+    }
+  }, [sessionId, sidecarLoading, inputValue, script, selectedIdea, onGetSelection, activeThreadId, chat]);
+
+  const handleCardAction = useCallback(async (action: SidecarCardAction) => {
+    if (action.id === 'open_tab' && action.payload?.scriptId && onScriptCreated) {
+      onScriptCreated(action.payload.scriptId);
+    } else if (action.id === 'retry') {
+      toast({ title: 'Retry', description: 'Please try the action again.' });
+    } else if (action.id === 'initialize_blueprint') {
+      if (!sessionId || !action.payload?.artifacts) {
+        toast({ title: 'Error', description: 'Missing blueprint data.', variant: 'destructive' });
+        return;
+      }
+      const artifacts: Array<{ type: string; label: string; description?: string; priority?: string }> = action.payload.artifacts;
+
+      setSidecarLoading('discover_blueprint' as SidecarActionType);
+
+      await chat.sendMessage(
+        `Initialize blueprint with ${artifacts.length} documents: ${artifacts.map(a => a.label).join(', ')}`,
+        {
+          blueprintArtifacts: artifacts,
+          onScriptCreated: (scriptId: string) => {
+            if (onScriptCreated) onScriptCreated(scriptId);
+          },
+        }
+      );
+
+      setSidecarLoading(null);
+    } else if (action.id === 'customize_blueprint') {
+      const artifacts = action.payload?.artifacts;
+      const cardId = action.payload?.cardId;
+      if (!artifacts || !cardId) return;
+      const matchMsg = chat.messages.find(m => m.card?.id === cardId);
+      if (!matchMsg) return;
+      setCustomizingBlueprint({ messageId: matchMsg.id, cardId, artifacts });
+    } else if (action.id === 'copy_hooks' || action.id === 'copy_shots') {
+      toast({ title: 'Copied', description: 'Content copied to clipboard.' });
+    }
+  }, [onScriptCreated, sessionId, chat]);
+
+  const handleCardDismiss = useCallback((cardId: string) => {
+    // Cards are embedded in messages; dismissal is a no-op for now
+  }, []);
+
+  const hasEditorSelection = useMemo(() => {
+    if (editingSelection) return true;
+    return false;
+  }, [editingSelection]);
+
   return (
     <div className="flex flex-col h-full bg-neutral-900/40 backdrop-blur-xl animate-in fade-in-0 duration-300">
       <ChatHeader
         onOpenHistory={handleOpenHistory}
         onOpenSettings={onOpenSettings}
+        onOpenKnowledge={onOpenKnowledge}
         onNewChat={handleNewChat}
+      />
+
+      {/* Sidecar Action Buttons */}
+      <SidecarActions
+        onAction={handleSidecarAction}
+        disabled={!sessionId || chat.isStreaming}
+        hasSelection={hasEditorSelection}
+        hasScript={!!script?.content}
+        hasContent={!!inputValue.trim() || !!script?.content}
+        loading={sidecarLoading}
       />
 
       <div className="flex flex-col flex-1 min-h-0 overflow-hidden relative">
         <ChatMessages
           messages={formattedMessages}
           isStreaming={chat.isStreaming}
+          onCardAction={handleCardAction}
+          onCardDismiss={handleCardDismiss}
         />
         <GenerationProgress
           active={chat.isStreaming}
@@ -486,7 +661,24 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
           messageOverride={chat.generationMessage}
         />
 
-        {/* Decorative gradient at bottom of messages */}
+        {customizingBlueprint && (
+          <div className="absolute inset-0 z-30 flex items-end p-3 bg-black/40 backdrop-blur-sm">
+            <BlueprintCustomizer
+              artifacts={customizingBlueprint.artifacts}
+              onSave={(updated) => {
+                chat.updateMessageCard(
+                  customizingBlueprint.messageId,
+                  customizingBlueprint.cardId,
+                  { data: { artifacts: updated } }
+                );
+                setCustomizingBlueprint(null);
+                toast({ title: 'Blueprint Updated', description: `${updated.length} documents configured.` });
+              }}
+              onCancel={() => setCustomizingBlueprint(null)}
+            />
+          </div>
+        )}
+
         <div className="absolute bottom-0 left-0 right-0 h-8 bg-linear-to-t from-neutral-900/60 to-transparent pointer-events-none" />
       </div>
 
@@ -494,7 +686,10 @@ export const ChatPanel: React.FC<ChatPanelProps & { onTokenStream?: (tokens: str
         value={inputValue}
         onChange={setInputValue}
         onSend={handleSend}
-        onStop={chat.stopStreaming}
+        onStop={() => {
+          justStoppedStreamRef.current = true;
+          chat.stopStreaming();
+        }}
         disabled={!sessionId}
         isStreaming={chat.isStreaming || briefExtracting}
         suggestions={suggestions}

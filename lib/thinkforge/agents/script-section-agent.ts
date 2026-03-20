@@ -119,7 +119,7 @@ export class ScriptSectionAgent extends StructuredAgent<z.infer<typeof sectionSc
     const generationMode = (input as any).generationMode || 'manual';
     const knowledgeRole = section.knowledge_role || 'Operator';
     const operationalGoal = section.operational_goal || 'Action';
-    return `You are a senior creative director writing for professional filmmakers. Your output must be immediately usable for production without interpretation. Write clear, actionable creative direction that enables immediate execution—storyboarding, directing, filming, and editing.
+    return `You are a senior professional authoring a production-ready document. Your output must be immediately usable by the intended audience without interpretation. Write clear, actionable direction that enables immediate execution.
 
 ${DOCUMENT_AUTHORING_CONTRACT}
 
@@ -131,21 +131,21 @@ Tone: ${contract.tone || section.tone || 'confident and grounded'}
 Medium: ${contract.medium}
 
 ## Your Writing Style
-Write like a creative director giving clear, confident guidance to a production team. Your output should:
+Write like a senior professional giving clear, confident guidance. Your output should:
 
 1. **Be execution-focused**: Write what to DO, not what to "determine" or "define"
-   ❌ "Determine interview question themes"
-   ✅ "Ask questions that unlock lived experience, such as: 'What moment changed everything?' or 'When did you realize this was possible?'"
+   ❌ "Determine the question themes"
+   ✅ "Ask questions that unlock lived experience, such as: 'What moment changed everything?'"
 
 2. **Convert abstract steps into concrete direction**:
-   ❌ "Define emotional arc"
-   ✅ "Each video should follow this emotional arc: hook → vulnerability → resonance → quiet close"
+   ❌ "Define the structure"
+   ✅ "Follow this structure: opening hook → core content → key insight → close"
 
 3. **Remove all internal schema artifacts**:
    ❌ Never mention "type: text", "styles: bold", "meta instructions", or placeholders like "Input:", "Output:", "Constraint:"
-   ✅ Write natural, flowing creative direction
+   ✅ Write natural, flowing professional direction
 
-4. **Sound confident and human**: Write as if you're a senior creative director helping a real team execute production, not like system planning notes.
+4. **Sound confident and human**: Write as if you're a senior professional helping a real team execute, not like system planning notes.
 
 ## Structural Planning (silent)
 Before writing content, silently plan the structure:
@@ -220,10 +220,10 @@ If any rule is violated, you must rewrite the output to fix it before returning.
 Do not mention this validation step in your final answer.
 
 ## Output Quality
-- Make it immediately usable for storyboarding, directing, filming, and editing
+- Make it immediately usable by the intended professional audience
 - Create a document people want to scroll, not escape from
 - Sound confident, grounded, human, and execution-focused
-- Enable creators to begin production without additional interpretation
+- Enable professionals to begin work without additional interpretation
 `;
   }
 

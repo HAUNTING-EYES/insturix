@@ -62,26 +62,42 @@ export class IdeasAgent extends StructuredAgent<IdeasOutput> {
   }
   
   buildPrompt({ context, userPrompt }: AgentInput): string {
-    return `Generate 4 diverse content ideas based on: "${userPrompt}"
+    const projectHint = context.projectSummary
+      ? `\nProject context: ${context.projectSummary}`
+      : '';
+    const databankHint = context.systemBrief
+      ? `\nResearch & brand context: ${context.systemBrief}`
+      : '';
 
-For each idea, provide:
-- id: Unique identifier (e.g., "idea_1", "idea_2", etc.)
-- idea: Main idea title (max 80 characters)
-- purpose: Purpose description (what goal this content achieves)
-- style: Style description (e.g., "fast-paced operational cuts", "systematic breakdown", "data-backed explainer")
-- format: Format description (e.g., "30s short-form video", "carousel thread", "procedural reel")
-- platform: Platform (e.g., "TikTok", "YouTube Shorts", "Instagram Reels", "LinkedIn", "X / Twitter", "Multi-platform")
+    return `You are a senior creative strategist. A user has described their project to you. Your job is to generate exactly 4 content ideas that are DIRECTLY rooted in what the user asked for.
+
+## User's request
+"${userPrompt}"
+${projectHint}${databankHint}
+
+## Rules
+1. Every idea MUST be a concrete, actionable interpretation of the user's request — not a generic pivot away from it.
+2. Read the user's words carefully. If they said "documentary about X," all 4 ideas must be documentary-related — not social media posts or carousels.
+3. Each idea should take a DIFFERENT angle on the same core request: a different narrative structure, audience focus, visual approach, or emotional lens.
+4. The "purpose" must explain what this specific angle achieves that the others don't.
+5. Formats and platforms must match the project's actual medium. A feature film project gets screenplay treatments, not TikTok reels.
+6. Titles should be specific and evocative, not generic ("Untold Stories of X" is better than "Content about X").
+
+## Output schema per idea
+- id: "idea_1" through "idea_4"
+- idea: Specific, compelling title (max 80 chars) that captures the angle
+- purpose: What this angle achieves for the project (1-2 sentences)
+- style: Visual/editorial style (e.g., "cinéma vérité", "data-driven explainer", "montage-driven narrative")
+- format: Actual deliverable format matching the project scope (e.g., "feature screenplay", "10-min documentary short", "pitch deck", "long-form essay")
+- platform: Where this lives (e.g., "Netflix", "YouTube", "Film Festival", "Internal", "Blog", "Multi-platform")
 - tone: One of: white (factual), red (emotional), black (critical), yellow (optimistic), green (creative), blue (analytical)
 
-Make each idea unique and diverse in approach, style, and platform.`;
+Generate 4 ideas now.`;
   }
   
-  /**
-   * Generate ideas and return as IdeaCardData array
-   */
-  async generateIdeas(prompt: string): Promise<IdeaCardData[]> {
+  async generateIdeas(prompt: string, projectContext?: string): Promise<IdeaCardData[]> {
     const input: AgentInput = {
-      context: { projectSummary: '' }, // Ideas don't need context
+      context: { projectSummary: projectContext || '' },
       userPrompt: prompt,
     };
     

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { generateIdeas } from '@/lib/thinkforge/agents/ideas-agent';
 import { checkCredits } from '@/lib/services/creditsMiddleware';
+import { CreditsMigrationService } from '@/lib/services/creditsMigrationService';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -18,6 +19,9 @@ export async function POST(req: Request) {
 		return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
 	}
 	if (!prompt.trim()) return NextResponse.json({ error: 'Missing prompt' }, { status: 400 });
+
+	// Ensure user exists and is migrated
+	await CreditsMigrationService.ensureMigrated(userId);
 
 	// Check and prepare credit deduction (cost: 1 for chat_message)
 	const creditCheck = await checkCredits(userId, 'thinkforge', 'chat_message');

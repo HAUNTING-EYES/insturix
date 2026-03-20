@@ -79,8 +79,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to generate link preview",
-        title: "Preview not available",
-        description: "Could not load preview for this link",
+        title: "",
+        description: "",
         image: null,
       },
       { status: 200 } // Still return 200 to handle gracefully on the client
