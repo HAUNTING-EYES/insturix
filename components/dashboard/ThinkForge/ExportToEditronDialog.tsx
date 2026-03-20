@@ -73,6 +73,10 @@ export function ExportToEditronDialog({
   const [artStyle, setArtStyle] = useState('cinematic');
   const [imageModel, setImageModel] = useState('flux-schnell');
   const [videoModel, setVideoModel] = useState('kling-1.6');
+  const [selectedVoice, setSelectedVoice] = useState('aura-asteria-en');
+  const [availableVoices, setAvailableVoices] = useState<Array<{ id: string; name: string; gender: string; style: string }>>([]);
+  const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
+  const previewAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [error, setError] = useState('');
 
   // Results
@@ -100,6 +104,59 @@ export function ExportToEditronDialog({
       Notification.requestPermission();
     }
   }, [open]);
+
+  // Fetch available TTS voices
+  React.useEffect(() => {
+    if (open) {
+      fetch('/api/services/pipeline/voices')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.voices?.length > 0) {
+            setAvailableVoices(data.voices);
+          }
+        })
+        .catch(() => {});
+    }
+    return () => {
+      // Stop any playing preview on close
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current = null;
+      }
+    };
+  }, [open]);
+
+  const handlePreviewVoice = async (voiceId: string) => {
+    // Stop current preview if playing
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current = null;
+    }
+    if (previewingVoice === voiceId) {
+      setPreviewingVoice(null);
+      return;
+    }
+    setPreviewingVoice(voiceId);
+    try {
+      const res = await fetch('/api/services/pipeline/voices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ voiceId }),
+      });
+      if (!res.ok) throw new Error('Preview failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      previewAudioRef.current = audio;
+      audio.onended = () => {
+        setPreviewingVoice(null);
+        URL.revokeObjectURL(url);
+      };
+      await audio.play();
+    } catch {
+      setPreviewingVoice(null);
+    }
+  };
 
   const sendNotification = (title: string, body: string) => {
     if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted' && document.hidden) {
@@ -395,7 +452,7 @@ export function ExportToEditronDialog({
           const voRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/voiceover`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ voice: 'aura-asteria-en' }),
+            body: JSON.stringify({ voice: selectedVoice || undefined }),
           });
           const voData = await voRes.json().catch(() => ({}));
           if (voRes.ok && voData.scenesProcessed > 0) {
@@ -777,6 +834,51 @@ export function ExportToEditronDialog({
                       <SelectItem value="luma-ray2">Luma Ray 2</SelectItem>
                     </SelectContent>
                   </Select>
+                </motion.div>
+              )}
+
+              {/* Voice Selector with Preview */}
+              {availableVoices.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                >
+                  <label className="text-sm text-zinc-400 mb-1 block">Narrator Voice</label>
+                  <div className="flex gap-2">
+                    <Select value={selectedVoice} onValueChange={setSelectedVoice}>
+                      <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200 flex-1">
+                        <SelectValue placeholder="Select voice" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-zinc-800 border-zinc-700 max-h-60">
+                        {availableVoices.map((v) => (
+                          <SelectItem key={v.id} value={v.id}>
+                            <span className="flex items-center gap-2">
+                              <span className={v.gender === 'female' ? 'text-pink-300' : 'text-blue-300'}>
+                                {v.gender === 'female' ? '♀' : '♂'}
+                              </span>
+                              <span>{v.name}</span>
+                              <span className="text-zinc-500 text-xs">— {v.style}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePreviewVoice(selectedVoice)}
+                      disabled={!selectedVoice || step !== 'configure'}
+                      className="border-zinc-700 text-zinc-300 hover:bg-zinc-700 px-3"
+                      title="Preview voice"
+                    >
+                      {previewingVoice === selectedVoice ? (
+                        <span className="h-4 w-4 rounded-full bg-red-500 animate-pulse" />
+                      ) : (
+                        <span className="text-sm">▶</span>
+                      )}
+                    </Button>
+                  </div>
                 </motion.div>
               )}
 

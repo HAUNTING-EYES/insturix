@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect } from "react";
-import { AbsoluteFill, prefetch } from "remotion";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { AbsoluteFill, prefetch, useCurrentFrame } from "remotion";
 
 import { Overlay } from "../types";
 import { SortedOutlines } from "../components/selection/sorted-outlines";
@@ -36,6 +36,8 @@ export type MainProps = {
   readonly height: number;
   /** Base URL for media assets (optional) */
   readonly baseUrl?: string;
+  /** Render mode — when true, use original quality. When false (editing), use proxy. */
+  readonly isRendering?: boolean;
 };
 
 const outer: React.CSSProperties = {
@@ -60,24 +62,69 @@ export const Main: React.FC<MainProps> = ({
   selectedOverlayId,
   changeOverlay,
   baseUrl,
+  isRendering,
 }) => {
-  // Prefetch all video and audio overlay URLs to eliminate lag between scenes
+  const frame = useCurrentFrame();
+  const prefetchHandlesRef = useRef<Map<string, { free: () => void }>>(new Map());
+
+  // Sort media overlays by start frame for proximity-based prefetching
+  const mediaOverlays = useMemo(() => {
+    return overlays
+      .filter((o) => (o.type === 'video' || o.type === 'sound') && (o.src || o.content))
+      .sort((a, b) => a.from - b.from);
+  }, [overlays]);
+
+  // Smart prefetch: only load nearby media (current + next 2 clips)
+  // This prevents loading ALL videos at once which causes lag and memory pressure.
+  // During rendering, prefetch everything for smooth output.
   useEffect(() => {
-    const handles: Array<{ free: () => void }> = [];
-    for (const overlay of overlays) {
-      const isMedia = overlay.type === 'video' || overlay.type === 'sound';
-      if (isMedia && (overlay.src || overlay.content)) {
-        const url = overlay.src || overlay.content;
+    const PREFETCH_WINDOW = isRendering ? Infinity : 2; // In editor: 2 clips ahead. In render: all.
+    const handles = prefetchHandlesRef.current;
+
+    // Find overlays that are currently playing or upcoming
+    const relevantOverlays = isRendering
+      ? mediaOverlays
+      : mediaOverlays.filter((o) => {
+          const endFrame = o.from + o.durationInFrames;
+          // Currently playing OR within next N clips from current frame
+          if (endFrame <= frame) return false; // Already passed
+          // Count how many are ahead of current frame
+          const aheadIndex = mediaOverlays.filter(
+            (m) => m.from >= frame && m.from < o.from,
+          ).length;
+          return aheadIndex <= PREFETCH_WINDOW || (o.from <= frame && endFrame > frame);
+        });
+
+    const relevantUrls = new Set(
+      relevantOverlays.map((o) => (o as any).src || (o as any).content).filter(Boolean),
+    );
+
+    // Free handles for overlays no longer relevant (already passed)
+    for (const [url, handle] of handles) {
+      if (!relevantUrls.has(url)) {
+        handle.free();
+        handles.delete(url);
+      }
+    }
+
+    // Prefetch new relevant overlays
+    for (const url of relevantUrls) {
+      if (!handles.has(url)) {
         try {
           const handle = prefetch(url, { method: 'blob-url' });
-          handles.push(handle);
+          handles.set(url, handle);
         } catch {
-          // Ignore prefetch errors — playback will still work without prefetch
+          // Ignore prefetch errors
         }
       }
     }
-    return () => handles.forEach((h) => h.free());
-  }, [overlays]);
+
+    return () => {
+      // Cleanup all on unmount
+      for (const handle of handles.values()) handle.free();
+      handles.clear();
+    };
+  }, [mediaOverlays, frame, isRendering]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {

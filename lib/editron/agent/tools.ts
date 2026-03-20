@@ -3461,6 +3461,108 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
   );
 
+  // ─── AI Pipeline Scene Tools ─────────────────────────────────────
+  // These allow the chat AI to regenerate scenes, voiceovers, and videos
+  // from the storyboard pipeline directly through conversation.
+
+  const regenerateSceneSchema = z.object({
+    sceneIndex: z.coerce.number().describe("The scene index (0-based) to regenerate. If user says 'scene 3', use index 2."),
+    feedback: z.string().optional().describe("User's feedback/direction for regeneration, e.g. 'make it darker', 'change the lighting to golden hour'"),
+    target: z.enum(['image', 'video', 'voiceover', 'all']).default('image').describe("What to regenerate: image (storyboard), video (AI clip), voiceover (narration audio), or all"),
+  });
+
+  const regenerateScene = tool(
+    async (input: z.infer<typeof regenerateSceneSchema>) => {
+      try {
+        const project = await loadProject();
+        const storyboardId = (project as any).storyboardId || (project as any).sourceStoryboardId;
+        if (!storyboardId) {
+          return JSON.stringify({
+            status: "error",
+            message: "This project doesn't have a linked storyboard. Scene regeneration requires a storyboard-based project.",
+          });
+        }
+
+        const results: string[] = [];
+
+        // Regenerate storyboard image
+        if (input.target === 'image' || input.target === 'all') {
+          const imgRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/scene/${input.sceneIndex}/regenerate-with-context`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              feedback: input.feedback,
+              userId,
+            }),
+          });
+          if (imgRes.ok) {
+            const data = await imgRes.json();
+            results.push(`Storyboard image regenerated (assetId: ${data.imageAssetId || 'updated'})`);
+          } else {
+            results.push(`Image regeneration failed: ${(await imgRes.text()).substring(0, 100)}`);
+          }
+        }
+
+        // Regenerate video clip
+        if (input.target === 'video' || input.target === 'all') {
+          const vidRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sceneIndices: [input.sceneIndex],
+            }),
+          });
+          if (vidRes.ok) {
+            const data = await vidRes.json();
+            const succeeded = data.summary?.succeeded || 0;
+            results.push(succeeded > 0 ? `Video clip regenerated successfully` : `Video regeneration failed: ${data.error || 'unknown'}`);
+          } else {
+            results.push(`Video regeneration failed: ${(await vidRes.text()).substring(0, 100)}`);
+          }
+        }
+
+        // Regenerate voiceover
+        if (input.target === 'voiceover' || input.target === 'all') {
+          const voRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/voiceover`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              sceneIndices: [input.sceneIndex],
+            }),
+          });
+          if (voRes.ok) {
+            results.push(`Voiceover regenerated`);
+          } else {
+            results.push(`Voiceover regeneration failed`);
+          }
+        }
+
+        return JSON.stringify({
+          status: "success",
+          sceneIndex: input.sceneIndex,
+          target: input.target,
+          results,
+          message: `Scene ${input.sceneIndex} ${input.target} regeneration complete. ${results.join('. ')}`,
+          nextAction: "continue",
+        });
+      } catch (err: any) {
+        return JSON.stringify({
+          status: "error",
+          message: `Scene regeneration failed: ${err.message}`,
+        });
+      }
+    },
+    {
+      name: "regenerate_scene",
+      description: `Regenerate a specific scene's storyboard image, AI video clip, or voiceover narration.
+        Use when user says: "regenerate scene 3", "redo the video for scene 1", "change scene 2 to be darker",
+        "re-record the voiceover for scene 4", "I don't like scene 5, make it more dramatic".
+        The sceneIndex is 0-based (scene 1 = index 0, scene 2 = index 1, etc.).
+        Always pass user's feedback as context for better regeneration.`,
+      schema: regenerateSceneSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -3484,6 +3586,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     refreshCaptionsAI,    // NEW: Refresh/realign captions
     analyzeClipAudio,     // NEW: Analyze clip audio
     analyzeClipVideo,     // NEW: Analyze clip video
+    // --- AI Pipeline Scene Tools ---
+    regenerateScene,      // NEW: Regenerate scene image/video/voiceover via chat
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };
