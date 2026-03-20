@@ -48,6 +48,61 @@ export const IMAGE_MODEL_LABELS: Record<ImageModelKey, string> = {
 // Default model for storyboard generation
 const DEFAULT_MODEL = 'fal-ai/flux/schnell';
 
+// Models that support negative_prompt
+const SUPPORTS_NEGATIVE_PROMPT = new Set([
+  'fal-ai/flux/schnell',
+  'fal-ai/flux/dev',
+  'fal-ai/flux-pro/v1.1',
+  'fal-ai/flux/dev/ip-adapter',
+]);
+
+// Models that use { width, height } object for image_size
+// vs models that use a string like "landscape_16_9"
+const USES_IMAGE_SIZE_OBJECT = new Set([
+  'fal-ai/flux/schnell',
+  'fal-ai/flux/dev',
+  'fal-ai/flux-pro/v1.1',
+  'fal-ai/flux/dev/ip-adapter',
+  'fal-ai/recraft-v3',
+]);
+
+/**
+ * Build model-specific input parameters.
+ * Different fal.ai models accept different input schemas.
+ */
+function buildModelInput(
+  modelId: string,
+  prompt: string,
+  negativePrompt: string,
+  width: number,
+  height: number,
+): Record<string, any> {
+  const input: Record<string, any> = {
+    prompt,
+    num_images: 1,
+    enable_safety_checker: false,
+  };
+
+  // negative_prompt — only for models that support it
+  if (SUPPORTS_NEGATIVE_PROMPT.has(modelId)) {
+    input.negative_prompt = negativePrompt;
+  }
+
+  // image_size — object vs string
+  if (USES_IMAGE_SIZE_OBJECT.has(modelId)) {
+    input.image_size = { width, height };
+  } else {
+    // Models like Imagen4, Seedream use aspect ratio strings or width/height directly
+    input.image_size = { width, height };
+    // Also send aspect_ratio as some models prefer it
+    if (width > height) input.aspect_ratio = '16:9';
+    else if (height > width) input.aspect_ratio = '9:16';
+    else input.aspect_ratio = '1:1';
+  }
+
+  return input;
+}
+
 interface ReferenceImageInput {
   subjectId: string;
   imageUrl: string;
@@ -89,6 +144,9 @@ export async function generateStoryboardImage(
   } else if (options.aspectRatio === '1:1') {
     width = 1024;
     height = 1024;
+  } else if (options.aspectRatio === '4:5') {
+    width = 1080;
+    height = 1350;
   }
 
   // Use IP-adapter model when reference images are available for visual consistency
@@ -96,6 +154,8 @@ export async function generateStoryboardImage(
   const modelId = hasReferences
     ? 'fal-ai/flux/dev/ip-adapter'
     : (options.modelId || DEFAULT_MODEL);
+
+  console.log(`[Storyboard] Scene ${options.sceneIndex}: model=${modelId}, ${width}x${height}, refs=${hasReferences ? options.referenceImages!.length : 0}`);
 
   let result;
   if (hasReferences) {
@@ -113,34 +173,29 @@ export async function generateStoryboardImage(
       logs: false,
     });
   } else {
+    const input = buildModelInput(modelId, prompt, negativePrompt, width, height);
     result = await fal.subscribe(modelId, {
-      input: {
-        prompt,
-        negative_prompt: negativePrompt,
-        image_size: { width, height },
-        num_images: 1,
-        enable_safety_checker: false,
-      },
+      input,
       logs: false,
     });
   }
 
   const data = result.data as any;
-  if (!data?.images?.[0]?.url) {
-    throw new Error('No image generated from fal.ai');
+  // Different models return images in different structures
+  const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
+  if (!imageUrl) {
+    console.error(`[Storyboard] Scene ${options.sceneIndex}: No image in response. Keys:`, Object.keys(data || {}));
+    throw new Error(`No image generated from fal.ai (model: ${modelId})`);
   }
 
-  const generatedUrl = data.images[0].url;
-
   // Download and upload to GCS
-  const response = await fetch(generatedUrl);
+  const response = await fetch(imageUrl);
   if (!response.ok) throw new Error('Failed to download generated image');
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const assetId = `storyboard_${nanoid(12)}`;
   const filename = `${assetId}.png`;
 
-  // uploadToGCS signature: (file, userId, filename, contentType)
   const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
 
   return {
@@ -153,7 +208,7 @@ export async function generateStoryboardImage(
 
 /**
  * Generate a full storyboard for all scenes.
- * Runs up to 3 concurrent image generations.
+ * Runs up to 2 concurrent image generations with retry.
  */
 export async function generateFullStoryboard(
   scenes: SceneDescriptor[],
@@ -288,6 +343,8 @@ export async function generateFullStoryboard(
   storyboard.status = errors === 0 ? 'ready' : completed > 0 ? 'partial' : 'error';
   storyboard.updatedAt = new Date();
   await saveStoryboard(storyboard);
+
+  console.log(`[Storyboard] Complete: ${completed} succeeded, ${errors} failed out of ${totalScenes}`);
 
   return storyboard;
 }

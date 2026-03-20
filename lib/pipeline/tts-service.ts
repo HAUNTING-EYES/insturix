@@ -50,6 +50,8 @@ export async function generateVoiceover(
   const deepgram = getDeepgramClient();
   const voice = options.voice || 'aura-asteria-en';
 
+  console.log(`[TTS] Generating voiceover: voice=${voice}, text="${text.substring(0, 80)}..." (${text.length} chars)`);
+
   // Call Deepgram Aura TTS
   const response = await deepgram.speak.request(
     { text },
@@ -62,7 +64,7 @@ export async function generateVoiceover(
 
   const stream = await response.getStream();
   if (!stream) {
-    throw new Error('Failed to get audio stream from Deepgram TTS');
+    throw new Error('Failed to get audio stream from Deepgram TTS — no stream returned');
   }
 
   // Read the stream into a buffer
@@ -77,6 +79,11 @@ export async function generateVoiceover(
     }
   }
   const audioBuffer = Buffer.concat(chunks);
+
+  if (audioBuffer.length === 0) {
+    throw new Error('Deepgram TTS returned empty audio buffer');
+  }
+  console.log(`[TTS] Audio buffer: ${audioBuffer.length} bytes`);
 
   // Estimate duration from text (rough: ~150 words per minute)
   const wordCount = text.split(/\s+/).length;

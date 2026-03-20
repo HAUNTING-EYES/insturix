@@ -43,12 +43,15 @@ export async function generateBackgroundMusic(
   const duration = Math.min(Math.max(durationSec, 5), 240);
   const assetId = `bgm_${nanoid(12)}`;
 
+  console.log(`[BGM] Generating: prompt="${prompt.substring(0, 100)}", duration=${duration}s`);
+
   const result = await fal.subscribe('fal-ai/stable-audio/v2.5', {
     input: {
       prompt: `${prompt}, instrumental, background music for video`,
       seconds_total: duration,
       steps: 100,
     },
+    logs: false,
   });
 
   // fal.ai subscribe returns { data, requestId }

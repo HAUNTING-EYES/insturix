@@ -61,11 +61,12 @@ export const Main: React.FC<MainProps> = ({
   changeOverlay,
   baseUrl,
 }) => {
-  // Prefetch all video overlay URLs to eliminate lag between scenes
+  // Prefetch all video and audio overlay URLs to eliminate lag between scenes
   useEffect(() => {
     const handles: Array<{ free: () => void }> = [];
     for (const overlay of overlays) {
-      if (overlay.type === 'video' && (overlay.src || overlay.content)) {
+      const isMedia = overlay.type === 'video' || overlay.type === 'sound';
+      if (isMedia && (overlay.src || overlay.content)) {
         const url = overlay.src || overlay.content;
         try {
           const handle = prefetch(url, { method: 'blob-url' });

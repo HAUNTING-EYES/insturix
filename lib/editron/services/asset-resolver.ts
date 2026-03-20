@@ -131,10 +131,13 @@ export class AssetResolver {
     // Inject URLs into overlays
     return overlays.map(overlay => {
       if ('assetId' in overlay && overlay.assetId) {
-        return { 
-          ...overlay, 
-          src: assetMap.get(overlay.assetId as string) || '' 
-        };
+        const resolvedUrl = assetMap.get(overlay.assetId as string) || '';
+        const result: any = { ...overlay, src: resolvedUrl };
+        // For sound overlays, also populate content field (SoundLayerContent falls back to it)
+        if (overlay.type === 'sound' && resolvedUrl) {
+          result.content = resolvedUrl;
+        }
+        return result as typeof overlay;
       }
       return overlay;
     });
@@ -191,23 +194,31 @@ export class AssetResolver {
    */
   stripUrlsForLLM(overlays: Overlay[]): Overlay[] {
     return overlays.map(overlay => {
-      // If there's a src field, check if it's a GCS signed URL that needs to be stripped
-      if ('src' in overlay && overlay.src) {
-        const src = overlay.src as string;
-        
-        // Only strip GCS signed URLs (temporary URLs that will be regenerated)
-        // Keep public URLs like Pexels, direct HTTP links, etc.
+      let modified = overlay as any;
+      let changed = false;
+
+      // Strip GCS signed URLs from src field
+      if ('src' in modified && modified.src) {
+        const src = modified.src as string;
         const isGCSSignedUrl = src.includes('storage.googleapis.com') && src.includes('X-Goog-Signature');
-        
         if (isGCSSignedUrl) {
-          // Remove src, rely on assetId for regeneration
-          const { src: _, ...rest } = overlay as any;
-          return rest as Overlay;
+          const { src: _, ...rest } = modified;
+          modified = rest;
+          changed = true;
         }
       }
-      
-      // Keep the overlay as-is (including src if it's a public URL)
-      return overlay;
+
+      // Strip GCS signed URLs from content field (sound overlays store audio URL here too)
+      if ('content' in modified && modified.content && modified.assetId) {
+        const content = modified.content as string;
+        const isGCSSignedUrl = content.includes('storage.googleapis.com') && content.includes('X-Goog-Signature');
+        if (isGCSSignedUrl) {
+          modified = { ...modified, content: '' };
+          changed = true;
+        }
+      }
+
+      return changed ? (modified as Overlay) : overlay;
     });
   }
 

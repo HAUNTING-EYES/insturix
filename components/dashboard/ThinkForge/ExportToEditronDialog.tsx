@@ -41,6 +41,7 @@ type ExportStep =
   | 'generating-references'  // generating reference images
   | 'reviewing-references'   // user approves/rejects reference images
   | 'storyboard'             // generating AI storyboard images (with IP-adapter if refs approved)
+  | 'reviewing-storyboard'   // user reviews storyboard images before video gen
   | 'generating-videos'      // generating AI video clips
   | 'generating-voiceover'   // generating AI voiceover
   | 'finalizing'             // creating Editron project
@@ -253,7 +254,7 @@ export function ExportToEditronDialog({
     }
   };
 
-  // ─── Phase 2: Storyboard → Videos → Voiceover → Finalize
+  // ─── Phase 2: Generate storyboard images → Pause for review
   const handlePhase2 = async (parsedScenes?: any[], projectTitle?: string) => {
     const currentScenes = parsedScenes || scenes;
     const currentTitle = projectTitle || title || 'Untitled Script';
@@ -273,9 +274,6 @@ export function ExportToEditronDialog({
         }));
 
       // ─── Step 4: Generate storyboard images ─────────────────
-      let sbImages: Array<{ sceneIndex: number; imageUrl: string; assetId?: string }> = [];
-      let sbId = '';
-
       if (generateStoryboard && currentScenes.length > 0) {
         setStep('storyboard');
 
@@ -308,17 +306,42 @@ export function ExportToEditronDialog({
 
         if (sbRes.ok) {
           const sbData = await sbRes.json();
-          sbId = sbData.storyboardId || '';
+          const sbId = sbData.storyboardId || '';
           setStoryboardId(sbId);
           const sbScenes = sbData.scenes || [];
           setStoryboardScenes(sbScenes);
 
-          sbImages = sbScenes
-            .filter((s: any) => s.imageUrl)
-            .map((s: any) => ({ sceneIndex: s.sceneIndex, imageUrl: s.imageUrl, assetId: s.imageAssetId }));
+          const generatedCount = sbScenes.filter((s: any) => s.imageUrl).length;
+          sendNotification('Storyboard Ready', `${generatedCount}/${sbScenes.length} scene images generated. Review them now.`);
+
+          if (generatedCount > 0) {
+            // ─── PAUSE: Show storyboard review UI ────────────
+            setStep('reviewing-storyboard');
+            return; // Stop here — user reviews storyboard and clicks Continue
+          }
+        } else {
+          const errData = await sbRes.json().catch(() => ({}));
+          console.error('[ExportToEditron] Storyboard generation failed:', errData.error);
+          setError(errData.error || 'Storyboard generation failed');
         }
       }
 
+      // If no storyboard or generation failed, skip to phase 3
+      await handlePhase3();
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong');
+      setStep('configure');
+      sendNotification('Export Failed', err.message || 'Something went wrong during export.');
+    }
+  };
+
+  // ─── Phase 3: Videos → Voiceover → Finalize (after storyboard review)
+  const handlePhase3 = async () => {
+    setError('');
+    const sbId = storyboardId;
+    const sbImages = storyboardScenes.filter((s: any) => s.imageUrl);
+
+    try {
       // ─── Step 5: Generate AI video clips (optional) ────────
       if (generateVideos && sbId && sbImages.length > 0) {
         setStep('generating-videos');
@@ -380,14 +403,17 @@ export function ExportToEditronDialog({
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ voice: 'aura-asteria-en' }),
           });
-          if (voRes.ok) {
-            const voData = await voRes.json();
+          const voData = await voRes.json().catch(() => ({}));
+          if (voRes.ok && voData.scenesProcessed > 0) {
             console.log(`[ExportToEditron] Voiceover: ${voData.scenesProcessed}/${voData.totalScenes} scenes`);
           } else {
-            console.warn('[ExportToEditron] Voiceover generation failed, continuing without');
+            const voErr = voData.error || `Voiceover failed (${voRes.status})`;
+            console.error('[ExportToEditron] Voiceover failed:', voErr);
+            setError((prev) => prev ? `${prev} | Voiceover: ${voErr}` : `Voiceover: ${voErr}`);
           }
         } catch (voErr: any) {
-          console.warn('[ExportToEditron] Voiceover error:', voErr.message);
+          console.error('[ExportToEditron] Voiceover error:', voErr.message);
+          setError((prev) => prev ? `${prev} | Voiceover error: ${voErr.message}` : `Voiceover error: ${voErr.message}`);
         }
       }
 
@@ -413,12 +439,13 @@ export function ExportToEditronDialog({
         const finalizeData = await finalizeRes.json();
         setProjectId(finalizeData.projectId);
       } else {
+        // No storyboard — import scenes directly
         const importRes = await fetch('/api/services/editron/projects/import-from-script', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            scenes: currentScenes,
-            title: currentTitle,
+            scenes,
+            title: title || 'Untitled Script',
             aspectRatio,
             sourceScriptId: scriptId,
           }),
@@ -498,6 +525,7 @@ export function ExportToEditronDialog({
       case 'generating-references': return 'Generating reference images for subjects...';
       case 'reviewing-references': return 'Review and approve reference images';
       case 'storyboard': return 'Generating AI storyboard images...';
+      case 'reviewing-storyboard': return 'Review storyboard images before video generation';
       case 'generating-videos': return 'Generating AI video clips...';
       case 'generating-voiceover': return 'Generating AI voiceover...';
       case 'finalizing': return 'Building your Editron project...';
@@ -753,7 +781,7 @@ export function ExportToEditronDialog({
                   <>
                     <StepIndicator label="Extract key subjects" active={step === 'extracting-subjects'} done={!['exporting', 'extracting-subjects'].includes(step)} />
                     <StepIndicator label="Generate reference images" active={step === 'generating-references'} done={!['exporting', 'extracting-subjects', 'generating-references'].includes(step)} />
-                    <StepIndicator label="Generate storyboard images" active={step === 'storyboard'} done={['generating-videos', 'generating-voiceover', 'finalizing', 'done'].includes(step)} />
+                    <StepIndicator label="Generate storyboard images" active={step === 'storyboard'} done={['reviewing-storyboard', 'generating-videos', 'generating-voiceover', 'finalizing', 'done'].includes(step)} />
                   </>
                 )}
                 {generateStoryboard && generateVideos && (
@@ -934,6 +962,68 @@ export function ExportToEditronDialog({
             </motion.div>
           )}
 
+          {/* ─── Storyboard Review Step ──────────────────────── */}
+          {step === 'reviewing-storyboard' && (
+            <motion.div
+              key="review-storyboard"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="py-2 space-y-3"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <ImageIcon className="h-4 w-4 text-green-400" />
+                <p className="text-sm font-medium text-zinc-200">
+                  Review Storyboard ({storyboardScenes.filter((s: any) => s.imageUrl).length}/{storyboardScenes.length} generated)
+                </p>
+              </div>
+              <p className="text-xs text-zinc-500">
+                These images will be used as starting frames for AI video generation. Review them before proceeding.
+              </p>
+
+              <div className="grid grid-cols-3 gap-2 max-h-[300px] overflow-y-auto pr-1">
+                {storyboardScenes.map((scene: any) => (
+                  <div
+                    key={scene.sceneIndex}
+                    className={`relative rounded-lg border overflow-hidden ${
+                      scene.imageUrl
+                        ? 'border-green-500/30 bg-green-500/5'
+                        : 'border-red-500/30 bg-red-500/5'
+                    }`}
+                  >
+                    <div className="aspect-video bg-zinc-800 relative">
+                      {scene.imageUrl ? (
+                        <img
+                          src={scene.imageUrl}
+                          alt={scene.title}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                          <X className="h-4 w-4" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-1.5">
+                      <p className="text-[10px] font-medium text-zinc-200 truncate">{scene.title}</p>
+                      <p className="text-[9px] text-zinc-500">
+                        {scene.imageUrl ? 'Ready' : 'Failed'}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {storyboardScenes.some((s: any) => !s.imageUrl) && (
+                <p className="text-xs text-amber-400">
+                  {storyboardScenes.filter((s: any) => !s.imageUrl).length} scene(s) failed to generate. Videos will only be created for successful scenes.
+                </p>
+              )}
+
+              {error && <p className="text-sm text-red-400">{error}</p>}
+            </motion.div>
+          )}
+
           {/* ─── Done Step ─────────────────────────────────────── */}
           {step === 'done' && (
             <motion.div
@@ -1037,6 +1127,30 @@ export function ExportToEditronDialog({
               >
                 <ArrowRight className="h-4 w-4 mr-2" />
                 Continue with {approvedSubjectIds.size} Reference{approvedSubjectIds.size !== 1 ? 's' : ''}
+              </Button>
+            </>
+          )}
+          {step === 'reviewing-storyboard' && (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  // Skip video gen — go straight to voiceover + finalize
+                  setGenerateVideos(false);
+                  handlePhase3();
+                }}
+                className="text-zinc-400"
+              >
+                Skip Videos
+              </Button>
+              <Button
+                onClick={() => handlePhase3()}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <ArrowRight className="h-4 w-4 mr-2" />
+                {generateVideos
+                  ? `Generate ${storyboardScenes.filter((s: any) => s.imageUrl).length} Videos`
+                  : 'Continue to Finalize'}
               </Button>
             </>
           )}

@@ -65,9 +65,11 @@ export async function POST(
 
     // Generate voiceover for each scene
     const results: Array<{ sceneIndex: number; audioUrl: string; durationMs: number }> = [];
+    const errors: Array<{ sceneIndex: number; error: string }> = [];
 
     for (const scene of scenesWithNarration) {
       try {
+        console.log(`[Voiceover] Scene ${scene.sceneIndex}: generating for "${scene.descriptor.narration.substring(0, 60)}..."`);
         const result = await generateVoiceover(
           scene.descriptor.narration,
           userId,
@@ -88,22 +90,28 @@ export async function POST(
           audioUrl: result.audioUrl,
           durationMs: result.durationMs,
         });
-      } catch (err) {
-        console.error(`[Voiceover] Scene ${scene.sceneIndex} failed:`, err);
+        console.log(`[Voiceover] Scene ${scene.sceneIndex}: success (${result.durationMs}ms, ${result.audioAssetId})`);
+      } catch (err: any) {
+        const errMsg = err.message || 'Unknown TTS error';
+        console.error(`[Voiceover] Scene ${scene.sceneIndex} failed:`, errMsg);
+        errors.push({ sceneIndex: scene.sceneIndex, error: errMsg });
         // Continue with remaining scenes
       }
     }
 
     // Update final status
-    await updateStoryboardVoiceover(id, {
-      status: results.length === scenesWithNarration.length ? 'ready' : 'error',
-    });
+    const finalStatus = results.length === scenesWithNarration.length ? 'ready' : results.length > 0 ? 'ready' : 'error';
+    await updateStoryboardVoiceover(id, { status: finalStatus });
 
     return NextResponse.json({
-      success: true,
+      success: results.length > 0,
       scenesProcessed: results.length,
       totalScenes: scenesWithNarration.length,
       results,
+      ...(errors.length > 0 && {
+        errors,
+        error: errors.map(e => `Scene ${e.sceneIndex}: ${e.error}`).join('; '),
+      }),
     });
   } catch (error: any) {
     console.error('[Voiceover]', error);
