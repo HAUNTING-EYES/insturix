@@ -222,6 +222,7 @@ export function ExportToEditronDialog({
                 subjects: extractedSubjects,
                 artStyle,
                 sourceScriptId: scriptId,
+                modelId: imageModel !== 'flux-schnell' ? imageModel : undefined,
               }),
             });
 
@@ -485,7 +486,7 @@ export function ExportToEditronDialog({
       const res = await fetch(`/api/services/pipeline/reference-images/${refSetId}/subject/${subjectId}/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artStyle, feedback: feedback || undefined }),
+        body: JSON.stringify({ artStyle, feedback: feedback || undefined, modelId: imageModel !== 'flux-schnell' ? imageModel : undefined }),
       });
 
       if (res.ok) {

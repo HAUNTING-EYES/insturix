@@ -16,7 +16,7 @@ export async function POST(
 
     const { refSetId, subjectId } = await params;
     const body = await req.json();
-    const { feedback, artStyle } = body;
+    const { feedback, artStyle, modelId } = body;
 
     const refSet = await getReferenceImageSet(refSetId, userId);
     if (!refSet) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -36,7 +36,7 @@ export async function POST(
       subjectWithFeedback.visualDescription = `${subject.visualDescription}. User feedback: ${feedback}`;
     }
 
-    const result = await generateReferenceImage(subjectWithFeedback, userId, { artStyle });
+    const result = await generateReferenceImage(subjectWithFeedback, userId, { artStyle, modelId });
 
     const history = [...(subject.generationHistory || []), {
       assetId: result.assetId,

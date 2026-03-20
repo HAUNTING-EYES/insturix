@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { subjects, artStyle, sourceScriptId } = await req.json();
+    const { subjects, artStyle, sourceScriptId, modelId } = await req.json();
     if (!subjects?.length) {
       return NextResponse.json({ error: 'subjects array required' }, { status: 400 });
     }
@@ -32,6 +32,7 @@ export async function POST(req: NextRequest) {
     const refSet = await generateAllReferenceImages(subjects, userId, {
       artStyle,
       sourceScriptId,
+      modelId,
     });
 
     return NextResponse.json({
