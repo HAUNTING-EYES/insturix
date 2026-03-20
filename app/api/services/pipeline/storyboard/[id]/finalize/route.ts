@@ -5,8 +5,9 @@ import { projectService } from '@/lib/editron/services/project-service';
 import { CreditsService } from '@/lib/services/creditsService';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
+import { generateBackgroundMusic, buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
 
-export const maxDuration = 30;
+export const maxDuration = 120;
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/finalize
@@ -53,7 +54,17 @@ export async function POST(
     let overlayId = Date.now();
 
     for (const scene of storyboard.scenes) {
-      const durationFrames = Math.round(scene.descriptor.durationSeconds * fps);
+      // Use actual video duration if available, otherwise fall back to script estimate.
+      // AI video clips are typically 5-10s, so the script's word-count estimate
+      // (which can be 20-40s) would leave huge gaps.
+      const videoScene = scene as any;
+      const videoDurationSec = videoScene.videoDurationMs
+        ? videoScene.videoDurationMs / 1000
+        : null;
+      const sceneDurationSec = videoDurationSec
+        ? Math.max(videoDurationSec, Math.min(scene.descriptor.durationSeconds, videoDurationSec + 2))
+        : Math.min(scene.descriptor.durationSeconds, 15); // Cap at 15s when no video
+      const durationFrames = Math.round(sceneDurationSec * fps);
 
       // Scene background: prefer video clip over static image
       if (scene.videoUrl) {
@@ -238,6 +249,61 @@ export async function POST(
           },
           { upsert: true },
         );
+      }
+    }
+
+    // Generate background music for the entire video (non-blocking — skip if it fails)
+    if (isBGMAvailable() && currentFrame > 0) {
+      try {
+        const totalDurationSec = Math.round(currentFrame / fps);
+        const musicPrompt = buildMusicPrompt(
+          storyboard.scenes.map(s => ({
+            mood: s.descriptor.mood,
+            audioDescription: s.descriptor.audioDescription,
+          })),
+        );
+        const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+
+        // Add BGM as a sound overlay spanning the entire timeline (row 5)
+        overlays.push({
+          id: overlayId++,
+          type: 'sound',
+          from: 0,
+          durationInFrames: currentFrame,
+          row: 5,
+          left: 0,
+          top: 0,
+          width: 0,
+          height: 0,
+          isDragging: false,
+          rotation: 0,
+          content: bgm.audioUrl,
+          src: bgm.audioUrl,
+          assetId: bgm.audioAssetId,
+          styles: { volume: 0.3, opacity: 1 },
+        });
+
+        // Register BGM asset
+        await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+          { assetId: bgm.audioAssetId },
+          {
+            $setOnInsert: {
+              assetId: bgm.audioAssetId,
+              userId,
+              type: 'audio',
+              filename: `${bgm.audioAssetId}.mp3`,
+              source: 'user-upload',
+              gcsPath: bgm.gcsPath,
+              cachedUrl: bgm.audioUrl,
+              urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+              size: 0,
+              uploadedAt: new Date(),
+            },
+          },
+          { upsert: true },
+        );
+      } catch (bgmErr: any) {
+        console.warn('[Finalize] BGM generation failed, continuing without music:', bgmErr.message);
       }
     }
 

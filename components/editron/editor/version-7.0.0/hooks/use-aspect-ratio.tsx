@@ -78,7 +78,7 @@ export const useAspectRatio = (
       case "1:1":
         return { width: 1080, height: 1080 }; // Square Post
       case "16:9":
-        return { width: 1280, height: 720 }; // Square Post
+        return { width: 1920, height: 1080 }; // YouTube/Landscape
       default:
         return { width: 1920, height: 1080 }; // Laptop (16:9)
     }

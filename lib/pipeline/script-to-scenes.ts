@@ -93,7 +93,7 @@ export function convertThinkForgeBlocksToScenes(
       title: currentScene.title || `Scene ${idx + 1}`,
       narration,
       visualDescription: currentScene.visualDescription || narration.substring(0, 200),
-      durationSeconds: currentScene.durationSeconds || estimateDuration(narration),
+      durationSeconds: currentScene.durationSeconds || Math.min(estimateDuration(narration), 15),
       mood: currentScene.mood || inferMood(narration),
       cameraDirection: currentScene.cameraDirection,
     });
@@ -353,15 +353,22 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
 
     // Try to extract labelled sections even in non-timestamped scripts
     const labelled = extractLabelledSections(body);
+    // Only use actual voiceover/narration text for narration — NOT visual
+    // descriptions, audio notes, or camera directions which inflate duration.
     const narration = labelled.voiceover || body;
     const visualDescription = labelled.visuals || narration.substring(0, 250);
+    // Duration should reflect spoken words only. If we have labelled voiceover
+    // use that word count; otherwise use full body but cap at 15s per scene.
+    const durationText = labelled.voiceover || body;
+    const rawDuration = estimateDuration(durationText);
+    const durationSeconds = labelled.voiceover ? rawDuration : Math.min(rawDuration, 15);
 
     return {
       sceneIndex: i,
       title,
       narration,
       visualDescription,
-      durationSeconds: estimateDuration(narration),
+      durationSeconds,
       mood: inferMood(body),
       cameraDirection: extractCameraDirections(labelled.visuals),
     };
