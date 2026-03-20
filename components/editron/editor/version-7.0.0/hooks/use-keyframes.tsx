@@ -134,9 +134,82 @@ export const useKeyframes = ({
     }
   }, []);
 
+  // Generate thumbnails from a poster image (used for pipeline videos to avoid CORS)
+  const extractFromPoster = React.useCallback(
+    async (posterUrl: string) => {
+      setIsLoading(true);
+      try {
+        const frameCount = calculateFrameCount();
+        const overlayIdString = String(overlayMeta.id);
+
+        // Load the poster image
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.src = posterUrl;
+        await new Promise<void>((resolve, reject) => {
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Failed to load poster image"));
+          setTimeout(() => reject(new Error("Poster image load timeout")), 10000);
+        });
+
+        // Draw to canvas to create thumbnail data URLs
+        const maxWidth = 240;
+        const scale = Math.min(1, maxWidth / img.naturalWidth);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.floor(img.naturalWidth * scale);
+        canvas.height = Math.floor(img.naturalHeight * scale);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Could not get canvas context");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+
+        // Create uniform frames using the same poster image
+        const frameInterval = Math.max(
+          1,
+          Math.floor(overlayMeta.durationInFrames! / frameCount)
+        );
+        const extractedFrames: FrameInfo[] = Array.from(
+          { length: frameCount },
+          (_, i) => ({
+            frameNumber: Math.min(
+              Math.floor(i * frameInterval),
+              overlayMeta.durationInFrames! - 1
+            ),
+            dataUrl,
+          })
+        );
+
+        setFrames(extractedFrames);
+        updateKeyframes(overlayIdString, {
+          frames: extractedFrames.map((f) => f.dataUrl),
+          previewFrames: extractedFrames.map((f) => f.frameNumber),
+          durationInFrames: overlayMeta.durationInFrames!,
+          lastUpdated: Date.now(),
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [overlayMeta, calculateFrameCount, updateKeyframes]
+  );
+
   // Move the extraction logic into a separate function
   const performExtraction = React.useCallback(async () => {
     if (overlayMeta.type !== OverlayType.VIDEO || !overlayMeta.src) return;
+
+    // If the overlay has a posterUrl (e.g. pipeline storyboard image), use it
+    // to generate thumbnails instead of extracting frames from the video.
+    // This avoids CORS issues with GCS-hosted video URLs.
+    const posterUrl =
+      "posterUrl" in overlay ? (overlay as any).posterUrl : undefined;
+    if (posterUrl) {
+      try {
+        await extractFromPoster(posterUrl);
+        return;
+      } catch (err) {
+        console.warn("[Keyframes] Poster extraction failed, falling back to video:", err);
+      }
+    }
 
     // Check if we need to re-extract frames
     const previousOverlay = previousOverlayRef.current;
@@ -480,6 +553,8 @@ export const useKeyframes = ({
     }
   }, [
     overlayMeta,
+    overlay,
+    extractFromPoster,
     calculateFrameCount,
     getKeyframes,
     updateKeyframes,

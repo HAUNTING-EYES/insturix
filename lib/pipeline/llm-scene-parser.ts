@@ -92,6 +92,61 @@ ${scriptText.substring(0, 8000)}`,
   return object;
 }
 
+// ─── Subject Extraction ─────────────────────────────────────────
+
+const SubjectSchema = z.object({
+  id: z.string().describe('Unique kebab-case identifier, e.g. "silver-chronograph-watch"'),
+  name: z.string().describe('Human-readable name, e.g. "Luxury Silver Chronograph Watch"'),
+  category: z.enum(['character', 'product', 'location', 'object', 'vehicle']),
+  visualDescription: z.string().describe('Detailed visual description for generating a reference image of this subject IN ISOLATION: appearance, colors, materials, textures, distinguishing features. Describe against a clean neutral background with studio lighting.'),
+  scenesAppearingIn: z.array(z.number()).describe('Scene indices (0-based) where this subject appears'),
+});
+
+const SubjectExtractionSchema = z.object({
+  subjects: z.array(SubjectSchema).min(1).max(10),
+});
+
+export type ExtractedSubject = z.infer<typeof SubjectSchema>;
+export type SubjectExtractionResult = z.infer<typeof SubjectExtractionSchema>;
+
+/**
+ * Extract key visual subjects from parsed scenes.
+ * These will be used to generate reference images for visual consistency.
+ */
+export async function extractSubjectsFromScenes(
+  scenes: Array<{ title: string; narration: string; visualDescription: string; sceneIndex: number }>,
+  options: { artStyle?: string } = {},
+): Promise<SubjectExtractionResult> {
+  const google = getGeminiProvider();
+  const model = google('gemini-2.0-flash');
+
+  const scenesSummary = scenes
+    .map((s, i) => `Scene ${i}: "${s.title}" — ${s.visualDescription.substring(0, 200)}`)
+    .join('\n');
+
+  const { object } = await generateObject({
+    model,
+    schema: SubjectExtractionSchema,
+    prompt: `You are a video pre-production AI. Analyze these scenes and identify the KEY VISUAL SUBJECTS that need to look consistent across the video.
+
+RULES:
+- Only extract subjects that appear in 2 or more scenes (consistency matters for recurring subjects).
+- Focus on TANGIBLE visual subjects: characters, products, vehicles, specific locations, key objects.
+- Do NOT extract abstract concepts, emotions, or generic items like "table" or "sky".
+- For each subject, write a visualDescription as an AI IMAGE GENERATION PROMPT for a REFERENCE SHEET:
+  - Describe the subject in isolation against a clean neutral/white background
+  - Include: exact colors, materials, textures, proportions, distinguishing details
+  - Studio lighting, sharp focus, multiple angles if it's a product
+  - Example: "Luxury silver chronograph watch with midnight blue dial, polished steel bracelet, sapphire crystal, date window at 3 o'clock, clean white background, studio product photography, sharp focus"
+${options.artStyle ? `- Art style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
+
+SCENES:
+${scenesSummary}`,
+  });
+
+  return object;
+}
+
 /**
  * Check if LLM parsing is available.
  */

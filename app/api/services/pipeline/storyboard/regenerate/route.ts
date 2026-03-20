@@ -35,8 +35,6 @@ export async function POST(request: NextRequest) {
       userId,
       'pipeline',
       'storyboard_image_regeneration',
-      2,
-      { storyboardId, sceneIndex },
     );
 
     if (!deductResult.success) {

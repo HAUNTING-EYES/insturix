@@ -206,7 +206,6 @@ export async function regenerateWithContext(
       result = await fal.subscribe(TEXT_TO_IMAGE_MODEL, {
         input: {
           prompt,
-          negative_prompt: buildNegativePrompt(storyboard.styleGuide),
           image_size: { width: 1280, height: 720 },
           num_images: 1,
           enable_safety_checker: false,

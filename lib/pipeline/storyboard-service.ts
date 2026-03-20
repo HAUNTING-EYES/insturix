@@ -25,12 +25,20 @@ if (process.env.FAL_AI_API_KEY) {
 // Default model for storyboard generation
 const DEFAULT_MODEL = 'fal-ai/flux/schnell';
 
+interface ReferenceImageInput {
+  subjectId: string;
+  imageUrl: string;
+  weight?: number;
+}
+
 interface GenerateImageOptions {
   styleGuide?: StyleGuide;
   modelId?: string;
   aspectRatio?: string;
   sceneIndex?: number;
   totalScenes?: number;
+  /** Reference images for IP-adapter consistency */
+  referenceImages?: ReferenceImageInput[];
 }
 
 /**
@@ -41,7 +49,6 @@ export async function generateStoryboardImage(
   userId: string,
   options: GenerateImageOptions = {},
 ): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string }> {
-  const modelId = options.modelId || DEFAULT_MODEL;
   const prompt = buildStoryboardPrompt(
     scene,
     options.styleGuide,
@@ -61,17 +68,39 @@ export async function generateStoryboardImage(
     height = 1024;
   }
 
-  // Call fal.ai
-  const result = await fal.subscribe(modelId, {
-    input: {
-      prompt,
-      negative_prompt: negativePrompt,
-      image_size: { width, height },
-      num_images: 1,
-      enable_safety_checker: false,
-    },
-    logs: false,
-  });
+  // Use IP-adapter model when reference images are available for visual consistency
+  const hasReferences = options.referenceImages && options.referenceImages.length > 0;
+  const modelId = hasReferences
+    ? 'fal-ai/flux/dev/ip-adapter'
+    : (options.modelId || DEFAULT_MODEL);
+
+  let result;
+  if (hasReferences) {
+    const primaryRef = options.referenceImages![0];
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Using IP-adapter with ref ${primaryRef.subjectId}`);
+    result = await fal.subscribe(modelId, {
+      input: {
+        prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
+        ip_adapter_image_url: primaryRef.imageUrl,
+        ip_adapter_scale: primaryRef.weight ?? 0.6,
+        image_size: { width, height },
+        num_images: 1,
+        enable_safety_checker: false,
+      },
+      logs: false,
+    });
+  } else {
+    result = await fal.subscribe(modelId, {
+      input: {
+        prompt,
+        negative_prompt: negativePrompt,
+        image_size: { width, height },
+        num_images: 1,
+        enable_safety_checker: false,
+      },
+      logs: false,
+    });
+  }
 
   const data = result.data as any;
   if (!data?.images?.[0]?.url) {
@@ -114,6 +143,8 @@ export async function generateFullStoryboard(
     title?: string;
     aspectRatio?: string;
     overallMusicPrompt?: string;
+    /** Map of sceneIndex → reference images for IP-adapter consistency */
+    referenceImageMap?: Record<number, ReferenceImageInput[]>;
   },
 ): Promise<Storyboard> {
   const storyboardId = `sb_${nanoid(12)}`;
@@ -153,6 +184,9 @@ export async function generateFullStoryboard(
         status: 'generating',
       });
 
+      // Look up reference images for this scene from the referenceImageMap
+      const sceneRefs = options.referenceImageMap?.[sbScene.sceneIndex];
+
       const result = await generateStoryboardImage(
         sbScene.descriptor,
         options.userId,
@@ -162,6 +196,7 @@ export async function generateFullStoryboard(
           aspectRatio: options.aspectRatio,
           sceneIndex: sbScene.sceneIndex,
           totalScenes,
+          referenceImages: sceneRefs,
         },
       );
 

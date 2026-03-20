@@ -83,6 +83,15 @@ export interface Storyboard {
   mode?: 'parallel' | 'sequential';
   /** Voiceover configuration */
   voiceoverConfig?: VoiceoverConfig;
+  /** Reference image set used for visual consistency (IP-adapter) */
+  refSetId?: string;
+  /** Approved reference images used during storyboard generation */
+  approvedReferences?: Array<{
+    subjectId: string;
+    name: string;
+    imageUrl: string;
+    scenesAppearingIn: number[];
+  }>;
   status: 'generating' | 'ready' | 'partial' | 'error';
   createdAt: Date;
   updatedAt: Date;

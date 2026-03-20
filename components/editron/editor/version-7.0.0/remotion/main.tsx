@@ -1,5 +1,5 @@
-import React, { useCallback } from "react";
-import { AbsoluteFill } from "remotion";
+import React, { useCallback, useEffect } from "react";
+import { AbsoluteFill, prefetch } from "remotion";
 
 import { Overlay } from "../types";
 import { SortedOutlines } from "../components/selection/sorted-outlines";
@@ -61,6 +61,23 @@ export const Main: React.FC<MainProps> = ({
   changeOverlay,
   baseUrl,
 }) => {
+  // Prefetch all video overlay URLs to eliminate lag between scenes
+  useEffect(() => {
+    const handles: Array<{ free: () => void }> = [];
+    for (const overlay of overlays) {
+      if (overlay.type === 'video' && (overlay.src || overlay.content)) {
+        const url = overlay.src || overlay.content;
+        try {
+          const handle = prefetch(url, { method: 'blob-url' });
+          handles.push(handle);
+        } catch {
+          // Ignore prefetch errors — playback will still work without prefetch
+        }
+      }
+    }
+    return () => handles.forEach((h) => h.free());
+  }, [overlays]);
+
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (e.button !== 0) {

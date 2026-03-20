@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
       title,
       aspectRatio,
       overallMusicPrompt,
+      refSetId,
+      approvedReferences,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -40,6 +42,13 @@ export async function POST(request: NextRequest) {
       title?: string;
       aspectRatio?: string;
       overallMusicPrompt?: string;
+      refSetId?: string;
+      approvedReferences?: Array<{
+        subjectId: string;
+        name: string;
+        imageUrl: string;
+        scenesAppearingIn: number[];
+      }>;
     } = body;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -75,6 +84,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Build referenceImageMap from approved references
+    // Maps sceneIndex → array of reference images for IP-adapter consistency
+    let referenceImageMap: Record<number, Array<{ subjectId: string; imageUrl: string; weight?: number }>> | undefined;
+    if (approvedReferences && approvedReferences.length > 0) {
+      referenceImageMap = {};
+      for (const ref of approvedReferences) {
+        for (const sceneIdx of ref.scenesAppearingIn) {
+          if (!referenceImageMap[sceneIdx]) {
+            referenceImageMap[sceneIdx] = [];
+          }
+          referenceImageMap[sceneIdx].push({
+            subjectId: ref.subjectId,
+            imageUrl: ref.imageUrl,
+            weight: 0.6,
+          });
+        }
+      }
+      console.log(`[storyboard/generate] Reference image map built for ${Object.keys(referenceImageMap).length} scenes from ${approvedReferences.length} subjects`);
+    }
+
     const storyboard = await generateFullStoryboard(scenes, {
       userId,
       styleGuide,
@@ -84,6 +113,7 @@ export async function POST(request: NextRequest) {
       title,
       aspectRatio,
       overallMusicPrompt,
+      referenceImageMap,
     });
 
     return NextResponse.json({

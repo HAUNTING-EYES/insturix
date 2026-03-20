@@ -109,6 +109,7 @@ export async function POST(
           content: scene.videoUrl,
           src: scene.videoUrl,
           assetId: scene.videoAssetId,
+          posterUrl: scene.imageUrl || undefined, // Storyboard image for timeline thumbnails (avoids CORS)
           styles: {
             objectFit: 'cover',
             opacity: 1,

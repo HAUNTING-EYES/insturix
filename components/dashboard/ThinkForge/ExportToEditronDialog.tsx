@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles } from 'lucide-react';
+import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye } from 'lucide-react';
 import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -36,12 +36,25 @@ interface ExportToEditronDialogProps {
 
 type ExportStep =
   | 'configure'
-  | 'exporting'        // parsing scenes
-  | 'storyboard'       // generating AI images
-  | 'generating-videos' // generating AI video clips
-  | 'generating-voiceover' // generating AI voiceover
-  | 'finalizing'       // creating Editron project
+  | 'exporting'              // parsing scenes
+  | 'extracting-subjects'    // LLM extracting key subjects
+  | 'generating-references'  // generating reference images
+  | 'reviewing-references'   // user approves/rejects reference images
+  | 'storyboard'             // generating AI storyboard images (with IP-adapter if refs approved)
+  | 'generating-videos'      // generating AI video clips
+  | 'generating-voiceover'   // generating AI voiceover
+  | 'finalizing'             // creating Editron project
   | 'done';
+
+interface SubjectRef {
+  subjectId: string;
+  name: string;
+  category: string;
+  imageUrl?: string;
+  status: string;
+  scenesAppearingIn: number[];
+  visualDescription?: string;
+}
 
 export function ExportToEditronDialog({
   open,
@@ -66,6 +79,13 @@ export function ExportToEditronDialog({
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
   const [videosGenerated, setVideosGenerated] = useState(false);
+
+  // Reference image state
+  const [refSetId, setRefSetId] = useState('');
+  const [subjects, setSubjects] = useState<SubjectRef[]>([]);
+  const [approvedSubjectIds, setApprovedSubjectIds] = useState<Set<string>>(new Set());
+  const [regeneratingSubjectId, setRegeneratingSubjectId] = useState<string | null>(null);
+  const [overallMusicPrompt, setOverallMusicPrompt] = useState('');
 
   // Request notification permission on mount
   React.useEffect(() => {
@@ -94,6 +114,11 @@ export function ExportToEditronDialog({
     setStoryboardScenes([]);
     setVideoProgress({ done: 0, total: 0 });
     setVideosGenerated(false);
+    setRefSetId('');
+    setSubjects([]);
+    setApprovedSubjectIds(new Set());
+    setRegeneratingSubjectId(null);
+    setOverallMusicPrompt('');
   };
 
   const handleClose = () => {
@@ -126,12 +151,16 @@ export function ExportToEditronDialog({
       sceneCount = 3; // default estimate
     }
     let total = 1; // base import cost
-    if (generateStoryboard) total += sceneCount * 2; // 2 credits/scene for images
+    if (generateStoryboard) {
+      total += sceneCount * 1; // ~1 credit/subject for reference images (est: 1 subject per scene)
+      total += sceneCount * 2; // 2 credits/scene for storyboard images
+    }
     if (generateStoryboard && generateVideos) total += sceneCount * 3; // 3 credits/scene for videos
     total += sceneCount * 1; // 1 credit/scene for voiceover
     return total;
   };
 
+  // ─── Phase 1: Parse scenes → Extract subjects → Generate reference images → Pause for review
   const handleExport = async () => {
     setStep('exporting');
     setError('');
@@ -151,29 +180,118 @@ export function ExportToEditronDialog({
 
       const exportData = await exportRes.json();
       setScenes(exportData.scenes);
+      setOverallMusicPrompt(exportData.overallMusicPrompt || '');
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
-      // ─── Step 2: Generate storyboard images (optional) ────────
+      // ─── Step 2: Extract subjects via LLM (if storyboard enabled) ──
+      if (generateStoryboard && exportData.scenes.length > 0) {
+        setStep('extracting-subjects');
+
+        const extractRes = await fetch('/api/services/pipeline/reference-images/extract-subjects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ scenes: exportData.scenes, artStyle }),
+        });
+
+        if (extractRes.ok) {
+          const extractData = await extractRes.json();
+          const extractedSubjects = extractData.subjects || [];
+
+          if (extractedSubjects.length > 0) {
+            // ─── Step 3: Generate reference images ────────────────
+            setStep('generating-references');
+
+            const genRes = await fetch('/api/services/pipeline/reference-images/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                subjects: extractedSubjects,
+                artStyle,
+                sourceScriptId: scriptId,
+              }),
+            });
+
+            if (genRes.ok) {
+              const genData = await genRes.json();
+              setRefSetId(genData.refSetId || '');
+              setSubjects(genData.subjects || []);
+              // Auto-approve all initially (user can reject individually)
+              const allIds = new Set<string>((genData.subjects || []).map((s: SubjectRef) => s.subjectId));
+              setApprovedSubjectIds(allIds);
+
+              sendNotification('Reference Images Ready', `${genData.subjects?.length || 0} character/subject references generated. Review them now.`);
+
+              // ─── PAUSE: Show review UI ──────────────────────────
+              setStep('reviewing-references');
+              return; // Stop here — user must approve and click Continue
+            } else {
+              console.warn('[ExportToEditron] Reference image generation failed, skipping');
+            }
+          } else {
+            console.log('[ExportToEditron] No subjects extracted, skipping reference images');
+          }
+        } else {
+          console.warn('[ExportToEditron] Subject extraction failed, skipping reference images');
+        }
+      }
+
+      // If no storyboard or reference image extraction failed, go straight to phase 2
+      await handlePhase2(exportData.scenes, title || exportData.title || 'Untitled Script');
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong');
+      setStep('configure');
+      sendNotification('Export Failed', err.message || 'Something went wrong during export.');
+    }
+  };
+
+  // ─── Phase 2: Storyboard → Videos → Voiceover → Finalize
+  const handlePhase2 = async (parsedScenes?: any[], projectTitle?: string) => {
+    const currentScenes = parsedScenes || scenes;
+    const currentTitle = projectTitle || title || 'Untitled Script';
+    setError('');
+
+    try {
+      // Build approved references for IP-adapter
+      const approved = subjects
+        .filter((s) => approvedSubjectIds.has(s.subjectId) && s.imageUrl)
+        .map((s) => ({
+          subjectId: s.subjectId,
+          name: s.name,
+          imageUrl: s.imageUrl!,
+          scenesAppearingIn: s.scenesAppearingIn,
+        }));
+
+      // ─── Step 4: Generate storyboard images ─────────────────
       let sbImages: Array<{ sceneIndex: number; imageUrl: string; assetId?: string }> = [];
       let sbId = '';
 
-      if (generateStoryboard && exportData.scenes.length > 0) {
+      if (generateStoryboard && currentScenes.length > 0) {
         setStep('storyboard');
+
+        // Approve all refs in DB if we have a refSetId
+        if (refSetId && approved.length > 0) {
+          await fetch(`/api/services/pipeline/reference-images/${refSetId}/approve-all`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+          }).catch(() => {}); // non-blocking
+        }
 
         const sbRes = await fetch('/api/services/pipeline/storyboard/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            scenes: exportData.scenes,
-            title: projectTitle,
+            scenes: currentScenes,
+            title: currentTitle,
             sourceScriptId: scriptId,
             aspectRatio,
-            overallMusicPrompt: exportData.overallMusicPrompt || '',
+            overallMusicPrompt,
             styleGuide: {
               artStyle,
               colorPalette: [],
             },
+            refSetId: refSetId || undefined,
+            approvedReferences: approved.length > 0 ? approved : undefined,
           }),
         });
 
@@ -188,18 +306,13 @@ export function ExportToEditronDialog({
             .filter((s: any) => s.imageUrl)
             .map((s: any) => ({ sceneIndex: s.sceneIndex, imageUrl: s.imageUrl, assetId: s.imageAssetId }));
         }
-        // Don't fail if storyboard generation fails
       }
 
-      // ─── Step 3: Generate AI video clips (optional) ───────────
-      // Only if storyboard was generated and videos toggle is ON
+      // ─── Step 5: Generate AI video clips (optional) ────────
       if (generateVideos && sbId && sbImages.length > 0) {
         setStep('generating-videos');
         setVideoProgress({ done: 0, total: sbImages.length });
 
-        // Generate videos ONE SCENE AT A TIME to avoid serverless timeouts.
-        // Each Kie AI generation takes 1-3 minutes; sending all at once
-        // causes a 504 timeout on Vercel.
         let succeeded = 0;
         let failed = 0;
         const errors: string[] = [];
@@ -246,7 +359,7 @@ export function ExportToEditronDialog({
         }
       }
 
-      // ─── Step 3.5: Generate AI voiceover ──────────────────────
+      // ─── Step 6: Generate AI voiceover ─────────────────────
       if (sbId) {
         setStep('generating-voiceover');
         try {
@@ -263,16 +376,13 @@ export function ExportToEditronDialog({
           }
         } catch (voErr: any) {
           console.warn('[ExportToEditron] Voiceover error:', voErr.message);
-          // Non-blocking — continue without voiceover
         }
       }
 
-      // ─── Step 4: Create Editron project ───────────────────────
+      // ─── Step 7: Create Editron project ────────────────────
       setStep('finalizing');
 
       if (sbId) {
-        // Use finalize endpoint — it reads storyboard from DB
-        // and prefers videoUrl > imageUrl for backgrounds
         const finalizeRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/finalize`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -291,16 +401,14 @@ export function ExportToEditronDialog({
         const finalizeData = await finalizeRes.json();
         setProjectId(finalizeData.projectId);
       } else {
-        // No storyboard — use import-from-script (images/gradients only)
         const importRes = await fetch('/api/services/editron/projects/import-from-script', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            scenes: exportData.scenes,
-            title: projectTitle,
+            scenes: currentScenes,
+            title: currentTitle,
             aspectRatio,
             sourceScriptId: scriptId,
-            storyboardImages: sbImages.length > 0 ? sbImages : undefined,
           }),
         });
 
@@ -322,10 +430,42 @@ export function ExportToEditronDialog({
     }
   };
 
+  // ─── Regenerate a single subject's reference image
+  const handleRegenerateSubject = async (subjectId: string) => {
+    if (!refSetId || regeneratingSubjectId) return;
+    setRegeneratingSubjectId(subjectId);
+
+    try {
+      const res = await fetch(`/api/services/pipeline/reference-images/${refSetId}/subject/${subjectId}/regenerate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artStyle }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setSubjects((prev) =>
+          prev.map((s) =>
+            s.subjectId === subjectId
+              ? { ...s, imageUrl: data.imageUrl, status: 'generated' }
+              : s,
+          ),
+        );
+      }
+    } catch (err) {
+      console.error('[ExportToEditron] Regenerate subject failed:', err);
+    } finally {
+      setRegeneratingSubjectId(null);
+    }
+  };
+
   const stepDescription = () => {
     switch (step) {
       case 'configure': return 'Convert your script into a video project';
       case 'exporting': return 'Parsing scenes from your script...';
+      case 'extracting-subjects': return 'Identifying key subjects for visual consistency...';
+      case 'generating-references': return 'Generating reference images for subjects...';
+      case 'reviewing-references': return 'Review and approve reference images';
       case 'storyboard': return 'Generating AI storyboard images...';
       case 'generating-videos': return 'Generating AI video clips...';
       case 'generating-voiceover': return 'Generating AI voiceover...';
@@ -336,7 +476,7 @@ export function ExportToEditronDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="sm:max-w-[520px] bg-zinc-900 border-zinc-700 text-zinc-100">
+      <DialogContent className={`${step === 'reviewing-references' ? 'sm:max-w-[600px]' : 'sm:max-w-[520px]'} bg-zinc-900 border-zinc-700 text-zinc-100`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-zinc-100">
             <Video className="h-5 w-5 text-green-500" />
@@ -514,7 +654,7 @@ export function ExportToEditronDialog({
           )}
 
           {/* ─── Processing Steps ──────────────────────────────── */}
-          {(step === 'exporting' || step === 'storyboard' || step === 'generating-videos' || step === 'generating-voiceover' || step === 'finalizing') && (
+          {(step === 'exporting' || step === 'extracting-subjects' || step === 'generating-references' || step === 'storyboard' || step === 'generating-videos' || step === 'generating-voiceover' || step === 'finalizing') && (
             <motion.div
               key="loading"
               initial={{ opacity: 0 }}
@@ -524,14 +664,18 @@ export function ExportToEditronDialog({
             >
               <EditronImportAnimation
                 sceneCount={scenes.length || 4}
-                step={step === 'generating-videos' || step === 'generating-voiceover' ? 'storyboard' : step === 'finalizing' ? 'exporting' : step}
+                step={step === 'exporting' ? 'exporting' : step === 'storyboard' ? 'storyboard' : step === 'finalizing' ? 'exporting' : 'storyboard'}
               />
 
               {/* Step progress indicator */}
               <div className="space-y-2">
                 <StepIndicator label="Parse scenes" active={step === 'exporting'} done={step !== 'exporting'} />
                 {generateStoryboard && (
-                  <StepIndicator label="Generate storyboard images" active={step === 'storyboard'} done={['generating-videos', 'finalizing', 'done'].includes(step)} />
+                  <>
+                    <StepIndicator label="Extract key subjects" active={step === 'extracting-subjects'} done={!['exporting', 'extracting-subjects'].includes(step)} />
+                    <StepIndicator label="Generate reference images" active={step === 'generating-references'} done={!['exporting', 'extracting-subjects', 'generating-references'].includes(step)} />
+                    <StepIndicator label="Generate storyboard images" active={step === 'storyboard'} done={['generating-videos', 'generating-voiceover', 'finalizing', 'done'].includes(step)} />
+                  </>
                 )}
                 {generateStoryboard && generateVideos && (
                   <StepIndicator
@@ -545,12 +689,14 @@ export function ExportToEditronDialog({
                   />
                 )}
                 <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'done'].includes(step)} />
-                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={step === 'done'} />
+                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={(step as string) === 'done'} />
               </div>
 
               <p className="text-xs text-zinc-500 text-center">
                 {step === 'exporting' && 'Parsing scenes and building timeline...'}
-                {step === 'storyboard' && `Generating images for ${scenes.length} scenes...`}
+                {step === 'extracting-subjects' && 'AI is identifying characters, locations, and key subjects...'}
+                {step === 'generating-references' && 'Generating reference images for visual consistency...'}
+                {step === 'storyboard' && `Generating storyboard images for ${scenes.length} scenes...`}
                 {step === 'generating-videos' && 'Animating storyboard images into video clips — this takes a few minutes...'}
                 {step === 'generating-voiceover' && 'Generating AI voiceover narration...'}
                 {step === 'finalizing' && 'Assembling your video project with music & voiceover...'}
@@ -558,6 +704,109 @@ export function ExportToEditronDialog({
               {error && (
                 <p className="text-xs text-amber-400 text-center mt-1">{error}</p>
               )}
+            </motion.div>
+          )}
+
+          {/* ─── Reference Image Review Step ───────────────────── */}
+          {step === 'reviewing-references' && (
+            <motion.div
+              key="review-refs"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="py-2 space-y-3"
+            >
+              <div className="flex items-center gap-2 mb-1">
+                <Users className="h-4 w-4 text-purple-400" />
+                <p className="text-sm font-medium text-zinc-200">
+                  Review Reference Images ({approvedSubjectIds.size}/{subjects.length} approved)
+                </p>
+              </div>
+              <p className="text-xs text-zinc-500">
+                These reference images will guide AI to maintain visual consistency across all scenes. Toggle to approve/reject, or regenerate any subject.
+              </p>
+
+              <div className="grid grid-cols-2 gap-3 max-h-[320px] overflow-y-auto pr-1">
+                {subjects.map((subject) => {
+                  const isApproved = approvedSubjectIds.has(subject.subjectId);
+                  const isRegenerating = regeneratingSubjectId === subject.subjectId;
+
+                  return (
+                    <div
+                      key={subject.subjectId}
+                      className={`relative rounded-lg border overflow-hidden transition-all ${
+                        isApproved
+                          ? 'border-green-500/40 bg-green-500/5'
+                          : 'border-zinc-700 bg-zinc-800/50 opacity-60'
+                      }`}
+                    >
+                      {/* Image */}
+                      <div className="aspect-square bg-zinc-800 relative">
+                        {subject.imageUrl ? (
+                          <img
+                            src={subject.imageUrl}
+                            alt={subject.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-zinc-600">
+                            <ImageIcon className="h-6 w-6" />
+                          </div>
+                        )}
+
+                        {/* Regenerating overlay */}
+                        {isRegenerating && (
+                          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                            <Loader2 className="h-5 w-5 text-purple-400 animate-spin" />
+                          </div>
+                        )}
+
+                        {/* Approve/reject toggle */}
+                        <button
+                          onClick={() => {
+                            setApprovedSubjectIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(subject.subjectId)) {
+                                next.delete(subject.subjectId);
+                              } else {
+                                next.add(subject.subjectId);
+                              }
+                              return next;
+                            });
+                          }}
+                          className={`absolute top-1.5 right-1.5 p-1 rounded-full transition-colors ${
+                            isApproved
+                              ? 'bg-green-500 text-white'
+                              : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600'
+                          }`}
+                        >
+                          {isApproved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                        </button>
+
+                        {/* Regenerate button */}
+                        <button
+                          onClick={() => handleRegenerateSubject(subject.subjectId)}
+                          disabled={isRegenerating}
+                          className="absolute top-1.5 left-1.5 p-1 rounded-full bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200 transition-colors"
+                          title="Regenerate"
+                        >
+                          <RefreshCw className={`h-3 w-3 ${isRegenerating ? 'animate-spin' : ''}`} />
+                        </button>
+                      </div>
+
+                      {/* Info */}
+                      <div className="p-2">
+                        <p className="text-xs font-medium text-zinc-200 truncate">{subject.name}</p>
+                        <p className="text-[10px] text-zinc-500">
+                          {subject.category} · Scenes {subject.scenesAppearingIn?.join(', ')}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {error && <p className="text-sm text-red-400">{error}</p>}
             </motion.div>
           )}
 
@@ -641,6 +890,29 @@ export function ExportToEditronDialog({
                   : generateStoryboard
                   ? 'Export with Storyboard'
                   : 'Export to Editron'}
+              </Button>
+            </>
+          )}
+          {step === 'reviewing-references' && (
+            <>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  // Skip references entirely — proceed without IP-adapter
+                  setApprovedSubjectIds(new Set());
+                  handlePhase2();
+                }}
+                className="text-zinc-400"
+              >
+                Skip References
+              </Button>
+              <Button
+                onClick={() => handlePhase2()}
+                disabled={regeneratingSubjectId !== null}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <ArrowRight className="h-4 w-4 mr-2" />
+                Continue with {approvedSubjectIds.size} Reference{approvedSubjectIds.size !== 1 ? 's' : ''}
               </Button>
             </>
           )}

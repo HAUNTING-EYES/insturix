@@ -92,6 +92,7 @@ export type ClipOverlay = BaseOverlay & {
   content: string;
   src?: string; // Optional - resolved from assetId
   assetId?: string; // Reference to mediaAsset
+  posterUrl?: string; // Storyboard image used as thumbnail fallback (avoids CORS)
   videoStartTime?: number;
   speed?: number;
   styles: BaseStyles & {
