@@ -21,7 +21,7 @@
     "setup-plans": "npx ts-node scripts/seed-plans.ts",
     "update-thinkforge-plans": "node scripts/updateThinkForgePlans.js",
     "migrate:socialize": "node --loader ts-node/esm scripts/run-migrate-socialize.mjs",
-    "test": "vitest run",
+    "test": "tsx --test tests/**/*.test.ts",
     "test:email": "tsx --test lib/services/email/__tests__/*.test.ts",
     "test:intent": "tsx --test lib/thinkforge/tests/intent-gate.test.ts",
     "deploy:remotion:dev": "bash scripts/deploy-remotion-site.sh dev",
@@ -205,7 +205,6 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.20.6",
     "typescript": "5.9.3",
-    "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^1.0.0"
   },
   "eslintConfig": {
