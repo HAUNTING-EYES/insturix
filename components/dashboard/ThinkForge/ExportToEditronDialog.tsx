@@ -70,6 +70,8 @@ export function ExportToEditronDialog({
   const [generateStoryboard, setGenerateStoryboard] = useState(true); // ON by default
   const [generateVideos, setGenerateVideos] = useState(true); // ON by default
   const [artStyle, setArtStyle] = useState('cinematic');
+  const [imageModel, setImageModel] = useState('flux-schnell');
+  const [videoModel, setVideoModel] = useState('kling-1.6');
   const [error, setError] = useState('');
 
   // Results
@@ -109,6 +111,8 @@ export function ExportToEditronDialog({
     setGenerateStoryboard(true);
     setGenerateVideos(true);
     setArtStyle('cinematic');
+    setImageModel('flux-schnell');
+    setVideoModel('kling-1.6');
     setError('');
     setScenes([]);
     setProjectId('');
@@ -289,6 +293,7 @@ export function ExportToEditronDialog({
             title: currentTitle,
             sourceScriptId: scriptId,
             aspectRatio,
+            modelId: imageModel !== 'flux-schnell' ? imageModel : undefined,
             overallMusicPrompt,
             styleGuide: {
               artStyle,
@@ -329,6 +334,7 @@ export function ExportToEditronDialog({
               body: JSON.stringify({
                 aspectRatio,
                 sceneIndices: [i],
+                videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined,
               }),
             });
 
@@ -638,6 +644,31 @@ export function ExportToEditronDialog({
                 </motion.div>
               )}
 
+              {/* Image Model Selector (when storyboard enabled) */}
+              {generateStoryboard && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="pl-8"
+                >
+                  <label className="text-sm text-zinc-400 mb-1 block">Image Model</label>
+                  <Select value={imageModel} onValueChange={setImageModel}>
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="flux-schnell">FLUX Schnell (Fast)</SelectItem>
+                      <SelectItem value="flux-dev">FLUX Dev (Quality)</SelectItem>
+                      <SelectItem value="flux-pro">FLUX Pro 1.1</SelectItem>
+                      <SelectItem value="imagen4">Google Imagen 4</SelectItem>
+                      <SelectItem value="seedream-v4">Seedream V4</SelectItem>
+                      <SelectItem value="seedream-v4.5">Seedream V4.5</SelectItem>
+                      <SelectItem value="recraft-v3">Recraft V3</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </motion.div>
+              )}
+
               {/* Video Generation Toggle (when storyboard enabled) */}
               {generateStoryboard && (
                 <motion.div
@@ -661,6 +692,29 @@ export function ExportToEditronDialog({
                     </div>
                     {generateVideos && <Check className="h-4 w-4 text-purple-400" />}
                   </div>
+                </motion.div>
+              )}
+
+              {/* Video Model Selector (when videos enabled) */}
+              {generateStoryboard && generateVideos && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  className="pl-8"
+                >
+                  <label className="text-sm text-zinc-400 mb-1 block">Video Model</label>
+                  <Select value={videoModel} onValueChange={setVideoModel}>
+                    <SelectTrigger className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="kling-1.6">Kling 1.6 Pro (Default)</SelectItem>
+                      <SelectItem value="kling-1.5">Kling 1.5 Pro</SelectItem>
+                      <SelectItem value="minimax">MiniMax Video</SelectItem>
+                      <SelectItem value="runway-gen3">Runway Gen-3 Turbo</SelectItem>
+                      <SelectItem value="luma-ray2">Luma Ray 2</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </motion.div>
               )}
 

@@ -22,6 +22,29 @@ if (process.env.FAL_AI_API_KEY) {
   fal.config({ credentials: process.env.FAL_AI_API_KEY });
 }
 
+// Available image generation models
+export const IMAGE_MODELS = {
+  'flux-schnell': 'fal-ai/flux/schnell',
+  'flux-dev': 'fal-ai/flux/dev',
+  'flux-pro': 'fal-ai/flux-pro/v1.1',
+  'imagen4': 'fal-ai/imagen4/preview',
+  'seedream-v4': 'fal-ai/bytedance/seedream/v4/text-to-image',
+  'seedream-v4.5': 'fal-ai/bytedance/seedream/v4.5/text-to-image',
+  'recraft-v3': 'fal-ai/recraft-v3',
+} as const;
+
+export type ImageModelKey = keyof typeof IMAGE_MODELS;
+
+export const IMAGE_MODEL_LABELS: Record<ImageModelKey, string> = {
+  'flux-schnell': 'FLUX Schnell (Fast)',
+  'flux-dev': 'FLUX Dev (Quality)',
+  'flux-pro': 'FLUX Pro 1.1',
+  'imagen4': 'Google Imagen 4',
+  'seedream-v4': 'Seedream V4',
+  'seedream-v4.5': 'Seedream V4.5',
+  'recraft-v3': 'Recraft V3',
+};
+
 // Default model for storyboard generation
 const DEFAULT_MODEL = 'fal-ai/flux/schnell';
 

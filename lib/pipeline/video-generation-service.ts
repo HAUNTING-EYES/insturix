@@ -43,6 +43,28 @@ async function getCleanImageUrl(imageUrl: string): Promise<string> {
   return cdnUrl;
 }
 
+// ─── Models ─────────────────────────────────────────────────────
+
+// fal.ai models for image-to-video
+export const FAL_VIDEO_MODELS = {
+  'kling-1.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
+  'kling-1.5': 'fal-ai/kling-video/v1.5/pro/image-to-video',
+  minimax: 'fal-ai/minimax-video/image-to-video',
+  'runway-gen3': 'fal-ai/runway-gen3/turbo/image-to-video',
+  'luma-ray2': 'fal-ai/luma-dream-machine/ray-2/image-to-video',
+} as const;
+
+export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
+
+// Human-readable labels for video models
+export const FAL_VIDEO_MODEL_LABELS: Record<FalVideoModel, string> = {
+  'kling-1.6': 'Kling 1.6 Pro',
+  'kling-1.5': 'Kling 1.5 Pro',
+  minimax: 'MiniMax Video',
+  'runway-gen3': 'Runway Gen-3 Turbo',
+  'luma-ray2': 'Luma Ray 2',
+};
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export type VideoProvider = 'fal-ai' | 'kie-ai';
@@ -58,6 +80,8 @@ export interface VideoGenerationRequest {
   aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
   /** Preferred provider */
   provider?: VideoProvider;
+  /** Specific fal.ai video model key (kling-1.6, kling-1.5, minimax, runway-gen3, luma-ray2) */
+  falVideoModel?: FalVideoModel;
 }
 
 export interface VideoGenerationResult {
@@ -70,22 +94,12 @@ export interface VideoGenerationResult {
 
 // ─── fal.ai Video Generation ────────────────────────────────────
 
-// fal.ai models for image-to-video
-const FAL_VIDEO_MODELS = {
-  'kling-1.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
-  'kling-1.5': 'fal-ai/kling-video/v1.5/pro/image-to-video',
-  minimax: 'fal-ai/minimax-video/image-to-video',
-  'runway-gen3': 'fal-ai/runway-gen3/turbo/image-to-video',
-  'luma-ray2': 'fal-ai/luma-dream-machine/ray-2/image-to-video',
-} as const;
-
-type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
-
 async function generateVideoWithFal(
   request: VideoGenerationRequest,
   userId: string,
-  modelKey: FalVideoModel = 'kling-1.6',
+  modelKey?: FalVideoModel,
 ): Promise<VideoGenerationResult> {
+  modelKey = modelKey || request.falVideoModel || 'kling-1.6';
   ensureFalConfig();
 
   const modelId = FAL_VIDEO_MODELS[modelKey];

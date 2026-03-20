@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { CreditsService } from '@/lib/services/creditsService';
-import { generateFullStoryboard } from '@/lib/pipeline/storyboard-service';
+import { generateFullStoryboard, IMAGE_MODELS, type ImageModelKey } from '@/lib/pipeline/storyboard-service';
 import type { SceneDescriptor, StyleGuide } from '@/lib/pipeline/schemas/storyboard';
 
 export const runtime = 'nodejs';
@@ -104,12 +104,17 @@ export async function POST(request: NextRequest) {
       console.log(`[storyboard/generate] Reference image map built for ${Object.keys(referenceImageMap).length} scenes from ${approvedReferences.length} subjects`);
     }
 
+    // Resolve model key (e.g. 'flux-dev') to fal.ai model ID (e.g. 'fal-ai/flux/dev')
+    const resolvedModelId = modelId && (modelId in IMAGE_MODELS)
+      ? IMAGE_MODELS[modelId as ImageModelKey]
+      : modelId; // pass through if already a full model ID or undefined
+
     const storyboard = await generateFullStoryboard(scenes, {
       userId,
       styleGuide,
       projectId,
       sourceScriptId,
-      modelId,
+      modelId: resolvedModelId,
       title,
       aspectRatio,
       overallMusicPrompt,

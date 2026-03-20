@@ -15,6 +15,7 @@ import {
   generateVideoClip,
   buildMotionPrompt,
   type VideoProvider,
+  type FalVideoModel,
 } from '@/lib/pipeline/video-generation-service';
 
 export const runtime = 'nodejs';
@@ -36,10 +37,12 @@ export async function POST(
       sceneIndices,
       provider,
       aspectRatio,
+      videoModel,
     }: {
       sceneIndices?: number[];
       provider?: VideoProvider;
       aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
+      videoModel?: FalVideoModel;
     } = body;
 
     const storyboard = await getStoryboard(storyboardId, userId);
@@ -109,6 +112,7 @@ export async function POST(
             durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
             aspectRatio,
             provider,
+            falVideoModel: videoModel,
           },
           userId,
         );
