@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye } from 'lucide-react';
+import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send } from 'lucide-react';
 import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -85,6 +85,8 @@ export function ExportToEditronDialog({
   const [subjects, setSubjects] = useState<SubjectRef[]>([]);
   const [approvedSubjectIds, setApprovedSubjectIds] = useState<Set<string>>(new Set());
   const [regeneratingSubjectId, setRegeneratingSubjectId] = useState<string | null>(null);
+  const [feedbackSubjectId, setFeedbackSubjectId] = useState<string | null>(null);
+  const [feedbackText, setFeedbackText] = useState('');
   const [overallMusicPrompt, setOverallMusicPrompt] = useState('');
 
   // Request notification permission on mount
@@ -118,6 +120,8 @@ export function ExportToEditronDialog({
     setSubjects([]);
     setApprovedSubjectIds(new Set());
     setRegeneratingSubjectId(null);
+    setFeedbackSubjectId(null);
+    setFeedbackText('');
     setOverallMusicPrompt('');
   };
 
@@ -430,16 +434,18 @@ export function ExportToEditronDialog({
     }
   };
 
-  // ─── Regenerate a single subject's reference image
-  const handleRegenerateSubject = async (subjectId: string) => {
+  // ─── Regenerate a single subject's reference image (with optional feedback)
+  const handleRegenerateSubject = async (subjectId: string, feedback?: string) => {
     if (!refSetId || regeneratingSubjectId) return;
     setRegeneratingSubjectId(subjectId);
+    setFeedbackSubjectId(null);
+    setFeedbackText('');
 
     try {
       const res = await fetch(`/api/services/pipeline/reference-images/${refSetId}/subject/${subjectId}/regenerate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ artStyle }),
+        body: JSON.stringify({ artStyle, feedback: feedback || undefined }),
       });
 
       if (res.ok) {
@@ -451,11 +457,28 @@ export function ExportToEditronDialog({
               : s,
           ),
         );
+        // Auto-approve after regeneration
+        setApprovedSubjectIds((prev) => {
+          const next = new Set(prev);
+          next.add(subjectId);
+          return next;
+        });
       }
     } catch (err) {
       console.error('[ExportToEditron] Regenerate subject failed:', err);
     } finally {
       setRegeneratingSubjectId(null);
+    }
+  };
+
+  // Toggle feedback prompt for a subject
+  const toggleFeedbackPrompt = (subjectId: string) => {
+    if (feedbackSubjectId === subjectId) {
+      setFeedbackSubjectId(null);
+      setFeedbackText('');
+    } else {
+      setFeedbackSubjectId(subjectId);
+      setFeedbackText('');
     }
   };
 
@@ -726,10 +749,11 @@ export function ExportToEditronDialog({
                 These reference images will guide AI to maintain visual consistency across all scenes. Toggle to approve/reject, or regenerate any subject.
               </p>
 
-              <div className="grid grid-cols-2 gap-3 max-h-[320px] overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
                 {subjects.map((subject) => {
                   const isApproved = approvedSubjectIds.has(subject.subjectId);
                   const isRegenerating = regeneratingSubjectId === subject.subjectId;
+                  const showFeedback = feedbackSubjectId === subject.subjectId;
 
                   return (
                     <div
@@ -737,7 +761,7 @@ export function ExportToEditronDialog({
                       className={`relative rounded-lg border overflow-hidden transition-all ${
                         isApproved
                           ? 'border-green-500/40 bg-green-500/5'
-                          : 'border-zinc-700 bg-zinc-800/50 opacity-60'
+                          : 'border-red-500/30 bg-red-500/5'
                       }`}
                     >
                       {/* Image */}
@@ -756,8 +780,9 @@ export function ExportToEditronDialog({
 
                         {/* Regenerating overlay */}
                         {isRegenerating && (
-                          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                          <div className="absolute inset-0 bg-black/60 flex items-center justify-center flex-col gap-1">
                             <Loader2 className="h-5 w-5 text-purple-400 animate-spin" />
+                            <span className="text-[10px] text-zinc-400">Regenerating...</span>
                           </div>
                         )}
 
@@ -777,20 +802,35 @@ export function ExportToEditronDialog({
                           className={`absolute top-1.5 right-1.5 p-1 rounded-full transition-colors ${
                             isApproved
                               ? 'bg-green-500 text-white'
-                              : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600'
+                              : 'bg-red-500/80 text-white hover:bg-red-600'
                           }`}
+                          title={isApproved ? 'Approved — click to reject' : 'Rejected — click to approve'}
                         >
                           {isApproved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
                         </button>
 
-                        {/* Regenerate button */}
+                        {/* Quick regenerate (no feedback) */}
                         <button
                           onClick={() => handleRegenerateSubject(subject.subjectId)}
                           disabled={isRegenerating}
                           className="absolute top-1.5 left-1.5 p-1 rounded-full bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200 transition-colors"
-                          title="Regenerate"
+                          title="Regenerate (random)"
                         >
                           <RefreshCw className={`h-3 w-3 ${isRegenerating ? 'animate-spin' : ''}`} />
+                        </button>
+
+                        {/* Feedback/prompt regenerate button */}
+                        <button
+                          onClick={() => toggleFeedbackPrompt(subject.subjectId)}
+                          disabled={isRegenerating}
+                          className={`absolute bottom-1.5 right-1.5 p-1 rounded-full transition-colors ${
+                            showFeedback
+                              ? 'bg-purple-500 text-white'
+                              : 'bg-zinc-700/80 text-zinc-400 hover:bg-zinc-600 hover:text-zinc-200'
+                          }`}
+                          title="Regenerate with feedback"
+                        >
+                          <MessageSquare className="h-3 w-3" />
                         </button>
                       </div>
 
@@ -801,6 +841,34 @@ export function ExportToEditronDialog({
                           {subject.category} · Scenes {subject.scenesAppearingIn?.join(', ')}
                         </p>
                       </div>
+
+                      {/* Feedback prompt input */}
+                      {showFeedback && (
+                        <div className="px-2 pb-2">
+                          <div className="flex gap-1">
+                            <Input
+                              value={feedbackText}
+                              onChange={(e) => setFeedbackText(e.target.value)}
+                              placeholder="e.g. make hair darker, add glasses..."
+                              className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7 flex-1"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && feedbackText.trim()) {
+                                  handleRegenerateSubject(subject.subjectId, feedbackText.trim());
+                                }
+                              }}
+                              autoFocus
+                            />
+                            <Button
+                              size="sm"
+                              onClick={() => handleRegenerateSubject(subject.subjectId, feedbackText.trim())}
+                              disabled={!feedbackText.trim() || isRegenerating}
+                              className="bg-purple-600 hover:bg-purple-700 text-white h-7 px-2"
+                            >
+                              <Send className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
