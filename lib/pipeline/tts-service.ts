@@ -52,13 +52,14 @@ export async function generateVoiceover(
 
   console.log(`[TTS] Generating voiceover: voice=${voice}, text="${text.substring(0, 80)}..." (${text.length} chars)`);
 
-  // Call Deepgram Aura TTS
+  // Call Deepgram Aura TTS — outputs linear16 PCM by default, we request wav container
   const response = await deepgram.speak.request(
     { text },
     {
       model: voice,
-      encoding: 'mp3',
-      container: 'mp3',
+      encoding: 'linear16',
+      container: 'wav',
+      sample_rate: 24000,
     },
   );
 
@@ -85,14 +86,16 @@ export async function generateVoiceover(
   }
   console.log(`[TTS] Audio buffer: ${audioBuffer.length} bytes`);
 
-  // Estimate duration from text (rough: ~150 words per minute)
-  const wordCount = text.split(/\s+/).length;
-  const durationMs = Math.round((wordCount / 150) * 60 * 1000);
+  // Calculate duration from WAV header (linear16, 24kHz, mono = 48000 bytes/sec)
+  // WAV header is 44 bytes, rest is PCM data
+  const pcmBytes = Math.max(0, audioBuffer.length - 44);
+  const bytesPerSecond = 24000 * 2; // 24kHz × 16bit (2 bytes)
+  const durationMs = Math.round((pcmBytes / bytesPerSecond) * 1000);
 
-  // Upload to GCS
+  // Upload to GCS as WAV
   const assetId = `voiceover_${nanoid(12)}`;
-  const filename = `${assetId}.mp3`;
-  const uploadResult = await uploadToGCS(audioBuffer, userId, filename, 'audio/mpeg');
+  const filename = `${assetId}.wav`;
+  const uploadResult = await uploadToGCS(audioBuffer, userId, filename, 'audio/wav');
 
   return {
     audioBuffer,
