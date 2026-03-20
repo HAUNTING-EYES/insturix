@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil } from 'lucide-react';
+import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil, Plus } from 'lucide-react';
 import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -97,6 +97,14 @@ export function ExportToEditronDialog({
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
   const [editingDescription, setEditingDescription] = useState('');
   const [overallMusicPrompt, setOverallMusicPrompt] = useState('');
+
+  // Add new subject state
+  const [showAddSubject, setShowAddSubject] = useState(false);
+  const [addingSubject, setAddingSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState('');
+  const [newSubjectCategory, setNewSubjectCategory] = useState<string>('character');
+  const [newSubjectDescription, setNewSubjectDescription] = useState('');
+  const [newSubjectScenes, setNewSubjectScenes] = useState('');
 
   // Storyboard scene edit state
   const [regeneratingSceneIdx, setRegeneratingSceneIdx] = useState<number | null>(null);
@@ -194,6 +202,15 @@ export function ExportToEditronDialog({
     setEditingSubjectId(null);
     setEditingDescription('');
     setOverallMusicPrompt('');
+    setShowAddSubject(false);
+    setAddingSubject(false);
+    setNewSubjectName('');
+    setNewSubjectCategory('character');
+    setNewSubjectDescription('');
+    setNewSubjectScenes('');
+    setRegeneratingSceneIdx(null);
+    setSceneFeedbackIdx(null);
+    setSceneFeedbackText('');
   };
 
   const handleClose = () => {
@@ -574,8 +591,8 @@ export function ExportToEditronDialog({
     }
   };
 
-  // Delete a subject entirely (remove from list)
-  const handleDeleteSubject = (subjectId: string) => {
+  // Delete a subject entirely (remove from list + persist to DB)
+  const handleDeleteSubject = async (subjectId: string) => {
     setSubjects((prev) => prev.filter((s) => s.subjectId !== subjectId));
     setApprovedSubjectIds((prev) => {
       const next = new Set(prev);
@@ -584,6 +601,80 @@ export function ExportToEditronDialog({
     });
     if (feedbackSubjectId === subjectId) { setFeedbackSubjectId(null); setFeedbackText(''); }
     if (editingSubjectId === subjectId) { setEditingSubjectId(null); setEditingDescription(''); }
+
+    // Persist deletion to DB
+    if (refSetId) {
+      try {
+        await fetch(`/api/services/pipeline/reference-images/${refSetId}/subject/${subjectId}/delete`, {
+          method: 'DELETE',
+        });
+      } catch (err) {
+        console.error('[ExportToEditron] Delete subject DB error:', err);
+      }
+    }
+  };
+
+  // Add a new custom subject reference
+  const handleAddSubject = async () => {
+    if (!refSetId || !newSubjectName.trim() || !newSubjectDescription.trim()) return;
+    setAddingSubject(true);
+    setError('');
+
+    try {
+      // Parse scene numbers from comma-separated string
+      const sceneNums = newSubjectScenes
+        .split(',')
+        .map((s) => parseInt(s.trim(), 10))
+        .filter((n) => !isNaN(n) && n >= 1)
+        .map((n) => n - 1); // Convert to 0-based
+
+      const res = await fetch(`/api/services/pipeline/reference-images/${refSetId}/add-subject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newSubjectName.trim(),
+          category: newSubjectCategory,
+          visualDescription: newSubjectDescription.trim(),
+          scenesAppearingIn: sceneNums.length > 0 ? sceneNums : scenes.map((_: any, i: number) => i),
+          artStyle,
+          modelId: imageModel !== 'flux-schnell' ? imageModel : undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      const newSubject: SubjectRef = {
+        subjectId: data.subject.subjectId,
+        name: data.subject.name,
+        category: data.subject.category,
+        imageUrl: data.subject.imageUrl,
+        status: 'generated',
+        scenesAppearingIn: data.subject.scenesAppearingIn,
+        visualDescription: data.subject.visualDescription,
+      };
+
+      setSubjects((prev) => [...prev, newSubject]);
+      setApprovedSubjectIds((prev) => {
+        const next = new Set(prev);
+        next.add(newSubject.subjectId);
+        return next;
+      });
+
+      // Reset form
+      setNewSubjectName('');
+      setNewSubjectCategory('character');
+      setNewSubjectDescription('');
+      setNewSubjectScenes('');
+      setShowAddSubject(false);
+    } catch (err: any) {
+      setError(`Add subject failed: ${err.message}`);
+    } finally {
+      setAddingSubject(false);
+    }
   };
 
   // Start editing a subject's visual description
@@ -1195,6 +1286,95 @@ export function ExportToEditronDialog({
                   );
                 })}
               </div>
+
+              {/* ─── Add New Reference Subject ─────────────────── */}
+              {!showAddSubject ? (
+                <button
+                  onClick={() => setShowAddSubject(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-zinc-600 text-zinc-400 hover:border-purple-500/50 hover:text-purple-400 transition-colors text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add Custom Reference
+                </button>
+              ) : (
+                <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-medium text-purple-400">Add New Reference Subject</p>
+                    <button
+                      onClick={() => { setShowAddSubject(false); setNewSubjectName(''); setNewSubjectCategory('character'); setNewSubjectDescription(''); setNewSubjectScenes(''); }}
+                      className="text-zinc-500 hover:text-zinc-300"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 block mb-0.5">Name</label>
+                      <Input
+                        value={newSubjectName}
+                        onChange={(e) => setNewSubjectName(e.target.value)}
+                        placeholder="e.g. Main Character, Logo"
+                        className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 block mb-0.5">Category</label>
+                      <Select value={newSubjectCategory} onValueChange={setNewSubjectCategory}>
+                        <SelectTrigger className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                          <SelectItem value="character">Character</SelectItem>
+                          <SelectItem value="product">Product</SelectItem>
+                          <SelectItem value="location">Location</SelectItem>
+                          <SelectItem value="object">Object</SelectItem>
+                          <SelectItem value="vehicle">Vehicle</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-500 block mb-0.5">Visual Description (used as the AI prompt)</label>
+                    <textarea
+                      value={newSubjectDescription}
+                      onChange={(e) => setNewSubjectDescription(e.target.value)}
+                      placeholder="Describe what this subject looks like — e.g. 'A young woman with dark curly hair, wearing a blue blazer and gold necklace, warm smile'"
+                      className="w-full bg-zinc-800 border border-zinc-600 text-zinc-200 text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-purple-500"
+                      rows={3}
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-500 block mb-0.5">Appears in scenes (comma-separated, e.g. 1,2,4 — leave blank for all)</label>
+                    <Input
+                      value={newSubjectScenes}
+                      onChange={(e) => setNewSubjectScenes(e.target.value)}
+                      placeholder="1,2,3,4"
+                      className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7"
+                    />
+                  </div>
+
+                  <Button
+                    onClick={handleAddSubject}
+                    disabled={addingSubject || !newSubjectName.trim() || !newSubjectDescription.trim()}
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs h-8"
+                  >
+                    {addingSubject ? (
+                      <>
+                        <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Plus className="h-3 w-3 mr-1.5" />
+                        Generate & Add Reference
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
 
               {error && <p className="text-sm text-red-400">{error}</p>}
             </motion.div>

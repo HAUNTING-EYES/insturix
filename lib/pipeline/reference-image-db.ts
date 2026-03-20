@@ -41,3 +41,37 @@ export async function updateSubjectReference(
     { arrayFilters: [{ 'elem.subjectId': subjectId }] },
   );
 }
+
+/**
+ * Add a new subject to an existing reference image set.
+ */
+export async function addSubjectToRefSet(
+  refSetId: string,
+  subject: SubjectReference,
+): Promise<void> {
+  const db = await getDatabase();
+  await db.collection(COLLECTION).updateOne(
+    { refSetId },
+    {
+      $push: { subjects: subject as any },
+      $set: { updatedAt: new Date() },
+    },
+  );
+}
+
+/**
+ * Remove a subject from an existing reference image set.
+ */
+export async function removeSubjectFromRefSet(
+  refSetId: string,
+  subjectId: string,
+): Promise<void> {
+  const db = await getDatabase();
+  await db.collection(COLLECTION).updateOne(
+    { refSetId },
+    {
+      $pull: { subjects: { subjectId } as any },
+      $set: { updatedAt: new Date() },
+    },
+  );
+}

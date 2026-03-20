@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
         imageUrl: s.imageUrl,
         status: s.status,
         scenesAppearingIn: s.scenesAppearingIn,
+        visualDescription: s.visualDescription,
       })),
     });
   } catch (error: any) {
