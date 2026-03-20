@@ -118,14 +118,14 @@ export async function generateSceneSequential(
     // Update scene
     const historyEntry = {
       assetId,
-      imageUrl: uploadResult.signedUrl,
+      imageUrl: uploadResult.publicUrl,
       timestamp: new Date(),
       modelUsed,
     };
 
     await updateStoryboardScene(storyboardId, sceneIndex, {
       imageAssetId: assetId,
-      imageUrl: uploadResult.signedUrl,
+      imageUrl: uploadResult.publicUrl,
       status: 'generated',
       generationHistory: [...scene.generationHistory, historyEntry],
     });
@@ -133,7 +133,7 @@ export async function generateSceneSequential(
     return {
       ...scene,
       imageAssetId: assetId,
-      imageUrl: uploadResult.signedUrl,
+      imageUrl: uploadResult.publicUrl,
       status: 'generated',
       generationHistory: [...scene.generationHistory, historyEntry],
     };
@@ -228,7 +228,7 @@ export async function regenerateWithContext(
 
     const historyEntry = {
       assetId,
-      imageUrl: uploadResult.signedUrl,
+      imageUrl: uploadResult.publicUrl,
       timestamp: new Date(),
       feedback: options.feedback,
       modelUsed: referenceUrl ? modelId : TEXT_TO_IMAGE_MODEL,
@@ -236,7 +236,7 @@ export async function regenerateWithContext(
 
     await updateStoryboardScene(storyboardId, sceneIndex, {
       imageAssetId: assetId,
-      imageUrl: uploadResult.signedUrl,
+      imageUrl: uploadResult.publicUrl,
       status: 'generated',
       generationHistory: [...scene.generationHistory, historyEntry],
     });
@@ -244,7 +244,7 @@ export async function regenerateWithContext(
     return {
       ...scene,
       imageAssetId: assetId,
-      imageUrl: uploadResult.signedUrl,
+      imageUrl: uploadResult.publicUrl,
       status: 'generated',
       generationHistory: [...scene.generationHistory, historyEntry],
     };

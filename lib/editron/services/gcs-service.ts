@@ -35,6 +35,8 @@ export interface UploadResult {
   assetId: string;
   gcsPath: string;
   signedUrl: string;
+  /** Clean public URL without query params — works with external AI APIs */
+  publicUrl: string;
   urlExpiresAt: Date;
   size: number;
   contentType: string;
@@ -55,18 +57,23 @@ export async function uploadToGCS(
   // Create GCS path: editron/{userId}/media/{timestamp}_{filename}
   const gcsPath = `editron/${userId}/media/${Date.now()}_${filename}`;
   
-  // Upload to GCS
+  // Upload to GCS and make publicly readable so external AI APIs
+  // (Kie AI, fal.ai, etc.) can access the file via a clean URL.
   const blob = bucket.file(gcsPath);
   await blob.save(file, {
     metadata: {
       contentType,
     },
+    public: true,
   });
 
-  // Generate signed URL (7 days expiration - GCS maximum)
+  // Public URL — clean, no query params, works with any external API
+  const publicUrl = `https://storage.googleapis.com/${bucketName}/${gcsPath}`;
+
+  // Generate signed URL (7 days expiration) as fallback / for private access
   const expirationDate = new Date();
   expirationDate.setDate(expirationDate.getDate() + 7);
-  
+
   const [signedUrl] = await blob.getSignedUrl({
     version: 'v4',
     action: 'read',
@@ -77,6 +84,7 @@ export async function uploadToGCS(
     assetId,
     gcsPath,
     signedUrl,
+    publicUrl,
     urlExpiresAt: expirationDate,
     size: file.length,
     contentType,
