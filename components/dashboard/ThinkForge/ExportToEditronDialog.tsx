@@ -260,12 +260,14 @@ export function ExportToEditronDialog({
     setError('');
 
     try {
-      // Build approved references for IP-adapter
+      // Build approved references for IP-adapter + video prompt refinement
       const approved = subjects
         .filter((s) => approvedSubjectIds.has(s.subjectId) && s.imageUrl)
         .map((s) => ({
           subjectId: s.subjectId,
           name: s.name,
+          category: s.category,
+          visualDescription: s.visualDescription || '',
           imageUrl: s.imageUrl!,
           scenesAppearingIn: s.scenesAppearingIn,
         }));

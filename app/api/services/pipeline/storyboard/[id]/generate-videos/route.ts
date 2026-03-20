@@ -17,6 +17,11 @@ import {
   type VideoProvider,
   type FalVideoModel,
 } from '@/lib/pipeline/video-generation-service';
+import {
+  refineVideoPrompt,
+  isLLMParserAvailable,
+  type VideoPromptContext,
+} from '@/lib/pipeline/llm-scene-parser';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 minute timeout for video generation
@@ -86,6 +91,25 @@ export async function POST(
       );
     }
 
+    // Build reference subject lookup for VideoPromptMaster
+    // Maps sceneIndex → subjects appearing in that scene
+    const sceneSubjectMap = new Map<number, Array<{ name: string; category: string; visualDescription: string }>>();
+    if (storyboard.approvedReferences && storyboard.approvedReferences.length > 0) {
+      for (const ref of storyboard.approvedReferences) {
+        for (const sceneIdx of ref.scenesAppearingIn) {
+          if (!sceneSubjectMap.has(sceneIdx)) sceneSubjectMap.set(sceneIdx, []);
+          sceneSubjectMap.get(sceneIdx)!.push({
+            name: ref.name,
+            category: (ref as any).category || 'character',
+            visualDescription: (ref as any).visualDescription || `${ref.name} — matching the approved reference image`,
+          });
+        }
+      }
+    }
+
+    const artStyle = storyboard.styleGuide?.artStyle;
+    const useLLMRefinement = isLLMParserAvailable();
+
     // Generate videos for each scene
     const results: Array<{
       sceneIndex: number;
@@ -96,15 +120,48 @@ export async function POST(
 
     for (const scene of targetScenes) {
       try {
-        // Build motion prompt — passes all LLM-generated fields through
-        const motionPrompt = buildMotionPrompt({
-          visualDescription: scene.descriptor.visualDescription,
-          narration: scene.descriptor.narration,
-          cameraDirection: scene.descriptor.cameraDirection,
-          mood: scene.descriptor.mood,
-          videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-          videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
-        });
+        // ─── Build the video prompt ──────────────────────────────
+        let motionPrompt: string;
+
+        if (useLLMRefinement) {
+          // VideoPromptMaster: LLM-refined prompt with full context
+          try {
+            const promptContext: VideoPromptContext = {
+              visualDescription: scene.descriptor.visualDescription,
+              videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+              narration: scene.descriptor.narration,
+              mood: scene.descriptor.mood,
+              durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
+              artStyle,
+              aspectRatio,
+              referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
+              videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+            };
+            motionPrompt = await refineVideoPrompt(promptContext);
+            console.log(`[generate-videos] Scene ${scene.sceneIndex}: VideoPromptMaster refined prompt (${motionPrompt.length} chars)`);
+          } catch (llmErr: any) {
+            console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM refinement failed, using fallback:`, llmErr.message);
+            // Fallback to basic buildMotionPrompt
+            motionPrompt = buildMotionPrompt({
+              visualDescription: scene.descriptor.visualDescription,
+              narration: scene.descriptor.narration,
+              cameraDirection: scene.descriptor.cameraDirection,
+              mood: scene.descriptor.mood,
+              videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+              videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+            });
+          }
+        } else {
+          // No LLM available — use basic prompt builder
+          motionPrompt = buildMotionPrompt({
+            visualDescription: scene.descriptor.visualDescription,
+            narration: scene.descriptor.narration,
+            cameraDirection: scene.descriptor.cameraDirection,
+            mood: scene.descriptor.mood,
+            videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+            videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+          });
+        }
 
         const result = await generateVideoClip(
           {

@@ -46,6 +46,8 @@ export async function POST(request: NextRequest) {
       approvedReferences?: Array<{
         subjectId: string;
         name: string;
+        category?: string;
+        visualDescription?: string;
         imageUrl: string;
         scenesAppearingIn: number[];
       }>;

@@ -169,6 +169,99 @@ ${scenesSummary}`,
   return object;
 }
 
+// ─── Video Prompt Refinement (VideoPromptMaster) ────────────────
+
+const RefinedVideoPromptSchema = z.object({
+  prompt: z.string().describe('The final optimized video generation prompt. Raw text only, no markdown, no explanations.'),
+});
+
+export interface VideoPromptContext {
+  /** What the storyboard image shows (for context — don't re-describe) */
+  visualDescription: string;
+  /** Initial motion prompt from scene parser */
+  videoMotionPrompt?: string;
+  /** Voiceover/narration text for this scene */
+  narration?: string;
+  /** Scene mood */
+  mood?: string;
+  /** Clip duration in seconds */
+  durationSeconds: number;
+  /** Art style (cinematic, anime, superhero, etc.) */
+  artStyle?: string;
+  /** Aspect ratio */
+  aspectRatio?: string;
+  /** Approved reference subjects appearing in this scene */
+  referenceSubjects?: Array<{
+    name: string;
+    category: string;
+    visualDescription: string;
+  }>;
+  /** LLM-generated video quality tokens */
+  videoQualityTokens?: string;
+}
+
+/**
+ * Refine a video prompt using LLM (VideoPromptMaster).
+ *
+ * Takes scene context + reference subject data and produces a dense,
+ * optimized prompt specifically for image-to-video models.
+ *
+ * Cost: ~$0.00005 per scene (Gemini Flash, ~500 tokens)
+ */
+export async function refineVideoPrompt(
+  context: VideoPromptContext,
+): Promise<string> {
+  const google = getGeminiProvider();
+  const model = google('gemini-2.0-flash');
+
+  // Build reference subject context
+  const subjectContext = context.referenceSubjects && context.referenceSubjects.length > 0
+    ? context.referenceSubjects
+        .map((s) => `${s.name} (${s.category}): ${s.visualDescription}`)
+        .join('\n')
+    : 'No specific reference subjects — describe motion generically for what\'s in the image.';
+
+  const { object } = await generateObject({
+    model,
+    schema: RefinedVideoPromptSchema,
+    prompt: `You are VideoPromptMaster — an expert prompt engineer specialized in generating MAXIMUM-ACCURACY prompts for image-to-video AI models (Kling, Runway Gen-3, Luma Ray2, MiniMax).
+
+You receive a STARTING IMAGE + your text prompt. The model already SEES the image.
+Your ONLY job: output ONE dense, optimized text prompt describing how the image comes to life.
+NEVER add explanations, NEVER say "here is the prompt". Just the raw optimized prompt.
+
+=== SCENE CONTEXT ===
+What the starting image shows: ${context.visualDescription.substring(0, 400)}
+Initial motion direction: ${context.videoMotionPrompt || 'Not specified — infer from scene'}
+Scene narration: ${context.narration?.substring(0, 200) || 'No narration'}
+Mood: ${context.mood || 'neutral'}
+Duration: ${context.durationSeconds}s
+Art style: ${context.artStyle || 'cinematic'}
+Aspect ratio: ${context.aspectRatio || '16:9'}
+
+=== KEY SUBJECTS IN THIS SCENE ===
+${subjectContext}
+
+=== STRICT RULES ===
+1. The model SEES the starting image. Do NOT fully re-describe the scene. Instead, open with a brief subject anchor (1 line, key identifying details only) then immediately describe motion.
+2. For subjects with reference descriptions: weave in 1-2 key identity anchors naturally (e.g. "the silver chronograph watch" not "a watch") and add "maintaining exact appearance throughout" once.
+3. Describe primary motion first: camera movement (slow dolly, gentle orbit, static hold, subtle push-in, etc.) + main subject action.
+4. Layer secondary motion: atmospheric details (particles, light shifts, fabric/hair movement, reflections, liquid, smoke).
+5. Include physics that sell realism: wind effect on hair/fabric, weight in movement, natural light caustics, surface reflections shifting.
+${context.durationSeconds > 5 ? `6. For this ${context.durationSeconds}s clip, imply timing naturally: "gradually...", "then slowly...", "building to..." — guide the temporal arc.` : '6. For this short clip, keep motion minimal and focused — one clean camera move + one detail.'}
+7. End with style-appropriate motion quality tokens for ${context.artStyle || 'cinematic'} — these must match the medium (don't use "film grain" for anime or "cel-shaded" for photorealistic).
+8. Dense but concise: 80-200 words. Every word must earn its place.
+9. NEVER invent elements not in the scene context or reference subjects.
+10. NEVER use Midjourney/StableDiffusion flags (--ar, --stylize, etc.) — these are API-based models.
+11. Adapt language to the art style: cinematic = film language, anime = animation language, etc.
+${context.videoQualityTokens ? `12. Incorporate these quality tokens naturally: ${context.videoQualityTokens}` : ''}
+
+Output ONLY the final video generation prompt. Nothing else.`,
+  });
+
+  return object.prompt;
+}
+
 /**
  * Check if LLM parsing is available.
  */

@@ -89,10 +89,12 @@ export interface Storyboard {
   voiceoverConfig?: VoiceoverConfig;
   /** Reference image set used for visual consistency (IP-adapter) */
   refSetId?: string;
-  /** Approved reference images used during storyboard generation */
+  /** Approved reference images used during storyboard generation + video prompting */
   approvedReferences?: Array<{
     subjectId: string;
     name: string;
+    category?: string;
+    visualDescription?: string;
     imageUrl: string;
     scenesAppearingIn: number[];
   }>;
