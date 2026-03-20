@@ -5,7 +5,7 @@ import { useLocalMedia } from "../../contexts/local-media-context";
 import { formatBytes, formatDuration } from "../../utils/format-utils";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, Trash2, Image, Video, Music } from "lucide-react";
+import { Loader2, Upload, Trash2, Image, Video, Music, ImageIcon, Plus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -324,18 +324,55 @@ export function LocalMediaGallery({
 
       {/* Media Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className="max-w-2xl rounded-xl p-8 sm:p-8">
-          <DialogHeader className="mb-4">
-            <DialogTitle>{selectedFile?.name}</DialogTitle>
-            <DialogDescription>
-              {selectedFile?.type} • {formatBytes(selectedFile?.size)}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex justify-center">{renderPreviewContent()}</div>
-          <div className="flex justify-end mt-4">
-            <Button variant="default" size="sm" onClick={handleAddToTimeline}>
-              Add to Timeline
-            </Button>
+        <DialogContent className="max-w-2xl p-0 overflow-hidden border-neutral-800/60 bg-neutral-950">
+          {/* Top accent bar */}
+          <div className="h-px w-full bg-gradient-to-r from-transparent via-blue-500/60 to-transparent" />
+          <div className="flex flex-col gap-4 p-6">
+            {/* Header */}
+            <DialogHeader>
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-neutral-800/80 ring-1 ring-neutral-700/50">
+                  <ImageIcon className="h-4 w-4 text-blue-400" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <DialogTitle className="truncate text-sm font-semibold text-neutral-100 leading-snug">
+                    {selectedFile?.name}
+                  </DialogTitle>
+                  <DialogDescription className="mt-1 flex items-center gap-1.5 text-xs text-neutral-500">
+                    <span className="rounded bg-neutral-800 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-neutral-400">
+                      {selectedFile?.type?.split("/")[1] ?? selectedFile?.type}
+                    </span>
+                    <span>·</span>
+                    <span>{formatBytes(selectedFile?.size)}</span>
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            {/* Preview area — key fix: no min-h, just auto sizing */}
+            <div className="relative overflow-hidden rounded-xl border border-neutral-800/60 bg-neutral-900/60">
+              {/* Grid pattern */}
+              <div className="absolute inset-0 opacity-[0.03] [background-image:linear-gradient(#fff_1px,transparent_1px),linear-gradient(90deg,#fff_1px,transparent_1px)] [background-size:24px_24px]" />
+              <div className="relative flex items-center justify-center p-6">
+                {renderPreviewContent()}
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] text-neutral-600 select-none">
+                Preview only — original file unchanged
+              </p>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleAddToTimeline}
+                className="gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium px-4 transition-colors duration-150"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add to Timeline
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

@@ -33,6 +33,23 @@ import { assetResolver } from "../services/asset-resolver";
 import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
 import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
 
+// PERF FIX: Module-level singleton map for ChatGoogleGenerativeAI instances.
+// OLD (in each tool):
+// const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', temperature: X });
+// NEW: getLLMModel(temperature) → shared singleton
+const _llmModelCache: Record<string, ChatGoogleGenerativeAI> = {};
+function getLLMModel(temperature: number): ChatGoogleGenerativeAI {
+  const key = `gemini-2.5-flash-t${temperature}`;
+  if (!_llmModelCache[key]) {
+    _llmModelCache[key] = new ChatGoogleGenerativeAI({
+      model: 'gemini-2.5-flash',
+      apiKey: process.env.GEMINI_API_KEY,
+      temperature,
+    });
+  }
+  return _llmModelCache[key];
+}
+
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
   interface ToolEnvelope {
@@ -1102,9 +1119,15 @@ TYPE-SPECIFIC FIELDS:
           const linkedCaptions = project.overlays.filter(
             (o: any) => o.type === 'caption' && o.sourceVideoId === input.id
           );
-          for (const caption of linkedCaptions) {
-            await projectService.deleteOverlay(userId, projectId, caption.id);
-          }
+          // PERF FIX: Delete linked captions in parallel instead of sequential awaits.
+          // OLD: for (const caption of linkedCaptions) { await projectService.deleteOverlay(...) }
+          // Each sequential await blocks on a DB round-trip. With N linked captions this
+          // was N × RTT. Parallel Promise.all reduces it to 1 × RTT regardless of N.
+          await Promise.all(
+            linkedCaptions.map((caption: any) =>
+              projectService.deleteOverlay(userId, projectId, caption.id)
+            )
+          );
         }
         
         await projectService.deleteOverlay(userId, projectId, input.id);
@@ -1249,12 +1272,9 @@ TYPE-SPECIFIC FIELDS:
 
         const id = Date.now() + Math.floor(Math.random() * 10000);
 
-        // Call Sub-Agent
-        const model = new ChatGoogleGenerativeAI({
-          model: 'gemini-2.5-flash',
-          apiKey: process.env.GEMINI_API_KEY,
-          temperature: 0.7, // Higher temp for creativity
-        });
+        // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
+        // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', temperature: 0.7 });
+        const model = getLLMModel(0.7);
 
         const durationSeconds = Math.round(input.duration / 30);
         
@@ -1486,11 +1506,11 @@ CANVAS: ${safeWidth}×${safeHeight}px | Aspect Ratio: ${project.aspectRatio || '
         const durationSeconds = Math.round(input.duration / 30);
         
         // Call Sub-Agent for HTML generation
-        const model = new ChatGoogleGenerativeAI({
-          model: 'gemini-2.5-flash',
-          apiKey: process.env.GEMINI_API_KEY,
-          temperature: 0.8, // Higher creativity for stickers
-        });
+        // const model = new ChatGoogleGenerativeAI({
+        //   model: 'gemini-2.5-flash',
+        //   apiKey: process.env.GEMINI_API_KEY,
+        //   temperature: 0.8, // Higher creativity for stickers
+        // });
         
         const systemPrompt = `You are a creative motion graphics designer creating ANIMATED STICKER ELEMENTS.
 Generate a SELF-CONTAINED HTML/CSS sticker with LOOPING ANIMATION.
@@ -1548,6 +1568,10 @@ STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.hei
   Return ONLY raw HTML starting with \`<\`.
   NO markdown. NO explanation.`;
 
+        // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
+        // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', apiKey: ..., temperature: 0.8 });
+        const model = getLLMModel(0.8);
+
         const result = await model.invoke([
           new SystemMessage(systemPrompt),
           new HumanMessage(`Create: ${input.description}`)
@@ -1555,7 +1579,7 @@ STICKER CONTAINER: ${stickerWidth}×${stickerHeight}px${input.width && input.hei
 
         const generatedHtml = result.content as string;
         const rawHtml = generatedHtml.replace(/```html/g, '').replace(/```/g, '').trim();
-        
+
         // Clean up the HTML - remove DOCTYPE, html/body tags
         let cleanHtml = rawHtml
           .replace(/<!DOCTYPE[^>]*>/gi, '')
@@ -1704,10 +1728,21 @@ EXAMPLE PROMPTS:
           
           let fullTranscript = '';
           
-          for (const video of videoOverlays) {
-            const transcription = await getTranscription(video.assetId as string, userId, {
-              forceRefresh: input.forceRefresh,
-            });
+          // PERF FIX: Fetch all clip transcriptions in parallel instead of sequentially.
+          // OLD: for (const video of videoOverlays) { const transcription = await getTranscription(...) }
+          // Each clip required a separate DB/API round-trip, and they ran one after another.
+          // With Promise.all they all fire simultaneously — reduces N clips × RTT to 1 × RTT.
+          const transcriptions = await Promise.all(
+            videoOverlays.map((video: any) =>
+              getTranscription(video.assetId as string, userId, {
+                forceRefresh: input.forceRefresh,
+              })
+            )
+          );
+
+          for (let idx = 0; idx < videoOverlays.length; idx++) {
+            const video = videoOverlays[idx];
+            const transcription = transcriptions[idx];
             
             // Get only words that fall within this clip's range
             // IMPORTANT: videoStartTime is stored in FRAMES
@@ -2337,16 +2372,24 @@ Linked captions are automatically moved with their videos.`,
         }
         
         // ===== DEBUG LOGGING START =====
-        console.log('\n========== [FANCY-CAPTIONS DEBUG] ==========');
-        console.log('Segment range (frames):', segmentStartFrame, '->', segmentEndFrame);
-        console.log('Segment range (ms):', segmentStartMs.toFixed(0), '->', segmentEndMs.toFixed(0));
-        console.log('Video overlay from:', overlay.from, 'videoStartTime:', overlay.videoStartTime || 0);
-        console.log('Total transcription words:', transcription.words.length);
-        console.log('Words in range count:', wordsInRange.length);
-        console.log('\n--- Word Timings (0-based, relative to segment start) ---');
-        wordsInRange.forEach((w: any, i: number) => {
-          console.log(`  [${i}] "${w.word}" | start: ${w.startMs}ms | end: ${w.endMs}ms | duration: ${w.endMs - w.startMs}ms`);
-        });
+        // PERF FIX: Guarded behind DEBUG_FANCY_CAPTIONS env flag.
+        // Previously these console.log calls (including a per-word forEach loop) fired
+        // unconditionally on EVERY add_fancy_captions invocation, adding synchronous
+        // I/O overhead and cluttering production logs.
+        // Set DEBUG_FANCY_CAPTIONS=true in .env.local to re-enable during development.
+        const DEBUG_FANCY = process.env.DEBUG_FANCY_CAPTIONS === 'true';
+        if (DEBUG_FANCY) {
+          console.log('\n========== [FANCY-CAPTIONS DEBUG] ==========');
+          console.log('Segment range (frames):', segmentStartFrame, '->', segmentEndFrame);
+          console.log('Segment range (ms):', segmentStartMs.toFixed(0), '->', segmentEndMs.toFixed(0));
+          console.log('Video overlay from:', overlay.from, 'videoStartTime:', overlay.videoStartTime || 0);
+          console.log('Total transcription words:', transcription.words.length);
+          console.log('Words in range count:', wordsInRange.length);
+          console.log('\n--- Word Timings (0-based, relative to segment start) ---');
+          wordsInRange.forEach((w: any, i: number) => {
+            console.log(`  [${i}] "${w.word}" | start: ${w.startMs}ms | end: ${w.endMs}ms | duration: ${w.endMs - w.startMs}ms`);
+          });
+        }
         // ===== DEBUG LOGGING END =====
         
         // Classify word importance
@@ -2417,29 +2460,29 @@ Linked captions are automatically moved with their videos.`,
         });
         
         // ===== DEBUG: Log the prompt being sent to LLM =====
-        console.log('\n--- Classified Words with Importance ---');
-        classifiedWords.forEach((w, i) => {
-          const delaySeconds = (w.startMs / 1000).toFixed(2);
-          console.log(`  [${i}] "${w.word}" | delay: ${delaySeconds}s | importance: ${w.importance}`);
-        });
-        console.log('\n--- Prompt Word Table Section ---');
-        const wordTableLog = classifiedWords.map((w, i) => {
-          const delaySeconds = (w.startMs / 1000).toFixed(2);
-          return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${w.importance?.toUpperCase()} |`;
-        }).join('\n');
-        console.log(wordTableLog);
-        console.log('\nTotal duration:', totalDurationMs, 'ms');
-        console.log('Exit animation delay:', ((Math.max(...classifiedWords.map(w => w.endMs)) - 300) / 1000).toFixed(2), 's');
-        console.log('========== [END FANCY-CAPTIONS DEBUG] ==========\n');
+        // PERF FIX: Guarded — same DEBUG_FANCY_CAPTIONS flag as above.
+        if (DEBUG_FANCY) {
+          console.log('\n--- Classified Words with Importance ---');
+          classifiedWords.forEach((w, i) => {
+            const delaySeconds = (w.startMs / 1000).toFixed(2);
+            console.log(`  [${i}] "${w.word}" | delay: ${delaySeconds}s | importance: ${w.importance}`);
+          });
+          console.log('\n--- Prompt Word Table Section ---');
+          const wordTableLog = classifiedWords.map((w, i) => {
+            const delaySeconds = (w.startMs / 1000).toFixed(2);
+            return `| ${i + 1} | "${w.word}" | ${w.startMs}ms | ${w.endMs}ms | ${delaySeconds}s | ${w.importance?.toUpperCase()} |`;
+          }).join('\n');
+          console.log(wordTableLog);
+          console.log('\nTotal duration:', totalDurationMs, 'ms');
+          console.log('Exit animation delay:', ((Math.max(...classifiedWords.map(w => w.endMs)) - 300) / 1000).toFixed(2), 's');
+          console.log('========== [END FANCY-CAPTIONS DEBUG] ==========\n');
+        }
         
         console.log('[FANCY-CAPTIONS] Generating for', classifiedWords.length, 'words, duration:', totalDurationMs, 'ms');
         
-        // Generate HTML via Gemini
-        const model = new ChatGoogleGenerativeAI({
-          model: 'gemini-2.5-flash',
-          apiKey: process.env.GEMINI_API_KEY,
-          temperature: 0.8, // Higher creativity for typography
-        });
+        // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
+        // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', apiKey: ..., temperature: 0.8 });
+        const model = getLLMModel(0.8);
         
         const result = await model.invoke([
           new SystemMessage(prompt),
@@ -2449,22 +2492,27 @@ Linked captions are automatically moved with their videos.`,
         const generatedHtml = result.content as string;
         
         // ===== DEBUG: Log generated HTML =====
-        console.log('\n========== [FANCY-CAPTIONS GENERATED HTML] ==========');
-        console.log('Raw HTML length:', generatedHtml.length);
-        
-        // Extract animation-delay values from the generated HTML to verify timing
-        const delayMatches = generatedHtml.match(/animation-delay\s*:\s*[\d.]+s/gi) || [];
-        console.log('\n--- Animation delays found in generated HTML ---');
-        delayMatches.forEach((d, i) => console.log(`  [${i}] ${d}`));
-        
-        // Also check for inline animation properties
-        const animationMatches = generatedHtml.match(/animation\s*:\s*[^;"}]+/gi) || [];
-        console.log('\n--- Animation properties found ---');
-        animationMatches.slice(0, 20).forEach((a, i) => console.log(`  [${i}] ${a.substring(0, 100)}`));
-        
-        console.log('\n--- First 2000 chars of generated HTML ---');
-        console.log(generatedHtml.substring(0, 2000));
-        console.log('========== [END GENERATED HTML] ==========\n');
+        // PERF FIX: Guarded — runs regex scans over potentially large HTML strings.
+        // These regex operations (match animation-delay, match animation properties)
+        // were running on every production invocation with no benefit.
+        if (DEBUG_FANCY) {
+          console.log('\n========== [FANCY-CAPTIONS GENERATED HTML] ==========');
+          console.log('Raw HTML length:', generatedHtml.length);
+          
+          // Extract animation-delay values from the generated HTML to verify timing
+          const delayMatches = generatedHtml.match(/animation-delay\s*:\s*[\d.]+s/gi) || [];
+          console.log('\n--- Animation delays found in generated HTML ---');
+          delayMatches.forEach((d, i) => console.log(`  [${i}] ${d}`));
+          
+          // Also check for inline animation properties
+          const animationMatches = generatedHtml.match(/animation\s*:\s*[^;"}]+/gi) || [];
+          console.log('\n--- Animation properties found ---');
+          animationMatches.slice(0, 20).forEach((a, i) => console.log(`  [${i}] ${a.substring(0, 100)}`));
+          
+          console.log('\n--- First 2000 chars of generated HTML ---');
+          console.log(generatedHtml.substring(0, 2000));
+          console.log('========== [END GENERATED HTML] ==========\n');
+        }
         
         // Clean up the HTML - remove markdown fences, DOCTYPE, html/body tags
         let cleanHtml = generatedHtml
@@ -2742,11 +2790,9 @@ RETURNS: Overlay ID and extracted metadata (fonts, colors) for style consistency
           typographyProfile,
         });
 
-        const model = new ChatGoogleGenerativeAI({
-          model: 'gemini-2.5-flash',
-          apiKey: process.env.GEMINI_API_KEY,
-          temperature: 0.8,
-        });
+        // PERF FIX: Reuse cached model instance instead of constructing a new one each call.
+        // OLD: const model = new ChatGoogleGenerativeAI({ model: 'gemini-2.5-flash', apiKey: ..., temperature: 0.8 });
+        const model = getLLMModel(0.8);
 
         const result = await model.invoke([
           new SystemMessage(prompt),

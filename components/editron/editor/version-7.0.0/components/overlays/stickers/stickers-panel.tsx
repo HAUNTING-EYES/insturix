@@ -112,8 +112,8 @@ const StickerPreview = memo(
 StickerPreview.displayName = "StickerPreview";
 
 export function StickersPanel() {
-  const { addOverlay, overlays, durationInFrames } = useEditorContext();
-  const { findNextAvailablePosition } = useTimelinePositioning();
+  const { addOverlay, overlays, setOverlays } = useEditorContext();
+  const { createNewTopLayer } = useTimelinePositioning();
   const { visibleRows } = useTimeline();
   const stickerCategories = getStickerCategories();
   const isMobile = useIsMobile();
@@ -126,10 +126,9 @@ export function StickersPanel() {
 
       if (!template) return;
 
-      const { from, row } = findNextAvailablePosition(
+      const { from, row } = createNewTopLayer(
         overlays,
-        visibleRows,
-        durationInFrames
+        setOverlays
       );
 
       const newOverlay: Overlay = {
@@ -158,9 +157,8 @@ export function StickersPanel() {
     [
       addOverlay,
       overlays,
-      visibleRows,
-      durationInFrames,
-      findNextAvailablePosition,
+      setOverlays,
+      createNewTopLayer,
     ]
   );
 

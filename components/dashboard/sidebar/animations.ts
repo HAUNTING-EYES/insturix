@@ -2,7 +2,7 @@ export const sidebarVariants = {
   collapsed: {
     width: 64,
     transition: {
-      duration: typeof window !== "undefined" && window.innerWidth < 1024 ? 0.15 : 0.3,
+      duration: typeof window !== "undefined" && window.innerWidth < 1024 ? 0.15 : 0.5,
       ease: [0.4, 0, 0.2, 1],
       when: "afterChildren",
       staggerChildren: typeof window !== "undefined" && window.innerWidth < 1024 ? 0 : 0.02,
@@ -12,7 +12,7 @@ export const sidebarVariants = {
   expanded: {
     width: 240,
     transition: {
-      duration: typeof window !== "undefined" && window.innerWidth < 1024 ? 0.15 : 0.3,
+      duration: typeof window !== "undefined" && window.innerWidth < 1024 ? 0.15 : 0.5,
       ease: [0.4, 0, 0.2, 1],
       when: "beforeChildren",
       staggerChildren: typeof window !== "undefined" && window.innerWidth < 1024 ? 0 : 0.02,
