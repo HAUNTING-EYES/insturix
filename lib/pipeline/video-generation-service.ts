@@ -375,6 +375,9 @@ export async function generateVideoClip(
   userId: string,
 ): Promise<VideoGenerationResult> {
   const provider = request.provider || detectBestProvider();
+  const modelKey = request.falVideoModel || 'kling-1.6';
+
+  console.log(`[VideoGen] generateVideoClip: provider=${provider}, model=${modelKey}, imageUrl=${request.imageUrl?.substring(0, 60)}...`);
 
   if (provider === 'kie-ai') {
     try {
@@ -389,7 +392,17 @@ export async function generateVideoClip(
     }
   }
 
-  return generateVideoWithFal(request, userId);
+  // fal.ai provider — try user's chosen model, fallback to kling-1.6 if different
+  try {
+    return await generateVideoWithFal(request, userId, modelKey);
+  } catch (falError: any) {
+    // If the user chose a specific model and it failed, try kling-1.6 as fallback
+    if (modelKey !== 'kling-1.6') {
+      console.warn(`[VideoGen] ${modelKey} failed (${falError.message}), falling back to kling-1.6`);
+      return generateVideoWithFal(request, userId, 'kling-1.6');
+    }
+    throw falError;
+  }
 }
 
 /**

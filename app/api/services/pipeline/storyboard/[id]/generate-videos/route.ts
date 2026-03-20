@@ -24,7 +24,7 @@ import {
 } from '@/lib/pipeline/llm-scene-parser';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300; // 5 minute timeout for video generation
+export const maxDuration = 600; // 10 minute timeout — video models are slow + retry
 
 export async function POST(
   request: NextRequest,
@@ -171,40 +171,62 @@ export async function POST(
       error?: string;
     }> = [];
 
+    const MAX_RETRIES = 1; // Retry failed scenes once
+
     const processScene = async ({ scene, motionPrompt }: typeof scenesWithPrompts[number]) => {
-      try {
-        const result = await generateVideoClip(
-          {
-            imageUrl: scene.imageUrl!,
-            motionPrompt,
-            durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
-            aspectRatio,
-            provider,
-            falVideoModel: videoModel,
-          },
-          userId,
-        );
+      let lastError = '';
 
-        await updateStoryboardScene(storyboardId, scene.sceneIndex, {
-          videoAssetId: result.assetId,
-          videoUrl: result.videoUrl,
-          videoGcsPath: result.gcsPath,
-          videoProvider: result.provider,
-          videoDurationMs: result.durationMs,
-        });
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          if (attempt > 0) {
+            console.log(`[generate-videos] Scene ${scene.sceneIndex}: RETRY attempt ${attempt}`);
+          }
 
-        results.push({
-          sceneIndex: scene.sceneIndex,
-          videoUrl: result.videoUrl,
-          assetId: result.assetId,
-        });
-      } catch (err: any) {
-        console.error(`[generate-videos] Scene ${scene.sceneIndex} failed:`, err.message);
-        results.push({
-          sceneIndex: scene.sceneIndex,
-          error: err.message || 'Video generation failed',
-        });
+          const sceneStart = Date.now();
+          const result = await generateVideoClip(
+            {
+              imageUrl: scene.imageUrl!,
+              motionPrompt,
+              durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
+              aspectRatio,
+              provider,
+              falVideoModel: videoModel,
+            },
+            userId,
+          );
+
+          console.log(`[generate-videos] Scene ${scene.sceneIndex}: SUCCESS in ${Date.now() - sceneStart}ms (attempt ${attempt})`);
+
+          await updateStoryboardScene(storyboardId, scene.sceneIndex, {
+            videoAssetId: result.assetId,
+            videoUrl: result.videoUrl,
+            videoGcsPath: result.gcsPath,
+            videoProvider: result.provider,
+            videoDurationMs: result.durationMs,
+          });
+
+          results.push({
+            sceneIndex: scene.sceneIndex,
+            videoUrl: result.videoUrl,
+            assetId: result.assetId,
+          });
+          return; // Success — exit retry loop
+        } catch (err: any) {
+          lastError = err.message || 'Video generation failed';
+          console.error(`[generate-videos] Scene ${scene.sceneIndex} attempt ${attempt} failed:`, lastError);
+
+          // Don't retry on non-transient errors
+          if (lastError.includes('No video generated') || lastError.includes('Insufficient credits')) {
+            break;
+          }
+        }
       }
+
+      // All attempts exhausted
+      results.push({
+        sceneIndex: scene.sceneIndex,
+        error: lastError,
+      });
     };
 
     while (queue.length > 0 || running.length > 0) {
