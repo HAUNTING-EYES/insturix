@@ -13,14 +13,16 @@ import crypto from "crypto";
 import { CreditsService } from "@/lib/services/creditsService";
 import { CREDIT_PACKAGES } from "@/lib/config/creditCosts";
 
-if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_SECRET_KEY_ID) {
-  console.error("Razorpay credentials not configured for credits verify");
+let _razorpay: Razorpay | null = null;
+function getRazorpay() {
+  if (!_razorpay) {
+    _razorpay = new Razorpay({
+      key_id: process.env.RAZORPAY_KEY_ID!,
+      key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
+    });
+  }
+  return _razorpay;
 }
-
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_SECRET_KEY_ID!,
-});
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Fetch the payment from Razorpay to confirm status
-    const payment = await razorpay.payments.fetch(razorpay_payment_id);
+    const payment = await getRazorpay().payments.fetch(razorpay_payment_id);
     
     if (payment.status !== "captured") {
       console.error(`[Credits Verify] Payment not captured. Status: ${payment.status}`);
