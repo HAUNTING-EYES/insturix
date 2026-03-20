@@ -49,9 +49,9 @@ export async function generateBackgroundMusic(
   });
 
   const audioUrl = (result as any).data?.audio?.url
-    || (result as any).audio?.url;
+    || (result as any).data?.audio?.[0]?.url;
   if (!audioUrl) {
-    throw new Error('Stable Audio returned no audio URL');
+    throw new Error('Stable Audio returned no audio URL. Response: ' + JSON.stringify(result).substring(0, 200));
   }
 
   // Download and upload to GCS

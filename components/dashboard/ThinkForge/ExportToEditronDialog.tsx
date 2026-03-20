@@ -89,7 +89,28 @@ export function ExportToEditronDialog({
 
   // Calculate total credit cost
   const estimateCredits = () => {
-    const sceneCount = blocks.length > 0 ? Math.max(1, Math.ceil(blocks.length / 3)) : 4; // rough estimate
+    // Count actual scene headers — not total blocks. Header blocks are real
+    // scene boundaries; paragraphs/examples/actions within them are content.
+    // Also skip meta headers (overview, creative direction, etc.)
+    const META_RE = /\b(overview|introduction|creative direction|aesthetic|production notes|branding|key message|target audience|format|guidelines|style guide|tone|direction|deliverables|platforms?|conclusion|summary|notes|credits|appendix)\b/i;
+    let sceneCount = 0;
+    if (blocks.length > 0) {
+      for (const block of blocks) {
+        if (block.kind === 'header') {
+          const text = typeof block.content === 'string' ? block.content :
+            Array.isArray(block.content) ? block.content.map((c: any) => c.text || '').join('') : '';
+          if (!META_RE.test(text)) sceneCount++;
+        }
+      }
+      // If no headers found, estimate from timestamps in plain text
+      if (sceneCount === 0 && plainText) {
+        const timestamps = plainText.match(/\d{2}:\d{2}\s*[-–]\s*\d{2}:\d{2}/g);
+        sceneCount = timestamps ? timestamps.length : Math.max(1, Math.ceil(blocks.length / 5));
+      }
+      sceneCount = Math.max(1, sceneCount);
+    } else {
+      sceneCount = 3; // default estimate
+    }
     let total = 1; // base import cost
     if (generateStoryboard) total += sceneCount * 2; // 2 credits/scene for images
     if (generateStoryboard && generateVideos) total += sceneCount * 3; // 3 credits/scene for videos

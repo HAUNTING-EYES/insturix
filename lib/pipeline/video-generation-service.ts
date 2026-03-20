@@ -244,7 +244,16 @@ export async function generateVideoClip(
   const provider = request.provider || detectBestProvider();
 
   if (provider === 'kie-ai') {
-    return generateVideoWithKie(request, userId);
+    try {
+      return await generateVideoWithKie(request, userId);
+    } catch (kieError: any) {
+      // Fallback to fal.ai if available
+      if (process.env.FAL_AI_API_KEY) {
+        console.warn(`[VideoGen] Kie AI failed (${kieError.message}), falling back to fal.ai`);
+        return generateVideoWithFal(request, userId);
+      }
+      throw kieError;
+    }
   }
 
   return generateVideoWithFal(request, userId);
