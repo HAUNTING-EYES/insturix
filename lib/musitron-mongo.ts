@@ -1,12 +1,15 @@
 import mongoose from 'mongoose';
 import { MusitronTask } from '../schemas/Musitron';
 
-function getMongoConfig() {
-  const uri = process.env.MONGODB_URI;
-  const dbName = process.env.MONGODB_DB_NAME;
-  if (!uri) throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
-  if (!dbName) throw new Error('Please define the MONGODB_DB_NAME environment variable inside .env.local');
-  return { uri, dbName };
+const MONGODB_URI = process.env.MONGODB_URI;
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME;
+
+if (!MONGODB_URI) {
+  throw new Error('Please define the MONGODB_URI environment variable inside .env.local');
+}
+
+if (!MONGODB_DB_NAME) {
+  throw new Error('Please define the MONGODB_DB_NAME environment variable inside .env.local');
 }
 
 type MongooseCache = {
@@ -30,13 +33,12 @@ async function dbConnect(): Promise<typeof mongoose> {
   }
 
   if (!cached.promise) {
-    const { uri, dbName } = getMongoConfig();
     const opts: Parameters<typeof mongoose.connect>[1] = {
       bufferCommands: false,
-      dbName,
+      dbName: MONGODB_DB_NAME
     };
 
-    cached.promise = mongoose.connect(uri, opts).then((m) => m);
+    cached.promise = mongoose.connect(MONGODB_URI!, opts).then((m) => m);
   }
   cached.conn = await cached.promise;
   return cached.conn;
