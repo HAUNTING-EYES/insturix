@@ -35,8 +35,6 @@ export interface UploadResult {
   assetId: string;
   gcsPath: string;
   signedUrl: string;
-  /** Clean public URL without query params — works with external AI APIs */
-  publicUrl: string;
   urlExpiresAt: Date;
   size: number;
   contentType: string;
@@ -65,11 +63,7 @@ export async function uploadToGCS(
     },
   });
 
-  // Public URL — clean, no query params, works with external AI APIs
-  // Requires bucket-level public read (IAM policy with allUsers as Storage Object Viewer)
-  const publicUrl = `https://storage.googleapis.com/${bucketName}/${gcsPath}`;
-
-  // Generate signed URL (7 days expiration) as fallback / for private access
+  // Generate signed URL (7 days expiration - GCS maximum)
   const expirationDate = new Date();
   expirationDate.setDate(expirationDate.getDate() + 7);
 
@@ -83,7 +77,6 @@ export async function uploadToGCS(
     assetId,
     gcsPath,
     signedUrl,
-    publicUrl,
     urlExpiresAt: expirationDate,
     size: file.length,
     contentType,

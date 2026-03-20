@@ -21,6 +21,28 @@ function ensureFalConfig() {
   }
 }
 
+/**
+ * Convert a GCS signed URL (or any URL with query params) into a clean
+ * publicly-accessible CDN URL by re-uploading to fal.ai storage.
+ * This is needed because Kie AI rejects URLs with query parameters.
+ */
+async function getCleanImageUrl(imageUrl: string): Promise<string> {
+  // If URL has no query params, it's already clean
+  if (!imageUrl.includes('?')) return imageUrl;
+
+  ensureFalConfig();
+
+  // Download from GCS signed URL
+  const res = await fetch(imageUrl);
+  if (!res.ok) throw new Error(`Failed to download image for re-upload: ${res.status}`);
+  const blob = await res.blob();
+  const file = new File([blob], `storyboard_${nanoid(8)}.png`, { type: 'image/png' });
+
+  // Upload to fal.ai CDN — returns a clean URL
+  const cdnUrl = await fal.storage.upload(file);
+  return cdnUrl;
+}
+
 // ─── Types ──────────────────────────────────────────────────────
 
 export type VideoProvider = 'fal-ai' | 'kie-ai';
@@ -119,6 +141,10 @@ async function generateVideoWithKie(
   // Use 720p for 10s videos, 1080p for 5s
   const quality = duration === 10 ? '720p' : '1080p';
 
+  // Kie AI rejects URLs with query params (like GCS signed URLs).
+  // Re-upload to fal.ai CDN to get a clean URL.
+  const cleanImageUrl = await getCleanImageUrl(request.imageUrl);
+
   // Submit generation request via Runway endpoint
   // Docs: https://docs.kie.ai/runway-api/generate-ai-video
   const submitRes = await fetch(`${baseUrl}/api/v1/runway/generate`, {
@@ -129,7 +155,7 @@ async function generateVideoWithKie(
     },
     body: JSON.stringify({
       prompt: request.motionPrompt,
-      imageUrl: request.imageUrl,
+      imageUrl: cleanImageUrl,
       duration,
       quality,
       aspectRatio: request.aspectRatio || '16:9',

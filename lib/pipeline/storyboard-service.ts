@@ -92,7 +92,7 @@ export async function generateStoryboardImage(
   const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
 
   return {
-    imageUrl: uploadResult.publicUrl,
+    imageUrl: uploadResult.signedUrl,
     assetId,
     modelUsed: modelId,
   };
