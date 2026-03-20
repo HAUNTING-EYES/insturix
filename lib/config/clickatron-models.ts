@@ -542,8 +542,12 @@ export function generateFluxKontextDevPayload(
   acceleration: string,
   imageUrls?: string[]
 ): Record<string, any> {
+  // Add system prompt for image-to-image editing to preserve consistency
+  const hasImage = imageUrls && imageUrls.length > 0;
+  const fullPrompt = hasImage ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
+  
   const payload: Record<string, any> = {
-    prompt: job.prompt,
+    prompt: fullPrompt,
     num_inference_steps: numInferenceSteps,
     guidance_scale: guidanceScale,
     num_images: numImages,
@@ -573,8 +577,33 @@ export function generateSeedreamV4EditPayload(
   imageUrls?: string[],
   maskUrl?: string
 ): Record<string, any> {
+  // Handle mask URL for inpainting mode (use inpainting system prompt)
+  if (maskUrl) {
+    // Add system prompt for inpainting
+    const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
+    const payload: Record<string, any> = {
+      prompt: fullPrompt,
+      image_size: { width, height },
+      num_images: numImages,
+      max_images: 1,
+      enable_safety_checker: enableSafetyChecker
+    };
+    
+    // Handle image URLs - Seedream V4 Edit model expects image_urls as an array
+    if (imageUrls && imageUrls.length > 0) {
+      payload.image_urls = imageUrls;
+    }
+    
+    payload.mask_url = maskUrl;
+    return payload;
+  }
+  
+  // For image-to-image editing (no mask), use consistency system prompt
+  const hasImage = imageUrls && imageUrls.length > 0;
+  const fullPrompt = hasImage ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
+  
   const payload: Record<string, any> = {
-    prompt: job.prompt,
+    prompt: fullPrompt,
     image_size: { width, height },
     num_images: numImages,
     max_images: 1,
@@ -584,14 +613,6 @@ export function generateSeedreamV4EditPayload(
   // Handle image URLs - Seedream V4 Edit model expects image_urls as an array
   if (imageUrls && imageUrls.length > 0) {
     payload.image_urls = imageUrls;
-  }
-
-  // Handle mask URL for inpainting mode
-  if (maskUrl) {
-    // Add system prompt for inpainting
-    const fullPrompt = `${GENERATIVE_FILL_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}`;
-    payload.prompt = fullPrompt;
-    payload.mask_url = maskUrl;
   }
 
   return payload;
@@ -629,6 +650,21 @@ export const GENERATIVE_FILL_SYSTEM_PROMPT = `INPAINTING TASK - CRITICAL INSTRUC
 7. The mask indicates WHERE to edit, the user prompt indicates WHAT to add/fill
 
 You are an inpainting model. Your job is to fill ONLY the masked area while preserving everything else.`;
+
+/**
+ * System prompt prepended to user prompts for image-to-image editing (variations)
+ */
+export const IMAGE_TO_IMAGE_SYSTEM_PROMPT = `IMAGE-TO-IMAGE EDITING TASK - CRITICAL INSTRUCTIONS:
+1. Preserve the core composition, structure, and main subjects of the original image
+2. Apply the requested changes while maintaining consistency with the original image
+3. Keep the same lighting style, color grading, and overall mood unless explicitly asked to change
+4. Do NOT completely regenerate or reinterpret the entire image
+5. Maintain the same level of detail, quality, and artistic style
+6. Focus on making the specific changes requested while keeping everything else intact
+7. The original image is the foundation - build upon it, don't replace it
+8. **CRITICAL: Maintain the EXACT aspect ratio and dimensions of the original image - do NOT change the image size or crop**
+
+You are an image editing model. Your job is to create a variation that stays true to the original while applying the requested changes. Preserve the exact aspect ratio and dimensions.`;
 
 
 
@@ -928,9 +964,13 @@ export function generateModelPayload(
        };
     case 'fal-ai/nano-banana-pro/edit':
     case 'fal-ai/nano-banana/edit':
+        // Add system prompt for image-to-image editing to preserve consistency
+        const hasImageNano = generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []);
+        const nanoFullPrompt = hasImageNano.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
         return {
-            prompt: job.prompt,
-            image_urls: generationParams.image_urls || (generationParams.image_url ? [generationParams.image_url] : []),
+            prompt: nanoFullPrompt,
+            image_urls: hasImageNano,
+            image_size: { width, height }, // Preserve aspect ratio
             num_images: generationParams.num_images || 1,
             enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
             seed: generationParams.seed,
@@ -948,18 +988,26 @@ export function generateModelPayload(
         generationParams.mask_url // Pass mask_url for inpainting
       );
     case 'fal-ai/flux-2-pro/edit':
+      // Add system prompt for image-to-image editing to preserve consistency
+      const hasImageFlux2 = generationParams.image_urls || [];
+      const flux2FullPrompt = hasImageFlux2.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
       // Flux 2 Pro expects image_urls array
       return {
-        prompt: job.prompt,
-        image_urls: generationParams.image_urls || [],
+        prompt: flux2FullPrompt,
+        image_urls: hasImageFlux2,
+        image_size: { width, height }, // Preserve aspect ratio
         num_images: generationParams.num_images || 1,
         enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
       };
     case 'wan/v2.6/image-to-image':
+      // Add system prompt for image-to-image editing to preserve consistency
+      const hasImageWan = generationParams.image_urls || [];
+      const wanFullPrompt = hasImageWan.length > 0 ? `${IMAGE_TO_IMAGE_SYSTEM_PROMPT}\n\nUser Request: ${job.prompt}` : job.prompt;
       // Wan 2.6 expects image_urls array and supports multiple images
       return {
-        prompt: job.prompt,
-        image_urls: generationParams.image_urls || [],
+        prompt: wanFullPrompt,
+        image_urls: hasImageWan,
+        image_size: { width, height }, // Preserve aspect ratio
         num_images: generationParams.num_images || 1,
         enable_safety_checker: generationParams.enable_safety_checker !== undefined ? generationParams.enable_safety_checker : false,
       };
