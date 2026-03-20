@@ -139,7 +139,7 @@ export async function POST(
     const failed = results.filter((r) => r.error).length;
 
     return NextResponse.json({
-      success: true,
+      success: succeeded > 0,
       results,
       summary: {
         total: targetScenes.length,
@@ -147,6 +147,13 @@ export async function POST(
         failed,
         creditsDeducted: creditCost,
       },
+      // Surface per-scene errors so the client can display them
+      ...(failed > 0 && {
+        error: results
+          .filter((r) => r.error)
+          .map((r) => `Scene ${r.sceneIndex}: ${r.error}`)
+          .join('; '),
+      }),
     });
   } catch (error: any) {
     console.error('[generate-videos] Error:', error);

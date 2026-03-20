@@ -169,15 +169,25 @@ export function ExportToEditronDialog({
             }),
           });
 
-          const videoData = await videoRes.json();
+          const videoData = await videoRes.json().catch(() => ({}));
 
-          if (videoRes.ok && videoData.success) {
+          if (videoRes.ok) {
             const succeeded = videoData.summary?.succeeded || 0;
+            const failed = videoData.summary?.failed || 0;
             setVideoProgress({ done: succeeded, total: sbImages.length });
             setVideosGenerated(succeeded > 0);
             console.log('[ExportToEditron] Video generation complete:', videoData.summary);
+
+            if (succeeded === 0 && failed > 0) {
+              // All scenes failed — surface the per-scene errors
+              const errDetail = videoData.error || 'All video clips failed to generate';
+              setError(`Videos: ${errDetail}. Continuing with storyboard images.`);
+            } else if (failed > 0) {
+              // Partial failure
+              setError(`Videos: ${failed}/${failed + succeeded} clips failed. Continuing with available clips.`);
+            }
           } else {
-            // Surface the error so user knows what went wrong
+            // HTTP-level failure (500, 401, etc.)
             const errMsg = videoData.error || `Video generation failed (${videoRes.status})`;
             console.error('[ExportToEditron] Video generation error:', errMsg, videoData);
             setError(`Videos: ${errMsg}. Continuing with storyboard images.`);

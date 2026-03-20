@@ -319,6 +319,14 @@ export function buildMotionPrompt(scene: {
 
 /** Detect which provider is available based on env vars. */
 function detectBestProvider(): VideoProvider {
-  if (process.env.KIE_AI_API_KEY) return 'kie-ai';
+  const kieKey = process.env.KIE_AI_API_KEY;
+  const falKey = process.env.FAL_AI_API_KEY;
+
+  // Validate keys are non-empty and reasonable length
+  if (kieKey && kieKey.trim().length > 10) return 'kie-ai';
+  if (falKey && falKey.trim().length > 10) return 'fal-ai';
+
+  // If neither key looks valid, still try fal-ai (will fail with clear error)
+  console.warn('[video-gen] No valid API key found for video generation. KIE_AI_API_KEY:', kieKey ? 'set but short/invalid' : 'missing', 'FAL_AI_API_KEY:', falKey ? 'set but short/invalid' : 'missing');
   return 'fal-ai';
 }
