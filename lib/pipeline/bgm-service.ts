@@ -40,32 +40,34 @@ export async function generateBackgroundMusic(
 ): Promise<BGMResult> {
   ensureFalConfig();
 
-  const duration = Math.min(Math.max(durationSec, 5), 240);
+  // Beatoven supports 5-150 seconds
+  const duration = Math.min(Math.max(durationSec, 5), 150);
   const assetId = `bgm_${nanoid(12)}`;
 
   console.log(`[BGM] Generating: prompt="${prompt.substring(0, 100)}", duration=${duration}s`);
 
-  const result = await fal.subscribe('fal-ai/stable-audio/v2.5', {
+  // The old fal-ai/stable-audio/v2.5 was removed from fal.ai.
+  // Using beatoven/music-generation which supports prompt + duration.
+  const result = await fal.subscribe('beatoven/music-generation', {
     input: {
       prompt: `${prompt}, instrumental, background music for video`,
-      seconds_total: duration,
-      steps: 100,
+      duration,
+      refinement: 100,
     },
     logs: false,
   });
 
   // fal.ai subscribe returns { data, requestId }
-  // Stable Audio response shape varies — try all known paths
   const data = (result as any).data || result;
   console.log('[BGM] fal.ai response keys:', Object.keys(data || {}), 'Full:', JSON.stringify(data).substring(0, 300));
 
-  const audioUrl = data?.audio_file?.url    // fal-ai/stable-audio format
-    || data?.audio?.url                      // alternative format
-    || data?.audio?.[0]?.url                 // array format
-    || data?.output?.url                     // generic output
-    || data?.url;                            // direct URL
+  const audioUrl = data?.audio?.url          // beatoven format
+    || data?.audio_file?.url                  // legacy format
+    || data?.audio?.[0]?.url                  // array format
+    || data?.output?.url                      // generic output
+    || data?.url;                             // direct URL
   if (!audioUrl) {
-    throw new Error('Stable Audio returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 300));
+    throw new Error('BGM generation returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 300));
   }
 
   // Download and upload to GCS

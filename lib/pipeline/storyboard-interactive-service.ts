@@ -27,7 +27,9 @@ if (process.env.FAL_AI_API_KEY) {
 // Models
 const TEXT_TO_IMAGE_MODEL = 'fal-ai/flux/schnell';
 const IMAGE_TO_IMAGE_MODEL = 'fal-ai/flux-kontext/dev';
-const IP_ADAPTER_MODEL = 'fal-ai/flux/dev/ip-adapter';
+// The old fal-ai/flux/dev/ip-adapter endpoint was removed.
+// flux-general supports reference_image_url + reference_strength natively.
+const IP_ADAPTER_MODEL = 'fal-ai/flux-general';
 
 /**
  * Clean a GCS signed URL for use with fal.ai models.
@@ -121,8 +123,8 @@ export async function generateSceneSequential(
         result = await (fal as any).subscribe(IP_ADAPTER_MODEL, {
           input: {
             prompt: `${prompt}. Maintain exact visual consistency with the reference image for ${primaryRef.name}. The ${primaryRef.name} must match the reference precisely.`,
-            ip_adapter_image_url: cleanRefUrl,
-            ip_adapter_scale: seqIpWeight,
+            reference_image_url: cleanRefUrl,
+            reference_strength: seqIpWeight,
             image_size: { width, height },
             num_images: 1,
             enable_safety_checker: false,
@@ -415,8 +417,8 @@ export async function regenerateWithContext(
         result = await (fal as any).subscribe(IP_ADAPTER_MODEL, {
           input: {
             prompt: `${prompt}${ipPromptSuffix}`,
-            ip_adapter_image_url: cleanRefUrl,
-            ip_adapter_scale: ipAdapterWeight,
+            reference_image_url: cleanRefUrl,
+            reference_strength: ipAdapterWeight,
             image_size: { width: 1280, height: 720 },
             num_images: 1,
             enable_safety_checker: false,

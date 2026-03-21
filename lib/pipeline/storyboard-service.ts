@@ -54,7 +54,7 @@ const SUPPORTS_NEGATIVE_PROMPT = new Set([
   'fal-ai/flux/schnell',
   'fal-ai/flux/dev',
   'fal-ai/flux-pro/v1.1',
-  'fal-ai/flux/dev/ip-adapter',
+  'fal-ai/flux-general',
 ]);
 
 // Models that use { width, height } object for image_size
@@ -62,7 +62,7 @@ const USES_IMAGE_SIZE_OBJECT = new Set([
   'fal-ai/flux/schnell',
   'fal-ai/flux/dev',
   'fal-ai/flux-pro/v1.1',
-  'fal-ai/flux/dev/ip-adapter',
+  'fal-ai/flux-general',
   'fal-ai/recraft-v3',
 ]);
 
@@ -218,17 +218,21 @@ export async function generateStoryboardImage(
     console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ref ${primaryRef.subjectId} (${primaryRef.imageUrl.substring(0, 60)}...)`);
 
     try {
-      const ipAdapterModelId = 'fal-ai/flux/dev/ip-adapter';
+      // Use flux-general with reference_image_url for style/subject consistency.
+      // The old fal-ai/flux-general endpoint was removed from fal.ai.
+      // flux-general supports reference_image_url + reference_strength natively.
+      const ipAdapterModelId = 'fal-ai/flux-general';
 
       // Reference URLs are pre-uploaded to fal CDN in the generate route,
       // so we can use them directly here without per-scene re-upload.
       const cleanRefUrl = primaryRef.imageUrl;
+      const refStrength = primaryRef.weight ?? 0.65;
 
       const result = await falSubscribeWithTimeout(ipAdapterModelId, {
         input: {
           prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
-          ip_adapter_image_url: cleanRefUrl,
-          ip_adapter_scale: primaryRef.weight ?? 0.6,
+          reference_image_url: cleanRefUrl,
+          reference_strength: refStrength,
           image_size: { width, height },
           num_images: 1,
           enable_safety_checker: false,

@@ -56,25 +56,26 @@ export async function generateSFX(
 ): Promise<SFXResult> {
   ensureFalConfig();
 
-  // Stable Audio 2.5 supports up to 47 seconds for non-music audio.
-  // Minimum is 5 seconds; we clamp to a safe range.
-  const duration = Math.min(Math.max(durationSec, 5), 47);
+  // Beatoven sound-effect-generation supports 1-35 seconds.
+  const duration = Math.min(Math.max(durationSec, 1), 35);
   const assetId = `sfx_${nanoid(12)}`;
 
   console.log(
     `[SFX] Generating: desc="${audioDescription.substring(0, 100)}", duration=${duration}s`,
   );
 
-  const result = await fal.subscribe('fal-ai/stable-audio/v2.5', {
+  // The old fal-ai/stable-audio/v2.5 was removed from fal.ai.
+  // Using beatoven/sound-effect-generation for SFX.
+  const result = await fal.subscribe('beatoven/sound-effect-generation', {
     input: {
       prompt: `${audioDescription}, sound effects, ambient audio, no music, no vocals`,
-      seconds_total: duration,
-      steps: 100,
+      duration,
+      refinement: 40,
     },
     logs: false,
   });
 
-  // Extract audio URL — same response parsing as bgm-service
+  // Extract audio URL
   const data = (result as any).data || result;
   console.log(
     '[SFX] fal.ai response keys:',
@@ -82,15 +83,15 @@ export async function generateSFX(
   );
 
   const audioUrl =
-    data?.audio_file?.url ||
-    data?.audio?.url ||
+    data?.audio?.url ||           // beatoven format
+    data?.audio_file?.url ||      // legacy format
     data?.audio?.[0]?.url ||
     data?.output?.url ||
     data?.url;
 
   if (!audioUrl) {
     throw new Error(
-      'Stable Audio returned no audio URL for SFX. Response: ' +
+      'SFX generation returned no audio URL. Response: ' +
         JSON.stringify(data).substring(0, 300),
     );
   }
