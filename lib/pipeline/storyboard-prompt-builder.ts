@@ -75,12 +75,12 @@ export function buildStoryboardPrompt(
   totalScenes?: number,
 ): string {
   const parts: string[] = [];
-  let cleanVisual = '';
 
-  // Core visual description — clean and prepare (pushed to prompt LAST for max weight)
+  // Core visual description — this is the most important part, placed FIRST
+  // IP-adapter consistency depends on the visual content being prominent in the prompt.
   if (scene.visualDescription) {
     // Clean up markdown artifacts and noise
-    cleanVisual = scene.visualDescription
+    let cleanVisual = scene.visualDescription
       .replace(/\*{1,2}/g, '')
       .replace(/\[.*?\]\(.*?\)/g, '')
       .replace(/\d{2}:\d{2}(?::\d{2})?[-–—]\d{2}:\d{2}(?::\d{2})?\s*:?\s*/g, '')
@@ -99,15 +99,42 @@ export function buildStoryboardPrompt(
       .trim();
 
     if (cleanVisual.length > 3000) {
-      cleanVisual = cleanVisual.substring(0, 3000);
+      parts.push(cleanVisual.substring(0, 3000));
+    } else {
+      parts.push(cleanVisual);
+    }
+  } else if (scene.narration) {
+    parts.push(`Visual scene depicting: ${scene.narration.substring(0, 2000)}`);
+  }
+
+  // Character descriptions come second — they add specific visual detail
+  if (styleGuide?.characterDescriptions) {
+    const sceneText = ((scene.narration || '') + ' ' + (scene.visualDescription || '')).toLowerCase();
+    for (const [name, desc] of Object.entries(styleGuide.characterDescriptions)) {
+      if (sceneText.includes(name.toLowerCase())) {
+        parts.push(`Character "${name}": ${desc}`);
+      }
     }
   }
 
-  // --- Prompt ordering: generic boilerplate FIRST, scene-specific details LAST ---
-  // Diffusion models weight the END of the prompt more heavily (recency bias),
-  // so we place the most important scene-specific content at the end.
+  // Environment notes
+  if (styleGuide?.environmentNotes) {
+    parts.push(`Environment: ${styleGuide.environmentNotes}`);
+  }
 
-  // 1. Art style tokens — generic boilerplate, placed FIRST
+  // Color palette (only when non-empty)
+  if (styleGuide?.colorPalette && styleGuide.colorPalette.length > 0) {
+    parts.push(styleGuide.colorPalette.join(', '));
+  }
+
+  // Consistency hint for multi-scene storyboards (kept short)
+  if (totalScenes && totalScenes > 1) {
+    parts.push(
+      `Scene ${(sceneIndex ?? 0) + 1}/${totalScenes}, consistent style`,
+    );
+  }
+
+  // Art style tokens — generic boilerplate, placed at the end
   if (styleGuide) {
     const artStyleKey = styleGuide.artStyle?.toLowerCase().replace(/\s+/g, '-');
     const artStylePrompt = artStyleKey && ART_STYLE_PROMPTS[artStyleKey];
@@ -118,44 +145,10 @@ export function buildStoryboardPrompt(
     }
   }
 
-  // 2. LLM-generated quality tokens (dynamic per art style)
+  // LLM-generated quality tokens (dynamic per art style) — placed at the end
   const sceneAny = scene as any;
   if (sceneAny.imageQualityTokens) {
     parts.push(sceneAny.imageQualityTokens);
-  }
-
-  // 3. Environment notes
-  if (styleGuide?.environmentNotes) {
-    parts.push(`Environment: ${styleGuide.environmentNotes}`);
-  }
-
-  // 4. Color palette (only when non-empty)
-  if (styleGuide?.colorPalette && styleGuide.colorPalette.length > 0) {
-    parts.push(styleGuide.colorPalette.join(', '));
-  }
-
-  // 5. Consistency hint for multi-scene storyboards (kept short)
-  if (totalScenes && totalScenes > 1) {
-    parts.push(
-      `Scene ${(sceneIndex ?? 0) + 1}/${totalScenes}, consistent style`,
-    );
-  }
-
-  // 6. Character descriptions — scene-specific visual detail
-  if (styleGuide?.characterDescriptions) {
-    const sceneText = ((scene.narration || '') + ' ' + (scene.visualDescription || '')).toLowerCase();
-    for (const [name, desc] of Object.entries(styleGuide.characterDescriptions)) {
-      if (sceneText.includes(name.toLowerCase())) {
-        parts.push(`Character "${name}": ${desc}`);
-      }
-    }
-  }
-
-  // 7. Core visual description LAST — most important, gets max weight from recency bias
-  if (cleanVisual) {
-    parts.push(cleanVisual);
-  } else if (scene.narration) {
-    parts.push(`Visual scene depicting: ${scene.narration.substring(0, 2000)}`);
   }
 
   return parts.join('. ').replace(/\.\./g, '.').replace(/\s{2,}/g, ' ');

@@ -78,41 +78,30 @@ async function getCleanImageUrl(imageUrl: string): Promise<string> {
 // ─── Models ─────────────────────────────────────────────────────
 
 // fal.ai models for image-to-video
+// Endpoints verified against fal.ai model catalog (March 2026)
 export const FAL_VIDEO_MODELS = {
-  'kling-1.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
+  'kling-2.1': 'fal-ai/kling-video/v2.1/pro/image-to-video',
   'kling-1.5': 'fal-ai/kling-video/v1.5/pro/image-to-video',
-  'kling-2.6': 'fal-ai/kling-video/v2/pro/image-to-video', // EXPERIMENTAL — unverified endpoint
-  minimax: 'fal-ai/minimax-video/image-to-video',
-  'runway-gen3': 'fal-ai/runway-gen3/turbo/image-to-video',
-  'runway-gen4': 'fal-ai/runway/gen4/turbo/image-to-video', // EXPERIMENTAL — unverified endpoint
+  'kling-2.6': 'fal-ai/kling-video/v2.6/pro/image-to-video',
+  minimax: 'fal-ai/minimax/video-01/image-to-video',
   'luma-ray2': 'fal-ai/luma-dream-machine/ray-2/image-to-video',
   'luma-dream-machine': 'fal-ai/luma-dream-machine/image-to-video',
-  'veo-3': 'fal-ai/google/veo/image-to-video', // EXPERIMENTAL — unverified endpoint
+  'veo-3': 'fal-ai/veo3/image-to-video',
+  'veo-2': 'fal-ai/veo2/image-to-video',
 } as const;
 
 export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
 
-// Verified models that are known to work on fal.ai — safe for auto-selection
-const VERIFIED_MODELS: Set<FalVideoModel> = new Set([
-  'kling-1.5',
-  'kling-1.6',
-  'minimax',
-  'runway-gen3',
-  'luma-ray2',
-  'luma-dream-machine',
-]);
-
 // Human-readable labels for video models
 export const FAL_VIDEO_MODEL_LABELS: Record<FalVideoModel, string> = {
-  'kling-1.6': 'Kling 1.6 Pro',
+  'kling-2.1': 'Kling 2.1 Pro',
   'kling-1.5': 'Kling 1.5 Pro',
   'kling-2.6': 'Kling 2.6 Pro',
-  minimax: 'MiniMax Video',
-  'runway-gen3': 'Runway Gen-3 Turbo',
-  'runway-gen4': 'Runway Gen-4.5 Turbo',
+  minimax: 'MiniMax Hailuo',
   'luma-ray2': 'Luma Ray 2',
   'luma-dream-machine': 'Luma Dream Machine',
-  'veo-3': 'Google Veo 3.1',
+  'veo-3': 'Google Veo 3',
+  'veo-2': 'Google Veo 2',
 };
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -130,7 +119,7 @@ export interface VideoGenerationRequest {
   aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
   /** Preferred provider */
   provider?: VideoProvider;
-  /** Specific fal.ai video model key (kling-1.6, kling-1.5, kling-2.6, minimax, runway-gen3, runway-gen4, luma-ray2, luma-dream-machine, veo-3) */
+  /** Specific fal.ai video model key (kling-2.1, kling-1.5, kling-2.6, minimax, luma-ray2, luma-dream-machine, veo-3, veo-2) */
   falVideoModel?: FalVideoModel;
   /** Previous scene's storyboard image URL for visual continuity chaining */
   previousSceneImageUrl?: string;
@@ -162,7 +151,7 @@ function buildFalVideoInput(
   };
 
   switch (modelKey) {
-    case 'kling-1.6':
+    case 'kling-2.1':
     case 'kling-1.5':
     case 'kling-2.6':
       // Kling models: image_url, duration as string "5" or "10"
@@ -172,30 +161,22 @@ function buildFalVideoInput(
       break;
 
     case 'minimax':
-      // MiniMax: image_url, prompt_optimizer (bool)
+      // MiniMax Hailuo: image_url, prompt_optimizer (bool)
       base.image_url = imageUrl;
       base.prompt_optimizer = true;
       break;
 
-    case 'runway-gen3':
-    case 'runway-gen4':
-      // Runway Gen-3/Gen-4.5 Turbo: image_url, duration as number (5 or 10), aspect_ratio
-      base.image_url = imageUrl;
-      base.duration = Math.min(duration, 10);
-      base.aspect_ratio = aspectRatio;
-      break;
-
     case 'luma-ray2':
     case 'luma-dream-machine':
-      // Luma models: image_url, aspect_ratio, loop (bool), duration (max ~5s)
+      // Luma models: image_url, aspect_ratio, loop (bool)
       base.image_url = imageUrl;
       base.aspect_ratio = aspectRatio;
       base.loop = false;
-      base.duration = Math.min(duration, 5);
       break;
 
     case 'veo-3':
-      // Google Veo 3.1: image_url, aspect_ratio, duration as number
+    case 'veo-2':
+      // Google Veo: image_url, aspect_ratio, duration as number
       base.image_url = imageUrl;
       base.aspect_ratio = aspectRatio;
       base.duration = Math.min(duration, 8); // Veo max ~8s
@@ -233,7 +214,7 @@ async function generateVideoWithFal(
   userId: string,
   modelKey?: FalVideoModel,
 ): Promise<VideoGenerationResult> {
-  modelKey = modelKey || request.falVideoModel || 'kling-1.6';
+  modelKey = modelKey || request.falVideoModel || 'kling-2.1';
   ensureFalConfig();
 
   const modelId = FAL_VIDEO_MODELS[modelKey];
@@ -413,7 +394,7 @@ export async function generateVideoClip(
   request: VideoGenerationRequest,
   userId: string,
 ): Promise<VideoGenerationResult> {
-  const modelKey = request.falVideoModel || 'kling-1.6';
+  const modelKey = request.falVideoModel || 'kling-2.1';
   const provider = request.provider || detectBestProvider(request.falVideoModel);
 
   console.log(`[VideoGen] generateVideoClip: provider=${provider}, model=${modelKey}, imageUrl=${request.imageUrl?.substring(0, 60)}...`);
@@ -431,14 +412,14 @@ export async function generateVideoClip(
     }
   }
 
-  // fal.ai provider — try user's chosen model, fallback to kling-1.6 if different
+  // fal.ai provider — try user's chosen model, fallback to kling-2.1 if different
   try {
     return await generateVideoWithFal(request, userId, modelKey);
   } catch (falError: any) {
-    // If the user chose a specific model and it failed, try kling-1.6 as fallback
-    if (modelKey !== 'kling-1.6') {
-      console.warn(`[VideoGen] ${modelKey} failed (${falError.message}), falling back to kling-1.6`);
-      return generateVideoWithFal(request, userId, 'kling-1.6');
+    // If the user chose a specific model and it failed, try kling-2.1 as fallback
+    if (modelKey !== 'kling-2.1') {
+      console.warn(`[VideoGen] ${modelKey} failed (${falError.message}), falling back to kling-2.1`);
+      return generateVideoWithFal(request, userId, 'kling-2.1');
     }
     throw falError;
   }
@@ -594,17 +575,16 @@ export function selectBestModel(scene: {
   const artStyle = (scene.artStyle || '').toLowerCase();
   const motionIntensity = scene.motionIntensity || 'medium';
 
-  // ONLY auto-select from VERIFIED models to avoid 422 errors from unverified endpoints.
-  // Users can still manually choose experimental models (kling-2.6, runway-gen4, veo-3).
+  // All endpoints verified against fal.ai model catalog (March 2026)
 
-  // High-motion scenes benefit from Kling 1.6's solid motion handling
+  // High-motion scenes benefit from Kling 2.6's superior motion handling
   if (motionIntensity === 'high' || mood === 'energetic') {
-    return 'kling-1.6';
+    return 'kling-2.6';
   }
 
-  // Cinematic / dramatic / serious scenes — Kling 1.6 for reliable quality
+  // Cinematic / dramatic / serious scenes — Veo 3 for top-tier quality
   if (mood === 'dramatic' || mood === 'serious' || mood === 'inspirational') {
-    return 'kling-1.6';
+    return 'veo-3';
   }
 
   // Dreamy, artistic, or watercolor/illustration styles — Luma Dream Machine
@@ -618,13 +598,13 @@ export function selectBestModel(scene: {
     return 'luma-dream-machine';
   }
 
-  // Short clips where speed matters — Runway Gen-3 Turbo (verified, fast)
+  // Short clips where speed matters — MiniMax Hailuo (fast turnaround)
   if (scene.durationSeconds && scene.durationSeconds <= 4) {
-    return 'runway-gen3';
+    return 'minimax';
   }
 
-  // Default: Kling 1.6 — proven, reliable, good quality
-  return 'kling-1.6';
+  // Default: Kling 2.1 Pro — reliable, good quality
+  return 'kling-2.1';
 }
 
 /**

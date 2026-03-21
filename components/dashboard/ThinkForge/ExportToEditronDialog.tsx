@@ -165,8 +165,8 @@ export function ExportToEditronDialog({
     if (open && !prewarmFiredRef.current) {
       prewarmFiredRef.current = true;
       try {
-        // Resolve the model to prewarm: if "auto", warm the default (kling-1.6)
-        const modelToWarm = videoModel === 'auto' ? 'kling-1.6' : videoModel;
+        // Resolve the model to prewarm: if "auto", warm the default (kling-2.1)
+        const modelToWarm = videoModel === 'auto' ? 'kling-2.1' : videoModel;
         fetch('/api/services/pipeline/prewarm', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -228,7 +228,7 @@ export function ExportToEditronDialog({
     setGenerateVideos(true);
     setArtStyle('cinematic');
     setImageModel('flux-schnell');
-    setVideoModel('kling-1.6');
+    setVideoModel('auto');
     setError('');
     setScenes([]);
     setProjectId('');
@@ -542,7 +542,9 @@ export function ExportToEditronDialog({
           sendNotification('Video Clips Generated', `${succeeded} of ${sbImages.length} video clips ready. Generating voiceover next...`);
 
           if (succeeded === 0 && failed > 0) {
-            setError(`Video generation failed for all ${failed} scenes. The AI video model may be temporarily unavailable. Your storyboard images are preserved.`);
+            const perSceneErrors = videoData.error || videoData.results?.filter((r: any) => r.error).map((r: any) => `Scene ${r.sceneIndex}: ${r.error}`).join('; ') || '';
+            console.error('[ExportToEditron] All videos failed:', perSceneErrors);
+            setError(`Video generation failed for all ${failed} scenes. ${perSceneErrors ? perSceneErrors.substring(0, 200) : 'The AI video model may be temporarily unavailable.'} Your storyboard images are preserved.`);
           } else if (failed > 0) {
             setError(`${failed} of ${sbImages.length} video clips failed. Continuing with available clips.`);
           }
@@ -1101,15 +1103,14 @@ export function ExportToEditronDialog({
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
                       <SelectItem value="auto">Auto (best per scene) — Default</SelectItem>
-                      <SelectItem value="kling-1.6">Kling 1.6 Pro</SelectItem>
                       <SelectItem value="kling-2.6">Kling 2.6 Pro</SelectItem>
+                      <SelectItem value="kling-2.1">Kling 2.1 Pro</SelectItem>
                       <SelectItem value="kling-1.5">Kling 1.5 Pro</SelectItem>
-                      <SelectItem value="veo-3">Google Veo 3.1</SelectItem>
-                      <SelectItem value="runway-gen4">Runway Gen-4.5 Turbo</SelectItem>
-                      <SelectItem value="runway-gen3">Runway Gen-3 Turbo</SelectItem>
-                      <SelectItem value="luma-dream-machine">Luma Dream Machine</SelectItem>
+                      <SelectItem value="veo-3">Google Veo 3</SelectItem>
+                      <SelectItem value="veo-2">Google Veo 2</SelectItem>
                       <SelectItem value="luma-ray2">Luma Ray 2</SelectItem>
-                      <SelectItem value="minimax">MiniMax Video</SelectItem>
+                      <SelectItem value="luma-dream-machine">Luma Dream Machine</SelectItem>
+                      <SelectItem value="minimax">MiniMax Hailuo</SelectItem>
                     </SelectContent>
                   </Select>
                   {videoModel === 'auto' && (

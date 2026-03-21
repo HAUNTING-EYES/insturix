@@ -34,7 +34,7 @@ function ensureFalConfig() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const modelKey = (body.model || 'kling-1.6') as FalVideoModel;
+    const modelKey = (body.model || 'kling-2.1') as FalVideoModel;
 
     const falModelId = FAL_VIDEO_MODELS[modelKey];
     if (!falModelId) {
