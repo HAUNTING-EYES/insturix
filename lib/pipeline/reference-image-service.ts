@@ -90,7 +90,7 @@ Write ONE optimized prompt (no explanations, no markdown, just the raw prompt te
 CRITICAL RULES:
 1. SUBJECT FIRST — Start with the most important visual details of the subject: what it IS, its defining features, colors, materials, proportions, textures. This is 70% of the prompt.
 2. ISOLATION — The subject must be rendered ALONE against a clean, simple background. No other objects, no scene, no environment clutter. For characters: full body, centered. For products: centered, studio lighting.
-3. ACCURACY — Every specific detail from the raw description MUST be preserved. If it says "red shoes", the prompt must say "red shoes". If it says "gold necklace", the prompt must say "gold necklace". Do NOT generalize or abstract away details.
+3. ACCURACY — Every specific detail from the raw description MUST be preserved. If the description mentions a specific color, material, shape, or feature, the prompt MUST include it verbatim. Do NOT generalize or abstract away details.
 4. STYLE COHERENCE — End with 2-3 style tokens matching "${artStyle || 'cinematic'}". Examples:
    - cinematic → "cinematic studio photography, shallow depth of field, color graded"
    - anime → "anime character sheet, cel-shaded, clean linework"
@@ -98,8 +98,8 @@ CRITICAL RULES:
 5. KEEP IT DENSE — Under 120 words. No filler. Every word earns its place.
 6. NO META — No "A reference image of...", no "This shows...", no markdown. Just the description.
 
-BAD PROMPT: "A beautiful character standing in a studio, professional lighting, high quality, detailed"
-GOOD PROMPT: "Young woman, early 20s, dark curly shoulder-length hair, deep brown eyes, warm brown skin, wearing a fitted cobalt blue blazer over a white crew-neck tee, thin gold chain necklace with small pendant, confident relaxed posture, subtle smile, full body centered pose, clean white studio background, soft three-point lighting, cinematic photography, shallow depth of field"
+BAD PROMPT: "A beautiful subject, professional lighting, high quality, detailed" → too vague, no specifics
+GOOD PROMPT: Lead with exact visual attributes (shape, materials, colors, textures, proportions, distinguishing features), then pose/composition, then background isolation, then style tokens. Every detail from the raw description must be present.
 
 Write the optimized prompt now:`,
     });

@@ -29,8 +29,8 @@ const SceneSchema = z.object({
 const ParseResultSchema = z.object({
   scenes: z.array(SceneSchema).min(1).max(30),
   overallMusicPrompt: z.string().describe('Overall background music style/mood for the entire video. E.g. "cinematic orchestral with building tension" or "upbeat electronic pop with driving beat"'),
-  characterDescriptions: z.record(z.string(), z.string()).describe('Character sheet: map of recurring character name → detailed visual description for cross-scene consistency. E.g. {"Maya Chen": "East Asian woman, late 20s, straight black bob, warm ivory skin, charcoal blazer over cream camisole, gold layered necklaces"}. Only include characters appearing in 2+ scenes. Empty object if no recurring characters.'),
-  colorPalette: z.array(z.string()).describe('Specific color names used throughout the script\'s visual identity. E.g. ["cobalt blue", "warm amber", "brushed silver", "deep charcoal"]. Extract 3-8 dominant colors from the visual descriptions. Use specific color names, not generic ("cobalt blue" not "blue").'),
+  characterDescriptions: z.record(z.string(), z.string()).describe('Character sheet: map of recurring character/subject name → detailed visual description for cross-scene consistency. Only include subjects appearing in 2+ scenes. Empty object if no recurring subjects.'),
+  colorPalette: z.array(z.string()).describe('Specific color names used throughout the script\'s visual identity. Extract 3-8 dominant colors from the visual descriptions. Use specific color names, not generic ("cobalt blue" not "blue").'),
   environmentNotes: z.string().describe('Brief description (1-3 sentences) of the overall visual environment and setting across the video. E.g. "Modern minimalist tech office with floor-to-ceiling windows, warm natural lighting, and clean geometric furniture." Summarize the dominant setting/world of the script.'),
 });
 
@@ -76,7 +76,7 @@ IMAGE PROMPT RULES (visualDescription):
 - This generates a STILL IMAGE. Absolutely NO camera movement words (no "tracking", "dolly", "pan", "zoom", "follows"). Describe a FROZEN MOMENT in time.
 - Write as a detailed AI image generation prompt describing what the camera frame captures as a photograph.
 - Include: specific subject with exact visual details (colors, materials, textures), setting/environment, lighting setup (type, direction, quality), color palette, composition (framing, rule of thirds, centered), viewing angle (eye level, low angle, overhead), atmosphere/mood.
-- Be SPECIFIC. Instead of "a person at a desk", write "young woman with dark curly hair wearing olive green blazer, seated at oak desk with open MacBook, warm afternoon sunlight streaming through floor-to-ceiling windows, modern minimalist office, soft shadows".
+- Be SPECIFIC. Instead of "a person at a desk", write a detailed description with exact visual attributes: hair, clothing, materials, lighting direction, environment details, and color specifics. Describe what the camera frame actually captures.
 - Keep the SAME subject visually identical across every scene it appears in. Repeat key identifying details (hair color, clothing, object shape/color) verbatim each time.
 ${options.artStyle ? `- Art style: ${options.artStyle}. EVERY visual description must be written FOR THIS SPECIFIC STYLE. Adapt subject rendering, lighting, and composition to match this aesthetic. Do NOT write photorealistic descriptions for an anime style, or cartoon descriptions for a cinematic style.` : '- Infer the appropriate visual style from the script content and maintain it consistently.'}
 
@@ -125,8 +125,8 @@ ${scriptText.substring(0, 24000)}`,
 // ─── Subject Extraction ─────────────────────────────────────────
 
 const SubjectSchema = z.object({
-  id: z.string().describe('Unique kebab-case identifier, e.g. "silver-chronograph-watch"'),
-  name: z.string().describe('Human-readable name, e.g. "Luxury Silver Chronograph Watch"'),
+  id: z.string().describe('Unique kebab-case identifier, e.g. "hero-product-main" or "lead-character-alex"'),
+  name: z.string().describe('Human-readable name matching the script, e.g. the product name, character name, or location name as written'),
   category: z.enum(['character', 'product', 'location', 'object', 'vehicle']),
   visualDescription: z.string().describe('Exhaustively detailed visual description of this subject IN ISOLATION for generating a reference image. Include: exact shape, specific color names (not "colorful" — say "cobalt blue"), materials, textures, proportions, distinguishing features. For characters: face, hair, skin tone, build, clothing, accessories. For products: dimensions, finish, design details, distinctive elements.'),
   scenesAppearingIn: z.array(z.number()).describe('Scene indices (0-based) where this subject appears'),
@@ -208,11 +208,13 @@ Be EXHAUSTIVE and SPECIFIC:
 - For characters: face details, hair, skin tone, build, specific clothing, accessories
 - For products: dimensions, finish, design language, distinctive elements
 
-BAD: "A modern smartwatch" → generic, could be anything
-GOOD: "Matte black titanium smartwatch, 44mm round case, always-on OLED display with analog face and rose gold hands, black sport band with pin-and-tuck clasp, thin silver bezel ring"
+BAD: "A modern product" → generic, could be anything
+GOOD (product example): "Matte black titanium device, rounded rectangular form, 3-inch OLED display with minimal UI, single recessed side button, subtle chamfered edges, woven fabric strap with magnetic clasp"
+GOOD (vehicle example): "Electric sedan, pearl white metallic paint, low swept roofline, flush door handles, full-width LED light bar spanning rear, 21-inch turbine wheels, panoramic glass roof"
+GOOD (food example): "Artisan sourdough loaf, deep golden-brown crust with distinctive ear scoring, dusted with rice flour, open crumb visible at torn edge, rustic oval shape on dark slate board"
 
 BAD: "A young woman" → generic, could be anyone
-GOOD: "East Asian woman, late 20s, straight black jawline-length hair with side-swept bangs, warm ivory skin, dark brown almond eyes, small left nose stud, tailored charcoal wool blazer over cream silk camisole, layered thin gold necklaces, confident slight smile, athletic build"
+GOOD (character example): "Woman in her late 20s, straight jawline-length dark hair with side-swept bangs, warm skin tone, defined cheekbones, tailored charcoal blazer over cream top, layered thin necklaces, confident subtle smile, athletic build"
 ${options.artStyle ? `\nArt style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
 
 Extract ALL subjects now (heroes + suggestions):`,
@@ -296,7 +298,7 @@ ${subjectContext}
 
 === STRICT RULES ===
 1. The model SEES the starting image. Do NOT fully re-describe the scene. Instead, open with a brief subject anchor (1 line, key identifying details only) then immediately describe motion.
-2. For subjects with reference descriptions: weave in 1-2 key identity anchors naturally (e.g. "the silver chronograph watch" not "a watch") and add "maintaining exact appearance throughout" once.
+2. For subjects with reference descriptions: weave in 1-2 key identity anchors naturally (use the subject's specific name/description, not a generic term) and add "maintaining exact appearance throughout" once.
 3. Describe primary motion first: camera movement (slow dolly, gentle orbit, static hold, subtle push-in, etc.) + main subject action.
 4. Layer secondary motion: atmospheric details (particles, light shifts, fabric/hair movement, reflections, liquid, smoke).
 5. Include physics that sell realism: wind effect on hair/fabric, weight in movement, natural light caustics, surface reflections shifting.

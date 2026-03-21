@@ -613,7 +613,7 @@ export async function regenerateScene(
   const feedback = options.feedback?.trim() || '';
 
   // Detect whether user wants to REPLACE the subject entirely or EDIT the existing image
-  const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|new\s+(subject|item|object|product|person|character|vehicle|car|watch|phone|device|thing)|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different)\b/i;
+  const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different|swap\s+(it|out|for))\b/i;
   const isReplaceMode = feedback ? REPLACE_SIGNALS.test(feedback) : false;
 
   if (feedback) {

@@ -227,20 +227,22 @@ export async function generateSceneSequential(
 /**
  * Regenerate a scene with context.
  *
- * TWO MODES based on whether feedback requests a fundamentally different subject:
+ * THREE MODES based on feedback intent:
  *
- * 1. EDIT MODE (feedback is a tweak: "make it darker", "change lighting"):
- *    Uses img2img with the current scene as reference + modified prompt.
- *    Lower guidance_scale so the reference image still anchors the result.
+ * 1. REFERENCE_MATCH MODE (feedback wants stricter reference adherence):
+ *    Boosts IP-adapter weight to 0.85 for tighter subject matching.
+ *    Detected via generic consistency signals + approved reference name mentions.
  *
- * 2. REPLACE MODE (feedback describes a NEW subject: "change to gold Apple Watch",
- *    "make it a red car instead"):
+ * 2. REPLACE MODE (feedback describes a fundamentally different subject):
  *    Uses text-to-image from scratch — the old image would fight the new prompt.
  *    The feedback REPLACES the visual description, it doesn't append to it.
  *
- * Heuristic: if feedback contains "change to", "replace with", "make it a",
- * "switch to", "instead", "different", "new" → REPLACE mode.
- * Otherwise → EDIT mode.
+ * 3. EDIT MODE (feedback is a tweak: "make it darker", "change lighting"):
+ *    Uses img2img with the current scene as reference + modified prompt.
+ *    Lower guidance_scale so the reference image still anchors the result.
+ *
+ * Intent detection is generic — no hardcoded product/subject names.
+ * Subject names are pulled from the storyboard's approved references at runtime.
  */
 export async function regenerateWithContext(
   storyboardId: string,
