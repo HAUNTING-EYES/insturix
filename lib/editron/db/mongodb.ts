@@ -56,6 +56,7 @@ export const COLLECTIONS = {
   CHAT_SESSIONS: 'chatSessions',
   MEDIA_ASSETS: 'mediaAssets',
   MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
+  STYLE_PROFILES: 'styleProfiles',
 } as const;
 
 /**

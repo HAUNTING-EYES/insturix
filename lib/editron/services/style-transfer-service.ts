@@ -69,7 +69,7 @@ export interface StyleApplicationPlan {
 /*  MongoDB collection for style profiles                                  */
 /* ====================================================================== */
 
-const STYLE_PROFILES_COLLECTION = "styleProfiles";
+const STYLE_PROFILES_COLLECTION = COLLECTIONS.STYLE_PROFILES;
 
 async function saveProfile(userId: string, dna: EditDNA): Promise<void> {
   const db = await getDatabase();
