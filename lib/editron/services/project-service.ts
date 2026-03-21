@@ -443,6 +443,22 @@ export class ProjectService {
   }
 
   /**
+   * Update project-level fields atomically (e.g., durationInFrames)
+   */
+  async updateProject(userId: string, projectId: string, updates: Record<string, any>): Promise<void> {
+    const db = await getDatabase();
+    await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId, userId },
+      {
+        $set: {
+          ...updates,
+          updatedAt: new Date(),
+        },
+      }
+    );
+  }
+
+  /**
    * Delete an overlay atomically
    */
   async deleteOverlay(userId: string, projectId: string, overlayId: number): Promise<void> {

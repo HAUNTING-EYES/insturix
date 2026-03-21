@@ -175,6 +175,16 @@ export const createTools = (userId: string, projectId: string) => {
     return project;
   };
 
+  // Helper to recalculate project duration after edits
+  async function recalculateProjectDuration() {
+    const project = await loadProject();
+    if (!project || !project.overlays?.length) return;
+    const maxFrame = Math.max(...project.overlays.map((o: any) => (o.from || 0) + (o.durationInFrames || 0)));
+    if (maxFrame > 0 && maxFrame !== project.durationInFrames) {
+      await projectService.updateProject(userId, projectId, { durationInFrames: maxFrame });
+    }
+  }
+
   // Helper to get canvas dimensions from project
   // IMPORTANT: Always use composition dimensions for overlay positioning.
   // playerDimensions is the preview container size and will cause positioning
@@ -995,14 +1005,16 @@ TYPE-SPECIFIC FIELDS:
         };
         
         await projectService.addOverlay(userId, projectId, secondOverlay as any);
-        
+
+        await recalculateProjectDuration();
+
         return JSON.stringify({
           status: 'success',
           message: `Split overlay ${input.id} at frame ${input.atFrame}`,
           firstPart: { id: input.id, from: overlay.from, duration: firstDuration },
           secondPart: { id: newId, from: input.atFrame, duration: secondDuration }
         });
-        
+
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -1067,13 +1079,15 @@ TYPE-SPECIFIC FIELDS:
         updates.durationInFrames = newDuration;
         
         await projectService.updateOverlay(userId, projectId, input.id, updates);
-        
+
+        await recalculateProjectDuration();
+
         return JSON.stringify({
           status: 'success',
           message: `Trimmed overlay ${input.id}`,
           newTiming: { from: newFrom, duration: newDuration }
         });
-        
+
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -1097,18 +1111,23 @@ TYPE-SPECIFIC FIELDS:
         const project = await loadProject();
         const overlay = project.overlays.find((o: any) => o.id === input.id);
         
-        // If deleting a video, also delete any linked captions
+        // If deleting a video, also delete any linked captions and fancy captions
         if (overlay?.type === 'video') {
           const linkedCaptions = project.overlays.filter(
-            (o: any) => o.type === 'caption' && o.sourceVideoId === input.id
+            (o: any) =>
+              (o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
+              o.sourceVideoId === input.id
           );
           for (const caption of linkedCaptions) {
             await projectService.deleteOverlay(userId, projectId, caption.id);
           }
         }
-        
+
         await projectService.deleteOverlay(userId, projectId, input.id);
-        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} deleted${overlay?.type === 'video' ? ' (and linked captions)' : ''}` });
+
+        await recalculateProjectDuration();
+
+        return JSON.stringify({ status: 'success', message: `Overlay ${input.id} deleted${overlay?.type === 'video' ? ' (and linked captions/fancy captions)' : ''}` });
       } catch (e: any) {
         return JSON.stringify({ status: 'error', message: e.message });
       }
@@ -2157,57 +2176,68 @@ Optionally apply a new style while refreshing.`,
         const videoClips = project.overlays
           .filter((o: any) => o.type === 'video')
           .sort((a: any, b: any) => a.from - b.from);
-        
-        if (videoClips.length < 2) {
-          return JSON.stringify({ status: 'success', message: 'No gaps to close (need at least 2 video clips)' });
+
+        if (videoClips.length === 0) {
+          return JSON.stringify({ status: 'success', message: 'No video clips found to close gaps for' });
         }
-        
+
         let totalFramesClosed = 0;
         const moves: Array<{ id: number; oldFrom: number; newFrom: number }> = [];
-        
-        // Calculate new positions - each clip should start where previous ends
-        let nextStart = videoClips[0].from; // First clip stays in place
-        
+
+        // Build a list of gaps between video clips (including gap before first clip)
+        const gaps: Array<{ gapStart: number; gapEnd: number; shift: number }> = [];
+        let nextStart = 0; // BUG 3 FIX: Start from 0, not first clip position
+        let cumulativeShift = 0;
+
         for (const clip of videoClips) {
-          const clipEnd = clip.from + clip.durationInFrames;
-          
           if (clip.from > nextStart) {
-            // There's a gap - move this clip left
-            const shift = clip.from - nextStart;
-            totalFramesClosed += shift;
-            
-            moves.push({ id: clip.id, oldFrom: clip.from, newFrom: nextStart });
-            
-            // Update clip position
-            await projectService.updateOverlay(userId, projectId, clip.id, { from: nextStart });
-            
-            // If preserving captions, also move linked captions
-            if (input.preserveCaptions) {
-              const linkedCaptions = project.overlays.filter(
-                (o: any) =>
-                  (o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
-                  o.sourceVideoId === clip.id
-              );
-              for (const caption of linkedCaptions) {
-                await projectService.updateOverlay(userId, projectId, caption.id, { 
-                  from: caption.from - shift 
-                });
-              }
+            const gapSize = clip.from - nextStart;
+            cumulativeShift += gapSize;
+            totalFramesClosed += gapSize;
+            gaps.push({ gapStart: nextStart, gapEnd: clip.from, shift: cumulativeShift });
+          }
+          nextStart = clip.from + clip.durationInFrames;
+        }
+
+        if (gaps.length === 0) {
+          return JSON.stringify({ status: 'success', message: 'No gaps found to close' });
+        }
+
+        // BUG 2 FIX: Shift ALL overlays (not just video + captions)
+        // For each overlay, calculate how much to shift it based on gaps before it
+        const alreadyMoved = new Set<number>();
+
+        for (const overlay of project.overlays) {
+          const overlayStart = overlay.from || 0;
+
+          // Find the total shift for this overlay based on gaps before its start
+          let shiftAmount = 0;
+          for (const gap of gaps) {
+            if (overlayStart >= gap.gapEnd) {
+              // Overlay starts after this gap, apply this gap's contribution
+              shiftAmount = gap.shift;
+            } else {
+              break;
             }
-            
-            nextStart = nextStart + clip.durationInFrames;
-          } else {
-            nextStart = clipEnd;
+          }
+
+          if (shiftAmount > 0 && !alreadyMoved.has(overlay.id)) {
+            const newFrom = overlayStart - shiftAmount;
+            moves.push({ id: overlay.id, oldFrom: overlayStart, newFrom });
+            await projectService.updateOverlay(userId, projectId, overlay.id, { from: newFrom });
+            alreadyMoved.add(overlay.id);
           }
         }
-        
+
+        await recalculateProjectDuration();
+
         const fps = project.fps || 30;
         return JSON.stringify({
           status: 'success',
           clipsMoved: moves.length,
           totalFramesClosed,
           totalSecondsClosed: Math.round((totalFramesClosed / fps) * 10) / 10,
-          message: moves.length > 0 
+          message: moves.length > 0
             ? `Closed ${moves.length} gap(s), saved ${Math.round((totalFramesClosed / fps) * 10) / 10}s`
             : 'No gaps found to close',
         });
@@ -3571,6 +3601,124 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
   );
 
+  // --- CUT SECTION (compound tool) ---
+
+  const cutSectionSchema = z.object({
+    startFrame: z.coerce.number().describe('Start frame of the section to cut'),
+    endFrame: z.coerce.number().describe('End frame of the section to cut'),
+  });
+
+  const cutSection = tool(
+    async (rawInput: z.infer<typeof cutSectionSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const { startFrame, endFrame } = input;
+
+        if (endFrame <= startFrame) {
+          return JSON.stringify({ status: 'error', message: 'endFrame must be greater than startFrame' });
+        }
+
+        const cutDuration = endFrame - startFrame;
+        const project = await loadProject();
+        const overlays = project.overlays || [];
+        const summary: string[] = [];
+        let deleted = 0;
+        let trimmed = 0;
+        let shifted = 0;
+
+        for (const overlay of overlays) {
+          const oStart = overlay.from || 0;
+          const oEnd = oStart + (overlay.durationInFrames || 0);
+
+          if (oStart >= startFrame && oEnd <= endFrame) {
+            // Entirely within range: delete it
+            // Also delete linked captions/fancy captions if it's a video
+            if (overlay.type === 'video') {
+              const linkedCaptions = overlays.filter(
+                (o: any) =>
+                  (o.type === 'caption' || (o.type === 'html-scene' && o.metadata?.sourceType === 'fancy-caption')) &&
+                  o.sourceVideoId === overlay.id
+              );
+              for (const caption of linkedCaptions) {
+                await projectService.deleteOverlay(userId, projectId, caption.id);
+              }
+            }
+            await projectService.deleteOverlay(userId, projectId, overlay.id);
+            deleted++;
+          } else if (oStart < startFrame && oEnd > endFrame) {
+            // Spans entire range: trim out the middle (reduce duration by cutDuration)
+            const newDuration = (overlay.durationInFrames || 0) - cutDuration;
+            await projectService.updateOverlay(userId, projectId, overlay.id, {
+              durationInFrames: newDuration,
+            });
+            trimmed++;
+          } else if (oStart < startFrame && oEnd > startFrame && oEnd <= endFrame) {
+            // Starts before range, ends within: trim end
+            const newDuration = startFrame - oStart;
+            await projectService.updateOverlay(userId, projectId, overlay.id, {
+              durationInFrames: newDuration,
+            });
+            trimmed++;
+          } else if (oStart >= startFrame && oStart < endFrame && oEnd > endFrame) {
+            // Starts within range, ends after: trim start and shift left
+            const framesToTrimFromStart = endFrame - oStart;
+            const newDuration = (overlay.durationInFrames || 0) - framesToTrimFromStart;
+            const newFrom = startFrame; // Will be shifted further below
+
+            const updates: any = {
+              from: newFrom,
+              durationInFrames: newDuration,
+            };
+
+            // For video/sound overlays, update internal start time
+            if (overlay.type === 'video') {
+              updates.videoStartTime = (overlay.videoStartTime || 0) + framesToTrimFromStart;
+            }
+            if (overlay.type === 'sound') {
+              updates.startFromSound = (overlay.startFromSound || 0) + framesToTrimFromStart;
+            }
+
+            await projectService.updateOverlay(userId, projectId, overlay.id, updates);
+            trimmed++;
+          } else if (oStart >= endFrame) {
+            // Entirely after range: shift left by cutDuration
+            await projectService.updateOverlay(userId, projectId, overlay.id, {
+              from: oStart - cutDuration,
+            });
+            shifted++;
+          }
+          // else: entirely before range — no change needed
+        }
+
+        await recalculateProjectDuration();
+
+        const fps = project.fps || 30;
+        const secondsCut = Math.round((cutDuration / fps) * 10) / 10;
+        summary.push(`Cut ${secondsCut}s (frames ${startFrame}-${endFrame})`);
+        if (deleted > 0) summary.push(`${deleted} overlay(s) deleted`);
+        if (trimmed > 0) summary.push(`${trimmed} overlay(s) trimmed`);
+        if (shifted > 0) summary.push(`${shifted} overlay(s) shifted`);
+
+        return JSON.stringify({
+          status: 'success',
+          deleted,
+          trimmed,
+          shifted,
+          framesCut: cutDuration,
+          secondsCut,
+          message: summary.join(', '),
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'cut_section',
+      description: 'Cut and remove a section of the timeline between two frames. Splits at start, splits at end, removes the middle portion, and closes gaps. Works across all layers and overlay types.',
+      schema: cutSectionSchema,
+    }
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -3582,6 +3730,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     deleteOverlay,
     syncStyle,            // NEW: Style sync
     closeGaps,            // NEW: Close timeline gaps
+    cutSection,           // NEW: Compound cut-and-delete
     // visualInspectFrame,  // DISABLED: Decoy tool, not implemented
     generateHtmlScene,
     generateHtmlSticker,  // NEW: Animated stickers

@@ -176,7 +176,7 @@ export const createAgent = (userId: string, projectContext?: string) => {
     You can do ANYTHING a human video editor can by combining tools creatively:
     - **Move a clip**: \`update_overlay({ id, from: newFrame })\` - changes when clip starts on timeline
     - **Close timeline gaps**: Move clips left by updating their \`from\` property
-    - **Remove a section**: \`split_overlay\` at start, \`split_overlay\` at end, then \`delete_overlay\` the middle
+    - **Remove a section**: Use \`cut_section({ startFrame, endFrame })\` — handles everything automatically
     - **Change clip order**: Update \`from\` values to reposition clips
     - **Extend/shorten**: \`update_overlay({ id, durationInFrames: newDuration })\` or use \`trim_overlay\`
     
@@ -206,7 +206,19 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`add_fancy_captions\`: Add kinetic typography (TikTok-style word art) for HOOKS. Use for first 3-5 seconds only.
     - \`refresh_captions\`: Realign existing regular captions after video edits.
     - \`refresh_fancy_captions\`: Realign existing fancy captions after video edits.
-    - \`close_gaps\`: Close all gaps between video clips by shifting them left. Captions move with their videos.
+    - \`close_gaps\`: Close all gaps between ALL clips (video, text, audio, etc.) by shifting them left. Updates project duration.
+    - \`cut_section\`: **PREFERRED for cut/delete operations.** Removes a section of the timeline between two frame numbers across ALL layers. Automatically handles split, delete, shift, and duration update in one atomic operation. Use this instead of manual split→delete→close_gaps sequences.
+
+    **CRITICAL - CUT AND DELETE OPERATIONS**:
+    When the user asks to "cut", "delete", "remove" a section of the timeline:
+    - **ALWAYS use \`cut_section\`** with startFrame and endFrame. This is the ONLY reliable way to cut.
+    - Convert timestamps to frames: multiply seconds by project FPS (usually 30). e.g., "5 to 10 seconds" = startFrame: 150, endFrame: 300.
+    - **NEVER** try to manually split→delete→close_gaps. Use \`cut_section\` instead.
+    - **VALIDATE timestamps** against project duration BEFORE cutting. If user asks to cut "3:15 to 5:28" on a 27-second project, REJECT immediately.
+
+    **UNDO IS NOT SUPPORTED**:
+    - There is NO undo tool. If a user asks to "undo", explain that undo is not yet available.
+    - Do NOT try to reverse edits by adding/removing overlays manually — this will make things worse.
 
     IMPORTANT TOOL USAGE RULE (COST-AWARE + ZERO-FRICTION):
 
@@ -313,12 +325,8 @@ export const createAgent = (userId: string, projectContext?: string) => {
     
     
     **HANDLING split_and_delete (mid-video cuts)**:
-    When a cut has action='split_and_delete', follow these steps IN ORDER:
-    1. \`split_overlay\` at the START frame → Note the new overlay ID returned
-    2. \`split_overlay\` on the NEW overlay at the END frame → This isolates the silence
-    3. \`delete_overlay\` to remove the silence segment
-    4. **IMPORTANT: Call \`close_gaps\` after ALL deletions are complete** to remove timeline gaps
-    The \`steps\` array provides exact parameters for each action. Execute them in order.
+    **PREFERRED**: Use \`cut_section({ startFrame, endFrame })\` — it handles all steps atomically.
+    Only use manual split→delete→close_gaps if cut_section fails or for single-overlay operations.
     
     **CRITICAL RULE - ALWAYS CLOSE GAPS**:
     After ANY delete operation(s), you MUST call \`close_gaps\` to prevent timeline holes.
