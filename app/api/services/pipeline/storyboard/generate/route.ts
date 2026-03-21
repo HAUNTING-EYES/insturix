@@ -121,6 +121,8 @@ export async function POST(request: NextRequest) {
       aspectRatio,
       overallMusicPrompt,
       referenceImageMap,
+      approvedReferences,
+      refSetId,
     });
 
     const succeeded = storyboard.scenes.filter(s => s.imageUrl).length;

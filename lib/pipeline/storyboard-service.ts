@@ -195,10 +195,28 @@ export async function generateStoryboardImage(
 
     try {
       const ipAdapterModelId = 'fal-ai/flux/dev/ip-adapter';
+
+      // GCS signed URLs with query params cause IP-adapter failures.
+      // Re-upload to fal.ai CDN to get a clean URL (same fix as video gen).
+      let cleanRefUrl = primaryRef.imageUrl;
+      if (cleanRefUrl.includes('?')) {
+        try {
+          const refRes = await fetch(cleanRefUrl);
+          if (refRes.ok) {
+            const blob = await refRes.blob();
+            const file = new File([blob], `ref_${nanoid(8)}.png`, { type: 'image/png' });
+            cleanRefUrl = await fal.storage.upload(file);
+            console.log(`[Storyboard] Scene ${options.sceneIndex}: Re-uploaded ref to CDN: ${cleanRefUrl.substring(0, 60)}...`);
+          }
+        } catch (uploadErr: any) {
+          console.warn(`[Storyboard] Scene ${options.sceneIndex}: Ref URL cleanup failed (${uploadErr.message}), trying original`);
+        }
+      }
+
       const result = await falSubscribeWithTimeout(ipAdapterModelId, {
         input: {
           prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
-          ip_adapter_image_url: primaryRef.imageUrl,
+          ip_adapter_image_url: cleanRefUrl,
           ip_adapter_scale: primaryRef.weight ?? 0.6,
           image_size: { width, height },
           num_images: 1,
@@ -283,12 +301,22 @@ export async function generateFullStoryboard(
     overallMusicPrompt?: string;
     /** Map of sceneIndex → reference images for IP-adapter consistency */
     referenceImageMap?: Record<number, ReferenceImageInput[]>;
+    /** Approved reference subjects to persist on the storyboard for later regeneration */
+    approvedReferences?: Array<{
+      subjectId: string;
+      name: string;
+      category?: string;
+      visualDescription?: string;
+      imageUrl: string;
+      scenesAppearingIn: number[];
+    }>;
+    refSetId?: string;
   },
 ): Promise<Storyboard> {
   const storyboardId = `sb_${nanoid(12)}`;
   const totalScenes = scenes.length;
 
-  // Initialize storyboard
+  // Initialize storyboard — persist approved references so regeneration can use them
   const storyboard: Storyboard = {
     storyboardId,
     projectId: options.projectId,
@@ -297,6 +325,8 @@ export async function generateFullStoryboard(
     title: options.title,
     styleGuide: options.styleGuide,
     overallMusicPrompt: options.overallMusicPrompt,
+    refSetId: options.refSetId,
+    approvedReferences: options.approvedReferences,
     scenes: scenes.map((s) => ({
       sceneIndex: s.sceneIndex,
       descriptor: s,
@@ -444,12 +474,23 @@ export async function regenerateScene(
   }
 
   const totalScenes = storyboard.scenes.length;
+
+  // Look up approved reference images for this scene (for IP-adapter consistency)
+  const sceneRefs = storyboard.approvedReferences
+    ?.filter((ref) => ref.scenesAppearingIn.includes(sceneIndex))
+    .map((ref) => ({
+      subjectId: ref.subjectId,
+      imageUrl: ref.imageUrl,
+      weight: 0.6,
+    }));
+
   const result = await generateStoryboardImage(descriptor, userId, {
     styleGuide: options.styleGuide || storyboard.styleGuide,
     modelId: options.modelId,
     aspectRatio: options.aspectRatio,
     sceneIndex,
     totalScenes,
+    referenceImages: sceneRefs && sceneRefs.length > 0 ? sceneRefs : undefined,
   });
 
   scene.imageAssetId = result.assetId;

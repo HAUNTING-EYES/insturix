@@ -27,6 +27,28 @@ if (process.env.FAL_AI_API_KEY) {
 // Models
 const TEXT_TO_IMAGE_MODEL = 'fal-ai/flux/schnell';
 const IMAGE_TO_IMAGE_MODEL = 'fal-ai/flux-kontext/dev';
+const IP_ADAPTER_MODEL = 'fal-ai/flux/dev/ip-adapter';
+
+/**
+ * Clean a GCS signed URL for use with fal.ai models.
+ * GCS URLs with query params (X-Goog-...) cause failures in IP-adapter.
+ * Re-uploads to fal.ai CDN to get a clean URL.
+ */
+async function cleanUrlForFal(url: string): Promise<string> {
+  if (!url.includes('?')) return url;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return url;
+    const blob = await res.blob();
+    const file = new File([blob], `ref_${nanoid(8)}.png`, { type: 'image/png' });
+    const cleanUrl = await fal.storage.upload(file);
+    console.log(`[StoryboardInteractive] Re-uploaded ref to CDN: ${cleanUrl.substring(0, 60)}...`);
+    return cleanUrl;
+  } catch (err: any) {
+    console.warn(`[StoryboardInteractive] URL cleanup failed (${err.message}), using original`);
+    return url;
+  }
+}
 
 /**
  * Generate a single scene in the sequential flow.
@@ -65,38 +87,76 @@ export async function generateSceneSequential(
     else if (options.aspectRatio === '1:1') { width = 1024; height = 1024; }
 
     let result: any;
+    let usedIpAdapter = false;
 
-    // Scene 0: text-to-image. Scene 1+: use previous approved image as reference
-    const previousScene = sceneIndex > 0
-      ? storyboard.scenes.find((s) => s.sceneIndex === sceneIndex - 1)
-      : null;
-    const hasPreviousImage = previousScene?.status === 'approved' && previousScene.imageUrl;
+    // ─── Try IP-adapter with approved reference images first ──────
+    const seqSceneRefs = storyboard.approvedReferences?.filter(
+      (ref) => ref.scenesAppearingIn.includes(sceneIndex),
+    );
 
-    if (hasPreviousImage) {
-      // Image-to-image with context — use guidance_scale to balance
-      // prompt adherence vs reference image similarity
-      result = await (fal as any).subscribe(options.modelId || IMAGE_TO_IMAGE_MODEL, {
-        input: {
-          prompt: `${prompt}. Maintain visual consistency with the reference image — same characters, art style, and color palette.`,
-          image_url: previousScene!.imageUrl,
-          guidance_scale: 4.0,
-          num_images: 1,
-          enable_safety_checker: false,
-        },
-        logs: false,
-      });
-    } else {
-      // Text-to-image
-      result = await (fal as any).subscribe(options.modelId || TEXT_TO_IMAGE_MODEL, {
-        input: {
-          prompt,
-          negative_prompt: negativePrompt,
-          image_size: { width, height },
-          num_images: 1,
-          enable_safety_checker: false,
-        },
-        logs: false,
-      });
+    if (seqSceneRefs && seqSceneRefs.length > 0) {
+      const primaryRef = seqSceneRefs[0];
+      console.log(`[StoryboardSeq] Scene ${sceneIndex}: Trying IP-adapter with ref "${primaryRef.name}"`);
+
+      try {
+        const cleanRefUrl = await cleanUrlForFal(primaryRef.imageUrl);
+        result = await (fal as any).subscribe(IP_ADAPTER_MODEL, {
+          input: {
+            prompt: `${prompt}. Maintain exact visual consistency with the reference image for ${primaryRef.name}.`,
+            ip_adapter_image_url: cleanRefUrl,
+            ip_adapter_scale: 0.6,
+            image_size: { width, height },
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false,
+        });
+
+        const ipData = result.data as any;
+        if (ipData?.images?.[0]?.url) {
+          console.log(`[StoryboardSeq] Scene ${sceneIndex}: IP-adapter SUCCESS`);
+          usedIpAdapter = true;
+        } else {
+          console.warn(`[StoryboardSeq] Scene ${sceneIndex}: IP-adapter returned no image, falling back`);
+        }
+      } catch (ipErr: any) {
+        console.warn(`[StoryboardSeq] Scene ${sceneIndex}: IP-adapter FAILED (${ipErr.message}), falling back`);
+      }
+    }
+
+    // ─── Fallback: previous-scene img2img or text-to-image ────────
+    if (!usedIpAdapter) {
+      // Scene 0: text-to-image. Scene 1+: use previous approved image as reference
+      const previousScene = sceneIndex > 0
+        ? storyboard.scenes.find((s) => s.sceneIndex === sceneIndex - 1)
+        : null;
+      const hasPreviousImage = previousScene?.status === 'approved' && previousScene.imageUrl;
+
+      if (hasPreviousImage) {
+        const cleanPrevUrl = await cleanUrlForFal(previousScene!.imageUrl!);
+        result = await (fal as any).subscribe(options.modelId || IMAGE_TO_IMAGE_MODEL, {
+          input: {
+            prompt: `${prompt}. Maintain visual consistency with the reference image — same characters, art style, and color palette.`,
+            image_url: cleanPrevUrl,
+            guidance_scale: 4.0,
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false,
+        });
+      } else {
+        // Text-to-image
+        result = await (fal as any).subscribe(options.modelId || TEXT_TO_IMAGE_MODEL, {
+          input: {
+            prompt,
+            negative_prompt: negativePrompt,
+            image_size: { width, height },
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false,
+        });
+      }
     }
 
     const data = result.data as any;
@@ -113,8 +173,8 @@ export async function generateSceneSequential(
     const filename = `${assetId}.png`;
     const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
 
-    const modelUsed = hasPreviousImage
-      ? (options.modelId || IMAGE_TO_IMAGE_MODEL)
+    const modelUsed = usedIpAdapter
+      ? IP_ADAPTER_MODEL
       : (options.modelId || TEXT_TO_IMAGE_MODEL);
 
     // Update scene
@@ -246,33 +306,79 @@ export async function regenerateWithContext(
     let result: any;
     const modelId = options.modelId || IMAGE_TO_IMAGE_MODEL;
 
-    if (useReference && referenceUrl) {
-      // Image-to-image: use reference with guidance_scale to control prompt adherence
-      // Higher guidance_scale = follow prompt more (important when editing)
-      // For REPLACE mode with prev scene ref: very high guidance so it follows the NEW prompt
-      const guidanceScale = isReplaceMode ? 7.0 : 5.0;
+    // ─── Attempt IP-adapter with approved reference images ─────────
+    // If the storyboard has approved references for this scene, try IP-adapter first
+    // for visual consistency. Falls back to REPLACE/EDIT img2img if IP-adapter fails.
+    const sceneRefs = storyboard.approvedReferences?.filter(
+      (ref) => ref.scenesAppearingIn.includes(sceneIndex),
+    );
+    const hasApprovedRefs = sceneRefs && sceneRefs.length > 0;
+    let ipAdapterSucceeded = false;
 
-      result = await (fal as any).subscribe(modelId, {
-        input: {
-          prompt,
-          image_url: referenceUrl,
-          guidance_scale: guidanceScale,
-          num_images: 1,
-          enable_safety_checker: false,
-        },
-        logs: false,
-      });
-    } else {
-      // Text-to-image from scratch (no reference available)
-      result = await (fal as any).subscribe(TEXT_TO_IMAGE_MODEL, {
-        input: {
-          prompt,
-          image_size: { width: 1280, height: 720 },
-          num_images: 1,
-          enable_safety_checker: false,
-        },
-        logs: false,
-      });
+    if (hasApprovedRefs) {
+      const primaryRef = sceneRefs[0];
+      console.log(`[StoryboardRegen] Scene ${sceneIndex}: Trying IP-adapter with ref "${primaryRef.name}" (${primaryRef.imageUrl.substring(0, 60)}...)`);
+
+      try {
+        const cleanRefUrl = await cleanUrlForFal(primaryRef.imageUrl);
+
+        result = await (fal as any).subscribe(IP_ADAPTER_MODEL, {
+          input: {
+            prompt: `${prompt}. Maintain exact visual consistency with the reference image for ${primaryRef.name}.`,
+            ip_adapter_image_url: cleanRefUrl,
+            ip_adapter_scale: 0.6,
+            image_size: { width: 1280, height: 720 },
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false,
+        });
+
+        const ipData = result.data as any;
+        if (ipData?.images?.[0]?.url) {
+          console.log(`[StoryboardRegen] Scene ${sceneIndex}: IP-adapter SUCCESS`);
+          ipAdapterSucceeded = true;
+        } else {
+          console.warn(`[StoryboardRegen] Scene ${sceneIndex}: IP-adapter returned no image, falling back`);
+        }
+      } catch (ipErr: any) {
+        console.warn(`[StoryboardRegen] Scene ${sceneIndex}: IP-adapter FAILED (${ipErr.message}), falling back to img2img`);
+      }
+    }
+
+    // ─── Fallback: REPLACE/EDIT img2img or text-to-image ──────────
+    if (!ipAdapterSucceeded) {
+      if (useReference && referenceUrl) {
+        // Image-to-image: use reference with guidance_scale to control prompt adherence
+        // Higher guidance_scale = follow prompt more (important when editing)
+        // For REPLACE mode with prev scene ref: very high guidance so it follows the NEW prompt
+        const guidanceScale = isReplaceMode ? 7.0 : 5.0;
+
+        // Clean the reference URL for fal.ai compatibility
+        const cleanRef = await cleanUrlForFal(referenceUrl);
+
+        result = await (fal as any).subscribe(modelId, {
+          input: {
+            prompt,
+            image_url: cleanRef,
+            guidance_scale: guidanceScale,
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false,
+        });
+      } else {
+        // Text-to-image from scratch (no reference available)
+        result = await (fal as any).subscribe(TEXT_TO_IMAGE_MODEL, {
+          input: {
+            prompt,
+            image_size: { width: 1280, height: 720 },
+            num_images: 1,
+            enable_safety_checker: false,
+          },
+          logs: false,
+        });
+      }
     }
 
     const data = result.data as any;
@@ -286,12 +392,16 @@ export async function regenerateWithContext(
     const filename = `${assetId}.png`;
     const uploadResult = await uploadToGCS(buffer, userId, filename, 'image/png');
 
+    const actualModelUsed = ipAdapterSucceeded
+      ? IP_ADAPTER_MODEL
+      : (useReference ? modelId : TEXT_TO_IMAGE_MODEL);
+
     const historyEntry = {
       assetId,
       imageUrl: uploadResult.signedUrl,
       timestamp: new Date(),
       feedback: options.feedback,
-      modelUsed: useReference ? modelId : TEXT_TO_IMAGE_MODEL,
+      modelUsed: actualModelUsed,
     };
 
     await updateStoryboardScene(storyboardId, sceneIndex, {
