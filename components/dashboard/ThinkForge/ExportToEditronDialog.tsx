@@ -512,57 +512,86 @@ export function ExportToEditronDialog({
 
     try {
       // ─── Step 5: Generate AI video clips (optional) ────────
-      // Send ALL scenes in ONE API call — the server handles concurrency internally.
-      // Previously sent one-at-a-time which caused sequential timeouts.
+      // ─── Step 5: Enqueue video generation (async, parallel) ────
+      // Enqueue all scenes for parallel processing, then poll for completion.
+      // No more browser timeout issues — the enqueue call returns in <10s.
       if (generateVideos && sbId && sbImages.length > 0) {
         setStep('generating-videos');
         setVideoProgress({ done: 0, total: sbImages.length });
 
         try {
           const allSceneIndices = sbImages.map((s: any) => s.sceneIndex);
-          console.log(`[ExportToEditron] Generating videos for scenes: ${allSceneIndices.join(', ')}`);
+          console.log(`[ExportToEditron] Enqueuing ${allSceneIndices.length} scenes for video generation`);
 
-          // Video generation can take 5-10 minutes for multiple scenes.
-          // Browser fetch() may abort after ~300s if no data flows.
-          // Use AbortController with a generous timeout to prevent premature abort.
-          const videoAbort = new AbortController();
-          const videoTimeoutId = setTimeout(() => videoAbort.abort(), 9 * 60 * 1000); // 9 minutes
-
-          const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
+          // Step 5a: Enqueue (fast — builds prompts + pushes to Redis queue)
+          const enqueueRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               aspectRatio,
               sceneIndices: allSceneIndices,
-              videoModel, // 'auto' selects best model per scene; specific model locks all scenes
+              videoModel,
             }),
-            signal: videoAbort.signal,
           });
-          clearTimeout(videoTimeoutId);
 
-          const videoData = await videoRes.json().catch(() => ({}));
-          const succeeded = videoData.summary?.succeeded || 0;
-          const failed = videoData.summary?.failed || 0;
+          const enqueueData = await enqueueRes.json().catch(() => ({}));
 
-          setVideoProgress({ done: succeeded + failed, total: sbImages.length });
-          setVideosGenerated(succeeded > 0);
-          console.log(`[ExportToEditron] Video generation complete: ${succeeded} succeeded, ${failed} failed`);
-          sendNotification('Video Clips Generated', `${succeeded} of ${sbImages.length} video clips ready. Generating voiceover next...`);
+          if (!enqueueData.success || !enqueueData.batchId) {
+            throw new Error(enqueueData.error || 'Failed to enqueue video generation');
+          }
 
-          if (succeeded === 0 && failed > 0) {
-            const perSceneErrors = videoData.error || videoData.results?.filter((r: any) => r.error).map((r: any) => `Scene ${r.sceneIndex}: ${r.error}`).join('; ') || '';
-            console.error('[ExportToEditron] All videos failed:', perSceneErrors);
-            setError(`Video generation failed for all ${failed} scenes. ${perSceneErrors ? perSceneErrors.substring(0, 200) : 'The AI video model may be temporarily unavailable.'} Your storyboard images are preserved.`);
-          } else if (failed > 0) {
-            setError(`${failed} of ${sbImages.length} video clips failed. Continuing with available clips.`);
+          const batchId = enqueueData.batchId;
+          console.log(`[ExportToEditron] Video batch enqueued: ${batchId} (${enqueueData.totalScenes} scenes)`);
+
+          // Step 5b: Poll for completion (checks every 10s, max 15 minutes)
+          const MAX_POLL_ATTEMPTS = 90; // 90 × 10s = 15 minutes max
+          const POLL_INTERVAL_MS = 10_000; // 10 seconds
+
+          let videosCompleted = false;
+          for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
+            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+            try {
+              const statusRes = await fetch(
+                `/api/services/pipeline/storyboard/${sbId}/generate-videos/status?batchId=${batchId}`,
+              );
+              const statusData = await statusRes.json().catch(() => ({}));
+
+              if (statusData.success) {
+                const completed = statusData.completed || 0;
+                const failed = statusData.failed || 0;
+                setVideoProgress({ done: completed + failed, total: statusData.totalScenes || sbImages.length });
+
+                console.log(`[ExportToEditron] Video poll #${poll + 1}: ${completed} done, ${failed} failed, status=${statusData.status}`);
+
+                if (statusData.isComplete) {
+                  setVideosGenerated(completed > 0);
+                  sendNotification('Video Clips Generated', `${completed} of ${statusData.totalScenes} video clips ready.`);
+
+                  if (completed === 0 && failed > 0) {
+                    const sceneErrors = statusData.scenes?.filter((s: any) => s.error).map((s: any) => `Scene ${s.sceneIndex}: ${s.error}`).join('; ') || '';
+                    setError(`Video generation failed for all ${failed} scenes. ${sceneErrors.substring(0, 200) || 'The AI video model may be temporarily unavailable.'}`);
+                  } else if (failed > 0) {
+                    setError(`${failed} of ${statusData.totalScenes} video clips failed. Continuing with available clips.`);
+                  }
+                  videosCompleted = true;
+                  break;
+                }
+              }
+            } catch (pollErr: any) {
+              console.warn(`[ExportToEditron] Video poll #${poll + 1} failed:`, pollErr.message);
+              // Don't break on poll errors — the server may still be processing
+            }
+          }
+
+          if (!videosCompleted) {
+            console.warn('[ExportToEditron] Video generation polling timed out after 15 minutes');
+            setError('Video generation is still processing in the background. Your videos will appear in Editron when ready.');
+            setVideosGenerated(false); // Still usable — videos will show up later
           }
         } catch (videoErr: any) {
           console.error(`[ExportToEditron] Video generation exception:`, videoErr);
-          const isTimeout = videoErr.name === 'AbortError' || videoErr.message?.includes('Failed to fetch') || videoErr.message?.includes('aborted');
-          const msg = isTimeout
-            ? 'Video generation timed out (this can happen with 4+ scenes). Your storyboard images are preserved — you can retry video generation from Editron.'
-            : `Videos: ${videoErr.message}. Continuing with storyboard images.`;
-          setError(msg);
+          setError(`Videos: ${videoErr.message}. Continuing with storyboard images.`);
         }
       }
 

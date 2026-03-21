@@ -1,18 +1,25 @@
 /**
  * POST /api/services/pipeline/storyboard/[id]/generate-videos
  *
- * Generate AI video clips for each approved scene in a storyboard.
- * Converts storyboard images into animated video clips using fal.ai or Kie AI.
+ * Enqueue AI video clips for each approved scene in a storyboard.
+ * Returns immediately with a batchId — frontend polls for progress.
+ *
+ * Architecture: Non-blocking async queue.
+ * 1. Build motion prompts for all scenes (LLM refinement, ~5s total)
+ * 2. Enqueue each scene as an independent job in Redis
+ * 3. Return batchId immediately — frontend polls /status?batchId=xxx
+ * 4. Cron (/api/cron/process-video-queue) processes scenes in parallel
+ *
+ * This replaces the old sequential blocking approach that timed out on 4+ scenes.
  *
  * Cost: 3 credits per scene
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getStoryboard, updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
+import { getStoryboard } from '@/lib/pipeline/storyboard-db';
 import { CreditsService } from '@/lib/services/creditsService';
 import {
-  generateVideoClip,
   buildMotionPrompt,
   selectBestModel,
   type VideoProvider,
@@ -23,9 +30,13 @@ import {
   isLLMParserAvailable,
   type VideoPromptContext,
 } from '@/lib/pipeline/llm-scene-parser';
+import {
+  enqueueVideoBatch,
+  type VideoJobScene,
+} from '@/lib/pipeline/video-queue-service';
 
 export const runtime = 'nodejs';
-export const maxDuration = 600; // 10 minute timeout — video models are slow + retry
+export const maxDuration = 60; // Only needs time for prompt building + enqueue (not video generation)
 
 export async function POST(
   request: NextRequest,
@@ -61,13 +72,10 @@ export async function POST(
 
     // Determine which scenes to generate videos for
     const targetScenes = storyboard.scenes.filter((s) => {
-      // Must have an image to animate
       if (!s.imageUrl) return false;
-      // If specific indices requested, filter to those
       if (sceneIndices && sceneIndices.length > 0) {
         return sceneIndices.includes(s.sceneIndex);
       }
-      // Default: generate for approved/generated scenes
       return s.status === 'approved' || s.status === 'generated';
     });
 
@@ -93,7 +101,6 @@ export async function POST(
     }
 
     // Build reference subject lookup for VideoPromptMaster
-    // Maps sceneIndex → subjects appearing in that scene
     const sceneSubjectMap = new Map<number, Array<{ name: string; category: string; visualDescription: string }>>();
     if (storyboard.approvedReferences && storyboard.approvedReferences.length > 0) {
       for (const ref of storyboard.approvedReferences) {
@@ -111,29 +118,34 @@ export async function POST(
     const artStyle = storyboard.styleGuide?.artStyle;
     const useLLMRefinement = isLLMParserAvailable();
 
-    // Consistency mode: when a specific model is chosen (not 'auto'), lock it for all scenes.
-    // When 'auto', pick per-scene but lock to the first scene's selection for consistency.
+    // Resolve video model
     const isAutoModel = videoModel === 'auto' || !videoModel;
     let lockedVideoModel: FalVideoModel | undefined;
     if (!isAutoModel && videoModel) {
-      // User chose a specific model — use it for all scenes (consistency mode)
       lockedVideoModel = videoModel;
-      console.log(`[generate-videos] Consistency mode: locked to ${lockedVideoModel} for all scenes`);
     } else if (isAutoModel && targetScenes.length > 0) {
-      // Auto mode: select based on first scene and lock for all scenes
-      const firstScene = targetScenes[0];
       lockedVideoModel = selectBestModel({
-        mood: firstScene.descriptor.mood,
-        durationSeconds: firstScene.descriptor.durationSeconds,
+        mood: targetScenes[0].descriptor.mood,
+        durationSeconds: targetScenes[0].descriptor.durationSeconds,
         artStyle,
       });
-      console.log(`[generate-videos] Auto mode: selected ${lockedVideoModel} from first scene, locking for all scenes`);
     }
 
-    // ─── Build motion prompt for a single scene (inline, just-in-time) ────
-    // Prompts are now built just before each scene's video generation,
-    // avoiding wasted LLM calls if earlier scenes fail or the request is aborted.
-    async function buildSceneMotionPrompt(scene: typeof targetScenes[number]): Promise<string> {
+    console.log(`[generate-videos] Building prompts for ${targetScenes.length} scenes (LLM=${useLLMRefinement}, model=${lockedVideoModel})`);
+
+    // ─── Build ALL motion prompts upfront (fast: ~1-2s per scene with LLM) ────
+    const sortedScenes = [...targetScenes].sort(
+      (a, b) => a.sceneIndex - b.sceneIndex,
+    );
+
+    const scenesForQueue: VideoJobScene[] = [];
+
+    for (let i = 0; i < sortedScenes.length; i++) {
+      const scene = sortedScenes[i];
+      const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
+
+      // Build motion prompt (LLM refinement or fallback)
+      let motionPrompt: string;
       if (useLLMRefinement) {
         try {
           const promptContext: VideoPromptContext = {
@@ -147,145 +159,66 @@ export async function POST(
             referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
             videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
           };
-          const refined = await refineVideoPrompt(promptContext);
-          console.log(`[generate-videos] Scene ${scene.sceneIndex}: VideoPromptMaster refined (${refined.length} chars)`);
-          return refined;
+          motionPrompt = await refineVideoPrompt(promptContext);
+          console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);
         } catch (llmErr: any) {
-          console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM failed, using fallback:`, llmErr.message);
+          console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM failed, using fallback`);
+          motionPrompt = buildMotionPrompt({
+            visualDescription: scene.descriptor.visualDescription,
+            narration: scene.descriptor.narration,
+            cameraDirection: scene.descriptor.cameraDirection,
+            mood: scene.descriptor.mood,
+            videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+            videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+          });
         }
+      } else {
+        motionPrompt = buildMotionPrompt({
+          visualDescription: scene.descriptor.visualDescription,
+          narration: scene.descriptor.narration,
+          cameraDirection: scene.descriptor.cameraDirection,
+          mood: scene.descriptor.mood,
+          videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+          videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+        });
       }
-      return buildMotionPrompt({
-        visualDescription: scene.descriptor.visualDescription,
-        narration: scene.descriptor.narration,
-        cameraDirection: scene.descriptor.cameraDirection,
-        mood: scene.descriptor.mood,
-        videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-        videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+
+      scenesForQueue.push({
+        sceneIndex: scene.sceneIndex,
+        imageUrl: scene.imageUrl!,
+        motionPrompt,
+        durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
+        nextSceneImageUrl: nextScene?.imageUrl || undefined,
       });
     }
 
-    console.log(`[generate-videos] Processing ${targetScenes.length} scenes sequentially (LLM=${useLLMRefinement}, model=${lockedVideoModel})`);
-
-    // ─── Generate videos sequentially with cross-scene chaining ─────
-    // Process scenes in order. For each scene, we pass the NEXT scene's
-    // storyboard image as `nextSceneImageUrl` — models that support
-    // tail/end frames (Kling, Luma) will make the video transition
-    // smoothly toward the next scene's starting visual.
-    const results: Array<{
-      sceneIndex: number;
-      videoUrl?: string;
-      assetId?: string;
-      error?: string;
-    }> = [];
-
-    const MAX_RETRIES = 2; // Retry failed scenes up to 2 times (3 total attempts)
-    const RETRY_DELAYS = [5000, 10000]; // Wait 5s then 10s between retries (backoff)
-
-    // Sort by scene index for proper chaining order
-    const sortedScenes = [...targetScenes].sort(
-      (a, b) => a.sceneIndex - b.sceneIndex,
+    // ─── Enqueue all scenes → returns immediately ────────────────
+    const { batchId, totalScenes } = await enqueueVideoBatch(
+      userId,
+      storyboardId,
+      scenesForQueue,
+      {
+        aspectRatio,
+        videoModel: lockedVideoModel || 'kling-2.1',
+      },
     );
 
-    for (let i = 0; i < sortedScenes.length; i++) {
-      const scene = sortedScenes[i];
-      const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
-
-      // Build motion prompt just-in-time (avoids wasted LLM calls)
-      const motionPrompt = await buildSceneMotionPrompt(scene);
-      let lastError = '';
-
-      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-        try {
-          if (attempt > 0) {
-            // Backoff delay before retry
-            const delay = RETRY_DELAYS[attempt - 1] || 10000;
-            console.log(`[generate-videos] Scene ${scene.sceneIndex}: RETRY attempt ${attempt} (waiting ${delay / 1000}s)`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-
-          const sceneStart = Date.now();
-          const result = await generateVideoClip(
-            {
-              imageUrl: scene.imageUrl!,
-              motionPrompt,
-              durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
-              aspectRatio,
-              provider,
-              falVideoModel: lockedVideoModel,
-              // Cross-scene chaining: pass next scene's storyboard image
-              // so the video transitions toward the next scene's visual
-              nextSceneImageUrl: nextScene?.imageUrl || undefined,
-            },
-            userId,
-          );
-
-          console.log(`[generate-videos] Scene ${scene.sceneIndex}: SUCCESS in ${Date.now() - sceneStart}ms (attempt ${attempt}, model=${lockedVideoModel}, chained=${!!nextScene?.imageUrl})`);
-
-          await updateStoryboardScene(storyboardId, scene.sceneIndex, {
-            videoAssetId: result.assetId,
-            videoUrl: result.videoUrl,
-            videoGcsPath: result.gcsPath,
-            videoProvider: result.provider,
-            videoDurationMs: result.durationMs,
-          });
-
-          results.push({
-            sceneIndex: scene.sceneIndex,
-            videoUrl: result.videoUrl,
-            assetId: result.assetId,
-          });
-
-          break; // Success — exit retry loop
-        } catch (err: any) {
-          lastError = err.message || 'Video generation failed';
-          console.error(`[generate-videos] Scene ${scene.sceneIndex} attempt ${attempt}/${MAX_RETRIES} failed:`, lastError);
-
-          // Don't retry on non-transient errors
-          if (
-            lastError.includes('No video generated') ||
-            lastError.includes('Insufficient credits') ||
-            lastError.includes('auth failed') ||
-            lastError.includes('invalid parameters') ||
-            lastError.includes('model not found')
-          ) {
-            console.error(`[generate-videos] Scene ${scene.sceneIndex}: Non-transient error, skipping retries`);
-            break;
-          }
-        }
-      }
-
-      if (lastError && !results.find((r) => r.sceneIndex === scene.sceneIndex)) {
-        results.push({
-          sceneIndex: scene.sceneIndex,
-          error: lastError,
-        });
-      }
-    }
-
-    const succeeded = results.filter((r) => r.videoUrl).length;
-    const failed = results.filter((r) => r.error).length;
+    console.log(`[generate-videos] Enqueued batch ${batchId}: ${totalScenes} scenes for parallel processing`);
 
     return NextResponse.json({
-      success: succeeded > 0,
-      results,
-      summary: {
-        total: targetScenes.length,
-        succeeded,
-        failed,
-        creditsDeducted: creditCost,
-      },
-      // Surface per-scene errors so the client can display them
-      ...(failed > 0 && {
-        error: results
-          .filter((r) => r.error)
-          .map((r) => `Scene ${r.sceneIndex}: ${r.error}`)
-          .join('; '),
-      }),
+      success: true,
+      async: true, // Signal to frontend that this is async — poll for status
+      batchId,
+      storyboardId,
+      totalScenes,
+      videoModel: lockedVideoModel,
+      creditsDeducted: creditCost,
+      message: `${totalScenes} video scenes queued for parallel generation. Poll /status?batchId=${batchId} for progress.`,
     });
   } catch (error: any) {
     console.error('[generate-videos] Error:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to generate videos' },
+      { success: false, error: error.message || 'Failed to enqueue videos' },
       { status: 500 },
     );
   }
