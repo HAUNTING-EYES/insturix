@@ -1,13 +1,24 @@
 /**
- * Reference Image Generation Service
+ * Reference Image Generation Service — v2
  *
  * Generates reference images for key visual subjects identified by the LLM.
  * These references are used during storyboard generation (via IP-adapter)
  * to maintain visual consistency across scenes.
+ *
+ * KEY IMPROVEMENTS (v2):
+ * - LLM prompt refinement: raw visual descriptions are rewritten by Gemini
+ *   into optimized image-generation prompts before being sent to the model.
+ * - Better default model: uses flux-dev instead of flux-schnell.
+ * - Subject-first prompt structure: the subject description is the most
+ *   prominent part of the prompt, not buried under generic tokens.
+ * - Per-model input adaptation: different fal.ai models need different
+ *   parameter shapes.
  */
 
 import { fal } from '@fal-ai/client';
 import { nanoid } from 'nanoid';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import { generateText } from 'ai';
 import { uploadToGCS } from '@/lib/editron/services/gcs-service';
 import { saveReferenceImageSet, updateSubjectReference } from './reference-image-db';
 import type { ReferenceImageSet, SubjectReference } from './schemas/reference-image';
@@ -24,114 +35,198 @@ function ensureFalConfig() {
   }
 }
 
-const DEFAULT_MODEL = 'fal-ai/flux/schnell';
+// Better default — flux-dev is significantly higher quality than schnell
+// for reference images where accuracy matters more than speed.
+const DEFAULT_MODEL = 'fal-ai/flux/dev';
+const FALLBACK_MODEL = 'fal-ai/flux/schnell';
 
-// ─── Art-style–aware prompt tokens for reference images ─────────
-// These match the storyboard prompt builder but are tailored for
-// ISOLATED subject rendering (no scene/environment context).
-const REF_STYLE_TOKENS: Record<string, string> = {
-  cinematic: 'cinematic product/character photography, 35mm film stock, shallow depth of field, professional studio lighting, color graded',
-  photorealistic: 'photorealistic DSLR photograph, studio lighting, razor sharp focus, RAW photo quality',
-  documentary: 'documentary-style photograph, natural lighting, authentic detail, subtle film grain',
-  noir: 'film noir style, high contrast black and white, dramatic directional lighting, deep shadows',
-  anime: 'anime character sheet, studio quality cel-shaded illustration, clean precise linework, vibrant saturated colors',
-  cartoon: 'cartoon character design, bold clean outlines, bright saturated flat colors, stylized proportions',
-  'comic-book': 'comic book character art, bold ink outlines, halftone dot shading, graphic novel style',
-  'pixel-art': 'pixel art sprite, retro 16-bit aesthetic, clean pixel edges, limited palette',
-  watercolor: 'watercolor illustration, soft organic pigment washes, visible paper texture, luminous translucent layers',
-  'oil-painting': 'oil painting portrait, rich impasto brushwork, classical studio composition, visible canvas texture',
-  sketch: 'detailed pencil sketch, expressive linework, cross-hatching, hand-drawn on paper',
-  'pop-art': 'pop art style, bold primary colors, Ben-Day dots, Roy Lichtenstein inspired',
-  cyberpunk: 'cyberpunk design, neon-lit, holographic accents, chrome and glass materials',
-  fantasy: 'fantasy concept art, magical atmospheric lighting, rich detail, painterly',
-  horror: 'horror style, desaturated cold tones, unsettling detail, ominous lighting',
-  '3d-render': '3D render, Octane quality, volumetric lighting, subsurface scattering, ray-traced',
-  isometric: 'isometric 3D illustration, clean geometric shading, precise lines',
-  minimalist: 'minimalist flat design, clean geometric lines, restrained palette',
-  superhero: 'superhero concept art, dynamic composition, vivid saturated colors, dramatic rim lighting, Marvel style',
-  'sci-fi': 'sci-fi concept art, futuristic design, volumetric lighting, advanced technology aesthetic',
-  'concept-art': 'professional concept art, entertainment design quality, polished illustration',
-  claymation: 'claymation figure, handmade clay texture, visible fingerprints, playful 3D stop-motion',
-  storybook: 'storybook illustration, whimsical warmth, inviting hand-drawn detail',
-  vaporwave: 'vaporwave aesthetic, pastel neon gradients, chrome reflections, 80s nostalgia',
-  steampunk: 'steampunk design, ornate brass machinery, copper patina, intricate gear details',
-  gothic: 'dark Gothic style, ornate details, deep shadows, dramatic lighting',
-  'art-deco': 'Art Deco design, bold geometric patterns, gold and black, 1920s glamour',
-  vintage: 'vintage photograph, warm faded tones, 70s analog film, nostalgic grain',
-  pastel: 'soft pastel palette, dreamy ethereal quality, gentle gradients, delicate',
-  'neon-noir': 'neon noir style, vivid neon lighting, dark atmosphere, moody contrast',
-  'indie-film': 'indie film aesthetic, natural light, muted earth tones, A24 style',
-};
+// ─── LLM Prompt Refinement ─────────────────────────────────────
 
-// Background/isolation tokens per category
-const CATEGORY_TOKENS: Record<string, string> = {
-  character: 'full body character portrait, centered in frame, clean neutral background, professional studio lighting, multiple-angle consistency',
-  product: 'product photography, centered on clean white/neutral background, professional studio lighting, sharp focus on all details, commercial quality',
-  vehicle: 'vehicle photography, three-quarter angle view, clean neutral background, professional automotive lighting, sharp detail',
-  object: 'object photography, centered on clean neutral background, studio lighting, sharp focus, detailed texture capture',
-  location: 'establishing shot, key architectural details, clean composition, professional photography',
-};
+function getGeminiProvider() {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+  return createGoogleGenerativeAI({ apiKey });
+}
 
 /**
- * Build a proper reference image prompt that respects the art style.
+ * Use Gemini to rewrite a raw visual description into a high-quality
+ * image generation prompt. This is the key to dramatically better results.
+ *
+ * Cost: ~$0.00003 per subject (Gemini Flash, ~300 tokens)
  */
-function buildReferencePrompt(
+async function refineReferencePrompt(
+  subjectName: string,
+  rawDescription: string,
+  category: string,
+  artStyle?: string,
+): Promise<string> {
+  const google = getGeminiProvider();
+  if (!google) {
+    // No Gemini key — fall back to basic prompt building
+    return buildBasicPrompt(rawDescription, category, artStyle);
+  }
+
+  try {
+    const model = google('gemini-2.0-flash');
+
+    const { text } = await generateText({
+      model,
+      prompt: `You are ReferencePromptMaster — the world's best AI image prompt engineer.
+
+Your job: take a raw subject description and rewrite it into a PERFECT image generation prompt for creating a reference sheet image of "${subjectName}".
+
+=== RAW DESCRIPTION ===
+${rawDescription}
+
+=== SUBJECT CATEGORY ===
+${category}
+
+=== ART STYLE ===
+${artStyle || 'cinematic / photorealistic'}
+
+=== YOUR TASK ===
+Write ONE optimized prompt (no explanations, no markdown, just the raw prompt text).
+
+CRITICAL RULES:
+1. SUBJECT FIRST — Start with the most important visual details of the subject: what it IS, its defining features, colors, materials, proportions, textures. This is 70% of the prompt.
+2. ISOLATION — The subject must be rendered ALONE against a clean, simple background. No other objects, no scene, no environment clutter. For characters: full body, centered. For products: centered, studio lighting.
+3. ACCURACY — Every specific detail from the raw description MUST be preserved. If it says "red shoes", the prompt must say "red shoes". If it says "gold necklace", the prompt must say "gold necklace". Do NOT generalize or abstract away details.
+4. STYLE COHERENCE — End with 2-3 style tokens matching "${artStyle || 'cinematic'}". Examples:
+   - cinematic → "cinematic studio photography, shallow depth of field, color graded"
+   - anime → "anime character sheet, cel-shaded, clean linework"
+   - 3d-render → "Octane render, volumetric lighting, subsurface scattering"
+5. KEEP IT DENSE — Under 120 words. No filler. Every word earns its place.
+6. NO META — No "A reference image of...", no "This shows...", no markdown. Just the description.
+
+BAD PROMPT: "A beautiful character standing in a studio, professional lighting, high quality, detailed"
+GOOD PROMPT: "Young woman, early 20s, dark curly shoulder-length hair, deep brown eyes, warm brown skin, wearing a fitted cobalt blue blazer over a white crew-neck tee, thin gold chain necklace with small pendant, confident relaxed posture, subtle smile, full body centered pose, clean white studio background, soft three-point lighting, cinematic photography, shallow depth of field"
+
+Write the optimized prompt now:`,
+    });
+
+    const refined = text.trim();
+    if (refined.length > 30) {
+      console.log(`[RefImage] LLM refined prompt for "${subjectName}": "${refined.substring(0, 100)}..."`);
+      return refined;
+    }
+  } catch (err: any) {
+    console.warn(`[RefImage] LLM refinement failed for "${subjectName}": ${err.message}. Using basic prompt.`);
+  }
+
+  return buildBasicPrompt(rawDescription, category, artStyle);
+}
+
+/**
+ * Basic prompt building — fallback when LLM is not available.
+ * Still much better structured than the old version.
+ */
+function buildBasicPrompt(
   visualDescription: string,
   category: string,
   artStyle?: string,
 ): string {
-  const parts: string[] = [];
+  // Subject description is ALWAYS first and most prominent
+  const parts: string[] = [visualDescription.trim()];
 
-  // 1. The subject description (the most important part)
-  parts.push(visualDescription.trim());
+  // Minimal isolation cue — don't overwhelm the subject with boilerplate
+  switch (category) {
+    case 'character':
+      parts.push('full body, centered, clean neutral background, studio lighting');
+      break;
+    case 'product':
+      parts.push('centered on white background, studio product photography');
+      break;
+    case 'vehicle':
+      parts.push('three-quarter angle, clean background, automotive lighting');
+      break;
+    case 'location':
+      parts.push('establishing shot, clear composition');
+      break;
+    default:
+      parts.push('centered, clean background, studio lighting');
+  }
 
-  // 2. Category-specific isolation/composition tokens
-  const catTokens = CATEGORY_TOKENS[category] || CATEGORY_TOKENS['object'];
-  parts.push(catTokens);
-
-  // 3. Art-style–specific quality tokens (NOT generic "highly detailed sharp focus")
+  // Style — short and targeted
   if (artStyle) {
     const styleKey = artStyle.toLowerCase().replace(/\s+/g, '-');
-    const styleTokens = REF_STYLE_TOKENS[styleKey];
-    if (styleTokens) {
-      parts.push(styleTokens);
-    } else {
-      parts.push(`${artStyle} style, professional quality`);
-    }
+    const SHORT_STYLE: Record<string, string> = {
+      cinematic: 'cinematic photography, shallow depth of field, color graded',
+      photorealistic: 'photorealistic, DSLR quality, razor sharp focus',
+      anime: 'anime style, cel-shaded, clean linework',
+      cartoon: 'cartoon style, bold outlines, flat colors',
+      '3d-render': '3D render, Octane quality, volumetric lighting',
+      fantasy: 'fantasy concept art, painterly, rich detail',
+      cyberpunk: 'cyberpunk aesthetic, neon accents, high tech',
+      'comic-book': 'comic book art, bold ink outlines, graphic novel style',
+      watercolor: 'watercolor illustration, soft washes, paper texture',
+      'oil-painting': 'oil painting, impasto brushwork, classical',
+      sketch: 'pencil sketch, expressive linework, hand-drawn',
+      noir: 'film noir, high contrast black and white, dramatic shadows',
+      minimalist: 'minimalist flat design, clean geometric, restrained palette',
+      superhero: 'superhero concept art, dynamic, vivid colors, Marvel style',
+      'sci-fi': 'sci-fi concept art, futuristic, volumetric lighting',
+    };
+    parts.push(SHORT_STYLE[styleKey] || `${artStyle} style`);
   } else {
-    parts.push('professional studio photography, sharp focus, high detail');
+    parts.push('professional quality, sharp detail');
   }
 
-  return parts.join('. ');
+  return parts.join(', ');
 }
 
-/**
- * Build a negative prompt for reference images.
- */
-function buildReferenceNegativePrompt(artStyle?: string): string {
-  const base = 'blurry, low quality, distorted, deformed, watermark, text overlay, logo, bad anatomy, extra limbs, cropped, out of frame, multiple subjects, busy background, cluttered';
+// ─── Per-model input adaptation ─────────────────────────────────
+// Different fal.ai models expect different input shapes.
 
-  // Add style-specific negatives
-  const styleKey = artStyle?.toLowerCase().replace(/\s+/g, '-') || '';
-  if (['anime', 'cartoon', 'comic-book', 'pixel-art'].includes(styleKey)) {
-    return `${base}, photorealistic, 3d render`;
+function buildModelInput(
+  modelId: string,
+  prompt: string,
+): Record<string, any> {
+  const base: Record<string, any> = {
+    prompt,
+    num_images: 1,
+    enable_safety_checker: false,
+  };
+
+  // Flux models
+  if (modelId.includes('flux')) {
+    base.image_size = { width: 1024, height: 1024 };
+    return base;
   }
-  if (['photorealistic', 'cinematic', 'documentary'].includes(styleKey)) {
-    return `${base}, cartoon, anime, illustration, drawing`;
+
+  // Imagen 4
+  if (modelId.includes('imagen')) {
+    base.image_size = { width: 1024, height: 1024 };
+    return base;
   }
+
+  // Seedream
+  if (modelId.includes('seedream')) {
+    base.image_size = { width: 1024, height: 1024 };
+    return base;
+  }
+
+  // Recraft V3
+  if (modelId.includes('recraft')) {
+    base.image_size = { width: 1024, height: 1024 };
+    return base;
+  }
+
+  // Default
+  base.image_size = { width: 1024, height: 1024 };
   return base;
 }
 
-// ─── Models that support negative_prompt ────────────────────────
-const SUPPORTS_NEGATIVE_PROMPT = new Set([
-  'fal-ai/flux/schnell',
-  'fal-ai/flux/dev',
-  'fal-ai/flux-pro/v1.1',
-]);
+// ─── Core Generation ────────────────────────────────────────────
 
 /**
  * Generate a single reference image for a subject.
- * Uses the user's chosen image model (not hardcoded flux/schnell).
+ *
+ * Flow:
+ * 1. Resolve model (user choice > default flux-dev)
+ * 2. LLM-refine the visual description into an optimized prompt
+ * 3. Build model-specific input
+ * 4. Generate image via fal.ai
+ * 5. Upload to GCS
  */
 export async function generateReferenceImage(
   subject: SubjectReference,
@@ -140,10 +235,9 @@ export async function generateReferenceImage(
 ): Promise<{ imageUrl: string; assetId: string; gcsPath: string }> {
   ensureFalConfig();
 
-  // Resolve model — use user's chosen model, not always flux/schnell
+  // Resolve model
   let modelId = DEFAULT_MODEL;
   if (options.modelId) {
-    // Could be a key like 'flux-dev' or a full ID like 'fal-ai/flux/dev'
     if (options.modelId in IMAGE_MODELS) {
       modelId = IMAGE_MODELS[options.modelId as ImageModelKey];
     } else {
@@ -151,30 +245,33 @@ export async function generateReferenceImage(
     }
   }
 
-  const prompt = buildReferencePrompt(
+  // LLM-refine the prompt (the biggest quality improvement)
+  const prompt = await refineReferencePrompt(
+    subject.name,
     subject.visualDescription,
     subject.category || 'object',
     options.artStyle,
   );
 
-  console.log(`[RefImage] Subject "${subject.name}": model=${modelId}, prompt="${prompt.substring(0, 120)}..."`);
+  console.log(`[RefImage] Subject "${subject.name}": model=${modelId}, prompt="${prompt.substring(0, 150)}..."`);
 
-  const input: Record<string, any> = {
-    prompt,
-    image_size: { width: 1024, height: 1024 },
-    num_images: 1,
-    enable_safety_checker: false,
-  };
+  const input = buildModelInput(modelId, prompt);
 
-  // Add negative prompt for models that support it
-  if (SUPPORTS_NEGATIVE_PROMPT.has(modelId)) {
-    input.negative_prompt = buildReferenceNegativePrompt(options.artStyle);
+  let result: any;
+  try {
+    result = await (fal as any).subscribe(modelId, { input, logs: false });
+  } catch (err: any) {
+    // If the chosen model fails, try fallback
+    if (modelId !== FALLBACK_MODEL) {
+      console.warn(`[RefImage] ${modelId} failed (${err.message}), trying ${FALLBACK_MODEL}`);
+      result = await (fal as any).subscribe(FALLBACK_MODEL, {
+        input: buildModelInput(FALLBACK_MODEL, prompt),
+        logs: false,
+      });
+    } else {
+      throw err;
+    }
   }
-
-  const result = await fal.subscribe(modelId, {
-    input,
-    logs: false,
-  });
 
   const data = result.data as any;
   const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;

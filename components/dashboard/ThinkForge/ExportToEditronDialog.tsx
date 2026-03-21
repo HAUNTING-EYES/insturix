@@ -55,6 +55,16 @@ interface SubjectRef {
   status: string;
   scenesAppearingIn: number[];
   visualDescription?: string;
+  priority?: 'hero' | 'suggested';
+}
+
+/** Suggested subject from script analysis — no image yet, one-click to generate */
+interface SuggestedSubject {
+  id: string;
+  name: string;
+  category: string;
+  visualDescription: string;
+  scenesAppearingIn: number[];
 }
 
 export function ExportToEditronDialog({
@@ -98,7 +108,12 @@ export function ExportToEditronDialog({
   const [editingDescription, setEditingDescription] = useState('');
   const [overallMusicPrompt, setOverallMusicPrompt] = useState('');
 
-  // Add new subject state
+  // Suggested subjects from script analysis (not yet generated)
+  const [suggestedSubjects, setSuggestedSubjects] = useState<SuggestedSubject[]>([]);
+  const [generatingSuggestedId, setGeneratingSuggestedId] = useState<string | null>(null);
+  const [scriptSearchQuery, setScriptSearchQuery] = useState('');
+
+  // Add new subject state (manual entry)
   const [showAddSubject, setShowAddSubject] = useState(false);
   const [addingSubject, setAddingSubject] = useState(false);
   const [newSubjectName, setNewSubjectName] = useState('');
@@ -202,6 +217,9 @@ export function ExportToEditronDialog({
     setEditingSubjectId(null);
     setEditingDescription('');
     setOverallMusicPrompt('');
+    setSuggestedSubjects([]);
+    setGeneratingSuggestedId(null);
+    setScriptSearchQuery('');
     setShowAddSubject(false);
     setAddingSubject(false);
     setNewSubjectName('');
@@ -288,17 +306,33 @@ export function ExportToEditronDialog({
 
         if (extractRes.ok) {
           const extractData = await extractRes.json();
-          const extractedSubjects = extractData.subjects || [];
+          const allExtracted = extractData.subjects || [];
 
-          if (extractedSubjects.length > 0) {
-            // ─── Step 3: Generate reference images ────────────────
+          if (allExtracted.length > 0) {
+            // Split into hero (auto-generate) and suggested (show as options)
+            const heroSubjects = allExtracted.filter((s: any) => s.priority === 'hero');
+            const suggestedOnly = allExtracted.filter((s: any) => s.priority !== 'hero');
+
+            // Store suggested subjects for the review UI
+            setSuggestedSubjects(suggestedOnly.map((s: any) => ({
+              id: s.id,
+              name: s.name,
+              category: s.category,
+              visualDescription: s.visualDescription,
+              scenesAppearingIn: s.scenesAppearingIn || [],
+            })));
+
+            // Only generate images for hero subjects (1-2 max)
+            const subjectsToGenerate = heroSubjects.length > 0 ? heroSubjects : allExtracted.slice(0, 2);
+
+            // ─── Step 3: Generate reference images for heroes ─────
             setStep('generating-references');
 
             const genRes = await fetch('/api/services/pipeline/reference-images/generate', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                subjects: extractedSubjects,
+                subjects: subjectsToGenerate,
                 artStyle,
                 sourceScriptId: scriptId,
                 modelId: imageModel !== 'flux-schnell' ? imageModel : undefined,
@@ -308,12 +342,16 @@ export function ExportToEditronDialog({
             if (genRes.ok) {
               const genData = await genRes.json();
               setRefSetId(genData.refSetId || '');
-              setSubjects(genData.subjects || []);
+              setSubjects((genData.subjects || []).map((s: any) => ({ ...s, priority: 'hero' })));
               // Auto-approve all initially (user can reject individually)
               const allIds = new Set<string>((genData.subjects || []).map((s: SubjectRef) => s.subjectId));
               setApprovedSubjectIds(allIds);
 
-              sendNotification('Reference Images Ready', `${genData.subjects?.length || 0} character/subject references generated. Review them now.`);
+              // Remove any suggested subjects that were actually generated as heroes
+              const generatedIds = new Set(subjectsToGenerate.map((s: any) => s.id));
+              setSuggestedSubjects((prev) => prev.filter((s) => !generatedIds.has(s.id)));
+
+              sendNotification('Reference Images Ready', `${genData.subjects?.length || 0} references generated. ${suggestedOnly.length} more suggestions from your script.`);
 
               // ─── PAUSE: Show review UI ──────────────────────────
               setStep('reviewing-references');
@@ -611,6 +649,58 @@ export function ExportToEditronDialog({
       } catch (err) {
         console.error('[ExportToEditron] Delete subject DB error:', err);
       }
+    }
+  };
+
+  // Generate a suggested subject (one-click from script analysis)
+  const handleGenerateSuggested = async (suggested: SuggestedSubject) => {
+    if (!refSetId || generatingSuggestedId) return;
+    setGeneratingSuggestedId(suggested.id);
+    setError('');
+
+    try {
+      const res = await fetch(`/api/services/pipeline/reference-images/${refSetId}/add-subject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: suggested.name,
+          category: suggested.category,
+          visualDescription: suggested.visualDescription,
+          scenesAppearingIn: suggested.scenesAppearingIn,
+          artStyle,
+          modelId: imageModel !== 'flux-schnell' ? imageModel : undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Failed (${res.status})`);
+      }
+
+      const data = await res.json();
+      const newSubject: SubjectRef = {
+        subjectId: data.subject.subjectId,
+        name: data.subject.name,
+        category: data.subject.category,
+        imageUrl: data.subject.imageUrl,
+        status: 'generated',
+        scenesAppearingIn: data.subject.scenesAppearingIn,
+        visualDescription: data.subject.visualDescription,
+        priority: 'suggested',
+      };
+
+      setSubjects((prev) => [...prev, newSubject]);
+      setApprovedSubjectIds((prev) => {
+        const next = new Set(prev);
+        next.add(newSubject.subjectId);
+        return next;
+      });
+      // Remove from suggestions
+      setSuggestedSubjects((prev) => prev.filter((s) => s.id !== suggested.id));
+    } catch (err: any) {
+      setError(`Generate "${suggested.name}" failed: ${err.message}`);
+    } finally {
+      setGeneratingSuggestedId(null);
     }
   };
 
@@ -1100,7 +1190,7 @@ export function ExportToEditronDialog({
                 </p>
               </div>
               <p className="text-xs text-zinc-500">
-                These reference images will guide AI to maintain visual consistency across all scenes. Toggle to approve/reject, or regenerate any subject.
+                These reference images guide AI for visual consistency. Approve, reject, regenerate, or add more from script suggestions below.
               </p>
 
               <div className="grid grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
@@ -1287,94 +1377,135 @@ export function ExportToEditronDialog({
                 })}
               </div>
 
-              {/* ─── Add New Reference Subject ─────────────────── */}
-              {!showAddSubject ? (
-                <button
-                  onClick={() => setShowAddSubject(true)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-dashed border-zinc-600 text-zinc-400 hover:border-purple-500/50 hover:text-purple-400 transition-colors text-xs"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Custom Reference
-                </button>
-              ) : (
-                <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-medium text-purple-400">Add New Reference Subject</p>
-                    <button
-                      onClick={() => { setShowAddSubject(false); setNewSubjectName(''); setNewSubjectCategory('character'); setNewSubjectDescription(''); setNewSubjectScenes(''); }}
-                      className="text-zinc-500 hover:text-zinc-300"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+              {/* ─── Suggested from Script ─────────────────────── */}
+              {suggestedSubjects.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-medium text-zinc-400 uppercase tracking-wide">
+                    More from your script ({suggestedSubjects.length})
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {suggestedSubjects
+                      .filter((s) =>
+                        !scriptSearchQuery ||
+                        s.name.toLowerCase().includes(scriptSearchQuery.toLowerCase()) ||
+                        s.visualDescription.toLowerCase().includes(scriptSearchQuery.toLowerCase()) ||
+                        s.category.toLowerCase().includes(scriptSearchQuery.toLowerCase())
+                      )
+                      .map((suggested) => (
+                        <button
+                          key={suggested.id}
+                          onClick={() => handleGenerateSuggested(suggested)}
+                          disabled={generatingSuggestedId !== null}
+                          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all text-left group disabled:opacity-50"
+                          title={suggested.visualDescription}
+                        >
+                          {generatingSuggestedId === suggested.id ? (
+                            <Loader2 className="h-3 w-3 text-purple-400 animate-spin flex-shrink-0" />
+                          ) : (
+                            <Plus className="h-3 w-3 text-zinc-500 group-hover:text-purple-400 flex-shrink-0" />
+                          )}
+                          <span className="text-[11px] text-zinc-300 group-hover:text-zinc-100">{suggested.name}</span>
+                          <span className="text-[9px] text-zinc-600 group-hover:text-zinc-500">{suggested.category}</span>
+                        </button>
+                      ))}
                   </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-[10px] text-zinc-500 block mb-0.5">Name</label>
-                      <Input
-                        value={newSubjectName}
-                        onChange={(e) => setNewSubjectName(e.target.value)}
-                        placeholder="e.g. Main Character, Logo"
-                        className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] text-zinc-500 block mb-0.5">Category</label>
-                      <Select value={newSubjectCategory} onValueChange={setNewSubjectCategory}>
-                        <SelectTrigger className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-zinc-800 border-zinc-700 text-zinc-200">
-                          <SelectItem value="character">Character</SelectItem>
-                          <SelectItem value="product">Product</SelectItem>
-                          <SelectItem value="location">Location</SelectItem>
-                          <SelectItem value="object">Object</SelectItem>
-                          <SelectItem value="vehicle">Vehicle</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-zinc-500 block mb-0.5">Visual Description (used as the AI prompt)</label>
-                    <textarea
-                      value={newSubjectDescription}
-                      onChange={(e) => setNewSubjectDescription(e.target.value)}
-                      placeholder="Describe what this subject looks like — e.g. 'A young woman with dark curly hair, wearing a blue blazer and gold necklace, warm smile'"
-                      className="w-full bg-zinc-800 border border-zinc-600 text-zinc-200 text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-purple-500"
-                      rows={3}
-                    />
-                  </div>
-
-                  <div>
-                    <label className="text-[10px] text-zinc-500 block mb-0.5">Appears in scenes (comma-separated, e.g. 1,2,4 — leave blank for all)</label>
-                    <Input
-                      value={newSubjectScenes}
-                      onChange={(e) => setNewSubjectScenes(e.target.value)}
-                      placeholder="1,2,3,4"
-                      className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7"
-                    />
-                  </div>
-
-                  <Button
-                    onClick={handleAddSubject}
-                    disabled={addingSubject || !newSubjectName.trim() || !newSubjectDescription.trim()}
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs h-8"
-                  >
-                    {addingSubject ? (
-                      <>
-                        <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
-                        Generating...
-                      </>
-                    ) : (
-                      <>
-                        <Plus className="h-3 w-3 mr-1.5" />
-                        Generate & Add Reference
-                      </>
-                    )}
-                  </Button>
                 </div>
               )}
+
+              {/* ─── Search + Manual Add ───────────────────────── */}
+              <div className="space-y-1.5">
+                {/* Search box — filters suggestions and doubles as custom entry */}
+                <div className="flex gap-1.5">
+                  <Input
+                    value={scriptSearchQuery}
+                    onChange={(e) => setScriptSearchQuery(e.target.value)}
+                    placeholder={suggestedSubjects.length > 0
+                      ? 'Search suggestions or type a new subject...'
+                      : 'Type a subject to add (e.g. "red sports car")...'
+                    }
+                    className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7 flex-1"
+                  />
+                  {!showAddSubject && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setShowAddSubject(true);
+                        if (scriptSearchQuery.trim()) {
+                          setNewSubjectName(scriptSearchQuery.trim());
+                        }
+                      }}
+                      className="h-7 px-2 text-[10px] border-zinc-600 text-zinc-400 hover:text-purple-400 hover:border-purple-500/50"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Custom
+                    </Button>
+                  )}
+                </div>
+
+                {/* Expanded manual add form */}
+                {showAddSubject && (
+                  <div className="rounded-lg border border-purple-500/30 bg-purple-500/5 p-2.5 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-medium text-purple-400">Add Custom Subject</p>
+                      <button
+                        onClick={() => { setShowAddSubject(false); setNewSubjectName(''); setNewSubjectCategory('character'); setNewSubjectDescription(''); setNewSubjectScenes(''); }}
+                        className="text-zinc-500 hover:text-zinc-300"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[9px] text-zinc-500 block mb-0.5">Name</label>
+                        <Input
+                          value={newSubjectName}
+                          onChange={(e) => setNewSubjectName(e.target.value)}
+                          placeholder="e.g. Main Character"
+                          className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7"
+                          autoFocus
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-zinc-500 block mb-0.5">Category</label>
+                        <Select value={newSubjectCategory} onValueChange={setNewSubjectCategory}>
+                          <SelectTrigger className="bg-zinc-800 border-zinc-600 text-zinc-200 text-xs h-7">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-zinc-800 border-zinc-700 text-zinc-200">
+                            <SelectItem value="character">Character</SelectItem>
+                            <SelectItem value="product">Product</SelectItem>
+                            <SelectItem value="location">Location</SelectItem>
+                            <SelectItem value="object">Object</SelectItem>
+                            <SelectItem value="vehicle">Vehicle</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-[9px] text-zinc-500 block mb-0.5">Visual Description (AI will refine this into a generation prompt)</label>
+                      <textarea
+                        value={newSubjectDescription}
+                        onChange={(e) => setNewSubjectDescription(e.target.value)}
+                        placeholder="Describe the subject — can be brief, AI will expand it using your script context"
+                        className="w-full bg-zinc-800 border border-zinc-600 text-zinc-200 text-[11px] rounded p-1.5 resize-none focus:outline-none focus:border-purple-500"
+                        rows={2}
+                      />
+                    </div>
+                    <Button
+                      onClick={handleAddSubject}
+                      disabled={addingSubject || !newSubjectName.trim() || !newSubjectDescription.trim()}
+                      className="w-full bg-purple-600 hover:bg-purple-700 text-white text-xs h-7"
+                    >
+                      {addingSubject ? (
+                        <><Loader2 className="h-3 w-3 animate-spin mr-1" />Generating...</>
+                      ) : (
+                        <><Plus className="h-3 w-3 mr-1" />Generate & Add</>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
 
               {error && <p className="text-sm text-red-400">{error}</p>}
             </motion.div>

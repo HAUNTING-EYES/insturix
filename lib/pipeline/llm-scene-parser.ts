@@ -120,20 +120,28 @@ const SubjectSchema = z.object({
   id: z.string().describe('Unique kebab-case identifier, e.g. "silver-chronograph-watch"'),
   name: z.string().describe('Human-readable name, e.g. "Luxury Silver Chronograph Watch"'),
   category: z.enum(['character', 'product', 'location', 'object', 'vehicle']),
-  visualDescription: z.string().describe('Detailed visual description for generating a reference image of this subject IN ISOLATION: appearance, colors, materials, textures, distinguishing features. Describe against a clean neutral background with studio lighting.'),
+  visualDescription: z.string().describe('Exhaustively detailed visual description of this subject IN ISOLATION for generating a reference image. Include: exact shape, specific color names (not "colorful" — say "cobalt blue"), materials, textures, proportions, distinguishing features. For characters: face, hair, skin tone, build, clothing, accessories. For products: dimensions, finish, design details, distinctive elements.'),
   scenesAppearingIn: z.array(z.number()).describe('Scene indices (0-based) where this subject appears'),
+  /** Priority tier: "hero" = auto-generate immediately, "suggested" = show as one-click add option */
+  priority: z.enum(['hero', 'suggested']).describe('"hero" = the 1-2 most important subjects that MUST have reference images. "suggested" = other notable subjects the user might want references for.'),
 });
 
 const SubjectExtractionSchema = z.object({
-  subjects: z.array(SubjectSchema).min(1).max(10),
+  subjects: z.array(SubjectSchema).min(1).max(15),
 });
 
 export type ExtractedSubject = z.infer<typeof SubjectSchema>;
 export type SubjectExtractionResult = z.infer<typeof SubjectExtractionSchema>;
 
 /**
- * Extract key visual subjects from parsed scenes.
- * These will be used to generate reference images for visual consistency.
+ * Extract ALL possible visual subjects from parsed scenes.
+ *
+ * Returns subjects in two tiers:
+ * - "hero": Top 1-2 most important subjects → auto-generated immediately
+ * - "suggested": Other notable subjects → shown as one-click add options
+ *
+ * Uses FULL scene descriptions (not truncated) so the LLM can identify
+ * every visual detail mentioned in the script.
  */
 export async function extractSubjectsFromScenes(
   scenes: Array<{ title: string; narration: string; visualDescription: string; sceneIndex: number }>,
@@ -142,38 +150,64 @@ export async function extractSubjectsFromScenes(
   const google = getGeminiProvider();
   const model = google('gemini-2.0-flash');
 
+  // Give the LLM the FULL visual description + narration — not truncated.
+  // The narration often contains key subject details the visual desc misses.
   const scenesSummary = scenes
-    .map((s, i) => `Scene ${i}: "${s.title}" — ${s.visualDescription.substring(0, 200)}`)
-    .join('\n');
+    .map((s) => {
+      const parts = [`Scene ${s.sceneIndex}: "${s.title}"`];
+      parts.push(`  Visual: ${s.visualDescription}`);
+      if (s.narration) parts.push(`  Narration: ${s.narration}`);
+      return parts.join('\n');
+    })
+    .join('\n\n');
 
   const { object } = await generateObject({
     model,
     schema: SubjectExtractionSchema,
-    prompt: `You are a video pre-production AI. Analyze these scenes and identify ONLY the HERO SUBJECTS — the core subjects the video is ABOUT that must look visually identical across scenes.
+    prompt: `You are a senior concept artist doing pre-production for a video. Read EVERY scene carefully and extract ALL visual subjects that could benefit from a reference image.
 
-STRICT RULES:
-- ONLY extract the 1-3 most important recurring subjects. Quality over quantity.
-- The subject must be a PHYSICAL, TANGIBLE thing that can be rendered as a single isolated image: a specific person/character, a specific product, a specific vehicle, a specific key object.
-- The subject MUST appear in 2+ scenes and be CENTRAL to the video's narrative.
-- Do NOT extract:
-  • Locations, rooms, buildings, or environments (these are SETTINGS, not subjects)
-  • Background elements, furniture, props, or set dressing
-  • Text, logos, brand names, or UI elements
-  • Abstract concepts, moods, or atmospheres
-  • Generic items (a table, the sky, a phone) that aren't the HERO of the video
-  • Anything that is part of the setting rather than the subject
-- For a PRODUCT AD: extract ONLY the product itself (the watch, the shoe, the car)
-- For a STORY: extract ONLY the main character(s)
-- For each subject, write a visualDescription as an AI IMAGE GENERATION PROMPT for a REFERENCE SHEET:
-  - Describe the subject COMPLETELY IN ISOLATION against a clean neutral/white background
-  - Include: exact colors, materials, textures, proportions, distinguishing details
-  - Studio lighting, sharp focus
-  - Example: "Luxury silver chronograph watch with midnight blue dial, polished steel bracelet, sapphire crystal, date window at 3 o'clock, clean white background, studio product photography, sharp focus"
-  - NEVER include scene context, backgrounds, or other objects — ONLY the subject itself
-${options.artStyle ? `- Art style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
+=== SCENES ===
+${scenesSummary}
 
-SCENES:
-${scenesSummary}`,
+=== YOUR TASK ===
+Extract TWO TIERS of subjects:
+
+TIER 1 — "hero" (1-2 subjects): The absolute most important recurring subjects that MUST have reference images. These will be auto-generated.
+TIER 2 — "suggested" (3-10 subjects): Every other notable visual subject mentioned in the script that the user MIGHT want a reference for. Be thorough — scan every scene for characters, objects, products, vehicles. Even things appearing once can be suggested if they're visually important.
+
+WHAT TO EXTRACT (for both tiers):
+- Characters/people (main AND secondary)
+- Products (hero product AND any other products shown)
+- Key objects (gadgets, tools, food items, symbols, props)
+- Vehicles (cars, bikes, drones, spacecraft)
+- Animals or creatures
+- Specific clothing/outfits that are narratively important
+- Branded items or distinctive products
+
+WHAT TO SKIP:
+- Generic settings/locations (rooms, buildings, landscapes) — use category "location" only for VERY specific, narratively critical places
+- Abstract concepts, moods, logos as text
+- Truly generic items (a random table, generic clouds)
+
+=== VISUAL DESCRIPTION INSTRUCTIONS ===
+For each subject, write a visualDescription as if briefing an illustrator who has NEVER seen this thing.
+
+Be EXHAUSTIVE and SPECIFIC:
+- Physical form: exact shape, size, proportions
+- Colors: use specific names ("cobalt blue", "brushed silver", "warm amber" — NOT "colorful" or "blue")
+- Materials & textures: leather, matte plastic, polished chrome, cotton fabric, etc.
+- Distinguishing features: what makes THIS subject unique?
+- For characters: face details, hair, skin tone, build, specific clothing, accessories
+- For products: dimensions, finish, design language, distinctive elements
+
+BAD: "A modern smartwatch" → generic, could be anything
+GOOD: "Matte black titanium smartwatch, 44mm round case, always-on OLED display with analog face and rose gold hands, black sport band with pin-and-tuck clasp, thin silver bezel ring"
+
+BAD: "A young woman" → generic, could be anyone
+GOOD: "East Asian woman, late 20s, straight black jawline-length hair with side-swept bangs, warm ivory skin, dark brown almond eyes, small left nose stud, tailored charcoal wool blazer over cream silk camisole, layered thin gold necklaces, confident slight smile, athletic build"
+${options.artStyle ? `\nArt style: ${options.artStyle}. Describe subjects in this visual style.` : ''}
+
+Extract ALL subjects now (heroes + suggestions):`,
   });
 
   return object;
