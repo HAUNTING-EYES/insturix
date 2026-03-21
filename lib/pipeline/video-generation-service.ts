@@ -137,7 +137,11 @@ export interface VideoGenerationResult {
 
 /**
  * Build model-specific input for fal.ai video models.
- * Different models expect different field names and value types.
+ *
+ * IMPORTANT: Each model has DIFFERENT parameter names and types.
+ * These are verified against the actual fal.ai API docs (March 2026).
+ * Do NOT change these without checking the model's API page first:
+ *   https://fal.ai/models/{model-id}/api
  */
 function buildFalVideoInput(
   modelKey: FalVideoModel,
@@ -151,41 +155,78 @@ function buildFalVideoInput(
   };
 
   switch (modelKey) {
-    case 'kling-2.1':
-    case 'kling-1.5':
+    // ─── Kling 2.6 Pro ─────────────────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/kling-video/v2.6/pro/image-to-video/api
+    // DIFFERENT from 2.1/1.5: uses `start_image_url` (NOT `image_url`)
+    // and does NOT accept `aspect_ratio`.
+    // Duration: enum string "5" or "10"
     case 'kling-2.6':
-      // Kling models: image_url, duration as string "5" or "10"
-      base.image_url = imageUrl;
-      base.duration = String(Math.min(duration, 10));
-      base.aspect_ratio = aspectRatio;
+      base.start_image_url = imageUrl;
+      base.duration = String(Math.min(Math.max(duration, 5), 10));
+      base.negative_prompt = 'blur, distort, and low quality';
+      base.generate_audio = false; // we handle audio separately
       break;
 
+    // ─── Kling 2.1 Pro / 1.5 Pro ──────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/kling-video/v2.1/pro/image-to-video/api
+    // Uses `image_url`, accepts `aspect_ratio`, `cfg_scale`, `duration`
+    // Duration: enum string "5" or "10"
+    case 'kling-2.1':
+    case 'kling-1.5':
+      base.image_url = imageUrl;
+      base.duration = String(Math.min(Math.max(duration, 5), 10));
+      base.aspect_ratio = aspectRatio;
+      base.cfg_scale = 0.5;
+      base.negative_prompt = 'blur, distort, and low quality';
+      break;
+
+    // ─── MiniMax Hailuo Video 01 ───────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/minimax/video-01/image-to-video/api
+    // Only accepts: prompt, image_url, prompt_optimizer
+    // No duration, no aspect_ratio parameters.
     case 'minimax':
-      // MiniMax Hailuo: image_url, prompt_optimizer (bool)
       base.image_url = imageUrl;
       base.prompt_optimizer = true;
       break;
 
+    // ─── Luma Ray 2 / Dream Machine ────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/luma-dream-machine/ray-2/image-to-video/api
+    // Duration: enum string "5s" or "9s" (WITH 's' suffix)
+    // Aspect ratio: "16:9", "9:16", "4:3", "3:4", "21:9", "9:21"
+    // Resolution: "540p", "720p", "1080p"
     case 'luma-ray2':
     case 'luma-dream-machine':
-      // Luma models: image_url, aspect_ratio, loop (bool)
       base.image_url = imageUrl;
       base.aspect_ratio = aspectRatio;
       base.loop = false;
+      base.resolution = '720p';
+      base.duration = duration >= 7 ? '9s' : '5s';
       break;
 
+    // ─── Google Veo 3 / Veo 2 ──────────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/veo3/image-to-video/api
+    // Duration: enum string "4s", "6s", or "8s" (WITH 's' suffix)
+    // Aspect ratio: "auto", "16:9", "9:16"
+    // Resolution: "720p", "1080p"
+    // image_url must be 720p+ in 16:9 or 9:16
     case 'veo-3':
     case 'veo-2':
-      // Google Veo: image_url, aspect_ratio, duration as number
       base.image_url = imageUrl;
-      base.aspect_ratio = aspectRatio;
-      base.duration = Math.min(duration, 8); // Veo max ~8s
+      // Veo only accepts "auto", "16:9", "9:16" — map unsupported ratios
+      base.aspect_ratio = (aspectRatio === '16:9' || aspectRatio === '9:16')
+        ? aspectRatio : 'auto';
+      base.resolution = '720p';
+      base.generate_audio = false; // we handle audio separately
+      // Map duration to nearest Veo enum: 4s, 6s, or 8s
+      if (duration <= 4) base.duration = '4s';
+      else if (duration <= 6) base.duration = '6s';
+      else base.duration = '8s';
       break;
 
     default:
-      // Generic fallback
+      // Safe generic fallback — use Kling 2.1 parameter format
       base.image_url = imageUrl;
-      base.duration = String(duration);
+      base.duration = String(Math.min(duration, 10));
       base.aspect_ratio = aspectRatio;
       break;
   }
@@ -235,6 +276,11 @@ async function generateVideoWithFal(
     request.aspectRatio || '16:9',
   );
 
+  // Log the exact input being sent to fal.ai for debugging
+  const inputKeys = Object.keys(input);
+  const safeInput = { ...input, prompt: input.prompt?.substring(0, 80) + '...' };
+  console.log(`[VideoGen] fal.subscribe input for ${modelKey} (${modelId}):`, JSON.stringify(safeInput));
+
   const genStart = Date.now();
   let result: any;
   try {
@@ -245,7 +291,8 @@ async function generateVideoWithFal(
   } catch (err: any) {
     // Surface the actual fal.ai error details (often hidden behind generic messages)
     const errMsg = err?.body?.detail || err?.message || 'Unknown fal.ai error';
-    console.error(`[VideoGen] fal.ai error for ${modelKey}: ${errMsg}`, JSON.stringify(err?.body || {}).substring(0, 500));
+    console.error(`[VideoGen] fal.ai FAILED for ${modelKey} (${modelId}): ${errMsg}`, JSON.stringify(err?.body || {}).substring(0, 500));
+    console.error(`[VideoGen] Input params sent: ${inputKeys.join(', ')}`);
     throw new Error(`${modelKey}: ${errMsg}`);
   }
   const genMs = Date.now() - genStart;
