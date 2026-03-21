@@ -22,7 +22,10 @@ function ensureFalConfig() {
 }
 
 // ─── Timeout wrapper (same pattern as storyboard-service) ────────
-const FAL_VIDEO_TIMEOUT_MS = 180_000; // 3 minutes — video models are slow
+// Video models (especially Kling 2.6 with chaining) can take 100-250s.
+// Route has maxDuration=600s so we have plenty of budget.
+// 180s was too tight — videos at 170s were racing the timeout.
+const FAL_VIDEO_TIMEOUT_MS = 300_000; // 5 minutes per video call
 
 async function falSubscribeWithTimeout(
   modelId: string,
