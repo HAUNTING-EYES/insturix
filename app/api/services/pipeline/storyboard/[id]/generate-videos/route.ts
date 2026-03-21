@@ -1,22 +1,19 @@
 /**
  * POST /api/services/pipeline/storyboard/[id]/generate-videos
  *
- * Enqueue AI video clips for each approved scene in a storyboard.
- * Returns immediately with a batchId — frontend polls for progress.
+ * Enqueue AI video clips for each scene via QStash.
+ * Each scene gets its own QStash job → its own worker invocation → its own 300s timeout.
+ * All scenes process in parallel. Frontend polls /status?batchId=xxx for progress.
  *
- * Architecture: Non-blocking async queue.
- * 1. Build motion prompts for all scenes (LLM refinement, ~5s total)
- * 2. Enqueue each scene as an independent job in Redis
- * 3. Return batchId immediately — frontend polls /status?batchId=xxx
- * 4. Cron (/api/cron/process-video-queue) processes scenes in parallel
- *
- * This replaces the old sequential blocking approach that timed out on 4+ scenes.
+ * Uses the same proven QStash pattern as Clickatron (clickatron-qtask.ts).
+ * No Redis dependency — QStash handles queuing and delivery natively.
  *
  * Cost: 3 credits per scene
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { Client } from '@upstash/qstash';
 import { getStoryboard } from '@/lib/pipeline/storyboard-db';
 import { CreditsService } from '@/lib/services/creditsService';
 import {
@@ -30,19 +27,14 @@ import {
   isLLMParserAvailable,
   type VideoPromptContext,
 } from '@/lib/pipeline/llm-scene-parser';
-import {
-  enqueueVideoBatch,
-  type VideoJobScene,
-} from '@/lib/pipeline/video-queue-service';
-import {
-  generateVideoClip,
-  type VideoGenerationRequest,
-} from '@/lib/pipeline/video-generation-service';
-import { updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
+import { getDatabase } from '@/lib/editron/db/mongodb';
+import { nanoid } from 'nanoid';
 
 export const runtime = 'nodejs';
-// 300s: long enough for direct fallback (4 scenes × ~60s each) if Redis is down
-export const maxDuration = 300;
+export const maxDuration = 60; // Only builds prompts + enqueues (no video gen here)
+
+const VIDEO_JOBS_COLLECTION = 'pipeline_video_jobs';
+const VIDEO_BATCHES_COLLECTION = 'pipeline_video_batches';
 
 export async function POST(
   request: NextRequest,
@@ -106,7 +98,7 @@ export async function POST(
       );
     }
 
-    // Build reference subject lookup for VideoPromptMaster
+    // Build reference subject lookup
     const sceneSubjectMap = new Map<number, Array<{ name: string; category: string; visualDescription: string }>>();
     if (storyboard.approvedReferences && storyboard.approvedReferences.length > 0) {
       for (const ref of storyboard.approvedReferences) {
@@ -137,20 +129,26 @@ export async function POST(
       });
     }
 
-    console.log(`[generate-videos] Building prompts for ${targetScenes.length} scenes (LLM=${useLLMRefinement}, model=${lockedVideoModel})`);
+    const resolvedModel = lockedVideoModel || 'kling-2.1';
+    console.log(`[generate-videos] Building prompts for ${targetScenes.length} scenes (LLM=${useLLMRefinement}, model=${resolvedModel})`);
 
     // ─── Build ALL motion prompts upfront (fast: ~1-2s per scene with LLM) ────
-    const sortedScenes = [...targetScenes].sort(
-      (a, b) => a.sceneIndex - b.sceneIndex,
-    );
+    const sortedScenes = [...targetScenes].sort((a, b) => a.sceneIndex - b.sceneIndex);
 
-    const scenesForQueue: VideoJobScene[] = [];
+    interface SceneJob {
+      sceneIndex: number;
+      imageUrl: string;
+      motionPrompt: string;
+      durationSeconds: number;
+      nextSceneImageUrl?: string;
+    }
+
+    const sceneJobs: SceneJob[] = [];
 
     for (let i = 0; i < sortedScenes.length; i++) {
       const scene = sortedScenes[i];
       const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
 
-      // Build motion prompt (LLM refinement or fallback)
       let motionPrompt: string;
       if (useLLMRefinement) {
         try {
@@ -167,8 +165,7 @@ export async function POST(
           };
           motionPrompt = await refineVideoPrompt(promptContext);
           console.log(`[generate-videos] Scene ${scene.sceneIndex}: prompt refined (${motionPrompt.length} chars)`);
-        } catch (llmErr: any) {
-          console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM failed, using fallback`);
+        } catch {
           motionPrompt = buildMotionPrompt({
             visualDescription: scene.descriptor.visualDescription,
             narration: scene.descriptor.narration,
@@ -189,7 +186,7 @@ export async function POST(
         });
       }
 
-      scenesForQueue.push({
+      sceneJobs.push({
         sceneIndex: scene.sceneIndex,
         imageUrl: scene.imageUrl!,
         motionPrompt,
@@ -198,87 +195,121 @@ export async function POST(
       });
     }
 
-    // ─── Try async queue first, fall back to direct generation ──────
-    try {
-      const { batchId, totalScenes } = await enqueueVideoBatch(
-        userId,
-        storyboardId,
-        scenesForQueue,
-        {
-          aspectRatio,
-          videoModel: lockedVideoModel || 'kling-2.1',
-        },
-      );
+    // ─── Create batch + jobs in MongoDB, then enqueue via QStash ──────
+    const batchId = `vb_${nanoid(12)}`;
+    const db = await getDatabase();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-      console.log(`[generate-videos] Enqueued batch ${batchId}: ${totalScenes} scenes for parallel processing`);
+    // Create batch record
+    await db.collection(VIDEO_BATCHES_COLLECTION).insertOne({
+      _id: batchId,
+      userId,
+      storyboardId,
+      totalScenes: sceneJobs.length,
+      completed: 0,
+      failed: 0,
+      status: 'processing',
+      videoModel: resolvedModel,
+      createdAt: now,
+      updatedAt: now,
+      expiresAt,
+    } as any);
 
-      return NextResponse.json({
-        success: true,
-        async: true,
-        batchId,
-        storyboardId,
-        totalScenes,
-        videoModel: lockedVideoModel,
-        creditsDeducted: creditCost,
-        message: `${totalScenes} video scenes queued for parallel generation. Poll /status?batchId=${batchId} for progress.`,
+    // Create job records
+    const jobDocs = sceneJobs.map(s => ({
+      _id: `${batchId}_s${s.sceneIndex}`,
+      batchId,
+      userId,
+      storyboardId,
+      sceneIndex: s.sceneIndex,
+      status: 'queued',
+      createdAt: now,
+      expiresAt,
+    }));
+    if (jobDocs.length > 0) {
+      await db.collection(VIDEO_JOBS_COLLECTION).insertMany(jobDocs as any[]);
+    }
+
+    // ─── Enqueue each scene via QStash (all fire in parallel) ──────
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const workerUrl = `${baseUrl}/api/internal/workers/pipeline/video`;
+
+    const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
+
+    let enqueueErrors = 0;
+
+    if (isDev) {
+      // In dev, call worker directly (fire-and-forget)
+      for (const scene of sceneJobs) {
+        fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: `${batchId}_s${scene.sceneIndex}`,
+            batchId,
+            userId,
+            storyboardId,
+            sceneIndex: scene.sceneIndex,
+            imageUrl: scene.imageUrl,
+            motionPrompt: scene.motionPrompt,
+            durationSeconds: scene.durationSeconds,
+            aspectRatio,
+            videoModel: resolvedModel,
+            nextSceneImageUrl: scene.nextSceneImageUrl,
+          }),
+        }).catch(err => console.error(`[generate-videos] Dev dispatch failed for scene ${scene.sceneIndex}:`, err.message));
+      }
+    } else {
+      // Production: Use QStash
+      const qstashClient = new Client({
+        token: process.env.QSTASH_TOKEN!,
+        baseUrl: process.env.QSTASH_URL,
       });
-    } catch (queueErr: any) {
-      // ─── FALLBACK: Direct generation when Redis/queue is unavailable ──
-      console.warn(`[generate-videos] Queue unavailable (${queueErr.message}), falling back to direct generation`);
 
-      const videoResults: Array<{ sceneIndex: number; videoUrl?: string; error?: string }> = [];
-      const resolvedModel = lockedVideoModel || 'kling-2.1';
-
-      for (let i = 0; i < scenesForQueue.length; i++) {
-        const scene = scenesForQueue[i];
-        try {
-          console.log(`[generate-videos] Direct gen scene ${scene.sceneIndex} (${i + 1}/${scenesForQueue.length})`);
-          const result = await generateVideoClip(
-            {
+      const qstashResults = await Promise.allSettled(
+        sceneJobs.map(scene =>
+          qstashClient.publishJSON({
+            url: workerUrl,
+            body: {
+              jobId: `${batchId}_s${scene.sceneIndex}`,
+              batchId,
+              userId,
+              storyboardId,
+              sceneIndex: scene.sceneIndex,
               imageUrl: scene.imageUrl,
               motionPrompt: scene.motionPrompt,
               durationSeconds: scene.durationSeconds,
               aspectRatio,
-              falVideoModel: resolvedModel,
+              videoModel: resolvedModel,
               nextSceneImageUrl: scene.nextSceneImageUrl,
             },
-            userId,
-          );
+            retries: 2,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+        ),
+      );
 
-          // Update storyboard scene with video data
-          await updateStoryboardScene(storyboardId, scene.sceneIndex, {
-            videoUrl: result.videoUrl,
-            videoAssetId: result.assetId,
-            videoGcsPath: result.gcsPath,
-            videoProvider: result.provider || 'fal-ai',
-          });
-
-          videoResults.push({ sceneIndex: scene.sceneIndex, videoUrl: result.videoUrl });
-        } catch (genErr: any) {
-          console.error(`[generate-videos] Direct gen scene ${scene.sceneIndex} failed:`, genErr.message);
-          videoResults.push({ sceneIndex: scene.sceneIndex, error: genErr.message });
-        }
+      enqueueErrors = qstashResults.filter(r => r.status === 'rejected').length;
+      if (enqueueErrors > 0) {
+        console.error(`[generate-videos] ${enqueueErrors}/${sceneJobs.length} QStash enqueue failed`);
       }
-
-      const completed = videoResults.filter(r => r.videoUrl).length;
-      const failed = videoResults.filter(r => r.error).length;
-
-      return NextResponse.json({
-        success: completed > 0,
-        async: false, // Direct mode — results are final
-        storyboardId,
-        totalScenes: scenesForQueue.length,
-        completed,
-        failed,
-        isComplete: true,
-        status: completed === scenesForQueue.length ? 'completed' : completed > 0 ? 'partial' : 'failed',
-        scenes: videoResults,
-        videoModel: resolvedModel,
-        creditsDeducted: creditCost,
-        fallbackMode: true,
-        message: `Direct generation: ${completed}/${scenesForQueue.length} videos completed.`,
-      });
     }
+
+    console.log(`[generate-videos] Batch ${batchId}: ${sceneJobs.length} scenes enqueued via QStash (${enqueueErrors} failures)`);
+
+    return NextResponse.json({
+      success: true,
+      async: true,
+      batchId,
+      storyboardId,
+      totalScenes: sceneJobs.length,
+      videoModel: resolvedModel,
+      creditsDeducted: creditCost,
+      enqueueErrors,
+      message: `${sceneJobs.length} video scenes queued for parallel generation.`,
+    });
   } catch (error: any) {
     const errMsg = error?.message || 'Failed to generate videos';
     console.error('[generate-videos] Error:', errMsg);
