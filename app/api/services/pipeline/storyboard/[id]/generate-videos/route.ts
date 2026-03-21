@@ -14,6 +14,7 @@ import { CreditsService } from '@/lib/services/creditsService';
 import {
   generateVideoClip,
   buildMotionPrompt,
+  selectBestModel,
   type VideoProvider,
   type FalVideoModel,
 } from '@/lib/pipeline/video-generation-service';
@@ -47,7 +48,7 @@ export async function POST(
       sceneIndices?: number[];
       provider?: VideoProvider;
       aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
-      videoModel?: FalVideoModel;
+      videoModel?: FalVideoModel | 'auto';
     } = body;
 
     const storyboard = await getStoryboard(storyboardId, userId);
@@ -110,60 +111,64 @@ export async function POST(
     const artStyle = storyboard.styleGuide?.artStyle;
     const useLLMRefinement = isLLMParserAvailable();
 
-    // ─── Build motion prompts for all scenes (can be concurrent) ────
-    console.log(`[generate-videos] Building prompts for ${targetScenes.length} scenes (LLM=${useLLMRefinement})`);
-    const promptStart = Date.now();
+    // Consistency mode: when a specific model is chosen (not 'auto'), lock it for all scenes.
+    // When 'auto', pick per-scene but lock to the first scene's selection for consistency.
+    const isAutoModel = videoModel === 'auto' || !videoModel;
+    let lockedVideoModel: FalVideoModel | undefined;
+    if (!isAutoModel && videoModel) {
+      // User chose a specific model — use it for all scenes (consistency mode)
+      lockedVideoModel = videoModel;
+      console.log(`[generate-videos] Consistency mode: locked to ${lockedVideoModel} for all scenes`);
+    } else if (isAutoModel && targetScenes.length > 0) {
+      // Auto mode: select based on first scene and lock for all scenes
+      const firstScene = targetScenes[0];
+      lockedVideoModel = selectBestModel({
+        mood: firstScene.descriptor.mood,
+        durationSeconds: firstScene.descriptor.durationSeconds,
+        artStyle,
+      });
+      console.log(`[generate-videos] Auto mode: selected ${lockedVideoModel} from first scene, locking for all scenes`);
+    }
 
-    const scenesWithPrompts = await Promise.all(
-      targetScenes.map(async (scene) => {
-        let motionPrompt: string;
-
-        if (useLLMRefinement) {
-          try {
-            const promptContext: VideoPromptContext = {
-              visualDescription: scene.descriptor.visualDescription,
-              videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-              narration: scene.descriptor.narration,
-              mood: scene.descriptor.mood,
-              durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
-              artStyle,
-              aspectRatio,
-              referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
-              videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
-            };
-            motionPrompt = await refineVideoPrompt(promptContext);
-            console.log(`[generate-videos] Scene ${scene.sceneIndex}: VideoPromptMaster refined (${motionPrompt.length} chars)`);
-          } catch (llmErr: any) {
-            console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM failed, using fallback:`, llmErr.message);
-            motionPrompt = buildMotionPrompt({
-              visualDescription: scene.descriptor.visualDescription,
-              narration: scene.descriptor.narration,
-              cameraDirection: scene.descriptor.cameraDirection,
-              mood: scene.descriptor.mood,
-              videoMotionPrompt: scene.descriptor.videoMotionPrompt,
-              videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
-            });
-          }
-        } else {
-          motionPrompt = buildMotionPrompt({
+    // ─── Build motion prompt for a single scene (inline, just-in-time) ────
+    // Prompts are now built just before each scene's video generation,
+    // avoiding wasted LLM calls if earlier scenes fail or the request is aborted.
+    async function buildSceneMotionPrompt(scene: typeof targetScenes[number]): Promise<string> {
+      if (useLLMRefinement) {
+        try {
+          const promptContext: VideoPromptContext = {
             visualDescription: scene.descriptor.visualDescription,
-            narration: scene.descriptor.narration,
-            cameraDirection: scene.descriptor.cameraDirection,
-            mood: scene.descriptor.mood,
             videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+            narration: scene.descriptor.narration,
+            mood: scene.descriptor.mood,
+            durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
+            artStyle,
+            aspectRatio,
+            referenceSubjects: sceneSubjectMap.get(scene.sceneIndex),
             videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
-          });
+          };
+          const refined = await refineVideoPrompt(promptContext);
+          console.log(`[generate-videos] Scene ${scene.sceneIndex}: VideoPromptMaster refined (${refined.length} chars)`);
+          return refined;
+        } catch (llmErr: any) {
+          console.warn(`[generate-videos] Scene ${scene.sceneIndex}: LLM failed, using fallback:`, llmErr.message);
         }
+      }
+      return buildMotionPrompt({
+        visualDescription: scene.descriptor.visualDescription,
+        narration: scene.descriptor.narration,
+        cameraDirection: scene.descriptor.cameraDirection,
+        mood: scene.descriptor.mood,
+        videoMotionPrompt: scene.descriptor.videoMotionPrompt,
+        videoQualityTokens: (scene.descriptor as any).videoQualityTokens,
+      });
+    }
 
-        return { scene, motionPrompt };
-      }),
-    );
-    console.log(`[generate-videos] All prompts built in ${Date.now() - promptStart}ms`);
+    console.log(`[generate-videos] Processing ${targetScenes.length} scenes sequentially (LLM=${useLLMRefinement}, model=${lockedVideoModel})`);
 
-    // ─── Generate videos concurrently (2 at a time) ─────────────────
-    const CONCURRENCY = 2;
-    const queue = [...scenesWithPrompts];
-    const running: Promise<void>[] = [];
+    // ─── Generate videos sequentially (for last-frame chaining) ─────
+    // Process scenes in order so each scene can receive the previous
+    // scene's storyboard image as a visual continuity reference.
     const results: Array<{
       sceneIndex: number;
       videoUrl?: string;
@@ -173,7 +178,15 @@ export async function POST(
 
     const MAX_RETRIES = 1; // Retry failed scenes once
 
-    const processScene = async ({ scene, motionPrompt }: typeof scenesWithPrompts[number]) => {
+    // Sort by scene index for proper chaining order
+    const sortedScenes = [...targetScenes].sort(
+      (a, b) => a.sceneIndex - b.sceneIndex,
+    );
+    let previousSceneImageUrl: string | undefined;
+
+    for (const scene of sortedScenes) {
+      // Build motion prompt just-in-time (avoids wasted LLM calls)
+      const motionPrompt = await buildSceneMotionPrompt(scene);
       let lastError = '';
 
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -190,12 +203,13 @@ export async function POST(
               durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
               aspectRatio,
               provider,
-              falVideoModel: videoModel,
+              falVideoModel: lockedVideoModel,
+              previousSceneImageUrl,
             },
             userId,
           );
 
-          console.log(`[generate-videos] Scene ${scene.sceneIndex}: SUCCESS in ${Date.now() - sceneStart}ms (attempt ${attempt})`);
+          console.log(`[generate-videos] Scene ${scene.sceneIndex}: SUCCESS in ${Date.now() - sceneStart}ms (attempt ${attempt}, model=${lockedVideoModel})`);
 
           await updateStoryboardScene(storyboardId, scene.sceneIndex, {
             videoAssetId: result.assetId,
@@ -210,7 +224,10 @@ export async function POST(
             videoUrl: result.videoUrl,
             assetId: result.assetId,
           });
-          return; // Success — exit retry loop
+
+          // Chain: pass this scene's storyboard image to next scene
+          previousSceneImageUrl = scene.imageUrl!;
+          break; // Success — exit retry loop
         } catch (err: any) {
           lastError = err.message || 'Video generation failed';
           console.error(`[generate-videos] Scene ${scene.sceneIndex} attempt ${attempt} failed:`, lastError);
@@ -222,23 +239,13 @@ export async function POST(
         }
       }
 
-      // All attempts exhausted
-      results.push({
-        sceneIndex: scene.sceneIndex,
-        error: lastError,
-      });
-    };
-
-    while (queue.length > 0 || running.length > 0) {
-      while (running.length < CONCURRENCY && queue.length > 0) {
-        const item = queue.shift()!;
-        const p = processScene(item).then(() => {
-          running.splice(running.indexOf(p), 1);
+      if (lastError && !results.find((r) => r.sceneIndex === scene.sceneIndex)) {
+        results.push({
+          sceneIndex: scene.sceneIndex,
+          error: lastError,
         });
-        running.push(p);
-      }
-      if (running.length > 0) {
-        await Promise.race(running);
+        // Still chain the image URL forward for continuity
+        previousSceneImageUrl = scene.imageUrl!;
       }
     }
 

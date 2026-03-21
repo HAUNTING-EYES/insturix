@@ -219,22 +219,9 @@ export async function generateStoryboardImage(
     try {
       const ipAdapterModelId = 'fal-ai/flux/dev/ip-adapter';
 
-      // GCS signed URLs with query params cause IP-adapter failures.
-      // Re-upload to fal.ai CDN to get a clean URL (same fix as video gen).
-      let cleanRefUrl = primaryRef.imageUrl;
-      if (cleanRefUrl.includes('?')) {
-        try {
-          const refRes = await fetch(cleanRefUrl);
-          if (refRes.ok) {
-            const blob = await refRes.blob();
-            const file = new File([blob], `ref_${nanoid(8)}.png`, { type: 'image/png' });
-            cleanRefUrl = await fal.storage.upload(file);
-            console.log(`[Storyboard] Scene ${options.sceneIndex}: Re-uploaded ref to CDN: ${cleanRefUrl.substring(0, 60)}...`);
-          }
-        } catch (uploadErr: any) {
-          console.warn(`[Storyboard] Scene ${options.sceneIndex}: Ref URL cleanup failed (${uploadErr.message}), trying original`);
-        }
-      }
+      // Reference URLs are pre-uploaded to fal CDN in the generate route,
+      // so we can use them directly here without per-scene re-upload.
+      const cleanRefUrl = primaryRef.imageUrl;
 
       const result = await falSubscribeWithTimeout(ipAdapterModelId, {
         input: {

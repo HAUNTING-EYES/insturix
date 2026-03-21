@@ -498,6 +498,7 @@ const Timeline: React.FC<TimelineProps> = ({
                 dragOverRowIndex={dragOverRowIndex}
                 onAssetLoadingChange={handleAssetLoadingChange}
                 alignmentLines={alignmentLines}
+                onOverlayChange={onOverlayChange}
               />
 
               {/* Loading Indicator - Only shows during initial project load */}

@@ -294,7 +294,9 @@ export function ExportToEditronDialog({
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
-      // ─── Step 2: Extract subjects via LLM (if storyboard enabled) ──
+      // ─── Steps 2+3: Extract subjects AND generate hero references in parallel ──
+      // As soon as extraction returns, we kick off hero reference image generation
+      // immediately — no separate waiting step. This parallelizes the pipeline.
       if (generateStoryboard && exportData.scenes.length > 0) {
         setStep('extracting-subjects');
 
@@ -325,7 +327,8 @@ export function ExportToEditronDialog({
             // Only generate images for hero subjects (1-2 max)
             const subjectsToGenerate = heroSubjects.length > 0 ? heroSubjects : allExtracted.slice(0, 2);
 
-            // ─── Step 3: Generate reference images for heroes ─────
+            // Immediately kick off hero reference generation — no separate step wait.
+            // The UI transitions to 'generating-references' while extraction data is already available.
             setStep('generating-references');
 
             const genRes = await fetch('/api/services/pipeline/reference-images/generate', {
@@ -483,7 +486,7 @@ export function ExportToEditronDialog({
             body: JSON.stringify({
               aspectRatio,
               sceneIndices: allSceneIndices,
-              videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined,
+              videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined, // 'auto' or specific model
             }),
           });
 
@@ -1055,6 +1058,7 @@ export function ExportToEditronDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
+                      <SelectItem value="auto">Auto (best per scene)</SelectItem>
                       <SelectItem value="kling-1.6">Kling 1.6 Pro (Default)</SelectItem>
                       <SelectItem value="kling-2.6">Kling 2.6 Pro</SelectItem>
                       <SelectItem value="kling-1.5">Kling 1.5 Pro</SelectItem>
@@ -1066,6 +1070,11 @@ export function ExportToEditronDialog({
                       <SelectItem value="minimax">MiniMax Video</SelectItem>
                     </SelectContent>
                   </Select>
+                  {videoModel === 'auto' && (
+                    <p className="text-xs text-zinc-500 mt-1">
+                      Auto mode picks the best model per scene based on mood and motion. For maximum visual consistency across scenes, select a specific model instead.
+                    </p>
+                  )}
                 </motion.div>
               )}
 

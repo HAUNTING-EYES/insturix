@@ -14,6 +14,29 @@ import type { SceneDescriptor, StyleGuide } from '@/lib/pipeline/schemas/storybo
 export const runtime = 'nodejs';
 export const maxDuration = 300; // 5 min — IP-adapter scenes are slow (~30s each)
 
+/**
+ * Pre-upload a URL to fal.ai CDN if it isn't already a fal CDN URL.
+ * This eliminates redundant per-scene re-uploads — each reference image
+ * is uploaded exactly once here, then reused as-is downstream.
+ */
+async function ensureFalCdnUrl(url: string): Promise<string> {
+  if (!url) return url;
+  // Already on fal CDN — no work needed
+  if (url.startsWith('https://fal.media/') || url.startsWith('https://v3.fal.media/')) return url;
+  // Clean URL with no query params is likely already a CDN URL
+  if (!url.includes('?')) return url;
+
+  const { fal } = await import('@fal-ai/client');
+  if (process.env.FAL_AI_API_KEY) {
+    fal.config({ credentials: process.env.FAL_AI_API_KEY });
+  }
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to download reference image for CDN upload: ${res.status}`);
+  const blob = await res.blob();
+  const file = new File([blob], `ref_${Date.now()}.png`, { type: 'image/png' });
+  return await fal.storage.upload(file);
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { userId } = await auth();
@@ -86,7 +109,33 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Build referenceImageMap from approved references
+    // Pre-upload all reference image URLs to fal CDN once (eliminates per-scene re-uploads).
+    // This is the single point of CDN caching — downstream code uses URLs as-is.
+    if (approvedReferences && approvedReferences.length > 0) {
+      const uniqueUrls = new Map<string, string>(); // original → CDN URL
+      const uploadStart = Date.now();
+      for (const ref of approvedReferences) {
+        if (ref.imageUrl && !uniqueUrls.has(ref.imageUrl)) {
+          try {
+            const cdnUrl = await ensureFalCdnUrl(ref.imageUrl);
+            uniqueUrls.set(ref.imageUrl, cdnUrl);
+          } catch (err: any) {
+            console.warn(`[storyboard/generate] CDN pre-upload failed for ${ref.subjectId}: ${err.message}`);
+            uniqueUrls.set(ref.imageUrl, ref.imageUrl); // fallback to original
+          }
+        }
+      }
+      console.log(`[storyboard/generate] Pre-uploaded ${uniqueUrls.size} unique reference URLs to CDN in ${Date.now() - uploadStart}ms`);
+
+      // Replace original URLs with CDN URLs in approvedReferences
+      for (const ref of approvedReferences) {
+        if (ref.imageUrl && uniqueUrls.has(ref.imageUrl)) {
+          ref.imageUrl = uniqueUrls.get(ref.imageUrl)!;
+        }
+      }
+    }
+
+    // Build referenceImageMap from approved references (now with clean CDN URLs)
     // Maps sceneIndex → array of reference images for IP-adapter consistency
     let referenceImageMap: Record<number, Array<{ subjectId: string; imageUrl: string; weight?: number }>> | undefined;
     if (approvedReferences && approvedReferences.length > 0) {

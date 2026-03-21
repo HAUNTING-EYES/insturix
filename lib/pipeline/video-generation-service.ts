@@ -122,6 +122,8 @@ export interface VideoGenerationRequest {
   provider?: VideoProvider;
   /** Specific fal.ai video model key (kling-1.6, kling-1.5, kling-2.6, minimax, runway-gen3, runway-gen4, luma-ray2, luma-dream-machine, veo-3) */
   falVideoModel?: FalVideoModel;
+  /** Previous scene's storyboard image URL for visual continuity chaining */
+  previousSceneImageUrl?: string;
 }
 
 export interface VideoGenerationResult {
@@ -425,6 +427,8 @@ export async function generateVideoClip(
 
 /**
  * Generate video clips for all scenes in a storyboard.
+ * Processes scenes IN ORDER so each scene can receive the previous scene's
+ * storyboard image as a visual continuity reference.
  * Returns results indexed by scene index.
  */
 export async function generateVideosForScenes(
@@ -439,39 +443,38 @@ export async function generateVideosForScenes(
     provider?: VideoProvider;
     aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
     concurrency?: number;
+    /** Enable sequential last-frame chaining for visual continuity */
+    enableChaining?: boolean;
   } = {},
 ): Promise<Map<number, VideoGenerationResult>> {
   const results = new Map<number, VideoGenerationResult>();
-  const concurrency = options.concurrency || 2; // video gen is expensive, limit concurrency
-  const queue = [...scenes];
-  const running: Promise<void>[] = [];
 
-  while (queue.length > 0 || running.length > 0) {
-    while (running.length < concurrency && queue.length > 0) {
-      const scene = queue.shift()!;
-      const p = (async () => {
-        try {
-          const result = await generateVideoClip(
-            {
-              imageUrl: scene.imageUrl,
-              motionPrompt: scene.motionPrompt,
-              durationSeconds: scene.durationSeconds,
-              aspectRatio: options.aspectRatio,
-              provider: options.provider,
-            },
-            userId,
-          );
-          results.set(scene.sceneIndex, result);
-        } catch (err) {
-          console.error(`[VideoGen] Scene ${scene.sceneIndex} failed:`, err);
-        }
-      })().then(() => {
-        running.splice(running.indexOf(p), 1);
-      });
-      running.push(p);
-    }
-    if (running.length > 0) {
-      await Promise.race(running);
+  // Sort scenes by index to ensure proper ordering for chaining
+  const sortedScenes = [...scenes].sort((a, b) => a.sceneIndex - b.sceneIndex);
+
+  // Sequential processing with chaining: each scene gets previous scene's image
+  let previousSceneImageUrl: string | undefined;
+
+  for (const scene of sortedScenes) {
+    try {
+      const result = await generateVideoClip(
+        {
+          imageUrl: scene.imageUrl,
+          motionPrompt: scene.motionPrompt,
+          durationSeconds: scene.durationSeconds,
+          aspectRatio: options.aspectRatio,
+          provider: options.provider,
+          previousSceneImageUrl: options.enableChaining ? previousSceneImageUrl : undefined,
+        },
+        userId,
+      );
+      results.set(scene.sceneIndex, result);
+      // Chain: pass this scene's storyboard image to the next scene
+      previousSceneImageUrl = scene.imageUrl;
+    } catch (err) {
+      console.error(`[VideoGen] Scene ${scene.sceneIndex} failed:`, err);
+      // Still pass the image URL forward even on failure for continuity
+      previousSceneImageUrl = scene.imageUrl;
     }
   }
 
@@ -553,13 +556,21 @@ export function buildMotionPrompt(scene: {
  * - Short / fast-turnaround scenes    -> Runway Gen-4.5 Turbo (fastest)
  * - Dreamy / artistic scenes          -> Luma Dream Machine (stylised)
  * - Default / general purpose         -> Kling 1.6 (reliable, good quality)
+ *
+ * @param consistencyMode When true, returns the locked model instead of per-scene selection.
+ *                        Use this to enforce the same model across all scenes.
+ * @param lockedModel     The model to use when consistencyMode is true.
  */
 export function selectBestModel(scene: {
   mood?: string;
   durationSeconds?: number;
   artStyle?: string;
   motionIntensity?: 'low' | 'medium' | 'high';
-}): FalVideoModel {
+}, consistencyMode?: boolean, lockedModel?: FalVideoModel): FalVideoModel {
+  // Consistency mode: return the locked model for all scenes
+  if (consistencyMode && lockedModel) {
+    return lockedModel;
+  }
   const mood = scene.mood || 'neutral';
   const artStyle = (scene.artStyle || '').toLowerCase();
   const motionIntensity = scene.motionIntensity || 'medium';

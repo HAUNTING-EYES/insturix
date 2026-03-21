@@ -10,6 +10,7 @@ import { useTimeline } from "../../contexts/timeline-context";
 import { Overlay } from "../../types";
 import GapIndicator from "./timeline-gap-indicator";
 import TimelineItem from "./timeline-item";
+import ContextualActionBar from "./contextual-action-bar";
 import { SNAPPING_CONFIG } from "../../constants";
 
 /**
@@ -70,6 +71,8 @@ interface TimelineGridProps {
   onAssetLoadingChange?: (overlayId: number, isLoading: boolean) => void;
   /** Array of calculated frame positions for alignment lines */
   alignmentLines: number[];
+  /** Callback when an overlay is modified (used by contextual action bar) */
+  onOverlayChange?: (overlay: Overlay) => void;
 }
 
 /**
@@ -97,6 +100,7 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   dragOverRowIndex,
   onAssetLoadingChange,
   alignmentLines,
+  onOverlayChange,
 }) => {
   const { visibleRows } = useTimeline();
 
@@ -104,6 +108,15 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   const selectedItem = useMemo(
     () => (selectedOverlayId !== null ? { id: selectedOverlayId } : null),
     [selectedOverlayId]
+  );
+
+  // Find the full selected overlay for the contextual action bar
+  const selectedOverlay = useMemo(
+    () =>
+      selectedOverlayId !== null
+        ? overlays.find((o) => o.id === selectedOverlayId) ?? null
+        : null,
+    [selectedOverlayId, overlays]
   );
 
   /**
@@ -255,6 +268,20 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
                   />
                 );
               })}
+
+              {/* Contextual action bar for the selected item in this row */}
+              {!isDragging &&
+                selectedOverlay &&
+                selectedOverlay.row === rowIndex && (
+                  <ContextualActionBar
+                    item={selectedOverlay}
+                    totalDuration={totalDuration}
+                    onDelete={onDeleteItem}
+                    onDuplicate={onDuplicateItem}
+                    onSplit={onSplitItem}
+                    onOverlayChange={onOverlayChange}
+                  />
+                )}
 
               {/* Gap indicators */}
               {!isDragging &&
