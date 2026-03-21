@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { AbsoluteFill, prefetch, useCurrentFrame } from "remotion";
+import { AbsoluteFill, prefetch } from "remotion";
 
 import { Overlay } from "../types";
 import { SortedOutlines } from "../components/selection/sorted-outlines";
 import { Layer } from "../components/core/layer";
+import { RenderingProvider } from "../contexts/rendering-context";
 
 /**
  * Props for the Main component
@@ -64,7 +65,6 @@ export const Main: React.FC<MainProps> = ({
   baseUrl,
   isRendering,
 }) => {
-  const frame = useCurrentFrame();
   const prefetchHandlesRef = useRef<Map<string, { free: () => void }>>(new Map());
 
   // Sort media overlays by start frame for proximity-based prefetching
@@ -74,47 +74,37 @@ export const Main: React.FC<MainProps> = ({
       .sort((a, b) => a.from - b.from);
   }, [overlays]);
 
-  // Smart prefetch: only load nearby media (current + next 2 clips)
-  // This prevents loading ALL videos at once which causes lag and memory pressure.
-  // During rendering, prefetch everything for smooth output.
+  // Aggressive prefetch: download ALL media clips as blob URLs at project load.
+  // This converts remote GCS signed URLs into local blob URLs, eliminating
+  // network latency on seek/play and allowing the browser's native video
+  // decoder to work from local data. The blob URLs are kept alive for the
+  // lifetime of the component and freed on unmount.
+  //
+  // Previous approach only prefetched 2 clips ahead, which still caused
+  // buffering/lag when scrubbing or jumping around the timeline.
   useEffect(() => {
-    const PREFETCH_WINDOW = isRendering ? Infinity : 2; // In editor: 2 clips ahead. In render: all.
     const handles = prefetchHandlesRef.current;
 
-    // Find overlays that are currently playing or upcoming
-    const relevantOverlays = isRendering
-      ? mediaOverlays
-      : mediaOverlays.filter((o) => {
-          const endFrame = o.from + o.durationInFrames;
-          // Currently playing OR within next N clips from current frame
-          if (endFrame <= frame) return false; // Already passed
-          // Count how many are ahead of current frame
-          const aheadIndex = mediaOverlays.filter(
-            (m) => m.from >= frame && m.from < o.from,
-          ).length;
-          return aheadIndex <= PREFETCH_WINDOW || (o.from <= frame && endFrame > frame);
-        });
-
-    const relevantUrls = new Set(
-      relevantOverlays.map((o) => (o as any).src || (o as any).content).filter(Boolean),
+    const allUrls = new Set(
+      mediaOverlays.map((o) => (o as any).src || (o as any).content).filter(Boolean),
     );
 
-    // Free handles for overlays no longer relevant (already passed)
+    // Free handles for overlays that were removed from the project
     for (const [url, handle] of handles) {
-      if (!relevantUrls.has(url)) {
+      if (!allUrls.has(url)) {
         handle.free();
         handles.delete(url);
       }
     }
 
-    // Prefetch new relevant overlays
-    for (const url of relevantUrls) {
+    // Prefetch all media clips that aren't already cached
+    for (const url of allUrls) {
       if (!handles.has(url)) {
         try {
           const handle = prefetch(url, { method: 'blob-url' });
           handles.set(url, handle);
         } catch {
-          // Ignore prefetch errors
+          // Ignore prefetch errors — the video will fall back to streaming
         }
       }
     }
@@ -124,7 +114,7 @@ export const Main: React.FC<MainProps> = ({
       for (const handle of handles.values()) handle.free();
       handles.clear();
     };
-  }, [mediaOverlays, frame, isRendering]);
+  }, [mediaOverlays]);
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -138,30 +128,32 @@ export const Main: React.FC<MainProps> = ({
   );
 
   return (
-    <AbsoluteFill
-      style={{
-        ...outer,
-      }}
-      onPointerDown={onPointerDown}
-    >
-      <AbsoluteFill style={layerContainer}>
-        {overlays.map((overlay, index) => {
-          return (
-            <Layer
-              key={`${overlay.id}-${index}`}
-              overlay={overlay}
-              selectedOverlayId={selectedOverlayId}
-              baseUrl={baseUrl}
-            />
-          );
-        })}
+    <RenderingProvider isRendering={isRendering ?? false}>
+      <AbsoluteFill
+        style={{
+          ...outer,
+        }}
+        onPointerDown={onPointerDown}
+      >
+        <AbsoluteFill style={layerContainer}>
+          {overlays.map((overlay, index) => {
+            return (
+              <Layer
+                key={`${overlay.id}-${index}`}
+                overlay={overlay}
+                selectedOverlayId={selectedOverlayId}
+                baseUrl={baseUrl}
+              />
+            );
+          })}
+        </AbsoluteFill>
+        <SortedOutlines
+          selectedOverlayId={selectedOverlayId}
+          overlays={overlays}
+          setSelectedOverlayId={setSelectedOverlayId}
+          changeOverlay={changeOverlay}
+        />
       </AbsoluteFill>
-      <SortedOutlines
-        selectedOverlayId={selectedOverlayId}
-        overlays={overlays}
-        setSelectedOverlayId={setSelectedOverlayId}
-        changeOverlay={changeOverlay}
-      />
-    </AbsoluteFill>
+    </RenderingProvider>
   );
 };

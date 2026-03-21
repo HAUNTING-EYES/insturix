@@ -1,7 +1,8 @@
-import { OffthreadVideo, useCurrentFrame } from "remotion";
+import { OffthreadVideo, Video, useCurrentFrame } from "remotion";
 import { ClipOverlay } from "../../../types";
 import { animationTemplates } from "../../../templates/animation-templates";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
+import { useIsRendering } from "../../../contexts/rendering-context";
 
 /**
  * Interface defining the props for the VideoLayerContent component
@@ -33,6 +34,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   baseUrl,
 }) => {
   const frame = useCurrentFrame();
+  const isRendering = useIsRendering();
 
   // Calculate if we're in the exit phase (last 30 frames)
   const isExitPhase = frame >= overlay.durationInFrames - 30;
@@ -102,15 +104,21 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     );
   }
 
+  // In the editor, use <Video> (native HTML5 decoder) for faster, smoother
+  // preview playback. <OffthreadVideo> is designed for server-side rendering
+  // where frame-accuracy matters more than real-time performance.
+  const VideoComponent = isRendering ? OffthreadVideo : Video;
+
   return (
     <div style={containerStyle}>
-      <OffthreadVideo
+      <VideoComponent
         src={videoSrc}
+        crossOrigin="anonymous"
         startFrom={overlay.videoStartTime || 0}
         style={videoStyle}
         volume={overlay.styles.volume ?? 1}
         playbackRate={overlay.speed ?? 1}
-        pauseWhenBuffering={true}
+        pauseWhenBuffering={false}
         toneMapped={false}
       />
     </div>

@@ -6,8 +6,9 @@ import { CreditsService } from '@/lib/services/creditsService';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { generateBackgroundMusic, buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
+import { generateSFXForScenes, isSFXAvailable, type SFXResult } from '@/lib/pipeline/sfx-service';
 
-export const maxDuration = 120;
+export const maxDuration = 300; // Increased: BGM + per-scene SFX generation can take several minutes
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/finalize
@@ -52,6 +53,9 @@ export async function POST(
     const overlays: any[] = [];
     let currentFrame = 0;
     let overlayId = Date.now();
+
+    // Track per-scene frame offsets so we can place SFX overlays later
+    const sceneFrameMap: Array<{ sceneIndex: number; fromFrame: number; durationFrames: number; durationSec: number }> = [];
 
     for (const scene of storyboard.scenes) {
       // Use actual video duration if available, otherwise fall back to script estimate.
@@ -219,6 +223,14 @@ export async function POST(
         });
       }
 
+      // Track frame offset for SFX placement
+      sceneFrameMap.push({
+        sceneIndex: scene.sceneIndex,
+        fromFrame: currentFrame,
+        durationFrames,
+        durationSec: sceneDurationSec,
+      });
+
       currentFrame += durationFrames;
     }
 
@@ -346,6 +358,76 @@ export async function POST(
         console.log('[Finalize] BGM generated successfully:', bgm.audioAssetId, bgm.audioUrl?.substring(0, 80));
       } catch (bgmErr: any) {
         console.error('[Finalize] BGM generation failed, continuing without music:', bgmErr.message, bgmErr.stack?.substring(0, 300));
+      }
+    }
+
+    // Generate per-scene SFX from audioDescription (non-blocking — skip if it fails)
+    if (isSFXAvailable() && currentFrame > 0) {
+      try {
+        // Collect scenes that have an audioDescription
+        const sfxInputs = storyboard.scenes
+          .filter(s => s.descriptor.audioDescription && s.descriptor.audioDescription.trim().length > 0)
+          .map(s => {
+            const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
+            return {
+              sceneIndex: s.sceneIndex,
+              audioDescription: s.descriptor.audioDescription!,
+              durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
+            };
+          });
+
+        if (sfxInputs.length > 0) {
+          console.log(`[Finalize] Generating SFX for ${sfxInputs.length} scene(s)`);
+          const sfxResults = await generateSFXForScenes(sfxInputs, userId);
+
+          // Add each SFX clip as a sound overlay on row 6 (dedicated SFX layer)
+          for (const [sceneIndex, sfx] of sfxResults) {
+            const frameInfo = sceneFrameMap.find(f => f.sceneIndex === sceneIndex);
+            if (!frameInfo) continue;
+
+            overlays.push({
+              id: overlayId++,
+              type: 'sound',
+              from: frameInfo.fromFrame,
+              durationInFrames: frameInfo.durationFrames,
+              row: 6, // Dedicated SFX layer (row 4 = voiceover, row 5 = BGM)
+              left: 0,
+              top: 0,
+              width: 0,
+              height: 0,
+              isDragging: false,
+              rotation: 0,
+              content: sfx.audioUrl,
+              src: sfx.audioUrl,
+              assetId: sfx.audioAssetId,
+              styles: { volume: 0.5, opacity: 1 }, // SFX at 50% so it doesn't overpower voiceover
+            });
+
+            // Register SFX asset for URL resolution after save
+            await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
+              { assetId: sfx.audioAssetId },
+              {
+                $setOnInsert: {
+                  assetId: sfx.audioAssetId,
+                  userId,
+                  type: 'audio',
+                  filename: `${sfx.audioAssetId}.mp3`,
+                  source: 'user-upload',
+                  gcsPath: sfx.gcsPath,
+                  cachedUrl: sfx.audioUrl,
+                  urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+                  size: 0,
+                  uploadedAt: new Date(),
+                },
+              },
+              { upsert: true },
+            );
+          }
+
+          console.log(`[Finalize] SFX: ${sfxResults.size} clip(s) added to timeline`);
+        }
+      } catch (sfxErr: any) {
+        console.error('[Finalize] SFX generation failed, continuing without sound effects:', sfxErr.message, sfxErr.stack?.substring(0, 300));
       }
     }
 
