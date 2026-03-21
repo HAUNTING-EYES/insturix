@@ -232,8 +232,13 @@ export async function POST(
     }
 
     // ─── Enqueue each scene via QStash (all fire in parallel) ──────
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL
-      || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    // CRITICAL: Use VERCEL_URL (the actual deployment URL) for worker target.
+    // NEXT_PUBLIC_APP_URL points to production (www.insturix.com) which doesn't
+    // have the worker route on preview branches. VERCEL_URL is the deployment-
+    // specific URL that always has the correct code.
+    const baseUrl = process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
     const workerUrl = `${baseUrl}/api/internal/workers/pipeline/video`;
 
     console.log(`[generate-videos] Worker URL: ${workerUrl}`);
