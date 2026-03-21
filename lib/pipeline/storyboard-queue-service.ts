@@ -27,6 +27,26 @@ const redis = new Redis({
 const STORYBOARD_QUEUE_KEY = 'pipeline:storyboard:queue';
 const MAX_CONCURRENT_STORYBOARD_JOBS = 4;
 
+/**
+ * Retry a Redis operation with exponential backoff.
+ * Upstash REST API uses fetch() internally — transient DNS/network failures
+ * cause TypeError: fetch failed. Retrying fixes this.
+ */
+async function retryRedis<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isFetchError = err?.message?.includes('fetch failed') || err?.message?.includes('ECONNRESET');
+      if (!isFetchError || attempt === maxRetries) throw err;
+      const delay = attempt * 500;
+      console.warn(`[Redis] Attempt ${attempt}/${maxRetries} failed (${err.message}), retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('retryRedis: unreachable');
+}
+
 // MongoDB collections
 const SB_JOBS_COLLECTION = 'pipeline_storyboard_jobs';
 const SB_BATCHES_COLLECTION = 'pipeline_storyboard_batches';
@@ -158,7 +178,7 @@ export async function enqueueStoryboardBatch(
       referenceImages: scene.referenceImages,
       queuedAt: Date.now(),
     };
-    await redis.rpush(STORYBOARD_QUEUE_KEY, JSON.stringify(entry));
+    await retryRedis(() => redis.rpush(STORYBOARD_QUEUE_KEY, JSON.stringify(entry)));
   }
 
   console.log(`[SbQueue] Enqueued batch ${batchId}: ${scenes.length} scenes`);
@@ -188,7 +208,7 @@ export async function processNextStoryboardJob(): Promise<{
     return { processed: false };
   }
 
-  const entryJson = await redis.lpop<string>(STORYBOARD_QUEUE_KEY);
+  const entryJson = await retryRedis(() => redis.lpop<string>(STORYBOARD_QUEUE_KEY));
   if (!entryJson) {
     return { processed: false };
   }

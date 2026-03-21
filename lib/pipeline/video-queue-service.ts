@@ -29,6 +29,26 @@ const VIDEO_QUEUE_KEY = 'pipeline:video:queue';
 // Max scenes processing simultaneously across all users
 const MAX_CONCURRENT_VIDEO_JOBS = 4;
 
+/**
+ * Retry a Redis operation with exponential backoff.
+ * Upstash REST API uses fetch() internally — transient DNS/network failures
+ * cause TypeError: fetch failed. Retrying 2-3 times fixes this.
+ */
+async function retryRedis<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      const isFetchError = err?.message?.includes('fetch failed') || err?.message?.includes('ECONNRESET');
+      if (!isFetchError || attempt === maxRetries) throw err;
+      const delay = attempt * 500; // 500ms, 1000ms
+      console.warn(`[Redis] Attempt ${attempt}/${maxRetries} failed (${err.message}), retrying in ${delay}ms...`);
+      await new Promise(r => setTimeout(r, delay));
+    }
+  }
+  throw new Error('retryRedis: unreachable');
+}
+
 // ─── Types ───────────────────────────────────────────────────────
 
 export interface VideoJobScene {
@@ -128,7 +148,7 @@ export async function enqueueVideoBatch(
   };
   await db.collection(VIDEO_BATCHES_COLLECTION).insertOne(batch);
 
-  // Create individual job records + enqueue to Redis
+  // Create individual job records + enqueue to Redis (with retry)
   for (const scene of scenes) {
     const jobId = `${batchId}_s${scene.sceneIndex}`;
 
@@ -159,7 +179,7 @@ export async function enqueueVideoBatch(
       videoModel: options.videoModel,
       queuedAt: Date.now(),
     };
-    await redis.rpush(VIDEO_QUEUE_KEY, JSON.stringify(queueEntry));
+    await retryRedis(() => redis.rpush(VIDEO_QUEUE_KEY, JSON.stringify(queueEntry)));
   }
 
   console.log(`[VideoQueue] Enqueued batch ${batchId}: ${scenes.length} scenes for storyboard ${storyboardId}`);
@@ -194,8 +214,8 @@ export async function processNextVideoJob(): Promise<{
     return { processed: false };
   }
 
-  // Pop next job from Redis queue
-  const entryJson = await redis.lpop<string>(VIDEO_QUEUE_KEY);
+  // Pop next job from Redis queue (with retry for transient fetch failures)
+  const entryJson = await retryRedis(() => redis.lpop<string>(VIDEO_QUEUE_KEY));
   if (!entryJson) {
     return { processed: false };
   }

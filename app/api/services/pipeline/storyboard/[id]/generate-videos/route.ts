@@ -216,10 +216,17 @@ export async function POST(
       message: `${totalScenes} video scenes queued for parallel generation. Poll /status?batchId=${batchId} for progress.`,
     });
   } catch (error: any) {
-    console.error('[generate-videos] Error:', error);
+    const errMsg = error?.message || 'Failed to enqueue videos';
+    const isRedisError = errMsg.includes('fetch failed') || errMsg.includes('ECONNRESET');
+    console.error('[generate-videos] Error:', errMsg, isRedisError ? '(Redis connectivity issue)' : '');
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to enqueue videos' },
-      { status: 500 },
+      {
+        success: false,
+        error: isRedisError
+          ? 'Video queue service temporarily unavailable. Please try again in a moment.'
+          : errMsg,
+      },
+      { status: isRedisError ? 503 : 500 },
     );
   }
 }
