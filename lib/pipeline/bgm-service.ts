@@ -28,10 +28,13 @@ interface BGMResult {
 
 /**
  * Generate background music for the entire video.
+ * For videos longer than 150s, generates the max 150s and lets the
+ * timeline loop it. A future enhancement could generate multiple
+ * segments with matching keys/tempo.
  *
  * @param prompt   - Mood/style description (e.g. "epic cinematic orchestral, intense action")
  * @param userId   - For GCS upload path
- * @param durationSec - Target duration in seconds (5-240)
+ * @param durationSec - Target duration in seconds (5-600). Capped at 150s per beatoven limit.
  */
 export async function generateBackgroundMusic(
   prompt: string,
@@ -40,7 +43,8 @@ export async function generateBackgroundMusic(
 ): Promise<BGMResult> {
   ensureFalConfig();
 
-  // Beatoven supports 5-150 seconds
+  // Beatoven supports 5-150 seconds per generation.
+  // For longer videos, generate max length — timeline will loop the audio.
   const duration = Math.min(Math.max(durationSec, 5), 150);
   const assetId = `bgm_${nanoid(12)}`;
 

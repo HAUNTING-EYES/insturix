@@ -163,6 +163,12 @@ export async function enqueueVideoBatch(
   }
 
   console.log(`[VideoQueue] Enqueued batch ${batchId}: ${scenes.length} scenes for storyboard ${storyboardId}`);
+
+  // Trigger immediate processing — don't wait for the next cron tick (up to 60s delay)
+  triggerImmediateProcessing('video').catch((err) =>
+    console.warn('[VideoQueue] Immediate trigger failed (cron will pick it up):', err.message),
+  );
+
   return { batchId, totalScenes: scenes.length };
 }
 
@@ -346,4 +352,22 @@ export async function getVideoBatchStatus(
  */
 export async function getVideoQueueLength(): Promise<number> {
   return redis.llen(VIDEO_QUEUE_KEY);
+}
+
+/**
+ * Fire-and-forget trigger to the cron endpoint for immediate processing.
+ * Eliminates the up-to-60s delay waiting for the next cron tick.
+ */
+async function triggerImmediateProcessing(type: 'video' | 'storyboard'): Promise<void> {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+  const path = type === 'video' ? '/api/cron/process-video-queue' : '/api/cron/process-storyboard-queue';
+
+  // Fire-and-forget — don't await, don't block enqueue response
+  fetch(`${baseUrl}${path}`, {
+    method: 'GET',
+    headers: process.env.CRON_SECRET
+      ? { 'Authorization': `Bearer ${process.env.CRON_SECRET}` }
+      : {},
+  }).catch(() => {}); // Silently ignore — cron is the fallback
 }

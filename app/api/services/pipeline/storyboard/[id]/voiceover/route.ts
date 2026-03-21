@@ -4,11 +4,13 @@ import { getStoryboard, updateStoryboardScene, updateStoryboardVoiceover } from 
 import { generateVoiceover, isTTSAvailable } from '@/lib/pipeline/tts-service';
 import { CreditsService } from '@/lib/services/creditsService';
 
-export const maxDuration = 120;
+export const runtime = 'nodejs';
+export const maxDuration = 300; // 5 minutes — supports 60+ scenes with parallel TTS
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/voiceover
  * Generate AI voiceover for all narrations in the storyboard.
+ * Now runs in parallel batches (8 concurrent) for fast processing.
  * Cost: 1 credit per scene with narration.
  */
 export async function POST(
@@ -34,7 +36,6 @@ export async function POST(
       return NextResponse.json({ error: 'Storyboard not found' }, { status: 404 });
     }
 
-    // Count scenes with narration
     const scenesWithNarration = storyboard.scenes.filter(
       (s) => s.descriptor.narration?.trim(),
     );
@@ -56,51 +57,64 @@ export async function POST(
       }
     }
 
-    // Update voiceover status
     await updateStoryboardVoiceover(id, {
       voice: voice || 'aura-asteria-en',
       language: language || 'en',
       status: 'generating',
     });
 
-    // Generate voiceover for each scene
+    console.log(`[Voiceover] Generating for ${scenesWithNarration.length} scenes (parallel, batch=8)`);
+
+    // ─── Parallel TTS generation (batches of 8) ─────────────
+    // TTS is fast (~2-5s per call) so we can parallelize aggressively
+    const BATCH_SIZE = 8;
     const results: Array<{ sceneIndex: number; audioUrl: string; durationMs: number }> = [];
     const errors: Array<{ sceneIndex: number; error: string }> = [];
 
-    for (const scene of scenesWithNarration) {
-      try {
-        console.log(`[Voiceover] Scene ${scene.sceneIndex}: generating for "${scene.descriptor.narration.substring(0, 60)}..."`);
-        const result = await generateVoiceover(
-          scene.descriptor.narration,
-          userId,
-          { voice, language },
-        );
+    for (let i = 0; i < scenesWithNarration.length; i += BATCH_SIZE) {
+      const batch = scenesWithNarration.slice(i, i + BATCH_SIZE);
 
-        await updateStoryboardScene(id, scene.sceneIndex, {
-          voiceover: {
+      const batchResults = await Promise.allSettled(
+        batch.map(async (scene) => {
+          console.log(`[Voiceover] Scene ${scene.sceneIndex}: generating...`);
+          const result = await generateVoiceover(
+            scene.descriptor.narration,
+            userId,
+            { voice, language },
+          );
+
+          await updateStoryboardScene(id, scene.sceneIndex, {
+            voiceover: {
+              audioUrl: result.audioUrl,
+              audioAssetId: result.audioAssetId,
+              audioDurationMs: result.durationMs,
+              gcsPath: result.gcsPath,
+            },
+          });
+
+          console.log(`[Voiceover] Scene ${scene.sceneIndex}: success (${result.durationMs}ms)`);
+          return {
+            sceneIndex: scene.sceneIndex,
             audioUrl: result.audioUrl,
-            audioAssetId: result.audioAssetId,
-            audioDurationMs: result.durationMs,
-            gcsPath: result.gcsPath,
-          },
-        });
+            durationMs: result.durationMs,
+          };
+        }),
+      );
 
-        results.push({
-          sceneIndex: scene.sceneIndex,
-          audioUrl: result.audioUrl,
-          durationMs: result.durationMs,
-        });
-        console.log(`[Voiceover] Scene ${scene.sceneIndex}: success (${result.durationMs}ms, ${result.audioAssetId})`);
-      } catch (err: any) {
-        const errMsg = err.message || 'Unknown TTS error';
-        console.error(`[Voiceover] Scene ${scene.sceneIndex} failed:`, errMsg);
-        errors.push({ sceneIndex: scene.sceneIndex, error: errMsg });
-        // Continue with remaining scenes
+      for (let j = 0; j < batchResults.length; j++) {
+        const r = batchResults[j];
+        if (r.status === 'fulfilled') {
+          results.push(r.value);
+        } else {
+          const sceneIndex = batch[j].sceneIndex;
+          const errMsg = (r.reason as any)?.message || 'TTS failed';
+          console.error(`[Voiceover] Scene ${sceneIndex} failed:`, errMsg);
+          errors.push({ sceneIndex, error: errMsg });
+        }
       }
     }
 
-    // Update final status
-    const finalStatus = results.length === scenesWithNarration.length ? 'ready' : results.length > 0 ? 'ready' : 'error';
+    const finalStatus = results.length > 0 ? 'ready' : 'error';
     await updateStoryboardVoiceover(id, { status: finalStatus });
 
     return NextResponse.json({

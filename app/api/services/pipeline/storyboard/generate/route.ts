@@ -87,9 +87,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (scenes.length > 30) {
+    if (scenes.length > 60) {
       return NextResponse.json(
-        { success: false, error: 'Maximum 30 scenes per storyboard' },
+        { success: false, error: 'Maximum 60 scenes per storyboard' },
         { status: 400 },
       );
     }
