@@ -73,6 +73,10 @@ interface TimelineGridProps {
   alignmentLines: number[];
   /** Callback when an overlay is modified (used by contextual action bar) */
   onOverlayChange?: (overlay: Overlay) => void;
+  /** Beat marker positions as frame numbers (from beat detection) */
+  beatMarkers?: { frame: number; strength: number; isDownbeat: boolean }[];
+  /** Whether beat markers are visible */
+  showBeatMarkers?: boolean;
 }
 
 /**
@@ -101,6 +105,8 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
   onAssetLoadingChange,
   alignmentLines,
   onOverlayChange,
+  beatMarkers,
+  showBeatMarkers,
 }) => {
   const { visibleRows } = useTimeline();
 
@@ -189,6 +195,25 @@ const TimelineGrid: React.FC<TimelineGridProps> = ({
               style={{
                 left: `${(frame / totalDuration) * 100}%`,
                 height: "100%", // Ensure line spans full grid height
+              }}
+              aria-hidden="true"
+            />
+          ))}
+
+        {/* Beat markers — visible when beat detection is active */}
+        {showBeatMarkers &&
+          beatMarkers?.map((beat, i) => (
+            <div
+              key={`beat-${i}`}
+              className={`absolute top-0 bottom-0 w-px pointer-events-none z-30 ${
+                beat.isDownbeat
+                  ? "border-r border-solid border-orange-400/80"
+                  : "border-r border-dotted border-orange-300/40"
+              }`}
+              style={{
+                left: `${(beat.frame / totalDuration) * 100}%`,
+                height: "100%",
+                opacity: 0.3 + beat.strength * 0.7,
               }}
               aria-hidden="true"
             />

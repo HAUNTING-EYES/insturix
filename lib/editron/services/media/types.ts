@@ -111,6 +111,76 @@ export interface AudioAnalysisOptions {
 }
 
 // ============================================================================
+// BEAT DETECTION
+// ============================================================================
+
+/**
+ * A single detected beat with timing, strength, and downbeat marker
+ */
+export interface Beat {
+  /** Timestamp of the beat in ms (0-based relative to audio start) */
+  timeMs: number;
+  /** Beat strength/confidence 0..1 (derived from spectral flux magnitude) */
+  strength: number;
+  /** Whether this beat falls on a detected downbeat (first beat of a bar) */
+  isDownbeat: boolean;
+}
+
+/**
+ * Complete beat analysis result from audio processing
+ */
+export interface BeatAnalysis {
+  /** Detected beats sorted by timeMs */
+  beats: Beat[];
+  /** Estimated tempo in BPM */
+  bpm: number;
+  /** Confidence of BPM estimate 0..1 — exposed in UI for manual override decision */
+  bpmConfidence: number;
+  /** Duration of the analyzed audio in ms */
+  durationMs: number;
+  /** Time signature numerator (default 4) */
+  timeSignatureNumerator: number;
+  /** Energy peaks — strongest amplitude moments, beat-locked (snapped to nearest beat) */
+  energyPeaks: { timeMs: number; magnitude: number }[];
+  /** Raw onset data preserved for re-quantization on BPM override */
+  rawOnsets: { timeMs: number; strength: number }[];
+}
+
+/**
+ * Options for selecting which beats to use as cut points
+ */
+export interface BeatSyncOptions {
+  /** Which beats to use: 'all' | 'downbeats' | 'strong' (strength > threshold) */
+  beatFilter: 'all' | 'downbeats' | 'strong';
+  /** Minimum strength when beatFilter is 'strong' (0..1, default 0.6) */
+  strengthThreshold?: number;
+  /** Tolerance in ms for snapping energy peaks to beats (default 50) */
+  snapToleranceMs?: number;
+  /** Whether to include energy peaks as cut candidates */
+  includeEnergyPeaks?: boolean;
+}
+
+/**
+ * Options for the beat detection algorithm
+ */
+export interface BeatDetectionOptions {
+  /** FFT window size (default 2048) */
+  fftSize?: number;
+  /** Hop size between FFT frames (default 512) */
+  hopSize?: number;
+  /** Minimum BPM to consider (default 40) */
+  minBPM?: number;
+  /** Maximum BPM to consider (default 240) */
+  maxBPM?: number;
+  /** Time signature numerator (default 4) */
+  timeSignature?: number;
+  /** Number of top energy peaks to detect (default 20) */
+  topEnergyPeaks?: number;
+  /** Snap tolerance for energy peak beat-locking (default 50ms) */
+  energySnapToleranceMs?: number;
+}
+
+// ============================================================================
 // CAPTION
 // ============================================================================
 
