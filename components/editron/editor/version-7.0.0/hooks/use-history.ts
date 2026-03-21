@@ -10,6 +10,9 @@ interface HistoryState {
 // Debounce delay for grouping rapid changes into single history entries
 const HISTORY_DEBOUNCE_MS = 150;
 
+// Maximum number of undo history entries to prevent memory leaks
+const MAX_HISTORY_LENGTH = 50;
+
 export function useHistory(
   overlays: Overlay[],
   setOverlays: (overlays: Overlay[]) => void
@@ -56,8 +59,14 @@ export function useHistory(
         // Skip if nothing actually changed
         if (stateToSave === overlays) return prev;
 
+        const newPast = [...prev.past, stateToSave];
+        // Cap history length to prevent memory leaks
+        if (newPast.length > MAX_HISTORY_LENGTH) {
+          newPast.shift();
+        }
+
         return {
-          past: [...prev.past, stateToSave],
+          past: newPast,
           present: overlays,
           future: [],
         };

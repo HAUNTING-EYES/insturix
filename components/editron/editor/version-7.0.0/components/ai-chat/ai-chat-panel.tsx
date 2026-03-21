@@ -508,7 +508,21 @@ export function AIChatPanel() {
                    setCurrentSessionId(data.sessionId);
                    loadSessions();
                  }
-                 // Final reload check removed as it's handled per-tool now
+                 // Final authoritative reload from DB after ALL tools complete.
+                 // This is critical because per-tool reloads can be clobbered by
+                 // intermediate state changes. This ensures the client has the
+                 // definitive server-side state after the AI finishes all edits.
+                 try {
+                   const finalRes = await fetch(`/api/services/editron/projects/${projectId}`);
+                   if (finalRes.ok) {
+                     const finalData = await finalRes.json();
+                     if (finalData.project && finalData.project.overlays) {
+                       setOverlays(finalData.project.overlays);
+                     }
+                   }
+                 } catch (e) {
+                   console.error("Failed final overlay reload after AI stream", e);
+                 }
               } else if (data.type === 'error') {
                 addLog('error', 'Stream error', data);
                 throw new Error(data.error);

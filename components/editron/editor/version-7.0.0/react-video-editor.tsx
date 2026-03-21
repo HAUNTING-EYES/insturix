@@ -33,7 +33,7 @@ import { TimelineProvider } from "./contexts/timeline-context";
 import { AutosaveRecoveryDialog } from "./components/autosave/autosave-recovery-dialog";
 import { AutosaveStatus } from "./components/autosave/autosave-status";
 import { AIToolsDebugPanel } from "./components/debug/ai-tools-debug-panel";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useAutosave } from "./hooks/use-autosave";
 import { LocalMediaProvider } from "./contexts/local-media-context";
 import { KeyframeProvider } from "./contexts/keyframe-context";
@@ -94,14 +94,14 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
 
   const handleTimelineClick = useTimelineClick(playerRef, durationInFrames);
 
-  const inputProps = {
+  const inputProps = useMemo(() => ({
     overlays,
     durationInFrames,
     fps: FPS,
     width: compositionWidth,
     height: compositionHeight,
     src: "",
-  };
+  }), [overlays, durationInFrames, compositionWidth, compositionHeight]);
 
   const { renderMedia, state } = useRendering(
     "TestComponent",
@@ -127,6 +127,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
   // Implment load state
   const { saveState, loadState } = useAutosave(projectId, editorState, {
     interval: AUTO_SAVE_INTERVAL,
+    pauseAutosave: isAIProcessing,
     onSave: () => {
       setIsSaving(false);
       setLastSaveTime(Date.now());

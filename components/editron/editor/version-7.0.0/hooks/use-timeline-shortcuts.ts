@@ -1,5 +1,9 @@
 import { useHotkeys } from "react-hotkeys-hook";
 import { ZOOM_CONSTRAINTS } from "../constants";
+import { Overlay } from "../types";
+
+// Module-level clipboard for copy/paste across re-renders
+let clipboardOverlay: Overlay | null = null;
 
 interface UseTimelineShortcutsProps {
   handlePlayPause: () => void;
@@ -9,6 +13,13 @@ interface UseTimelineShortcutsProps {
   canRedo: boolean;
   zoomScale: number;
   setZoomScale: (scale: number) => void;
+  /** Split the selected overlay at the current playhead position */
+  onSplitAtPlayhead?: () => void;
+  /** Duplicate the selected overlay */
+  onDuplicateSelected?: () => void;
+  /** Copy/paste support */
+  onCopy?: () => Overlay | null;
+  onPaste?: (overlay: Overlay) => void;
 }
 
 /**
@@ -38,6 +49,10 @@ export const useTimelineShortcuts = ({
   canRedo,
   zoomScale,
   setZoomScale,
+  onSplitAtPlayhead,
+  onDuplicateSelected,
+  onCopy,
+  onPaste,
 }: UseTimelineShortcutsProps) => {
   useHotkeys(
     "alt+space",
@@ -81,5 +96,52 @@ export const useTimelineShortcuts = ({
       keydown: true,
       preventDefault: true,
     }
+  );
+
+  // Split selected overlay at playhead position
+  useHotkeys(
+    "s",
+    (e) => {
+      e.preventDefault();
+      if (onSplitAtPlayhead) onSplitAtPlayhead();
+    },
+    { keydown: true }
+  );
+
+  // Duplicate selected overlay
+  useHotkeys(
+    "d, ctrl+d",
+    (e) => {
+      e.preventDefault();
+      if (onDuplicateSelected) onDuplicateSelected();
+    },
+    { keydown: true }
+  );
+
+  // Copy selected overlay
+  useHotkeys(
+    "meta+c, ctrl+c",
+    (e) => {
+      e.preventDefault();
+      if (onCopy) {
+        const overlay = onCopy();
+        if (overlay) {
+          clipboardOverlay = { ...overlay };
+        }
+      }
+    },
+    { keydown: true }
+  );
+
+  // Paste copied overlay at playhead position
+  useHotkeys(
+    "meta+v, ctrl+v",
+    (e) => {
+      e.preventDefault();
+      if (onPaste && clipboardOverlay) {
+        onPaste(clipboardOverlay);
+      }
+    },
+    { keydown: true }
   );
 };

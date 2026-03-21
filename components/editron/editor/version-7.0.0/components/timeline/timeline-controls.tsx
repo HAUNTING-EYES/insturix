@@ -104,6 +104,11 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
     canRedo,
     playbackRate,
     setPlaybackRate,
+    selectedOverlayId,
+    splitOverlay,
+    duplicateOverlay,
+    overlays,
+    addOverlay,
   } = useEditorContext();
 
   const { visibleRows, addRow, removeRow, zoomScale, setZoomScale } =
@@ -120,6 +125,31 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
     canRedo,
     zoomScale,
     setZoomScale,
+    onSplitAtPlayhead: () => {
+      if (selectedOverlayId == null) return;
+      const overlay = overlays.find((o) => o.id === selectedOverlayId);
+      if (!overlay) return;
+      // Only split if playhead is within the overlay's range
+      if (currentFrame > overlay.from && currentFrame < overlay.from + overlay.durationInFrames) {
+        splitOverlay(selectedOverlayId, currentFrame);
+      }
+    },
+    onDuplicateSelected: () => {
+      if (selectedOverlayId != null) {
+        duplicateOverlay(selectedOverlayId);
+      }
+    },
+    onCopy: () => {
+      if (selectedOverlayId == null) return null;
+      return overlays.find((o) => o.id === selectedOverlayId) ?? null;
+    },
+    onPaste: (overlay) => {
+      const { id, ...rest } = overlay;
+      addOverlay({
+        ...rest,
+        from: currentFrame,
+      });
+    },
   });
 
   const { isLoadingAssets } = useAssetLoading();
@@ -554,7 +584,7 @@ export const TimelineControls: React.FC<TimelineControlsProps> = ({
                 Aspect Ratio
               </Label>
               <div className="grid grid-cols-3 gap-1 pt-1">
-                {["16:9", "9:16", "4:5"].map((ratio) => (
+                {["16:9", "9:16", "4:5", "1:1"].map((ratio) => (
                   <Button
                     key={ratio}
                     onClick={() => handleAspectRatioChange(ratio)}

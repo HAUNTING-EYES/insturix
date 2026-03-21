@@ -203,11 +203,14 @@ const Timeline: React.FC<TimelineProps> = ({
 
   const handleSplitItem = useCallback(
     (id: number) => {
-      if (lastKnownHoverInfo?.itemId === id) {
-        onSplitOverlay(id, lastKnownHoverInfo.position);
+      // Use the playhead position (currentFrame) instead of hover position
+      // so the split always happens where the user sees the playhead marker
+      const overlay = overlays.find((o) => o.id === id);
+      if (overlay && currentFrame > overlay.from && currentFrame < overlay.from + overlay.durationInFrames) {
+        onSplitOverlay(id, currentFrame);
       }
     },
-    [lastKnownHoverInfo, onSplitOverlay]
+    [currentFrame, overlays, onSplitOverlay]
   );
 
   const handleContextMenuChange = useCallback(

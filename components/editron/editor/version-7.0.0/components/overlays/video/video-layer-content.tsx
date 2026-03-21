@@ -92,10 +92,14 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
     videoSrc = toAbsoluteUrl(videoSrc);
   }
 
-  // Don't render if no valid source
+  // Show placeholder if no valid source
   if (!videoSrc) {
     console.warn('Video overlay has no src or content:', overlay);
-    return null;
+    return (
+      <div style={{ width: '100%', height: '100%', backgroundColor: '#1a1a2e', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ color: '#666', fontSize: '14px' }}>Video not available</span>
+      </div>
+    );
   }
 
   return (

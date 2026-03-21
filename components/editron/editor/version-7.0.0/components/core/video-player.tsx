@@ -28,6 +28,7 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
     updatePlayerDimensions,
     getAspectRatioDimensions,
     durationInFrames,
+    playbackRate,
   } = useEditorContext();
 
   /**
@@ -151,6 +152,7 @@ const VideoPlayerInner: React.FC<VideoPlayerProps> = ({ playerRef }) => {
                   </div>
                 )
               }
+              playbackRate={playbackRate}
               overflowVisible
               acknowledgeRemotionLicense
             />

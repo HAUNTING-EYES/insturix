@@ -9,6 +9,12 @@ interface AutosaveOptions {
   interval?: number;
 
   /**
+   * When true, autosave is paused (e.g. during AI processing).
+   * Prevents autosave from overwriting server-side changes made by the AI agent.
+   */
+  pauseAutosave?: boolean;
+
+  /**
    * Function to call when an autosave is loaded
    */
   onLoad?: (data: any) => void;
@@ -37,7 +43,7 @@ export const useAutosave = (
   state: any,
   options: AutosaveOptions = {}
 ) => {
-  const { interval = 15000, onLoad, onSave, onAutosaveDetected } = options;
+  const { interval = 15000, pauseAutosave = false, onLoad, onSave, onAutosaveDetected } = options;
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const lastSavedStateRef = useRef<string>("");
@@ -89,6 +95,11 @@ export const useAutosave = (
       // which would overwrite whatever was stored in MongoDB.
       if (!hasLoadedRef.current) return;
 
+      // CRITICAL: never autosave while AI is processing.
+      // The AI agent modifies overlays directly in the DB. Autosaving during
+      // this window would overwrite the AI's changes with stale client state.
+      if (pauseAutosave) return;
+
       const body = JSON.stringify(state);
       if (!body) return;
 
@@ -125,7 +136,7 @@ export const useAutosave = (
         timerRef.current = null;
       }
     };
-  }, [projectId, userId, state, interval, onSave]);
+  }, [projectId, userId, state, interval, pauseAutosave, onSave]);
 
   // Function to manually save state
   const saveState = async () => {

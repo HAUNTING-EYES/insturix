@@ -12,10 +12,33 @@ export const useVideoPlayer = () => {
   const [currentFrame, setCurrentFrame] = useState(0);
   const playerRef = useRef<PlayerRef>(null);
 
+  // Sync local isPlaying state with actual Remotion Player events
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
+    const handleEnded = () => setIsPlaying(false);
+
+    player.addEventListener('play', handlePlay);
+    player.addEventListener('pause', handlePause);
+    player.addEventListener('ended', handleEnded);
+
+    return () => {
+      player.removeEventListener('play', handlePlay);
+      player.removeEventListener('pause', handlePause);
+      player.removeEventListener('ended', handleEnded);
+    };
+  }, [playerRef]);
+
   // Frame update effect - throttled to reduce re-renders
   // The Remotion Player handles actual video playback internally at full frame rate
   // We only need to update the frame state for UI display (timeline marker, time display)
   useEffect(() => {
+    // Only run the rAF loop when playing to save CPU when paused
+    if (!isPlaying) return;
+
     let animationFrameId: number;
     let lastFrame = -1;
     let frameCount = 0;

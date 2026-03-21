@@ -47,7 +47,7 @@ export const ZOOM_CONSTRAINTS = {
 
 // Timeline Snapping configuration
 export const SNAPPING_CONFIG = {
-  thresholdFrames: 1, // Default snapping sensitivity in frames
+  thresholdFrames: 3, // Default snapping sensitivity in frames
   enableVerticalSnapping: true, // Enable snapping to items in adjacent rows
 };
 
