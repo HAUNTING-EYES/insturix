@@ -419,6 +419,12 @@ export function ExportToEditronDialog({
     const currentTitle = projectTitle || title || 'Untitled Script';
     setError('');
 
+    if (!currentScenes || currentScenes.length === 0) {
+      setError('No scenes available. Please restart the export process.');
+      setStep('configure');
+      return;
+    }
+
     try {
       // Build approved references for IP-adapter + video prompt refinement
       const approved = subjects
@@ -482,8 +488,10 @@ export function ExportToEditronDialog({
           }
         } else {
           const errData = await sbRes.json().catch(() => ({}));
-          console.error('[ExportToEditron] Storyboard generation failed:', errData.error);
-          setError(errData.error || 'Storyboard generation failed');
+          const errorMsg = errData.error || 'Storyboard generation failed';
+          console.error('[ExportToEditron] Storyboard generation failed:', errorMsg);
+          setError(errorMsg);
+          // Don't just fall through — give user a clear message
         }
       }
 
@@ -534,9 +542,9 @@ export function ExportToEditronDialog({
           sendNotification('Video Clips Generated', `${succeeded} of ${sbImages.length} video clips ready. Generating voiceover next...`);
 
           if (succeeded === 0 && failed > 0) {
-            setError(`Videos: ${videoData.error || 'All clips failed'}. Continuing with storyboard images.`);
+            setError(`Video generation failed for all ${failed} scenes. The AI video model may be temporarily unavailable. Your storyboard images are preserved.`);
           } else if (failed > 0) {
-            setError(`Videos: ${failed}/${sbImages.length} clips failed. Continuing with available clips.`);
+            setError(`${failed} of ${sbImages.length} video clips failed. Continuing with available clips.`);
           }
         } catch (videoErr: any) {
           console.error(`[ExportToEditron] Video generation exception:`, videoErr);

@@ -81,16 +81,26 @@ async function getCleanImageUrl(imageUrl: string): Promise<string> {
 export const FAL_VIDEO_MODELS = {
   'kling-1.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
   'kling-1.5': 'fal-ai/kling-video/v1.5/pro/image-to-video',
-  'kling-2.6': 'fal-ai/kling-video/v2.1/pro/image-to-video',
+  'kling-2.6': 'fal-ai/kling-video/v2/pro/image-to-video', // EXPERIMENTAL — unverified endpoint
   minimax: 'fal-ai/minimax-video/image-to-video',
   'runway-gen3': 'fal-ai/runway-gen3/turbo/image-to-video',
-  'runway-gen4': 'fal-ai/runway-gen4/turbo/image-to-video',
+  'runway-gen4': 'fal-ai/runway/gen4/turbo/image-to-video', // EXPERIMENTAL — unverified endpoint
   'luma-ray2': 'fal-ai/luma-dream-machine/ray-2/image-to-video',
   'luma-dream-machine': 'fal-ai/luma-dream-machine/image-to-video',
-  'veo-3': 'fal-ai/veo3/image-to-video',
+  'veo-3': 'fal-ai/google/veo/image-to-video', // EXPERIMENTAL — unverified endpoint
 } as const;
 
 export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
+
+// Verified models that are known to work on fal.ai — safe for auto-selection
+const VERIFIED_MODELS: Set<FalVideoModel> = new Set([
+  'kling-1.5',
+  'kling-1.6',
+  'minimax',
+  'runway-gen3',
+  'luma-ray2',
+  'luma-dream-machine',
+]);
 
 // Human-readable labels for video models
 export const FAL_VIDEO_MODEL_LABELS: Record<FalVideoModel, string> = {
@@ -177,10 +187,11 @@ function buildFalVideoInput(
 
     case 'luma-ray2':
     case 'luma-dream-machine':
-      // Luma models: image_url, aspect_ratio, loop (bool)
+      // Luma models: image_url, aspect_ratio, loop (bool), duration (max ~5s)
       base.image_url = imageUrl;
       base.aspect_ratio = aspectRatio;
       base.loop = false;
+      base.duration = Math.min(duration, 5);
       break;
 
     case 'veo-3':
@@ -244,10 +255,18 @@ async function generateVideoWithFal(
   );
 
   const genStart = Date.now();
-  const result = await falSubscribeWithTimeout(modelId, {
-    input,
-    logs: false,
-  });
+  let result: any;
+  try {
+    result = await falSubscribeWithTimeout(modelId, {
+      input,
+      logs: false,
+    });
+  } catch (err: any) {
+    // Surface the actual fal.ai error details (often hidden behind generic messages)
+    const errMsg = err?.body?.detail || err?.message || 'Unknown fal.ai error';
+    console.error(`[VideoGen] fal.ai error for ${modelKey}: ${errMsg}`, JSON.stringify(err?.body || {}).substring(0, 500));
+    throw new Error(`${modelKey}: ${errMsg}`);
+  }
   const genMs = Date.now() - genStart;
   console.log(`[VideoGen] fal.subscribe completed in ${genMs}ms for model=${modelKey}`);
 
@@ -575,14 +594,17 @@ export function selectBestModel(scene: {
   const artStyle = (scene.artStyle || '').toLowerCase();
   const motionIntensity = scene.motionIntensity || 'medium';
 
-  // High-motion scenes benefit from Kling 2.6's superior motion handling
+  // ONLY auto-select from VERIFIED models to avoid 422 errors from unverified endpoints.
+  // Users can still manually choose experimental models (kling-2.6, runway-gen4, veo-3).
+
+  // High-motion scenes benefit from Kling 1.6's solid motion handling
   if (motionIntensity === 'high' || mood === 'energetic') {
-    return 'kling-2.6';
+    return 'kling-1.6';
   }
 
-  // Cinematic / dramatic / serious scenes — Veo 3.1 for top-tier quality
+  // Cinematic / dramatic / serious scenes — Kling 1.6 for reliable quality
   if (mood === 'dramatic' || mood === 'serious' || mood === 'inspirational') {
-    return 'veo-3';
+    return 'kling-1.6';
   }
 
   // Dreamy, artistic, or watercolor/illustration styles — Luma Dream Machine
@@ -596,9 +618,9 @@ export function selectBestModel(scene: {
     return 'luma-dream-machine';
   }
 
-  // Short clips where speed matters — Runway Gen-4.5 Turbo is fastest
+  // Short clips where speed matters — Runway Gen-3 Turbo (verified, fast)
   if (scene.durationSeconds && scene.durationSeconds <= 4) {
-    return 'runway-gen4';
+    return 'runway-gen3';
   }
 
   // Default: Kling 1.6 — proven, reliable, good quality
