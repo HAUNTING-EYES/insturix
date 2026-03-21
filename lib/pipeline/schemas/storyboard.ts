@@ -116,6 +116,7 @@ export interface Storyboard {
     visualDescription?: string;
     imageUrl: string;
     scenesAppearingIn: number[];
+    weight?: number;
   }>;
   /** Visual consistency report from Gemini Vision analysis of sequential scenes */
   consistencyReport?: ConsistencyReport;

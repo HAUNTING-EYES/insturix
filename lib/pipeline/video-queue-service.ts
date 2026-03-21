@@ -146,7 +146,7 @@ export async function enqueueVideoBatch(
     updatedAt: now,
     expiresAt,
   };
-  await db.collection(VIDEO_BATCHES_COLLECTION).insertOne(batch);
+  await db.collection(VIDEO_BATCHES_COLLECTION).insertOne(batch as any);
 
   // Create individual job records + enqueue to Redis (with retry)
   for (const scene of scenes) {
@@ -164,7 +164,7 @@ export async function enqueueVideoBatch(
       createdAt: now,
       expiresAt,
     };
-    await db.collection(VIDEO_JOBS_COLLECTION).insertOne(job);
+    await db.collection(VIDEO_JOBS_COLLECTION).insertOne(job as any);
 
     const queueEntry: VideoQueueEntry = {
       batchId,
@@ -208,7 +208,7 @@ export async function processNextVideoJob(): Promise<{
   // Check concurrent limit
   const activeCount = await db.collection(VIDEO_JOBS_COLLECTION).countDocuments({
     status: 'processing',
-  });
+  } as any);
 
   if (activeCount >= MAX_CONCURRENT_VIDEO_JOBS) {
     return { processed: false };
@@ -232,7 +232,7 @@ export async function processNextVideoJob(): Promise<{
 
   // Mark as processing
   await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-    { _id: jobId },
+    { _id: jobId } as any,
     { $set: { status: 'processing', startedAt: new Date(), attempts: 1 } },
   );
 
@@ -263,7 +263,7 @@ export async function processNextVideoJob(): Promise<{
 
     // Update job as completed
     await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-      { _id: jobId },
+      { _id: jobId } as any,
       {
         $set: {
           status: 'completed',
@@ -287,7 +287,7 @@ export async function processNextVideoJob(): Promise<{
 
     // Update batch counters
     await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
-      { _id: entry.batchId },
+      { _id: entry.batchId } as any,
       { $inc: { completed: 1 }, $set: { updatedAt: new Date() } },
     );
     await updateBatchStatus(entry.batchId);
@@ -299,13 +299,13 @@ export async function processNextVideoJob(): Promise<{
 
     // Mark as failed
     await db.collection(VIDEO_JOBS_COLLECTION).updateOne(
-      { _id: jobId },
+      { _id: jobId } as any,
       { $set: { status: 'failed', error: err.message, completedAt: new Date() } },
     );
 
     // Update batch counters
     await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
-      { _id: entry.batchId },
+      { _id: entry.batchId } as any,
       { $inc: { failed: 1 }, $set: { updatedAt: new Date() } },
     );
     await updateBatchStatus(entry.batchId);
@@ -319,7 +319,7 @@ export async function processNextVideoJob(): Promise<{
  */
 async function updateBatchStatus(batchId: string): Promise<void> {
   const db = await getDatabase();
-  const batch = await db.collection(VIDEO_BATCHES_COLLECTION).findOne({ _id: batchId }) as any;
+  const batch = await db.collection(VIDEO_BATCHES_COLLECTION).findOne({ _id: batchId } as any) as any;
   if (!batch) return;
 
   const total = batch.totalScenes;
@@ -333,7 +333,7 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   }
 
   await db.collection(VIDEO_BATCHES_COLLECTION).updateOne(
-    { _id: batchId },
+    { _id: batchId } as any,
     { $set: { status, updatedAt: new Date() } },
   );
 }
@@ -354,13 +354,13 @@ export async function getVideoBatchStatus(
   const batch = await db.collection(VIDEO_BATCHES_COLLECTION).findOne({
     _id: batchId,
     userId,
-  }) as any;
+  } as any) as any;
 
   if (!batch) return { batch: null, jobs: [] };
 
   const jobs = await db
     .collection(VIDEO_JOBS_COLLECTION)
-    .find({ batchId, userId })
+    .find({ batchId, userId } as any)
     .sort({ sceneIndex: 1 })
     .toArray() as any[];
 

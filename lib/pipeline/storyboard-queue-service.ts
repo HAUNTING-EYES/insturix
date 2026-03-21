@@ -146,7 +146,7 @@ export async function enqueueStoryboardBatch(
     updatedAt: now,
     expiresAt,
   };
-  await db.collection(SB_BATCHES_COLLECTION).insertOne(batch);
+  await db.collection(SB_BATCHES_COLLECTION).insertOne(batch as any);
 
   // Create jobs + enqueue
   for (const scene of scenes) {
@@ -163,7 +163,7 @@ export async function enqueueStoryboardBatch(
       createdAt: now,
       expiresAt,
     };
-    await db.collection(SB_JOBS_COLLECTION).insertOne(job);
+    await db.collection(SB_JOBS_COLLECTION).insertOne(job as any);
 
     const entry: SbQueueEntry = {
       batchId,
@@ -202,7 +202,7 @@ export async function processNextStoryboardJob(): Promise<{
 
   const activeCount = await db.collection(SB_JOBS_COLLECTION).countDocuments({
     status: 'processing',
-  });
+  } as any);
 
   if (activeCount >= MAX_CONCURRENT_STORYBOARD_JOBS) {
     return { processed: false };
@@ -224,7 +224,7 @@ export async function processNextStoryboardJob(): Promise<{
   const jobId = `${entry.batchId}_s${entry.sceneIndex}`;
 
   await db.collection(SB_JOBS_COLLECTION).updateOne(
-    { _id: jobId },
+    { _id: jobId } as any,
     { $set: { status: 'processing', attempts: 1 } },
   );
 
@@ -233,7 +233,7 @@ export async function processNextStoryboardJob(): Promise<{
     const { updateStoryboardScene } = await import('./storyboard-db');
 
     // Check if we have a style anchor from scene 0
-    const batch = await db.collection(SB_BATCHES_COLLECTION).findOne({ _id: entry.batchId }) as any;
+    const batch = await db.collection(SB_BATCHES_COLLECTION).findOne({ _id: entry.batchId } as any) as any;
     let referenceImages = entry.referenceImages;
 
     // If no IP-adapter refs and style anchor exists, use it
@@ -264,14 +264,14 @@ export async function processNextStoryboardJob(): Promise<{
     // If this is scene 0, save as style anchor
     if (entry.sceneIndex === 0 && result.imageUrl) {
       await db.collection(SB_BATCHES_COLLECTION).updateOne(
-        { _id: entry.batchId },
+        { _id: entry.batchId } as any,
         { $set: { styleAnchorUrl: result.imageUrl } },
       );
     }
 
     // Update job
     await db.collection(SB_JOBS_COLLECTION).updateOne(
-      { _id: jobId },
+      { _id: jobId } as any,
       {
         $set: {
           status: 'completed',
@@ -296,13 +296,12 @@ export async function processNextStoryboardJob(): Promise<{
         imageUrl: result.imageUrl,
         timestamp: new Date(),
         modelUsed: result.modelUsed,
-        usedIpAdapter: result.usedIpAdapter,
       }],
     });
 
     // Update batch counters
     await db.collection(SB_BATCHES_COLLECTION).updateOne(
-      { _id: entry.batchId },
+      { _id: entry.batchId } as any,
       { $inc: { completed: 1 }, $set: { updatedAt: new Date() } },
     );
     await updateSbBatchStatus(entry.batchId);
@@ -313,11 +312,11 @@ export async function processNextStoryboardJob(): Promise<{
     console.error(`[SbQueue] Job ${jobId} failed:`, err.message);
 
     await db.collection(SB_JOBS_COLLECTION).updateOne(
-      { _id: jobId },
+      { _id: jobId } as any,
       { $set: { status: 'failed', error: err.message, completedAt: new Date() } },
     );
     await db.collection(SB_BATCHES_COLLECTION).updateOne(
-      { _id: entry.batchId },
+      { _id: entry.batchId } as any,
       { $inc: { failed: 1 }, $set: { updatedAt: new Date() } },
     );
     await updateSbBatchStatus(entry.batchId);
@@ -328,7 +327,7 @@ export async function processNextStoryboardJob(): Promise<{
 
 async function updateSbBatchStatus(batchId: string): Promise<void> {
   const db = await getDatabase();
-  const batch = await db.collection(SB_BATCHES_COLLECTION).findOne({ _id: batchId }) as any;
+  const batch = await db.collection(SB_BATCHES_COLLECTION).findOne({ _id: batchId } as any) as any;
   if (!batch) return;
 
   const done = batch.completed + batch.failed;
@@ -340,7 +339,7 @@ async function updateSbBatchStatus(batchId: string): Promise<void> {
   }
 
   await db.collection(SB_BATCHES_COLLECTION).updateOne(
-    { _id: batchId },
+    { _id: batchId } as any,
     { $set: { status, updatedAt: new Date() } },
   );
 }
@@ -355,13 +354,13 @@ export async function getStoryboardBatchStatus(
   const batch = await db.collection(SB_BATCHES_COLLECTION).findOne({
     _id: batchId,
     userId,
-  }) as any;
+  } as any) as any;
 
   if (!batch) return { batch: null, jobs: [] };
 
   const jobs = await db
     .collection(SB_JOBS_COLLECTION)
-    .find({ batchId, userId })
+    .find({ batchId, userId } as any)
     .sort({ sceneIndex: 1 })
     .toArray() as any[];
 

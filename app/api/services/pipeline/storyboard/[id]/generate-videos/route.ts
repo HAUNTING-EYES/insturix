@@ -34,9 +34,15 @@ import {
   enqueueVideoBatch,
   type VideoJobScene,
 } from '@/lib/pipeline/video-queue-service';
+import {
+  generateVideoClip,
+  type VideoGenerationRequest,
+} from '@/lib/pipeline/video-generation-service';
+import { updateStoryboardScene } from '@/lib/pipeline/storyboard-db';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60; // Only needs time for prompt building + enqueue (not video generation)
+// 300s: long enough for direct fallback (4 scenes × ~60s each) if Redis is down
+export const maxDuration = 300;
 
 export async function POST(
   request: NextRequest,
@@ -192,41 +198,93 @@ export async function POST(
       });
     }
 
-    // ─── Enqueue all scenes → returns immediately ────────────────
-    const { batchId, totalScenes } = await enqueueVideoBatch(
-      userId,
-      storyboardId,
-      scenesForQueue,
-      {
-        aspectRatio,
-        videoModel: lockedVideoModel || 'kling-2.1',
-      },
-    );
+    // ─── Try async queue first, fall back to direct generation ──────
+    try {
+      const { batchId, totalScenes } = await enqueueVideoBatch(
+        userId,
+        storyboardId,
+        scenesForQueue,
+        {
+          aspectRatio,
+          videoModel: lockedVideoModel || 'kling-2.1',
+        },
+      );
 
-    console.log(`[generate-videos] Enqueued batch ${batchId}: ${totalScenes} scenes for parallel processing`);
+      console.log(`[generate-videos] Enqueued batch ${batchId}: ${totalScenes} scenes for parallel processing`);
 
-    return NextResponse.json({
-      success: true,
-      async: true, // Signal to frontend that this is async — poll for status
-      batchId,
-      storyboardId,
-      totalScenes,
-      videoModel: lockedVideoModel,
-      creditsDeducted: creditCost,
-      message: `${totalScenes} video scenes queued for parallel generation. Poll /status?batchId=${batchId} for progress.`,
-    });
+      return NextResponse.json({
+        success: true,
+        async: true,
+        batchId,
+        storyboardId,
+        totalScenes,
+        videoModel: lockedVideoModel,
+        creditsDeducted: creditCost,
+        message: `${totalScenes} video scenes queued for parallel generation. Poll /status?batchId=${batchId} for progress.`,
+      });
+    } catch (queueErr: any) {
+      // ─── FALLBACK: Direct generation when Redis/queue is unavailable ──
+      console.warn(`[generate-videos] Queue unavailable (${queueErr.message}), falling back to direct generation`);
+
+      const videoResults: Array<{ sceneIndex: number; videoUrl?: string; error?: string }> = [];
+      const resolvedModel = lockedVideoModel || 'kling-2.1';
+
+      for (let i = 0; i < scenesForQueue.length; i++) {
+        const scene = scenesForQueue[i];
+        try {
+          console.log(`[generate-videos] Direct gen scene ${scene.sceneIndex} (${i + 1}/${scenesForQueue.length})`);
+          const result = await generateVideoClip(
+            {
+              imageUrl: scene.imageUrl,
+              motionPrompt: scene.motionPrompt,
+              durationSeconds: scene.durationSeconds,
+              aspectRatio,
+              falVideoModel: resolvedModel,
+              nextSceneImageUrl: scene.nextSceneImageUrl,
+            },
+            userId,
+          );
+
+          // Update storyboard scene with video data
+          await updateStoryboardScene(storyboardId, scene.sceneIndex, {
+            videoUrl: result.videoUrl,
+            videoAssetId: result.assetId,
+            videoGcsPath: result.gcsPath,
+            videoProvider: result.provider || 'fal-ai',
+          });
+
+          videoResults.push({ sceneIndex: scene.sceneIndex, videoUrl: result.videoUrl });
+        } catch (genErr: any) {
+          console.error(`[generate-videos] Direct gen scene ${scene.sceneIndex} failed:`, genErr.message);
+          videoResults.push({ sceneIndex: scene.sceneIndex, error: genErr.message });
+        }
+      }
+
+      const completed = videoResults.filter(r => r.videoUrl).length;
+      const failed = videoResults.filter(r => r.error).length;
+
+      return NextResponse.json({
+        success: completed > 0,
+        async: false, // Direct mode — results are final
+        storyboardId,
+        totalScenes: scenesForQueue.length,
+        completed,
+        failed,
+        isComplete: true,
+        status: completed === scenesForQueue.length ? 'completed' : completed > 0 ? 'partial' : 'failed',
+        scenes: videoResults,
+        videoModel: resolvedModel,
+        creditsDeducted: creditCost,
+        fallbackMode: true,
+        message: `Direct generation: ${completed}/${scenesForQueue.length} videos completed.`,
+      });
+    }
   } catch (error: any) {
-    const errMsg = error?.message || 'Failed to enqueue videos';
-    const isRedisError = errMsg.includes('fetch failed') || errMsg.includes('ECONNRESET');
-    console.error('[generate-videos] Error:', errMsg, isRedisError ? '(Redis connectivity issue)' : '');
+    const errMsg = error?.message || 'Failed to generate videos';
+    console.error('[generate-videos] Error:', errMsg);
     return NextResponse.json(
-      {
-        success: false,
-        error: isRedisError
-          ? 'Video queue service temporarily unavailable. Please try again in a moment.'
-          : errMsg,
-      },
-      { status: isRedisError ? 503 : 500 },
+      { success: false, error: errMsg },
+      { status: 500 },
     );
   }
 }

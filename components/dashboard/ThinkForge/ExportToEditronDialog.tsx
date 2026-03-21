@@ -143,8 +143,8 @@ export function ExportToEditronDialog({
   React.useEffect(() => {
     if (open) {
       fetch('/api/services/pipeline/voices')
-        .then((res) => res.ok ? res.json() : {})
-        .then((data) => {
+        .then((res) => res.ok ? res.json() : ({ voices: [] }))
+        .then((data: any) => {
           if (data.voices?.length > 0) {
             setAvailableVoices(data.voices);
           }
@@ -537,58 +537,74 @@ export function ExportToEditronDialog({
 
           const enqueueData = await enqueueRes.json().catch(() => ({}));
 
-          if (!enqueueData.success || !enqueueData.batchId) {
-            throw new Error(enqueueData.error || 'Failed to enqueue video generation');
+          if (!enqueueData.success) {
+            throw new Error(enqueueData.error || 'Failed to start video generation');
           }
 
-          const batchId = enqueueData.batchId;
-          console.log(`[ExportToEditron] Video batch enqueued: ${batchId} (${enqueueData.totalScenes} scenes)`);
-
-          // Step 5b: Poll for completion (checks every 10s, max 15 minutes)
-          const MAX_POLL_ATTEMPTS = 90; // 90 × 10s = 15 minutes max
-          const POLL_INTERVAL_MS = 10_000; // 10 seconds
-
-          let videosCompleted = false;
-          for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
-            await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-
-            try {
-              const statusRes = await fetch(
-                `/api/services/pipeline/storyboard/${sbId}/generate-videos/status?batchId=${batchId}`,
-              );
-              const statusData = await statusRes.json().catch(() => ({}));
-
-              if (statusData.success) {
-                const completed = statusData.completed || 0;
-                const failed = statusData.failed || 0;
-                setVideoProgress({ done: completed + failed, total: statusData.totalScenes || sbImages.length });
-
-                console.log(`[ExportToEditron] Video poll #${poll + 1}: ${completed} done, ${failed} failed, status=${statusData.status}`);
-
-                if (statusData.isComplete) {
-                  setVideosGenerated(completed > 0);
-                  sendNotification('Video Clips Generated', `${completed} of ${statusData.totalScenes} video clips ready.`);
-
-                  if (completed === 0 && failed > 0) {
-                    const sceneErrors = statusData.scenes?.filter((s: any) => s.error).map((s: any) => `Scene ${s.sceneIndex}: ${s.error}`).join('; ') || '';
-                    setError(`Video generation failed for all ${failed} scenes. ${sceneErrors.substring(0, 200) || 'The AI video model may be temporarily unavailable.'}`);
-                  } else if (failed > 0) {
-                    setError(`${failed} of ${statusData.totalScenes} video clips failed. Continuing with available clips.`);
-                  }
-                  videosCompleted = true;
-                  break;
-                }
-              }
-            } catch (pollErr: any) {
-              console.warn(`[ExportToEditron] Video poll #${poll + 1} failed:`, pollErr.message);
-              // Don't break on poll errors — the server may still be processing
+          // ─── Handle direct fallback mode (Redis unavailable) ──────
+          if (enqueueData.async === false && enqueueData.isComplete) {
+            // Direct generation completed — no polling needed
+            const completed = enqueueData.completed || 0;
+            const failed = enqueueData.failed || 0;
+            console.log(`[ExportToEditron] Videos generated directly (fallback): ${completed} done, ${failed} failed`);
+            setVideoProgress({ done: completed + failed, total: enqueueData.totalScenes || allSceneIndices.length });
+            setVideosGenerated(completed > 0);
+            if (failed > 0 && completed > 0) {
+              setError(`${failed} of ${enqueueData.totalScenes} video clips failed. Continuing with available clips.`);
+            } else if (completed === 0) {
+              const sceneErrors = enqueueData.scenes?.filter((s: any) => s.error).map((s: any) => `Scene ${s.sceneIndex}: ${s.error}`).join('; ') || '';
+              setError(`Video generation failed for all scenes. ${sceneErrors.substring(0, 200)}`);
             }
-          }
+            // Skip polling — go straight to voiceover
+          } else if (enqueueData.batchId) {
+            // ─── Async queue mode — poll for completion ──────────────
+            const batchId = enqueueData.batchId;
+            console.log(`[ExportToEditron] Video batch enqueued: ${batchId} (${enqueueData.totalScenes} scenes)`);
 
-          if (!videosCompleted) {
-            console.warn('[ExportToEditron] Video generation polling timed out after 15 minutes');
-            setError('Video generation is still processing in the background. Your videos will appear in Editron when ready.');
-            setVideosGenerated(false); // Still usable — videos will show up later
+            const MAX_POLL_ATTEMPTS = 90; // 90 × 10s = 15 minutes max
+            const POLL_INTERVAL_MS = 10_000;
+
+            let videosCompleted = false;
+            for (let poll = 0; poll < MAX_POLL_ATTEMPTS; poll++) {
+              await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+              try {
+                const statusRes = await fetch(
+                  `/api/services/pipeline/storyboard/${sbId}/generate-videos/status?batchId=${batchId}`,
+                );
+                const statusData = await statusRes.json().catch(() => ({}));
+
+                if (statusData.success) {
+                  const completed = statusData.completed || 0;
+                  const failed = statusData.failed || 0;
+                  setVideoProgress({ done: completed + failed, total: statusData.totalScenes || sbImages.length });
+
+                  console.log(`[ExportToEditron] Video poll #${poll + 1}: ${completed} done, ${failed} failed, status=${statusData.status}`);
+
+                  if (statusData.isComplete) {
+                    setVideosGenerated(completed > 0);
+                    sendNotification('Video Clips Generated', `${completed} of ${statusData.totalScenes} video clips ready.`);
+
+                    if (completed === 0 && failed > 0) {
+                      const sceneErrors = statusData.scenes?.filter((s: any) => s.error).map((s: any) => `Scene ${s.sceneIndex}: ${s.error}`).join('; ') || '';
+                      setError(`Video generation failed for all ${failed} scenes. ${sceneErrors.substring(0, 200) || 'The AI video model may be temporarily unavailable.'}`);
+                    } else if (failed > 0) {
+                      setError(`${failed} of ${statusData.totalScenes} video clips failed. Continuing with available clips.`);
+                    }
+                    videosCompleted = true;
+                    break;
+                  }
+                }
+              } catch (pollErr: any) {
+                console.warn(`[ExportToEditron] Video poll #${poll + 1} failed:`, pollErr.message);
+              }
+            }
+
+            if (!videosCompleted) {
+              console.warn('[ExportToEditron] Video generation polling timed out after 15 minutes');
+              setError('Video generation is still processing in the background. Your videos will appear in Editron when ready.');
+              setVideosGenerated(false);
+            }
           }
         } catch (videoErr: any) {
           console.error(`[ExportToEditron] Video generation exception:`, videoErr);

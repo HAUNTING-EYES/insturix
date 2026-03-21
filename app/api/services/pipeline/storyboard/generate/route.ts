@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
 
     // Build referenceImageMap from approved references (now with clean CDN URLs)
     // Maps sceneIndex → array of reference images for IP-adapter consistency
-    let referenceImageMap: Record<number, Array<{ subjectId: string; imageUrl: string; weight?: number }>> | undefined;
+    let referenceImageMap: Record<number, Array<{ subjectId: string; imageUrl: string; weight?: number; name?: string; visualDescription?: string }>> | undefined;
     if (approvedReferences && approvedReferences.length > 0) {
       referenceImageMap = {};
       for (const ref of approvedReferences) {

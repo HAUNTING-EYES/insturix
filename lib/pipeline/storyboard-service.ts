@@ -452,8 +452,7 @@ export async function generateFullStoryboard(
           imageUrl: result.imageUrl,
           timestamp: new Date(),
           modelUsed: result.modelUsed,
-          usedIpAdapter: result.usedIpAdapter,
-        });
+        } as any);
 
         await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
           imageAssetId: result.assetId,
@@ -593,8 +592,7 @@ export async function generateFullStoryboard(
               timestamp: new Date(),
               feedback: 'Auto-regenerated for consistency',
               modelUsed: result.modelUsed,
-              usedIpAdapter: result.usedIpAdapter,
-            });
+            } as any);
 
             await updateStoryboardScene(storyboardId, flaggedIndex, {
               imageAssetId: result.assetId,
@@ -698,8 +696,7 @@ export async function regenerateScene(
     timestamp: new Date(),
     feedback: options.feedback,
     modelUsed: result.modelUsed,
-    usedIpAdapter: result.usedIpAdapter,
-  });
+  } as any);
 
   await updateStoryboardScene(storyboardId, sceneIndex, {
     imageAssetId: result.assetId,

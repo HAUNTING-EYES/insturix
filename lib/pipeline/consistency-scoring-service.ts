@@ -101,13 +101,13 @@ async function comparePair(
             {
               type: 'image',
               image: bufA.buffer,
-              mimeType: bufA.mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
-            },
+              mimeType: bufA.mimeType,
+            } as any,
             {
               type: 'image',
               image: bufB.buffer,
-              mimeType: bufB.mimeType as 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif',
-            },
+              mimeType: bufB.mimeType,
+            } as any,
           ],
         },
       ],

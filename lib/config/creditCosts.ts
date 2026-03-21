@@ -116,6 +116,57 @@ export const CREDIT_COSTS: Record<string, CreditCostConfig[]> = {
       },
     },
   ],
+
+  pipeline: [
+    {
+      service: 'pipeline',
+      action: 'video_generation',
+      billingType: 'per_request',
+      baseCost: 3,
+      description: 'Per AI video clip generated from storyboard',
+      modelMultipliers: {
+        'kling-2.6': 1.5,
+        'kling-2.1': 1,
+        'kling-1.5': 0.8,
+        'luma-ray2': 1.2,
+        'veo-3': 2,
+        'veo-2': 1.5,
+        'minimax': 0.8,
+      },
+    },
+    {
+      service: 'pipeline',
+      action: 'voiceover_generation',
+      billingType: 'per_request',
+      baseCost: 1,
+      description: 'Per scene voiceover generated',
+      modelMultipliers: {},
+    },
+    {
+      service: 'pipeline',
+      action: 'storyboard_generation',
+      billingType: 'per_request',
+      baseCost: 2,
+      description: 'Per storyboard image generated',
+      modelMultipliers: {},
+    },
+    {
+      service: 'pipeline',
+      action: 'storyboard_finalize',
+      billingType: 'per_request',
+      baseCost: 1,
+      description: 'Finalize storyboard into Editron project (includes BGM + SFX)',
+      modelMultipliers: {},
+    },
+    {
+      service: 'pipeline',
+      action: 'reference_generation',
+      billingType: 'per_request',
+      baseCost: 2,
+      description: 'Per reference image generated',
+      modelMultipliers: {},
+    },
+  ],
 };
 
 // Subscription Plans (USD Only)
