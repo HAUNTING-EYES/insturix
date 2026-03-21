@@ -522,6 +522,12 @@ export function ExportToEditronDialog({
           const allSceneIndices = sbImages.map((s: any) => s.sceneIndex);
           console.log(`[ExportToEditron] Generating videos for scenes: ${allSceneIndices.join(', ')}`);
 
+          // Video generation can take 5-10 minutes for multiple scenes.
+          // Browser fetch() may abort after ~300s if no data flows.
+          // Use AbortController with a generous timeout to prevent premature abort.
+          const videoAbort = new AbortController();
+          const videoTimeoutId = setTimeout(() => videoAbort.abort(), 9 * 60 * 1000); // 9 minutes
+
           const videoRes = await fetch(`/api/services/pipeline/storyboard/${sbId}/generate-videos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -530,7 +536,9 @@ export function ExportToEditronDialog({
               sceneIndices: allSceneIndices,
               videoModel, // 'auto' selects best model per scene; specific model locks all scenes
             }),
+            signal: videoAbort.signal,
           });
+          clearTimeout(videoTimeoutId);
 
           const videoData = await videoRes.json().catch(() => ({}));
           const succeeded = videoData.summary?.succeeded || 0;
@@ -550,7 +558,11 @@ export function ExportToEditronDialog({
           }
         } catch (videoErr: any) {
           console.error(`[ExportToEditron] Video generation exception:`, videoErr);
-          setError(`Videos: ${videoErr.message}. Continuing with storyboard images.`);
+          const isTimeout = videoErr.name === 'AbortError' || videoErr.message?.includes('Failed to fetch') || videoErr.message?.includes('aborted');
+          const msg = isTimeout
+            ? 'Video generation timed out (this can happen with 4+ scenes). Your storyboard images are preserved — you can retry video generation from Editron.'
+            : `Videos: ${videoErr.message}. Continuing with storyboard images.`;
+          setError(msg);
         }
       }
 
