@@ -236,6 +236,9 @@ export async function POST(
       || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
     const workerUrl = `${baseUrl}/api/internal/workers/pipeline/video`;
 
+    console.log(`[generate-videos] Worker URL: ${workerUrl}`);
+    console.log(`[generate-videos] QSTASH_TOKEN set: ${!!process.env.QSTASH_TOKEN}, QSTASH_URL: ${process.env.QSTASH_URL || '(default)'}`);
+
     const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
 
     let enqueueErrors = 0;
@@ -261,11 +264,33 @@ export async function POST(
           }),
         }).catch(err => console.error(`[generate-videos] Dev dispatch failed for scene ${scene.sceneIndex}:`, err.message));
       }
+    } else if (!process.env.QSTASH_TOKEN) {
+      // QStash not configured — fall back to fire-and-forget fetch
+      console.warn('[generate-videos] QSTASH_TOKEN not set, using fire-and-forget fetch');
+      for (const scene of sceneJobs) {
+        fetch(workerUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jobId: `${batchId}_s${scene.sceneIndex}`,
+            batchId,
+            userId,
+            storyboardId,
+            sceneIndex: scene.sceneIndex,
+            imageUrl: scene.imageUrl,
+            motionPrompt: scene.motionPrompt,
+            durationSeconds: scene.durationSeconds,
+            aspectRatio,
+            videoModel: resolvedModel,
+            nextSceneImageUrl: scene.nextSceneImageUrl,
+          }),
+        }).catch(err => console.error(`[generate-videos] Fetch dispatch failed for scene ${scene.sceneIndex}:`, err.message));
+      }
     } else {
       // Production: Use QStash
       const qstashClient = new Client({
-        token: process.env.QSTASH_TOKEN!,
-        baseUrl: process.env.QSTASH_URL,
+        token: process.env.QSTASH_TOKEN,
+        baseUrl: process.env.QSTASH_URL || undefined,
       });
 
       const qstashResults = await Promise.allSettled(
@@ -286,18 +311,26 @@ export async function POST(
               nextSceneImageUrl: scene.nextSceneImageUrl,
             },
             retries: 2,
-            headers: { 'Content-Type': 'application/json' },
           }),
         ),
       );
 
-      enqueueErrors = qstashResults.filter(r => r.status === 'rejected').length;
+      for (let i = 0; i < qstashResults.length; i++) {
+        const r = qstashResults[i];
+        if (r.status === 'fulfilled') {
+          console.log(`[generate-videos] QStash scene ${sceneJobs[i].sceneIndex}: messageId=${(r.value as any)?.messageId || 'ok'}`);
+        } else {
+          enqueueErrors++;
+          console.error(`[generate-videos] QStash scene ${sceneJobs[i].sceneIndex} FAILED:`, (r.reason as any)?.message || r.reason);
+        }
+      }
+
       if (enqueueErrors > 0) {
         console.error(`[generate-videos] ${enqueueErrors}/${sceneJobs.length} QStash enqueue failed`);
       }
     }
 
-    console.log(`[generate-videos] Batch ${batchId}: ${sceneJobs.length} scenes enqueued via QStash (${enqueueErrors} failures)`);
+    console.log(`[generate-videos] Batch ${batchId}: ${sceneJobs.length} scenes dispatched (${enqueueErrors} failures)`);
 
     return NextResponse.json({
       success: true,

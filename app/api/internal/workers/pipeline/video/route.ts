@@ -37,6 +37,7 @@ interface VideoWorkerPayload {
 }
 
 async function handler(request: NextRequest) {
+  console.log(`[VideoWorker] Received request from ${request.headers.get('user-agent')?.substring(0, 50) || 'unknown'}`);
   try {
     const payload: VideoWorkerPayload = await request.json();
     const {
@@ -153,6 +154,7 @@ async function updateBatchStatus(batchId: string): Promise<void> {
   );
 }
 
-// In production, verify QStash signature. In dev, skip verification.
+// Verify QStash signature in production. Skip in dev or if signing keys aren't set.
 const isDev = process.env.APP_ENV === 'development' || process.env.NODE_ENV === 'development';
-export const POST = isDev ? handler : verifySignatureAppRouter(handler);
+const hasSigningKeys = !!process.env.QSTASH_CURRENT_SIGNING_KEY && !!process.env.QSTASH_NEXT_SIGNING_KEY;
+export const POST = (isDev || !hasSigningKeys) ? handler : verifySignatureAppRouter(handler);
