@@ -3510,9 +3510,41 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
         // Look up the storyboard that was linked to this Editron project.
         const { getStoryboardByProjectId } = await import('@/lib/pipeline/storyboard-db');
         const storyboard = await getStoryboardByProjectId(projectId, userId);
-        const storyboardId = storyboard?.storyboardId
+        let storyboardId = storyboard?.storyboardId
           || (project as any).storyboardId
           || (project as any).sourceStoryboardId;
+
+        // Fallback: if no link found, try to find a storyboard whose scene
+        // asset IDs appear in this project's overlays (handles pre-fix projects).
+        if (!storyboardId) {
+          try {
+            const { getDatabase } = await import('@/lib/editron/db/mongodb');
+            const db = await getDatabase();
+            const overlayAssetIds = ((project as any).overlays || [])
+              .map((o: any) => o.assetId)
+              .filter(Boolean);
+            if (overlayAssetIds.length > 0) {
+              const match = await db.collection('storyboards').findOne({
+                userId,
+                'scenes.imageAssetId': { $in: overlayAssetIds },
+              });
+              if (match) {
+                storyboardId = (match as any).storyboardId;
+                // Persist the link so future lookups are fast
+                await db.collection('storyboards').updateOne(
+                  { storyboardId },
+                  { $set: { projectId, updatedAt: new Date() } },
+                );
+                await db.collection('projects').updateOne(
+                  { projectId },
+                  { $set: { sourceStoryboardId: storyboardId, updatedAt: new Date() } },
+                );
+              }
+            }
+          } catch (linkErr) {
+            console.warn('[regenerate_scene] Fallback storyboard lookup failed:', linkErr);
+          }
+        }
 
         if (!storyboardId) {
           return JSON.stringify({

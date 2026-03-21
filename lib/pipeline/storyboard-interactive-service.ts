@@ -73,7 +73,7 @@ export async function generateSceneSequential(
   await updateSceneStatus(storyboardId, sceneIndex, 'generating');
 
   try {
-    const prompt = buildStoryboardPrompt(
+    const basePrompt = buildStoryboardPrompt(
       scene.descriptor,
       storyboard.styleGuide,
       sceneIndex,
@@ -93,6 +93,22 @@ export async function generateSceneSequential(
     const seqSceneRefs = storyboard.approvedReferences?.filter(
       (ref) => ref.scenesAppearingIn.includes(sceneIndex),
     );
+
+    // Build reference subject descriptions for prompt enrichment.
+    // Ensures fallback images still describe the reference subjects textually.
+    let refDescriptionSuffix = '';
+    if (seqSceneRefs && seqSceneRefs.length > 0) {
+      const refDescs = seqSceneRefs
+        .filter((r) => r.visualDescription || r.name)
+        .map((r) => {
+          if (r.visualDescription) return `${r.name}: ${r.visualDescription}`;
+          return `featuring ${r.name}`;
+        });
+      if (refDescs.length > 0) {
+        refDescriptionSuffix = `. Key subjects: ${refDescs.join('; ')}`;
+      }
+    }
+    const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
 
     if (seqSceneRefs && seqSceneRefs.length > 0) {
       const primaryRef = seqSceneRefs[0];
@@ -315,6 +331,20 @@ export async function regenerateWithContext(
     );
     const hasApprovedRefs = sceneRefs && sceneRefs.length > 0;
     let ipAdapterSucceeded = false;
+
+    // Enrich prompt with reference subject descriptions for consistency.
+    // This helps both IP-adapter (reinforces visual cues) and fallback (textual guidance).
+    if (hasApprovedRefs) {
+      const refDescs = sceneRefs
+        .filter((r) => r.visualDescription || r.name)
+        .map((r) => {
+          if (r.visualDescription) return `${r.name}: ${r.visualDescription}`;
+          return `featuring ${r.name}`;
+        });
+      if (refDescs.length > 0) {
+        prompt += `. Key subjects: ${refDescs.join('; ')}`;
+      }
+    }
 
     if (hasApprovedRefs) {
       const primaryRef = sceneRefs[0];

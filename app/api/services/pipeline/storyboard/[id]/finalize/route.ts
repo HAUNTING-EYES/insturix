@@ -361,6 +361,19 @@ export async function POST(
       durationInFrames: currentFrame,
     });
 
+    // ─── Link storyboard ↔ project bidirectionally ────────────────
+    // Set projectId on the storyboard so regenerate_scene can find it
+    // via getStoryboardByProjectId(), and set sourceStoryboardId on the
+    // project so the fallback lookup also works.
+    await db.collection('storyboards').updateOne(
+      { storyboardId: id },
+      { $set: { projectId: project.projectId, updatedAt: new Date() } },
+    );
+    await db.collection(COLLECTIONS.PROJECTS).updateOne(
+      { projectId: project.projectId },
+      { $set: { sourceStoryboardId: id, updatedAt: new Date() } },
+    );
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,

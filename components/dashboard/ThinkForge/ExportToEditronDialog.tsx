@@ -419,7 +419,9 @@ export function ExportToEditronDialog({
             overallMusicPrompt,
             styleGuide: {
               artStyle,
-              colorPalette: [],
+              colorPalette: exportData.colorPalette || [],
+              characterDescriptions: exportData.characterDescriptions || undefined,
+              environmentNotes: exportData.environmentNotes || undefined,
             },
             refSetId: refSetId || undefined,
             approvedReferences: approved.length > 0 ? approved : undefined,
@@ -1054,10 +1056,14 @@ export function ExportToEditronDialog({
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
                       <SelectItem value="kling-1.6">Kling 1.6 Pro (Default)</SelectItem>
+                      <SelectItem value="kling-2.6">Kling 2.6 Pro</SelectItem>
                       <SelectItem value="kling-1.5">Kling 1.5 Pro</SelectItem>
-                      <SelectItem value="minimax">MiniMax Video</SelectItem>
+                      <SelectItem value="veo-3">Google Veo 3.1</SelectItem>
+                      <SelectItem value="runway-gen4">Runway Gen-4.5 Turbo</SelectItem>
                       <SelectItem value="runway-gen3">Runway Gen-3 Turbo</SelectItem>
+                      <SelectItem value="luma-dream-machine">Luma Dream Machine</SelectItem>
                       <SelectItem value="luma-ray2">Luma Ray 2</SelectItem>
+                      <SelectItem value="minimax">MiniMax Video</SelectItem>
                     </SelectContent>
                   </Select>
                 </motion.div>

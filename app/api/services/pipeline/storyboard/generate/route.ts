@@ -100,6 +100,8 @@ export async function POST(request: NextRequest) {
             subjectId: ref.subjectId,
             imageUrl: ref.imageUrl,
             weight: 0.6,
+            name: ref.name,
+            visualDescription: ref.visualDescription,
           });
         }
       }

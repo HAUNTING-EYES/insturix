@@ -81,9 +81,13 @@ async function getCleanImageUrl(imageUrl: string): Promise<string> {
 export const FAL_VIDEO_MODELS = {
   'kling-1.6': 'fal-ai/kling-video/v1.6/pro/image-to-video',
   'kling-1.5': 'fal-ai/kling-video/v1.5/pro/image-to-video',
+  'kling-2.6': 'fal-ai/kling-video/v2.1/pro/image-to-video',
   minimax: 'fal-ai/minimax-video/image-to-video',
   'runway-gen3': 'fal-ai/runway-gen3/turbo/image-to-video',
+  'runway-gen4': 'fal-ai/runway-gen4/turbo/image-to-video',
   'luma-ray2': 'fal-ai/luma-dream-machine/ray-2/image-to-video',
+  'luma-dream-machine': 'fal-ai/luma-dream-machine/image-to-video',
+  'veo-3': 'fal-ai/veo3/image-to-video',
 } as const;
 
 export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
@@ -92,9 +96,13 @@ export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
 export const FAL_VIDEO_MODEL_LABELS: Record<FalVideoModel, string> = {
   'kling-1.6': 'Kling 1.6 Pro',
   'kling-1.5': 'Kling 1.5 Pro',
+  'kling-2.6': 'Kling 2.6 Pro',
   minimax: 'MiniMax Video',
   'runway-gen3': 'Runway Gen-3 Turbo',
+  'runway-gen4': 'Runway Gen-4.5 Turbo',
   'luma-ray2': 'Luma Ray 2',
+  'luma-dream-machine': 'Luma Dream Machine',
+  'veo-3': 'Google Veo 3.1',
 };
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -112,7 +120,7 @@ export interface VideoGenerationRequest {
   aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
   /** Preferred provider */
   provider?: VideoProvider;
-  /** Specific fal.ai video model key (kling-1.6, kling-1.5, minimax, runway-gen3, luma-ray2) */
+  /** Specific fal.ai video model key (kling-1.6, kling-1.5, kling-2.6, minimax, runway-gen3, runway-gen4, luma-ray2, luma-dream-machine, veo-3) */
   falVideoModel?: FalVideoModel;
 }
 
@@ -144,6 +152,7 @@ function buildFalVideoInput(
   switch (modelKey) {
     case 'kling-1.6':
     case 'kling-1.5':
+    case 'kling-2.6':
       // Kling models: image_url, duration as string "5" or "10"
       base.image_url = imageUrl;
       base.duration = String(Math.min(duration, 10));
@@ -157,17 +166,26 @@ function buildFalVideoInput(
       break;
 
     case 'runway-gen3':
-      // Runway Gen-3 Turbo: image_url, duration as number (5 or 10), aspect_ratio
+    case 'runway-gen4':
+      // Runway Gen-3/Gen-4.5 Turbo: image_url, duration as number (5 or 10), aspect_ratio
       base.image_url = imageUrl;
       base.duration = Math.min(duration, 10);
       base.aspect_ratio = aspectRatio;
       break;
 
     case 'luma-ray2':
-      // Luma Ray2: image_url, aspect_ratio, loop (bool)
+    case 'luma-dream-machine':
+      // Luma models: image_url, aspect_ratio, loop (bool)
       base.image_url = imageUrl;
       base.aspect_ratio = aspectRatio;
       base.loop = false;
+      break;
+
+    case 'veo-3':
+      // Google Veo 3.1: image_url, aspect_ratio, duration as number
+      base.image_url = imageUrl;
+      base.aspect_ratio = aspectRatio;
+      base.duration = Math.min(duration, 8); // Veo max ~8s
       break;
 
     default:
@@ -527,10 +545,60 @@ export function buildMotionPrompt(scene: {
 }
 
 /**
+ * Smart model selector: pick the best video model based on scene requirements.
+ *
+ * Scoring heuristic:
+ * - High motion / energetic scenes    -> Kling 2.6 (best motion fidelity)
+ * - Cinematic / dramatic scenes       -> Veo 3.1 (Google's best quality)
+ * - Short / fast-turnaround scenes    -> Runway Gen-4.5 Turbo (fastest)
+ * - Dreamy / artistic scenes          -> Luma Dream Machine (stylised)
+ * - Default / general purpose         -> Kling 1.6 (reliable, good quality)
+ */
+export function selectBestModel(scene: {
+  mood?: string;
+  durationSeconds?: number;
+  artStyle?: string;
+  motionIntensity?: 'low' | 'medium' | 'high';
+}): FalVideoModel {
+  const mood = scene.mood || 'neutral';
+  const artStyle = (scene.artStyle || '').toLowerCase();
+  const motionIntensity = scene.motionIntensity || 'medium';
+
+  // High-motion scenes benefit from Kling 2.6's superior motion handling
+  if (motionIntensity === 'high' || mood === 'energetic') {
+    return 'kling-2.6';
+  }
+
+  // Cinematic / dramatic / serious scenes — Veo 3.1 for top-tier quality
+  if (mood === 'dramatic' || mood === 'serious' || mood === 'inspirational') {
+    return 'veo-3';
+  }
+
+  // Dreamy, artistic, or watercolor/illustration styles — Luma Dream Machine
+  if (
+    mood === 'mysterious' ||
+    artStyle.includes('watercolor') ||
+    artStyle.includes('illustration') ||
+    artStyle.includes('anime') ||
+    artStyle.includes('dream')
+  ) {
+    return 'luma-dream-machine';
+  }
+
+  // Short clips where speed matters — Runway Gen-4.5 Turbo is fastest
+  if (scene.durationSeconds && scene.durationSeconds <= 4) {
+    return 'runway-gen4';
+  }
+
+  // Default: Kling 1.6 — proven, reliable, good quality
+  return 'kling-1.6';
+}
+
+/**
  * Detect which provider to use based on the chosen model and available keys.
  *
- * IMPORTANT: fal.ai models (kling, minimax, runway-gen3, luma-ray2) MUST
- * route through fal-ai even if KIE_AI_API_KEY is set. Kie AI only wraps
+ * IMPORTANT: fal.ai models (kling, minimax, runway-gen3, luma-ray2, veo-3, etc.)
+ * MUST route through fal-ai even if KIE_AI_API_KEY is set. Kie AI only wraps
  * Runway's native API — it can't proxy arbitrary fal.ai models.
  */
 function detectBestProvider(falVideoModel?: FalVideoModel): VideoProvider {

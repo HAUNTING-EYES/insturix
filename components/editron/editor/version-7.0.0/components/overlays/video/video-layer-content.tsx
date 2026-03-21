@@ -110,7 +110,7 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
         style={videoStyle}
         volume={overlay.styles.volume ?? 1}
         playbackRate={overlay.speed ?? 1}
-        pauseWhenBuffering={false}
+        pauseWhenBuffering={true}
         toneMapped={false}
       />
     </div>

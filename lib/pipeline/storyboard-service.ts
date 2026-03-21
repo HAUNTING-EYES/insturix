@@ -137,6 +137,10 @@ interface ReferenceImageInput {
   subjectId: string;
   imageUrl: string;
   weight?: number;
+  /** Subject name for prompt enrichment */
+  name?: string;
+  /** Visual description of the subject for prompt enrichment when IP-adapter is unavailable */
+  visualDescription?: string;
 }
 
 interface GenerateImageOptions {
@@ -163,7 +167,7 @@ export async function generateStoryboardImage(
   userId: string,
   options: GenerateImageOptions = {},
 ): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string; usedIpAdapter: boolean }> {
-  const prompt = buildStoryboardPrompt(
+  const basePrompt = buildStoryboardPrompt(
     scene,
     options.styleGuide,
     options.sceneIndex,
@@ -187,6 +191,25 @@ export async function generateStoryboardImage(
 
   const hasReferences = options.referenceImages && options.referenceImages.length > 0;
   const fallbackModelId = options.modelId || DEFAULT_MODEL;
+
+  // Build reference subject descriptions for prompt enrichment.
+  // This reinforces IP-adapter consistency AND provides a textual fallback
+  // when IP-adapter fails. Without this, fallback images have zero reference guidance.
+  let refDescriptionSuffix = '';
+  if (hasReferences) {
+    const refDescs = options.referenceImages!
+      .filter((r) => r.visualDescription || r.name)
+      .map((r) => {
+        if (r.visualDescription) return `${r.name || r.subjectId}: ${r.visualDescription}`;
+        return `featuring ${r.name}`;
+      });
+    if (refDescs.length > 0) {
+      refDescriptionSuffix = `. Key subjects: ${refDescs.join('; ')}`;
+    }
+  }
+
+  // Enriched prompt includes reference subject descriptions
+  const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
 
   // ─── Attempt 1: IP-adapter if we have reference images ──────────
   if (hasReferences) {
@@ -528,6 +551,8 @@ export async function regenerateScene(
       subjectId: ref.subjectId,
       imageUrl: ref.imageUrl,
       weight: 0.6,
+      name: ref.name,
+      visualDescription: ref.visualDescription,
     }));
 
   const result = await generateStoryboardImage(descriptor, userId, {
