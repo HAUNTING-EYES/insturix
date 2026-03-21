@@ -264,18 +264,32 @@ export async function regenerateWithContext(
     const feedback = options.feedback?.trim() || '';
 
     // ─── Detect feedback intent ────────────────────────────────────
-    // Three modes:
-    //   REFERENCE_MATCH — user wants stricter adherence to reference image
-    //     ("match the reference", "same watch", "like the other scenes", "consistent with reference")
+    // Three modes based on user intent — NO hardcoded subject/product names.
+    // The actual subject name comes from the storyboard's approved references.
+    //
+    //   REFERENCE_MATCH — user wants stricter adherence to approved reference images
+    //     Intent signals: matching, consistency, sameness, correctness complaints
     //   REPLACE — user wants a fundamentally different subject
-    //     ("change to gold watch", "replace with red car")
-    //   EDIT — user wants a tweak to the existing image
-    //     ("make it darker", "add more contrast")
+    //     Intent signals: change to, replace with, switch to, something else
+    //   EDIT — user wants a tweak to the existing image (default)
+    //     Intent signals: everything else (darker, brighter, more contrast, etc.)
 
-    const REFERENCE_MATCH_SIGNALS = /\b(match\s+(the\s+)?reference|same\s+(watch|product|item|object|subject|style|look|design|model|brand|device|phone|car|vehicle|person|character)|like\s+(the\s+)?(other|rest|remaining)\s+(scene|image|frame)|consistent\s+with\s+(the\s+)?reference|use\s+(the\s+)?reference|match\s+(the\s+)?(other|rest)|similar\s+to\s+(the\s+)?(other|rest|reference)|keep\s+(it\s+)?(consistent|same)|make\s+it\s+match|doesn'?t?\s+match|not\s+matching|wrong\s+(watch|product|item|object|subject|color|style|design))\b/i;
-    const isReferenceMatchMode = feedback ? REFERENCE_MATCH_SIGNALS.test(feedback) : false;
+    // Also check if any approved reference name appears in the feedback — if the user
+    // mentions a reference subject by name + a consistency word, that's a match signal.
+    const sceneRefsForDetection = storyboard.approvedReferences?.filter(
+      (ref) => ref.scenesAppearingIn.includes(sceneIndex),
+    );
+    const refNameMentioned = sceneRefsForDetection?.some(
+      (ref) => ref.name && feedback.toLowerCase().includes(ref.name.toLowerCase()),
+    );
 
-    const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|new\s+(subject|item|object|product|person|character|vehicle|car|watch|phone|device|thing)|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different)\b/i;
+    // Generic consistency-intent signals — works for any subject type
+    const REFERENCE_MATCH_SIGNALS = /\b(match\s+(the\s+)?reference|like\s+(the\s+)?(other|rest|remaining)\s+(scene|image|frame)s?|consistent\s+with|use\s+(the\s+)?reference|match\s+(the\s+)?(other|rest)|similar\s+to\s+(the\s+)?(other|rest|reference)|keep\s+(it\s+)?(consistent|same)|make\s+(it\s+)?match|doesn'?t?\s+match|not\s+matching|wrong\s+\w+|same\s+as\s+(the\s+)?(other|rest|reference)|should\s+(be|look)\s+(the\s+)?same|looks?\s+different|doesn'?t?\s+look\s+(right|correct|like)|fix\s+(the\s+)?(consistency|mismatch)|inconsistent)\b/i;
+    const isReferenceMatchMode = feedback
+      ? REFERENCE_MATCH_SIGNALS.test(feedback) || (!!refNameMentioned && /\b(match|same|consistent|fix|correct|wrong|like)\b/i.test(feedback))
+      : false;
+
+    const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different|swap\s+(it|out|for))\b/i;
     const isReplaceMode = !isReferenceMatchMode && feedback ? REPLACE_SIGNALS.test(feedback) : false;
 
     let prompt: string;
@@ -287,13 +301,16 @@ export async function regenerateWithContext(
     if (isReferenceMatchMode && feedback) {
       // ─── REFERENCE MATCH MODE ──────────────────────────────
       // User wants stricter adherence to the approved reference image.
-      // E.g., "same watch as other scenes", "match the reference", "wrong watch"
       // Use HIGHER IP-adapter weight (0.85) and explicit matching language.
-      console.log(`[StoryboardRegen] Scene ${sceneIndex}: REFERENCE_MATCH mode (ipWeight=${ipAdapterWeight}) — "${feedback.substring(0, 80)}"`);
+      // Subject names come from the storyboard's approved references — never hardcoded.
+      const refNames = sceneRefsForDetection?.map((r) => r.name).filter(Boolean) || [];
+      const refSubjectLabel = refNames.length > 0 ? refNames.join(', ') : 'the main subject';
+
+      console.log(`[StoryboardRegen] Scene ${sceneIndex}: REFERENCE_MATCH mode (ipWeight=${ipAdapterWeight}, subjects=[${refSubjectLabel}]) — "${feedback.substring(0, 80)}"`);
 
       const descriptor = { ...scene.descriptor };
-      // Reinforce the matching instruction in the visual description
-      descriptor.visualDescription = `[CRITICAL: Match the reference image EXACTLY — ${feedback}] ${descriptor.visualDescription}`;
+      // Reinforce reference matching using the actual subject name(s) from approved references
+      descriptor.visualDescription = `[CRITICAL: ${refSubjectLabel} must EXACTLY match the approved reference image — ${feedback}] ${descriptor.visualDescription}`;
 
       prompt = buildStoryboardPrompt(
         descriptor,
@@ -362,9 +379,8 @@ export async function regenerateWithContext(
     // ─── Attempt IP-adapter with approved reference images ─────────
     // If the storyboard has approved references for this scene, try IP-adapter first
     // for visual consistency. Falls back to REPLACE/EDIT img2img if IP-adapter fails.
-    const sceneRefs = storyboard.approvedReferences?.filter(
-      (ref) => ref.scenesAppearingIn.includes(sceneIndex),
-    );
+    // Re-use the refs already fetched for intent detection above.
+    const sceneRefs = sceneRefsForDetection;
     const hasApprovedRefs = sceneRefs && sceneRefs.length > 0;
     let ipAdapterSucceeded = false;
 
