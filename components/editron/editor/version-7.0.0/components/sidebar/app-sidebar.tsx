@@ -11,6 +11,7 @@ import {
   Sticker,
   Layout,
   MessageSquare,
+  Sparkles,
 } from "lucide-react";
 import Image from "next/image";
 import {
@@ -39,6 +40,7 @@ import { TemplateOverlayPanel } from "../overlays/templates/template-overlay-pan
 import { HtmlScenePanel } from "../overlays/html/html-scene-panel";
 import { useEditorContext } from "../../contexts/editor-context";
 import { AIChatPanel } from "../ai-chat/ai-chat-panel";
+import { AISuggestionsPanel } from "../ai-suggestions/ai-suggestions-panel";
 
 /**
  * AppSidebar Component
@@ -75,6 +77,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return "Template";
       case OverlayType.AI_CHAT:
         return "AI Chat";
+      case OverlayType.AI_SUGGESTIONS:
+        return "AI Suggestions";
       case OverlayType.HTML_SCENE:
         return "Custom Scene";
       case OverlayType.HTML_STICKER:
@@ -167,6 +171,8 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         return <TemplateOverlayPanel />;
       case OverlayType.AI_CHAT:
         return <AIChatPanel />;
+      case OverlayType.AI_SUGGESTIONS:
+        return <AISuggestionsPanel />;
       case OverlayType.HTML_SCENE:
         return <HtmlScenePanel />;
       default:
@@ -263,6 +269,44 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     className="border bg-background text-foreground"
                   >
                     AI Chat
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              {/* AI Suggestions Button */}
+              <TooltipProvider delayDuration={0}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <SidebarMenuButton
+                      onClick={() => {
+                        if (activePanel === OverlayType.AI_SUGGESTIONS && isOpen) {
+                          setIsOpen(false);
+                        } else {
+                          setActivePanel(OverlayType.AI_SUGGESTIONS);
+                          setIsOpen(true);
+                        }
+                      }}
+                      size="lg"
+                      className={`flex flex-col items-center gap-2 px-1.5 py-2 ${
+                        activePanel === OverlayType.AI_SUGGESTIONS
+                          ? "bg-accent text-foreground hover:bg-accent"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <Sparkles
+                        className="h-4 w-4 text-foreground dark:text-foreground font-light"
+                        strokeWidth={1.25}
+                      />
+                      <span className="text-[8px] font-medium leading-none">
+                        Suggest
+                      </span>
+                    </SidebarMenuButton>
+                  </TooltipTrigger>
+                  <TooltipContent
+                    side="right"
+                    className="border bg-background text-foreground"
+                  >
+                    AI Suggestions
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>

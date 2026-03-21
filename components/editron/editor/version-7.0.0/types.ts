@@ -12,6 +12,7 @@ export enum OverlayType {
   AI_CHAT = "ai-chat", // AI Chat panel
   HTML_SCENE = "html-scene", // HTML generated content (backgrounds, diagrams)
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
+  AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
 }
 // Base overlay properties
 type BaseOverlay = {

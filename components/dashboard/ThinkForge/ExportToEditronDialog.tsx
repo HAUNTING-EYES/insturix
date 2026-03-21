@@ -82,7 +82,8 @@ export function ExportToEditronDialog({
   const [generateVideos, setGenerateVideos] = useState(true); // ON by default
   const [artStyle, setArtStyle] = useState('cinematic');
   const [imageModel, setImageModel] = useState('flux-schnell');
-  const [videoModel, setVideoModel] = useState('kling-1.6');
+  const [videoModel, setVideoModel] = useState('auto');
+  const prewarmFiredRef = useRef(false);
   const [selectedVoice, setSelectedVoice] = useState('aura-asteria-en');
   const [availableVoices, setAvailableVoices] = useState<Array<{ id: string; name: string; gender: string; style: string }>>([]);
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
@@ -121,6 +122,11 @@ export function ExportToEditronDialog({
   const [newSubjectDescription, setNewSubjectDescription] = useState('');
   const [newSubjectScenes, setNewSubjectScenes] = useState('');
 
+  // Style guide metadata from export (persisted across phases)
+  const [colorPalette, setColorPalette] = useState<string[]>([]);
+  const [characterDescriptions, setCharacterDescriptions] = useState<string | undefined>(undefined);
+  const [environmentNotes, setEnvironmentNotes] = useState<string | undefined>(undefined);
+
   // Storyboard scene edit state
   const [regeneratingSceneIdx, setRegeneratingSceneIdx] = useState<number | null>(null);
   const [sceneFeedbackIdx, setSceneFeedbackIdx] = useState<number | null>(null);
@@ -153,6 +159,28 @@ export function ExportToEditronDialog({
       }
     };
   }, [open]);
+
+  // Pre-warm fal.ai video model worker on dialog open (fire-and-forget, once per session)
+  React.useEffect(() => {
+    if (open && !prewarmFiredRef.current) {
+      prewarmFiredRef.current = true;
+      try {
+        // Resolve the model to prewarm: if "auto", warm the default (kling-1.6)
+        const modelToWarm = videoModel === 'auto' ? 'kling-1.6' : videoModel;
+        fetch('/api/services/pipeline/prewarm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: modelToWarm }),
+        }).catch(() => {});
+      } catch {
+        // Silent — prewarm is best-effort
+      }
+    }
+    if (!open) {
+      // Reset so re-opening the dialog triggers a new prewarm
+      prewarmFiredRef.current = false;
+    }
+  }, [open, videoModel]);
 
   const handlePreviewVoice = async (voiceId: string) => {
     // Stop current preview if playing
@@ -217,6 +245,9 @@ export function ExportToEditronDialog({
     setEditingSubjectId(null);
     setEditingDescription('');
     setOverallMusicPrompt('');
+    setColorPalette([]);
+    setCharacterDescriptions(undefined);
+    setEnvironmentNotes(undefined);
     setSuggestedSubjects([]);
     setGeneratingSuggestedId(null);
     setScriptSearchQuery('');
@@ -291,6 +322,9 @@ export function ExportToEditronDialog({
       const exportData = await exportRes.json();
       setScenes(exportData.scenes);
       setOverallMusicPrompt(exportData.overallMusicPrompt || '');
+      setColorPalette(exportData.colorPalette || []);
+      setCharacterDescriptions(exportData.characterDescriptions || undefined);
+      setEnvironmentNotes(exportData.environmentNotes || undefined);
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
@@ -422,9 +456,9 @@ export function ExportToEditronDialog({
             overallMusicPrompt,
             styleGuide: {
               artStyle,
-              colorPalette: exportData.colorPalette || [],
-              characterDescriptions: exportData.characterDescriptions || undefined,
-              environmentNotes: exportData.environmentNotes || undefined,
+              colorPalette: colorPalette,
+              characterDescriptions: characterDescriptions,
+              environmentNotes: environmentNotes,
             },
             refSetId: refSetId || undefined,
             approvedReferences: approved.length > 0 ? approved : undefined,
@@ -486,7 +520,7 @@ export function ExportToEditronDialog({
             body: JSON.stringify({
               aspectRatio,
               sceneIndices: allSceneIndices,
-              videoModel: videoModel !== 'kling-1.6' ? videoModel : undefined, // 'auto' or specific model
+              videoModel, // 'auto' selects best model per scene; specific model locks all scenes
             }),
           });
 
@@ -1058,8 +1092,8 @@ export function ExportToEditronDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="bg-zinc-800 border-zinc-700">
-                      <SelectItem value="auto">Auto (best per scene)</SelectItem>
-                      <SelectItem value="kling-1.6">Kling 1.6 Pro (Default)</SelectItem>
+                      <SelectItem value="auto">Auto (best per scene) — Default</SelectItem>
+                      <SelectItem value="kling-1.6">Kling 1.6 Pro</SelectItem>
                       <SelectItem value="kling-2.6">Kling 2.6 Pro</SelectItem>
                       <SelectItem value="kling-1.5">Kling 1.5 Pro</SelectItem>
                       <SelectItem value="veo-3">Google Veo 3.1</SelectItem>
