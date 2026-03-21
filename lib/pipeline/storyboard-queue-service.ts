@@ -19,10 +19,20 @@ import { nanoid } from 'nanoid';
 
 // ─── Redis Queue ─────────────────────────────────────────────────
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+// Lazy-initialized Redis client — avoids cold-start race where env vars
+// aren't available yet at module init time on Vercel serverless.
+let _redis: Redis | null = null;
+function getRedis(): Redis {
+  if (!_redis) {
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) {
+      throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set');
+    }
+    _redis = new Redis({ url, token });
+  }
+  return _redis;
+}
 
 const STORYBOARD_QUEUE_KEY = 'pipeline:storyboard:queue';
 const MAX_CONCURRENT_STORYBOARD_JOBS = 4;
@@ -178,7 +188,7 @@ export async function enqueueStoryboardBatch(
       referenceImages: scene.referenceImages,
       queuedAt: Date.now(),
     };
-    await retryRedis(() => redis.rpush(STORYBOARD_QUEUE_KEY, JSON.stringify(entry)));
+    await retryRedis(() => getRedis().rpush(STORYBOARD_QUEUE_KEY, JSON.stringify(entry)));
   }
 
   console.log(`[SbQueue] Enqueued batch ${batchId}: ${scenes.length} scenes`);
@@ -208,7 +218,7 @@ export async function processNextStoryboardJob(): Promise<{
     return { processed: false };
   }
 
-  const entryJson = await retryRedis(() => redis.lpop<string>(STORYBOARD_QUEUE_KEY));
+  const entryJson = await retryRedis(() => getRedis().lpop<string>(STORYBOARD_QUEUE_KEY));
   if (!entryJson) {
     return { processed: false };
   }
@@ -368,7 +378,7 @@ export async function getStoryboardBatchStatus(
 }
 
 export async function getStoryboardQueueLength(): Promise<number> {
-  return redis.llen(STORYBOARD_QUEUE_KEY);
+  return getRedis().llen(STORYBOARD_QUEUE_KEY);
 }
 
 /**

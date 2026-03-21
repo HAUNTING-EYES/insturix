@@ -20,10 +20,20 @@ import { nanoid } from 'nanoid';
 
 // ─── Redis Queue ─────────────────────────────────────────────────
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+// Lazy-initialized Redis client — avoids cold-start race where env vars
+// aren't available yet at module init time on Vercel serverless.
+let _redis: Redis | null = null;
+function getRedis(): Redis {
+  if (!_redis) {
+    const url = process.env.UPSTASH_REDIS_REST_URL;
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+    if (!url || !token) {
+      throw new Error('UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be set');
+    }
+    _redis = new Redis({ url, token });
+  }
+  return _redis;
+}
 
 const VIDEO_QUEUE_KEY = 'pipeline:video:queue';
 // Max scenes processing simultaneously across all users
@@ -179,7 +189,7 @@ export async function enqueueVideoBatch(
       videoModel: options.videoModel,
       queuedAt: Date.now(),
     };
-    await retryRedis(() => redis.rpush(VIDEO_QUEUE_KEY, JSON.stringify(queueEntry)));
+    await retryRedis(() => getRedis().rpush(VIDEO_QUEUE_KEY, JSON.stringify(queueEntry)));
   }
 
   console.log(`[VideoQueue] Enqueued batch ${batchId}: ${scenes.length} scenes for storyboard ${storyboardId}`);
@@ -215,7 +225,7 @@ export async function processNextVideoJob(): Promise<{
   }
 
   // Pop next job from Redis queue (with retry for transient fetch failures)
-  const entryJson = await retryRedis(() => redis.lpop<string>(VIDEO_QUEUE_KEY));
+  const entryJson = await retryRedis(() => getRedis().lpop<string>(VIDEO_QUEUE_KEY));
   if (!entryJson) {
     return { processed: false };
   }
@@ -371,7 +381,7 @@ export async function getVideoBatchStatus(
  * Get the queue length (for monitoring).
  */
 export async function getVideoQueueLength(): Promise<number> {
-  return redis.llen(VIDEO_QUEUE_KEY);
+  return getRedis().llen(VIDEO_QUEUE_KEY);
 }
 
 /**
