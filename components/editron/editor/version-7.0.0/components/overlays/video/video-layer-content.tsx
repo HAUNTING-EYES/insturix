@@ -107,19 +107,35 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // In the editor, use <Video> (native HTML5 decoder) for faster, smoother
   // preview playback. <OffthreadVideo> is designed for server-side rendering
   // where frame-accuracy matters more than real-time performance.
-  const VideoComponent = isRendering ? OffthreadVideo : Video;
+  //
+  // CORS note: GCS signed URLs don't include Access-Control-Allow-Origin
+  // headers unless the bucket has CORS configured. For editor preview, we
+  // skip crossOrigin to allow playback. For server rendering, OffthreadVideo
+  // uses ffmpeg (not browser) so CORS doesn't apply.
+  if (isRendering) {
+    return (
+      <div style={containerStyle}>
+        <OffthreadVideo
+          src={videoSrc}
+          startFrom={overlay.videoStartTime || 0}
+          style={videoStyle}
+          volume={overlay.styles.volume ?? 1}
+          playbackRate={overlay.speed ?? 1}
+          toneMapped={false}
+        />
+      </div>
+    );
+  }
 
   return (
     <div style={containerStyle}>
-      <VideoComponent
+      <Video
         src={videoSrc}
-        crossOrigin="anonymous"
         startFrom={overlay.videoStartTime || 0}
         style={videoStyle}
         volume={overlay.styles.volume ?? 1}
         playbackRate={overlay.speed ?? 1}
         pauseWhenBuffering={false}
-        toneMapped={false}
       />
     </div>
   );

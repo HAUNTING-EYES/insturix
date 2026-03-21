@@ -97,11 +97,13 @@ export const Main: React.FC<MainProps> = ({
       }
     }
 
-    // Prefetch all media clips that aren't already cached
+    // Prefetch all media clips that aren't already cached.
+    // Use 'media-tag' method instead of 'blob-url' to avoid CORS issues
+    // with GCS signed URLs (fetch() requires CORS headers, <video> doesn't).
     for (const url of allUrls) {
       if (!handles.has(url)) {
         try {
-          const handle = prefetch(url, { method: 'blob-url' });
+          const handle = prefetch(url, { method: 'media-tag' });
           handles.set(url, handle);
         } catch {
           // Ignore prefetch errors — the video will fall back to streaming
