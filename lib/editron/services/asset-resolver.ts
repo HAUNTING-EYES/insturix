@@ -120,21 +120,42 @@ export class AssetResolver {
       .find({ assetId: { $in: Array.from(assetIds) } })
       .toArray() as unknown as MediaAsset[];
 
+    console.log(`[AssetResolver] Resolving ${assetIds.size} assets, found ${assets.length} in DB`);
+
+    // Log unresolved assets
+    const foundIds = new Set(assets.map(a => a.assetId));
+    for (const id of assetIds) {
+      if (!foundIds.has(id)) {
+        console.warn(`[AssetResolver] Asset NOT FOUND in media_assets: ${id}`);
+      }
+    }
+
     // Build assetId → URL map (with auto-refresh)
     const assetMap = new Map<string, string>();
-    
+
     for (const asset of assets) {
-      const url = await this.getOrRefreshUrl(asset);
-      assetMap.set(asset.assetId, url);
+      try {
+        const url = await this.getOrRefreshUrl(asset);
+        assetMap.set(asset.assetId, url);
+      } catch (err: any) {
+        console.error(`[AssetResolver] Failed to resolve URL for ${asset.assetId}:`, err.message);
+        // Fallback to cachedUrl if available
+        if (asset.cachedUrl) {
+          assetMap.set(asset.assetId, asset.cachedUrl);
+        }
+      }
     }
 
     // Inject URLs into overlays
     return overlays.map(overlay => {
       if ('assetId' in overlay && overlay.assetId) {
         const resolvedUrl = assetMap.get(overlay.assetId as string) || '';
+        if (!resolvedUrl) {
+          console.warn(`[AssetResolver] Empty URL for overlay assetId=${overlay.assetId}, type=${overlay.type}`);
+        }
         const result: any = { ...overlay, src: resolvedUrl };
-        // For sound overlays, also populate content field (SoundLayerContent falls back to it)
-        if (overlay.type === 'sound' && resolvedUrl) {
+        // For sound AND video overlays, also populate content field as fallback
+        if ((overlay.type === 'sound' || overlay.type === 'video') && resolvedUrl) {
           result.content = resolvedUrl;
         }
         return result as typeof overlay;
