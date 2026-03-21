@@ -166,9 +166,11 @@ export async function POST(
 
     console.log(`[generate-videos] Processing ${targetScenes.length} scenes sequentially (LLM=${useLLMRefinement}, model=${lockedVideoModel})`);
 
-    // ─── Generate videos sequentially (for last-frame chaining) ─────
-    // Process scenes in order so each scene can receive the previous
-    // scene's storyboard image as a visual continuity reference.
+    // ─── Generate videos sequentially with cross-scene chaining ─────
+    // Process scenes in order. For each scene, we pass the NEXT scene's
+    // storyboard image as `nextSceneImageUrl` — models that support
+    // tail/end frames (Kling, Luma) will make the video transition
+    // smoothly toward the next scene's starting visual.
     const results: Array<{
       sceneIndex: number;
       videoUrl?: string;
@@ -182,9 +184,11 @@ export async function POST(
     const sortedScenes = [...targetScenes].sort(
       (a, b) => a.sceneIndex - b.sceneIndex,
     );
-    let previousSceneImageUrl: string | undefined;
 
-    for (const scene of sortedScenes) {
+    for (let i = 0; i < sortedScenes.length; i++) {
+      const scene = sortedScenes[i];
+      const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
+
       // Build motion prompt just-in-time (avoids wasted LLM calls)
       const motionPrompt = await buildSceneMotionPrompt(scene);
       let lastError = '';
@@ -204,12 +208,14 @@ export async function POST(
               aspectRatio,
               provider,
               falVideoModel: lockedVideoModel,
-              previousSceneImageUrl,
+              // Cross-scene chaining: pass next scene's storyboard image
+              // so the video transitions toward the next scene's visual
+              nextSceneImageUrl: nextScene?.imageUrl || undefined,
             },
             userId,
           );
 
-          console.log(`[generate-videos] Scene ${scene.sceneIndex}: SUCCESS in ${Date.now() - sceneStart}ms (attempt ${attempt}, model=${lockedVideoModel})`);
+          console.log(`[generate-videos] Scene ${scene.sceneIndex}: SUCCESS in ${Date.now() - sceneStart}ms (attempt ${attempt}, model=${lockedVideoModel}, chained=${!!nextScene?.imageUrl})`);
 
           await updateStoryboardScene(storyboardId, scene.sceneIndex, {
             videoAssetId: result.assetId,
@@ -225,8 +231,6 @@ export async function POST(
             assetId: result.assetId,
           });
 
-          // Chain: pass this scene's storyboard image to next scene
-          previousSceneImageUrl = scene.imageUrl!;
           break; // Success — exit retry loop
         } catch (err: any) {
           lastError = err.message || 'Video generation failed';
@@ -244,8 +248,6 @@ export async function POST(
           sceneIndex: scene.sceneIndex,
           error: lastError,
         });
-        // Still chain the image URL forward for continuity
-        previousSceneImageUrl = scene.imageUrl!;
       }
     }
 

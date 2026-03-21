@@ -121,8 +121,8 @@ export interface VideoGenerationRequest {
   provider?: VideoProvider;
   /** Specific fal.ai video model key (kling-2.1, kling-1.5, kling-2.6, minimax, luma-ray2, luma-dream-machine, veo-3, veo-2) */
   falVideoModel?: FalVideoModel;
-  /** Previous scene's storyboard image URL for visual continuity chaining */
-  previousSceneImageUrl?: string;
+  /** Next scene's storyboard image URL — used as tail/end frame for smooth cross-scene transitions */
+  nextSceneImageUrl?: string;
 }
 
 export interface VideoGenerationResult {
@@ -149,6 +149,7 @@ function buildFalVideoInput(
   prompt: string,
   duration: number,
   aspectRatio: string,
+  nextSceneImageUrl?: string,
 ): Record<string, any> {
   const base: Record<string, any> = {
     prompt,
@@ -165,6 +166,8 @@ function buildFalVideoInput(
       base.duration = String(Math.min(Math.max(duration, 5), 10));
       base.negative_prompt = 'blur, distort, and low quality';
       base.generate_audio = false; // we handle audio separately
+      // Cross-scene chaining: end frame transitions toward next scene
+      if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
       break;
 
     // ─── Kling 2.1 Pro / 1.5 Pro ──────────────────────────────
@@ -178,6 +181,8 @@ function buildFalVideoInput(
       base.aspect_ratio = aspectRatio;
       base.cfg_scale = 0.5;
       base.negative_prompt = 'blur, distort, and low quality';
+      // Cross-scene chaining: tail frame transitions toward next scene
+      if (nextSceneImageUrl) base.tail_image_url = nextSceneImageUrl;
       break;
 
     // ─── MiniMax Hailuo Video 01 ───────────────────────────────
@@ -201,6 +206,8 @@ function buildFalVideoInput(
       base.loop = false;
       base.resolution = '720p';
       base.duration = duration >= 7 ? '9s' : '5s';
+      // Cross-scene chaining: end frame transitions toward next scene
+      if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
       break;
 
     // ─── Google Veo 3 / Veo 2 ──────────────────────────────────
@@ -265,8 +272,12 @@ async function generateVideoWithFal(
   // params cause failures. Re-upload to fal.ai CDN to get a clean URL.
   const startTime = Date.now();
   const imageUrl = await getCleanImageUrl(request.imageUrl);
+  // Also clean the next scene image URL if provided (for cross-scene chaining)
+  const nextSceneImageUrl = request.nextSceneImageUrl
+    ? await getCleanImageUrl(request.nextSceneImageUrl)
+    : undefined;
   const cleanMs = Date.now() - startTime;
-  console.log(`[VideoGen] Scene: model=${modelKey}, duration=${duration}s, cleanUrl=${cleanMs}ms, imageUrl=${imageUrl.substring(0, 80)}...`);
+  console.log(`[VideoGen] Scene: model=${modelKey}, duration=${duration}s, cleanUrl=${cleanMs}ms, chained=${!!nextSceneImageUrl}, imageUrl=${imageUrl.substring(0, 80)}...`);
 
   const input = buildFalVideoInput(
     modelKey,
@@ -274,6 +285,7 @@ async function generateVideoWithFal(
     request.motionPrompt,
     duration,
     request.aspectRatio || '16:9',
+    nextSceneImageUrl,
   );
 
   // Log the exact input being sent to fal.ai for debugging
@@ -499,10 +511,12 @@ export async function generateVideosForScenes(
   // Sort scenes by index to ensure proper ordering for chaining
   const sortedScenes = [...scenes].sort((a, b) => a.sceneIndex - b.sceneIndex);
 
-  // Sequential processing with chaining: each scene gets previous scene's image
-  let previousSceneImageUrl: string | undefined;
+  // Sequential processing with cross-scene chaining:
+  // Each scene gets the NEXT scene's storyboard image as end-frame target
+  for (let i = 0; i < sortedScenes.length; i++) {
+    const scene = sortedScenes[i];
+    const nextScene = i < sortedScenes.length - 1 ? sortedScenes[i + 1] : null;
 
-  for (const scene of sortedScenes) {
     try {
       const result = await generateVideoClip(
         {
@@ -511,17 +525,13 @@ export async function generateVideosForScenes(
           durationSeconds: scene.durationSeconds,
           aspectRatio: options.aspectRatio,
           provider: options.provider,
-          previousSceneImageUrl: options.enableChaining ? previousSceneImageUrl : undefined,
+          nextSceneImageUrl: options.enableChaining && nextScene ? nextScene.imageUrl : undefined,
         },
         userId,
       );
       results.set(scene.sceneIndex, result);
-      // Chain: pass this scene's storyboard image to the next scene
-      previousSceneImageUrl = scene.imageUrl;
     } catch (err) {
       console.error(`[VideoGen] Scene ${scene.sceneIndex} failed:`, err);
-      // Still pass the image URL forward even on failure for continuity
-      previousSceneImageUrl = scene.imageUrl;
     }
   }
 
