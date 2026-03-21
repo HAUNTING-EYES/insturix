@@ -32,6 +32,8 @@ interface UseTimelineSnappingProps {
   durationInFrames: number;
   visibleRows: number;
   snapThreshold?: number; // Threshold now defaults using the constant
+  /** Beat marker frame positions for snap-to-beat (from beat detection) */
+  beatFrames?: number[];
 }
 
 interface UseTimelineSnappingResult {
@@ -48,6 +50,7 @@ export const useTimelineSnapping = ({
   durationInFrames,
   visibleRows,
   snapThreshold = SNAPPING_CONFIG.thresholdFrames, // Use constant for default
+  beatFrames,
 }: UseTimelineSnappingProps): UseTimelineSnappingResult => {
   const [alignmentLines, setAlignmentLines] = useState<number[]>([]);
   const [snapTargets, setSnapTargets] = useState<SnapTarget[]>([]);
@@ -115,6 +118,21 @@ export const useTimelineSnapping = ({
         }
       });
 
+      // ─── Beat frame snapping ─────────────────────────────────
+      // Snap clip edges to beat positions when beat detection is active
+      if (beatFrames && beatFrames.length > 0) {
+        for (const beatFrame of beatFrames) {
+          if (Math.abs(ghostStartFrame - beatFrame) <= snapThreshold) {
+            newAlignmentLines.add(beatFrame);
+            newSnapTargets.push({ targetFrame: beatFrame, ghostEdge: "start" });
+          }
+          if (Math.abs(ghostEndFrame - beatFrame) <= snapThreshold) {
+            newAlignmentLines.add(beatFrame);
+            newSnapTargets.push({ targetFrame: beatFrame, ghostEdge: "end" });
+          }
+        }
+      }
+
       const currentLines = Array.from(newAlignmentLines).sort((a, b) => a - b);
       if (JSON.stringify(currentLines) !== JSON.stringify(alignmentLines)) {
         setAlignmentLines(currentLines);
@@ -144,6 +162,7 @@ export const useTimelineSnapping = ({
     snapThreshold,
     visibleRows,
     dragInfo, // Add dragInfo to deps
+    beatFrames, // Beat detection snap targets
   ]);
 
   // Effect 2: Calculate the Snapped Ghost Element based on Action

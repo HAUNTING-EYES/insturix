@@ -49,6 +49,7 @@ export const ZOOM_CONSTRAINTS = {
 export const SNAPPING_CONFIG = {
   thresholdFrames: 3, // Default snapping sensitivity in frames
   enableVerticalSnapping: true, // Enable snapping to items in adjacent rows
+  enableBeatSnapping: true, // Enable snapping to beat markers when beat detection is active
 };
 
 // Add new constant for push behavior
