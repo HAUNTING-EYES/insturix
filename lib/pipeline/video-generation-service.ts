@@ -160,10 +160,10 @@ function buildFalVideoInput(
     // Docs: https://fal.ai/models/fal-ai/kling-video/v2.6/pro/image-to-video/api
     // DIFFERENT from 2.1/1.5: uses `start_image_url` (NOT `image_url`)
     // and does NOT accept `aspect_ratio`.
-    // Duration: enum string "5" or "10"
+    // Duration: ENUM string — ONLY "5" or "10" (no other values accepted!)
     case 'kling-2.6':
       base.start_image_url = imageUrl;
-      base.duration = String(Math.min(Math.max(duration, 5), 10));
+      base.duration = duration >= 8 ? '10' : '5'; // Snap to nearest valid enum
       base.negative_prompt = 'blur, distort, and low quality';
       base.generate_audio = false; // we handle audio separately
       // Cross-scene chaining: end frame transitions toward next scene
@@ -173,11 +173,11 @@ function buildFalVideoInput(
     // ─── Kling 2.1 Pro / 1.5 Pro ──────────────────────────────
     // Docs: https://fal.ai/models/fal-ai/kling-video/v2.1/pro/image-to-video/api
     // Uses `image_url`, accepts `aspect_ratio`, `cfg_scale`, `duration`
-    // Duration: enum string "5" or "10"
+    // Duration: ENUM string — ONLY "5" or "10" (no other values accepted!)
     case 'kling-2.1':
     case 'kling-1.5':
       base.image_url = imageUrl;
-      base.duration = String(Math.min(Math.max(duration, 5), 10));
+      base.duration = duration >= 8 ? '10' : '5'; // Snap to nearest valid enum
       base.aspect_ratio = aspectRatio;
       base.cfg_scale = 0.5;
       base.negative_prompt = 'blur, distort, and low quality';
@@ -233,7 +233,7 @@ function buildFalVideoInput(
     default:
       // Safe generic fallback — use Kling 2.1 parameter format
       base.image_url = imageUrl;
-      base.duration = String(Math.min(duration, 10));
+      base.duration = duration >= 8 ? '10' : '5'; // Snap to valid Kling enum
       base.aspect_ratio = aspectRatio;
       break;
   }
@@ -301,11 +301,27 @@ async function generateVideoWithFal(
       logs: false,
     });
   } catch (err: any) {
-    // Surface the actual fal.ai error details (often hidden behind generic messages)
-    const errMsg = err?.body?.detail || err?.message || 'Unknown fal.ai error';
-    console.error(`[VideoGen] fal.ai FAILED for ${modelKey} (${modelId}): ${errMsg}`, JSON.stringify(err?.body || {}).substring(0, 500));
-    console.error(`[VideoGen] Input params sent: ${inputKeys.join(', ')}`);
-    throw new Error(`${modelKey}: ${errMsg}`);
+    // Surface the FULL fal.ai error — don't truncate, these are critical for debugging
+    const errBody = err?.body || {};
+    const errStatus = err?.status || err?.statusCode || 'unknown';
+    const errDetail = errBody?.detail || errBody?.message || errBody?.error || '';
+    const errMsg = errDetail || err?.message || 'Unknown fal.ai error';
+
+    // Log everything for server-side debugging
+    console.error(`[VideoGen] fal.ai FAILED for ${modelKey} (${modelId})`);
+    console.error(`[VideoGen]   HTTP status: ${errStatus}`);
+    console.error(`[VideoGen]   Error: ${errMsg}`);
+    console.error(`[VideoGen]   Full body: ${JSON.stringify(errBody).substring(0, 2000)}`);
+    console.error(`[VideoGen]   Input params sent: ${inputKeys.join(', ')}`);
+    console.error(`[VideoGen]   Prompt (full): ${input.prompt?.substring(0, 200)}`);
+
+    // Include status in the thrown error so the client can see if it's a rate limit, auth issue, etc.
+    const statusHint = errStatus === 422 ? ' (invalid parameters)'
+      : errStatus === 429 ? ' (rate limited — try again shortly)'
+      : errStatus === 401 ? ' (auth failed — check FAL_AI_API_KEY)'
+      : errStatus === 404 ? ' (model not found — endpoint may have changed)'
+      : '';
+    throw new Error(`${modelKey}: ${errMsg}${statusHint}`);
   }
   const genMs = Date.now() - genStart;
   console.log(`[VideoGen] fal.subscribe completed in ${genMs}ms for model=${modelKey}`);

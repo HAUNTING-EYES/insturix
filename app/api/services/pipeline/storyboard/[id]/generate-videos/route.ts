@@ -178,7 +178,8 @@ export async function POST(
       error?: string;
     }> = [];
 
-    const MAX_RETRIES = 1; // Retry failed scenes once
+    const MAX_RETRIES = 2; // Retry failed scenes up to 2 times (3 total attempts)
+    const RETRY_DELAYS = [5000, 10000]; // Wait 5s then 10s between retries (backoff)
 
     // Sort by scene index for proper chaining order
     const sortedScenes = [...targetScenes].sort(
@@ -196,7 +197,10 @@ export async function POST(
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
         try {
           if (attempt > 0) {
-            console.log(`[generate-videos] Scene ${scene.sceneIndex}: RETRY attempt ${attempt}`);
+            // Backoff delay before retry
+            const delay = RETRY_DELAYS[attempt - 1] || 10000;
+            console.log(`[generate-videos] Scene ${scene.sceneIndex}: RETRY attempt ${attempt} (waiting ${delay / 1000}s)`);
+            await new Promise(resolve => setTimeout(resolve, delay));
           }
 
           const sceneStart = Date.now();
@@ -234,10 +238,17 @@ export async function POST(
           break; // Success — exit retry loop
         } catch (err: any) {
           lastError = err.message || 'Video generation failed';
-          console.error(`[generate-videos] Scene ${scene.sceneIndex} attempt ${attempt} failed:`, lastError);
+          console.error(`[generate-videos] Scene ${scene.sceneIndex} attempt ${attempt}/${MAX_RETRIES} failed:`, lastError);
 
           // Don't retry on non-transient errors
-          if (lastError.includes('No video generated') || lastError.includes('Insufficient credits')) {
+          if (
+            lastError.includes('No video generated') ||
+            lastError.includes('Insufficient credits') ||
+            lastError.includes('auth failed') ||
+            lastError.includes('invalid parameters') ||
+            lastError.includes('model not found')
+          ) {
+            console.error(`[generate-videos] Scene ${scene.sceneIndex}: Non-transient error, skipping retries`);
             break;
           }
         }

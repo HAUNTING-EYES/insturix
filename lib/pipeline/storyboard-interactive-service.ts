@@ -112,15 +112,17 @@ export async function generateSceneSequential(
 
     if (seqSceneRefs && seqSceneRefs.length > 0) {
       const primaryRef = seqSceneRefs[0];
-      console.log(`[StoryboardSeq] Scene ${sceneIndex}: Trying IP-adapter with ref "${primaryRef.name}"`);
+      // Use reference weight from the reference object, default 0.7 for stronger product consistency
+      const seqIpWeight = primaryRef.weight ?? 0.7;
+      console.log(`[StoryboardSeq] Scene ${sceneIndex}: Trying IP-adapter with ref "${primaryRef.name}" (weight=${seqIpWeight})`);
 
       try {
         const cleanRefUrl = await cleanUrlForFal(primaryRef.imageUrl);
         result = await (fal as any).subscribe(IP_ADAPTER_MODEL, {
           input: {
-            prompt: `${prompt}. Maintain exact visual consistency with the reference image for ${primaryRef.name}.`,
+            prompt: `${prompt}. Maintain exact visual consistency with the reference image for ${primaryRef.name}. The ${primaryRef.name} must match the reference precisely.`,
             ip_adapter_image_url: cleanRefUrl,
-            ip_adapter_scale: 0.6,
+            ip_adapter_scale: seqIpWeight,
             image_size: { width, height },
             num_images: 1,
             enable_safety_checker: false,
@@ -261,15 +263,49 @@ export async function regenerateWithContext(
   try {
     const feedback = options.feedback?.trim() || '';
 
-    // Detect whether user wants to EDIT the existing image or REPLACE the subject entirely
+    // ─── Detect feedback intent ────────────────────────────────────
+    // Three modes:
+    //   REFERENCE_MATCH — user wants stricter adherence to reference image
+    //     ("match the reference", "same watch", "like the other scenes", "consistent with reference")
+    //   REPLACE — user wants a fundamentally different subject
+    //     ("change to gold watch", "replace with red car")
+    //   EDIT — user wants a tweak to the existing image
+    //     ("make it darker", "add more contrast")
+
+    const REFERENCE_MATCH_SIGNALS = /\b(match\s+(the\s+)?reference|same\s+(watch|product|item|object|subject|style|look|design|model|brand|device|phone|car|vehicle|person|character)|like\s+(the\s+)?(other|rest|remaining)\s+(scene|image|frame)|consistent\s+with\s+(the\s+)?reference|use\s+(the\s+)?reference|match\s+(the\s+)?(other|rest)|similar\s+to\s+(the\s+)?(other|rest|reference)|keep\s+(it\s+)?(consistent|same)|make\s+it\s+match|doesn'?t?\s+match|not\s+matching|wrong\s+(watch|product|item|object|subject|color|style|design))\b/i;
+    const isReferenceMatchMode = feedback ? REFERENCE_MATCH_SIGNALS.test(feedback) : false;
+
     const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|new\s+(subject|item|object|product|person|character|vehicle|car|watch|phone|device|thing)|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different)\b/i;
-    const isReplaceMode = feedback ? REPLACE_SIGNALS.test(feedback) : false;
+    const isReplaceMode = !isReferenceMatchMode && feedback ? REPLACE_SIGNALS.test(feedback) : false;
 
     let prompt: string;
     let useReference = false;
     let referenceUrl: string | undefined;
+    // IP-adapter weight: 0.6 default, boosted to 0.85 when user explicitly wants reference matching
+    let ipAdapterWeight = isReferenceMatchMode ? 0.85 : 0.6;
 
-    if (isReplaceMode && feedback) {
+    if (isReferenceMatchMode && feedback) {
+      // ─── REFERENCE MATCH MODE ──────────────────────────────
+      // User wants stricter adherence to the approved reference image.
+      // E.g., "same watch as other scenes", "match the reference", "wrong watch"
+      // Use HIGHER IP-adapter weight (0.85) and explicit matching language.
+      console.log(`[StoryboardRegen] Scene ${sceneIndex}: REFERENCE_MATCH mode (ipWeight=${ipAdapterWeight}) — "${feedback.substring(0, 80)}"`);
+
+      const descriptor = { ...scene.descriptor };
+      // Reinforce the matching instruction in the visual description
+      descriptor.visualDescription = `[CRITICAL: Match the reference image EXACTLY — ${feedback}] ${descriptor.visualDescription}`;
+
+      prompt = buildStoryboardPrompt(
+        descriptor,
+        storyboard.styleGuide,
+        sceneIndex,
+        storyboard.scenes.length,
+      );
+
+      // Use current scene for composition reference, but IP-adapter will override the subject
+      referenceUrl = options.referenceImageUrl || scene.imageUrl;
+      useReference = !!referenceUrl;
+    } else if (isReplaceMode && feedback) {
       // ─── REPLACE MODE ──────────────────────────────────────
       // Feedback describes a fundamentally new subject. Build a fresh prompt
       // where the feedback IS the primary visual description, with scene
@@ -348,16 +384,21 @@ export async function regenerateWithContext(
 
     if (hasApprovedRefs) {
       const primaryRef = sceneRefs[0];
-      console.log(`[StoryboardRegen] Scene ${sceneIndex}: Trying IP-adapter with ref "${primaryRef.name}" (${primaryRef.imageUrl.substring(0, 60)}...)`);
+      console.log(`[StoryboardRegen] Scene ${sceneIndex}: Trying IP-adapter with ref "${primaryRef.name}" (weight=${ipAdapterWeight}, refMatch=${isReferenceMatchMode})`);
 
       try {
         const cleanRefUrl = await cleanUrlForFal(primaryRef.imageUrl);
 
+        // Reference match mode: stronger prompt + higher weight for strict adherence
+        const ipPromptSuffix = isReferenceMatchMode
+          ? `. CRITICAL: The ${primaryRef.name} in this scene MUST exactly match the reference image. Same design, same proportions, same visual details. Maintain perfect visual consistency.`
+          : `. Maintain exact visual consistency with the reference image for ${primaryRef.name}.`;
+
         result = await (fal as any).subscribe(IP_ADAPTER_MODEL, {
           input: {
-            prompt: `${prompt}. Maintain exact visual consistency with the reference image for ${primaryRef.name}.`,
+            prompt: `${prompt}${ipPromptSuffix}`,
             ip_adapter_image_url: cleanRefUrl,
-            ip_adapter_scale: 0.6,
+            ip_adapter_scale: ipAdapterWeight,
             image_size: { width: 1280, height: 720 },
             num_images: 1,
             enable_safety_checker: false,
