@@ -46,16 +46,25 @@ export async function generateBackgroundMusic(
 
   console.log(`[BGM] Generating: prompt="${prompt.substring(0, 100)}", duration=${duration}s`);
 
-  // The old fal-ai/stable-audio/v2.5 was removed from fal.ai.
-  // Using beatoven/music-generation which supports prompt + duration.
-  const result = await fal.subscribe('beatoven/music-generation', {
-    input: {
-      prompt: `${prompt}, instrumental, background music for video`,
-      duration,
-      refinement: 100,
-    },
-    logs: false,
-  });
+  // beatoven/music-generation — verified on fal.ai (March 2026), $0.10/request
+  // If this returns 404, the fal.ai account may not have billing enabled for beatoven models.
+  let result: any;
+  try {
+    result = await fal.subscribe('beatoven/music-generation', {
+      input: {
+        prompt: `${prompt}, instrumental, background music for video`,
+        duration,
+        refinement: 100,
+      },
+      logs: false,
+    });
+  } catch (err: any) {
+    const status = err?.status || err?.statusCode;
+    if (status === 404) {
+      console.error('[BGM] beatoven/music-generation returned 404. Check fal.ai billing: this model requires separate activation at https://fal.ai/models/beatoven/music-generation');
+    }
+    throw err;
+  }
 
   // fal.ai subscribe returns { data, requestId }
   const data = (result as any).data || result;

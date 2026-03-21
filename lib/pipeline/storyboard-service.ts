@@ -69,6 +69,10 @@ const USES_IMAGE_SIZE_OBJECT = new Set([
 // Per-call timeout (ms) to prevent a single slow call from blocking everything
 const FAL_CALL_TIMEOUT_MS = 60_000; // 60 seconds
 
+// IP-adapter circuit breaker — if consecutive failures exceed this, skip IP-adapter for remaining scenes
+let _ipAdapterConsecutiveFailures = 0;
+const IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD = 2; // After 2 consecutive fails, stop trying
+
 /**
  * Build model-specific input parameters.
  * Different fal.ai models accept different input schemas.
@@ -213,44 +217,53 @@ export async function generateStoryboardImage(
   const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
 
   // ─── Attempt 1: IP-adapter if we have reference images ──────────
-  if (hasReferences) {
+  // Single attempt with circuit breaker — if IP-adapter keeps failing,
+  // skip it entirely rather than wasting 30-90s per scene on timeouts.
+  if (hasReferences && _ipAdapterConsecutiveFailures < IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
     const primaryRef = options.referenceImages![0];
-    console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ref ${primaryRef.subjectId} (${primaryRef.imageUrl.substring(0, 60)}...)`);
+    const cleanRefUrl = primaryRef.imageUrl;
+    const refStrength = primaryRef.weight ?? 0.65;
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: Trying IP-adapter with ref ${primaryRef.subjectId} (strength=${refStrength}, failures=${_ipAdapterConsecutiveFailures}/${IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD})`);
+
+    const ipAdapterModelId = 'fal-ai/flux-general';
+    const ipAdapterTimeout = 45_000; // 45s — if it doesn't respond by then, it's cold-starting and won't make it
 
     try {
-      // Use flux-general with reference_image_url for style/subject consistency.
-      // The old fal-ai/flux-general endpoint was removed from fal.ai.
-      // flux-general supports reference_image_url + reference_strength natively.
-      const ipAdapterModelId = 'fal-ai/flux-general';
-
-      // Reference URLs are pre-uploaded to fal CDN in the generate route,
-      // so we can use them directly here without per-scene re-upload.
-      const cleanRefUrl = primaryRef.imageUrl;
-      const refStrength = primaryRef.weight ?? 0.65;
-
       const result = await falSubscribeWithTimeout(ipAdapterModelId, {
         input: {
           prompt: `${prompt}. Maintain exact visual consistency with the reference image for the main subject.`,
-          reference_image_url: cleanRefUrl,
-          reference_strength: refStrength,
+          ip_adapters: [{
+            path: 'XLabs-AI/flux-ip-adapter',
+            image_encoder_path: 'openai/clip-vit-large-patch14',
+            image_url: cleanRefUrl,
+            scale: Math.min(refStrength + 0.15, 1.0),
+          }],
           image_size: { width, height },
           num_images: 1,
           enable_safety_checker: false,
+          guidance_scale: 4.0,
+          num_inference_steps: 28,
         },
         logs: false,
-      });
+      }, ipAdapterTimeout);
 
       const data = result.data as any;
       const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
       if (imageUrl) {
         console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter SUCCESS`);
+        _ipAdapterConsecutiveFailures = 0; // Reset circuit breaker on success
         const uploaded = await downloadAndUpload(imageUrl, userId, ipAdapterModelId);
         return { ...uploaded, usedIpAdapter: true };
       }
-      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter returned no image, falling back`);
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter returned no image, falling back to ${fallbackModelId}`);
+      _ipAdapterConsecutiveFailures++;
     } catch (ipErr: any) {
-      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter FAILED (${ipErr.message}), falling back to ${fallbackModelId}`);
+      _ipAdapterConsecutiveFailures++;
+      const circuitOpen = _ipAdapterConsecutiveFailures >= IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD;
+      console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter FAILED (${ipErr.message}), falling back to ${fallbackModelId}${circuitOpen ? ' — CIRCUIT BREAKER OPEN, skipping IP-adapter for remaining scenes' : ''}`);
     }
+  } else if (hasReferences && _ipAdapterConsecutiveFailures >= IP_ADAPTER_CIRCUIT_BREAKER_THRESHOLD) {
+    console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter circuit breaker OPEN (${_ipAdapterConsecutiveFailures} consecutive failures), using ${fallbackModelId} directly`);
   }
 
   // ─── Attempt 2: Standard model (user's choice or default) ───────
@@ -336,6 +349,12 @@ export async function generateFullStoryboard(
 ): Promise<Storyboard> {
   const storyboardId = `sb_${nanoid(12)}`;
   const totalScenes = scenes.length;
+  const functionStartTime = Date.now();
+  // Vercel has a 300s timeout. Reserve 15s for DB writes + response serialization.
+  const MAX_BUDGET_MS = 280_000; // 280s safe budget out of 300s
+
+  // Reset IP-adapter circuit breaker for each new storyboard generation
+  _ipAdapterConsecutiveFailures = 0;
 
   // Initialize storyboard — persist approved references so regeneration can use them
   const storyboard: Storyboard = {
@@ -491,7 +510,16 @@ export async function generateFullStoryboard(
   // ─── Consistency Check ───────────────────────────────────────────
   // After all scenes are generated, run Gemini Vision consistency scoring.
   // Flagged scenes are auto-regenerated once with stronger style anchoring.
-  if (options.checkConsistency !== false && completed >= 2) {
+  // SKIP if we've used too much time — better to return images than 504.
+  const elapsedMs = Date.now() - functionStartTime;
+  const remainingMs = MAX_BUDGET_MS - elapsedMs;
+  const hasEnoughTimeForConsistency = remainingMs > 90_000; // Need at least 90s for scoring + regen
+
+  if (!hasEnoughTimeForConsistency) {
+    console.log(`[Storyboard] Skipping consistency check — only ${(remainingMs / 1000).toFixed(0)}s remaining (need 90s). Elapsed: ${(elapsedMs / 1000).toFixed(0)}s`);
+  }
+
+  if (options.checkConsistency !== false && completed >= 2 && hasEnoughTimeForConsistency) {
     try {
       const threshold = options.consistencyThreshold ?? 0.6;
       console.log(`[Storyboard] Running consistency check (threshold=${threshold})`);
@@ -504,6 +532,13 @@ export async function generateFullStoryboard(
         console.log(`[Storyboard] Consistency: ${report.flaggedScenes.length} scene(s) flagged — regenerating with stronger anchoring`);
 
         for (const flaggedIndex of report.flaggedScenes) {
+          // Time budget check — stop regen if running low
+          const regenRemaining = MAX_BUDGET_MS - (Date.now() - functionStartTime);
+          if (regenRemaining < 45_000) {
+            console.log(`[Storyboard] Stopping consistency regen — only ${(regenRemaining / 1000).toFixed(0)}s remaining`);
+            break;
+          }
+
           const flaggedScene = storyboard.scenes.find((s) => s.sceneIndex === flaggedIndex);
           if (!flaggedScene) continue;
 

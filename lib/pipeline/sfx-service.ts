@@ -64,16 +64,25 @@ export async function generateSFX(
     `[SFX] Generating: desc="${audioDescription.substring(0, 100)}", duration=${duration}s`,
   );
 
-  // The old fal-ai/stable-audio/v2.5 was removed from fal.ai.
-  // Using beatoven/sound-effect-generation for SFX.
-  const result = await fal.subscribe('beatoven/sound-effect-generation', {
-    input: {
-      prompt: `${audioDescription}, sound effects, ambient audio, no music, no vocals`,
-      duration,
-      refinement: 40,
-    },
-    logs: false,
-  });
+  // beatoven/sound-effect-generation — verified on fal.ai (March 2026)
+  // If this returns 404, the fal.ai account may not have billing enabled for beatoven models.
+  let result: any;
+  try {
+    result = await fal.subscribe('beatoven/sound-effect-generation', {
+      input: {
+        prompt: `${audioDescription}, sound effects, ambient audio, no music, no vocals`,
+        duration,
+        refinement: 40,
+      },
+      logs: false,
+    });
+  } catch (err: any) {
+    const status = err?.status || err?.statusCode;
+    if (status === 404) {
+      console.error('[SFX] beatoven/sound-effect-generation returned 404. Check fal.ai billing: this model requires separate activation at https://fal.ai/models/beatoven/sound-effect-generation');
+    }
+    throw err;
+  }
 
   // Extract audio URL
   const data = (result as any).data || result;
