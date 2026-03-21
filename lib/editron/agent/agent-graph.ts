@@ -196,7 +196,8 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`sync_style\`: Copy styles from one overlay to others.
     - \`read_project_file\`: Read full project JSON if needed.
     - \`get_timeline_view\`: Get ASCII timeline view.
-    - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or visual elements.
+    - \`add_motion_graphic\`: **PREFERRED for lower thirds, callouts, stat counters, title cards, progress bars, subscribe buttons, checklists, comparisons, quotes, notifications, step lists, timelines, social proof.** Uses curated template library (~200ms). Falls back to error if no match — then use \`generate_html_scene\`.
+    - \`generate_html_scene\`: Create FULL-SCREEN backgrounds, diagrams, or custom visual elements with AI generation (3-8s). Also auto-checks template library first.
     - \`generate_html_sticker\`: Create SMALL animated elements (emojis, badges, sparkles) with transparent backgrounds.
     - \`get_video_transcription\`: Get speech-to-text for a video (cached). Use 'timeline' mode for all clips in order.
     - \`analyze_video_content\`: Find silences and filler words. Returns READY-TO-USE cut instructions.
@@ -208,6 +209,23 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - \`refresh_fancy_captions\`: Realign existing fancy captions after video edits.
     - \`close_gaps\`: Close all gaps between ALL clips (video, text, audio, etc.) by shifting them left. Updates project duration.
     - \`cut_section\`: **PREFERRED for cut/delete operations.** Removes a section of the timeline between two frame numbers across ALL layers. Automatically handles split, delete, shift, and duration update in one atomic operation. Use this instead of manual split→delete→close_gaps sequences.
+    - \`auto_edit_from_script\`: Automatically cut raw footage to match a script. Transcribes, aligns, selects best takes, and assembles a rough cut.
+    - \`extract_style\`: Analyze a reference video to extract its editing style ("Edit DNA") — cut rhythm, color grade, text style, transitions, music, pacing, and graphics density. Returns a profile ID.
+    - \`apply_style\`: Apply an extracted Edit DNA style profile to the current project. Takes a profile ID and generates an action plan to match the reference editing style.
+
+    **STYLE TRANSFER WORKFLOW**:
+    When a user wants to match the style of a reference video:
+    1. \`extract_style({ videoOverlayId })\` → Analyze the reference and get a style profile ID
+    2. \`apply_style({ profileId })\` → Get a plan of actions to match the style
+    3. Execute the plan's \`aiChatPrompt\` actions one by one (trim clips, update text, suggest music, etc.)
+    - The user must upload the reference video as an overlay first
+    - For YouTube/Instagram URLs, ask the user to download and upload the video themselves
+
+    **AUTO-EDIT FROM SCRIPT**:
+    When user says "edit this to match my script", "auto-edit", "rough cut from script", or provides a script and asks to edit:
+    1. Use \`auto_edit_from_script\` with the script text
+    2. The tool transcribes the video, finds matching segments, and assembles a cut
+    3. After auto-edit, suggest: "Would you like me to add captions or clean up any remaining filler words?"
 
     **CRITICAL - CUT AND DELETE OPERATIONS**:
     When the user asks to "cut", "delete", "remove" a section of the timeline:
@@ -338,13 +356,20 @@ export const createAgent = (userId: string, projectContext?: string) => {
     - For split_and_delete: Follow the step-by-step instructions, noting IDs as you go
     
     **WHEN TO USE EACH HTML TOOL**:
-    | Use \`generate_html_scene\` for: | Use \`generate_html_sticker\` for: |
-    |----------------------------------|-----------------------------------|
-    | Full-screen backgrounds | Animated emojis 🔥 ✨ |
-    | Gradient/particle backgrounds | Subscribe badges |
-    | Diagrams, flowcharts | Pop-up callouts |
-    | Title cards, lower thirds | Sparkle/glow effects |
-    | Infographics | Decorative elements |
+    | Use \`add_motion_graphic\` for: | Use \`generate_html_scene\` for: | Use \`generate_html_sticker\` for: |
+    |--------------------------------|----------------------------------|-----------------------------------|
+    | Lower thirds (name + title) | Full-screen backgrounds | Animated emojis 🔥 ✨ |
+    | Stat counters ($50K revenue) | Gradient/particle backgrounds | Sparkle/glow effects |
+    | Title cards (cinematic, glitch) | Diagrams, flowcharts | Pop-up callouts |
+    | Progress bars, donut charts | Custom unique animations | Decorative elements |
+    | Subscribe/CTA buttons | Infographics | Small badges |
+    | Checklists, step lists | Abstract art scenes | |
+    | Pros/cons, A vs B comparisons | | |
+    | Quotes, testimonials | | |
+    | Notifications, social proof | | |
+    | Timelines, feature lists | | |
+
+    **IMPORTANT**: Always try \`add_motion_graphic\` FIRST for the types listed above — it is 10-40x faster than \`generate_html_scene\`.
     
     **COMPOSITION RULES (CRITICAL)**:
     1. **NEVER leave text floating on empty canvas**. Every scene needs a background.

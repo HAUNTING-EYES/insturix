@@ -32,6 +32,14 @@ import {
 import { assetResolver } from "../services/asset-resolver";
 import { sampleVideoClip, sendVideoToGemini } from "../services/media/analysis-service";
 import { formatSecondsToHHMMSS, framesToSeconds, parsePromptTimeRange } from "../utils/analysis";
+import {
+  findBestTemplate,
+  fillTemplateSlots,
+  fillTemplateWithDefaults,
+  searchTemplates,
+  computeRelevanceScore,
+} from "../services/motion-graphics-service";
+import { extractEditDNA, applyEditDNA, loadProfile } from "../services/style-transfer-service";
 
 // Factory to create tools with context
 export const createTools = (userId: string, projectId: string) => {
@@ -1267,6 +1275,52 @@ TYPE-SPECIFIC FIELDS:
 
 
         const id = Date.now() + Math.floor(Math.random() * 10000);
+
+        // ── TEMPLATE-FIRST: Check motion graphic templates before AI generation ──
+        try {
+          const match = await findBestTemplate(input.description);
+          if (match && match.score >= 0.7) {
+            console.log(`[HTML-SCENE] Template match: "${match.template.name}" (score: ${match.score.toFixed(2)}). Using template instead of Gemini.`);
+            const filledHtml = await fillTemplateSlots(match.template, input.description);
+            const { sanitizeHtml: sanitize, createSandboxedWrapper: sandbox, extractStyleMetadata: extractMeta } = await import('../utils/html-generator-utils');
+            const cleanHtml = sanitize(filledHtml);
+            const overlayWidth = input.width ?? safeWidth;
+            const overlayHeight = input.height ?? safeHeight;
+            const wrappedHtml = sandbox({ html: cleanHtml, width: overlayWidth, height: overlayHeight, backgroundColor: 'transparent', autoFit: true });
+            const styleMetadata = extractMeta(cleanHtml);
+            const metadata: HtmlGenerationMetadata = { ...styleMetadata, generatedAt: new Date(), sourceType: 'scene' };
+            const existingOverlays = toExistingOverlays(project.overlays || []);
+            const assignedRow = input.row ?? findBestRow('html-scene' as any, { from: input.start, duration: input.duration }, existingOverlays);
+            const newOverlay = {
+              id,
+              type: 'html-scene',
+              from: input.start,
+              durationInFrames: match.template.defaultDuration || input.duration,
+              content: wrappedHtml,
+              prompt: input.description,
+              metadata,
+              row: assignedRow,
+              left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
+              top: input.y !== undefined ? (input.y - overlayHeight / 2) : 0,
+              width: overlayWidth,
+              height: overlayHeight,
+              rotation: input.rotation ?? 0,
+              isDragging: false,
+              styles: { animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } },
+            };
+            await projectService.addOverlay(userId, projectId, newOverlay as any);
+            return JSON.stringify({
+              status: 'success',
+              id,
+              templateUsed: match.template.templateId,
+              metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
+              message: `Used template "${match.template.name}" for "${input.description}". Resolution: ${overlayWidth}x${overlayHeight}. (Code hidden from chat log)`,
+            });
+          }
+        } catch (templateErr: any) {
+          console.warn('[HTML-SCENE] Template search failed, falling back to Gemini:', templateErr.message);
+        }
+        // ── END TEMPLATE-FIRST ──
 
         // Call Sub-Agent
         const model = new ChatGoogleGenerativeAI({
@@ -3751,6 +3805,264 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     }
   );
 
+  // --- Auto-Edit from Script ---
+  const autoEditFromScriptSchema = z.object({
+    script: z.string().describe('The target script text to match footage against'),
+    videoOverlayId: z.string().optional().describe('ID of the video overlay to edit. If not provided, uses the first/longest video.'),
+  });
+
+  const autoEditFromScriptTool = tool(
+    async (rawInput: z.infer<typeof autoEditFromScriptSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const { autoEditFromScript, executeAutoEdit } = await import('../services/auto-edit-service');
+
+        // Step 1: Generate plan
+        const plan = await autoEditFromScript(
+          projectId,
+          userId,
+          input.script,
+          input.videoOverlayId,
+        );
+
+        // Step 2: Determine video overlay ID for execution
+        let effectiveVideoOverlayId = input.videoOverlayId;
+        if (!effectiveVideoOverlayId) {
+          const project = await loadProject();
+          const videoOverlays = project.overlays
+            .filter((o: any) => o.type === 'video' && o.assetId)
+            .sort((a: any, b: any) => b.durationInFrames - a.durationInFrames);
+          if (videoOverlays.length === 0) {
+            return JSON.stringify({ status: 'error', message: 'No video overlays found in project' });
+          }
+          effectiveVideoOverlayId = String(videoOverlays[0].id);
+        }
+
+        // Step 3: Execute the plan
+        const result = await executeAutoEdit(
+          projectId,
+          userId,
+          effectiveVideoOverlayId,
+          plan,
+        );
+
+        const fps = (await loadProject()).fps || 30;
+
+        return JSON.stringify({
+          status: 'success',
+          message: result.message,
+          clipsCreated: result.clipsCreated,
+          totalDurationSeconds: Math.round((result.totalDurationFrames / fps) * 10) / 10,
+          coveragePercent: plan.coveragePercent,
+          warnings: plan.warnings,
+          cuts: plan.cuts.map(c => ({
+            scriptSection: c.scriptSection.substring(0, 80),
+            score: c.score,
+            fillerCount: c.fillerCount,
+            durationFrames: c.sourceEndFrame - c.sourceStartFrame,
+          })),
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'auto_edit_from_script',
+      description: 'Automatically edit raw footage to match a script. Transcribes the video, aligns transcript segments to script sections, selects best takes, and assembles a rough cut.',
+      schema: autoEditFromScriptSchema,
+    }
+  );
+
+  // --- STYLE TRANSFER TOOLS ---
+
+  const extractStyleSchema = z.object({
+    videoOverlayId: z.string().describe('ID of the reference video overlay to analyze for style extraction'),
+  });
+
+  const extractStyleTool = tool(
+    async (rawInput: z.infer<typeof extractStyleSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const { videoOverlayId } = input;
+
+        const dna = await extractEditDNA({
+          videoOverlayId: String(videoOverlayId),
+          userId,
+          projectId,
+        });
+
+        return JSON.stringify({
+          status: 'success',
+          profileId: dna.profileId,
+          sourceName: dna.sourceName,
+          cutRhythm: dna.cutRhythm,
+          transitions: dna.transitions,
+          colorGrade: dna.colorGrade,
+          textStyle: dna.textStyle,
+          musicStyle: dna.musicStyle,
+          pacing: dna.pacing,
+          graphicsDensity: dna.graphicsDensity,
+          message: `Extracted Edit DNA style profile "${dna.profileId}" from the reference video. ` +
+            `Style: ${dna.pacing.overall} pacing, ${dna.cutRhythm.avgCutsPerMinute} cuts/min, ` +
+            `${dna.transitions.dominant} transitions, ${dna.colorGrade.temperature} color temperature, ` +
+            `${dna.graphicsDensity} graphics density.`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'extract_style',
+      description: 'Extract the editing style ("Edit DNA") from a reference video. Analyzes cut rhythm, transitions, color grade, text style, music, and pacing. Returns a style profile ID that can be applied to the current project with apply_style.',
+      schema: extractStyleSchema,
+    },
+  );
+
+  const applyStyleSchema = z.object({
+    profileId: z.string().describe('ID of the style profile to apply (returned from extract_style)'),
+  });
+
+  const applyStyleTool = tool(
+    async (rawInput: z.infer<typeof applyStyleSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const { profileId: styleProfileId } = input;
+
+        const dna = await loadProfile(userId, String(styleProfileId));
+        if (!dna) {
+          return JSON.stringify({
+            status: 'error',
+            message: `Style profile '${styleProfileId}' not found. Use extract_style first to create a profile.`,
+          });
+        }
+
+        const plan = await applyEditDNA(projectId, userId, dna);
+
+        return JSON.stringify({
+          status: 'success',
+          summary: plan.summary,
+          actions: plan.actions.map((a) => ({
+            type: a.type,
+            description: a.description,
+            aiChatPrompt: a.aiChatPrompt,
+          })),
+          message: `Generated style application plan with ${plan.actions.length} action(s). ` +
+            `${plan.summary} ` +
+            `I'll now execute these actions to match the "${dna.sourceName}" editing style.`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'apply_style',
+      description: 'Apply a previously extracted Edit DNA style profile to the current project. Returns a plan of actions that map the reference style to Editron operations (cut rhythm, color grade, text style, music, graphics).',
+      schema: applyStyleSchema,
+    },
+  );
+
+  // ── ADD MOTION GRAPHIC (template-based) ──
+  const addMotionGraphicSchema = z.object({
+    start: z.coerce.number().describe("Start frame number (integer, 0-based). At 30fps: 1 second = 30 frames."),
+    duration: z.coerce.number().optional().describe("Duration in frames. If omitted, uses the template's default duration."),
+    description: z.string().describe("Natural language description of the motion graphic (e.g., 'lower third for John Smith, CEO', 'show revenue $50K with counter animation', 'step-by-step list: sign up, choose plan, start building')"),
+    row: z.coerce.number().optional().describe("Force specific row. If omitted, auto-placed."),
+    x: z.coerce.number().optional().describe("Center X position in pixels"),
+    y: z.coerce.number().optional().describe("Center Y position in pixels"),
+    width: z.coerce.number().optional().describe("Width in pixels (default: canvas width)"),
+    height: z.coerce.number().optional().describe("Height in pixels (default: canvas height)"),
+  });
+
+  const addMotionGraphic = tool(
+    async (rawInput: z.infer<typeof addMotionGraphicSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        if (isNaN(input.start)) {
+          return JSON.stringify({ status: 'error', message: `Invalid start frame: ${rawInput.start}` });
+        }
+
+        const project = await loadProject();
+        const canvas = getCanvasDimensions(project);
+
+        // Search templates
+        const match = await findBestTemplate(input.description);
+        if (!match || match.score < 0.3) {
+          return JSON.stringify({
+            status: 'error',
+            message: `No matching motion graphic template found for "${input.description}". Use generate_html_scene instead for custom animations.`,
+            nextAction: 'continue',
+          });
+        }
+
+        console.log(`[MOTION-GRAPHIC] Matched template: "${match.template.name}" (score: ${match.score.toFixed(2)})`);
+
+        // Fill slots with AI
+        const filledHtml = await fillTemplateSlots(match.template, input.description);
+
+        const id = Date.now() + Math.floor(Math.random() * 10000);
+        const overlayWidth = input.width ?? canvas.width;
+        const overlayHeight = input.height ?? canvas.height;
+        const duration = input.duration || match.template.defaultDuration;
+
+        const cleanHtml = sanitizeHtml(filledHtml);
+        const wrappedHtml = createSandboxedWrapper({
+          html: cleanHtml,
+          width: overlayWidth,
+          height: overlayHeight,
+          backgroundColor: 'transparent',
+          autoFit: true,
+        });
+
+        const styleMetadata = extractStyleMetadata(cleanHtml);
+        const metadata: HtmlGenerationMetadata = {
+          ...styleMetadata,
+          generatedAt: new Date(),
+          sourceType: 'scene',
+        };
+
+        const existingOverlays = toExistingOverlays(project.overlays || []);
+        const assignedRow = input.row ?? findBestRow('html-scene' as any, { from: input.start, duration }, existingOverlays);
+
+        const newOverlay = {
+          id,
+          type: 'html-scene',
+          from: input.start,
+          durationInFrames: duration,
+          content: wrappedHtml,
+          prompt: input.description,
+          metadata,
+          row: assignedRow,
+          left: input.x !== undefined ? (input.x - overlayWidth / 2) : 0,
+          top: input.y !== undefined ? (input.y - overlayHeight / 2) : 0,
+          width: overlayWidth,
+          height: overlayHeight,
+          rotation: 0,
+          isDragging: false,
+          styles: { animation: { enter: "fadeIn", exit: "fadeOut", duration: 15 } },
+        };
+
+        await projectService.addOverlay(userId, projectId, newOverlay as any);
+
+        return successEnvelope({
+          id,
+          templateUsed: match.template.templateId,
+          templateName: match.template.name,
+          score: Math.round(match.score * 100) / 100,
+          metadata: { fonts: metadata.fonts, colors: metadata.colors.slice(0, 3) },
+          message: `Added motion graphic "${match.template.name}" for "${input.description}". Duration: ${duration} frames. (Code hidden from chat log)`,
+        });
+      } catch (e: any) {
+        console.error('[MOTION-GRAPHIC] Error:', e);
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'add_motion_graphic',
+      description: 'Add a motion graphic from the curated template library. FAST (~200ms). Use for: lower thirds, callouts, stat counters, title cards, progress bars, subscribe buttons, checklists, comparisons, quotes, notifications, step lists, timelines, social proof. Falls back to error if no template matches — use generate_html_scene for custom/unique animations.',
+      schema: addMotionGraphicSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -3764,6 +4076,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     closeGaps,            // NEW: Close timeline gaps
     cutSection,           // NEW: Compound cut-and-delete
     // visualInspectFrame,  // DISABLED: Decoy tool, not implemented
+    addMotionGraphic,     // NEW: Template-based motion graphics (FAST)
     generateHtmlScene,
     generateHtmlSticker,  // NEW: Animated stickers
     // --- Video Auto-Edit Tools ---
@@ -3775,8 +4088,13 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     refreshCaptionsAI,    // NEW: Refresh/realign captions
     analyzeClipAudio,     // NEW: Analyze clip audio
     analyzeClipVideo,     // NEW: Analyze clip video
+    // --- Script-to-Edit Pipeline ---
+    autoEditFromScriptTool, // NEW: Auto-edit raw footage from script
     // --- AI Pipeline Scene Tools ---
     regenerateScene,      // NEW: Regenerate scene image/video/voiceover via chat
+    // --- Style Transfer Tools ---
+    extractStyleTool,     // NEW: Extract Edit DNA from reference video
+    applyStyleTool,       // NEW: Apply Edit DNA to project
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };

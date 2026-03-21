@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
     let title = 'Untitled Script';
     let rawContent = '';
     let overallMusicPrompt = '';
+    let characterDescriptions: Record<string, string> = {};
+    let colorPalette: string[] = [];
+    let environmentNotes = '';
 
     // ─── Reconstruct script text from input ────────────────────
     if (blocks && Array.isArray(blocks) && blocks.length > 0) {
@@ -96,6 +99,9 @@ export async function POST(request: NextRequest) {
           videoQualityTokens: s.videoQualityTokens,
         }));
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
+        characterDescriptions = llmResult.characterDescriptions || {};
+        colorPalette = llmResult.colorPalette || [];
+        environmentNotes = llmResult.environmentNotes || '';
 
         console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
       } catch (llmError: any) {
@@ -135,6 +141,9 @@ export async function POST(request: NextRequest) {
       sceneCount: scenes.length,
       totalDurationSeconds: scenes.reduce((sum, s) => sum + s.durationSeconds, 0),
       overallMusicPrompt,
+      characterDescriptions,
+      colorPalette,
+      environmentNotes,
       rawContent: rawContent.substring(0, 5000),
     });
   } catch (error: any) {

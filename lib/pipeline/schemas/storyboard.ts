@@ -73,6 +73,25 @@ export interface VoiceoverConfig {
   status: 'pending' | 'generating' | 'ready' | 'error';
 }
 
+/** Per-scene consistency score from Gemini Vision analysis */
+export interface ConsistencyScore {
+  sceneIndex: number;
+  overallScore: number;         // 0-1, 1 = perfectly consistent
+  subjectConsistency: number;   // 0-1
+  lightingConsistency: number;  // 0-1
+  colorConsistency: number;     // 0-1
+  styleConsistency: number;     // 0-1
+  issues: string[];             // human-readable issues
+  shouldRegenerate: boolean;    // true if score < threshold
+}
+
+/** Aggregate consistency report across all storyboard scenes */
+export interface ConsistencyReport {
+  projectConsistency: number;   // average across all scenes
+  sceneScores: ConsistencyScore[];
+  flaggedScenes: number[];      // indices of scenes below threshold
+}
+
 export interface Storyboard {
   storyboardId: string;
   projectId?: string;
@@ -98,6 +117,8 @@ export interface Storyboard {
     imageUrl: string;
     scenesAppearingIn: number[];
   }>;
+  /** Visual consistency report from Gemini Vision analysis of sequential scenes */
+  consistencyReport?: ConsistencyReport;
   status: 'generating' | 'ready' | 'partial' | 'error';
   createdAt: Date;
   updatedAt: Date;

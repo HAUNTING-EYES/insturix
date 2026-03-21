@@ -10,6 +10,7 @@ import { fal } from '@fal-ai/client';
 import { uploadToGCS } from '@/lib/editron/services/gcs-service';
 import { buildStoryboardPrompt, buildNegativePrompt } from './storyboard-prompt-builder';
 import { saveStoryboard, updateStoryboardScene, getStoryboard } from './storyboard-db';
+import { scoreStoryboardConsistency } from './consistency-scoring-service';
 import type {
   SceneDescriptor,
   StyleGuide,
@@ -323,6 +324,10 @@ export async function generateFullStoryboard(
       scenesAppearingIn: number[];
     }>;
     refSetId?: string;
+    /** Run Gemini Vision consistency check after generation (default: true) */
+    checkConsistency?: boolean;
+    /** Consistency threshold — scenes below this score are flagged (default: 0.6) */
+    consistencyThreshold?: number;
   },
 ): Promise<Storyboard> {
   const storyboardId = `sb_${nanoid(12)}`;
@@ -476,6 +481,100 @@ export async function generateFullStoryboard(
     }
     if (running.length > 0) {
       await Promise.race(running);
+    }
+  }
+
+  // ─── Consistency Check ───────────────────────────────────────────
+  // After all scenes are generated, run Gemini Vision consistency scoring.
+  // Flagged scenes are auto-regenerated once with stronger style anchoring.
+  if (options.checkConsistency !== false && completed >= 2) {
+    try {
+      const threshold = options.consistencyThreshold ?? 0.6;
+      console.log(`[Storyboard] Running consistency check (threshold=${threshold})`);
+
+      const report = await scoreStoryboardConsistency(storyboard, threshold);
+      storyboard.consistencyReport = report;
+
+      // Auto-regenerate flagged scenes (max 1 retry per scene)
+      if (report.flaggedScenes.length > 0) {
+        console.log(`[Storyboard] Consistency: ${report.flaggedScenes.length} scene(s) flagged — regenerating with stronger anchoring`);
+
+        for (const flaggedIndex of report.flaggedScenes) {
+          const flaggedScene = storyboard.scenes.find((s) => s.sceneIndex === flaggedIndex);
+          if (!flaggedScene) continue;
+
+          try {
+            // Build reference images with stronger style anchor weight (0.5 instead of 0.3)
+            let consistencyRefs = options.referenceImageMap?.[flaggedIndex];
+
+            // If no IP-adapter refs, use style anchor with higher weight
+            if ((!consistencyRefs || consistencyRefs.length === 0) && styleAnchorImageUrl) {
+              consistencyRefs = [{
+                subjectId: '__style_anchor__',
+                imageUrl: styleAnchorImageUrl,
+                weight: 0.5, // stronger than normal 0.3
+              }];
+            }
+
+            // Find adjacent scenes for context
+            const prevScene = storyboard.scenes.find((s) => s.sceneIndex === flaggedIndex - 1 && s.imageUrl);
+            const nextScene = storyboard.scenes.find((s) => s.sceneIndex === flaggedIndex + 1 && s.imageUrl);
+
+            // Build an enriched descriptor that explicitly instructs matching adjacent scenes
+            const enrichedDescriptor = { ...flaggedScene.descriptor };
+            const matchInstructions: string[] = [];
+            if (prevScene) matchInstructions.push(`Match the lighting, color palette, and art style of the previous scene.`);
+            if (nextScene) matchInstructions.push(`Ensure visual continuity with the following scene.`);
+            if (matchInstructions.length > 0) {
+              enrichedDescriptor.visualDescription = `[CONSISTENCY FIX: ${matchInstructions.join(' ')}] ${enrichedDescriptor.visualDescription}`;
+            }
+
+            console.log(`[Storyboard] Consistency regen: scene ${flaggedIndex} (score=${report.sceneScores.find(s => s.sceneIndex === flaggedIndex)?.overallScore})`);
+
+            const result = await generateStoryboardImage(
+              enrichedDescriptor,
+              options.userId,
+              {
+                styleGuide: options.styleGuide,
+                modelId: options.modelId,
+                aspectRatio: options.aspectRatio,
+                sceneIndex: flaggedIndex,
+                totalScenes,
+                referenceImages: consistencyRefs,
+              },
+            );
+
+            flaggedScene.imageAssetId = result.assetId;
+            flaggedScene.imageUrl = result.imageUrl;
+            (flaggedScene as any).imageGcsPath = result.gcsPath;
+            flaggedScene.status = 'generated';
+            flaggedScene.generationHistory.push({
+              assetId: result.assetId,
+              imageUrl: result.imageUrl,
+              timestamp: new Date(),
+              feedback: 'Auto-regenerated for consistency',
+              modelUsed: result.modelUsed,
+              usedIpAdapter: result.usedIpAdapter,
+            });
+
+            await updateStoryboardScene(storyboardId, flaggedIndex, {
+              imageAssetId: result.assetId,
+              imageUrl: result.imageUrl,
+              imageGcsPath: result.gcsPath,
+              status: 'generated',
+              generationHistory: flaggedScene.generationHistory,
+            });
+
+            console.log(`[Storyboard] Consistency regen: scene ${flaggedIndex} SUCCESS`);
+          } catch (regenErr: any) {
+            console.error(`[Storyboard] Consistency regen: scene ${flaggedIndex} FAILED:`, regenErr.message);
+            // Keep the original image — don't mark as error
+          }
+        }
+      }
+    } catch (consistencyErr: any) {
+      console.error('[Storyboard] Consistency check failed (non-fatal):', consistencyErr.message);
+      // Consistency check failure is non-fatal — storyboard is still usable
     }
   }
 

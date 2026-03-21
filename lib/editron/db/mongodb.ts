@@ -55,6 +55,7 @@ export const COLLECTIONS = {
   CHECKPOINTS: 'checkpoints',
   CHAT_SESSIONS: 'chatSessions',
   MEDIA_ASSETS: 'mediaAssets',
+  MOTION_GRAPHIC_TEMPLATES: 'motionGraphicTemplates',
 } as const;
 
 /**

@@ -56,6 +56,8 @@ export async function POST(request: NextRequest) {
       overallMusicPrompt,
       refSetId,
       approvedReferences,
+      checkConsistency,
+      consistencyThreshold,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -74,6 +76,8 @@ export async function POST(request: NextRequest) {
         imageUrl: string;
         scenesAppearingIn: number[];
       }>;
+      checkConsistency?: boolean;
+      consistencyThreshold?: number;
     } = body;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -174,6 +178,8 @@ export async function POST(request: NextRequest) {
       referenceImageMap,
       approvedReferences,
       refSetId,
+      checkConsistency,
+      consistencyThreshold,
     });
 
     const succeeded = storyboard.scenes.filter(s => s.imageUrl).length;
@@ -199,6 +205,7 @@ export async function POST(request: NextRequest) {
       })),
       summary: { total: storyboard.scenes.length, succeeded, failed, ipAdapterUsed, ipAdapterFellBack },
       creditsDeducted: totalCost,
+      consistencyReport: storyboard.consistencyReport ?? null,
     });
   } catch (error: any) {
     console.error('[storyboard/generate] Error:', error);
