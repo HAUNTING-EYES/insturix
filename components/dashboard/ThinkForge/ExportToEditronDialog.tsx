@@ -143,7 +143,7 @@ export function ExportToEditronDialog({
   React.useEffect(() => {
     if (open) {
       fetch('/api/services/pipeline/voices')
-        .then((res) => res.json())
+        .then((res) => res.ok ? res.json() : {})
         .then((data) => {
           if (data.voices?.length > 0) {
             setAvailableVoices(data.voices);
@@ -315,11 +315,12 @@ export function ExportToEditronDialog({
       });
 
       if (!exportRes.ok) {
-        const data = await exportRes.json();
-        throw new Error(data.error || 'Failed to export script');
+        const data = await exportRes.json().catch(() => ({}));
+        throw new Error(data.error || `Failed to export script (${exportRes.status})`);
       }
 
-      const exportData = await exportRes.json();
+      const exportData = await exportRes.json().catch(() => null);
+      if (!exportData) throw new Error('Invalid response from export service');
       setScenes(exportData.scenes);
       setOverallMusicPrompt(exportData.overallMusicPrompt || '');
       setColorPalette(exportData.colorPalette || []);
@@ -341,7 +342,7 @@ export function ExportToEditronDialog({
         });
 
         if (extractRes.ok) {
-          const extractData = await extractRes.json();
+          const extractData = await extractRes.json().catch(() => ({}));
           const allExtracted = extractData.subjects || [];
 
           if (allExtracted.length > 0) {
@@ -377,7 +378,7 @@ export function ExportToEditronDialog({
             });
 
             if (genRes.ok) {
-              const genData = await genRes.json();
+              const genData = await genRes.json().catch(() => ({}));
               setRefSetId(genData.refSetId || '');
               setSubjects((genData.subjects || []).map((s: any) => ({ ...s, priority: 'hero' })));
               // Auto-approve all initially (user can reject individually)
@@ -472,7 +473,7 @@ export function ExportToEditronDialog({
         });
 
         if (sbRes.ok) {
-          const sbData = await sbRes.json();
+          const sbData = await sbRes.json().catch(() => ({}));
           const sbId = sbData.storyboardId || '';
           setStoryboardId(sbId);
           const sbScenes = sbData.scenes || [];
@@ -633,11 +634,12 @@ export function ExportToEditronDialog({
         });
 
         if (!finalizeRes.ok) {
-          const data = await finalizeRes.json();
-          throw new Error(data.error || 'Failed to finalize storyboard');
+          const data = await finalizeRes.json().catch(() => ({}));
+          throw new Error(data.error || `Failed to finalize storyboard (${finalizeRes.status})`);
         }
 
-        const finalizeData = await finalizeRes.json();
+        const finalizeData = await finalizeRes.json().catch(() => null);
+        if (!finalizeData) throw new Error('Invalid response from finalize service');
         setProjectId(finalizeData.projectId);
       } else {
         // No storyboard — import scenes directly
@@ -653,11 +655,12 @@ export function ExportToEditronDialog({
         });
 
         if (!importRes.ok) {
-          const data = await importRes.json();
-          throw new Error(data.error || 'Failed to create Editron project');
+          const data = await importRes.json().catch(() => ({}));
+          throw new Error(data.error || `Failed to create Editron project (${importRes.status})`);
         }
 
-        const importData = await importRes.json();
+        const importData = await importRes.json().catch(() => null);
+        if (!importData) throw new Error('Invalid response from import service');
         setProjectId(importData.projectId);
       }
 
@@ -685,11 +688,11 @@ export function ExportToEditronDialog({
       });
 
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
         setSubjects((prev) =>
           prev.map((s) =>
             s.subjectId === subjectId
-              ? { ...s, imageUrl: data.imageUrl, status: 'generated' }
+              ? { ...s, imageUrl: data.imageUrl || s.imageUrl, status: 'generated' }
               : s,
           ),
         );
@@ -767,7 +770,8 @@ export function ExportToEditronDialog({
         throw new Error(errData.error || `Failed (${res.status})`);
       }
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!data.subject) throw new Error('Invalid response');
       const newSubject: SubjectRef = {
         subjectId: data.subject.subjectId,
         name: data.subject.name,
@@ -826,7 +830,8 @@ export function ExportToEditronDialog({
         throw new Error(errData.error || `Failed (${res.status})`);
       }
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+      if (!data.subject) throw new Error('Invalid response from add-subject');
       const newSubject: SubjectRef = {
         subjectId: data.subject.subjectId,
         name: data.subject.name,
@@ -900,10 +905,10 @@ export function ExportToEditronDialog({
         },
       );
       if (!res.ok) {
-        const errText = await res.text();
+        const errText = await res.text().catch(() => '');
         throw new Error(errText || `Failed (${res.status})`);
       }
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       // API returns { success, scene } — scene has imageUrl and imageAssetId
       const updatedScene = data.scene || data;
       setStoryboardScenes((prev: any[]) =>
