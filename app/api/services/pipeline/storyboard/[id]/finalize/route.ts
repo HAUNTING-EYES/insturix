@@ -8,7 +8,21 @@ import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { generateBackgroundMusic, buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
 import { generateSFXForScenes, isSFXAvailable, type SFXResult } from '@/lib/pipeline/sfx-service';
 
-export const maxDuration = 300; // Increased: BGM + per-scene SFX generation can take several minutes
+export const runtime = 'nodejs';
+export const maxDuration = 300;
+
+/** Race a promise against a timeout. Returns null on timeout instead of throwing. */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => {
+      setTimeout(() => {
+        console.warn(`[Finalize] ${label} timed out after ${ms}ms, skipping`);
+        resolve(null);
+      }, ms);
+    }),
+  ]);
+}
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/finalize
@@ -315,7 +329,12 @@ export async function POST(
             })),
           );
         console.log('[Finalize] BGM prompt:', musicPrompt, 'Duration:', totalDurationSec, 's');
-        const bgm = await generateBackgroundMusic(musicPrompt, userId, totalDurationSec);
+        const bgm = await withTimeout(
+          generateBackgroundMusic(musicPrompt, userId, totalDurationSec),
+          60_000, // 60s max for BGM
+          'BGM generation',
+        );
+        if (!bgm) throw new Error('BGM timed out');
 
         // Add BGM as a sound overlay spanning the entire timeline (row 5)
         overlays.push({
@@ -378,7 +397,12 @@ export async function POST(
 
         if (sfxInputs.length > 0) {
           console.log(`[Finalize] Generating SFX for ${sfxInputs.length} scene(s)`);
-          const sfxResults = await generateSFXForScenes(sfxInputs, userId);
+          const sfxResults = await withTimeout(
+            generateSFXForScenes(sfxInputs, userId),
+            90_000, // 90s max for SFX
+            'SFX generation',
+          );
+          if (!sfxResults) throw new Error('SFX timed out');
 
           // Add each SFX clip as a sound overlay on row 6 (dedicated SFX layer)
           for (const [sceneIndex, sfx] of sfxResults) {
