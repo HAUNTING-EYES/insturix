@@ -162,7 +162,7 @@ export async function generateStoryboardImage(
   scene: SceneDescriptor,
   userId: string,
   options: GenerateImageOptions = {},
-): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string }> {
+): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string; usedIpAdapter: boolean }> {
   const prompt = buildStoryboardPrompt(
     scene,
     options.styleGuide,
@@ -229,7 +229,8 @@ export async function generateStoryboardImage(
       const imageUrl = data?.images?.[0]?.url || data?.image?.url || data?.output?.url;
       if (imageUrl) {
         console.log(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter SUCCESS`);
-        return await downloadAndUpload(imageUrl, userId, ipAdapterModelId);
+        const uploaded = await downloadAndUpload(imageUrl, userId, ipAdapterModelId);
+        return { ...uploaded, usedIpAdapter: true };
       }
       console.warn(`[Storyboard] Scene ${options.sceneIndex}: IP-adapter returned no image, falling back`);
     } catch (ipErr: any) {
@@ -254,7 +255,8 @@ export async function generateStoryboardImage(
     throw new Error(`No image generated from fal.ai (model: ${modelId})`);
   }
 
-  return await downloadAndUpload(imageUrl, userId, modelId);
+  const uploaded = await downloadAndUpload(imageUrl, userId, modelId);
+  return { ...uploaded, usedIpAdapter: false };
 }
 
 /**
@@ -264,7 +266,7 @@ async function downloadAndUpload(
   imageUrl: string,
   userId: string,
   modelUsed: string,
-): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string }> {
+): Promise<{ imageUrl: string; assetId: string; modelUsed: string; gcsPath: string; usedIpAdapter?: boolean }> {
   const response = await fetch(imageUrl);
   if (!response.ok) throw new Error('Failed to download generated image');
   const buffer = Buffer.from(await response.arrayBuffer());
@@ -351,6 +353,9 @@ export async function generateFullStoryboard(
 
   console.log(`[Storyboard] Starting: ${totalScenes} scenes, concurrency=${CONCURRENCY}, hasRefs=${!!hasAnyRefs}, model=${options.modelId || DEFAULT_MODEL}`);
 
+  // Track first scene's image URL for cross-scene style consistency (FIX 8)
+  let styleAnchorImageUrl: string | null = null;
+
   const generateForScene = async (sbScene: StoryboardScene) => {
     let lastError: any;
     const startTime = Date.now();
@@ -368,7 +373,18 @@ export async function generateFullStoryboard(
         });
 
         // Look up reference images for this scene from the referenceImageMap
-        const sceneRefs = options.referenceImageMap?.[sbScene.sceneIndex];
+        let sceneRefs = options.referenceImageMap?.[sbScene.sceneIndex];
+
+        // FIX 8: Cross-scene consistency — if this scene has no IP-adapter refs
+        // and we have a style anchor from scene 0, pass it as a low-weight style reference
+        if ((!sceneRefs || sceneRefs.length === 0) && styleAnchorImageUrl && sbScene.sceneIndex > 0) {
+          sceneRefs = [{
+            subjectId: '__style_anchor__',
+            imageUrl: styleAnchorImageUrl,
+            weight: 0.3,
+          }];
+          console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: Using scene 0 as style anchor (weight 0.3)`);
+        }
 
         const result = await generateStoryboardImage(
           sbScene.descriptor,
@@ -383,6 +399,12 @@ export async function generateFullStoryboard(
           },
         );
 
+        // FIX 8: Capture scene 0's image as style anchor for subsequent scenes
+        if (sbScene.sceneIndex === 0 && result.imageUrl) {
+          styleAnchorImageUrl = result.imageUrl;
+          console.log(`[Storyboard] Scene 0 captured as style anchor for cross-scene consistency`);
+        }
+
         sbScene.imageAssetId = result.assetId;
         sbScene.imageUrl = result.imageUrl;
         (sbScene as any).imageGcsPath = result.gcsPath;
@@ -392,6 +414,7 @@ export async function generateFullStoryboard(
           imageUrl: result.imageUrl,
           timestamp: new Date(),
           modelUsed: result.modelUsed,
+          usedIpAdapter: result.usedIpAdapter,
         });
 
         await updateStoryboardScene(storyboardId, sbScene.sceneIndex, {
@@ -404,7 +427,7 @@ export async function generateFullStoryboard(
 
         completed++;
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: SUCCESS in ${elapsed}s (model: ${result.modelUsed})`);
+        console.log(`[Storyboard] Scene ${sbScene.sceneIndex}: SUCCESS in ${elapsed}s (model: ${result.modelUsed}, ipAdapter: ${result.usedIpAdapter})`);
         return; // Success — exit retry loop
       } catch (err: any) {
         lastError = err;
@@ -419,8 +442,18 @@ export async function generateFullStoryboard(
     errors++;
   };
 
-  // Run with concurrency limit
-  const queue = [...storyboard.scenes];
+  // FIX 8: Run scene 0 first to capture style anchor, then remaining scenes concurrently
+  const allScenes = [...storyboard.scenes];
+  const scene0 = allScenes.find((s) => s.sceneIndex === 0);
+  const remainingScenes = allScenes.filter((s) => s.sceneIndex !== 0);
+
+  // Generate scene 0 first (style anchor)
+  if (scene0) {
+    await generateForScene(scene0);
+  }
+
+  // Run remaining scenes with concurrency limit
+  const queue = [...remainingScenes];
   const running: Promise<void>[] = [];
 
   while (queue.length > 0 || running.length > 0) {
@@ -466,11 +499,24 @@ export async function regenerateScene(
   const scene = storyboard.scenes.find((s) => s.sceneIndex === sceneIndex);
   if (!scene) throw new Error(`Scene ${sceneIndex} not found`);
 
-  // Build enhanced descriptor with feedback
+  // Build enhanced descriptor with feedback using REPLACE/EDIT dual-mode logic
   const descriptor = { ...scene.descriptor };
-  if (options.feedback) {
-    descriptor.visualDescription =
-      `${descriptor.visualDescription}. Feedback: ${options.feedback}`;
+  const feedback = options.feedback?.trim() || '';
+
+  // Detect whether user wants to REPLACE the subject entirely or EDIT the existing image
+  const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|new\s+(subject|item|object|product|person|character|vehicle|car|watch|phone|device|thing)|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different)\b/i;
+  const isReplaceMode = feedback ? REPLACE_SIGNALS.test(feedback) : false;
+
+  if (feedback) {
+    if (isReplaceMode) {
+      // REPLACE MODE: feedback describes a fundamentally new subject — make it the primary description
+      console.log(`[Storyboard] regenerateScene ${sceneIndex}: REPLACE mode — "${feedback.substring(0, 80)}"`);
+      descriptor.visualDescription = `${feedback}. Scene context: ${descriptor.mood} mood, ${descriptor.title}`;
+    } else {
+      // EDIT MODE: feedback is a tweak — prefix it before the original description
+      console.log(`[Storyboard] regenerateScene ${sceneIndex}: EDIT mode — "${feedback.substring(0, 80)}"`);
+      descriptor.visualDescription = `[APPLY THESE CHANGES: ${feedback}] — Original scene: ${descriptor.visualDescription}`;
+    }
   }
 
   const totalScenes = storyboard.scenes.length;
@@ -502,6 +548,7 @@ export async function regenerateScene(
     timestamp: new Date(),
     feedback: options.feedback,
     modelUsed: result.modelUsed,
+    usedIpAdapter: result.usedIpAdapter,
   });
 
   await updateStoryboardScene(storyboardId, sceneIndex, {

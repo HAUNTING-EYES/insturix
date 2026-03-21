@@ -128,6 +128,13 @@ export async function POST(request: NextRequest) {
     const succeeded = storyboard.scenes.filter(s => s.imageUrl).length;
     const failed = storyboard.scenes.filter(s => !s.imageUrl).length;
 
+    // Count how many scenes used IP-adapter vs fell back
+    const ipAdapterUsed = storyboard.scenes.filter(s => {
+      const lastEntry = s.generationHistory[s.generationHistory.length - 1];
+      return lastEntry && (lastEntry as any).usedIpAdapter === true;
+    }).length;
+    const ipAdapterFellBack = succeeded - ipAdapterUsed;
+
     return NextResponse.json({
       success: succeeded > 0,
       storyboardId: storyboard.storyboardId,
@@ -139,7 +146,7 @@ export async function POST(request: NextRequest) {
         imageAssetId: s.imageAssetId,
         status: s.status,
       })),
-      summary: { total: storyboard.scenes.length, succeeded, failed },
+      summary: { total: storyboard.scenes.length, succeeded, failed, ipAdapterUsed, ipAdapterFellBack },
       creditsDeducted: totalCost,
     });
   } catch (error: any) {

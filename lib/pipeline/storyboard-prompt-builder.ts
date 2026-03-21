@@ -88,22 +88,52 @@ export function buildStoryboardPrompt(
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    // Strip any camera movement language that leaked through
+    // Strip camera movement phrases — only match explicit camera direction terms,
+    // not standalone words like "follow", "track", "pan", "crane", "zoom" that
+    // could be part of legitimate scene descriptions.
     cleanVisual = cleanVisual
-      .replace(/\b(camera\s+)?(slowly?\s+)?(dolly|pan|tilt|zoom|track|orbit|push[- ]in|pull[- ]back|crane|steadicam|follow|rack focus|whip)\w*\b/gi, '')
+      .replace(/\b(dolly shot|camera pan|slow zoom|tracking shot|crane shot|steadicam shot|rack focus|whip pan|push[- ]in|pull[- ]back)\b/gi, '')
+      .replace(/\b(camera|shot|slow|fast)\s+(dolly|pan|tilt|zoom|track|orbit|crane|steadicam|follow|whip)\w*\b/gi, '')
       .replace(/\s{2,}/g, ' ')
       .trim();
 
-    if (cleanVisual.length > 500) {
-      parts.push(cleanVisual.substring(0, 500));
+    if (cleanVisual.length > 1500) {
+      parts.push(cleanVisual.substring(0, 1500));
     } else {
       parts.push(cleanVisual);
     }
   } else if (scene.narration) {
-    parts.push(`Visual scene depicting: ${scene.narration.substring(0, 200)}`);
+    parts.push(`Visual scene depicting: ${scene.narration.substring(0, 800)}`);
   }
 
-  // Style guide injection for consistency
+  // Character descriptions come second — they add specific visual detail
+  if (styleGuide?.characterDescriptions) {
+    const sceneText = ((scene.narration || '') + ' ' + (scene.visualDescription || '')).toLowerCase();
+    for (const [name, desc] of Object.entries(styleGuide.characterDescriptions)) {
+      if (sceneText.includes(name.toLowerCase())) {
+        parts.push(`Character "${name}": ${desc}`);
+      }
+    }
+  }
+
+  // Environment notes
+  if (styleGuide?.environmentNotes) {
+    parts.push(`Environment: ${styleGuide.environmentNotes}`);
+  }
+
+  // Color palette (only when non-empty)
+  if (styleGuide?.colorPalette && styleGuide.colorPalette.length > 0) {
+    parts.push(styleGuide.colorPalette.join(', '));
+  }
+
+  // Consistency hint for multi-scene storyboards (kept short)
+  if (totalScenes && totalScenes > 1) {
+    parts.push(
+      `Scene ${(sceneIndex ?? 0) + 1}/${totalScenes}, consistent style`,
+    );
+  }
+
+  // Art style tokens — generic boilerplate, placed at the end
   if (styleGuide) {
     const artStyleKey = styleGuide.artStyle?.toLowerCase().replace(/\s+/g, '-');
     const artStylePrompt = artStyleKey && ART_STYLE_PROMPTS[artStyleKey];
@@ -112,34 +142,12 @@ export function buildStoryboardPrompt(
     } else if (styleGuide.artStyle) {
       parts.push(`Art style: ${styleGuide.artStyle}`);
     }
-
-    if (styleGuide.colorPalette && styleGuide.colorPalette.length > 0) {
-      parts.push(`Color palette: ${styleGuide.colorPalette.join(', ')}`);
-    }
-    if (styleGuide.characterDescriptions) {
-      const sceneText = ((scene.narration || '') + ' ' + (scene.visualDescription || '')).toLowerCase();
-      for (const [name, desc] of Object.entries(styleGuide.characterDescriptions)) {
-        if (sceneText.includes(name.toLowerCase())) {
-          parts.push(`Character "${name}": ${desc}`);
-        }
-      }
-    }
-    if (styleGuide.environmentNotes) {
-      parts.push(`Environment: ${styleGuide.environmentNotes}`);
-    }
   }
 
-  // LLM-generated quality tokens (dynamic per art style) — preferred over hardcoded
+  // LLM-generated quality tokens (dynamic per art style) — placed at the end
   const sceneAny = scene as any;
   if (sceneAny.imageQualityTokens) {
     parts.push(sceneAny.imageQualityTokens);
-  }
-
-  // Consistency hint for multi-scene storyboards
-  if (totalScenes && totalScenes > 1) {
-    parts.push(
-      `Scene ${(sceneIndex ?? 0) + 1} of ${totalScenes}, maintain identical subject appearance and consistent visual style`,
-    );
   }
 
   return parts.join('. ').replace(/\.\./g, '.').replace(/\s{2,}/g, ' ');
@@ -149,7 +157,7 @@ export function buildStoryboardPrompt(
  * Build a negative prompt from style guide (things to avoid).
  */
 export function buildNegativePrompt(styleGuide?: StyleGuide): string {
-  const base = 'blurry, low quality, distorted, deformed, watermark, text overlay, logo, bad anatomy, extra limbs, camera movement description';
+  const base = 'blurry, low quality, distorted, deformed, watermark, text overlay, logo, bad anatomy, extra limbs';
   if (styleGuide?.negativePrompt) {
     return `${base}, ${styleGuide.negativePrompt}`;
   }

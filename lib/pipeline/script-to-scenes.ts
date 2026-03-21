@@ -92,7 +92,7 @@ export function convertThinkForgeBlocksToScenes(
       sceneIndex: idx,
       title: currentScene.title || `Scene ${idx + 1}`,
       narration,
-      visualDescription: currentScene.visualDescription || narration.substring(0, 200),
+      visualDescription: currentScene.visualDescription || narration.substring(0, 800),
       durationSeconds: currentScene.durationSeconds || Math.min(estimateDuration(narration), 15),
       mood: currentScene.mood || inferMood(narration),
       cameraDirection: currentScene.cameraDirection,
@@ -288,7 +288,7 @@ function convertTimestampedScriptToScenes(content: string): SceneDescriptor[] {
     // Narration = voiceover text. If none found, fall back to other content.
     const narration = sections.voiceover || sections.other || '';
     // Visual description = visuals section (for storyboard image gen)
-    const visualDescription = sections.visuals || narration.substring(0, 300);
+    const visualDescription = sections.visuals || narration.substring(0, 800);
     // Mood from audio description + visual description
     const moodSource = sections.audio + ' ' + sections.visuals;
 
@@ -356,7 +356,7 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
     // Only use actual voiceover/narration text for narration — NOT visual
     // descriptions, audio notes, or camera directions which inflate duration.
     const narration = labelled.voiceover || body;
-    const visualDescription = labelled.visuals || narration.substring(0, 250);
+    const visualDescription = labelled.visuals || narration.substring(0, 800);
     // Duration should reflect spoken words only. If we have labelled voiceover
     // use that word count; otherwise use full body but cap at 15s per scene.
     const durationText = labelled.voiceover || body;

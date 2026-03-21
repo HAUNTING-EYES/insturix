@@ -183,6 +183,7 @@ export async function generateSceneSequential(
       imageUrl: uploadResult.signedUrl,
       timestamp: new Date(),
       modelUsed,
+      usedIpAdapter,
     };
 
     await updateStoryboardScene(storyboardId, sceneIndex, {
@@ -245,7 +246,7 @@ export async function regenerateWithContext(
     const feedback = options.feedback?.trim() || '';
 
     // Detect whether user wants to EDIT the existing image or REPLACE the subject entirely
-    const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|different|swap|new\s+\w+|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of)\b/i;
+    const REPLACE_SIGNALS = /\b(change\s+to|replace\s+with|make\s+it\s+a\b|switch\s+to|instead\s+of|new\s+(subject|item|object|product|person|character|vehicle|car|watch|phone|device|thing)|not\s+a\b|don'?t\s+want|remove\s+the|get\s+rid\s+of|completely\s+different|something\s+else|use\s+a\s+different)\b/i;
     const isReplaceMode = feedback ? REPLACE_SIGNALS.test(feedback) : false;
 
     let prompt: string;
@@ -402,6 +403,7 @@ export async function regenerateWithContext(
       timestamp: new Date(),
       feedback: options.feedback,
       modelUsed: actualModelUsed,
+      usedIpAdapter: ipAdapterSucceeded,
     };
 
     await updateStoryboardScene(storyboardId, sceneIndex, {

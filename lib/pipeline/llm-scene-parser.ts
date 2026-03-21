@@ -27,8 +27,11 @@ const SceneSchema = z.object({
 });
 
 const ParseResultSchema = z.object({
-  scenes: z.array(SceneSchema).min(1).max(20),
+  scenes: z.array(SceneSchema).min(1).max(30),
   overallMusicPrompt: z.string().describe('Overall background music style/mood for the entire video. E.g. "cinematic orchestral with building tension" or "upbeat electronic pop with driving beat"'),
+  characterDescriptions: z.record(z.string(), z.string()).describe('Character sheet: map of recurring character name → detailed visual description for cross-scene consistency. E.g. {"Maya Chen": "East Asian woman, late 20s, straight black bob, warm ivory skin, charcoal blazer over cream camisole, gold layered necklaces"}. Only include characters appearing in 2+ scenes. Empty object if no recurring characters.'),
+  colorPalette: z.array(z.string()).describe('Specific color names used throughout the script\'s visual identity. E.g. ["cobalt blue", "warm amber", "brushed silver", "deep charcoal"]. Extract 3-8 dominant colors from the visual descriptions. Use specific color names, not generic ("cobalt blue" not "blue").'),
+  environmentNotes: z.string().describe('Brief description (1-3 sentences) of the overall visual environment and setting across the video. E.g. "Modern minimalist tech office with floor-to-ceiling windows, warm natural lighting, and clean geometric furniture." Summarize the dominant setting/world of the script.'),
 });
 
 export type ParsedScene = z.infer<typeof SceneSchema>;
@@ -103,12 +106,17 @@ QUALITY TOKENS (imageQualityTokens & videoQualityTokens):
   - watercolor → "organic paint-like motion, colors bleeding gently, brushstroke texture preserved"
 - NEVER use style-inappropriate tokens. "Film grain" makes no sense for pixel art. "Cel-shaded" makes no sense for photorealistic.
 
+STYLE GUIDE EXTRACTION:
+- characterDescriptions: For any character/person appearing in 2+ scenes, create a CHARACTER SHEET entry mapping their name to an exhaustive visual description (face, hair, skin, build, clothing, accessories). This ensures visual consistency across scenes. If no recurring characters, return an empty object.
+- colorPalette: Extract 3-8 specific, named colors that define the script's visual identity from across all scenes. Use precise color names like "cobalt blue", "warm amber", "brushed silver" — never generic like "blue" or "red".
+- environmentNotes: Write 1-3 sentences summarizing the dominant visual environment/world of the entire video. What kind of spaces, lighting, and atmosphere define this script?
+
 DURATION: Based on voiceover pacing at ~150 words/minute. If no voiceover, use 5-8 seconds.
 TOTAL TARGET: ~${options.targetDuration || 30} seconds.
 ${options.aspectRatio ? `ASPECT RATIO: ${options.aspectRatio}. Adjust composition and framing accordingly.` : ''}
 
 SCRIPT:
-${scriptText.substring(0, 8000)}`,
+${scriptText.substring(0, 24000)}`,
   });
 
   return object;
@@ -277,7 +285,7 @@ NEVER add explanations, NEVER say "here is the prompt". Just the raw optimized p
 === SCENE CONTEXT ===
 What the starting image shows: ${context.visualDescription.substring(0, 400)}
 Initial motion direction: ${context.videoMotionPrompt || 'Not specified — infer from scene'}
-Scene narration: ${context.narration?.substring(0, 200) || 'No narration'}
+Scene narration: ${context.narration?.substring(0, 800) || 'No narration'}
 Mood: ${context.mood || 'neutral'}
 Duration: ${context.durationSeconds}s
 Art style: ${context.artStyle || 'cinematic'}

@@ -8,10 +8,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { CreditsService } from '@/lib/services/creditsService';
-import { regenerateScene } from '@/lib/pipeline/storyboard-service';
+import { regenerateWithContext } from '@/lib/pipeline/storyboard-interactive-service';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 120; // IP-adapter + img2img can be slow
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const scene = await regenerateScene(storyboardId, sceneIndex, userId, {
+    const scene = await regenerateWithContext(storyboardId, sceneIndex, userId, {
       feedback,
       modelId,
     });
