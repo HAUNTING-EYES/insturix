@@ -24,6 +24,53 @@ export interface SceneDescriptor {
   /** Raw production notes from meta sections (style guide, color palette, pacing, etc.)
    *  Previously dropped entirely — now preserved for the edit direction system. */
   rawProductionNotes?: string;
+  /** Structured edit directions extracted from the script by the LLM parser.
+   *  These drive automated editing in the finalize route and Director Agent. */
+  editDirections?: SceneEditDirections;
+}
+
+/** Per-scene editing instructions extracted from the script. */
+export interface SceneEditDirections {
+  /** Transition INTO this scene from the previous one */
+  transition?: {
+    type: 'dissolve' | 'dip-to-black' | 'dip-to-white' | 'hard-cut'
+        | 'zoom-punch' | 'whip-pan' | 'wipe-left' | 'glitch' | 'soft-cut';
+    durationMs?: number;
+  };
+  /** Filter preset to apply to this scene's image/video overlays */
+  filterPresetId?: string;
+  /** Pacing adjustment for this scene */
+  pacing?: 'fast' | 'medium' | 'slow' | 'building' | 'beat-synced';
+  /** Specific SFX direction beyond the general audioDescription */
+  sfxCue?: string;
+  /** Motion graphic to insert in this scene */
+  motionGraphicCue?: string;
+  /** Camera rig/movement notes (preserved for reference, future motion tracking) */
+  cameraRig?: string;
+  /** Explicit color temperature if mentioned in script (Kelvin) */
+  colorTemperatureK?: number;
+  /** Free-form production notes that don't fit other fields */
+  customNotes?: string;
+}
+
+/** Global editing instructions for the entire video. */
+export interface GlobalEditDirections {
+  /** Overall color grade description */
+  colorGrade?: string;
+  /** Default filter preset for all scenes */
+  defaultFilterPresetId?: string;
+  /** Default transition between scenes */
+  defaultTransition?: { type: string; durationMs: number };
+  /** Overall pacing */
+  pacing?: string;
+  /** How graphic-heavy the edit should be */
+  graphicsDensity?: 'heavy' | 'moderate' | 'minimal';
+  /** Music mood/style description (supplements overallMusicPrompt) */
+  musicMood?: string;
+  /** Narrative structure of the script */
+  narrativeArc?: 'three-act' | 'aida' | 'hero-journey' | 'gap-method' | 'before-after';
+  /** Edit profile ID to use (Phase 3 link) */
+  editProfileId?: string;
 }
 
 export interface StyleGuide {
@@ -123,6 +170,8 @@ export interface Storyboard {
   }>;
   /** Visual consistency report from Gemini Vision analysis of sequential scenes */
   consistencyReport?: ConsistencyReport;
+  /** Global editing instructions for the entire video (from LLM parser or user brief) */
+  globalEditDirections?: GlobalEditDirections;
   status: 'generating' | 'ready' | 'partial' | 'error';
   createdAt: Date;
   updatedAt: Date;
