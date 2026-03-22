@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { renderMediaOnLambda } from '@remotion/lambda/client';
 import { auth } from '@clerk/nextjs/server';
 import { createJob } from '@/lib/editron/services/render-job-service';
+import { assetResolver } from '@/lib/editron/services/asset-resolver';
 
 export async function POST(request: Request) {
   try {
@@ -39,20 +40,34 @@ export async function POST(request: Request) {
     console.log('Composition:', compositionId || 'TestComponent');
     console.log('Region:', region);
 
+    // Resolve asset URLs before sending to Lambda — ensure all overlays
+    // have fresh signed GCS URLs. Without this, Lambda gets empty src fields
+    // (stripped by saveProject) and OffthreadVideo fails to download videos.
+    let resolvedProps = inputProps || {};
+    if (resolvedProps.overlays?.length > 0) {
+      try {
+        const resolvedOverlays = await assetResolver.resolveProjectAssets(resolvedProps.overlays);
+        resolvedProps = { ...resolvedProps, overlays: resolvedOverlays };
+        console.log(`[Render] Resolved ${resolvedOverlays.length} overlay asset URLs`);
+      } catch (err: any) {
+        console.warn('[Render] Asset URL resolution failed, using raw props:', err.message);
+      }
+    }
+
     // Start the render on Lambda
     const { bucketName, renderId } = await renderMediaOnLambda({
       region,
       functionName,
       serveUrl,
       composition: compositionId || 'TestComponent',
-      inputProps: inputProps || {},
+      inputProps: resolvedProps,
       codec: 'h264',
       audioCodec: 'mp3', // Faster audio processing than AAC
       privacy: 'public', // Make the video publicly accessible
       // Distributed rendering settings
       // Set to 200 to use ~5-8 concurrent Lambdas (safe for new AWS accounts with limit 10)
       framesPerLambda: 200,
-      timeoutInMilliseconds: 240000, // 4 minutes
+      timeoutInMilliseconds: 600000, // 10 minutes — AI videos need longer download time
     });
 
     console.log('Lambda render started:', { renderId, bucketName });
