@@ -1196,9 +1196,9 @@ export function ExportToEditronDialog({
                       <SelectItem value="seedream-v4">Seedream V4</SelectItem>
                       <SelectItem value="seedream-v4.5">Seedream V4.5</SelectItem>
                       <SelectItem value="recraft-v3">Recraft V3</SelectItem>
-                      <SelectItem value="nano-banana">Nano Banana (Fast, $0.04)</SelectItem>
-                      <SelectItem value="nano-banana-2">Nano Banana 2 (Quality, $0.08)</SelectItem>
-                      <SelectItem value="nano-banana-pro">Nano Banana Pro (Best, $0.15)</SelectItem>
+                      <SelectItem value="nano-banana">Nano Banana (Fast)</SelectItem>
+                      <SelectItem value="nano-banana-2">Nano Banana 2 (Quality)</SelectItem>
+                      <SelectItem value="nano-banana-pro">Nano Banana Pro (Best)</SelectItem>
                     </SelectContent>
                   </Select>
                 </motion.div>

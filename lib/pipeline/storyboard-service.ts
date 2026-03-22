@@ -47,9 +47,9 @@ export const IMAGE_MODEL_LABELS: Record<ImageModelKey, string> = {
   'seedream-v4': 'Seedream V4',
   'seedream-v4.5': 'Seedream V4.5',
   'recraft-v3': 'Recraft V3',
-  'nano-banana': 'Nano Banana (Fast, $0.04)',
-  'nano-banana-2': 'Nano Banana 2 (Quality, $0.08)',
-  'nano-banana-pro': 'Nano Banana Pro (Best, $0.15)',
+  'nano-banana': 'Nano Banana (Fast)',
+  'nano-banana-2': 'Nano Banana 2 (Quality)',
+  'nano-banana-pro': 'Nano Banana Pro (Best)',
 };
 
 // Default model for storyboard generation
