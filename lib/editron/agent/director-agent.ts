@@ -61,7 +61,7 @@ export async function executeDirectorPlan(
 
   try {
     // ─── Step 1: Load project state ──────────────────────────
-    const project = await projectService.getProject(userId, projectId);
+    const project = await projectService.loadProject(userId, projectId);
     if (!project) {
       throw new Error(`Project ${projectId} not found`);
     }
