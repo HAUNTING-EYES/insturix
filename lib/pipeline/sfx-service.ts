@@ -14,13 +14,11 @@ import { nanoid } from 'nanoid';
 
 // ─── Configuration ──────────────────────────────────────────────
 
-let _falConfigured = false;
+// Configure fal.ai on every call — no module-level caching
 function ensureFalConfig() {
-  if (_falConfigured) return;
   const key = process.env.FAL_AI_API_KEY;
   if (!key) throw new Error('FAL_AI_API_KEY is not set');
   fal.config({ credentials: key });
-  _falConfigured = true;
 }
 
 // ─── Types ──────────────────────────────────────────────────────

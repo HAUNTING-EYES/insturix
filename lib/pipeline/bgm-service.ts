@@ -10,13 +10,12 @@ import { uploadToGCS } from '@/lib/editron/services/gcs-service';
 import { nanoid } from 'nanoid';
 
 // Configure fal.ai client
-let _falConfigured = false;
+// Configure fal.ai on every call — env vars may change between deployments
+// and module-level caching was preventing new API keys from being picked up.
 function ensureFalConfig() {
-  if (_falConfigured) return;
   const key = process.env.FAL_AI_API_KEY;
   if (!key) throw new Error('FAL_AI_API_KEY is not set');
   fal.config({ credentials: key });
-  _falConfigured = true;
 }
 
 interface BGMResult {

@@ -53,11 +53,14 @@ export async function POST(
       provider,
       aspectRatio,
       videoModel,
+      enableChaining = false,
     }: {
       sceneIndices?: number[];
       provider?: VideoProvider;
       aspectRatio?: '16:9' | '9:16' | '1:1' | '4:5';
       videoModel?: FalVideoModel | 'auto';
+      /** Enable cross-scene chaining (next scene's image as end-frame). Default: false */
+      enableChaining?: boolean;
     } = body;
 
     const storyboard = await getStoryboard(storyboardId, userId);
@@ -191,7 +194,7 @@ export async function POST(
         imageUrl: scene.imageUrl!,
         motionPrompt,
         durationSeconds: Math.min(scene.descriptor.durationSeconds, 10),
-        nextSceneImageUrl: nextScene?.imageUrl || undefined,
+        nextSceneImageUrl: enableChaining ? (nextScene?.imageUrl || undefined) : undefined,
       });
     }
 

@@ -80,9 +80,12 @@ export async function POST(
       const videoDurationSec = videoScene.videoDurationMs
         ? videoScene.videoDurationMs / 1000
         : null;
+      // Use video clip duration as the authoritative scene length.
+      // Script duration estimates (based on word count) can be 20-40s which would
+      // leave huge gaps. AI video clips are 5-10s — that's the real duration.
       const sceneDurationSec = videoDurationSec
-        ? Math.max(videoDurationSec, Math.min(scene.descriptor.durationSeconds, videoDurationSec + 2))
-        : Math.min(scene.descriptor.durationSeconds, 15); // Cap at 15s when no video
+        ? videoDurationSec // Trust the actual video clip duration
+        : Math.min(scene.descriptor.durationSeconds, 15); // Cap script estimate at 15s
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // Scene background: ALWAYS add image as base layer (prevents blank gaps
@@ -180,13 +183,16 @@ export async function POST(
         });
       }
 
-      // Voiceover audio overlay
+      // Voiceover audio overlay — CAPPED to scene duration to prevent bleed into next scene
       if (includeVoiceover && scene.voiceover?.audioUrl) {
+        const voDurationFrames = Math.round((scene.voiceover.audioDurationMs / 1000) * fps);
+        // Cap VO to scene duration so it never overlaps the next scene's voiceover
+        const cappedVoDuration = Math.min(voDurationFrames, durationFrames);
         overlays.push({
           id: overlayId++,
           type: 'sound',
           from: currentFrame,
-          durationInFrames: Math.round((scene.voiceover.audioDurationMs / 1000) * fps),
+          durationInFrames: cappedVoDuration,
           row: 4, // Audio track
           left: 0,
           top: 0,
