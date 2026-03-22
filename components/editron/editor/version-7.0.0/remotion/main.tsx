@@ -130,7 +130,7 @@ export const Main: React.FC<MainProps> = ({
   );
 
   return (
-    <RenderingProvider isRendering={isRendering ?? false}>
+    <RenderingProvider isRendering={isRendering ?? false} overlays={overlays}>
       <AbsoluteFill
         style={{
           ...outer,

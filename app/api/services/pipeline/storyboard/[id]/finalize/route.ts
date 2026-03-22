@@ -352,7 +352,17 @@ export async function POST(
           content: bgm.audioUrl,
           src: bgm.audioUrl,
           assetId: bgm.audioAssetId,
-          styles: { volume: 0.3, opacity: 1 },
+          styles: {
+            volume: 0.75, // Base volume when no VO active (~-2.5 dB)
+            opacity: 1,
+            duckingConfig: {
+              enabled: true,
+              duckLevel: 0.20,    // ~-14 dB under voiceover
+              rampDownMs: 300,    // Fast down
+              rampUpMs: 600,      // Slow up (natural swell)
+              lookAheadMs: 200,   // Start ducking before VO begins
+            },
+          },
         });
 
         // Register BGM asset
