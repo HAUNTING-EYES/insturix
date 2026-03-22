@@ -1,29 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { Client } from '@upstash/qstash';
 import { getStoryboard } from '@/lib/pipeline/storyboard-db';
 import { projectService } from '@/lib/editron/services/project-service';
 import { CreditsService } from '@/lib/services/creditsService';
 import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
-import { generateBackgroundMusic, buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
-import { generateSFXForScenes, isSFXAvailable, type SFXResult } from '@/lib/pipeline/sfx-service';
+import { buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
+import { isSFXAvailable } from '@/lib/pipeline/sfx-service';
 import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 
 export const runtime = 'nodejs';
-export const maxDuration = 300;
+export const maxDuration = 120; // Reduced — no longer generates audio inline
 
-/** Race a promise against a timeout. Returns null on timeout instead of throwing. */
-function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | null> {
-  return Promise.race([
-    promise,
-    new Promise<null>((resolve) => {
-      setTimeout(() => {
-        console.warn(`[Finalize] ${label} timed out after ${ms}ms, skipping`);
-        resolve(null);
-      }, ms);
-    }),
-  ]);
-}
+// withTimeout removed — BGM/SFX are now async QStash workers, not inline
 
 /**
  * POST /api/services/pipeline/storyboard/[id]/finalize
@@ -350,143 +340,12 @@ export async function POST(
       console.warn('[Finalize] Edit direction application failed, continuing without:', editErr.message);
     }
 
-    // ─── Generate BGM + SFX IN PARALLEL ─────────────────────────
-    // Beatoven models are slow (2-3 min each). Running them in parallel
-    // keeps total time to ~3 min instead of ~6 min, fitting within Vercel's
-    // 300s maxDuration. Both are non-blocking — if either fails, the project
-    // is created without that audio layer.
-    const audioGenPromises: Array<Promise<void>> = [];
-
-    // BGM generation promise
-    if (isBGMAvailable() && currentFrame > 0) {
-      const totalDurationSec = Math.round(currentFrame / fps);
-      const musicPrompt = storyboard.overallMusicPrompt
-        || buildMusicPrompt(
-          storyboard.scenes.map(s => ({
-            mood: s.descriptor.mood,
-            audioDescription: s.descriptor.audioDescription,
-          })),
-        );
-      console.log('[Finalize] BGM prompt:', musicPrompt, 'Duration:', totalDurationSec, 's');
-
-      audioGenPromises.push(
-        withTimeout(
-          generateBackgroundMusic(musicPrompt, userId, totalDurationSec),
-          120_000, // 2 min max — must leave time for project creation within 300s function limit
-          'BGM generation',
-        ).then(async (bgm) => {
-          if (!bgm) { console.warn('[Finalize] BGM timed out'); return; }
-          overlays.push({
-            id: overlayId++,
-            type: 'sound',
-            from: 0,
-            durationInFrames: currentFrame,
-            row: 5,
-            left: 0, top: 0, width: 0, height: 0,
-            isDragging: false, rotation: 0,
-            content: bgm.audioUrl,
-            src: bgm.audioUrl,
-            assetId: bgm.audioAssetId,
-            styles: {
-              volume: 0.75,
-              opacity: 1,
-              duckingConfig: {
-                enabled: true,
-                duckLevel: 0.20,
-                rampDownMs: 300,
-                rampUpMs: 600,
-                lookAheadMs: 200,
-              },
-            },
-          });
-          await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-            { assetId: bgm.audioAssetId },
-            {
-              $setOnInsert: {
-                assetId: bgm.audioAssetId, userId, type: 'audio',
-                filename: `${bgm.audioAssetId}.mp3`, source: 'user-upload',
-                gcsPath: bgm.gcsPath, cachedUrl: bgm.audioUrl,
-                urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                size: 0, uploadedAt: new Date(),
-              },
-            },
-            { upsert: true },
-          );
-          console.log('[Finalize] BGM generated:', bgm.audioAssetId);
-        }).catch((err: any) => {
-          console.error('[Finalize] BGM failed:', err.message);
-        }),
-      );
-    }
-
-    // SFX generation promise
-    if (isSFXAvailable() && currentFrame > 0) {
-      const sfxInputs = storyboard.scenes
-        .filter(s => s.descriptor.audioDescription && s.descriptor.audioDescription.trim().length > 0)
-        .map(s => {
-          const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
-          return {
-            sceneIndex: s.sceneIndex,
-            audioDescription: s.descriptor.audioDescription!,
-            durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
-          };
-        });
-
-      if (sfxInputs.length > 0) {
-        console.log(`[Finalize] Generating SFX for ${sfxInputs.length} scene(s)`);
-        audioGenPromises.push(
-          withTimeout(
-            generateSFXForScenes(sfxInputs, userId),
-            120_000, // 2 min max — runs in parallel with BGM
-            'SFX generation',
-          ).then(async (sfxResults) => {
-            if (!sfxResults) { console.warn('[Finalize] SFX timed out'); return; }
-            for (const [sceneIndex, sfx] of sfxResults) {
-              const frameInfo = sceneFrameMap.find(f => f.sceneIndex === sceneIndex);
-              if (!frameInfo) continue;
-              overlays.push({
-                id: overlayId++,
-                type: 'sound',
-                from: frameInfo.fromFrame,
-                durationInFrames: frameInfo.durationFrames,
-                row: 6,
-                left: 0, top: 0, width: 0, height: 0,
-                isDragging: false, rotation: 0,
-                content: sfx.audioUrl,
-                src: sfx.audioUrl,
-                assetId: sfx.audioAssetId,
-                styles: { volume: 0.5, opacity: 1 },
-              });
-              await db.collection(COLLECTIONS.MEDIA_ASSETS).updateOne(
-                { assetId: sfx.audioAssetId },
-                {
-                  $setOnInsert: {
-                    assetId: sfx.audioAssetId, userId, type: 'audio',
-                    filename: `${sfx.audioAssetId}.mp3`, source: 'user-upload',
-                    gcsPath: sfx.gcsPath, cachedUrl: sfx.audioUrl,
-                    urlExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-                    size: 0, uploadedAt: new Date(),
-                  },
-                },
-                { upsert: true },
-              );
-            }
-            console.log(`[Finalize] SFX: ${sfxResults.size} clip(s) added`);
-          }).catch((err: any) => {
-            console.error('[Finalize] SFX failed:', err.message);
-          }),
-        );
-      }
-    }
-
-    // Wait for both to complete (or fail gracefully)
-    if (audioGenPromises.length > 0) {
-      console.log(`[Finalize] Waiting for ${audioGenPromises.length} audio generation task(s) in parallel...`);
-      console.log(`[Finalize] FAL_AI_API_KEY set: ${!!process.env.FAL_AI_API_KEY}, key prefix: ${process.env.FAL_AI_API_KEY?.substring(0, 8)}...`);
-      await Promise.allSettled(audioGenPromises);
-    } else {
-      console.warn(`[Finalize] No audio generation tasks created. BGM available: ${isBGMAvailable()}, SFX available: ${isSFXAvailable()}, currentFrame: ${currentFrame}`);
-    }
+    // ─── Create Editron project FIRST, then dispatch audio workers ─────
+    // BGM/SFX generation is moved to async QStash workers. The project is
+    // created immediately with video + voiceover + text overlays. BGM and SFX
+    // workers add their overlays to the project when they complete (could be
+    // 2-5 minutes later). This prevents Vercel timeout killing the entire
+    // finalize because beatoven is slow.
 
     // Create Editron project then save overlays + settings
     const projectName = storyboard.title || 'Storyboard Video';
@@ -513,12 +372,91 @@ export async function POST(
       { $set: { sourceStoryboardId: id, updatedAt: new Date() } },
     );
 
+    // ─── Dispatch BGM + SFX workers via QStash (fire-and-forget) ────
+    // These run asynchronously AFTER the project is created. Each worker
+    // has its own 300s timeout. They add overlays to the project via
+    // MongoDB $push when complete. User refreshes Editron to see them.
+    const audioWorkerUrl = (() => {
+      const base = process.env.VERCEL_URL
+        ? `https://${process.env.VERCEL_URL}`
+        : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+      return `${base}/api/internal/workers/pipeline/audio`;
+    })();
+
+    const dispatchAudio = async (body: any, label: string) => {
+      try {
+        if (process.env.QSTASH_TOKEN) {
+          const qstash = new Client({ token: process.env.QSTASH_TOKEN, baseUrl: process.env.QSTASH_URL || undefined });
+          const result = await qstash.publishJSON({ url: audioWorkerUrl, body, retries: 2 });
+          console.log(`[Finalize] ${label} dispatched via QStash: ${(result as any)?.messageId || 'ok'}`);
+        } else {
+          // Fallback: fire-and-forget fetch
+          fetch(audioWorkerUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          }).catch(() => {});
+          console.log(`[Finalize] ${label} dispatched via fetch (no QStash)`);
+        }
+      } catch (err: any) {
+        console.error(`[Finalize] ${label} dispatch failed:`, err.message);
+      }
+    };
+
+    if (isBGMAvailable() && currentFrame > 0) {
+      const totalDurationSec = Math.round(currentFrame / fps);
+      const musicPrompt = storyboard.overallMusicPrompt
+        || buildMusicPrompt(
+          storyboard.scenes.map(s => ({
+            mood: s.descriptor.mood,
+            audioDescription: s.descriptor.audioDescription,
+          })),
+        );
+      console.log(`[Finalize] Dispatching BGM worker: "${musicPrompt.substring(0, 80)}", ${totalDurationSec}s`);
+      await dispatchAudio({
+        type: 'bgm',
+        projectId: project.projectId,
+        userId,
+        storyboardId: id,
+        musicPrompt,
+        totalDurationSec,
+        totalFrames: currentFrame,
+        fps,
+      }, 'BGM');
+    }
+
+    if (isSFXAvailable() && currentFrame > 0) {
+      const sfxInputs = storyboard.scenes
+        .filter(s => s.descriptor.audioDescription?.trim())
+        .map(s => {
+          const frameInfo = sceneFrameMap.find(f => f.sceneIndex === s.sceneIndex);
+          return {
+            sceneIndex: s.sceneIndex,
+            audioDescription: s.descriptor.audioDescription!,
+            durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
+          };
+        });
+
+      if (sfxInputs.length > 0) {
+        console.log(`[Finalize] Dispatching SFX worker: ${sfxInputs.length} scenes`);
+        await dispatchAudio({
+          type: 'sfx',
+          projectId: project.projectId,
+          userId,
+          storyboardId: id,
+          sfxInputs,
+          sceneFrameMap,
+        }, 'SFX');
+      }
+    }
+
     return NextResponse.json({
       success: true,
       projectId: project.projectId,
       name: projectName,
       overlayCount: overlays.length,
       totalDurationFrames: currentFrame,
+      audioGenerating: true, // Frontend can show "BGM/SFX generating in background"
     });
   } catch (error: any) {
     console.error('[Finalize]', error);
