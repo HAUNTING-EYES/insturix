@@ -7,6 +7,7 @@ import { getDatabase, COLLECTIONS } from '@/lib/editron/db/mongodb';
 import type { Storyboard } from '@/lib/pipeline/schemas/storyboard';
 import { generateBackgroundMusic, buildMusicPrompt, isBGMAvailable } from '@/lib/pipeline/bgm-service';
 import { generateSFXForScenes, isSFXAvailable, type SFXResult } from '@/lib/pipeline/sfx-service';
+import { applyEditDirections } from '@/lib/pipeline/edit-direction-applier';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;
@@ -314,6 +315,27 @@ export async function POST(
           { upsert: true },
         );
       }
+    }
+
+    // ─── Apply edit directions (filters, transitions, pacing) ─────
+    try {
+      const scenesWithDirections = storyboard.scenes.map(s => ({
+        sceneIndex: s.sceneIndex,
+        editDirections: s.descriptor.editDirections,
+        audioDescription: s.descriptor.audioDescription,
+      }));
+      const result = applyEditDirections(
+        overlays,
+        scenesWithDirections,
+        sceneFrameMap,
+        (storyboard as any).globalEditDirections,
+        width,
+        height,
+        fps,
+      );
+      console.log(`[Finalize] Edit directions applied: ${overlays.length} overlays (${result.totalFrameShift} frame shift)`);
+    } catch (editErr: any) {
+      console.warn('[Finalize] Edit direction application failed, continuing without:', editErr.message);
     }
 
     // Generate background music for the entire video (non-blocking — skip if it fails)
