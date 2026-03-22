@@ -77,8 +77,11 @@ export function convertThinkForgeBlocksToScenes(
 
   const scenes: SceneDescriptor[] = [];
   let currentScene: Partial<SceneDescriptor> | null = null;
-  /** True when we're inside a meta header — content is skipped. */
+  /** True when we're inside a meta header — content captured as production notes. */
   let inMetaSection = false;
+  /** Accumulates raw production notes from meta sections (edit directions, style guide, etc.) */
+  const rawProductionNotes: string[] = [];
+  let currentMetaHeader = '';
   let idx = 0;
 
   const flushScene = () => {
@@ -107,10 +110,12 @@ export function convertThinkForgeBlocksToScenes(
     if (block.kind === 'header') {
       if (isMetaHeader(text)) {
         // This is a structural header (Overview, Scene Breakdown, etc.)
-        // — flush any real scene we were building and skip until next header.
+        // — flush any real scene we were building.
+        // Capture the content as raw production notes instead of dropping it.
         flushScene();
         currentScene = null;
         inMetaSection = true;
+        currentMetaHeader = text.trim();
         continue;
       }
       // Real scene header
@@ -118,7 +123,8 @@ export function convertThinkForgeBlocksToScenes(
       currentScene = { title: text, narration: '', visualDescription: '', mood: '' };
       inMetaSection = false;
     } else if (inMetaSection) {
-      // Inside a meta section — skip content
+      // Inside a meta section — capture as raw production notes for edit directions
+      rawProductionNotes.push(`[${currentMetaHeader}] ${text}`);
       continue;
     } else if (currentScene) {
       if (block.kind === 'action') {
@@ -149,6 +155,17 @@ export function convertThinkForgeBlocksToScenes(
   }
 
   flushScene(); // flush last scene
+
+  // Attach raw production notes to scenes as a shared property.
+  // These come from meta sections (production notes, style guide, color palette, etc.)
+  // that were previously dropped entirely. Now preserved for the edit direction system.
+  if (rawProductionNotes.length > 0) {
+    const notes = rawProductionNotes.join('\n');
+    for (const scene of scenes) {
+      (scene as any).rawProductionNotes = notes;
+    }
+  }
+
   return scenes;
 }
 
@@ -330,19 +347,25 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
     .map((s) => s.trim())
     .filter(Boolean);
 
-  // Filter out meta-sections that aren't actual scenes
+  // Separate meta-sections (production notes) from actual scenes
+  const metaSections: string[] = [];
   const sceneSections = sections.filter((s) => {
     const firstLine = s.split('\n')[0]?.replace(/^#+\s*/, '').trim() || '';
-    // Skip if the header itself is meta
-    if (isMetaHeader(firstLine)) return false;
-    // Skip sections that are just a title with no body (e.g. "# Spider-Man: No Way Home")
+    if (isMetaHeader(firstLine)) {
+      // Capture as production notes instead of dropping
+      metaSections.push(s);
+      return false;
+    }
     const body = s.replace(/^#{1,3}\s+.+\n?/, '').trim();
     if (!body) return false;
-    // Skip sections whose body reads like a document preamble / overview
-    if (isMetaContent(body)) return false;
+    if (isMetaContent(body)) {
+      metaSections.push(s);
+      return false;
+    }
     return true;
   });
 
+  const rawNotes = metaSections.join('\n\n');
   const finalSections = sceneSections.length > 0 ? sceneSections : sections;
 
   return finalSections.map((section, i) => {
@@ -371,7 +394,8 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
       durationSeconds,
       mood: inferMood(body),
       cameraDirection: extractCameraDirections(labelled.visuals),
-    };
+      ...(rawNotes ? { rawProductionNotes: rawNotes } : {}),
+    } as SceneDescriptor;
   });
 }
 

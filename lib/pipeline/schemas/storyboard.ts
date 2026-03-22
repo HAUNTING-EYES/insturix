@@ -21,6 +21,9 @@ export interface SceneDescriptor {
   imageQualityTokens?: string;
   /** Dynamic quality tokens for video generation, specific to the art style (from LLM) */
   videoQualityTokens?: string;
+  /** Raw production notes from meta sections (style guide, color palette, pacing, etc.)
+   *  Previously dropped entirely — now preserved for the edit direction system. */
+  rawProductionNotes?: string;
 }
 
 export interface StyleGuide {
