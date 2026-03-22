@@ -14,6 +14,18 @@ import { z } from 'zod';
 
 // ─── Schema ──────────────────────────────────────────────────────
 
+const SceneEditDirectionsSchema = z.object({
+  transition: z.object({
+    type: z.enum(['dissolve', 'dip-to-black', 'dip-to-white', 'hard-cut', 'zoom-punch', 'whip-pan', 'wipe-left', 'glitch', 'soft-cut']),
+    durationMs: z.number().optional(),
+  }).optional().describe('Transition INTO this scene. Only set if the script explicitly mentions a transition (e.g. "CUT TO", "DISSOLVE TO", "FADE IN"). null if not mentioned.'),
+  filterPresetId: z.string().optional().describe('Color grade for this scene, mapped to preset ID. Only set if the script explicitly describes a color mood for this specific scene. Options: cinematic, teal-orange, blade-runner, neon-nights, muted-doc, golden-hour-pro, desaturated-drama, film-portra, clean-corporate, vivid, warm-neutral, noir, retro, warm, cool. null if not mentioned.'),
+  pacing: z.enum(['fast', 'medium', 'slow', 'building', 'beat-synced']).optional().describe('Pacing for this scene. Only set if the script explicitly mentions pacing (e.g. "quick cuts", "slow reveal"). null if not mentioned.'),
+  sfxCue: z.string().optional().describe('Specific sound effect cue beyond general audio. Only set if the script explicitly describes an SFX moment (e.g. "whoosh", "heartbeat", "glass shatter"). null if not mentioned.'),
+  motionGraphicCue: z.string().optional().describe('Motion graphic to overlay. Only set if the script mentions a callout, lower third, stat display, or graphic overlay. null if not mentioned.'),
+  cameraRig: z.string().optional().describe('Camera movement/rig notes from the script (e.g. "steadicam", "dolly", "crane shot"). Preserved for reference. null if not mentioned.'),
+}).describe('Editing directions for this scene. Return null for any field NOT explicitly present in the script — do NOT invent directions.');
+
 const SceneSchema = z.object({
   title: z.string().describe('Short cinematic scene title (2-6 words, no markdown, no "Scene 1" generic labels)'),
   narration: z.string().describe('The voiceover/narration text spoken aloud during this scene. Must be the actual spoken words only — no stage directions, no visual descriptions.'),
@@ -24,14 +36,29 @@ const SceneSchema = z.object({
   mood: z.enum(['energetic', 'calm', 'serious', 'playful', 'mysterious', 'dramatic', 'inspirational', 'neutral']),
   imageQualityTokens: z.string().describe('Style-appropriate quality descriptors for the image. E.g. for cinematic: "35mm film grain, shallow depth of field, anamorphic lens". For anime: "cel-shaded, clean linework, vibrant saturation". Tailor to the art style.'),
   videoQualityTokens: z.string().describe('Style-appropriate quality descriptors for the video. E.g. for cinematic: "smooth cinematic footage, film grain, professional color grade". For anime: "fluid animation, consistent character model, clean frames". Tailor to the art style.'),
+  editDirections: SceneEditDirectionsSchema.optional().describe('Editing directions extracted from the script. ONLY populate fields that are explicitly mentioned in the script text. Return null/omit for anything not stated.'),
 });
 
+const GlobalEditDirectionsSchema = z.object({
+  colorGrade: z.string().optional().describe('Overall color grade description from production notes (e.g. "cool sophisticated palette", "warm cinematic"). null if not mentioned.'),
+  defaultFilterPresetId: z.string().optional().describe('Default filter preset for all scenes. Map from script color/grade instructions. Options: cinematic, teal-orange, blade-runner, neon-nights, muted-doc, golden-hour-pro, desaturated-drama, film-portra, clean-corporate, vivid, warm-neutral, noir. null if not mentioned.'),
+  defaultTransition: z.object({
+    type: z.string(),
+    durationMs: z.number(),
+  }).optional().describe('Default transition between scenes if the script specifies a consistent style (e.g. "use dissolves throughout"). null if not mentioned.'),
+  pacing: z.string().optional().describe('Overall pacing from the script (e.g. "fast-paced", "building tension", "slow and deliberate"). null if not mentioned.'),
+  graphicsDensity: z.enum(['heavy', 'moderate', 'minimal']).optional().describe('How graphic-heavy the edit should be, inferred from production notes. null if not mentioned.'),
+  musicMood: z.string().optional().describe('Music mood/style beyond overallMusicPrompt — from production notes section. null if not mentioned.'),
+  narrativeArc: z.enum(['three-act', 'aida', 'hero-journey', 'gap-method', 'before-after']).optional().describe('Narrative structure if detectable from the script. null if not clear.'),
+}).describe('Global editing directions for the entire video. ONLY populate from explicit script/production notes content.');
+
 const ParseResultSchema = z.object({
-  scenes: z.array(SceneSchema).min(1).max(30),
+  scenes: z.array(SceneSchema).min(1).max(60),
   overallMusicPrompt: z.string().describe('Overall background music style/mood for the entire video. E.g. "cinematic orchestral with building tension" or "upbeat electronic pop with driving beat"'),
   characterDescriptions: z.record(z.string(), z.string()).describe('Character sheet: map of recurring character/subject name → detailed visual description for cross-scene consistency. Only include subjects appearing in 2+ scenes. Empty object if no recurring subjects.'),
   colorPalette: z.array(z.string()).describe('Specific color names used throughout the script\'s visual identity. Extract 3-8 dominant colors from the visual descriptions. Use specific color names, not generic ("cobalt blue" not "blue").'),
   environmentNotes: z.string().describe('Brief description (1-3 sentences) of the overall visual environment and setting across the video. E.g. "Modern minimalist tech office with floor-to-ceiling windows, warm natural lighting, and clean geometric furniture." Summarize the dominant setting/world of the script.'),
+  globalEditDirections: GlobalEditDirectionsSchema.optional().describe('Global editing instructions extracted from the script\'s production notes, creative direction, or style guide sections. ONLY populate from explicit content in the script.'),
 });
 
 export type ParsedScene = z.infer<typeof SceneSchema>;
@@ -110,6 +137,29 @@ STYLE GUIDE EXTRACTION:
 - characterDescriptions: For any character/person appearing in 2+ scenes, create a CHARACTER SHEET entry mapping their name to an exhaustive visual description (face, hair, skin, build, clothing, accessories). This ensures visual consistency across scenes. If no recurring characters, return an empty object.
 - colorPalette: Extract 3-8 specific, named colors that define the script's visual identity from across all scenes. Use precise color names like "cobalt blue", "warm amber", "brushed silver" — never generic like "blue" or "red".
 - environmentNotes: Write 1-3 sentences summarizing the dominant visual environment/world of the entire video. What kind of spaces, lighting, and atmosphere define this script?
+
+EDIT DIRECTIONS EXTRACTION:
+- For each scene, extract editDirections ONLY from explicit script cues:
+  - "CUT TO:" → transition: { type: "hard-cut" }
+  - "DISSOLVE TO:" / "CROSS DISSOLVE" → transition: { type: "dissolve" }
+  - "FADE TO BLACK" / "FADE OUT" → transition: { type: "dip-to-black" }
+  - "SMASH CUT" → transition: { type: "zoom-punch" }
+  - "Quick cuts" / "rapid editing" → pacing: "fast"
+  - "Slow reveal" / "hold on" → pacing: "slow"
+  - Camera rig mentions → cameraRig: the specific camera note
+  - Explicit sound effect mentions → sfxCue: the specific SFX
+  - "lower third" / "text overlay" / "stat display" → motionGraphicCue
+- For globalEditDirections, extract from production notes / creative direction sections:
+  - Color grade instructions → map to filter preset IDs using these mappings:
+    "cool sophisticated" → "cinematic", "warm" → "golden-hour-pro"
+    "gritty" → "muted-doc", "clean" → "clean-corporate"
+    "teal and orange" → "teal-orange", "neon" → "neon-nights"
+    "dark/thriller" → "desaturated-drama", "film stock" → "film-portra"
+  - Overall pacing instructions
+  - Graphics density hints
+  - Music mood from sound design sections
+  - Narrative structure (AIDA, before/after, three-act)
+- CRITICAL: Return null for ANY field not explicitly in the script. Do NOT invent directions.
 
 DURATION: Based on voiceover pacing at ~150 words/minute. If no voiceover, use 5-8 seconds.
 TOTAL TARGET: ~${options.targetDuration || 30} seconds.
