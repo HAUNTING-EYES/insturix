@@ -34,6 +34,8 @@ export interface SFXSceneInput {
   sceneIndex: number;
   audioDescription: string;
   durationSeconds: number;
+  /** If provided, mirelo video-to-audio generates SFX synced to actual video */
+  videoUrl?: string;
 }
 
 // ─── Core Generation ────────────────────────────────────────────
@@ -51,6 +53,7 @@ export async function generateSFX(
   audioDescription: string,
   userId: string,
   durationSec: number,
+  videoUrl?: string,
 ): Promise<SFXResult> {
   ensureFalConfig();
 
@@ -62,9 +65,47 @@ export async function generateSFX(
     `[SFX] Generating: desc="${audioDescription.substring(0, 100)}", duration=${duration}s`,
   );
 
-  // beatoven/sound-effect-generation — verified on fal.ai (March 2026)
-  // If this returns 404, the fal.ai account may not have billing enabled for beatoven models.
+  // Try mirelo (video-to-audio) first if videoUrl provided — it generates
+  // SFX synced to actual video content (way better than text-only beatoven).
+  // Falls back to beatoven/sound-effect-generation for text-only SFX.
   let result: any;
+  if (videoUrl) {
+    try {
+      console.log(`[SFX] Using mirelo video-to-audio for synced SFX`);
+      result = await fal.subscribe('mirelo-ai/sfx-v1/video-to-audio', {
+        input: {
+          video_url: videoUrl,
+          text_prompt: audioDescription,
+          duration: Math.min(duration, 10), // mirelo max 10s
+          num_samples: 1,
+        },
+        logs: true,
+        pollInterval: 2000,
+      });
+      // mirelo returns array of audio files
+      const data = (result as any).data || result;
+      const audioFiles = data?.audio_files || data?.audios || [];
+      if (audioFiles.length > 0 && audioFiles[0]?.url) {
+        const audioUrl = audioFiles[0].url;
+        const response = await fetch(audioUrl);
+        if (!response.ok) throw new Error('Failed to download mirelo SFX');
+        const buffer = Buffer.from(await response.arrayBuffer());
+        const filename = `${assetId}.wav`;
+        const uploadResult = await uploadToGCS(buffer, userId, filename, 'audio/wav');
+        return {
+          audioUrl: uploadResult.signedUrl,
+          gcsPath: uploadResult.gcsPath,
+          audioAssetId: assetId,
+          durationMs: duration * 1000,
+        };
+      }
+      console.warn('[SFX] mirelo returned no audio, falling back to beatoven');
+    } catch (mireloErr: any) {
+      console.warn(`[SFX] mirelo failed (${mireloErr.message}), falling back to beatoven`);
+    }
+  }
+
+  // Beatoven fallback (text-only SFX generation)
   try {
     result = await fal.subscribe('beatoven/sound-effect-generation', {
       input: {
@@ -81,7 +122,7 @@ export async function generateSFX(
   } catch (err: any) {
     const status = err?.status || err?.statusCode;
     if (status === 404) {
-      console.error('[SFX] beatoven/sound-effect-generation returned 404. Check fal.ai billing: this model requires separate activation at https://fal.ai/models/beatoven/sound-effect-generation');
+      console.error('[SFX] beatoven/sound-effect-generation returned 404. Check fal.ai billing.');
     }
     throw err;
   }
@@ -148,6 +189,7 @@ export async function generateSFXForScenes(
         scene.audioDescription,
         userId,
         scene.durationSeconds,
+        scene.videoUrl,
       );
       return { sceneIndex: scene.sceneIndex, sfx };
     }),

@@ -433,6 +433,7 @@ export async function POST(
           return {
             sceneIndex: s.sceneIndex,
             audioDescription: s.descriptor.audioDescription!,
+            videoUrl: s.videoUrl || undefined, // Pass to mirelo for video-synced SFX
             durationSeconds: frameInfo?.durationSec ?? Math.min(s.descriptor.durationSeconds, 15),
           };
         });

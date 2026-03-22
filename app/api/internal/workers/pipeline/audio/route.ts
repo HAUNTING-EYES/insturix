@@ -34,6 +34,7 @@ interface AudioWorkerPayload {
     sceneIndex: number;
     audioDescription: string;
     durationSeconds: number;
+    videoUrl?: string;
   }>;
   sceneFrameMap?: Array<{
     sceneIndex: number;
