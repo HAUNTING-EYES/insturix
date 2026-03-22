@@ -482,7 +482,10 @@ export async function POST(
     // Wait for both to complete (or fail gracefully)
     if (audioGenPromises.length > 0) {
       console.log(`[Finalize] Waiting for ${audioGenPromises.length} audio generation task(s) in parallel...`);
+      console.log(`[Finalize] FAL_AI_API_KEY set: ${!!process.env.FAL_AI_API_KEY}, key prefix: ${process.env.FAL_AI_API_KEY?.substring(0, 8)}...`);
       await Promise.allSettled(audioGenPromises);
+    } else {
+      console.warn(`[Finalize] No audio generation tasks created. BGM available: ${isBGMAvailable()}, SFX available: ${isSFXAvailable()}, currentFrame: ${currentFrame}`);
     }
 
     // Create Editron project then save overlays + settings
