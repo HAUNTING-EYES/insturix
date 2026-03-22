@@ -162,7 +162,7 @@ export function convertThinkForgeBlocksToScenes(
   if (rawProductionNotes.length > 0) {
     const notes = rawProductionNotes.join('\n');
     for (const scene of scenes) {
-      (scene as any).rawProductionNotes = notes;
+      scene.rawProductionNotes = notes;
     }
   }
 

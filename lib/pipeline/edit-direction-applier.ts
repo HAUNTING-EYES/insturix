@@ -11,8 +11,7 @@
  */
 
 import type { SceneEditDirections, GlobalEditDirections } from './schemas/storyboard';
-import { getPresetById } from '@/components/editron/editor/version-7.0.0/templates/common/media-filter-presets';
-import { resolveFilterFromDescription } from '@/components/editron/editor/version-7.0.0/templates/common/media-filter-presets';
+import { getFilterPresetById, resolveFilterFromDescription } from '@/lib/editron/data/filter-presets';
 import {
   buildTransitionOverlay,
   normalizeTransitionType,
@@ -52,7 +51,7 @@ export function applyEditDirections(
     const filterPresetId = scene.editDirections?.filterPresetId || globalFilterId;
     if (!filterPresetId) continue;
 
-    const preset = getPresetById(filterPresetId);
+    const preset = getFilterPresetById(filterPresetId);
     if (!preset || preset.id === 'none') continue;
 
     // Apply to all image and video overlays for this scene
