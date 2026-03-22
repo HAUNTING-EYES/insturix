@@ -2,7 +2,7 @@
 
 import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil, Plus } from 'lucide-react';
+import { Video, Loader2, ArrowRight, Palette, ImageIcon, Film, Check, Sparkles, Users, RefreshCw, X, Eye, MessageSquare, Send, Trash2, Pencil, Plus, Upload } from 'lucide-react';
 import { EditronImportAnimation } from './EditronImportAnimation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -729,6 +729,79 @@ export function ExportToEditronDialog({
     }
   };
 
+  // ─── Upload a real image as reference for a subject
+  const handleUploadSubjectImage = async (subjectId: string, file: File) => {
+    if (!refSetId) return;
+    setRegeneratingSubjectId(subjectId); // Reuse loading state
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`/api/services/pipeline/reference-images/${refSetId}/subject/${subjectId}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.imageUrl) {
+        setSubjects((prev) =>
+          prev.map((s) =>
+            s.subjectId === subjectId
+              ? { ...s, imageUrl: data.imageUrl, visualDescription: data.visualDescription || s.visualDescription, status: 'generated' }
+              : s,
+          ),
+        );
+        // Auto-approve uploaded images
+        setApprovedSubjectIds((prev) => {
+          const next = new Set(prev);
+          next.add(subjectId);
+          return next;
+        });
+      } else {
+        setError(data.error || 'Upload failed');
+      }
+    } catch (err: any) {
+      console.error('[ExportToEditron] Upload subject image failed:', err);
+      setError(`Upload failed: ${err.message}`);
+    } finally {
+      setRegeneratingSubjectId(null);
+    }
+  };
+
+  // ─── Upload a real image for a storyboard scene
+  const handleUploadSceneImage = async (sceneIndex: number, file: File) => {
+    if (!storyboardId) return;
+    setRegeneratingSceneIdx(sceneIndex);
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch(`/api/services/pipeline/storyboard/${storyboardId}/scene/${sceneIndex}/upload-image`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.imageUrl) {
+        setStoryboardScenes((prev: any[]) =>
+          prev.map((s: any) =>
+            s.sceneIndex === sceneIndex
+              ? { ...s, imageUrl: data.imageUrl, imageAssetId: data.assetId }
+              : s,
+          ),
+        );
+      } else {
+        setError(data.error || 'Scene image upload failed');
+      }
+    } catch (err: any) {
+      console.error('[ExportToEditron] Upload scene image failed:', err);
+    } finally {
+      setRegeneratingSceneIdx(null);
+    }
+  };
+
   // Toggle feedback prompt for a subject
   const toggleFeedbackPrompt = (subjectId: string) => {
     if (feedbackSubjectId === subjectId) {
@@ -1376,8 +1449,24 @@ export function ExportToEditronDialog({
                           {isApproved ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
                         </button>
 
-                        {/* Top-left: Regenerate + Delete */}
+                        {/* Top-left: Upload + Regenerate + Delete */}
                         <div className="absolute top-1.5 left-1.5 flex gap-1">
+                          <label
+                            className={`p-1 rounded-full bg-emerald-700/80 text-emerald-300 hover:bg-emerald-600 hover:text-white transition-colors cursor-pointer ${isRegenerating ? 'opacity-50 pointer-events-none' : ''}`}
+                            title="Upload your own image"
+                          >
+                            <Upload className="h-3 w-3" />
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp"
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) handleUploadSubjectImage(subject.subjectId, file);
+                                e.target.value = ''; // Reset so same file can be re-selected
+                              }}
+                            />
+                          </label>
                           <button
                             onClick={() => handleRegenerateSubject(subject.subjectId)}
                             disabled={isRegenerating}
@@ -1671,8 +1760,24 @@ export function ExportToEditronDialog({
                             alt={scene.title}
                             className="w-full h-full object-cover"
                           />
-                          {/* Hover overlay with regenerate actions */}
+                          {/* Hover overlay with upload + regenerate actions */}
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
+                            <label
+                              className={`p-1.5 rounded-md bg-emerald-700/80 hover:bg-emerald-600 text-emerald-200 transition-colors cursor-pointer ${regeneratingSceneIdx !== null ? 'opacity-50 pointer-events-none' : ''}`}
+                              title="Upload your own image"
+                            >
+                              <Upload className="h-3.5 w-3.5" />
+                              <input
+                                type="file"
+                                accept="image/png,image/jpeg,image/webp"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleUploadSceneImage(scene.sceneIndex, file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </label>
                             <button
                               onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
                               disabled={regeneratingSceneIdx !== null}
