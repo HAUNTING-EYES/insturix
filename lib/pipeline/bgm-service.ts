@@ -1,17 +1,15 @@
 /**
  * Background Music Generation Service
  *
- * Uses fal.ai Stable Audio 2.5 to generate instrumental background music
- * for video scenes. Reuses the existing fal.ai client and API key.
+ * Uses fal.ai MiniMax Music v2 to generate instrumental background music.
+ * MiniMax is fast ($0.03/req) and doesn't queue forever like beatoven.
  */
 
 import { fal } from '@fal-ai/client';
 import { uploadToGCS } from '@/lib/editron/services/gcs-service';
 import { nanoid } from 'nanoid';
 
-// Configure fal.ai client
 // Configure fal.ai on every call — env vars may change between deployments
-// and module-level caching was preventing new API keys from being picked up.
 function ensureFalConfig() {
   const key = process.env.FAL_AI_API_KEY;
   if (!key) throw new Error('FAL_AI_API_KEY is not set');
@@ -27,13 +25,12 @@ interface BGMResult {
 
 /**
  * Generate background music for the entire video.
- * For videos longer than 150s, generates the max 150s and lets the
- * timeline loop it. A future enhancement could generate multiple
- * segments with matching keys/tempo.
  *
- * @param prompt   - Mood/style description (e.g. "epic cinematic orchestral, intense action")
- * @param userId   - For GCS upload path
- * @param durationSec - Target duration in seconds (5-600). Capped at 150s per beatoven limit.
+ * Uses MiniMax Music v2 (fal-ai/minimax-music/v2) — fast, cheap ($0.03/req),
+ * and doesn't sit in queue forever like beatoven.
+ *
+ * MiniMax generates complete songs with vocals. We prompt for instrumental only.
+ * For videos longer than the generated clip, the timeline loops the audio.
  */
 export async function generateBackgroundMusic(
   prompt: string,
@@ -42,63 +39,80 @@ export async function generateBackgroundMusic(
 ): Promise<BGMResult> {
   ensureFalConfig();
 
-  // Beatoven supports 5-150 seconds per generation.
-  // For longer videos, generate max length — timeline will loop the audio.
-  const duration = Math.min(Math.max(durationSec, 5), 150);
   const assetId = `bgm_${nanoid(12)}`;
 
-  console.log(`[BGM] Generating: prompt="${prompt.substring(0, 100)}", duration=${duration}s`);
+  // Build a music-specific prompt (instrumental, no vocals for BGM)
+  const musicPrompt = `${prompt}, instrumental only, no vocals, background music for video`.substring(0, 300);
 
-  // beatoven/music-generation — verified on fal.ai (March 2026), $0.10/request
-  // If this returns 404, the fal.ai account may not have billing enabled for beatoven models.
+  console.log(`[BGM] Generating with MiniMax Music v2: prompt="${musicPrompt.substring(0, 100)}", targetDuration=${durationSec}s`);
+
   let result: any;
   try {
-    result = await fal.subscribe('beatoven/music-generation', {
+    result = await fal.subscribe('fal-ai/minimax-music/v2', {
       input: {
-        prompt: `${prompt}, instrumental, background music for video`,
-        duration,
-        refinement: 100,
+        prompt: musicPrompt,
+        // MiniMax doesn't have a duration param — it generates a full song (~30-60s)
+        // We'll use the audio as-is and let the timeline handle looping
       },
       logs: true,
-      pollInterval: 2000, // Check every 2s
+      pollInterval: 3000,
       onQueueUpdate: (update: any) => {
-        console.log(`[BGM] Queue status: ${update?.status || 'unknown'}, position: ${update?.position ?? '?'}`);
+        console.log(`[BGM] MiniMax queue: ${update?.status || 'unknown'}`);
       },
     });
   } catch (err: any) {
-    const status = err?.status || err?.statusCode;
-    if (status === 404) {
-      console.error('[BGM] beatoven/music-generation returned 404. Check fal.ai billing: this model requires separate activation at https://fal.ai/models/beatoven/music-generation');
+    console.error(`[BGM] MiniMax Music v2 failed: ${err.message}`);
+    // Fallback to beatoven if MiniMax fails
+    console.log('[BGM] Falling back to beatoven/music-generation...');
+    try {
+      result = await fal.subscribe('beatoven/music-generation', {
+        input: {
+          prompt: `${prompt}, instrumental, background music for video`,
+          duration: Math.min(Math.max(durationSec, 5), 150),
+          refinement: 100,
+        },
+        logs: true,
+        pollInterval: 2000,
+      });
+    } catch (fallbackErr: any) {
+      console.error(`[BGM] Beatoven fallback also failed: ${fallbackErr.message}`);
+      throw fallbackErr;
     }
-    throw err;
   }
 
-  // fal.ai subscribe returns { data, requestId }
+  // Extract audio URL — handle multiple response formats
   const data = (result as any).data || result;
-  console.log('[BGM] fal.ai response keys:', Object.keys(data || {}), 'Full:', JSON.stringify(data).substring(0, 300));
+  console.log('[BGM] Response keys:', Object.keys(data || {}));
 
-  const audioUrl = data?.audio?.url          // beatoven format
-    || data?.audio_file?.url                  // legacy format
-    || data?.audio?.[0]?.url                  // array format
-    || data?.output?.url                      // generic output
-    || data?.url;                             // direct URL
+  const audioUrl =
+    data?.audio?.url              // standard format
+    || data?.audio_file?.url      // legacy
+    || data?.audio?.[0]?.url      // array format
+    || data?.output?.url          // generic
+    || data?.url                  // direct
+    || data?.audio_url;           // minimax format
+
   if (!audioUrl) {
-    throw new Error('BGM generation returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 300));
+    throw new Error('BGM generation returned no audio URL. Response: ' + JSON.stringify(data).substring(0, 500));
   }
+
+  console.log(`[BGM] Got audio URL, downloading...`);
 
   // Download and upload to GCS
   const response = await fetch(audioUrl);
-  if (!response.ok) throw new Error('Failed to download generated music');
+  if (!response.ok) throw new Error(`Failed to download generated music (${response.status})`);
   const buffer = Buffer.from(await response.arrayBuffer());
 
   const filename = `${assetId}.mp3`;
   const uploadResult = await uploadToGCS(buffer, userId, filename, 'audio/mpeg');
 
+  console.log(`[BGM] Uploaded to GCS: ${uploadResult.gcsPath} (${buffer.length} bytes)`);
+
   return {
     audioUrl: uploadResult.signedUrl,
     gcsPath: uploadResult.gcsPath,
     audioAssetId: assetId,
-    durationMs: duration * 1000,
+    durationMs: durationSec * 1000, // Approximate — actual may differ
   };
 }
 

@@ -93,6 +93,7 @@ export function ExportToEditronDialog({
   // Results
   const [scenes, setScenes] = useState<any[]>([]);
   const [projectId, setProjectId] = useState('');
+  const [audioGenerating, setAudioGenerating] = useState(false);
   const [storyboardId, setStoryboardId] = useState('');
   const [storyboardScenes, setStoryboardScenes] = useState<any[]>([]);
   const [videoProgress, setVideoProgress] = useState({ done: 0, total: 0 });
@@ -660,6 +661,7 @@ export function ExportToEditronDialog({
         const finalizeData = await finalizeRes.json().catch(() => null);
         if (!finalizeData) throw new Error('Invalid response from finalize service');
         setProjectId(finalizeData.projectId);
+        if (finalizeData.audioGenerating) setAudioGenerating(true);
       } else {
         // No storyboard — import scenes directly
         const importRes = await fetch('/api/services/editron/projects/import-from-script', {
@@ -1878,6 +1880,17 @@ export function ExportToEditronDialog({
                   </p>
                 </div>
               </div>
+
+              {/* Audio generating in background indicator */}
+              {audioGenerating && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                  <Loader2 className="h-4 w-4 text-blue-400 animate-spin" />
+                  <div>
+                    <p className="text-xs font-medium text-blue-300">Music & Sound Effects generating</p>
+                    <p className="text-[10px] text-blue-400/70">Audio will appear in your Editron project automatically. Refresh the editor after a few minutes.</p>
+                  </div>
+                </div>
+              )}
 
               {/* Warnings from video generation or other steps */}
               {error && (
