@@ -59,7 +59,11 @@ export async function generateBackgroundMusic(
         duration,
         refinement: 100,
       },
-      logs: false,
+      logs: true,
+      pollInterval: 2000, // Check every 2s
+      onQueueUpdate: (update: any) => {
+        console.log(`[BGM] Queue status: ${update?.status || 'unknown'}, position: ${update?.position ?? '?'}`);
+      },
     });
   } catch (err: any) {
     const status = err?.status || err?.statusCode;

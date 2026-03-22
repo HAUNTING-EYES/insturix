@@ -372,7 +372,7 @@ export async function POST(
       audioGenPromises.push(
         withTimeout(
           generateBackgroundMusic(musicPrompt, userId, totalDurationSec),
-          240_000, // 4 min — beatoven is genuinely slow
+          120_000, // 2 min max — must leave time for project creation within 300s function limit
           'BGM generation',
         ).then(async (bgm) => {
           if (!bgm) { console.warn('[Finalize] BGM timed out'); return; }
@@ -437,7 +437,7 @@ export async function POST(
         audioGenPromises.push(
           withTimeout(
             generateSFXForScenes(sfxInputs, userId),
-            240_000, // 4 min
+            120_000, // 2 min max — runs in parallel with BGM
             'SFX generation',
           ).then(async (sfxResults) => {
             if (!sfxResults) { console.warn('[Finalize] SFX timed out'); return; }

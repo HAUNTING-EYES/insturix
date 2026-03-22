@@ -72,7 +72,11 @@ export async function generateSFX(
         duration,
         refinement: 40,
       },
-      logs: false,
+      logs: true,
+      pollInterval: 2000,
+      onQueueUpdate: (update: any) => {
+        console.log(`[SFX] Queue status: ${update?.status || 'unknown'}, position: ${update?.position ?? '?'}`);
+      },
     });
   } catch (err: any) {
     const status = err?.status || err?.statusCode;
