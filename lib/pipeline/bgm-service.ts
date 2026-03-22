@@ -48,11 +48,12 @@ export async function generateBackgroundMusic(
 
   let result: any;
   try {
+    // MiniMax Music v2 requires BOTH prompt AND lyrics_prompt (min 10 chars each).
+    // For instrumental BGM, we use a structural placeholder as lyrics.
     result = await fal.subscribe('fal-ai/minimax-music/v2', {
       input: {
         prompt: musicPrompt,
-        // MiniMax doesn't have a duration param — it generates a full song (~30-60s)
-        // We'll use the audio as-is and let the timeline handle looping
+        lyrics_prompt: '[Intro]\n[Instrumental]\n[Outro]', // Required field, min 10 chars
       },
       logs: true,
       pollInterval: 3000,

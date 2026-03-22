@@ -77,16 +77,16 @@ export async function generateSFX(
           video_url: videoUrl,
           text_prompt: audioDescription,
           duration: Math.min(duration, 10), // mirelo max 10s
-          num_samples: 1,
+          num_samples: 2, // mirelo minimum is 2
         },
         logs: true,
         pollInterval: 2000,
       });
-      // mirelo returns array of audio files
+      // mirelo returns { audio: [{url, file_name, content_type}] }
       const data = (result as any).data || result;
-      const audioFiles = data?.audio_files || data?.audios || [];
-      if (audioFiles.length > 0 && audioFiles[0]?.url) {
-        const audioUrl = audioFiles[0].url;
+      const audioArr = data?.audio || data?.audio_files || data?.audios || [];
+      if (audioArr.length > 0 && audioArr[0]?.url) {
+        const audioUrl = audioArr[0].url;
         const response = await fetch(audioUrl);
         if (!response.ok) throw new Error('Failed to download mirelo SFX');
         const buffer = Buffer.from(await response.arrayBuffer());
