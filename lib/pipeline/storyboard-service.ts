@@ -345,6 +345,8 @@ export async function generateFullStoryboard(
     checkConsistency?: boolean;
     /** Consistency threshold — scenes below this score are flagged (default: 0.6) */
     consistencyThreshold?: number;
+    /** Global edit directions from the LLM parser (stored on storyboard for finalize) */
+    globalEditDirections?: any;
   },
 ): Promise<Storyboard> {
   const storyboardId = `sb_${nanoid(12)}`;
@@ -367,6 +369,7 @@ export async function generateFullStoryboard(
     overallMusicPrompt: options.overallMusicPrompt,
     refSetId: options.refSetId,
     approvedReferences: options.approvedReferences,
+    globalEditDirections: options.globalEditDirections,
     scenes: scenes.map((s) => ({
       sceneIndex: s.sceneIndex,
       descriptor: s,

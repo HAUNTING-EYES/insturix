@@ -40,6 +40,7 @@ export async function POST(request: NextRequest) {
     let characterDescriptions: Record<string, string> = {};
     let colorPalette: string[] = [];
     let environmentNotes = '';
+    let globalEditDirections: any = undefined;
 
     // ─── Reconstruct script text from input ────────────────────
     if (blocks && Array.isArray(blocks) && blocks.length > 0) {
@@ -97,11 +98,13 @@ export async function POST(request: NextRequest) {
           mood: s.mood,
           imageQualityTokens: s.imageQualityTokens,
           videoQualityTokens: s.videoQualityTokens,
+          editDirections: (s as any).editDirections || undefined,
         }));
         overallMusicPrompt = llmResult.overallMusicPrompt || '';
         characterDescriptions = llmResult.characterDescriptions || {};
         colorPalette = llmResult.colorPalette || [];
         environmentNotes = llmResult.environmentNotes || '';
+        globalEditDirections = (llmResult as any).globalEditDirections || undefined;
 
         console.log(`[export-for-editron] LLM parsed ${scenes.length} scenes`);
       } catch (llmError: any) {
@@ -144,6 +147,7 @@ export async function POST(request: NextRequest) {
       characterDescriptions,
       colorPalette,
       environmentNotes,
+      globalEditDirections,
       rawContent: rawContent.substring(0, 5000),
     });
   } catch (error: any) {

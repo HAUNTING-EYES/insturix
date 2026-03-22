@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       approvedReferences,
       checkConsistency,
       consistencyThreshold,
+      globalEditDirections,
     }: {
       scenes: SceneDescriptor[];
       styleGuide?: StyleGuide;
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest) {
       }>;
       checkConsistency?: boolean;
       consistencyThreshold?: number;
+      globalEditDirections?: any;
     } = body;
 
     if (!scenes || !Array.isArray(scenes) || scenes.length === 0) {
@@ -180,6 +182,7 @@ export async function POST(request: NextRequest) {
       refSetId,
       checkConsistency,
       consistencyThreshold,
+      globalEditDirections,
     });
 
     const succeeded = storyboard.scenes.filter(s => s.imageUrl).length;

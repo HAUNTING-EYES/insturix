@@ -126,6 +126,7 @@ export function ExportToEditronDialog({
   const [colorPalette, setColorPalette] = useState<string[]>([]);
   const [characterDescriptions, setCharacterDescriptions] = useState<string | undefined>(undefined);
   const [environmentNotes, setEnvironmentNotes] = useState<string | undefined>(undefined);
+  const [globalEditDirections, setGlobalEditDirections] = useState<any>(undefined);
 
   // Storyboard scene edit state
   const [regeneratingSceneIdx, setRegeneratingSceneIdx] = useState<number | null>(null);
@@ -326,6 +327,7 @@ export function ExportToEditronDialog({
       setColorPalette(exportData.colorPalette || []);
       setCharacterDescriptions(exportData.characterDescriptions || undefined);
       setEnvironmentNotes(exportData.environmentNotes || undefined);
+      setGlobalEditDirections(exportData.globalEditDirections || undefined);
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
@@ -469,6 +471,7 @@ export function ExportToEditronDialog({
             },
             refSetId: refSetId || undefined,
             approvedReferences: approved.length > 0 ? approved : undefined,
+            globalEditDirections: globalEditDirections || undefined,
           }),
         });
 
