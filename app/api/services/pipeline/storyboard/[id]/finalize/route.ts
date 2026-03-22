@@ -73,19 +73,25 @@ export async function POST(
     const sceneFrameMap: Array<{ sceneIndex: number; fromFrame: number; durationFrames: number; durationSec: number }> = [];
 
     for (const scene of storyboard.scenes) {
-      // Use actual video duration if available, otherwise fall back to script estimate.
-      // AI video clips are typically 5-10s, so the script's word-count estimate
-      // (which can be 20-40s) would leave huge gaps.
+      // Scene duration = MAX(video clip, voiceover, capped script estimate).
+      // This prevents:
+      // - Video cutting off (if video < voiceover)
+      // - Voiceover overlapping into next scene (if voiceover > video)
+      // - Huge gaps from script word-count estimates (capped at 15s)
       const videoScene = scene as any;
       const videoDurationSec = videoScene.videoDurationMs
         ? videoScene.videoDurationMs / 1000
         : null;
-      // Use video clip duration as the authoritative scene length.
-      // Script duration estimates (based on word count) can be 20-40s which would
-      // leave huge gaps. AI video clips are 5-10s — that's the real duration.
-      const sceneDurationSec = videoDurationSec
-        ? videoDurationSec // Trust the actual video clip duration
-        : Math.min(scene.descriptor.durationSeconds, 15); // Cap script estimate at 15s
+      const voiceoverDurationSec = scene.voiceover?.audioDurationMs
+        ? scene.voiceover.audioDurationMs / 1000
+        : null;
+      const scriptEstimateSec = Math.min(scene.descriptor.durationSeconds, 15);
+
+      // Take the longest of all available durations so nothing gets cut off
+      const candidateDurations = [scriptEstimateSec];
+      if (videoDurationSec) candidateDurations.push(videoDurationSec);
+      if (voiceoverDurationSec) candidateDurations.push(voiceoverDurationSec);
+      const sceneDurationSec = Math.max(...candidateDurations);
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // Scene background: ALWAYS add image as base layer (prevents blank gaps

@@ -32,6 +32,9 @@ export const IMAGE_MODELS = {
   'seedream-v4': 'fal-ai/bytedance/seedream/v4/text-to-image',
   'seedream-v4.5': 'fal-ai/bytedance/seedream/v4.5/text-to-image',
   'recraft-v3': 'fal-ai/recraft-v3',
+  'nano-banana': 'fal-ai/nano-banana',
+  'nano-banana-2': 'fal-ai/nano-banana-2',
+  'nano-banana-pro': 'fal-ai/nano-banana-pro',
 } as const;
 
 export type ImageModelKey = keyof typeof IMAGE_MODELS;
@@ -44,6 +47,9 @@ export const IMAGE_MODEL_LABELS: Record<ImageModelKey, string> = {
   'seedream-v4': 'Seedream V4',
   'seedream-v4.5': 'Seedream V4.5',
   'recraft-v3': 'Recraft V3',
+  'nano-banana': 'Nano Banana (Fast, $0.04)',
+  'nano-banana-2': 'Nano Banana 2 (Quality, $0.08)',
+  'nano-banana-pro': 'Nano Banana Pro (Best, $0.15)',
 };
 
 // Default model for storyboard generation
@@ -64,6 +70,13 @@ const USES_IMAGE_SIZE_OBJECT = new Set([
   'fal-ai/flux-pro/v1.1',
   'fal-ai/flux-general',
   'fal-ai/recraft-v3',
+]);
+
+// Nano Banana models use aspect_ratio + resolution (not image_size)
+const USES_ASPECT_RATIO_ONLY = new Set([
+  'fal-ai/nano-banana',
+  'fal-ai/nano-banana-2',
+  'fal-ai/nano-banana-pro',
 ]);
 
 // Per-call timeout (ms) to prevent a single slow call from blocking everything
@@ -95,8 +108,16 @@ function buildModelInput(
     input.negative_prompt = negativePrompt;
   }
 
-  // image_size — object vs string
-  if (USES_IMAGE_SIZE_OBJECT.has(modelId)) {
+  // image_size — varies by model family
+  if (USES_ASPECT_RATIO_ONLY.has(modelId)) {
+    // Nano Banana models: aspect_ratio + resolution, no image_size
+    if (width > height) input.aspect_ratio = '16:9';
+    else if (height > width) input.aspect_ratio = '9:16';
+    else input.aspect_ratio = '1:1';
+    input.resolution = '1K';
+    // Nano Banana doesn't use negative_prompt or enable_safety_checker
+    delete input.enable_safety_checker;
+  } else if (USES_IMAGE_SIZE_OBJECT.has(modelId)) {
     input.image_size = { width, height };
   } else {
     // Models like Imagen4, Seedream use aspect ratio strings or width/height directly

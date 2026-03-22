@@ -77,12 +77,14 @@ async function handler(request: NextRequest) {
       userId,
     );
 
-    // Update storyboard scene
+    // Update storyboard scene — include videoDurationMs so finalize
+    // uses the actual clip length (not the script's word-count estimate)
     await updateStoryboardScene(storyboardId, sceneIndex, {
       videoUrl: result.videoUrl,
       videoAssetId: result.assetId,
       videoGcsPath: result.gcsPath,
       videoProvider: result.provider || 'fal-ai',
+      videoDurationMs: result.durationMs || (durationSeconds * 1000),
     });
 
     // Mark job complete
