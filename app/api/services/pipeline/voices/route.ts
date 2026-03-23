@@ -13,6 +13,7 @@ export async function GET() {
       name: v.name,
       gender: v.gender,
       style: v.style,
+      provider: v.provider,
     })),
   });
 }

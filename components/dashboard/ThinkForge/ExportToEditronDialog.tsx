@@ -90,7 +90,7 @@ export function ExportToEditronDialog({
   const [videoModel, setVideoModel] = useState('auto');
   const [enableChaining, setEnableChaining] = useState(false);
   const prewarmFiredRef = useRef(false);
-  const [selectedVoice, setSelectedVoice] = useState('aura-asteria-en');
+  const [selectedVoice, setSelectedVoice] = useState('kokoro-heart');
   const [availableVoices, setAvailableVoices] = useState<Array<{ id: string; name: string; gender: string; style: string }>>([]);
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const previewAudioRef = React.useRef<HTMLAudioElement | null>(null);
