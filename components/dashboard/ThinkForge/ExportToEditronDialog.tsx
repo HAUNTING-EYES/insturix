@@ -374,7 +374,7 @@ export function ExportToEditronDialog({
         // ─── PAUSE: Show profile selection step ──────────────────
         if (generateStoryboard) {
           setStep('profile-selection');
-          return; // Stop here — user reviews profile and clicks Continue
+          return; // Stop here — user reviews profile and clicks Continue → handlePostProfileSelection()
         }
       } catch (profileErr) {
         console.warn('[ExportToEditron] Profile detection failed, using default:', profileErr);
@@ -382,15 +382,40 @@ export function ExportToEditronDialog({
       }
 
       // ─── Steps 2+3: Extract subjects AND generate hero references in parallel ──
+      // (Also called by handlePostProfileSelection after profile is confirmed)
+      await runSubjectExtractionAndReferences();
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong');
+      setStep('configure');
+      sendNotification('Export Failed', err.message || 'Something went wrong during export.');
+    }
+  };
+
+  // ─── Resume after profile selection confirmed ───────────────────
+  const handlePostProfileSelection = async () => {
+    setError('');
+    try {
+      await runSubjectExtractionAndReferences();
+    } catch (err: any) {
+      setError(err.message || 'Something went wrong');
+      setStep('configure');
+    }
+  };
+
+  // ─── Subject extraction + reference image generation ────────────
+  // Extracted into its own function so it can be called from both
+  // handleExport (no profile pause) and handlePostProfileSelection.
+  const runSubjectExtractionAndReferences = async () => {
+      // ─── Steps 2+3: Extract subjects AND generate hero references in parallel ──
       // As soon as extraction returns, we kick off hero reference image generation
       // immediately — no separate waiting step. This parallelizes the pipeline.
-      if (generateStoryboard && exportData.scenes.length > 0) {
+      if (generateStoryboard && scenes.length > 0) {
         setStep('extracting-subjects');
 
         const extractRes = await fetch('/api/services/pipeline/reference-images/extract-subjects', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ scenes: exportData.scenes, artStyle }),
+          body: JSON.stringify({ scenes, artStyle }),
         });
 
         if (extractRes.ok) {
@@ -458,12 +483,7 @@ export function ExportToEditronDialog({
       }
 
       // If no storyboard or reference image extraction failed, go straight to phase 2
-      await handlePhase2(exportData.scenes, title || exportData.title || 'Untitled Script');
-    } catch (err: any) {
-      setError(err.message || 'Something went wrong');
-      setStep('configure');
-      sendNotification('Export Failed', err.message || 'Something went wrong during export.');
-    }
+      await handlePhase2(scenes, title);
   };
 
   // ─── Phase 2: Generate storyboard images → Pause for review
@@ -2007,7 +2027,7 @@ export function ExportToEditronDialog({
               </div>
 
               <Button
-                onClick={() => handlePhase2()}
+                onClick={() => handlePostProfileSelection()}
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 Continue with {detectedProfile.name} <ArrowRight className="h-4 w-4 ml-2" />
