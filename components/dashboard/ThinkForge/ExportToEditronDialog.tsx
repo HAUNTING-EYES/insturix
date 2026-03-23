@@ -98,6 +98,7 @@ export function ExportToEditronDialog({
   // Profile detection
   const [detectedProfile, setDetectedProfile] = useState<{ profileId: string; confidence: number; reasoning: string[]; name: string; description: string } | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
+  const [profileSearchQuery, setProfileSearchQuery] = useState('');
   const [directorProgress, setDirectorProgress] = useState<{ step: number; total: number; desc: string }>({ step: 0, total: 0, desc: '' });
 
   // Results
@@ -2005,24 +2006,54 @@ export function ExportToEditronDialog({
                   </div>
                 )}
 
-                {/* Profile override dropdown */}
-                <div className="mt-3">
-                  <Select value={selectedProfileId} onValueChange={(v) => {
-                    setSelectedProfileId(v);
-                    const p = EDIT_PROFILES[v as keyof typeof EDIT_PROFILES];
-                    if (p) setDetectedProfile({ ...detectedProfile, profileId: v, name: p.name, description: p.description });
-                  }}>
-                    <SelectTrigger className="h-8 text-xs bg-zinc-900 border-zinc-700">
-                      <SelectValue placeholder="Change profile..." />
-                    </SelectTrigger>
-                    <SelectContent className="max-h-60">
-                      {Object.entries(EDIT_PROFILES).map(([id, p]) => (
-                        <SelectItem key={id} value={id} className="text-xs">
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* Profile override — searchable grouped list */}
+                <div className="mt-3 space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Search profiles..."
+                    className="w-full h-8 px-3 text-xs bg-zinc-900 border border-zinc-700 rounded-md text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    onChange={(e) => {
+                      const q = e.target.value.toLowerCase();
+                      setProfileSearchQuery(q);
+                    }}
+                  />
+                  <div className="max-h-48 overflow-y-auto border border-zinc-700 rounded-md bg-zinc-900">
+                    {Object.entries(
+                      Object.entries(EDIT_PROFILES)
+                        .filter(([, p]) => {
+                          if (!profileSearchQuery) return true;
+                          return p.name.toLowerCase().includes(profileSearchQuery)
+                            || p.description.toLowerCase().includes(profileSearchQuery)
+                            || p.category?.toLowerCase().includes(profileSearchQuery);
+                        })
+                        .reduce<Record<string, Array<[string, any]>>>((groups, entry) => {
+                          const cat = entry[1].category || 'Other';
+                          if (!groups[cat]) groups[cat] = [];
+                          groups[cat].push(entry);
+                          return groups;
+                        }, {}),
+                    ).map(([category, profiles]) => (
+                      <div key={category}>
+                        <div className="px-2 py-1 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider bg-zinc-800/50 sticky top-0">
+                          {category}
+                        </div>
+                        {profiles.map(([id, p]) => (
+                          <button
+                            key={id}
+                            onClick={() => {
+                              setSelectedProfileId(id);
+                              const prof = EDIT_PROFILES[id as keyof typeof EDIT_PROFILES];
+                              if (prof) setDetectedProfile({ ...detectedProfile, profileId: id, name: prof.name, description: prof.description });
+                            }}
+                            className={`w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-800 transition-colors ${selectedProfileId === id ? 'bg-emerald-900/30 text-emerald-300' : 'text-zinc-300'}`}
+                          >
+                            <span className="font-medium">{p.name}</span>
+                            <span className="text-zinc-500 ml-1.5">— {p.description?.substring(0, 50)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
