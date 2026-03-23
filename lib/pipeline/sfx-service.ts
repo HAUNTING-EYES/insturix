@@ -80,7 +80,7 @@ export async function generateSFX(
         num_samples: 2,
       };
       console.log(`[SFX] mirelo input: duration=${mireloInput.duration}, prompt=${(mireloInput.text_prompt || '').substring(0, 60)}`);
-      result = await fal.subscribe('mirelo-ai/sfx-v1/video-to-audio', {
+      result = await fal.subscribe('mirelo-ai/sfx-v1.5/video-to-audio', {
         input: mireloInput,
         logs: true,
         pollInterval: 2000,

@@ -52,7 +52,7 @@ export async function generateBackgroundMusic(
     result = await fal.subscribe('cassetteai/music-generator', {
       input: {
         prompt: musicPrompt,
-        duration: Math.min(Math.max(durationSec, 10), 180), // CassetteAI: 10-180s
+        duration: Math.round(Math.min(Math.max(durationSec, 10), 180)), // CassetteAI: integer 10-180s
       },
       logs: true,
       pollInterval: 3000,
