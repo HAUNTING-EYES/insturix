@@ -108,8 +108,8 @@ const TOOL_FRIENDLY_NAMES: Record<string, string> = {
 };
 
 export function AIChatPanel() {
-  const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject, 
-    setIsAIProcessing
+  const { overlays, setOverlays, playerDimensions, durationInFrames, getAspectRatioDimensions, playerRef, saveProject,
+    setIsAIProcessing, selectedOverlayId
   } = useEditorContext();
   const { toast } = useToast();
   const userId = getUserId();
@@ -342,6 +342,7 @@ export function AIChatPanel() {
           message: messageToSend,
           projectId,
           sessionId: currentSessionId,
+          selectedOverlayId: selectedOverlayId || undefined,
         }),
       });
 

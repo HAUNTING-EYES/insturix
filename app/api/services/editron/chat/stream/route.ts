@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { message, projectId, sessionId } = await req.json();
+    const { message, projectId, sessionId, selectedOverlayId } = await req.json();
 
     if (!message || !projectId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -128,7 +128,21 @@ export async function POST(req: NextRequest) {
     
     // Generate project summary for smart context
     const summary = generateProjectSummary(project);
-    const contextMessage = formatSummaryForPrompt(summary);
+    let contextMessage = formatSummaryForPrompt(summary);
+
+    // Inject selected overlay context so AI knows what the user is looking at
+    if (selectedOverlayId && project.overlays) {
+      const selected = project.overlays.find((o: any) => o.id === selectedOverlayId);
+      if (selected) {
+        contextMessage += `\n\nCURRENTLY SELECTED OVERLAY: The user has overlay id=${selected.id} selected (type: ${selected.type}, row: ${selected.row}, from frame ${selected.from}, duration ${selected.durationInFrames} frames). When the user says "this", "the selected", "this clip", "this scene", or similar, they mean this overlay. Use this overlay's ID directly without asking which one.`;
+        if (selected.type === 'video' || selected.type === 'image') {
+          contextMessage += ` Content: ${(selected as any).src?.substring(0, 80) || 'N/A'}`;
+        }
+        if (selected.type === 'text') {
+          contextMessage += ` Text: "${(selected as any).content?.substring(0, 60) || ''}"`;
+        }
+      }
+    }
 
     // Initialize agent with project context
     const agent = createAgent(userId, contextMessage);

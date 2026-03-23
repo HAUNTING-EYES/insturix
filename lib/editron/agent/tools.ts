@@ -3609,9 +3609,14 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         const results: string[] = [];
 
+        // Use deployment-specific URL (VERCEL_URL) to hit the correct preview deployment
+        const baseApiUrl = process.env.VERCEL_URL
+          ? `https://${process.env.VERCEL_URL}`
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
+
         // Regenerate storyboard image ('storyboard' is an alias for 'image')
         if (input.target === 'image' || input.target === 'storyboard' || input.target === 'all') {
-          const imgRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/scene/${input.sceneIndex}/regenerate-with-context`, {
+          const imgRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/scene/${input.sceneIndex}/regenerate-with-context`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3629,7 +3634,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         // Regenerate video clip
         if (input.target === 'video' || input.target === 'all') {
-          const vidRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
+          const vidRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -3637,17 +3642,23 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
             }),
           });
           if (vidRes.ok) {
-            const data = await vidRes.json();
-            const succeeded = data.summary?.succeeded || 0;
-            results.push(succeeded > 0 ? `Video clip regenerated successfully` : `Video regeneration failed: ${data.error || 'unknown'}`);
+            const data = await vidRes.json().catch(() => ({}));
+            // generate-videos is now async (QStash) — returns batchId, not immediate results
+            if (data.async && data.batchId) {
+              results.push(`Video regeneration started (batch: ${data.batchId}). The new video will appear after processing (~1-3 minutes).`);
+            } else if (data.success) {
+              results.push(`Video clip regenerated successfully`);
+            } else {
+              results.push(`Video regeneration failed: ${data.error || 'unknown'}`);
+            }
           } else {
-            results.push(`Video regeneration failed: ${(await vidRes.text()).substring(0, 100)}`);
+            results.push(`Video regeneration failed: ${(await vidRes.text().catch(() => '')).substring(0, 100)}`);
           }
         }
 
         // Regenerate voiceover
         if (input.target === 'voiceover' || input.target === 'all') {
-          const voRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/voiceover`, {
+          const voRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/voiceover`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
