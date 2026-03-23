@@ -141,5 +141,57 @@ export function applyEditDirections(
   // Add all transitions to overlays
   overlays.push(...transitionsToInsert);
 
+  // ─── 4. Apply camera/motion keyframes from script directions ──
+  // Convert cameraRig and pacing directions into actual keyframe tracks
+  // so the video plays with the intended camera movement.
+  const CAMERA_KEYFRAMES: Record<string, (durationFrames: number) => any[]> = {
+    // Slow push-in → scale 1.0 → 1.08 (subtle zoom)
+    'push-in': (d) => [{ property: 'scale', keyframes: [{ frame: 0, value: 1.0, easing: 'ease-in-out' }, { frame: d, value: 1.08, easing: 'linear' }] }],
+    'push in': (d) => [{ property: 'scale', keyframes: [{ frame: 0, value: 1.0, easing: 'ease-in-out' }, { frame: d, value: 1.08, easing: 'linear' }] }],
+    'zoom in': (d) => [{ property: 'scale', keyframes: [{ frame: 0, value: 1.0, easing: 'ease-in-out' }, { frame: d, value: 1.15, easing: 'linear' }] }],
+    'zoom out': (d) => [{ property: 'scale', keyframes: [{ frame: 0, value: 1.1, easing: 'ease-in-out' }, { frame: d, value: 1.0, easing: 'linear' }] }],
+    'pull back': (d) => [{ property: 'scale', keyframes: [{ frame: 0, value: 1.1, easing: 'ease-in-out' }, { frame: d, value: 1.0, easing: 'linear' }] }],
+    // Dolly/tracking → subtle x position shift
+    'dolly': (d) => [{ property: 'x', keyframes: [{ frame: 0, value: -20, easing: 'ease-in-out' }, { frame: d, value: 20, easing: 'linear' }] }],
+    'tracking': (d) => [{ property: 'x', keyframes: [{ frame: 0, value: -15, easing: 'ease-in-out' }, { frame: d, value: 15, easing: 'linear' }] }],
+    'pan': (d) => [{ property: 'x', keyframes: [{ frame: 0, value: -30, easing: 'ease-in-out' }, { frame: d, value: 30, easing: 'linear' }] }],
+    // Rising/crane → subtle y shift upward
+    'crane': (d) => [{ property: 'y', keyframes: [{ frame: 0, value: 10, easing: 'ease-in-out' }, { frame: d, value: -10, easing: 'linear' }] }],
+    'rising': (d) => [{ property: 'y', keyframes: [{ frame: 0, value: 10, easing: 'ease-in-out' }, { frame: d, value: -10, easing: 'linear' }] }],
+  };
+
+  for (const scene of scenes) {
+    const cameraRig = scene.editDirections?.cameraRig?.toLowerCase();
+    if (!cameraRig) continue;
+
+    const frameInfo = sceneFrameMap.find(f => f.sceneIndex === scene.sceneIndex);
+    if (!frameInfo) continue;
+
+    // Find the video overlay for this scene
+    const videoOverlay = overlays.find(
+      o => o.type === 'video' && o.from >= frameInfo.fromFrame && o.from < frameInfo.fromFrame + frameInfo.durationFrames
+    );
+    if (!videoOverlay) continue;
+
+    // Match camera direction to keyframe pattern
+    for (const [keyword, makeTrack] of Object.entries(CAMERA_KEYFRAMES)) {
+      if (cameraRig.includes(keyword)) {
+        const tracks = makeTrack(videoOverlay.durationInFrames);
+        if (!videoOverlay.keyframeTracks) videoOverlay.keyframeTracks = [];
+
+        // Add tracks (don't replace existing — camera + other keyframes can coexist)
+        for (const track of tracks) {
+          // Only add if no existing track for this property
+          if (!videoOverlay.keyframeTracks.some((t: any) => t.property === track.property)) {
+            videoOverlay.keyframeTracks.push(track);
+          }
+        }
+
+        console.log(`[EditDirections] Camera keyframe applied: "${keyword}" on scene ${scene.sceneIndex}`);
+        break; // First match wins
+      }
+    }
+  }
+
   return { overlays, totalFrameShift };
 }
