@@ -302,10 +302,11 @@ function convertTimestampedScriptToScenes(content: string): SceneDescriptor[] {
     const sections = extractLabelledSections(bodyText);
     const durationSeconds = Math.max(3, raw.endSec - raw.startSec);
 
-    // Narration = voiceover text. If none found, fall back to other content.
-    const narration = sections.voiceover || sections.other || '';
-    // Visual description = visuals section (for storyboard image gen)
-    const visualDescription = sections.visuals || narration.substring(0, 2000);
+    // Narration = ONLY the voiceover/spoken text. NEVER fall back to full body.
+    // Empty narration is better than wrong narration (speaking stage directions).
+    const narration = sections.voiceover || '';
+    // Visual description = visuals section. Fall back to 'other' (non-voiceover text), NOT narration.
+    const visualDescription = sections.visuals || sections.other || '';
     // Mood from audio description + visual description
     const moodSource = sections.audio + ' ' + sections.visuals;
 
@@ -378,10 +379,11 @@ export function convertPlainTextToScenes(content: string): SceneDescriptor[] {
     const labelled = extractLabelledSections(body);
     // Only use actual voiceover/narration text for narration — NOT visual
     // descriptions, audio notes, or camera directions which inflate duration.
-    const narration = labelled.voiceover || body;
-    const visualDescription = labelled.visuals || narration.substring(0, 2000);
-    // Duration should reflect spoken words only. If we have labelled voiceover
-    // use that word count; otherwise use full body but cap at 15s per scene.
+    // Narration = ONLY voiceover text. Never fall back to full body.
+    const narration = labelled.voiceover || '';
+    // Visual description = visuals section, or non-voiceover body text.
+    const visualDescription = labelled.visuals || (labelled.voiceover ? '' : body);
+    // Duration from spoken words only. If no voiceover, estimate from body but cap.
     const durationText = labelled.voiceover || body;
     const rawDuration = estimateDuration(durationText);
     const durationSeconds = labelled.voiceover ? rawDuration : Math.min(rawDuration, 15);

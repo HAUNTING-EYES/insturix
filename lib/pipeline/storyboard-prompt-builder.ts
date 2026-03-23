@@ -104,7 +104,11 @@ export function buildStoryboardPrompt(
       parts.push(cleanVisual);
     }
   } else if (scene.narration) {
-    parts.push(`Visual scene depicting: ${scene.narration.substring(0, 2000)}`);
+    // ONLY use narration as a last resort — extract visual hints, not the full text.
+    // Narration is spoken words, NOT visual description. Using it raw produces
+    // collages/multi-frame images because the model tries to depict sequential narrative.
+    const visualHint = scene.narration.substring(0, 300).replace(/["\n]/g, ' ');
+    parts.push(`Scene context: ${visualHint}`);
   }
 
   // Character descriptions come second — they add specific visual detail

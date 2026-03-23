@@ -236,6 +236,7 @@ export async function generateStoryboardImage(
 
   // Enriched prompt includes reference subject descriptions
   const prompt = refDescriptionSuffix ? `${basePrompt}${refDescriptionSuffix}` : basePrompt;
+  console.log(`[Storyboard] Scene ${options.sceneIndex} prompt (${prompt.length} chars): "${prompt.substring(0, 200)}..."`);
 
   // ─── Attempt 1: IP-adapter if we have reference images ──────────
   // Single attempt with circuit breaker — if IP-adapter keeps failing,
