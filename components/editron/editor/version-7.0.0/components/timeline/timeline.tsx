@@ -466,6 +466,11 @@ const Timeline: React.FC<TimelineProps> = ({
               <TimelineMarker
                 currentFrame={currentFrame}
                 totalDuration={durationInFrames}
+                onSeek={(frame: number) => {
+                  if (playerRef?.current?.seekTo) {
+                    playerRef.current.seekTo(frame);
+                  }
+                }}
               />
 
               {/* Drag operation visual feedback */}

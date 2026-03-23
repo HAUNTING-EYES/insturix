@@ -65,9 +65,28 @@ export async function generateSFX(
     `[SFX] Generating: desc="${audioDescription.substring(0, 100)}", duration=${duration}s`,
   );
 
-  // Try mirelo (video-to-audio) first if videoUrl provided — it generates
-  // SFX synced to actual video content (way better than text-only beatoven).
-  // Falls back to beatoven/sound-effect-generation for text-only SFX.
+  // ─── Priority 1: SFX Library (Pixabay/Freesound) ────────────────
+  // Instant, free, royalty-free. Best for deterministic SFX (whooshes,
+  // ambience, UI clicks, nature sounds). No API generation cost.
+  try {
+    const { searchAndDownloadSFX, audioDescriptionToSearchQuery, isSFXLibraryAvailable } = await import('./sfx-library-service');
+    if (isSFXLibraryAvailable()) {
+      const searchQuery = audioDescriptionToSearchQuery(audioDescription);
+      console.log(`[SFX] Searching library: "${searchQuery}"`);
+      const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
+      if (libResult) {
+        console.log(`[SFX] Library hit (${libResult.source}): "${libResult.originalTitle}"`);
+        return libResult;
+      }
+      console.log('[SFX] Library: no match, trying AI generation');
+    }
+  } catch (libErr: any) {
+    console.warn(`[SFX] Library search failed: ${libErr.message}`);
+  }
+
+  // ─── Priority 2: mirelo video-to-audio (if video URL available) ──
+  // AI-generated SFX synced to actual video content. More expensive
+  // but produces context-aware audio that matches visual events.
   let result: any;
   if (videoUrl) {
     try {
@@ -108,24 +127,8 @@ export async function generateSFX(
     }
   }
 
-  // Tier 2: SFX Library (Pixabay / Freesound) — deterministic, fast, royalty-free
-  try {
-    const { searchAndDownloadSFX, audioDescriptionToSearchQuery, isSFXLibraryAvailable } = await import('./sfx-library-service');
-    if (isSFXLibraryAvailable()) {
-      const searchQuery = audioDescriptionToSearchQuery(audioDescription);
-      console.log(`[SFX] Trying SFX library: "${searchQuery}"`);
-      const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
-      if (libResult) {
-        console.log(`[SFX] Library hit (${libResult.source}): "${libResult.originalTitle}" → ${libResult.audioAssetId}`);
-        return libResult;
-      }
-      console.warn('[SFX] Library returned no results, falling back to CassetteAI');
-    }
-  } catch (libErr: any) {
-    console.warn(`[SFX] Library search failed (${libErr.message}), falling back to CassetteAI`);
-  }
-
-  // CassetteAI fallback — generates ambient/SFX audio from text prompt
+  // ─── Priority 3: CassetteAI (AI generation fallback) ────────────
+  // Only reached if library had no match AND mirelo failed/unavailable.
   // $0.02/min, 10-180s, reliable (unlike beatoven which queues forever)
   try {
     result = await fal.subscribe('cassetteai/music-generator', {
