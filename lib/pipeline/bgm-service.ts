@@ -47,39 +47,37 @@ export async function generateBackgroundMusic(
   console.log(`[BGM] Generating with MiniMax Music v2: prompt="${musicPrompt.substring(0, 100)}", targetDuration=${durationSec}s`);
 
   let result: any;
+  // Primary: CassetteAI — simple prompt+duration, no lyrics needed, $0.02/min
   try {
-    // MiniMax Music v2 requires BOTH prompt AND lyrics_prompt (min 10 chars each).
-    // For instrumental BGM, we use structural tags with la-la placeholder vocals.
-    // Pure structural tags like [Instrumental] alone may cause 422.
-    result = await fal.subscribe('fal-ai/minimax-music/v2', {
+    result = await fal.subscribe('cassetteai/music-generator', {
       input: {
         prompt: musicPrompt,
-        lyrics_prompt: '[Intro]\nLa la la la la la\n[Verse]\nDa da da dum da da da dum\n[Chorus]\nLa la la la la la\n[Outro]\nMmm mmm mmm',
+        duration: Math.min(Math.max(durationSec, 10), 180), // CassetteAI: 10-180s
       },
       logs: true,
       pollInterval: 3000,
       onQueueUpdate: (update: any) => {
-        console.log(`[BGM] MiniMax queue: ${update?.status || 'unknown'}`);
+        console.log(`[BGM] CassetteAI queue: ${update?.status || 'unknown'}`);
       },
     });
   } catch (err: any) {
-    console.error(`[BGM] MiniMax Music v2 failed: ${err.message}`);
-    // Fallback to CassetteAI — $0.02/min, supports 10-180s, simple and reliable
-    console.log('[BGM] Falling back to CassetteAI music-generator...');
+    console.error(`[BGM] CassetteAI failed: ${err.message}`);
+    // Fallback: MiniMax Music v2 — requires lyrics_prompt
+    console.log('[BGM] Falling back to MiniMax Music v2...');
     try {
-      result = await fal.subscribe('cassetteai/music-generator', {
+      result = await fal.subscribe('fal-ai/minimax-music/v2', {
         input: {
-          prompt: `${prompt}, instrumental, background music for video`,
-          duration: Math.min(Math.max(durationSec, 10), 180), // CassetteAI: 10-180s
+          prompt: musicPrompt,
+          lyrics_prompt: '[Intro]\nLa la la la la la\n[Verse]\nDa da da dum da da da dum\n[Chorus]\nLa la la la la la\n[Outro]\nMmm mmm mmm',
         },
         logs: true,
         pollInterval: 3000,
         onQueueUpdate: (update: any) => {
-          console.log(`[BGM] CassetteAI queue: ${update?.status || 'unknown'}`);
+          console.log(`[BGM] MiniMax queue: ${update?.status || 'unknown'}`);
         },
       });
     } catch (fallbackErr: any) {
-      console.error(`[BGM] CassetteAI fallback also failed: ${fallbackErr.message}`);
+      console.error(`[BGM] MiniMax fallback also failed: ${fallbackErr.message}`);
       throw fallbackErr;
     }
   }
