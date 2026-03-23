@@ -77,11 +77,12 @@ export async function POST(
         : null;
       const scriptEstimateSec = Math.min(scene.descriptor.durationSeconds, 15);
 
-      // Take the longest of all available durations so nothing gets cut off
-      const candidateDurations = [scriptEstimateSec];
-      if (videoDurationSec) candidateDurations.push(videoDurationSec);
-      if (voiceoverDurationSec) candidateDurations.push(voiceoverDurationSec);
-      const sceneDurationSec = Math.max(...candidateDurations);
+      // VIDEO duration is king — scene duration matches the actual video clip.
+      // Voiceover is capped to fit within the scene (no extending for long narration).
+      // If no video, use voiceover duration. If neither, use script estimate.
+      const sceneDurationSec = videoDurationSec
+        || voiceoverDurationSec
+        || scriptEstimateSec;
       const durationFrames = Math.round(sceneDurationSec * fps);
 
       // Scene background: Only add storyboard image when NO video exists.
@@ -135,49 +136,9 @@ export async function POST(
         });
       }
 
-      // Narration text overlay (lower-third)
-      if (scene.descriptor.narration) {
-        // Strip markdown formatting (**bold**, *italic*, ## headers, bullet points)
-        const cleanNarration = scene.descriptor.narration
-          .replace(/\*\*(.+?)\*\*/g, '$1')   // **bold** → bold
-          .replace(/\*(.+?)\*/g, '$1')        // *italic* → italic
-          .replace(/^#+\s*/gm, '')            // ## headers → text
-          .replace(/^[-*]\s+/gm, '')          // bullet points
-          .replace(/`(.+?)`/g, '$1')          // inline code
-          .trim();
-        const narrationText = cleanNarration.length > 120
-          ? cleanNarration.substring(0, 117) + '...'
-          : cleanNarration;
-
-        overlays.push({
-          id: overlayId++,
-          type: 'text',
-          from: currentFrame,
-          durationInFrames: durationFrames,
-          row: 0, // Foreground
-          left: width * 0.05,
-          top: height * 0.82,
-          width: width * 0.9,
-          height: height * 0.14,
-          isDragging: false,
-          rotation: 0,
-          content: narrationText,
-          styles: {
-            fontSize: '28',
-            fontFamily: 'font-sans',
-            fontWeight: '400',
-            textAlign: 'center',
-            color: '#ffffff',
-            backgroundColor: 'rgba(0,0,0,0.6)',
-            fontStyle: 'normal',
-            textDecoration: 'none',
-            opacity: 1,
-            borderRadius: '8px',
-            padding: '12px',
-            animation: { enter: 'fade', exit: 'fade', duration: 10 },
-          },
-        });
-      }
+      // Narration text overlay REMOVED — Director Agent adds proper captions
+      // via add_captions/add_fancy_captions tool using word-level timing from
+      // voiceover audio. Raw text boxes are ugly and don't sync to speech.
 
       // Voiceover audio overlay — CAPPED to scene duration to prevent bleed into next scene
       if (includeVoiceover && scene.voiceover?.audioUrl) {

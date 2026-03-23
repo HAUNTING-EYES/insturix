@@ -30,13 +30,22 @@ const TimelineMarker: React.FC<TimelineMarkerProps> = React.memo(
       e.stopPropagation();
       setIsDragging(true);
 
-      const timelineEl = containerRef.current?.parentElement;
+      // Find the scrollable timeline container (has overflow-x-auto or the timeline-grid)
+      // Walk up from the marker to find the element with actual scroll width
+      let timelineEl = containerRef.current?.parentElement;
+      while (timelineEl && timelineEl.scrollWidth <= timelineEl.clientWidth) {
+        timelineEl = timelineEl.parentElement;
+      }
+      if (!timelineEl) timelineEl = containerRef.current?.parentElement;
       if (!timelineEl) return;
 
       const handleMouseMove = (moveEvent: MouseEvent) => {
+        if (!timelineEl) return;
         const rect = timelineEl.getBoundingClientRect();
-        const x = Math.max(0, Math.min(moveEvent.clientX - rect.left, rect.width));
-        const percent = x / rect.width;
+        // Account for scroll position — scrollLeft shifts the visible area
+        const x = Math.max(0, moveEvent.clientX - rect.left + timelineEl.scrollLeft);
+        const totalWidth = timelineEl.scrollWidth;
+        const percent = Math.min(x / totalWidth, 1);
         const frame = Math.round(percent * totalDuration);
         onSeek?.(frame);
       };

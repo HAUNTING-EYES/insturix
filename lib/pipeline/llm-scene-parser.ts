@@ -28,7 +28,7 @@ const SceneEditDirectionsSchema = z.object({
 
 const SceneSchema = z.object({
   title: z.string().describe('Short cinematic scene title (2-6 words, no markdown, no "Scene 1" generic labels)'),
-  narration: z.string().describe('The voiceover/narration text spoken aloud during this scene. Must be the actual spoken words only — no stage directions, no visual descriptions.'),
+  narration: z.string().describe('ONLY the voiceover/dialogue words spoken aloud by a voice actor. Extract exact quoted text from "Voiceover:" or "VO:" or "Narrator:" labels. Empty string "" if no voiceover in this scene. NEVER include visual descriptions, camera directions, audio notes, or music cues.'),
   visualDescription: z.string().describe('Static image prompt: what the camera frame captures as a STILL photograph. Subject, setting, lighting, colors, composition, framing. NO camera movement, NO motion words.'),
   videoMotionPrompt: z.string().describe('Video animation prompt: how this still frame comes to life. Camera movement (dolly, pan, orbit), subject micro-motion, atmospheric effects (particles, light shifts, fabric movement). Keep subtle and cinematic.'),
   audioDescription: z.string().describe('Background audio/sound effects for this scene (not voiceover): ambient sounds, music mood, sfx.'),
@@ -97,7 +97,10 @@ CRITICAL RULES:
 - IGNORE all meta sections: project overview, creative direction, style guide, target audience, format notes, platform info, production notes, branding guidelines — anything that describes the document itself rather than a scene.
 - ONLY extract scenes that would appear as footage in the final video.
 - Scene titles should be SHORT and CINEMATIC (e.g. "City Night Chase", "Holographic Display"), never generic like "Scene 1" or "Introduction".
-- Narration must be ONLY the spoken voiceover words — not visual descriptions or stage directions. Keep the user's exact wording and tone. If the script has no voiceover text for a scene, write concise narration that matches the script's intent.
+- Narration = ONLY the spoken voiceover/dialogue words that a voice actor reads aloud. NOTHING ELSE.
+- If the script labels voiceover (e.g. "**Voiceover:**", "VO:", "NARRATOR:"), extract ONLY those exact quoted words.
+- DO NOT include stage directions, visual descriptions, camera notes, audio notes, music cues, or transition instructions in narration.
+- If a scene has NO voiceover/dialogue text, set narration to an EMPTY STRING "". Do NOT invent narration. Silent scenes are valid.
 
 IMAGE PROMPT RULES (visualDescription):
 - This generates a STILL IMAGE. Absolutely NO camera movement words (no "tracking", "dolly", "pan", "zoom", "follows"). Describe a FROZEN MOMENT in time.
