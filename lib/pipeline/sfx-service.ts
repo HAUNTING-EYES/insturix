@@ -119,31 +119,28 @@ export async function generateSFX(
         console.log(`[SFX] Library hit (${libResult.source}): "${libResult.originalTitle}" → ${libResult.audioAssetId}`);
         return libResult;
       }
-      console.warn('[SFX] Library returned no results, falling back to beatoven');
+      console.warn('[SFX] Library returned no results, falling back to CassetteAI');
     }
   } catch (libErr: any) {
-    console.warn(`[SFX] Library search failed (${libErr.message}), falling back to beatoven`);
+    console.warn(`[SFX] Library search failed (${libErr.message}), falling back to CassetteAI`);
   }
 
-  // Beatoven fallback (text-only SFX generation — often queued forever, last resort)
+  // CassetteAI fallback — generates ambient/SFX audio from text prompt
+  // $0.02/min, 10-180s, reliable (unlike beatoven which queues forever)
   try {
-    result = await fal.subscribe('beatoven/sound-effect-generation', {
+    result = await fal.subscribe('cassetteai/music-generator', {
       input: {
-        prompt: `${audioDescription}, sound effects, ambient audio, no music, no vocals`,
-        duration,
-        refinement: 40,
+        prompt: `${audioDescription}, ambient sound effects, atmospheric audio, no vocals`,
+        duration: Math.min(Math.max(Math.round(duration), 10), 180),
       },
       logs: true,
-      pollInterval: 2000,
+      pollInterval: 3000,
       onQueueUpdate: (update: any) => {
-        console.log(`[SFX] Queue status: ${update?.status || 'unknown'}, position: ${update?.position ?? '?'}`);
+        console.log(`[SFX] CassetteAI queue: ${update?.status || 'unknown'}`);
       },
     });
   } catch (err: any) {
-    const status = err?.status || err?.statusCode;
-    if (status === 404) {
-      console.error('[SFX] beatoven/sound-effect-generation returned 404. Check fal.ai billing.');
-    }
+    console.error(`[SFX] CassetteAI failed: ${err.message}`);
     throw err;
   }
 
@@ -155,9 +152,9 @@ export async function generateSFX(
   );
 
   const audioUrl =
-    data?.audio?.url ||           // beatoven format
-    data?.audio_file?.url ||      // legacy format
-    data?.audio?.[0]?.url ||
+    data?.audio_file?.url ||      // CassetteAI format
+    data?.audio?.url ||           // standard format
+    data?.audio?.[0]?.url ||      // array format
     data?.output?.url ||
     data?.url;
 

@@ -64,20 +64,22 @@ export async function generateBackgroundMusic(
     });
   } catch (err: any) {
     console.error(`[BGM] MiniMax Music v2 failed: ${err.message}`);
-    // Fallback to beatoven if MiniMax fails
-    console.log('[BGM] Falling back to beatoven/music-generation...');
+    // Fallback to CassetteAI — $0.02/min, supports 10-180s, simple and reliable
+    console.log('[BGM] Falling back to CassetteAI music-generator...');
     try {
-      result = await fal.subscribe('beatoven/music-generation', {
+      result = await fal.subscribe('cassetteai/music-generator', {
         input: {
           prompt: `${prompt}, instrumental, background music for video`,
-          duration: Math.min(Math.max(durationSec, 5), 150),
-          refinement: 100,
+          duration: Math.min(Math.max(durationSec, 10), 180), // CassetteAI: 10-180s
         },
         logs: true,
-        pollInterval: 2000,
+        pollInterval: 3000,
+        onQueueUpdate: (update: any) => {
+          console.log(`[BGM] CassetteAI queue: ${update?.status || 'unknown'}`);
+        },
       });
     } catch (fallbackErr: any) {
-      console.error(`[BGM] Beatoven fallback also failed: ${fallbackErr.message}`);
+      console.error(`[BGM] CassetteAI fallback also failed: ${fallbackErr.message}`);
       throw fallbackErr;
     }
   }
