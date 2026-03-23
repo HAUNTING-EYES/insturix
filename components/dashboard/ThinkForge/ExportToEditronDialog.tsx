@@ -100,6 +100,10 @@ export function ExportToEditronDialog({
   const [detectedProfile, setDetectedProfile] = useState<{ profileId: string; confidence: number; reasoning: string[]; name: string; description: string } | null>(null);
   const [selectedProfileId, setSelectedProfileId] = useState<string>('');
   const [profileSearchQuery, setProfileSearchQuery] = useState('');
+  const [briefPlatform, setBriefPlatform] = useState('');
+  const [briefTone, setBriefTone] = useState('');
+  const [briefCaptionStyle, setBriefCaptionStyle] = useState('');
+  const [briefBgmMood, setBriefBgmMood] = useState('');
   const [directorProgress, setDirectorProgress] = useState<{ step: number; total: number; desc: string }>({ step: 0, total: 0, desc: '' });
 
   // Results
@@ -775,7 +779,12 @@ export function ExportToEditronDialog({
               editProfileId: selectedProfileId,
               brief: {
                 selectedProfileId,
-                overrides: {},
+                platform: briefPlatform || undefined,
+                tone: briefTone || undefined,
+                bgmMood: briefBgmMood || undefined,
+                overrides: {
+                  ...(briefCaptionStyle ? { captionStyle: briefCaptionStyle } : {}),
+                },
               },
             }),
           });
@@ -2071,9 +2080,74 @@ export function ExportToEditronDialog({
                 </div>
               </div>
 
+              {/* ─── Project Brief Overrides ──────────────────── */}
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <div>
+                  <label className="text-[10px] text-zinc-500 block mb-0.5">Platform</label>
+                  <select
+                    value={briefPlatform}
+                    onChange={(e) => setBriefPlatform(e.target.value)}
+                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                  >
+                    <option value="">Auto (from profile)</option>
+                    <option value="youtube">YouTube</option>
+                    <option value="instagram">Instagram</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="ad">Digital Ad</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 block mb-0.5">Tone</label>
+                  <select
+                    value={briefTone}
+                    onChange={(e) => setBriefTone(e.target.value)}
+                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                  >
+                    <option value="">Auto (from profile)</option>
+                    <option value="professional">Professional</option>
+                    <option value="energetic">Energetic</option>
+                    <option value="cinematic">Cinematic</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="emotional">Emotional</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 block mb-0.5">Captions</label>
+                  <select
+                    value={briefCaptionStyle}
+                    onChange={(e) => setBriefCaptionStyle(e.target.value)}
+                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                  >
+                    <option value="">Auto (from profile)</option>
+                    <option value="none">None</option>
+                    <option value="subtitle">Subtitle</option>
+                    <option value="word-by-word">Word by Word</option>
+                    <option value="karaoke">Karaoke</option>
+                    <option value="fancy">Fancy / Kinetic</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-zinc-500 block mb-0.5">BGM Mood</label>
+                  <select
+                    value={briefBgmMood}
+                    onChange={(e) => setBriefBgmMood(e.target.value)}
+                    className="w-full h-7 px-2 text-xs bg-zinc-900 border border-zinc-700 rounded text-zinc-300"
+                  >
+                    <option value="">Auto</option>
+                    <option value="upbeat">Upbeat</option>
+                    <option value="calm">Calm</option>
+                    <option value="dramatic">Dramatic</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="cinematic">Cinematic</option>
+                  </select>
+                </div>
+              </div>
+
               <Button
                 onClick={() => handlePostProfileSelection()}
-                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 Continue with {detectedProfile.name} <ArrowRight className="h-4 w-4 ml-2" />
               </Button>

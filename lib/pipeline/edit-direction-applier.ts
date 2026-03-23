@@ -68,9 +68,33 @@ export function applyEditDirections(
   }
 
   // ─── 2. Apply pacing adjustments ────────────────────────────
-  // (Deferred — requires recalculating all frame positions.
-  //  Will be implemented when Director Agent can orchestrate
-  //  multi-overlay timeline adjustments.)
+  const pacingMultiplier = globalDirections?.pacingMultiplier;
+  if (pacingMultiplier && pacingMultiplier !== 1.0) {
+    let frameShift = 0;
+    for (const info of sceneFrameMap) {
+      const sceneOverlays = overlays.filter(o =>
+        o.from >= info.fromFrame && o.from < info.fromFrame + info.durationFrames,
+      );
+
+      const originalDuration = info.durationFrames;
+      const newDuration = Math.max(30, Math.round(originalDuration * pacingMultiplier)); // Min 1s at 30fps
+      const frameDelta = newDuration - originalDuration;
+
+      // Adjust duration of overlays within this scene
+      for (const overlay of sceneOverlays) {
+        if (overlay.type === 'video' || overlay.type === 'image') {
+          overlay.durationInFrames = Math.max(30, Math.round(overlay.durationInFrames * pacingMultiplier));
+        }
+        // Shift all overlays by accumulated frame shift
+        overlay.from += frameShift;
+      }
+
+      // Also shift overlays that come AFTER this scene
+      frameShift += frameDelta;
+    }
+    totalFrameShift += frameShift;
+    console.log(`[EditDirections] Pacing applied: multiplier=${pacingMultiplier}, totalShift=${totalFrameShift} frames`);
+  }
 
   // ─── 3. Insert transition overlays ──────────────────────────
   const transitionsToInsert: any[] = [];
