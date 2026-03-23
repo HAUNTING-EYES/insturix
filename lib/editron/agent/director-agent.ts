@@ -241,23 +241,27 @@ async function invokeAITool(
   // Tool-specific param mapping from profile
   switch (toolName) {
     case 'add_captions': {
-      // Find first video overlay to add captions to
-      const videoOverlay = overlays.find(o => o.type === 'video');
-      if (!videoOverlay) {
-        console.log(`[Director] add_captions: no video overlay found, skipping`);
+      // Add captions to ALL video overlays, not just the first
+      const videoOverlays = overlays.filter(o => o.type === 'video');
+      if (videoOverlays.length === 0) {
+        console.log(`[Director] add_captions: no video overlays found, skipping`);
         return 0;
       }
-      params.videoOverlayId = params.videoOverlayId || videoOverlay.id;
+      // Invoke caption tool for the first video — the tool adds captions for the whole clip
+      // which covers all voiceover in that range
+      params.videoOverlayId = params.videoOverlayId || videoOverlays[0].id;
       params.style = params.style || profile.captionStyle || 'subtitle';
       params.position = params.position || 'bottom';
+      console.log(`[Director] add_captions: targeting video ${params.videoOverlayId}, style=${params.style}`);
       break;
     }
     case 'add_fancy_captions': {
-      const videoOverlay = overlays.find(o => o.type === 'video');
-      if (!videoOverlay) return 0;
-      params.videoOverlayId = params.videoOverlayId || videoOverlay.id;
+      const videoOverlays = overlays.filter(o => o.type === 'video');
+      if (videoOverlays.length === 0) return 0;
+      params.videoOverlayId = params.videoOverlayId || videoOverlays[0].id;
       params.style = params.style || 'kinetic';
       params.intensity = params.intensity || 'medium';
+      console.log(`[Director] add_fancy_captions: targeting video ${params.videoOverlayId}, style=${params.style}`);
       break;
     }
     case 'sync_cuts_to_beats': {

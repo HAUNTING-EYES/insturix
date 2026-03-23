@@ -3552,7 +3552,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
   const regenerateSceneSchema = z.object({
     sceneIndex: z.coerce.number().describe("The scene index (0-based) to regenerate. If user says 'scene 3', use index 2."),
     feedback: z.string().optional().describe("User's feedback/direction for regeneration, e.g. 'make it darker', 'change the lighting to golden hour'"),
-    target: z.enum(['image', 'video', 'voiceover', 'all']).default('image').describe("What to regenerate: image (storyboard), video (AI clip), voiceover (narration audio), or all"),
+    target: z.enum(['image', 'storyboard', 'video', 'voiceover', 'all']).default('image').describe("What to regenerate: image/storyboard (scene image), video (AI clip), voiceover (narration audio), or all"),
   });
 
   const regenerateScene = tool(
@@ -3609,8 +3609,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         const results: string[] = [];
 
-        // Regenerate storyboard image
-        if (input.target === 'image' || input.target === 'all') {
+        // Regenerate storyboard image ('storyboard' is an alias for 'image')
+        if (input.target === 'image' || input.target === 'storyboard' || input.target === 'all') {
           const imgRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/services/pipeline/storyboard/${storyboardId}/scene/${input.sceneIndex}/regenerate-with-context`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

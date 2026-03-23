@@ -105,11 +105,29 @@ export async function transcribeMedia(
   }
 
   try {
-    // Transcribe the audio from URL
-    const response: SyncPrerecordedResponse = await deepgram.listen.prerecorded.transcribeUrl(
-      { url: mediaUrl },
-      transcriptionOptions
-    );
+    // Download file first, then transcribe — GCS signed URLs often expire
+    // or are inaccessible from Deepgram's servers. Downloading ensures
+    // the audio data is available regardless of URL type/expiry.
+    let response: SyncPrerecordedResponse;
+    const isGCSUrl = mediaUrl.includes('storage.googleapis.com') && mediaUrl.includes('X-Goog-Signature');
+
+    if (isGCSUrl) {
+      console.log('[Deepgram] Downloading GCS file before transcription...');
+      const fileResponse = await fetch(mediaUrl);
+      if (!fileResponse.ok) throw new Error(`Failed to download media for transcription (${fileResponse.status})`);
+      const buffer = Buffer.from(await fileResponse.arrayBuffer());
+      const mimeType = fileResponse.headers.get('content-type') || 'audio/wav';
+
+      response = await deepgram.listen.prerecorded.transcribeFile(
+        buffer,
+        { ...transcriptionOptions, mimetype: mimeType },
+      ) as SyncPrerecordedResponse;
+    } else {
+      response = await deepgram.listen.prerecorded.transcribeUrl(
+        { url: mediaUrl },
+        transcriptionOptions,
+      );
+    }
 
     // Extract word-level data from response
     const result = response.result;
