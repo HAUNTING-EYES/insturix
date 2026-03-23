@@ -88,6 +88,7 @@ export function ExportToEditronDialog({
   const [artStyle, setArtStyle] = useState('cinematic');
   const [imageModel, setImageModel] = useState('flux-schnell');
   const [videoModel, setVideoModel] = useState('auto');
+  const [enableChaining, setEnableChaining] = useState(false);
   const prewarmFiredRef = useRef(false);
   const [selectedVoice, setSelectedVoice] = useState('aura-asteria-en');
   const [availableVoices, setAvailableVoices] = useState<Array<{ id: string; name: string; gender: string; style: string }>>([]);
@@ -607,6 +608,7 @@ export function ExportToEditronDialog({
               aspectRatio,
               sceneIndices: allSceneIndices,
               videoModel,
+              enableChaining,
             }),
           });
 
@@ -1372,6 +1374,18 @@ export function ExportToEditronDialog({
                       Auto mode picks the best model per scene based on mood and motion. For maximum visual consistency across scenes, select a specific model instead.
                     </p>
                   )}
+
+                  {/* Scene Chaining Toggle */}
+                  <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={enableChaining}
+                      onChange={(e) => setEnableChaining(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-600 bg-zinc-800 text-emerald-500 focus:ring-emerald-500 focus:ring-offset-0"
+                    />
+                    <span className="text-xs text-zinc-400">Scene chaining</span>
+                    <span className="text-[10px] text-zinc-600">— smooth transitions between scenes (Kling/Luma only)</span>
+                  </label>
                 </motion.div>
               )}
 

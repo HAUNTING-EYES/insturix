@@ -102,13 +102,30 @@ export async function generateSFX(
           durationMs: duration * 1000,
         };
       }
-      console.warn('[SFX] mirelo returned no audio, falling back to beatoven');
+      console.warn('[SFX] mirelo returned no audio, trying SFX library');
     } catch (mireloErr: any) {
-      console.warn(`[SFX] mirelo failed (${mireloErr.message}), falling back to beatoven`);
+      console.warn(`[SFX] mirelo failed (${mireloErr.message}), trying SFX library`);
     }
   }
 
-  // Beatoven fallback (text-only SFX generation)
+  // Tier 2: SFX Library (Pixabay / Freesound) — deterministic, fast, royalty-free
+  try {
+    const { searchAndDownloadSFX, audioDescriptionToSearchQuery, isSFXLibraryAvailable } = await import('./sfx-library-service');
+    if (isSFXLibraryAvailable()) {
+      const searchQuery = audioDescriptionToSearchQuery(audioDescription);
+      console.log(`[SFX] Trying SFX library: "${searchQuery}"`);
+      const libResult = await searchAndDownloadSFX(searchQuery, userId, Math.round(duration));
+      if (libResult) {
+        console.log(`[SFX] Library hit (${libResult.source}): "${libResult.originalTitle}" → ${libResult.audioAssetId}`);
+        return libResult;
+      }
+      console.warn('[SFX] Library returned no results, falling back to beatoven');
+    }
+  } catch (libErr: any) {
+    console.warn(`[SFX] Library search failed (${libErr.message}), falling back to beatoven`);
+  }
+
+  // Beatoven fallback (text-only SFX generation — often queued forever, last resort)
   try {
     result = await fal.subscribe('beatoven/sound-effect-generation', {
       input: {
