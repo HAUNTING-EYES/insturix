@@ -448,30 +448,25 @@ export function AIChatPanel() {
 
                 // Reload project data immediately after a modifying tool finishes
                 const modifyingTools = [
-                  // Legacy tools (may still be in use)
-                  'apply_project_patch', 
-                  'add_text_overlay', 
-                  'add_image_overlay', 
-                  'add_video_overlay', 
-                  'add_audio_overlay', 
-                  'update_overlay', 
-                  'delete_overlay',
-                  // New unified tools
-                  'add_overlay',
-                  'batch_update_overlays',
-                  'split_overlay',
-                  'trim_overlay',
-                  'sync_style',
-                  'generate_html_scene',
-                  'generate_html_sticker',
-                  // Video auto-edit tools
-                  'add_captions',
-                  'add_fancy_captions',
-                  'refresh_fancy_captions',
-                  'refresh_captions',
-                  'close_gaps',
-                  // Compound tools
-                  'cut_section',
+                  // Core overlay CRUD
+                  'add_overlay', 'update_overlay', 'delete_overlay',
+                  'batch_update_overlays', 'split_overlay', 'trim_overlay',
+                  'sync_style', 'close_gaps', 'cut_section',
+                  // HTML generation
+                  'generate_html_scene', 'generate_html_sticker',
+                  'add_motion_graphic',
+                  // Caption tools
+                  'add_captions', 'add_fancy_captions',
+                  'refresh_captions', 'refresh_fancy_captions',
+                  // Advanced editing
+                  'sync_cuts_to_beats', 'set_keyframes',
+                  'auto_edit_from_script', 'apply_style',
+                  // Scene regeneration (updates storyboard + project)
+                  'regenerate_scene',
+                  // Legacy tools
+                  'apply_project_patch',
+                  'add_text_overlay', 'add_image_overlay',
+                  'add_video_overlay', 'add_audio_overlay',
                 ];
                 
                 if (modifyingTools.includes(data.tool)) {

@@ -91,24 +91,28 @@ async function generateTranscription(
   const { transcribeMedia } = await import('../deepgram-service');
   const { refreshSignedUrl } = await import('../gcs-service');
   
-  // Get accessible URL
+  // Get accessible URL — always refresh if gcsPath available (signed URLs expire)
   let mediaUrl: string;
-  
-  if (asset.source === 'public' && asset.publicUrl) {
-    mediaUrl = asset.publicUrl;
-  } else if (asset.cachedUrl) {
-    // Check if URL is expired
-    const now = Date.now();
-    const expiresAt = new Date(asset.urlExpiresAt).getTime();
-    
-    if (expiresAt < now && asset.gcsPath) {
+
+  if (asset.gcsPath) {
+    // Always generate a fresh signed URL for transcription — cached URLs may have expired
+    try {
       const { url } = await refreshSignedUrl(asset.gcsPath);
       mediaUrl = url;
-    } else {
-      mediaUrl = asset.cachedUrl;
+    } catch (refreshErr: any) {
+      console.warn(`[Transcription] Failed to refresh URL for ${asset.assetId}: ${refreshErr.message}, using cachedUrl`);
+      mediaUrl = asset.cachedUrl || '';
     }
+  } else if (asset.source === 'public' && asset.publicUrl) {
+    mediaUrl = asset.publicUrl;
+  } else if (asset.cachedUrl) {
+    mediaUrl = asset.cachedUrl;
   } else {
     throw new Error(`No accessible URL for asset ${asset.assetId}`);
+  }
+
+  if (!mediaUrl) {
+    throw new Error(`Empty URL for asset ${asset.assetId} — gcsPath: ${asset.gcsPath || 'none'}, source: ${asset.source}`);
   }
   
   // Transcribe
