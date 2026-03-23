@@ -15,6 +15,32 @@ export enum OverlayType {
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
   QUALITY_REVIEW = "quality-review", // Quality Review panel
 }
+// ─── Keyframe Animation System ───────────────────────────────────
+// Enables per-property animation curves on any overlay.
+// Used by: dissolves, zoom effects, position animation, speed ramping.
+
+export interface Keyframe {
+  /** Local frame within the overlay (0 = overlay start) */
+  frame: number;
+  /** Value at this frame */
+  value: number;
+  /** Interpolation easing to the NEXT keyframe */
+  easing: 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out';
+}
+
+export interface KeyframeTrack {
+  /**
+   * Property to animate:
+   * - x, y: absolute pixel position (same as overlay.left/overlay.top)
+   * - scale: multiplier (1.0 = no change, 2.0 = double size)
+   * - opacity: 0.0 (invisible) to 1.0 (fully visible)
+   * - rotation: degrees
+   * - speed: playback rate multiplier (0.25 to 4.0)
+   */
+  property: 'x' | 'y' | 'scale' | 'opacity' | 'rotation' | 'speed';
+  keyframes: Keyframe[];
+}
+
 // Base overlay properties
 type BaseOverlay = {
   id: number;
@@ -29,6 +55,8 @@ type BaseOverlay = {
   rotation: number;
   type: OverlayType;
   assetId?: string; // GCS asset ID for media files (video, image, audio)
+  /** Per-property animation keyframe tracks (position, scale, opacity, etc.) */
+  keyframeTracks?: KeyframeTrack[];
 };
 
 // Base style properties
@@ -97,6 +125,10 @@ export type ClipOverlay = BaseOverlay & {
   posterUrl?: string; // Storyboard image used as thumbnail fallback (avoids CORS)
   videoStartTime?: number;
   speed?: number;
+  /** Variable speed curve — overrides constant `speed` when present.
+   *  Each keyframe specifies a playback rate at a local frame offset.
+   *  Video is split into segments, each with its own constant rate. */
+  speedCurve?: Keyframe[];
   styles: BaseStyles & {
     objectFit?: "contain" | "cover" | "fill" | "none" | "scale-down";
     objectPosition?: string;
@@ -117,7 +149,12 @@ export type SoundOverlay = BaseOverlay & {
   content: string;
   src?: string; // Optional - resolved from assetId
   assetId?: string; // Reference to mediaAsset
+  /** @deprecated Use audioStartFrame instead. Kept for backward compatibility. */
   startFromSound?: number;
+  /** J-cut: audioStartFrame < overlay.from — audio begins before the video */
+  audioStartFrame?: number;
+  /** L-cut: audioEndFrame > overlay.from + durationInFrames — audio continues after video */
+  audioEndFrame?: number;
   styles: BaseStyles & {
     volume?: number;
   };
