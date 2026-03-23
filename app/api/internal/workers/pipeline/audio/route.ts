@@ -89,11 +89,18 @@ async function handler(request: NextRequest) {
         },
       };
 
-      // Add overlay to existing project
+      // Add overlay to existing project — push to BOTH overlays arrays.
+      // The project has two overlay locations:
+      // - `overlays` (top-level): what the editor loads on page open
+      // - `state.overlays`: what saveProject writes to
+      // We must push to both so the audio appears regardless of which the editor reads.
       await db.collection(COLLECTIONS.PROJECTS).updateOne(
         { projectId },
         {
-          $push: { 'state.overlays': bgmOverlay as any },
+          $push: {
+            'overlays': bgmOverlay as any,
+            'state.overlays': bgmOverlay as any,
+          },
           $set: { updatedAt: new Date() },
         },
       );
@@ -162,12 +169,15 @@ async function handler(request: NextRequest) {
         );
       }
 
-      // Add all SFX overlays to existing project
+      // Add all SFX overlays to existing project (both overlay arrays)
       if (sfxOverlays.length > 0) {
         await db.collection(COLLECTIONS.PROJECTS).updateOne(
           { projectId },
           {
-            $push: { 'state.overlays': { $each: sfxOverlays } },
+            $push: {
+              'overlays': { $each: sfxOverlays },
+              'state.overlays': { $each: sfxOverlays },
+            },
             $set: { updatedAt: new Date() },
           },
         );
