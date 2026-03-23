@@ -119,7 +119,7 @@ export function ExportToEditronDialog({
   const [refSetId, setRefSetId] = useState('');
   const [subjects, setSubjects] = useState<SubjectRef[]>([]);
   const [approvedSubjectIds, setApprovedSubjectIds] = useState<Set<string>>(new Set());
-  const [regeneratingSubjectId, setRegeneratingSubjectId] = useState<string | null>(null);
+  const [regeneratingSubjectIds, setRegeneratingSubjectIds] = useState<Set<string>>(new Set());
   const [feedbackSubjectId, setFeedbackSubjectId] = useState<string | null>(null);
   const [feedbackText, setFeedbackText] = useState('');
   const [editingSubjectId, setEditingSubjectId] = useState<string | null>(null);
@@ -128,7 +128,7 @@ export function ExportToEditronDialog({
 
   // Suggested subjects from script analysis (not yet generated)
   const [suggestedSubjects, setSuggestedSubjects] = useState<SuggestedSubject[]>([]);
-  const [generatingSuggestedId, setGeneratingSuggestedId] = useState<string | null>(null);
+  const [generatingSuggestedIds, setGeneratingSuggestedIds] = useState<Set<string>>(new Set());
   const [scriptSearchQuery, setScriptSearchQuery] = useState('');
 
   // Add new subject state (manual entry)
@@ -146,7 +146,7 @@ export function ExportToEditronDialog({
   const [globalEditDirections, setGlobalEditDirections] = useState<any>(undefined);
 
   // Storyboard scene edit state
-  const [regeneratingSceneIdx, setRegeneratingSceneIdx] = useState<number | null>(null);
+  const [regeneratingSceneIdxs, setRegeneratingSceneIdxs] = useState<Set<number>>(new Set());
   const [sceneFeedbackIdx, setSceneFeedbackIdx] = useState<number | null>(null);
   const [sceneFeedbackText, setSceneFeedbackText] = useState('');
 
@@ -257,7 +257,7 @@ export function ExportToEditronDialog({
     setRefSetId('');
     setSubjects([]);
     setApprovedSubjectIds(new Set());
-    setRegeneratingSubjectId(null);
+    setRegeneratingSubjectIds(new Set());
     setFeedbackSubjectId(null);
     setFeedbackText('');
     setEditingSubjectId(null);
@@ -267,7 +267,7 @@ export function ExportToEditronDialog({
     setCharacterDescriptions(undefined);
     setEnvironmentNotes(undefined);
     setSuggestedSubjects([]);
-    setGeneratingSuggestedId(null);
+    setGeneratingSuggestedIds(new Set());
     setScriptSearchQuery('');
     setShowAddSubject(false);
     setAddingSubject(false);
@@ -275,7 +275,7 @@ export function ExportToEditronDialog({
     setNewSubjectCategory('character');
     setNewSubjectDescription('');
     setNewSubjectScenes('');
-    setRegeneratingSceneIdx(null);
+    setRegeneratingSceneIdxs(new Set());
     setSceneFeedbackIdx(null);
     setSceneFeedbackText('');
   };
@@ -816,8 +816,8 @@ export function ExportToEditronDialog({
 
   // ─── Regenerate a single subject's reference image (with optional feedback)
   const handleRegenerateSubject = async (subjectId: string, feedback?: string) => {
-    if (!refSetId || regeneratingSubjectId) return;
-    setRegeneratingSubjectId(subjectId);
+    if (!refSetId || regeneratingSubjectIds.has(subjectId)) return;
+    setRegeneratingSubjectIds(prev => new Set(prev).add(subjectId));
     setFeedbackSubjectId(null);
     setFeedbackText('');
 
@@ -837,24 +837,20 @@ export function ExportToEditronDialog({
               : s,
           ),
         );
-        // Auto-approve after regeneration
-        setApprovedSubjectIds((prev) => {
-          const next = new Set(prev);
-          next.add(subjectId);
-          return next;
-        });
+        setApprovedSubjectIds((prev) => { const next = new Set(prev); next.add(subjectId); return next; });
+        sendNotification('Reference Updated', `"${subjects.find(s => s.subjectId === subjectId)?.name || subjectId}" regenerated.`);
       }
     } catch (err) {
       console.error('[ExportToEditron] Regenerate subject failed:', err);
     } finally {
-      setRegeneratingSubjectId(null);
+      setRegeneratingSubjectIds(prev => { const next = new Set(prev); next.delete(subjectId); return next; });
     }
   };
 
   // ─── Upload a real image as reference for a subject
   const handleUploadSubjectImage = async (subjectId: string, file: File) => {
     if (!refSetId) return;
-    setRegeneratingSubjectId(subjectId); // Reuse loading state
+    setRegeneratingSubjectIds(prev => new Set(prev).add(subjectId));
 
     try {
       const formData = new FormData();
@@ -887,14 +883,14 @@ export function ExportToEditronDialog({
       console.error('[ExportToEditron] Upload subject image failed:', err);
       setError(`Upload failed: ${err.message}`);
     } finally {
-      setRegeneratingSubjectId(null);
+      setRegeneratingSubjectIds(prev => { const next = new Set(prev); next.delete(subjectId); return next; });
     }
   };
 
   // ─── Upload a real image for a storyboard scene
   const handleUploadSceneImage = async (sceneIndex: number, file: File) => {
     if (!storyboardId) return;
-    setRegeneratingSceneIdx(sceneIndex);
+    setRegeneratingSceneIdxs(prev => new Set(prev).add(sceneIndex));
 
     try {
       const formData = new FormData();
@@ -920,7 +916,7 @@ export function ExportToEditronDialog({
     } catch (err: any) {
       console.error('[ExportToEditron] Upload scene image failed:', err);
     } finally {
-      setRegeneratingSceneIdx(null);
+      setRegeneratingSceneIdxs(prev => { const next = new Set(prev); next.delete(sceneIndex); return next; });
     }
   };
 
@@ -961,8 +957,8 @@ export function ExportToEditronDialog({
 
   // Generate a suggested subject (one-click from script analysis)
   const handleGenerateSuggested = async (suggested: SuggestedSubject) => {
-    if (!refSetId || generatingSuggestedId) return;
-    setGeneratingSuggestedId(suggested.id);
+    if (!refSetId || generatingSuggestedIds.has(suggested.id)) return;
+    setGeneratingSuggestedIds(prev => new Set(prev).add(suggested.id));
     setError('');
 
     try {
@@ -1005,10 +1001,11 @@ export function ExportToEditronDialog({
       });
       // Remove from suggestions
       setSuggestedSubjects((prev) => prev.filter((s) => s.id !== suggested.id));
+      sendNotification('Reference Added', `"${suggested.name}" reference image generated.`);
     } catch (err: any) {
       setError(`Generate "${suggested.name}" failed: ${err.message}`);
     } finally {
-      setGeneratingSuggestedId(null);
+      setGeneratingSuggestedIds(prev => { const next = new Set(prev); next.delete(suggested.id); return next; });
     }
   };
 
@@ -1103,8 +1100,8 @@ export function ExportToEditronDialog({
 
   // ─── Storyboard Scene Regeneration ─────────────────────────────
   const handleRegenerateStoryboardScene = async (sceneIndex: number, feedback?: string) => {
-    if (!storyboardId) return;
-    setRegeneratingSceneIdx(sceneIndex);
+    if (!storyboardId || regeneratingSceneIdxs.has(sceneIndex)) return;
+    setRegeneratingSceneIdxs(prev => new Set(prev).add(sceneIndex));
     setError('');
     try {
       const res = await fetch(
@@ -1114,7 +1111,7 @@ export function ExportToEditronDialog({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             feedback: feedback || undefined,
-            userId: undefined, // auth handled server-side
+            userId: undefined,
           }),
         },
       );
@@ -1123,7 +1120,6 @@ export function ExportToEditronDialog({
         throw new Error(errText || `Failed (${res.status})`);
       }
       const data = await res.json().catch(() => ({}));
-      // API returns { success, scene } — scene has imageUrl and imageAssetId
       const updatedScene = data.scene || data;
       setStoryboardScenes((prev: any[]) =>
         prev.map((s: any) =>
@@ -1134,10 +1130,11 @@ export function ExportToEditronDialog({
       );
       setSceneFeedbackIdx(null);
       setSceneFeedbackText('');
+      sendNotification('Scene Regenerated', `Scene ${sceneIndex + 1} storyboard image updated.`);
     } catch (err: any) {
       setError(`Scene ${sceneIndex + 1} regeneration failed: ${err.message}`);
     } finally {
-      setRegeneratingSceneIdx(null);
+      setRegeneratingSceneIdxs(prev => { const next = new Set(prev); next.delete(sceneIndex); return next; });
     }
   };
 
@@ -1535,7 +1532,7 @@ export function ExportToEditronDialog({
               <div className="grid grid-cols-2 gap-3 max-h-[360px] overflow-y-auto pr-1">
                 {subjects.map((subject) => {
                   const isApproved = approvedSubjectIds.has(subject.subjectId);
-                  const isRegenerating = regeneratingSubjectId === subject.subjectId;
+                  const isRegenerating = regeneratingSubjectIds.has(subject.subjectId);
                   const showFeedback = feedbackSubjectId === subject.subjectId;
 
                   return (
@@ -1750,11 +1747,11 @@ export function ExportToEditronDialog({
                         <button
                           key={suggested.id}
                           onClick={() => handleGenerateSuggested(suggested)}
-                          disabled={generatingSuggestedId !== null}
+                          disabled={generatingSuggestedIds.has(suggested.id)}
                           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 bg-zinc-800/50 hover:border-purple-500/50 hover:bg-purple-500/10 transition-all text-left group disabled:opacity-50"
                           title={suggested.visualDescription}
                         >
-                          {generatingSuggestedId === suggested.id ? (
+                          {generatingSuggestedIds.has(suggested.id) ? (
                             <Loader2 className="h-3 w-3 text-purple-400 animate-spin flex-shrink-0" />
                           ) : (
                             <Plus className="h-3 w-3 text-zinc-500 group-hover:text-purple-400 flex-shrink-0" />
@@ -1906,7 +1903,7 @@ export function ExportToEditronDialog({
                           {/* Hover overlay with upload + regenerate actions */}
                           <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
                             <label
-                              className={`p-1.5 rounded-md bg-emerald-700/80 hover:bg-emerald-600 text-emerald-200 transition-colors cursor-pointer ${regeneratingSceneIdx !== null ? 'opacity-50 pointer-events-none' : ''}`}
+                              className={`p-1.5 rounded-md bg-emerald-700/80 hover:bg-emerald-600 text-emerald-200 transition-colors cursor-pointer ${regeneratingSceneIdxs.has(scene.sceneIndex) ? 'opacity-50 pointer-events-none' : ''}`}
                               title="Upload your own image"
                             >
                               <Upload className="h-3.5 w-3.5" />
@@ -1923,15 +1920,15 @@ export function ExportToEditronDialog({
                             </label>
                             <button
                               onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
-                              disabled={regeneratingSceneIdx !== null}
+                              disabled={regeneratingSceneIdxs.has(scene.sceneIndex)}
                               className="p-1.5 rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-200 transition-colors disabled:opacity-50"
                               title="Regenerate this scene"
                             >
-                              <RefreshCw className={`h-3.5 w-3.5 ${regeneratingSceneIdx === scene.sceneIndex ? 'animate-spin' : ''}`} />
+                              <RefreshCw className={`h-3.5 w-3.5 ${regeneratingSceneIdxs.has(scene.sceneIndex) ? 'animate-spin' : ''}`} />
                             </button>
                             <button
                               onClick={() => setSceneFeedbackIdx(sceneFeedbackIdx === scene.sceneIndex ? null : scene.sceneIndex)}
-                              disabled={regeneratingSceneIdx !== null}
+                              disabled={regeneratingSceneIdxs.has(scene.sceneIndex)}
                               className="p-1.5 rounded-md bg-zinc-700/80 hover:bg-zinc-600 text-zinc-200 transition-colors disabled:opacity-50"
                               title="Regenerate with feedback"
                             >
@@ -1944,14 +1941,14 @@ export function ExportToEditronDialog({
                           <X className="h-4 w-4" />
                           <button
                             onClick={() => handleRegenerateStoryboardScene(scene.sceneIndex)}
-                            disabled={regeneratingSceneIdx !== null}
+                            disabled={regeneratingSceneIdxs.has(scene.sceneIndex)}
                             className="text-[9px] text-blue-400 hover:text-blue-300 underline"
                           >
-                            {regeneratingSceneIdx === scene.sceneIndex ? 'Regenerating...' : 'Retry'}
+                            {regeneratingSceneIdxs.has(scene.sceneIndex) ? 'Regenerating...' : 'Retry'}
                           </button>
                         </div>
                       )}
-                      {regeneratingSceneIdx === scene.sceneIndex && (
+                      {regeneratingSceneIdxs.has(scene.sceneIndex) && (
                         <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
                           <Loader2 className="h-5 w-5 text-green-400 animate-spin" />
                         </div>
@@ -1977,7 +1974,7 @@ export function ExportToEditronDialog({
                           onClick={() => {
                             handleRegenerateStoryboardScene(scene.sceneIndex, sceneFeedbackText.trim());
                           }}
-                          disabled={regeneratingSceneIdx !== null || !sceneFeedbackText.trim()}
+                          disabled={regeneratingSceneIdxs.has(scene.sceneIndex) || !sceneFeedbackText.trim()}
                           className="w-full text-[10px] py-1 rounded bg-green-600 hover:bg-green-500 text-white disabled:opacity-50 transition-colors flex items-center justify-center gap-1"
                         >
                           <RefreshCw className="h-2.5 w-2.5" />
@@ -2279,7 +2276,7 @@ export function ExportToEditronDialog({
               </Button>
               <Button
                 onClick={() => handlePhase2()}
-                disabled={regeneratingSubjectId !== null}
+                disabled={regeneratingSubjectIds.size > 0}
                 className="bg-green-600 hover:bg-green-700 text-white"
               >
                 <ArrowRight className="h-4 w-4 mr-2" />
