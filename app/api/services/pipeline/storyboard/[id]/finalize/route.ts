@@ -84,10 +84,10 @@ export async function POST(
       const sceneDurationSec = Math.max(...candidateDurations);
       const durationFrames = Math.round(sceneDurationSec * fps);
 
-      // Scene background: ALWAYS add image as base layer (prevents blank gaps
-      // between video clips while the next video loads/buffers).
-      // Then layer the video on top if available.
-      if (scene.imageUrl) {
+      // Scene background: Only add storyboard image when NO video exists.
+      // Storyboard is a stencil for consistency — not needed on the timeline
+      // when a real video clip is present.
+      if (scene.imageUrl && !scene.videoUrl) {
         overlays.push({
           id: overlayId++,
           type: 'image',
