@@ -62,24 +62,7 @@ export async function generateBackgroundMusic(
     });
   } catch (err: any) {
     console.error(`[BGM] CassetteAI failed: ${err.message}`);
-    // Fallback: MiniMax Music v2 — requires lyrics_prompt
-    console.log('[BGM] Falling back to MiniMax Music v2...');
-    try {
-      result = await fal.subscribe('fal-ai/minimax-music/v2', {
-        input: {
-          prompt: musicPrompt,
-          lyrics_prompt: '[Intro]\nLa la la la la la\n[Verse]\nDa da da dum da da da dum\n[Chorus]\nLa la la la la la\n[Outro]\nMmm mmm mmm',
-        },
-        logs: true,
-        pollInterval: 3000,
-        onQueueUpdate: (update: any) => {
-          console.log(`[BGM] MiniMax queue: ${update?.status || 'unknown'}`);
-        },
-      });
-    } catch (fallbackErr: any) {
-      console.error(`[BGM] MiniMax fallback also failed: ${fallbackErr.message}`);
-      throw fallbackErr;
-    }
+    throw new Error(`BGM generation failed: ${err.message}`);
   }
 
   // Extract audio URL — handle multiple response formats
