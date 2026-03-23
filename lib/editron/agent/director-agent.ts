@@ -241,28 +241,51 @@ async function invokeAITool(
   // Tool-specific param mapping from profile
   switch (toolName) {
     case 'add_captions': {
-      // Add captions to ALL video overlays, not just the first
+      // Caption ALL video overlays sequentially
       const videoOverlays = overlays.filter(o => o.type === 'video');
       if (videoOverlays.length === 0) {
         console.log(`[Director] add_captions: no video overlays found, skipping`);
         return 0;
       }
-      // Invoke caption tool for the first video — the tool adds captions for the whole clip
-      // which covers all voiceover in that range
-      params.videoOverlayId = params.videoOverlayId || videoOverlays[0].id;
-      params.style = params.style || profile.captionStyle || 'subtitle';
-      params.position = params.position || 'bottom';
-      console.log(`[Director] add_captions: targeting video ${params.videoOverlayId}, style=${params.style}`);
-      break;
+      const captionStyle = params.style || profile.captionStyle || 'subtitle';
+      console.log(`[Director] add_captions: ${videoOverlays.length} videos, style=${captionStyle}`);
+
+      // Caption each video sequentially — tool.invoke handles transcription + caption creation
+      let captionCount = 0;
+      for (const vo of videoOverlays) {
+        try {
+          const captionParams = { videoOverlayId: vo.id, style: captionStyle, position: 'bottom' };
+          console.log(`[Director] add_captions: video ${vo.id} (${captionCount + 1}/${videoOverlays.length})`);
+          const resultStr = await tool.invoke(captionParams);
+          const result = JSON.parse(resultStr);
+          if (result.status === 'success') captionCount++;
+          else console.warn(`[Director] add_captions video ${vo.id}: ${result.error?.message}`);
+        } catch (err: any) {
+          console.warn(`[Director] add_captions failed for video ${vo.id}: ${err.message}`);
+        }
+      }
+      return captionCount;
     }
     case 'add_fancy_captions': {
       const videoOverlays = overlays.filter(o => o.type === 'video');
       if (videoOverlays.length === 0) return 0;
-      params.videoOverlayId = params.videoOverlayId || videoOverlays[0].id;
-      params.style = params.style || 'kinetic';
-      params.intensity = params.intensity || 'medium';
-      console.log(`[Director] add_fancy_captions: targeting video ${params.videoOverlayId}, style=${params.style}`);
-      break;
+      const fancyStyle = params.style || 'kinetic';
+      console.log(`[Director] add_fancy_captions: ${videoOverlays.length} videos, style=${fancyStyle}`);
+
+      let fancyCaptionCount = 0;
+      for (const vo of videoOverlays) {
+        try {
+          const fancyParams = { videoOverlayId: vo.id, style: fancyStyle, intensity: params.intensity || 'medium' };
+          console.log(`[Director] add_fancy_captions: video ${vo.id} (${fancyCaptionCount + 1}/${videoOverlays.length})`);
+          const resultStr = await tool.invoke(fancyParams);
+          const result = JSON.parse(resultStr);
+          if (result.status === 'success') fancyCaptionCount++;
+          else console.warn(`[Director] add_fancy_captions video ${vo.id}: ${result.error?.message}`);
+        } catch (err: any) {
+          console.warn(`[Director] add_fancy_captions failed for video ${vo.id}: ${err.message}`);
+        }
+      }
+      return fancyCaptionCount;
     }
     case 'sync_cuts_to_beats': {
       // Find audio (BGM) and video overlays
