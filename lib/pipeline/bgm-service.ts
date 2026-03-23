@@ -49,11 +49,12 @@ export async function generateBackgroundMusic(
   let result: any;
   try {
     // MiniMax Music v2 requires BOTH prompt AND lyrics_prompt (min 10 chars each).
-    // For instrumental BGM, we use a structural placeholder as lyrics.
+    // For instrumental BGM, we use structural tags with la-la placeholder vocals.
+    // Pure structural tags like [Instrumental] alone may cause 422.
     result = await fal.subscribe('fal-ai/minimax-music/v2', {
       input: {
         prompt: musicPrompt,
-        lyrics_prompt: '[Intro]\n[Instrumental]\n[Outro]', // Required field, min 10 chars
+        lyrics_prompt: '[Intro]\nLa la la la la la\n[Verse]\nDa da da dum da da da dum\n[Chorus]\nLa la la la la la\n[Outro]\nMmm mmm mmm',
       },
       logs: true,
       pollInterval: 3000,

@@ -71,14 +71,17 @@ export async function generateSFX(
   let result: any;
   if (videoUrl) {
     try {
-      console.log(`[SFX] Using mirelo video-to-audio for synced SFX`);
+      console.log(`[SFX] Using mirelo video-to-audio for synced SFX, videoUrl=${videoUrl.substring(0, 80)}...`);
+      // Mirelo requires: video_url (accessible URL), duration (1-10 integer), num_samples (2-8)
+      const mireloInput: any = {
+        video_url: videoUrl,
+        text_prompt: audioDescription || undefined,
+        duration: Math.min(Math.max(Math.round(duration), 1), 10),
+        num_samples: 2,
+      };
+      console.log(`[SFX] mirelo input: duration=${mireloInput.duration}, prompt=${(mireloInput.text_prompt || '').substring(0, 60)}`);
       result = await fal.subscribe('mirelo-ai/sfx-v1/video-to-audio', {
-        input: {
-          video_url: videoUrl,
-          text_prompt: audioDescription,
-          duration: Math.min(duration, 10), // mirelo max 10s
-          num_samples: 2, // mirelo minimum is 2
-        },
+        input: mireloInput,
         logs: true,
         pollInterval: 2000,
       });
