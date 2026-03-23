@@ -13,6 +13,7 @@ export enum OverlayType {
   HTML_SCENE = "html-scene", // HTML generated content (backgrounds, diagrams)
   HTML_STICKER = "html-sticker", // HTML generated stickers (transparent, animated elements)
   AI_SUGGESTIONS = "ai-suggestions", // AI Suggestions panel
+  QUALITY_REVIEW = "quality-review", // Quality Review panel
 }
 // Base overlay properties
 type BaseOverlay = {

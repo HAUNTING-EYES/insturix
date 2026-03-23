@@ -4,6 +4,9 @@ import dynamic from "next/dynamic";
 
 import RenderControls from "../rendering/render-controls";
 import { useEditorContext } from "../../contexts/editor-context";
+import { useSidebar } from "../../contexts/sidebar-context";
+import { OverlayType } from "../../types";
+import { QualityScoreBadge } from "../quality-review/quality-review-panel";
 
 /**
  * Dynamic import of the ThemeToggle component to enable client-side rendering only.
@@ -52,12 +55,26 @@ export function EditorHeader() {
    * - renderType: Type of render
    */
   const { renderMedia, state, saveProject, renderType, projectId } = useEditorContext();
+  const { setActivePanel, setIsOpen } = useSidebar();
 
   return (
     <header
-      className="sticky top-0 flex shrink-0 items-center gap-2.5 
+      className="sticky top-0 flex shrink-0 items-center gap-2.5
       bg-black border-l border-b border-gray-800 p-2.5 px-4.5"
     >
+      {/* Quality Score Badge */}
+      {state?.overlays && (
+        <QualityScoreBadge
+          overlays={state.overlays}
+          fps={state.fps || 30}
+          durationInFrames={state.durationInFrames}
+          onClick={() => {
+            setActivePanel(OverlayType.QUALITY_REVIEW);
+            setIsOpen(true);
+          }}
+        />
+      )}
+
       {/* Spacer to push rendering controls to the right */}
       <div className="flex-grow" />
 
