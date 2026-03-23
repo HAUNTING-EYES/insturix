@@ -21,6 +21,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { getAutoSelectedProfile } from '@/lib/editron/services/profile-detection-service';
+import { EDIT_PROFILES } from '@/lib/editron/data/edit-profiles';
+import type { DetectionResult, ProfileId } from '@/lib/editron/data/edit-profile-types';
 
 interface ExportToEditronDialogProps {
   open: boolean;
@@ -37,6 +40,7 @@ interface ExportToEditronDialogProps {
 type ExportStep =
   | 'configure'
   | 'exporting'              // parsing scenes
+  | 'profile-selection'      // user confirms/overrides detected edit profile
   | 'extracting-subjects'    // LLM extracting key subjects
   | 'generating-references'  // generating reference images
   | 'reviewing-references'   // user approves/rejects reference images
@@ -45,6 +49,7 @@ type ExportStep =
   | 'generating-videos'      // generating AI video clips
   | 'generating-voiceover'   // generating AI voiceover
   | 'finalizing'             // creating Editron project
+  | 'directing'              // Director Agent applying edit profile
   | 'done';
 
 interface SubjectRef {
@@ -89,6 +94,11 @@ export function ExportToEditronDialog({
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const previewAudioRef = React.useRef<HTMLAudioElement | null>(null);
   const [error, setError] = useState('');
+
+  // Profile detection
+  const [detectedProfile, setDetectedProfile] = useState<{ profileId: string; confidence: number; reasoning: string[]; name: string; description: string } | null>(null);
+  const [selectedProfileId, setSelectedProfileId] = useState<string>('');
+  const [directorProgress, setDirectorProgress] = useState<{ step: number; total: number; desc: string }>({ step: 0, total: 0, desc: '' });
 
   // Results
   const [scenes, setScenes] = useState<any[]>([]);
@@ -332,6 +342,45 @@ export function ExportToEditronDialog({
       const projectTitle = title || exportData.title || 'Untitled Script';
       setTitle(projectTitle);
 
+      // ─── Profile Auto-Detection ─────────────────────────────────
+      // Detect the best edit profile from the parsed script metadata.
+      // This is a pure client-side function (no API call).
+      try {
+        const metadata = {
+          scenes: (exportData.scenes || []).map((s: any) => ({
+            narration: s.narration,
+            visualDescription: s.visualDescription,
+            mood: s.mood,
+            audioDescription: s.audioDescription,
+            rawProductionNotes: s.rawProductionNotes,
+          })),
+          overallMusicPrompt: exportData.overallMusicPrompt,
+          characterDescriptions: exportData.characterDescriptions,
+          colorPalette: exportData.colorPalette,
+          environmentNotes: exportData.environmentNotes,
+          globalEditDirections: exportData.globalEditDirections,
+        };
+        const detected = getAutoSelectedProfile(metadata);
+        setDetectedProfile({
+          profileId: detected.detection.profileId,
+          confidence: detected.detection.confidence,
+          reasoning: detected.detection.reasoning,
+          name: detected.profile.name,
+          description: detected.profile.description,
+        });
+        setSelectedProfileId(detected.detection.profileId);
+        console.log(`[ExportToEditron] Profile detected: ${detected.profile.name} (${(detected.detection.confidence * 100).toFixed(0)}%)`);
+
+        // ─── PAUSE: Show profile selection step ──────────────────
+        if (generateStoryboard) {
+          setStep('profile-selection');
+          return; // Stop here — user reviews profile and clicks Continue
+        }
+      } catch (profileErr) {
+        console.warn('[ExportToEditron] Profile detection failed, using default:', profileErr);
+        setSelectedProfileId('G-01');
+      }
+
       // ─── Steps 2+3: Extract subjects AND generate hero references in parallel ──
       // As soon as extraction returns, we kick off hero reference image generation
       // immediately — no separate waiting step. This parallelizes the pipeline.
@@ -514,6 +563,7 @@ export function ExportToEditronDialog({
     setError('');
     const sbId = storyboardId;
     const sbImages = storyboardScenes.filter((s: any) => s.imageUrl);
+    let createdProjectId = '';
 
     try {
       // ─── Step 5: Generate AI video clips (optional) ────────
@@ -660,7 +710,8 @@ export function ExportToEditronDialog({
 
         const finalizeData = await finalizeRes.json().catch(() => null);
         if (!finalizeData) throw new Error('Invalid response from finalize service');
-        setProjectId(finalizeData.projectId);
+        createdProjectId = finalizeData.projectId;
+        setProjectId(createdProjectId);
         if (finalizeData.audioGenerating) setAudioGenerating(true);
       } else {
         // No storyboard — import scenes directly
@@ -682,7 +733,44 @@ export function ExportToEditronDialog({
 
         const importData = await importRes.json().catch(() => null);
         if (!importData) throw new Error('Invalid response from import service');
-        setProjectId(importData.projectId);
+        createdProjectId = importData.projectId;
+        setProjectId(createdProjectId);
+      }
+
+      // ─── Step 8: Director Agent — Apply edit profile ───────
+      const currentProjectId = createdProjectId;
+      if (selectedProfileId && currentProjectId) {
+        setStep('directing');
+        setDirectorProgress({ step: 0, total: 0, desc: 'Starting...' });
+
+        try {
+          const directorRes = await fetch('/api/services/editron/director/execute', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId: currentProjectId,
+              editProfileId: selectedProfileId,
+              brief: {
+                selectedProfileId,
+                overrides: {},
+              },
+            }),
+          });
+
+          const directorData = await directorRes.json().catch(() => ({}));
+          if (directorData.success) {
+            console.log(`[ExportToEditron] Director Agent complete: ${directorData.actionsExecuted} actions, ${directorData.executionMs}ms`);
+            if (directorData.warnings?.length > 0) {
+              setError(`Edit profile applied with ${directorData.warnings.length} warning(s): ${directorData.warnings[0]}`);
+            }
+          } else {
+            console.warn('[ExportToEditron] Director Agent failed:', directorData.error);
+            setError(`Edit profile partially applied. You can fine-tune in the Editron editor.`);
+          }
+        } catch (directorErr: any) {
+          console.warn('[ExportToEditron] Director Agent error:', directorErr.message);
+          setError('Edit profile could not be applied. Your project is ready for manual editing.');
+        }
       }
 
       setStep('done');
@@ -1025,6 +1113,7 @@ export function ExportToEditronDialog({
     switch (step) {
       case 'configure': return 'Convert your script into a video project';
       case 'exporting': return 'Parsing scenes from your script...';
+      case 'profile-selection': return 'Confirm your edit profile';
       case 'extracting-subjects': return 'Identifying key subjects for visual consistency...';
       case 'generating-references': return 'Generating reference images for subjects...';
       case 'reviewing-references': return 'Review and approve reference images';
@@ -1033,6 +1122,7 @@ export function ExportToEditronDialog({
       case 'generating-videos': return 'Generating AI video clips...';
       case 'generating-voiceover': return 'Generating AI voiceover...';
       case 'finalizing': return 'Building your Editron project...';
+      case 'directing': return `Applying edit profile${directorProgress.desc ? ': ' + directorProgress.desc : '...'}`;
       case 'done': return 'Your project is ready!';
     }
   };
@@ -1356,8 +1446,11 @@ export function ExportToEditronDialog({
                     done={['generating-voiceover', 'finalizing', 'done'].includes(step)}
                   />
                 )}
-                <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'done'].includes(step)} />
-                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={(step as string) === 'done'} />
+                <StepIndicator label="Generate AI voiceover" active={step === 'generating-voiceover'} done={['finalizing', 'directing', 'done'].includes(step)} />
+                <StepIndicator label="Create Editron project" active={step === 'finalizing'} done={['directing', 'done'].includes(step)} />
+                {selectedProfileId && (
+                  <StepIndicator label="Apply edit profile" active={step === 'directing'} done={(step as string) === 'done'} />
+                )}
               </div>
 
               <p className="text-xs text-zinc-500 text-center">
@@ -1368,6 +1461,7 @@ export function ExportToEditronDialog({
                 {step === 'generating-videos' && 'Animating storyboard images into video clips — this takes a few minutes...'}
                 {step === 'generating-voiceover' && 'Generating AI voiceover narration...'}
                 {step === 'finalizing' && 'Assembling your video project with music & voiceover...'}
+                {step === 'directing' && `Applying edit profile: ${detectedProfile?.name || 'auto'}...`}
               </p>
               {error && (
                 <p className="text-xs text-amber-400 text-center mt-1">{error}</p>
@@ -1858,6 +1952,82 @@ export function ExportToEditronDialog({
               )}
 
               {error && <p className="text-sm text-red-400">{error}</p>}
+            </motion.div>
+          )}
+
+          {/* ─── Profile Selection Step ─────────────────────────── */}
+          {step === 'profile-selection' && detectedProfile && (
+            <motion.div
+              key="profile-selection"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4 py-2"
+            >
+              <div className="p-4 rounded-lg bg-zinc-800/50 border border-zinc-700">
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <p className="text-sm font-medium text-zinc-200">{detectedProfile.name}</p>
+                    <p className="text-xs text-zinc-400 mt-0.5">{detectedProfile.description}</p>
+                  </div>
+                  <span className={`text-xs font-mono px-2 py-0.5 rounded ${
+                    detectedProfile.confidence >= 0.60 ? 'bg-green-500/20 text-green-400' : 'bg-amber-500/20 text-amber-400'
+                  }`}>
+                    {(detectedProfile.confidence * 100).toFixed(0)}% match
+                  </span>
+                </div>
+
+                {/* Reasoning */}
+                {detectedProfile.reasoning.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {detectedProfile.reasoning.slice(0, 4).map((reason, i) => (
+                      <p key={i} className="text-[10px] text-zinc-500">→ {reason}</p>
+                    ))}
+                  </div>
+                )}
+
+                {/* Profile override dropdown */}
+                <div className="mt-3">
+                  <Select value={selectedProfileId} onValueChange={(v) => {
+                    setSelectedProfileId(v);
+                    const p = EDIT_PROFILES[v as keyof typeof EDIT_PROFILES];
+                    if (p) setDetectedProfile({ ...detectedProfile, profileId: v, name: p.name, description: p.description });
+                  }}>
+                    <SelectTrigger className="h-8 text-xs bg-zinc-900 border-zinc-700">
+                      <SelectValue placeholder="Change profile..." />
+                    </SelectTrigger>
+                    <SelectContent className="max-h-60">
+                      {Object.entries(EDIT_PROFILES).map(([id, p]) => (
+                        <SelectItem key={id} value={id} className="text-xs">
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <Button
+                onClick={() => handlePhase2()}
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                Continue with {detectedProfile.name} <ArrowRight className="h-4 w-4 ml-2" />
+              </Button>
+            </motion.div>
+          )}
+
+          {/* ─── Directing Step ──────────────────────────────────── */}
+          {step === 'directing' && (
+            <motion.div
+              key="directing"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex flex-col items-center justify-center py-8 gap-3"
+            >
+              <Loader2 className="h-8 w-8 text-emerald-400 animate-spin" />
+              <p className="text-sm text-zinc-300">Applying edit profile...</p>
+              {directorProgress.desc && (
+                <p className="text-xs text-zinc-500">{directorProgress.desc}</p>
+              )}
             </motion.div>
           )}
 
