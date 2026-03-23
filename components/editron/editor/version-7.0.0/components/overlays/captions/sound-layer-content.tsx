@@ -1,4 +1,4 @@
-import { Audio, useCurrentFrame } from "remotion";
+import { Audio, Sequence, useCurrentFrame } from "remotion";
 import { useMemo } from "react";
 import { SoundOverlay } from "../../../types";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
@@ -47,10 +47,33 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
     return createDuckingVolume(baseVolume, voiceoverOverlays, fps, duckingConfig);
   }, [duckingConfig, allOverlays, overlay.id, overlay.styles?.volume, overlay.row, fps]);
 
+  // L-cut/J-cut: audio boundaries can be decoupled from the visual overlay.
+  // audioStartFrame < overlay.from → J-cut (audio starts before video)
+  // audioEndFrame > overlay.from + durationInFrames → L-cut (audio extends after video)
+  // Migration: startFromSound is the old audio in-point trim (source offset)
+  const audioSourceOffset = overlay.startFromSound || 0;
+  const hasDecoupledAudio = overlay.audioStartFrame !== undefined || overlay.audioEndFrame !== undefined;
+
+  if (hasDecoupledAudio) {
+    const audioFrom = overlay.audioStartFrame ?? overlay.from;
+    const audioEnd = overlay.audioEndFrame ?? (overlay.from + overlay.durationInFrames);
+    const audioDuration = Math.max(1, audioEnd - audioFrom);
+
+    return (
+      <Sequence from={audioFrom} durationInFrames={audioDuration} layout="none">
+        <Audio
+          src={audioSrc}
+          startFrom={audioSourceOffset}
+          volume={volumeCallback ?? (overlay.styles?.volume ?? 1)}
+        />
+      </Sequence>
+    );
+  }
+
   return (
     <Audio
       src={audioSrc}
-      startFrom={overlay.startFromSound || 0}
+      startFrom={audioSourceOffset}
       volume={volumeCallback ?? (overlay.styles?.volume ?? 1)}
     />
   );

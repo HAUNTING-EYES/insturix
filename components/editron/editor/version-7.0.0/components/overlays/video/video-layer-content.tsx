@@ -1,5 +1,6 @@
-import { OffthreadVideo, Video, useCurrentFrame } from "remotion";
+import { OffthreadVideo, Video, Sequence, useCurrentFrame } from "remotion";
 import { ClipOverlay } from "../../../types";
+import { computeSpeedSegments } from "../../../utils/keyframe-evaluator";
 import { animationTemplates } from "../../../templates/animation-templates";
 import { toAbsoluteUrl } from "../../../utils/url-helper";
 import { useIsRendering } from "../../../contexts/rendering-context";
@@ -112,6 +113,42 @@ export const VideoLayerContent: React.FC<VideoLayerContentProps> = ({
   // headers unless the bucket has CORS configured. For editor preview, we
   // skip crossOrigin to allow playback. For server rendering, OffthreadVideo
   // uses ffmpeg (not browser) so CORS doesn't apply.
+  // ─── Speed Ramping ──────────────────────────────────────────────
+  // If speedCurve is present, split into segments with different playback rates.
+  // Each segment is a separate <Video> in a <Sequence> with correct source offset.
+  const hasSpeedCurve = (overlay as any).speedCurve && (overlay as any).speedCurve.length > 1;
+
+  if (hasSpeedCurve) {
+    const segments = computeSpeedSegments(
+      (overlay as any).speedCurve,
+      overlay.durationInFrames,
+    );
+    const VideoComponent = isRendering ? OffthreadVideo : Video;
+
+    return (
+      <div style={containerStyle}>
+        {segments.map((seg, i) => (
+          <Sequence
+            key={i}
+            from={seg.compositionStartFrame}
+            durationInFrames={seg.compositionEndFrame - seg.compositionStartFrame}
+            layout="none"
+          >
+            <VideoComponent
+              src={videoSrc}
+              startFrom={(overlay.videoStartTime || 0) + seg.sourceStartFrame}
+              style={videoStyle}
+              volume={overlay.styles.volume ?? 1}
+              playbackRate={seg.playbackRate}
+              {...(isRendering ? { toneMapped: false } : { pauseWhenBuffering: false })}
+            />
+          </Sequence>
+        ))}
+      </div>
+    );
+  }
+
+  // ─── Constant Speed (default) ──────────────────────────────────
   if (isRendering) {
     return (
       <div style={containerStyle}>
