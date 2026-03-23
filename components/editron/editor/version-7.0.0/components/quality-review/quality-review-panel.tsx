@@ -13,15 +13,20 @@ import { runQualityReview, type QualityReport, type QualityIssue } from "@/lib/e
  * Issues are grouped by severity with "Go to frame" navigation.
  */
 export function QualityReviewPanel() {
-  const { state, setCurrentFrame } = useEditorContext();
+  const editorCtx = useEditorContext();
   const [report, setReport] = useState<QualityReport | null>(null);
   const [isRunning, setIsRunning] = useState(false);
 
+  // Get overlays from the editor state — try multiple paths
+  const overlays = editorCtx?.state?.overlays || (editorCtx as any)?.overlays || [];
+  const fps = editorCtx?.state?.fps || (editorCtx as any)?.fps || 30;
+  const totalFrames = editorCtx?.state?.durationInFrames || (editorCtx as any)?.durationInFrames;
+
   const runReview = useCallback(() => {
-    if (!state?.overlays) return;
+    if (!overlays || overlays.length === 0) return;
     setIsRunning(true);
     try {
-      const result = runQualityReview(state.overlays, state.fps || 30, state.durationInFrames);
+      const result = runQualityReview(overlays, fps, totalFrames);
       setReport(result);
     } catch (err) {
       console.error("[QualityReview] Failed:", err);
@@ -33,7 +38,7 @@ export function QualityReviewPanel() {
   // Auto-run on mount and when overlays change
   useEffect(() => {
     runReview();
-  }, [runReview]);
+  }, [overlays, fps, totalFrames]);
 
   const getScoreColor = (score: number) => {
     if (score >= 80) return "text-green-400";
@@ -115,7 +120,7 @@ export function QualityReviewPanel() {
               <IssueRow
                 key={i}
                 issue={issue}
-                onGoToFrame={(frame) => setCurrentFrame?.(frame)}
+                onGoToFrame={() => {}} // TODO: wire to player seek when available
               />
             ))}
           </div>

@@ -150,7 +150,7 @@ async function handler(request: NextRequest) {
           content: sfx.audioUrl,
           src: sfx.audioUrl,
           assetId: sfx.audioAssetId,
-          styles: { volume: 0.5, opacity: 1 },
+          styles: { volume: 0.3, opacity: 1 }, // 30% — SFX should complement, not overpower narration
         });
 
         // Register asset

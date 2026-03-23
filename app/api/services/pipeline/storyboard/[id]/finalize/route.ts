@@ -203,42 +203,11 @@ export async function POST(
         });
       }
 
-      // Scene title (first 3 seconds)
-      const cleanTitle = (scene.descriptor.title || '')
-        .replace(/\*\*(.+?)\*\*/g, '$1')
-        .replace(/^#+\s*/gm, '')
-        .trim();
-      if (cleanTitle) {
-        overlays.push({
-          id: overlayId++,
-          type: 'text',
-          from: currentFrame,
-          durationInFrames: Math.min(fps * 3, durationFrames),
-          row: 1, // Above narration
-          left: width * 0.1,
-          top: height * 0.08,
-          width: width * 0.8,
-          height: height * 0.12,
-          isDragging: false,
-          rotation: 0,
-          content: cleanTitle,
-          styles: {
-            fontSize: '48',
-            fontFamily: 'font-sans',
-            fontWeight: '700',
-            textAlign: 'center',
-            color: '#ffffff',
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            fontStyle: 'normal',
-            textDecoration: 'none',
-            opacity: 1,
-            borderRadius: '12px',
-            padding: '16px',
-            textShadow: '0 2px 8px rgba(0,0,0,0.7)',
-            animation: { enter: 'fade', exit: 'fade', duration: 15 },
-          },
-        });
-      }
+      // Scene title overlay removed — redundant with narration text overlay.
+      // The narration text on row 0 already provides context. Having both
+      // creates visual clutter and confuses users into thinking there are
+      // duplicate layers. Director Agent can add titles via motion graphics
+      // if the edit profile requires them.
 
       // Track frame offset for SFX placement
       sceneFrameMap.push({
