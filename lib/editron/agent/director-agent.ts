@@ -278,10 +278,32 @@ async function invokeAITool(
       break;
     }
     case 'add_motion_graphic': {
-      params.description = params.description || `${profile.graphicsDensity} motion graphic`;
-      params.start = params.start || 0;
-      params.duration = params.duration || 90; // 3 seconds at 30fps
-      params.row = params.row || 1;
+      // Smart auto-placement: analyze narration text overlays to derive
+      // motion graphic descriptions and timing. No user input needed.
+      const textOverlays = overlays.filter(o => o.type === 'text' && o.row === 0);
+      if (textOverlays.length === 0) {
+        console.log('[Director] add_motion_graphic: no text overlays for context');
+        params.description = params.description || 'minimal animated label';
+        params.start = params.start || 0;
+        params.duration = params.duration || 90;
+        params.row = params.row || 1;
+      } else {
+        // Pick the first scene's narration as context for the motion graphic
+        const firstText = textOverlays[0];
+        const narrationSnippet = (firstText.content || '').substring(0, 100);
+        // Use plain language descriptions — no jargon
+        const density = profile.graphicsDensity || 'moderate';
+        const descriptions: Record<string, string> = {
+          heavy: `animated text label showing: "${narrationSnippet}"`,
+          moderate: `subtle feature highlight for: "${narrationSnippet.substring(0, 50)}"`,
+          minimal: `clean minimal label`,
+        };
+        params.description = params.description || descriptions[density] || descriptions.moderate;
+        params.start = params.start || firstText.from;
+        params.duration = params.duration || Math.min(firstText.durationInFrames, 120);
+        params.row = params.row || 1;
+      }
+      console.log(`[Director] add_motion_graphic: "${(params.description as string).substring(0, 60)}..." at frame ${params.start}`);
       break;
     }
     case 'generate_html_scene': {
