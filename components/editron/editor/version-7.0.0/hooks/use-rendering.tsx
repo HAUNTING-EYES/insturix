@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CompositionProps } from "../types";
 import {
   getProgress as ssrGetProgress,
@@ -57,6 +57,7 @@ export const useRendering = (
   const [state, setState] = useState<State>({
     status: "init",
   });
+  const cancelledRef = useRef(false);
 
   // Check for active renders on mount (resume-on-refresh)
   useEffect(() => {
@@ -137,6 +138,7 @@ export const useRendering = (
   // Main function to handle the rendering process
   const renderMedia = useCallback(async () => {
 
+    cancelledRef.current = false;
     setState({
       status: "invoking",
     });
@@ -178,6 +180,13 @@ export const useRendering = (
       let pending = true;
 
       while (pending) {
+        // Check if cancelled
+        if (cancelledRef.current) {
+          console.log('[Render] Cancelled by user');
+          setState({ status: "init" });
+          pending = false;
+          break;
+        }
 
         const result = await getProgress({
           id: renderId,
@@ -233,13 +242,20 @@ export const useRendering = (
     setState({ status: "init" });
   }, []);
 
+  // Cancel an in-progress render
+  const cancelRender = useCallback(() => {
+    cancelledRef.current = true;
+    setState({ status: "init" });
+  }, []);
+
   // Return memoized values to prevent unnecessary re-renders
   return useMemo(
     () => ({
       renderMedia, // Function to start rendering
       state, // Current state of the render
       undo, // Function to reset the state
+      cancelRender, // Function to cancel in-progress render
     }),
-    [renderMedia, state, undo]
+    [renderMedia, state, undo, cancelRender]
   );
 };

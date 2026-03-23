@@ -54,7 +54,7 @@ export function EditorHeader() {
    * - state: Current editor state
    * - renderType: Type of render
    */
-  const { renderMedia, state, saveProject, renderType, projectId } = useEditorContext();
+  const { renderMedia, cancelRender, state, saveProject, renderType, projectId } = useEditorContext();
   const { setActivePanel, setIsOpen } = useSidebar();
 
   return (
@@ -81,6 +81,7 @@ export function EditorHeader() {
       {/* Media rendering controls */}
       <RenderControls
         handleRender={renderMedia}
+        handleCancel={cancelRender}
         state={state}
         saveProject={saveProject}
         renderType={renderType}

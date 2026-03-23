@@ -103,7 +103,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     src: "",
   }), [overlays, durationInFrames, compositionWidth, compositionHeight]);
 
-  const { renderMedia, state } = useRendering(
+  const { renderMedia, state, cancelRender } = useRendering(
     "TestComponent",
     inputProps,
     RENDER_TYPE,
@@ -245,6 +245,7 @@ export default function ReactVideoEditor({ projectId }: { projectId: string }) {
     renderType: RENDER_TYPE,
     projectId,
     renderMedia,
+    cancelRender,
     state,
 
     deleteOverlaysByRow,

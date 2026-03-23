@@ -44,6 +44,7 @@ interface EditorContextProps {
   durationInFrames: number; // Total number of frames
   durationInSeconds: number; // Total duration in seconds
   renderMedia: () => void; // Trigger media rendering
+  cancelRender: () => void; // Cancel in-progress render
   state: any; // General state object with proper typing
 
   // Timeline

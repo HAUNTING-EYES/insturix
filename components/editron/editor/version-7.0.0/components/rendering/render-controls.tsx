@@ -1,5 +1,5 @@
 import React from "react";
-import { Download, Loader2, Bell, Save } from "lucide-react";
+import { Download, Loader2, Bell, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -37,6 +37,7 @@ interface RenderItem {
 interface RenderControlsProps {
   state: any;
   handleRender: () => void;
+  handleCancel?: () => void;
   saveProject?: () => Promise<void>;
   renderType?: "ssr" | "lambda";
   projectId?: string;
@@ -57,6 +58,7 @@ interface RenderControlsProps {
 const RenderControls: React.FC<RenderControlsProps> = ({
   state,
   handleRender,
+  handleCancel,
   saveProject,
   renderType = "ssr",
   projectId,
@@ -305,6 +307,19 @@ const RenderControls: React.FC<RenderControlsProps> = ({
           `Render Video`
         )}
       </Button>
+
+      {/* Cancel button — visible only during rendering */}
+      {(state.status === "rendering" || state.status === "invoking") && handleCancel && (
+        <Button
+          onClick={handleCancel}
+          size="sm"
+          variant="outline"
+          className="bg-red-900/30 text-red-400 border-red-800 hover:bg-red-900/50 hover:text-red-300"
+          title="Cancel render"
+        >
+          <X className="w-3.5 h-3.5" />
+        </Button>
+      )}
     </>
   );
 };
