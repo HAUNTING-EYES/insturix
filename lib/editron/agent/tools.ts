@@ -4277,6 +4277,66 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
   );
 
+  // ─── Set Keyframes Tool ────────────────────────────────────────
+  const setKeyframesSchema = z.object({
+    overlayId: z.coerce.number().describe("The overlay ID to add keyframes to"),
+    property: z.enum(['x', 'y', 'scale', 'opacity', 'rotation', 'speed']).describe("Which property to animate. x/y = pixel position, scale = size multiplier, opacity = 0-1, rotation = degrees, speed = playback rate"),
+    keyframes: z.array(z.object({
+      frame: z.number().describe("Local frame within the overlay (0 = overlay start)"),
+      value: z.number().describe("Value at this frame"),
+      easing: z.enum(['linear', 'ease-in', 'ease-out', 'ease-in-out']).default('ease-in-out'),
+    })).min(2).describe("At least 2 keyframes required (start and end values)"),
+  });
+
+  const setKeyframes = tool(
+    async (input: z.infer<typeof setKeyframesSchema>) => {
+      try {
+        const project = await loadProject();
+        const overlays = (project as any).overlays || [];
+        const overlay = overlays.find((o: any) => o.id === input.overlayId);
+
+        if (!overlay) {
+          return errorEnvelope(`Overlay ${input.overlayId} not found`);
+        }
+
+        // Initialize keyframeTracks if not present
+        if (!overlay.keyframeTracks) overlay.keyframeTracks = [];
+
+        // If speed property, also set speedCurve for video overlays
+        if (input.property === 'speed' && overlay.type === 'video') {
+          (overlay as any).speedCurve = input.keyframes;
+        }
+
+        // Remove existing track for this property (replace, don't append)
+        overlay.keyframeTracks = overlay.keyframeTracks.filter(
+          (t: any) => t.property !== input.property,
+        );
+
+        // Add new track
+        overlay.keyframeTracks.push({
+          property: input.property,
+          keyframes: input.keyframes,
+        });
+
+        await saveProject({ overlays });
+
+        return successEnvelope({
+          overlayId: input.overlayId,
+          property: input.property,
+          keyframeCount: input.keyframes.length,
+          message: `Set ${input.keyframes.length} keyframes for ${input.property} on overlay ${input.overlayId}`,
+        });
+      } catch (err: any) {
+        return errorEnvelope(err.message);
+      }
+    },
+    {
+      name: 'set_keyframes',
+      description: 'Add animation keyframes to an overlay. Use for: zoom effects (scale), position animation (x/y), fade in/out (opacity), rotation, or speed ramping (speed). Requires at least 2 keyframes. Examples: "zoom in" = scale 1.0→1.3, "fade out" = opacity 1.0→0.0, "slow motion" = speed 1.0→0.3→1.0.',
+      schema: setKeyframesSchema,
+    },
+  );
+
   return [
     readProjectFile,
     getTimelineView,
@@ -4311,6 +4371,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     applyStyleTool,       // NEW: Apply Edit DNA to project
     // --- Beat Sync Tools ---
     syncCutsToBeats,      // NEW: Music-synced cuts via beat detection
+    // --- Keyframe Animation Tools ---
+    setKeyframes,         // NEW: Per-property keyframe animation (zoom, fade, speed ramp)
   ].map((toolInstance) => wrapToolWithEnvelope(toolInstance));
 
 };
