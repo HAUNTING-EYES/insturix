@@ -178,12 +178,30 @@ async function executeAction(
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats':
     case 'add_motion_graphic':
-    case 'generate_html_scene':
+    case 'generate_html_scene': {
+      // Invoke the actual tool via createTools — these are fully functional
+      modified = await invokeAITool(action, userId, projectId, profile, overlays);
+      break;
+    }
+
     case 'quality_review': {
-      // These tools need the full AI tool system — defer to chat agent
-      // For now, log as pending and let the user trigger via chat
-      console.log(`[Director] Deferred to AI chat: ${action.tool} (${action.description})`);
-      // In future: dynamically import and call the tool function directly
+      // Run deterministic quality checks (zero AI cost)
+      try {
+        const { runQualityReview } = await import('@/lib/editron/services/quality-review-service');
+        const fps = 30; // Standard
+        const report = runQualityReview(overlays, fps);
+        console.log(`[Director] Quality review: score=${report.overallScore}/100, issues=${report.issues.length}`);
+        if (report.issues.length > 0) {
+          const criticalCount = report.issues.filter(i => i.severity === 'critical').length;
+          const warnCount = report.issues.filter(i => i.severity === 'warning').length;
+          console.log(`[Director] Quality: ${criticalCount} critical, ${warnCount} warnings, ${report.autoFixable.length} auto-fixable`);
+        }
+        if (report.suggestions.length > 0) {
+          report.suggestions.forEach(s => console.log(`[Director] Suggestion: ${s}`));
+        }
+      } catch (qrErr: any) {
+        console.warn(`[Director] Quality review failed: ${qrErr.message}`);
+      }
       break;
     }
 
@@ -193,6 +211,101 @@ async function executeAction(
   }
 
   return modified;
+}
+
+// ─── AI Tool Invocation ──────────────────────────────────────────
+// Calls functional LangChain tools from tools.ts directly with profile params.
+// Each tool handles its own project loading/saving.
+
+async function invokeAITool(
+  action: EditProfileAction,
+  userId: string,
+  projectId: string,
+  profile: EditProfile,
+  overlays: any[],
+): Promise<number> {
+  const { createTools } = await import('@/lib/editron/agent/tools');
+  const tools = createTools(userId, projectId);
+
+  // Find the matching tool by name
+  const toolName = action.tool;
+  const tool = tools.find((t: any) => t.name === toolName);
+  if (!tool) {
+    console.warn(`[Director] Tool not found: ${toolName}`);
+    return 0;
+  }
+
+  // Build params from profile + action params
+  const params: Record<string, any> = { ...action.params };
+
+  // Tool-specific param mapping from profile
+  switch (toolName) {
+    case 'add_captions': {
+      // Find first video overlay to add captions to
+      const videoOverlay = overlays.find(o => o.type === 'video');
+      if (!videoOverlay) {
+        console.log(`[Director] add_captions: no video overlay found, skipping`);
+        return 0;
+      }
+      params.videoOverlayId = params.videoOverlayId || videoOverlay.id;
+      params.style = params.style || profile.captionStyle || 'subtitle';
+      params.position = params.position || 'bottom';
+      break;
+    }
+    case 'add_fancy_captions': {
+      const videoOverlay = overlays.find(o => o.type === 'video');
+      if (!videoOverlay) return 0;
+      params.videoOverlayId = params.videoOverlayId || videoOverlay.id;
+      params.style = params.style || 'kinetic';
+      params.intensity = params.intensity || 'medium';
+      break;
+    }
+    case 'sync_cuts_to_beats': {
+      // Find audio (BGM) and video overlays
+      const bgmOverlay = overlays.find(o => o.type === 'sound' && o.row === 5);
+      const videoOverlay = overlays.find(o => o.type === 'video');
+      if (!bgmOverlay || !videoOverlay) {
+        console.log(`[Director] sync_cuts_to_beats: missing BGM or video overlay`);
+        return 0;
+      }
+      params.audioOverlayId = params.audioOverlayId || bgmOverlay.id;
+      params.videoOverlayId = params.videoOverlayId || videoOverlay.id;
+      params.beatFilter = params.beatFilter || 'downbeats';
+      break;
+    }
+    case 'add_motion_graphic': {
+      params.description = params.description || `${profile.graphicsDensity} motion graphic`;
+      params.start = params.start || 0;
+      params.duration = params.duration || 90; // 3 seconds at 30fps
+      params.row = params.row || 1;
+      break;
+    }
+    case 'generate_html_scene': {
+      params.description = params.description || 'intro title card';
+      params.start = params.start || 0;
+      params.duration = params.duration || 90;
+      params.row = params.row || 1;
+      break;
+    }
+  }
+
+  console.log(`[Director] Invoking tool: ${toolName} with params:`, Object.keys(params).join(', '));
+
+  try {
+    const resultStr = await tool.invoke(params);
+    const result = JSON.parse(resultStr);
+
+    if (result.status === 'success') {
+      console.log(`[Director] Tool ${toolName} succeeded`);
+      return result.data?.overlaysModified || result.data?.overlaysCreated || 1;
+    } else {
+      console.warn(`[Director] Tool ${toolName} failed: ${result.error?.message}`);
+      return 0;
+    }
+  } catch (err: any) {
+    console.error(`[Director] Tool ${toolName} threw: ${err.message}`);
+    throw err; // Let the outer handler decide (skip/abort/warn)
+  }
 }
 
 // ─── Condition Checker ───────────────────────────────────────────
