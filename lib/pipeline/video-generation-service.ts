@@ -89,8 +89,11 @@ export const FAL_VIDEO_MODELS = {
   minimax: 'fal-ai/minimax/video-01/image-to-video',
   'luma-ray2': 'fal-ai/luma-dream-machine/ray-2/image-to-video',
   'luma-dream-machine': 'fal-ai/luma-dream-machine/image-to-video',
+  'veo-3.1': 'fal-ai/veo3.1/image-to-video',
   'veo-3': 'fal-ai/veo3/image-to-video',
   'veo-2': 'fal-ai/veo2/image-to-video',
+  'wan-2.2': 'fal-ai/wan/v2.2-a14b/image-to-video',
+  'ltx-2.3': 'fal-ai/ltx-2.3/image-to-video',
 } as const;
 
 export type FalVideoModel = keyof typeof FAL_VIDEO_MODELS;
@@ -103,8 +106,11 @@ export const FAL_VIDEO_MODEL_LABELS: Record<FalVideoModel, string> = {
   minimax: 'MiniMax Hailuo',
   'luma-ray2': 'Luma Ray 2',
   'luma-dream-machine': 'Luma Dream Machine',
+  'veo-3.1': 'Google Veo 3.1 (4K)',
   'veo-3': 'Google Veo 3',
   'veo-2': 'Google Veo 2',
+  'wan-2.2': 'Wan 2.2 (Fast)',
+  'ltx-2.3': 'LTX 2.3 (4K + Audio)',
 };
 
 // ─── Types ──────────────────────────────────────────────────────
@@ -219,6 +225,7 @@ function buildFalVideoInput(
     // Aspect ratio: "auto", "16:9", "9:16"
     // Resolution: "720p", "1080p"
     // image_url must be 720p+ in 16:9 or 9:16
+    case 'veo-3.1':
     case 'veo-3':
     case 'veo-2':
       base.image_url = imageUrl;
@@ -231,6 +238,32 @@ function buildFalVideoInput(
       if (duration <= 4) base.duration = '4s';
       else if (duration <= 6) base.duration = '6s';
       else base.duration = '8s';
+      break;
+
+    // ─── Wan 2.2 ──────────────────────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/wan/v2.2-a14b/image-to-video/api
+    // Supports end_image_url for chaining. num_frames controls duration.
+    case 'wan-2.2':
+      base.image_url = imageUrl;
+      base.num_frames = Math.min(Math.max(Math.round(duration * 16), 17), 161); // 16fps, 17-161 frames
+      base.frames_per_second = 16;
+      base.resolution = '720p';
+      base.aspect_ratio = (aspectRatio === '16:9' || aspectRatio === '9:16') ? aspectRatio : 'auto';
+      base.video_quality = 'high';
+      if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
+      break;
+
+    // ─── LTX 2.3 ─────────────────────────────────────────────
+    // Docs: https://fal.ai/models/fal-ai/ltx-2.3/image-to-video/api
+    // Fast, up to 4K, includes audio. $0.06/sec at 1080p.
+    case 'ltx-2.3':
+      base.image_url = imageUrl;
+      base.duration = Math.min(Math.max(Math.round(duration), 6), 10); // 6, 8, or 10 seconds
+      base.resolution = '1080p';
+      base.aspect_ratio = (aspectRatio === '16:9' || aspectRatio === '9:16') ? aspectRatio : 'auto';
+      base.fps = 25;
+      base.generate_audio = false; // we handle audio separately
+      if (nextSceneImageUrl) base.end_image_url = nextSceneImageUrl;
       break;
 
     default:
@@ -658,9 +691,9 @@ export function selectBestModel(scene: {
     return 'kling-2.6';
   }
 
-  // Cinematic / dramatic / serious scenes — Veo 3 for top-tier quality
+  // Cinematic / dramatic / serious scenes — Veo 3.1 for premium quality
   if (mood === 'dramatic' || mood === 'serious' || mood === 'inspirational') {
-    return 'veo-3';
+    return 'veo-3.1';
   }
 
   // Dreamy, artistic, or watercolor/illustration styles — Luma Dream Machine
@@ -674,12 +707,12 @@ export function selectBestModel(scene: {
     return 'luma-dream-machine';
   }
 
-  // Short clips where speed matters — MiniMax Hailuo (fast turnaround)
+  // Short clips where speed matters — Wan 2.2 (fast, cheap)
   if (scene.durationSeconds && scene.durationSeconds <= 4) {
-    return 'minimax';
+    return 'wan-2.2';
   }
 
-  // Default: Kling 2.1 Pro — reliable, good quality
+  // Default: Kling 2.1 Pro — reliable, good quality, best all-rounder
   return 'kling-2.1';
 }
 
