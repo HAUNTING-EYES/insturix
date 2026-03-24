@@ -3563,6 +3563,93 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
   );
 
+  // ─── Transition Tool ──────────────────────────────────────────────
+
+  const addTransitionSchema = z.object({
+    afterOverlayId: z.coerce.number().optional().describe("ID of the overlay AFTER which to insert the transition. If not provided, adds between all adjacent scenes."),
+    type: z.enum(['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch']).default('soft-cut').describe("Transition type. Use plain language: 'fade to black' = dip-to-black, 'crossfade' = dissolve, 'smooth cut' = soft-cut"),
+    durationMs: z.coerce.number().optional().describe("Transition duration in milliseconds (default: 500)"),
+    applyToAll: z.boolean().optional().describe("If true, add this transition between ALL adjacent video clips"),
+  });
+
+  const addTransitionTool = tool(
+    async (input: z.infer<typeof addTransitionSchema>) => {
+      try {
+        const project = await loadProject();
+        const fps = project.fps || 30;
+        const { buildTransitionOverlay, TRANSITION_DEFAULTS } = await import('../data/transition-templates');
+
+        const videoOverlays = project.overlays
+          .filter((o: any) => o.type === 'video')
+          .sort((a: any, b: any) => a.from - b.from);
+
+        if (videoOverlays.length < 2) {
+          return JSON.stringify({ status: 'error', message: 'Need at least 2 video clips for transitions' });
+        }
+
+        const transType = input.type || 'soft-cut';
+        const durMs = input.durationMs || TRANSITION_DEFAULTS[transType]?.durationMs || 500;
+        const durFrames = Math.round((durMs / 1000) * fps);
+        let added = 0;
+
+        if (input.applyToAll || !input.afterOverlayId) {
+          // Add between ALL adjacent video clips
+          for (let i = 0; i < videoOverlays.length - 1; i++) {
+            const current = videoOverlays[i] as any;
+            const next = videoOverlays[i + 1] as any;
+            const boundaryFrame = current.from + current.durationInFrames;
+            const canvas = getCanvasDimensions(project);
+
+            const transOverlay = buildTransitionOverlay(transType, boundaryFrame - Math.floor(durFrames / 2), durFrames, canvas.width, canvas.height);
+            if (transOverlay) {
+              await projectService.addOverlay(userId, projectId, { ...transOverlay, id: Date.now() + i * 100 } as any);
+              added++;
+            }
+          }
+        } else {
+          // Add after specific overlay
+          const targetOverlay = project.overlays.find((o: any) => o.id === input.afterOverlayId) as any;
+          if (!targetOverlay) {
+            return JSON.stringify({ status: 'error', message: `Overlay ${input.afterOverlayId} not found` });
+          }
+          const boundaryFrame = targetOverlay.from + targetOverlay.durationInFrames;
+          const canvas = getCanvasDimensions(project);
+          const transOverlay = buildTransitionOverlay(transType, boundaryFrame - Math.floor(durFrames / 2), durFrames, canvas.width, canvas.height);
+          if (transOverlay) {
+            await projectService.addOverlay(userId, projectId, { ...transOverlay, id: Date.now() } as any);
+            added++;
+          }
+        }
+
+        return JSON.stringify({
+          status: 'success',
+          data: { transitionsAdded: added, type: transType, durationMs: durMs },
+          message: `Added ${added} ${transType} transition(s)`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'add_transition',
+      description: `Add visual transitions between video clips.
+
+Types (use plain language — the tool maps automatically):
+- "fade to black" / "dip to black" → dip-to-black
+- "crossfade" / "dissolve" → dissolve
+- "smooth cut" → soft-cut (default)
+- "zoom punch" / "impact cut" → zoom-punch
+- "whip pan" / "swipe" → whip-pan
+- "glitch" / "digital" → glitch
+
+To add between ALL clips: add_transition({ type: 'dissolve', applyToAll: true })
+To add after a specific clip: add_transition({ afterOverlayId: 123, type: 'dip-to-black' })
+
+NEVER ask the user which clips — default to applyToAll: true.`,
+      schema: addTransitionSchema,
+    },
+  );
+
   // ─── AI Pipeline Scene Tools ─────────────────────────────────────
   // These allow the chat AI to regenerate scenes, voiceovers, and videos
   // from the storyboard pipeline directly through conversation.
@@ -3652,6 +3739,7 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
 
         // Regenerate video clip
         if (input.target === 'video' || input.target === 'all') {
+          console.log(`[regenerate_scene] Video regen: storyboardId=${storyboardId}, sceneIndex=${input.sceneIndex}, userId=${userId?.substring(0, 15)}..., url=${baseApiUrl.substring(0, 50)}`);
           const vidRes = await fetch(`${baseApiUrl}/api/services/pipeline/storyboard/${storyboardId}/generate-videos`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4396,6 +4484,8 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     autoEditFromScriptTool, // NEW: Auto-edit raw footage from script
     // --- AI Pipeline Scene Tools ---
     regenerateScene,      // NEW: Regenerate scene image/video/voiceover via chat
+    // --- Transition Tools ---
+    addTransitionTool,    // NEW: Add transitions between clips
     // --- Style Transfer Tools ---
     extractStyleTool,     // NEW: Extract Edit DNA from reference video
     applyStyleTool,       // NEW: Apply Edit DNA to project

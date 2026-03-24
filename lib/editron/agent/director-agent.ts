@@ -177,6 +177,23 @@ async function executeAction(
     case 'add_captions':
     case 'add_fancy_captions':
     case 'sync_cuts_to_beats':
+    case 'add_transition': {
+      // Add transitions between all video clips using the profile's default transition type
+      const transType = action.params.type || profile.defaultTransition || 'soft-cut';
+      const transDurMs = action.params.durationMs || 500;
+      console.log(`[Director] add_transition: type=${transType}, applyToAll=true`);
+
+      const transParams = { type: transType, durationMs: transDurMs, applyToAll: true };
+      const resultStr = await tool.invoke(transParams);
+      const result = JSON.parse(resultStr);
+      if (result.status === 'success') {
+        modified = result.data?.transitionsAdded || 0;
+      } else {
+        console.warn(`[Director] add_transition failed: ${result.message}`);
+      }
+      return modified; // Skip default execution
+    }
+
     case 'add_motion_graphic':
     case 'generate_html_scene': {
       // Invoke the actual tool via createTools — these are fully functional
