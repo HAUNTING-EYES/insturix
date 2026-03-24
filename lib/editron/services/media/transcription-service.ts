@@ -81,8 +81,10 @@ export async function hasTranscription(
 }
 
 /**
- * Generate transcription using Deepgram.
- * Falls back to synthetic word timings from narration text if Deepgram fails.
+ * Generate transcription.
+ * Priority: 1) Synthetic from narration text (ThinkForge projects — instant, free, always accurate)
+ *           2) Gemini 2.0 Flash (uploaded videos — fast, cheap, excellent quality)
+ *           3) Deepgram Nova-2 (fallback)
  */
 async function generateTranscription(
   asset: MediaAsset,
@@ -90,7 +92,16 @@ async function generateTranscription(
 ): Promise<TranscriptionData> {
   const { refreshSignedUrl } = await import('../gcs-service');
 
-  // Get accessible URL — always refresh if gcsPath available (signed URLs expire)
+  // ─── Strategy 1: Synthetic timings from known narration text ────
+  // For ThinkForge-generated voiceovers, we already know the exact text.
+  // No transcription needed — instant, free, always accurate.
+  const narrationText = await getNarrationTextForAsset(asset.assetId);
+  if (narrationText) {
+    console.log(`[Transcription] Using synthetic timings from narration text for ${asset.assetId}`);
+    return generateSyntheticTimings(narrationText, asset);
+  }
+
+  // ─── Get accessible URL for external transcription ──────────────
   let mediaUrl: string;
 
   if (asset.gcsPath) {
@@ -113,7 +124,20 @@ async function generateTranscription(
     throw new Error(`Empty URL for asset ${asset.assetId} — gcsPath: ${asset.gcsPath || 'none'}, source: ${asset.source}`);
   }
 
-  // Try Deepgram first
+  // ─── Strategy 2: Gemini 2.0 Flash transcription ─────────────────
+  // Excellent quality, fast, already in our stack (free within quota).
+  try {
+    const result = await transcribeWithGemini(mediaUrl, asset, language);
+    if (result.words.length > 0) {
+      console.log(`[Transcription] Gemini Flash: ${result.words.length} words for ${asset.assetId}`);
+      return result;
+    }
+    console.warn(`[Transcription] Gemini returned 0 words for ${asset.assetId}, trying Deepgram`);
+  } catch (geminiErr: any) {
+    console.warn(`[Transcription] Gemini failed for ${asset.assetId}: ${geminiErr.message}, trying Deepgram`);
+  }
+
+  // ─── Strategy 3: Deepgram Nova-2 (fallback) ─────────────────────
   try {
     const { transcribeMedia } = await import('../deepgram-service');
     const result = await transcribeMedia(mediaUrl, {
@@ -135,19 +159,81 @@ async function generateTranscription(
       generatedAt: new Date(),
     };
   } catch (deepgramErr: any) {
-    console.warn(`[Transcription] Deepgram failed for ${asset.assetId}: ${deepgramErr.message}`);
-    console.log(`[Transcription] Falling back to synthetic word timings from narration text`);
-
-    // Fallback: look up the narration text from the storyboard scene
-    // The voiceover asset was generated from this text — we know it exactly.
-    const narrationText = await getNarrationTextForAsset(asset.assetId);
-    if (narrationText) {
-      return generateSyntheticTimings(narrationText, asset);
-    }
-
-    // If no narration text found, re-throw the original error
-    throw deepgramErr;
+    console.error(`[Transcription] All strategies failed for ${asset.assetId}`);
+    throw new Error(`Transcription failed: Gemini and Deepgram both failed. Last error: ${deepgramErr.message}`);
   }
+}
+
+/**
+ * Transcribe audio/video using Gemini 2.0 Flash.
+ * Downloads the file, sends to Gemini with a transcription prompt.
+ */
+async function transcribeWithGemini(
+  mediaUrl: string,
+  asset: MediaAsset,
+  language?: string,
+): Promise<TranscriptionData> {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error('No Gemini API key for transcription');
+
+  // Download audio file
+  const response = await fetch(mediaUrl);
+  if (!response.ok) throw new Error(`Failed to download media (${response.status})`);
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const mimeType = response.headers.get('content-type') || (asset.type === 'video' ? 'video/mp4' : 'audio/wav');
+
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+  const result = await model.generateContent([
+    {
+      inlineData: {
+        data: buffer.toString('base64'),
+        mimeType,
+      },
+    },
+    {
+      text: `Transcribe this audio with precise word-level timestamps.
+
+Return a JSON array where each element is: {"word": "the_word", "start": 0.123, "end": 0.456}
+- "start" and "end" are in SECONDS (decimal)
+- Include ALL spoken words, including filler words
+- Preserve punctuation on words (e.g., "Hello," not "Hello")
+${language ? `- Language: ${language}` : '- Auto-detect language'}
+
+Return ONLY the JSON array, no other text. Example:
+[{"word":"Hello,","start":0.1,"end":0.4},{"word":"world.","start":0.5,"end":0.9}]`,
+    },
+  ]);
+
+  const text = result.response.text()?.trim() || '';
+
+  // Parse JSON response — handle markdown code blocks
+  let jsonStr = text;
+  if (jsonStr.startsWith('```')) {
+    jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+  }
+
+  const parsed = JSON.parse(jsonStr);
+  if (!Array.isArray(parsed)) throw new Error('Gemini did not return a JSON array');
+
+  const words: TranscriptionWord[] = parsed.map((w: any) => ({
+    word: String(w.word || ''),
+    startMs: Math.round((w.start || 0) * 1000),
+    endMs: Math.round((w.end || 0) * 1000),
+    confidence: 0.9,
+  })).filter((w: TranscriptionWord) => w.word.length > 0);
+
+  const transcript = words.map(w => w.word).join(' ');
+
+  return {
+    words,
+    transcript,
+    language: language || 'en',
+    confidence: 0.9,
+    generatedAt: new Date(),
+  };
 }
 
 /**

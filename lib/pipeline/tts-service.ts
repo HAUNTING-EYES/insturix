@@ -36,9 +36,8 @@ export const TTS_VOICES: TTSVoice[] = [
   { id: 'kokoro-liam', name: 'Liam', gender: 'male', style: 'Clear, polished', previewText: 'Precision and clarity define the quality of narration.', provider: 'kokoro', providerVoiceId: 'am_liam' },
   { id: 'kokoro-fenrir', name: 'Fenrir', gender: 'male', style: 'Rich, dramatic', previewText: 'In the realm of visual storytelling, every detail matters.', provider: 'kokoro', providerVoiceId: 'am_fenrir' },
 
-  // Deepgram voices (fallback — still good quality)
-  { id: 'aura-asteria-en', name: 'Asteria (Classic)', gender: 'female', style: 'Neutral, professional', previewText: 'Welcome to your story. Every scene tells something unique.', provider: 'deepgram', providerVoiceId: 'aura-asteria-en' },
-  { id: 'aura-orion-en', name: 'Orion (Classic)', gender: 'male', style: 'Deep, narrative', previewText: 'From the first frame to the last, this is your story.', provider: 'deepgram', providerVoiceId: 'aura-orion-en' },
+  // Deepgram voices removed from UI — robotic compared to Kokoro.
+  // Deepgram still works as internal fallback if Kokoro fails (provider logic in generateVoiceover).
 ];
 
 export type TTSVoiceId = typeof TTS_VOICES[number]['id'];
