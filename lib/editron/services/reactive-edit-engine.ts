@@ -39,7 +39,7 @@ import type {
 export type EditDecisionType =
   | 'cut' | 'transition' | 'zoom' | 'pan' | 'graphic'
   | 'sfx' | 'speed-change' | 'filter-change' | 'caption-emphasis'
-  | 'audio-duck' | 'fade' | 'slow-motion';
+  | 'audio-duck' | 'fade' | 'slow-motion' | 'filter' | 'pacing';
 
 export interface EditDecision {
   type: EditDecisionType;
@@ -125,6 +125,78 @@ export function generateEditDecisionList(
 
     // ─── Cinematic moments (multi-track peaks) ─────────────────
     decisions.push(...detectCinematicMoments(analysis));
+
+    // ─── Script edit directions (HIGHEST priority — explicit intent) ───
+    // These come from ThinkForge script via storyboard enrichment.
+    // Script directions always override analysis-derived decisions.
+    if (analysis.speechSegments.length > 0) {
+      for (const seg of analysis.speechSegments) {
+        const ed = (seg as any).scriptEditDirections;
+        if (!ed) continue;
+
+        // Transition from script: "DISSOLVE TO", "CUT TO", "FADE TO BLACK"
+        if (ed.transition) {
+          decisions.push({
+            frame: seg.endFrame,
+            type: 'transition',
+            trigger: { track: 'speech', signal: 'script_transition', confidence: 1.0 },
+            action: { tool: 'add_transition', params: { type: ed.transition.type, durationMs: ed.transition.durationMs || 500, afterOverlayId: undefined } },
+            priority: 100, // HIGHEST — script intent overrides everything
+            confidence: 1.0,
+          });
+        }
+
+        // Camera movement from script: "SLOW PUSH IN", "DOLLY", "WHIP PAN"
+        if (ed.cameraRig) {
+          const camLower = ed.cameraRig.toLowerCase();
+          const isZoom = camLower.includes('push in') || camLower.includes('zoom in') || camLower.includes('pull out') || camLower.includes('zoom out');
+          if (isZoom) {
+            const zoomIn = camLower.includes('push in') || camLower.includes('zoom in');
+            decisions.push({
+              frame: seg.startFrame,
+              type: 'zoom',
+              trigger: { track: 'speech', signal: 'script_camera', confidence: 0.95 },
+              action: {
+                tool: 'set_keyframes',
+                params: {
+                  property: 'scale',
+                  keyframes: [
+                    { frame: 0, value: zoomIn ? 1.0 : 1.08, easing: 'ease-in-out' },
+                    { frame: seg.endFrame - seg.startFrame, value: zoomIn ? 1.08 : 1.0, easing: 'ease-in-out' },
+                  ],
+                },
+              },
+              priority: 90,
+              confidence: 0.95,
+            });
+          }
+        }
+
+        // Filter from script: "cool sophisticated palette", "warm cinematic"
+        if (ed.filterPresetId) {
+          decisions.push({
+            frame: seg.startFrame,
+            type: 'filter',
+            trigger: { track: 'speech', signal: 'script_filter', confidence: 1.0 },
+            action: { tool: 'apply_filter', params: { filterPresetId: ed.filterPresetId } },
+            priority: 85,
+            confidence: 1.0,
+          });
+        }
+
+        // Pacing from script: "quick cuts", "slow reveal", "building"
+        if (ed.pacing) {
+          decisions.push({
+            frame: seg.startFrame,
+            type: 'pacing',
+            trigger: { track: 'speech', signal: 'script_pacing', confidence: 0.9 },
+            action: { tool: 'adjust_pacing', params: { pacing: ed.pacing } },
+            priority: 80,
+            confidence: 0.9,
+          });
+        }
+      }
+    }
   }
 
   // Sort by frame, then priority
