@@ -3752,9 +3752,15 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
             const boundaryFrame = current.from + current.durationInFrames;
             const canvas = getCanvasDimensions(project);
 
-            const transOverlay = buildTransitionOverlay(transType, boundaryFrame - Math.floor(durFrames / 2), durFrames, canvas.width, canvas.height);
+            const transId = Date.now() + i * 100;
+            const transOverlay = buildTransitionOverlay(transType, {
+              startFrame: boundaryFrame - Math.floor(durFrames / 2),
+              durationFrames: durFrames,
+              width: canvas.width,
+              height: canvas.height,
+            }, transId);
             if (transOverlay) {
-              await projectService.addOverlay(userId, projectId, { ...transOverlay, id: Date.now() + i * 100 } as any);
+              await projectService.addOverlay(userId, projectId, { ...transOverlay, id: transId } as any);
               added++;
             }
           }
@@ -3766,9 +3772,15 @@ Example: auto_motion_graphics({ density: 'moderate' })`,
           }
           const boundaryFrame = targetOverlay.from + targetOverlay.durationInFrames;
           const canvas = getCanvasDimensions(project);
-          const transOverlay = buildTransitionOverlay(transType, boundaryFrame - Math.floor(durFrames / 2), durFrames, canvas.width, canvas.height);
+          const singleTransId = Date.now();
+          const transOverlay = buildTransitionOverlay(transType, {
+            startFrame: boundaryFrame - Math.floor(durFrames / 2),
+            durationFrames: durFrames,
+            width: canvas.width,
+            height: canvas.height,
+          }, singleTransId);
           if (transOverlay) {
-            await projectService.addOverlay(userId, projectId, { ...transOverlay, id: Date.now() } as any);
+            await projectService.addOverlay(userId, projectId, { ...transOverlay, id: singleTransId } as any);
             added++;
           }
         }
