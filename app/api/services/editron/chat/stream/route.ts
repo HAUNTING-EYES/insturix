@@ -134,7 +134,13 @@ export async function POST(req: NextRequest) {
     if (selectedOverlayId && project.overlays) {
       const selected = project.overlays.find((o: any) => o.id === selectedOverlayId);
       if (selected) {
-        contextMessage += `\n\nCURRENTLY SELECTED OVERLAY: The user has overlay id=${selected.id} selected (type: ${selected.type}, row: ${selected.row}, from frame ${selected.from}, duration ${selected.durationInFrames} frames). When the user says "this", "the selected", "this clip", "this scene", or similar, they mean this overlay. Use this overlay's ID directly without asking which one.`;
+        // Detect scene index from overlay position (video overlays are sequential on the timeline)
+        const videoOverlays = project.overlays.filter((o: any) => o.type === 'video').sort((a: any, b: any) => a.from - b.from);
+        const sceneIndex = videoOverlays.findIndex((o: any) => o.id === selected.id);
+        const sceneLabel = sceneIndex >= 0 ? ` This is SCENE ${sceneIndex + 1} (0-based index: ${sceneIndex}).` : '';
+        contextMessage += `\n\n⚡ CURRENTLY SELECTED OVERLAY: id=${selected.id}, type=${selected.type}, row=${selected.row}, from frame ${selected.from}, duration ${selected.durationInFrames} frames.${sceneLabel}
+CRITICAL: When the user says "this", "the selected", "this clip", "this scene", "regenerate this", "fix this" — they mean overlay id=${selected.id}${sceneIndex >= 0 ? ` (scene ${sceneIndex + 1})` : ''}. ACT IMMEDIATELY with this ID. Do NOT ask which overlay or which scene.
+If user says "regenerate" without specifying target, default to target='all' (regenerate image + video + voiceover).`;
         if (selected.type === 'video' || selected.type === 'image') {
           contextMessage += ` Content: ${(selected as any).src?.substring(0, 80) || 'N/A'}`;
         }
