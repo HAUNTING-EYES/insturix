@@ -36,10 +36,18 @@ export const SoundLayerContent: React.FC<SoundLayerContentProps> = ({
   const volumeCallback = useMemo(() => {
     if (!duckingConfig?.enabled) return undefined;
 
-    // Find all voiceover overlays (row 4 sound overlays, excluding this overlay)
-    const voiceoverOverlays = allOverlays.filter(
-      (o) => o.type === 'sound' && o.row === 4 && o.id !== overlay.id,
-    );
+    // Find all voiceover overlays — identify by assetId prefix OR row 4.
+    // Using assetId prefix is more reliable than row number because users
+    // can accidentally drag overlays to different rows.
+    const voiceoverOverlays = allOverlays.filter((o) => {
+      if (o.id === overlay.id) return false;
+      if (o.type !== 'sound') return false;
+      // Check assetId prefix first (most reliable)
+      const aid = (o as any).assetId || '';
+      if (aid.startsWith('voiceover_') || aid.startsWith('vo_')) return true;
+      // Fallback to row 4 if no recognizable assetId
+      return o.row === 4;
+    });
 
     if (voiceoverOverlays.length === 0) return undefined;
 
