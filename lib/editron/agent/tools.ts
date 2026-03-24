@@ -4420,15 +4420,15 @@ NEVER ask the user which clips — default to applyToAll: true.`,
           return JSON.stringify({ status: 'error', message: 'No video overlay found to cut.' });
         }
 
-        // Call beat analysis API route
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+        // Call beat analysis API route — use VERCEL_URL for internal calls
+        const baseUrl = process.env.VERCEL_URL
           ? `https://${process.env.VERCEL_URL}`
-          : 'http://localhost:3000';
+          : (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000');
 
         const analysisRes = await fetch(`${baseUrl}/api/services/editron/audio/analyze-beats`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ assetId: audioOverlay.assetId }),
+          body: JSON.stringify({ assetId: audioOverlay.assetId, userId }),
         });
 
         if (!analysisRes.ok) {

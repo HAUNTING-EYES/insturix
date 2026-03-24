@@ -20,12 +20,19 @@ export const maxDuration = 60; // Beat detection is fast (<3s for a 5-min track)
 
 export async function POST(request: NextRequest) {
   try {
-    const { userId } = await auth();
+    // Auth: prefer Clerk session, fallback to userId in body (for internal tool calls)
+    let userId: string | null = null;
+    try {
+      const authResult = await auth();
+      userId = authResult.userId;
+    } catch {}
+
+    const body = await request.json();
+    if (!userId && body.userId) userId = body.userId;
     if (!userId) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const body = await request.json();
     const {
       assetId,
       forceRefresh = false,
@@ -34,6 +41,7 @@ export async function POST(request: NextRequest) {
       assetId: string;
       forceRefresh?: boolean;
       options?: BeatDetectionOptions;
+      userId?: string;
     } = body;
 
     if (!assetId) {
