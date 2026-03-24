@@ -3563,6 +3563,158 @@ Use this after trim/split/move operations or when fancy captions drift out of sy
     },
   );
 
+  // ─── Smart Auto Motion Graphics ───────────────────────────────────
+
+  const autoMotionGraphicsSchema = z.object({
+    density: z.enum(['minimal', 'moderate', 'heavy']).default('moderate').describe("How many graphics to add: minimal (key moments only), moderate (balanced), heavy (every scene)"),
+  });
+
+  const autoMotionGraphics = tool(
+    async (rawInput: z.infer<typeof autoMotionGraphicsSchema>) => {
+      try {
+        const input = coerceInput(rawInput);
+        const project = await loadProject();
+        const fps = project.fps || 30;
+        const canvas = getCanvasDimensions(project);
+
+        // Find video overlays and their corresponding text/narration
+        const videoOverlays = project.overlays
+          .filter((o: any) => o.type === 'video')
+          .sort((a: any, b: any) => a.from - b.from);
+
+        if (videoOverlays.length === 0) {
+          return JSON.stringify({ status: 'error', message: 'No video clips found to add motion graphics to' });
+        }
+
+        // Find voiceover/caption overlays for narration context
+        const voOverlays = project.overlays.filter((o: any) =>
+          o.type === 'sound' && (o.row === 4 || (o.assetId || '').startsWith('voiceover_')),
+        );
+        const captionOverlays = project.overlays.filter((o: any) => o.type === 'caption');
+
+        // Look up storyboard for scene narration text
+        const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+        const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
+        const storyboardId = projectDoc?.sourceStoryboardId;
+        let scenes: any[] = [];
+        if (storyboardId) {
+          const sb = await db.collection('storyboards').findOne({ storyboardId }) as any;
+          if (sb?.scenes) scenes = sb.scenes;
+        }
+
+        // Use Gemini to analyze narration and suggest motion graphic placements
+        const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+        if (!apiKey) {
+          return JSON.stringify({ status: 'error', message: 'Gemini API key needed for auto motion graphics' });
+        }
+
+        // Build context: scene narrations + durations
+        const sceneContext = videoOverlays.map((v: any, i: number) => {
+          const scene = scenes[i];
+          const narration = scene?.descriptor?.narration || '';
+          const startSec = Math.round(v.from / fps * 10) / 10;
+          const durSec = Math.round(v.durationInFrames / fps * 10) / 10;
+          return `Scene ${i + 1} (${startSec}s-${startSec + durSec}s): "${narration}"`;
+        }).join('\n');
+
+        const { GoogleGenerativeAI } = await import('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+
+        const densityGuide = input.density === 'minimal' ? '1-2 total' : input.density === 'heavy' ? 'one per scene' : '2-3 total';
+
+        const result = await model.generateContent(`You are a video editor adding motion graphics to a ${videoOverlays.length}-scene video.
+
+Scene narrations:
+${sceneContext}
+
+Add ${densityGuide} motion graphics. For each, return:
+- scene: scene number (1-based)
+- offsetSec: seconds into that scene to show (e.g., 1.0)
+- durationSec: how long to show (2-4 seconds typical)
+- description: what to show (product feature callout, stat, title, etc.)
+
+Rules:
+- Match graphics to what's being said in the narration at that moment
+- Use clear, simple descriptions (not jargon like "lower third")
+- For product ads: highlight features, stats, product name
+- For educational: highlight key terms, steps, definitions
+- Place graphics 1-2 seconds after the relevant narration starts
+- Never place in first 0.5s or last 0.5s of a scene
+
+Return ONLY a JSON array:
+[{"scene":1,"offsetSec":2.0,"durationSec":3.0,"description":"Product name: Nova Speaker"}]`);
+
+        const text = result.response.text()?.trim() || '[]';
+        let jsonStr = text;
+        if (jsonStr.startsWith('```')) {
+          jsonStr = jsonStr.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+        }
+
+        let placements: any[];
+        try {
+          placements = JSON.parse(jsonStr);
+        } catch {
+          return JSON.stringify({ status: 'error', message: 'Failed to parse Gemini motion graphic suggestions' });
+        }
+
+        if (!Array.isArray(placements) || placements.length === 0) {
+          return JSON.stringify({ status: 'success', data: { added: 0 }, message: 'No motion graphics needed for this video' });
+        }
+
+        // Execute each placement
+        let added = 0;
+        for (const p of placements) {
+          const sceneIdx = (p.scene || 1) - 1;
+          const videoOv = videoOverlays[sceneIdx] as any;
+          if (!videoOv) continue;
+
+          const startFrame = videoOv.from + Math.round((p.offsetSec || 1) * fps);
+          const durationFrames = Math.round((p.durationSec || 3) * fps);
+
+          try {
+            // Use the existing add_motion_graphic tool
+            const mgResult = await addMotionGraphic.invoke({
+              start: startFrame,
+              duration: durationFrames,
+              description: p.description,
+            });
+            const parsed = JSON.parse(mgResult);
+            if (parsed.status === 'success') added++;
+          } catch (err: any) {
+            console.warn(`[auto_motion_graphics] Failed for scene ${p.scene}: ${err.message}`);
+          }
+        }
+
+        return JSON.stringify({
+          status: 'success',
+          data: { added, suggested: placements.length },
+          message: `Added ${added} motion graphics (${placements.length} suggested by AI)`,
+        });
+      } catch (e: any) {
+        return JSON.stringify({ status: 'error', message: e.message });
+      }
+    },
+    {
+      name: 'auto_motion_graphics',
+      description: `Automatically analyze the video and add relevant motion graphics.
+
+The AI reads each scene's narration and places graphics that match:
+- Product names, features, stats → callout labels
+- Key terms, definitions → highlight text
+- Step-by-step instructions → numbered list
+- Speaker introductions → name labels
+
+User just says: "add graphics to my video" or "enhance with motion graphics"
+NO need to specify type, position, or timing — AI handles everything.
+
+Density: minimal (1-2 key moments), moderate (2-3 balanced), heavy (every scene)
+
+Example: auto_motion_graphics({ density: 'moderate' })`,
+      schema: autoMotionGraphicsSchema,
+    },
+  );
+
   // ─── Transition Tool ──────────────────────────────────────────────
 
   const addTransitionSchema = z.object({
@@ -4486,6 +4638,8 @@ NEVER ask the user which clips — default to applyToAll: true.`,
     regenerateScene,      // NEW: Regenerate scene image/video/voiceover via chat
     // --- Transition Tools ---
     addTransitionTool,    // NEW: Add transitions between clips
+    // --- Smart Motion Graphics ---
+    autoMotionGraphics,   // NEW: Auto-analyze and place motion graphics
     // --- Style Transfer Tools ---
     extractStyleTool,     // NEW: Extract Edit DNA from reference video
     applyStyleTool,       // NEW: Apply Edit DNA to project
