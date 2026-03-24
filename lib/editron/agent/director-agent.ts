@@ -69,6 +69,75 @@ export async function executeDirectorPlan(
     const overlays = project.overlays || [];
     result.checkpointId = `director_${Date.now()}`;
 
+    // ─── Step 1.5: Run 5-Track Analysis → EDL → Execute ──────
+    // This is the intelligence layer. Analyze video assets, generate
+    // edit decisions, and apply them to the timeline BEFORE profile actions.
+    try {
+      onProgress?.(0, 0, 'Analyzing video assets (5-track)...');
+      const { runFiveTrackAnalysis, getAnalysis } = await import('@/lib/editron/services/five-track-analysis');
+      const { generateEditDecisionList } = await import('@/lib/editron/services/reactive-edit-engine');
+      const { executeEDL } = await import('@/lib/editron/services/edl-executor');
+      const { detectCinematicMoments } = await import('@/lib/editron/services/cinematic-moment-detector');
+
+      // Analyze each video asset (cached — fast if already analyzed)
+      const videoOverlays = overlays.filter(o => o.type === 'video');
+      const analyses: any[] = [];
+
+      for (const vo of videoOverlays) {
+        const assetId = (vo as any).assetId;
+        if (!assetId) continue;
+
+        // Check cache first
+        let analysis = await getAnalysis(assetId);
+        if (!analysis) {
+          const videoUrl = (vo as any).src || (vo as any).content;
+          if (videoUrl) {
+            const durationMs = (vo.durationInFrames / 30) * 1000;
+            analysis = await runFiveTrackAnalysis(assetId, userId, {
+              videoUrl,
+              durationMs,
+              tracks: ['visual', 'motion', 'subjects'],
+            });
+          }
+        }
+        if (analysis) analyses.push(analysis);
+      }
+
+      if (analyses.length > 0) {
+        // Generate Edit Decision List
+        const totalDurationMs = (project.durationInFrames || 900) / 30 * 1000;
+        const edl = generateEditDecisionList(analyses, totalDurationMs, {
+          targetCutsPerMinute: effectiveProfile.cutFrequencyTarget
+            ? 60 / effectiveProfile.cutFrequencyTarget
+            : 6,
+          transitionStyle: effectiveProfile.defaultTransition?.type === 'dissolve' ? 'dissolve'
+            : effectiveProfile.defaultTransition?.type === 'hard-cut' ? 'hard-cut'
+            : 'mixed',
+          graphicDensity: effectiveProfile.graphicsDensity || 'moderate',
+          pacing: effectiveProfile.pacing || 'medium',
+        });
+
+        // Detect cinematic moments
+        const moments = analyses.flatMap(a => detectCinematicMoments(a));
+
+        // Execute EDL decisions on the overlay array
+        const canvas = project.playerDimensions || { width: 1920, height: 1080 };
+        const edlResult = await executeEDL(edl, projectId, userId, overlays, canvas);
+
+        console.log(`[Director] 5-Track: ${analyses.length} assets analyzed, ${edl.totalDecisions} decisions, ${edlResult.decisionsExecuted} executed, ${moments.length} cinematic moments`);
+        result.overlaysModified += edlResult.overlaysModified + edlResult.overlaysCreated;
+
+        if (edlResult.errors.length > 0) {
+          result.warnings.push(...edlResult.errors.slice(0, 3));
+        }
+      } else {
+        console.log('[Director] No video assets to analyze, skipping 5-track');
+      }
+    } catch (analysisErr: any) {
+      console.warn('[Director] 5-Track analysis failed (non-fatal):', analysisErr.message);
+      result.warnings.push(`Analysis: ${analysisErr.message}`);
+    }
+
     // ─── Step 2: Check conditions and filter actions ──────────
     const actions = effectiveProfile.actions
       .filter(action => checkCondition(action.condition, overlays))
