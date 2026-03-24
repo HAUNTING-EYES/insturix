@@ -309,13 +309,28 @@ async function executeAction(
     }
 
     case 'add_transition': {
-      // Add transitions between all video clips — delegate to invokeAITool
-      // Override params with profile's defaultTransition if not specified
+      // Get transition type from params or profile default
+      let transType = action.params.type || profile.defaultTransition?.type || profile.defaultTransition || 'soft-cut';
+      if (typeof transType === 'object') transType = transType.type || 'soft-cut';
+
+      // 'hard-cut' means no transition overlay — skip entirely
+      if (transType === 'hard-cut' || transType === 'none') {
+        console.log('[Director] add_transition: hard-cut = no transition needed, skipping');
+        break;
+      }
+
+      // Validate against the enum the tool accepts
+      const validTypes = ['dissolve', 'dip-to-black', 'dip-to-white', 'soft-cut', 'zoom-punch', 'whip-pan', 'glitch'];
+      if (!validTypes.includes(transType)) {
+        console.warn(`[Director] add_transition: "${transType}" not in valid types, defaulting to soft-cut`);
+        transType = 'soft-cut';
+      }
+
       const transAction = {
         ...action,
         params: {
-          ...action.params,
-          type: action.params.type || profile.defaultTransition || 'soft-cut',
+          type: transType,
+          durationMs: action.params.durationMs || 500,
           applyToAll: true,
         },
       };
@@ -447,32 +462,23 @@ async function invokeAITool(
       break;
     }
     case 'add_motion_graphic': {
-      // Smart auto-placement: analyze narration text overlays to derive
-      // motion graphic descriptions and timing. No user input needed.
-      const textOverlays = overlays.filter(o => o.type === 'text' && o.row === 0);
-      if (textOverlays.length === 0) {
-        console.log('[Director] add_motion_graphic: no text overlays for context');
-        params.description = params.description || 'minimal animated label';
-        params.start = params.start || 0;
-        params.duration = params.duration || 90;
-        params.row = params.row || 1;
-      } else {
-        // Pick the first scene's narration as context for the motion graphic
-        const firstText = textOverlays[0];
-        const narrationSnippet = (firstText.content || '').substring(0, 100);
-        // Use plain language descriptions — no jargon
-        const density = profile.graphicsDensity || 'moderate';
-        const descriptions: Record<string, string> = {
-          heavy: `animated text label showing: "${narrationSnippet}"`,
-          moderate: `subtle feature highlight for: "${narrationSnippet.substring(0, 50)}"`,
-          minimal: `clean minimal label`,
-        };
-        params.description = params.description || descriptions[density] || descriptions.moderate;
-        params.start = params.start || firstText.from;
-        params.duration = params.duration || Math.min(firstText.durationInFrames, 120);
-        params.row = params.row || 1;
-      }
-      console.log(`[Director] add_motion_graphic: "${(params.description as string).substring(0, 60)}..." at frame ${params.start}`);
+      // Use GENERIC template categories that the template matcher can find.
+      // The old approach passed narration text which never matched any template.
+      // Templates are named: "lower-third", "callout", "title-card", "stat-counter" etc.
+      const density = profile.graphicsDensity || 'moderate';
+
+      // Map density to template categories the matcher WILL find
+      const templateCategory = density === 'heavy' ? 'title card with animated text'
+        : density === 'moderate' ? 'lower third label'
+        : 'minimal text label';
+
+      params.category = params.category || 'lower-third';
+      params.description = params.description || templateCategory;
+      params.start = params.start || 0;
+      params.duration = params.duration || 90;
+      params.row = params.row || 1;
+
+      console.log(`[Director] add_motion_graphic: category="${params.category}", desc="${(params.description as string).substring(0, 60)}" at frame ${params.start}`);
       break;
     }
     case 'generate_html_scene': {
