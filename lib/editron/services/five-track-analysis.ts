@@ -655,6 +655,28 @@ const FPS = 30;
  * Run complete 5-layer analysis on an asset.
  * All layers run in parallel where possible. Results cached in MongoDB.
  */
+/**
+ * Storyboard metadata from ThinkForge — pre-classified data for AI videos.
+ * When available, this REPLACES Layer 1 (no shots to detect — 1 clip = 1 shot)
+ * and ENRICHES Track A (narration already has intent, no need to re-classify).
+ */
+export interface StoryboardMetadata {
+  sceneIndex: number;
+  narration: string;
+  visualDescription: string;
+  mood: string;
+  audioDescription?: string;
+  cameraDirection?: string;
+  editDirections?: {
+    transition?: { type: string; durationMs?: number };
+    filterPresetId?: string;
+    pacing?: string;
+    sfxCue?: string;
+    motionGraphicCue?: string;
+    cameraRig?: string;
+  };
+}
+
 export async function runFullAnalysis(
   assetId: string,
   userId: string,
@@ -664,11 +686,17 @@ export async function runFullAnalysis(
     durationMs: number;
     transcript?: string;
     words?: Array<{ word: string; startMs: number; endMs: number }>;
+    /** For AI videos from ThinkForge — pre-classified scene data */
+    storyboardScene?: StoryboardMetadata;
+    /** 'ai-generated' skips shot detection, uses storyboard metadata.
+     *  'real-footage' runs full pipeline including clip matching. */
+    sourceType?: 'ai-generated' | 'real-footage';
   },
 ): Promise<AssetAnalysis> {
-  const { videoUrl, audioUrl, durationMs, transcript, words } = options;
+  const { videoUrl, audioUrl, durationMs, transcript, words, storyboardScene, sourceType = 'ai-generated' } = options;
 
-  console.log(`[Analysis] Starting full 5-layer analysis for ${assetId} (${Math.round(durationMs / 1000)}s)`);
+  const isAIVideo = sourceType === 'ai-generated';
+  console.log(`[Analysis] Starting ${isAIVideo ? 'AI-video' : 'real-footage'} analysis for ${assetId} (${Math.round(durationMs / 1000)}s)`);
 
   // Check cache
   const cached = await getAnalysis(assetId);
@@ -678,8 +706,15 @@ export async function runFullAnalysis(
     return cached;
   }
 
-  // Layer 1: Shot detection (needs video)
-  const shots = videoUrl ? await detectShots(videoUrl, durationMs, FPS) : [];
+  // Layer 1: Shot detection
+  // AI videos: each clip IS one shot (skip detection)
+  // Real footage: each uploaded clip IS one shot (skip internal detection)
+  // Shot detection only matters when we stitch clips on the timeline — handled by the Reactive Edit Engine
+  const shots: Shot[] = [{
+    startFrame: 0,
+    endFrame: Math.round(durationMs / 1000 * FPS),
+    durationMs,
+  }];
 
   // Layers 2-5 in parallel
   const [motionResult, audio, keyframes, subjects] = await Promise.allSettled([
@@ -701,10 +736,38 @@ export async function runFullAnalysis(
   const keyframeData = keyframes.status === 'fulfilled' ? keyframes.value : [];
   const subjectData = subjects.status === 'fulfilled' ? subjects.value : [];
 
-  // Track A: Speech semantic (needs transcript)
-  const speechSegments = transcript && words
-    ? await classifySpeech(transcript, words)
-    : [];
+  // Track A: Speech semantic
+  // AI videos: use storyboard narration (richest source — we wrote it)
+  // Real footage: classify from transcription
+  let speechSegments: SpeechSegment[] = [];
+  if (storyboardScene?.narration && words) {
+    // AI video path — classify the known narration (fastest, most accurate)
+    speechSegments = await classifySpeech(storyboardScene.narration, words);
+    console.log(`[TrackA] AI video: classified ${speechSegments.length} segments from storyboard narration`);
+  } else if (transcript && words) {
+    // Real footage path — classify from transcription
+    speechSegments = await classifySpeech(transcript, words);
+    console.log(`[TrackA] Real footage: classified ${speechSegments.length} segments from transcription`);
+  }
+
+  // Enrich with storyboard edit directions if available
+  if (storyboardScene?.editDirections && speechSegments.length > 0) {
+    const ed = storyboardScene.editDirections;
+    // Apply script-specified transition to the first segment
+    if (ed.transition && speechSegments[0]) {
+      speechSegments[0] = {
+        ...speechSegments[0],
+        contentType: speechSegments[0].contentType === 'neutral' ? 'transition_phrase' : speechSegments[0].contentType,
+      };
+    }
+    // Apply motion graphic cue if specified
+    if (ed.motionGraphicCue && speechSegments.length > 0) {
+      const bestSeg = speechSegments.find(s => s.contentType !== 'neutral') || speechSegments[0];
+      if (bestSeg && !bestSeg.suggestedGraphicType) {
+        bestSeg.suggestedGraphicType = ed.motionGraphicCue;
+      }
+    }
+  }
 
   // Track C: Music structure (needs beats from Layer 3)
   const beats = audioData?.beats || [];

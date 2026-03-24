@@ -80,10 +80,37 @@ export async function executeDirectorPlan(
       const { detectCinematicMoments } = await import('@/lib/editron/services/cinematic-moment-detector');
 
       // Analyze each video asset (cached — fast if already analyzed)
-      const videoOverlays = overlays.filter(o => o.type === 'video');
+      const videoOverlays = overlays.filter(o => o.type === 'video').sort((a, b) => a.from - b.from);
+      const voiceoverOverlays = overlays.filter(o => o.type === 'sound' && o.row === 4).sort((a, b) => a.from - b.from);
       const analyses: any[] = [];
 
-      for (const vo of videoOverlays) {
+      // Detect if this is an AI-generated project (has storyboard link)
+      const db = await (await import('@/lib/editron/db/mongodb')).getDatabase();
+      const projectDoc = await db.collection('projects').findOne({ projectId }) as any;
+      const storyboardId = projectDoc?.sourceStoryboardId;
+      let storyboardScenes: any[] = [];
+
+      if (storyboardId) {
+        const { getStoryboard } = await import('@/lib/pipeline/storyboard-db');
+        const sb = await getStoryboard(storyboardId, userId);
+        if (sb) {
+          storyboardScenes = sb.scenes.map(s => ({
+            sceneIndex: s.sceneIndex,
+            narration: s.descriptor.narration,
+            visualDescription: s.descriptor.visualDescription,
+            mood: s.descriptor.mood,
+            audioDescription: s.descriptor.audioDescription,
+            cameraDirection: s.descriptor.cameraDirection,
+            editDirections: s.descriptor.editDirections,
+          }));
+          console.log(`[Director] Found storyboard ${storyboardId} with ${storyboardScenes.length} scenes`);
+        }
+      }
+
+      const isAIProject = storyboardScenes.length > 0;
+
+      for (let i = 0; i < videoOverlays.length; i++) {
+        const vo = videoOverlays[i];
         const assetId = (vo as any).assetId;
         if (!assetId) continue;
 
@@ -93,9 +120,25 @@ export async function executeDirectorPlan(
           const videoUrl = (vo as any).src || (vo as any).content;
           if (videoUrl) {
             const durationMs = (vo.durationInFrames / 30) * 1000;
+
+            // Get voiceover text for this scene (word timestamps from TTS)
+            const matchingVO = voiceoverOverlays[i];
+            const storyboardScene = isAIProject ? storyboardScenes[i] : undefined;
+            const narrationText = storyboardScene?.narration || '';
+
+            // Build synthetic word timestamps from narration if no real transcription
+            const words = narrationText ? narrationText.split(/\s+/).map((w: string, idx: number, arr: string[]) => {
+              const wordDurationMs = durationMs / arr.length;
+              return { word: w, startMs: idx * wordDurationMs, endMs: (idx + 1) * wordDurationMs };
+            }) : undefined;
+
             analysis = await runFullAnalysis(assetId, userId, {
               videoUrl,
               durationMs,
+              transcript: narrationText || undefined,
+              words,
+              storyboardScene,
+              sourceType: isAIProject ? 'ai-generated' : 'real-footage',
             });
           }
         }
