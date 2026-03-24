@@ -40,7 +40,8 @@ async function searchPixabay(
   }
 
   try {
-    // Pixabay music/SFX endpoint
+    // Pixabay audio search endpoint
+    // Docs: https://pixabay.com/api/docs/ — use media_type=audio for sounds
     const params = new URLSearchParams({
       key: apiKey,
       q: query,
@@ -48,23 +49,14 @@ async function searchPixabay(
       safesearch: 'true',
     });
 
-    const res = await fetch(`https://pixabay.com/api/videos/music/?${params}`);
+    const res = await fetch(`https://pixabay.com/api/?${params}`);
     if (!res.ok) {
-      // Try the regular audio search endpoint
-      const audioRes = await fetch(`https://pixabay.com/api/?${new URLSearchParams({
-        key: apiKey,
-        q: query,
-        per_page: '5',
-        safesearch: 'true',
-        media_type: 'audio',
-      })}`);
+      console.warn(`[SFXLib] Pixabay search failed: ${res.status} ${res.statusText}`);
+      return null;
+    }
 
-      if (!audioRes.ok) {
-        console.warn(`[SFXLib] Pixabay search failed: ${audioRes.status}`);
-        return null;
-      }
-
-      const audioData = await audioRes.json();
+    {
+      const audioData = await res.json();
       const hits = audioData.hits || [];
       if (hits.length === 0) return null;
 
@@ -80,17 +72,6 @@ async function searchPixabay(
         duration: best.duration || 5,
       };
     }
-
-    const data = await res.json();
-    const hits = data.hits || [];
-    if (hits.length === 0) return null;
-
-    const best = hits[0];
-    return {
-      url: best.audio?.url || best.videos?.medium?.url,
-      title: best.tags || query,
-      duration: best.duration || 5,
-    };
   } catch (err: any) {
     console.error(`[SFXLib] Pixabay error: ${err.message}`);
     return null;
@@ -168,14 +149,15 @@ export async function searchAndDownloadSFX(
 ): Promise<SFXLibraryResult | null> {
   console.log(`[SFXLib] Searching: "${query}" (maxDuration=${maxDurationSec || 'any'}s)`);
 
-  // Try Pixabay first
-  let found = await searchPixabay(query, maxDurationSec);
-  let source: 'pixabay' | 'freesound' = 'pixabay';
+  // Try Freesound first (actual audio search API).
+  // Pixabay's general API returns images, not audio — their music API needs special access.
+  let found = await searchFreesound(query, maxDurationSec);
+  let source: 'pixabay' | 'freesound' = 'freesound';
 
-  // Fallback to Freesound
+  // Fallback to Pixabay (may work if they have audio results for this query)
   if (!found) {
-    found = await searchFreesound(query, maxDurationSec);
-    source = 'freesound';
+    found = await searchPixabay(query, maxDurationSec);
+    source = 'pixabay';
   }
 
   if (!found || !found.url) {
