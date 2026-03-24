@@ -4146,17 +4146,32 @@ NEVER ask the user which clips — default to applyToAll: true.`,
   // --- STYLE TRANSFER TOOLS ---
 
   const extractStyleSchema = z.object({
-    videoOverlayId: z.string().describe('ID of the reference video overlay to analyze for style extraction'),
+    videoOverlayId: z.string().optional().describe('ID of a video overlay in the current project to analyze. If not provided, analyzes the first video overlay.'),
+    videoUrl: z.string().optional().describe('Direct URL to a video file for style extraction. Use this for uploaded reference videos.'),
+    sourceName: z.string().optional().describe('Name for this style profile (e.g., "Apple ad style", "MrBeast format")'),
   });
 
   const extractStyleTool = tool(
     async (rawInput: z.infer<typeof extractStyleSchema>) => {
       try {
         const input = coerceInput(rawInput);
-        const { videoOverlayId } = input;
+
+        // If no videoOverlayId or videoUrl, use first video in project
+        let { videoOverlayId, videoUrl, sourceName } = input;
+        if (!videoOverlayId && !videoUrl) {
+          const project = await loadProject();
+          const firstVideo = project.overlays.find((o: any) => o.type === 'video');
+          if (firstVideo) {
+            videoOverlayId = String(firstVideo.id);
+          } else {
+            return JSON.stringify({ status: 'error', message: 'No video found to extract style from. Upload a reference video or add one to the project.' });
+          }
+        }
 
         const dna = await extractEditDNA({
-          videoOverlayId: String(videoOverlayId),
+          videoOverlayId: videoOverlayId ? String(videoOverlayId) : undefined,
+          videoUrl: videoUrl || undefined,
+          sourceName: sourceName || undefined,
           userId,
           projectId,
         });
