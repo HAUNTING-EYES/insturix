@@ -176,22 +176,25 @@ async function executeAction(
 
     case 'add_captions':
     case 'add_fancy_captions':
-    case 'sync_cuts_to_beats':
-    case 'add_transition': {
-      // Add transitions between all video clips using the profile's default transition type
-      const transType = action.params.type || profile.defaultTransition || 'soft-cut';
-      const transDurMs = action.params.durationMs || 500;
-      console.log(`[Director] add_transition: type=${transType}, applyToAll=true`);
+    case 'sync_cuts_to_beats': {
+      // These are AI tools — delegate to invokeAITool which handles per-video iteration
+      modified = await invokeAITool(action, userId, projectId, profile, overlays);
+      break;
+    }
 
-      const transParams = { type: transType, durationMs: transDurMs, applyToAll: true };
-      const resultStr = await tool.invoke(transParams);
-      const result = JSON.parse(resultStr);
-      if (result.status === 'success') {
-        modified = result.data?.transitionsAdded || 0;
-      } else {
-        console.warn(`[Director] add_transition failed: ${result.message}`);
-      }
-      return modified; // Skip default execution
+    case 'add_transition': {
+      // Add transitions between all video clips — delegate to invokeAITool
+      // Override params with profile's defaultTransition if not specified
+      const transAction = {
+        ...action,
+        params: {
+          ...action.params,
+          type: action.params.type || profile.defaultTransition || 'soft-cut',
+          applyToAll: true,
+        },
+      };
+      modified = await invokeAITool(transAction, userId, projectId, profile, overlays);
+      break;
     }
 
     case 'add_motion_graphic':
